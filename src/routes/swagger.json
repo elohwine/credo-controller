@@ -1379,7 +1379,8 @@
 					},
 					"credentialSubject": {
 						"$ref": "#/components/schemas/SingleOrArray_JsonObject_"
-					}
+					},
+					"prettyVc": {}
 				},
 				"required": [
 					"@context",
@@ -2890,26 +2891,8 @@
 							"application/json": {
 								"schema": {
 									"properties": {
-										"recipientKey": {
-											"anyOf": [
-												{
-													"properties": {
-														"recipientKey": {}
-													},
-													"type": "object"
-												},
-												{
-													"properties": {
-														"recipientKey": {
-															"type": "string"
-														}
-													},
-													"required": [
-														"recipientKey"
-													],
-													"type": "object"
-												}
-											]
+										"invitationDid": {
+											"type": "string"
 										},
 										"outOfBandRecord": {
 											"$ref": "#/components/schemas/Record_string.unknown_"
@@ -2922,7 +2905,7 @@
 										}
 									},
 									"required": [
-										"recipientKey",
+										"invitationDid",
 										"outOfBandRecord",
 										"invitation",
 										"invitationUrl"
@@ -7261,26 +7244,8 @@
 							"application/json": {
 								"schema": {
 									"properties": {
-										"recipientKey": {
-											"anyOf": [
-												{
-													"properties": {
-														"recipientKey": {}
-													},
-													"type": "object"
-												},
-												{
-													"properties": {
-														"recipientKey": {
-															"type": "string"
-														}
-													},
-													"required": [
-														"recipientKey"
-													],
-													"type": "object"
-												}
-											]
+										"invitationDid": {
+											"type": "string"
 										},
 										"outOfBandRecord": {
 											"$ref": "#/components/schemas/Record_string.unknown_"
@@ -7293,7 +7258,7 @@
 										}
 									},
 									"required": [
-										"recipientKey",
+										"invitationDid",
 										"outOfBandRecord",
 										"invitation",
 										"invitationUrl"

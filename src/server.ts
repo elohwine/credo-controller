@@ -9,9 +9,7 @@ import dotenv from 'dotenv'
 import express from 'express'
 import { rateLimit } from 'express-rate-limit'
 import * as fs from 'fs'
-import { serve, generateHTML } from 'swagger-ui-express'
 import { container } from 'tsyringe'
-
 import { setDynamicApiKey } from './authentication'
 import { BaseError } from './errors/errors'
 import { basicMessageEvents } from './events/BasicMessageEvents'
@@ -24,6 +22,9 @@ import { RegisterRoutes } from './routes/routes'
 import { SecurityMiddleware } from './securityMiddleware'
 
 import { ValidateError } from 'tsoa'
+
+import swaggerUi from 'swagger-ui-express'
+import swaggerJsDoc from 'swagger-jsdoc'
 
 dotenv.config()
 
@@ -52,15 +53,15 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     })
   )
 
-  setDynamicApiKey(apiKey ? apiKey : '')
+  // For development only
+setDynamicApiKey(apiKey ? apiKey : 'api_key');
 
   app.use(bodyParser.json({ limit: '50mb' }))
-  app.use('/docs', serve, async (_req: ExRequest, res: ExResponse) => {
-    return res.send(generateHTML(await import('./routes/swagger.json')))
-  })
+  // @ts-ignore
+  app.use('/docs', swaggerUi.serve, swaggerUi.setup(await import('./routes/swagger.json')));
 
-  const windowMs = Number(process.env.windowMs)
-  const maxRateLimit = Number(process.env.maxRateLimit)
+  const windowMs = Number(process.env.windowMs) || 1000
+  const maxRateLimit = Number(process.env.maxRateLimit) || 800
   const limiter = rateLimit({
     windowMs, // 1 second
     max: maxRateLimit, // max 800 requests per second

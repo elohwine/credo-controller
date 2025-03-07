@@ -9,6 +9,9 @@
   "walletAdminAccount": "postgres",
   "walletAdminPassword": "postgres",
   "walletScheme": "ProfilePerWallet",
+  "connectTimeout": 5000,
+  "maxConnections:": 150,
+  "idleTimeout": 300000,
   "indyLedger": [
     {
       "genesisTransactions": "https://raw.githubusercontent.com/Indicio-tech/indicio-network/main/genesis_files/pool_transactions_testnet_genesis",
