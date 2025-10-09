@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2017",
+    "declaration": true,
+    "sourceMap": true,
+    "strict": true,
+    "noEmitOnError": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "skipLibCheck": true,
+    "outDir": "./build",
+    "types": ["node"],
+    "lib": ["ES2021.Promise"]
+  },
+  "include": ["src/**/*", "src/routes"],
+  "exclude": [
+    "node_modules",
+    "build",
+    "**/*.test.ts",
+    "**/__tests__/*.ts",
+    "**/__mocks__/*.ts",
+    "**/build/**",
+    "**/*.js",
+    "**/*.d.ts",
+    "scripts"
+  ]
+}

@@ -1,0 +1,38 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+concurrency:
+  # Cancel previous runs that are not completed yet
+  group: credo-controller-${{ github.ref }}-${{ github.repository }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    name: Validate
+    steps:
+      - name: Checkout credo-controller
+        uses: actions/checkout@v4
+
+      - name: Setup node v20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Linting
+        run: yarn lint
+
+      - name: Prettier
+        run: yarn check-format
+
+      - name: Compile
+        run: yarn check-types
