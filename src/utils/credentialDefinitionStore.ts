@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { DatabaseManager } from '../persistence/DatabaseManager'
 
 export interface RegisterCredentialDefinitionRequest {
   name: string
@@ -8,6 +9,7 @@ export interface RegisterCredentialDefinitionRequest {
   credentialType: string[]
   claimsTemplate?: Record<string, unknown>
   format?: 'jwt_vc' | 'sd_jwt'
+  tenantId?: string
 }
 
 export interface CredentialDefinitionRecord extends RegisterCredentialDefinitionRequest {
@@ -16,32 +18,161 @@ export interface CredentialDefinitionRecord extends RegisterCredentialDefinition
 }
 
 class CredentialDefinitionStore {
-  private defs: CredentialDefinitionRecord[] = []
-
   public register(input: RegisterCredentialDefinitionRequest): CredentialDefinitionRecord | { error: string } {
-    const exists = this.defs.find((def) => def.name === input.name && def.version === input.version)
-    if (exists) {
-      return { error: 'Credential definition with name+version already exists' }
+    const tenantId = input.tenantId || 'global'
+    
+    // Check if definition already exists for this tenant+name+version+issuer
+    const existing = this.findByNameVersionIssuer(input.name, input.version, input.issuerDid, tenantId)
+    if (existing) {
+      return { error: 'Credential definition with name+version+issuer already exists for this tenant' }
     }
+    
     const record: CredentialDefinitionRecord = {
       credentialDefinitionId: randomUUID(),
       createdAt: new Date().toISOString(),
       ...input,
+      tenantId,
     }
-    this.defs.push(record)
+    
+    // Persist to database
+    const db = DatabaseManager.getDatabase()
+    const insert = db.prepare(`
+      INSERT INTO credential_definitions 
+      (id, tenant_id, credential_definition_id, schema_id, definition_data, issuer_did, tag, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    
+    insert.run(
+      randomUUID(),
+      tenantId,
+      record.credentialDefinitionId,
+      record.schemaId,
+      JSON.stringify({
+        name: record.name,
+        version: record.version,
+        credentialType: record.credentialType,
+        claimsTemplate: record.claimsTemplate,
+        format: record.format,
+      }),
+      record.issuerDid,
+      `${record.name}@${record.version}`,
+      record.createdAt
+    )
+    
     return record
   }
 
-  public list(): CredentialDefinitionRecord[] {
-    return [...this.defs]
+  public list(tenantId?: string): CredentialDefinitionRecord[] {
+    const db = DatabaseManager.getDatabase()
+    const query = tenantId
+      ? db.prepare('SELECT * FROM credential_definitions WHERE tenant_id = ? ORDER BY created_at DESC')
+      : db.prepare('SELECT * FROM credential_definitions ORDER BY created_at DESC')
+    
+    const rows = (tenantId ? query.all(tenantId) : query.all()) as Array<{
+      credential_definition_id: string
+      schema_id: string
+      definition_data: string
+      issuer_did: string
+      created_at: string
+      tenant_id: string
+    }>
+    
+    return rows.map((row) => {
+      const data = JSON.parse(row.definition_data)
+      return {
+        credentialDefinitionId: row.credential_definition_id,
+        schemaId: row.schema_id,
+        issuerDid: row.issuer_did,
+        createdAt: row.created_at,
+        tenantId: row.tenant_id,
+        ...data,
+      }
+    })
   }
 
   public get(id: string): CredentialDefinitionRecord | undefined {
-    return this.defs.find((def) => def.credentialDefinitionId === id)
+    const db = DatabaseManager.getDatabase()
+    const row = db.prepare('SELECT * FROM credential_definitions WHERE credential_definition_id = ?')
+      .get(id) as {
+        credential_definition_id: string
+        schema_id: string
+        definition_data: string
+        issuer_did: string
+        created_at: string
+        tenant_id: string
+      } | undefined
+    
+    if (!row) return undefined
+    
+    const data = JSON.parse(row.definition_data)
+    return {
+      credentialDefinitionId: row.credential_definition_id,
+      schemaId: row.schema_id,
+      issuerDid: row.issuer_did,
+      createdAt: row.created_at,
+      tenantId: row.tenant_id,
+      ...data,
+    }
   }
 
-  public findBySchema(schemaId: string): CredentialDefinitionRecord[] {
-    return this.defs.filter((def) => def.schemaId === schemaId)
+  public findBySchema(schemaId: string, tenantId?: string): CredentialDefinitionRecord[] {
+    const db = DatabaseManager.getDatabase()
+    const query = tenantId
+      ? db.prepare('SELECT * FROM credential_definitions WHERE schema_id = ? AND tenant_id = ?')
+      : db.prepare('SELECT * FROM credential_definitions WHERE schema_id = ?')
+    
+    const rows = (tenantId ? query.all(schemaId, tenantId) : query.all(schemaId)) as Array<{
+      credential_definition_id: string
+      schema_id: string
+      definition_data: string
+      issuer_did: string
+      created_at: string
+      tenant_id: string
+    }>
+    
+    return rows.map((row) => {
+      const data = JSON.parse(row.definition_data)
+      return {
+        credentialDefinitionId: row.credential_definition_id,
+        schemaId: row.schema_id,
+        issuerDid: row.issuer_did,
+        createdAt: row.created_at,
+        tenantId: row.tenant_id,
+        ...data,
+      }
+    })
+  }
+
+  private findByNameVersionIssuer(
+    name: string,
+    version: string,
+    issuerDid: string,
+    tenantId: string
+  ): CredentialDefinitionRecord | undefined {
+    const db = DatabaseManager.getDatabase()
+    const row = db.prepare(`
+      SELECT * FROM credential_definitions 
+      WHERE tenant_id = ? AND issuer_did = ? AND json_extract(definition_data, '$.name') = ? AND json_extract(definition_data, '$.version') = ?
+    `).get(tenantId, issuerDid, name, version) as {
+      credential_definition_id: string
+      schema_id: string
+      definition_data: string
+      issuer_did: string
+      created_at: string
+      tenant_id: string
+    } | undefined
+    
+    if (!row) return undefined
+    
+    const data = JSON.parse(row.definition_data)
+    return {
+      credentialDefinitionId: row.credential_definition_id,
+      schemaId: row.schema_id,
+      issuerDid: row.issuer_did,
+      createdAt: row.created_at,
+      tenantId: row.tenant_id,
+      ...data,
+    }
   }
 }
 

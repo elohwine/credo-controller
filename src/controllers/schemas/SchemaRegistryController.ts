@@ -3,7 +3,6 @@ import type { RegisterSchemaRequestBody } from '../../types/api'
 import type { Request as ExRequest } from 'express'
 
 import { Controller, Get, Post, Route, Tags, Body, SuccessResponse, Path, Security, Request } from 'tsoa'
-import { injectable } from '@credo-ts/core'
 
 import { schemaStore, RegisterSchemaRequest, RegisteredSchema } from '../../utils/schemaStore'
 import { BadRequestError, ConflictError } from '../../errors/errors'
@@ -12,7 +11,6 @@ import { BadRequestError, ConflictError } from '../../errors/errors'
 
 @Route('oidc')
 @Tags('OIDC-Schema')
-@injectable()
 export class SchemaRegistryController extends Controller {
   /** Register a JSON Schema for W3C VC payload validation */
   @Post('schemas')

@@ -7,6 +7,7 @@ import { KeyType } from '@credo-ts/core'
 import { upsertTenant } from '../persistence/TenantRepository'
 import { didStore } from '../utils/didStore'
 import { buildIssuerMetadata, buildVerifierMetadata } from '../utils/openidMetadata'
+import { registerDefaultModelsForTenant } from './modelRegistry'
 
 export interface TenantProvisioningParams {
   agent: Agent<any>
@@ -67,6 +68,7 @@ export async function provisionTenantResources({ agent, tenantRecord, baseUrl, d
       credentialEndpoint: `${resolvedBaseUrl}/oidc/token`,
       tokenEndpoint: `${resolvedBaseUrl}/oidc/token`,
       display,
+      tenantId: tenantRecord.id,
     })
 
     const verifierMetadata = buildVerifierMetadata({
@@ -149,6 +151,13 @@ export async function provisionTenantResources({ agent, tenantRecord, baseUrl, d
     askarProfile: result.askarProfile,
     metadata: result.metadata,
   })
+
+  // Seed default VC models (schemas + credential definitions) for this tenant
+  try {
+    await registerDefaultModelsForTenant({ issuerDid: result.issuerDid, tenantId: tenantRecord.id })
+  } catch (e) {
+    agent.config.logger.warn('Failed to seed default VC models for tenant', { err: (e as Error).message })
+  }
 
   return result satisfies TenantProvisioningResult
 }

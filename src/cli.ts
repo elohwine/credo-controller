@@ -55,12 +55,12 @@ async function parseArguments(): Promise<Parsed> {
     .option('wallet-id', { string: true, demandOption: true })
     .option('wallet-key', { string: true, demandOption: true })
     .option('wallet-type', { string: true, demandOption: true })
-    .option('wallet-url', { string: true, demandOption: true })
-    .option('wallet-scheme', { string: true, demandOption: true })
-    .option('wallet-account', { string: true, demandOption: true })
-    .option('wallet-password', { string: true, demandOption: true })
-    .option('wallet-admin-account', { string: true, demandOption: true })
-    .option('wallet-admin-password', { string: true, demandOption: true })
+    .option('wallet-url', { string: true })
+    .option('wallet-scheme', { string: true })
+    .option('wallet-account', { string: true })
+    .option('wallet-password', { string: true })
+    .option('wallet-admin-account', { string: true })
+    .option('wallet-admin-password', { string: true })
     .option('endpoint', {
       array: true,
       coerce: (input) => input.map((item: string) => String(item)),

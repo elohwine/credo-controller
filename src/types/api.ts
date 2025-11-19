@@ -73,6 +73,7 @@ export interface CreateCredentialOfferRequest {
 export interface CreateCredentialOfferResponse {
   offerId: string
   credential_offer_url: string
+  credential_offer_uri: string
   preAuthorizedCode: string
   expiresAt: string
 }
@@ -129,4 +130,11 @@ export interface VerifyPresentationResponse {
   schemaValidation?: any
   presentation?: any
   error?: string
+  checks?: {
+    signature?: boolean
+    nonce?: boolean
+    audience?: boolean
+    revocation?: boolean
+    schema?: boolean
+  }
 }

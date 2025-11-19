@@ -31,20 +31,62 @@ import { reuseConnectionEvents } from './events/ReuseConnectionEvents'
 import { RegisterRoutes } from './routes/routes'
 import { SecurityMiddleware } from './securityMiddleware'
 import { initTenantStore } from './persistence/TenantRepository'
+import { initWalletUserStore } from './persistence/UserRepository'
 import { rootLogger } from './utils/pinoLogger'
 import { runWithContext } from './utils/requestContext'
+import { DatabaseManager } from './persistence/DatabaseManager'
 
 dotenv.config()
 
 export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: string) => {
+  // Initialize persistence layer before using any stores
+  try {
+    const dbPath = process.env.PERSISTENCE_DB_PATH || './data/persistence.db'
+    DatabaseManager.initialize({ path: dbPath })
+    agent?.config?.logger?.info?.(`Persistence initialized at ${dbPath}`)
+  } catch (e) {
+    // If initialization fails, log and continue (server may still start for non-DB features)
+    const msg = e instanceof Error ? e.message : String(e)
+    agent?.config?.logger?.error?.(`Failed to initialize persistence layer: ${msg}`)
+  }
+
   initTenantStore()
+  initWalletUserStore()
   await otelSDK.start()
   agent.config.logger.info('OpenTelemetry SDK started')
   container.registerInstance(Agent, agent as Agent)
   fs.writeFileSync('config.json', JSON.stringify(config, null, 2))
 
   const app = config.app ?? express()
-  if (config.cors) app.use(cors())
+  if (config.cors) {
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:4000',
+      'http://localhost:4001',
+      'http://localhost:5000',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:4000',
+      'http://127.0.0.1:5000',
+    ]
+
+    app.use(cors({
+      origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true)
+
+        if (allowedOrigins.indexOf(origin) !== -1) {
+          callback(null, true)
+        } else {
+          agent.config.logger.warn(`CORS blocked origin: ${origin}`)
+          callback(new Error('Not allowed by CORS'))
+        }
+      },
+      credentials: true,
+      methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'x-correlation-id', 'x-api-key', 'x-tenant-id'],
+      exposedHeaders: ['x-correlation-id'],
+    }))
+  }
 
   if (config.socketServer || config.webhookUrl) {
     questionAnswerEvents(agent, config)
@@ -63,7 +105,9 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     }),
   )
 
-  setDynamicApiKey(apiKey ? apiKey : '')
+  const effectiveApiKey = apiKey ? apiKey : ''
+  agent.config.logger.info(`Setting API key: ${effectiveApiKey}`)
+  setDynamicApiKey(effectiveApiKey)
 
   app.use(bodyParser.json({ limit: '50mb' }))
   // Correlation ID middleware
@@ -78,7 +122,7 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     req.logger = rootLogger.child({ correlationId })
     runWithContext({ correlationId }, () => next())
   })
-  app.use('/docs', serve, (_req: ExRequest, res: ExResponse, next: NextFunction) => {
+  app.use('/docs/', serve, (_req: ExRequest, res: ExResponse, next: NextFunction) => {
     import('./routes/swagger.json')
       .then((swaggerJson) => {
         res.send(generateHTML(swaggerJson))
@@ -98,7 +142,7 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   // Note: Having used it above, redirects accordingly
   app.use((req, res, next) => {
     if (req.url == '/') {
-      res.redirect('/docs')
+      res.redirect('/docs/')
       return
     }
     next()

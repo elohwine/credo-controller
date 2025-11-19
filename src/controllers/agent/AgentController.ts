@@ -26,6 +26,7 @@ import { injectable } from 'tsyringe'
 import { AgentRole, SCOPES } from '../../enums'
 import ErrorHandlingService from '../../errorHandlingService'
 import { BadRequestError } from '../../errors'
+import { DatabaseManager } from '../../persistence/DatabaseManager'
 
 @Tags('Agent')
 @Route('/agent')
@@ -46,6 +47,41 @@ export class AgentController extends Controller {
       }
     } catch (error) {
       throw ErrorHandlingService.handle(error)
+    }
+  }
+
+  /**
+   * Database health check with row counts
+   */
+  @Get('/health/database')
+  public async getDatabaseHealth(): Promise<{
+    status: string
+    stats: {
+      schemas: number
+      credentialDefinitions: number
+      dids: number
+      credentialOffers: number
+      issuedCredentials: number
+    }
+  }> {
+    try {
+      const stats = DatabaseManager.getStats()
+      return {
+        status: 'healthy',
+        stats,
+      }
+    } catch (error) {
+      this.setStatus(500)
+      return {
+        status: 'unhealthy',
+        stats: {
+          schemas: 0,
+          credentialDefinitions: 0,
+          dids: 0,
+          credentialOffers: 0,
+          issuedCredentials: 0,
+        },
+      }
     }
   }
 

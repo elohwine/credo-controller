@@ -8,9 +8,9 @@ import { Server } from 'ws'
 
 import { setupServer } from './server'
 
-export const startServer = async (agent: Agent, config: ServerConfig) => {
+export const startServer = async (agent: Agent, config: ServerConfig, apiKey?: string) => {
   const socketServer = config.socketServer ?? new Server({ noServer: true })
-  const app = await setupServer(agent, { ...config, socketServer })
+  const app = await setupServer(agent, { ...config, socketServer }, apiKey)
   const server = app.listen(config.port)
 
   // If no socket server is provided, we will use the existing http server

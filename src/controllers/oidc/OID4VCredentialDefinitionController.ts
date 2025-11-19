@@ -2,6 +2,7 @@ import 'reflect-metadata'   // MUST be first import before any decorated control
 import type { Request as ExRequest } from 'express'
 
 import { Body, Controller, Get, Path, Post, Route, Security, Tags, Request } from 'tsoa'
+import jwt from 'jsonwebtoken'
 
 import { credentialDefinitionStore } from '../../utils/credentialDefinitionStore'
 import { schemaStore } from '../../utils/schemaStore'
@@ -21,8 +22,20 @@ interface RegisterCredentialDefinitionBody {
 @Security('jwt', ['tenant'])
 export class OID4VCredentialDefinitionController extends Controller {
   @Get('/')
-  public async listCredentialDefinitions() {
-    return credentialDefinitionStore.list()
+  public async listCredentialDefinitions(@Request() request: ExRequest) {
+    // Return all credential definitions, deduplicated by name+version
+    const allDefs = credentialDefinitionStore.list()
+    const seen = new Map<string, any>()
+    
+    // Keep only the most recent definition for each name+version combination
+    for (const def of allDefs) {
+      const key = `${def.name}:${def.version}`
+      if (!seen.has(key)) {
+        seen.set(key, def)
+      }
+    }
+    
+    return Array.from(seen.values())
   }
 
   @Get('/{id}')

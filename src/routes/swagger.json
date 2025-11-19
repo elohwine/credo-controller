@@ -31,6 +31,9 @@
           "jsonSchema": {
             "$ref": "#/components/schemas/Record_string.any_"
           },
+          "tenantId": {
+            "type": "string"
+          },
           "schemaId": {
             "type": "string"
           },
@@ -227,6 +230,26 @@
           "presentation": {},
           "error": {
             "type": "string"
+          },
+          "checks": {
+            "properties": {
+              "schema": {
+                "type": "boolean"
+              },
+              "revocation": {
+                "type": "boolean"
+              },
+              "audience": {
+                "type": "boolean"
+              },
+              "nonce": {
+                "type": "boolean"
+              },
+              "signature": {
+                "type": "boolean"
+              }
+            },
+            "type": "object"
           }
         },
         "required": [
@@ -281,6 +304,9 @@
               "jwt_vc",
               "sd_jwt"
             ]
+          },
+          "tenantId": {
+            "type": "string"
           },
           "credentialDefinitionId": {
             "type": "string"
@@ -2982,6 +3008,9 @@
           "credential_offer_url": {
             "type": "string"
           },
+          "credential_offer_uri": {
+            "type": "string"
+          },
           "preAuthorizedCode": {
             "type": "string"
           },
@@ -2992,6 +3021,7 @@
         "required": [
           "offerId",
           "credential_offer_url",
+          "credential_offer_uri",
           "preAuthorizedCode",
           "expiresAt"
         ],
@@ -3095,6 +3125,198 @@
           "grant_type",
           "pre_authorized_code",
           "subject_did"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "RegisterRequest": {
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "email",
+          "password"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "LoginRequest": {
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "type": "object",
+        "additionalProperties": {}
+      },
+      "SessionResponse": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "walletId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "email",
+          "walletId"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "WalletListing": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "createdOn": {
+            "type": "string"
+          },
+          "addedOn": {
+            "type": "string"
+          },
+          "permission": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdOn",
+          "addedOn",
+          "permission"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "WalletListings": {
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "wallets": {
+            "items": {
+              "$ref": "#/components/schemas/WalletListing"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "account",
+          "wallets"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "LoginChallengeResponse": {
+        "properties": {
+          "nonce": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "nonce",
+          "expiresAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "LoginVerifyRequest": {
+        "properties": {
+          "did": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "nonce": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "did",
+          "signature",
+          "nonce"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "WalletListingItem": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "createdOn": {
+            "type": "string"
+          },
+          "addedOn": {
+            "type": "string"
+          },
+          "permission": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdOn",
+          "addedOn",
+          "permission"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "WalletListingsResponse": {
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "wallets": {
+            "items": {
+              "$ref": "#/components/schemas/WalletListingItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "account",
+          "wallets"
         ],
         "type": "object",
         "additionalProperties": false
@@ -3494,7 +3716,7 @@
             }
           }
         },
-        "description": "Create a presentation request returning a request URL.",
+        "description": "Create a presentation request returning a request URL with nonce and verifier DID.",
         "tags": [
           "OIDC4VP"
         ],
@@ -3541,7 +3763,7 @@
             }
           }
         },
-        "description": "Verify a verifiable presentation against the stored request.",
+        "description": "Verify a verifiable presentation against the stored request with full JWS crypto checks.\nImplements:\n- JWS signature verification using issuer's public key from Askar wallet\n- Nonce validation\n- Audience (aud) validation\n- Revocation check\n- Optional schema validation",
         "tags": [
           "OIDC4VP"
         ],
@@ -3565,6 +3787,138 @@
         }
       }
     },
+    "/tenants/{tenantId}/.well-known/openid-credential-issuer": {
+      "get": {
+        "operationId": "GetIssuerMetadata",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Record_string.unknown_"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get OpenID Credential Issuer metadata (public endpoint)\nImplements: https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#name-credential-issuer-metadata",
+        "tags": [
+          "OIDC Discovery"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/tenants/{tenantId}/.well-known/openid-verifier": {
+      "get": {
+        "operationId": "GetVerifierMetadata",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Record_string.unknown_"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get OpenID Verifier metadata (public endpoint)\nImplements verifier discovery for OIDC4VP flows",
+        "tags": [
+          "OIDC Discovery"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/tenants/{tenantId}/issuer/did": {
+      "get": {
+        "operationId": "GetIssuerDid",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "kid": {
+                      "type": "string"
+                    },
+                    "did": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kid",
+                    "did"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get tenant's issuer DID document (public endpoint)\nUseful for resolving issuer identity during verification",
+        "tags": [
+          "OIDC Discovery"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/oidc/credential-definitions": {
       "get": {
         "operationId": "ListCredentialDefinitions",
@@ -3574,9 +3928,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/CredentialDefinitionRecord"
-                  },
+                  "items": {},
                   "type": "array"
                 }
               }
@@ -8539,6 +8891,78 @@
         "parameters": []
       }
     },
+    "/agent/health/database": {
+      "get": {
+        "operationId": "GetDatabaseHealth",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "stats": {
+                      "properties": {
+                        "issuedCredentials": {
+                          "type": "number",
+                          "format": "double"
+                        },
+                        "credentialOffers": {
+                          "type": "number",
+                          "format": "double"
+                        },
+                        "dids": {
+                          "type": "number",
+                          "format": "double"
+                        },
+                        "credentialDefinitions": {
+                          "type": "number",
+                          "format": "double"
+                        },
+                        "schemas": {
+                          "type": "number",
+                          "format": "double"
+                        }
+                      },
+                      "required": [
+                        "issuedCredentials",
+                        "credentialOffers",
+                        "dids",
+                        "credentialDefinitions",
+                        "schemas"
+                      ],
+                      "type": "object"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "stats",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Database health check with row counts",
+        "tags": [
+          "Agent"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
     "/agent/token": {
       "post": {
         "operationId": "GetAgentToken",
@@ -8838,6 +9262,44 @@
         }
       }
     },
+    "/oidc/credential-offers/{preAuthorizedCode}": {
+      "get": {
+        "operationId": "GetCredentialOffer",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get credential offer by URI (public endpoint for wallets)\nImplements: https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#name-credential-offer-endpoint",
+        "tags": [
+          "OIDC4VC"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "preAuthorizedCode",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/oidc/token": {
       "post": {
         "operationId": "Token",
@@ -9015,6 +9477,597 @@
             "in": "query",
             "name": "issuer",
             "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/wallet/auth/register": {
+      "post": {
+        "operationId": "Register",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "credential": {
+                      "type": "string"
+                    },
+                    "walletId": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "walletId",
+                    "message"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/auth/login": {
+      "post": {
+        "operationId": "Login",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "token": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "token"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/auth/session": {
+      "get": {
+        "operationId": "GetSession",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/wallet/auth/accounts/wallets": {
+      "get": {
+        "operationId": "GetWallets",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletListings"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/wallet/auth/login-challenge": {
+      "post": {
+        "operationId": "LoginChallenge",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginChallengeResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Generate a login challenge (nonce) for DID-based authentication",
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/wallet/auth/login-verify": {
+      "post": {
+        "operationId": "LoginVerify",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "token": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "token"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Verify signed nonce and authenticate user by DID",
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginVerifyRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/auth/logout": {
+      "post": {
+        "operationId": "Logout",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/wallet/wallet/accounts/wallets": {
+      "get": {
+        "operationId": "GetWallets",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletListingsResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get Wallets (Account Info)\nCorresponds to: GET /wallet-api/wallet/accounts/wallets\nThis matches the frontend route expectation: /api/wallet/wallet/accounts/wallets",
+        "tags": [
+          "WalletAPI"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/wallet/{walletId}/credentials": {
+      "get": {
+        "operationId": "ListCredentials",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {},
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List Wallet Credentials\nCorresponds to: GET /wallet-api/wallet/{walletId}/credentials",
+        "tags": [
+          "WalletAPI"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "walletId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/wallet/{walletId}/credentials/{credentialId}": {
+      "get": {
+        "operationId": "GetCredential",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get Wallet Credential\nCorresponds to: GET /wallet-api/wallet/{walletId}/credentials/{credentialId}",
+        "tags": [
+          "WalletAPI"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "walletId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "credentialId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/wallet/{walletId}/exchange/resolveCredentialOffer": {
+      "post": {
+        "operationId": "ResolveCredentialOffer",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Resolve Credential Offer\nCorresponds to: POST /wallet-api/wallet/{walletId}/exchange/resolveCredentialOffer",
+        "tags": [
+          "WalletAPI"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "walletId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/{walletId}/exchange/resolveIssuerOpenIDMetadata": {
+      "get": {
+        "operationId": "ResolveIssuerOpenIDMetadata",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Resolve Issuer OpenID Metadata\nCorresponds to: GET /wallet-api/wallet/{walletId}/exchange/resolveIssuerOpenIDMetadata",
+        "tags": [
+          "WalletAPI"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "walletId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "issuer",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/wallet/{walletId}/exchange/useOfferRequest": {
+      "post": {
+        "operationId": "UseOfferRequest",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Use Offer Request (Execute Issuance)\nCorresponds to: POST /wallet-api/wallet/{walletId}/exchange/useOfferRequest",
+        "tags": [
+          "WalletAPI"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "walletId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "did",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/{walletId}/exchange/resolveVctUrl": {
+      "get": {
+        "operationId": "ResolveVctUrl",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Resolve VCT URL (Verifiable Credential Type)\nCorresponds to: GET /wallet-api/wallet/{walletId}/exchange/resolveVctUrl",
+        "tags": [
+          "WalletAPI"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "walletId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "vct",
+            "required": true,
             "schema": {
               "type": "string"
             }

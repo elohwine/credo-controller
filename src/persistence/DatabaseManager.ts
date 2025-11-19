@@ -38,7 +38,7 @@ export class DatabaseManager {
     // Create database connection
     this.instance = new Database(dbPath, {
       readonly: config.readonly || false,
-      verbose: config.verbose ? this.logQuery.bind(this) : undefined,
+      verbose: config.verbose ? ((message?: unknown) => this.logQuery(String(message))) : undefined,
     })
 
     // Enable foreign keys and WAL mode for better concurrency
@@ -103,7 +103,10 @@ export class DatabaseManager {
 
     // Load and apply migrations
     const migrationsDir = join(__dirname, '../../migrations')
-    const migrationFiles = [{ version: 1, file: '001_create_stores.sql', name: 'create_stores' }]
+    const migrationFiles = [
+      { version: 1, file: '001_create_stores.sql', name: 'create_stores' },
+      { version: 2, file: '002_wallet_auth_tables.sql', name: 'wallet_auth_tables' }
+    ]
 
     for (const migration of migrationFiles) {
       if (migration.version > currentVersion) {

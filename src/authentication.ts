@@ -44,9 +44,13 @@ export async function expressAuthentication(request: Request, securityName: stri
     // Auth: For BW/Dedicated agent to GET their token
     if (apiKeyHeader) {
       const providedApiKey = apiKeyHeader as string
+      logger.info(`Provided API key: ${providedApiKey}`)
+      logger.info(`Expected API key: ${dynamicApiKey}`)
       if (providedApiKey === dynamicApiKey) {
         request.agent = agent
         return true
+      } else {
+        logger.error(`API key mismatch`)
       }
     }
   }

@@ -26,7 +26,7 @@
     "format": "yarn prettier --write",
     "check-format": "yarn prettier --list-different",
     "tsoa": "tsoa spec-and-routes",
-    "dev": "tsoa spec-and-routes && tsnd --respawn samples/sampleWithApp.ts",
+    "dev": "tsoa spec-and-routes && tsnd --respawn samples/simpleStart.ts",
     "build": "yarn run clean && yarn run compile",
     "prestart:dev": "yarn run clean && yarn run compile",
     "start:dev": "yarn build && ./bin/afj-rest.js --config ./samples/cliConfig.json",
@@ -37,7 +37,8 @@
     "postinstall": "patch-package",
     "lint": "eslint --config eslint.config.mjs .",
     "validate": "yarn lint && yarn check-types && yarn check-format",
-    "rebuild": "npm rebuild"
+    "rebuild": "npm rebuild",
+    "seed:models": "tsnd --transpile-only scripts/seed-vc-models.ts"
   },
   "dependencies": {
     "@ayanworks/credo-polygon-w3c-module": "1.0.1-alpha.1",

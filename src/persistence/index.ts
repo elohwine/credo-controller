@@ -10,6 +10,7 @@ export { CredentialOfferRepository } from './CredentialOfferRepository'
 export { IssuedCredentialRepository } from './IssuedCredentialRepository'
 export { SchemaRepository } from './SchemaRepository'
 export { CredentialDefinitionRepository } from './CredentialDefinitionRepository'
+export * from './UserRepository'
 
 export type { DidRecord } from './DidRepository'
 export type { CredentialOfferRecord } from './CredentialOfferRepository'

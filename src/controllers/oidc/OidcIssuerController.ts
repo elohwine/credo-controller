@@ -15,8 +15,9 @@ import { container } from 'tsyringe'
 
 import { didStore } from '../../utils/didStore'
 import { schemaStore } from '../../utils/schemaStore'
-import { credentialOfferStore, issuedVcStore } from '../../utils/store'
 import { credentialDefinitionStore } from '../../utils/credentialDefinitionStore'
+import { getTenantById } from '../../persistence/TenantRepository'
+import * as OidcStore from '../../persistence/OidcStoreRepository'
 import type { TenantAgent } from '@credo-ts/tenants/build/TenantAgent'
 import type { RestAgentModules, RestMultiTenantAgentModules } from '../../cliAgent'
 
@@ -76,17 +77,87 @@ export class OidcIssuerController extends Controller {
     const expiresAt = new Date(Date.now() + (body.expiresIn || 10 * 60 * 1000)).toISOString()
     const issuerDidFromTemplate = expandedCredentials.find((c: any) => c.issuerDid)?.issuerDid
     const tenantId = (request.agent as TenantAgent<any> | undefined)?.context?.contextCorrelationId
-    credentialOfferStore[preAuthorizedCode] = {
+    
+    // Resolve base URL from tenant metadata, fallback to PUBLIC_BASE_URL env
+    let baseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000'
+    if (tenantId) {
+      const tenant = getTenantById(tenantId)
+      if (tenant?.metadata?.issuer) {
+        const issuerMetadata = tenant.metadata.issuer as any
+        // Extract base URL from credential_issuer field in metadata
+        baseUrl = issuerMetadata.credential_issuer || baseUrl
+      }
+    }
+    
+    OidcStore.saveCredentialOffer({
       offerId,
       preAuthorizedCode,
       credentials: expandedCredentials,
       issuerDid: body.issuerDid ?? issuerDidFromTemplate,
       expiresAt,
       tenantId,
+    })
+    
+    // Build credential_offer_uri endpoint URL (public, can be fetched by wallets)
+    const credential_offer_uri = `${baseUrl}/oidc/credential-offers/${preAuthorizedCode}`
+    
+    // Build OIDC4VCI deep link per spec
+    const credential_offer_url = `openid-credential-offer://?credential_offer_uri=${encodeURIComponent(credential_offer_uri)}`
+    
+    request.logger?.info({ module: 'issuer', operation: 'createOffer', offerId, preAuthorizedCode, baseUrl }, 'Created credential offer')
+    return { offerId, credential_offer_url, credential_offer_uri, preAuthorizedCode, expiresAt }
+  }
+
+  /**
+   * Get credential offer by URI (public endpoint for wallets)
+   * Implements: https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#name-credential-offer-endpoint
+   */
+  @Get('credential-offers/{preAuthorizedCode}')
+  public async getCredentialOffer(@Request() request: ExRequest, @Path() preAuthorizedCode: string): Promise<any> {
+    const offer = OidcStore.getCredentialOfferByCode(preAuthorizedCode)
+    if (!offer) {
+      this.setStatus(404)
+      throw new Error('Credential offer not found or expired')
     }
-    const credential_offer_url = `http://localhost:3000/oidc/authorize?pre-authorized_code=${preAuthorizedCode}`
-    request.logger?.info({ module: 'issuer', operation: 'createOffer', offerId }, 'Created credential offer')
-    return { offerId, credential_offer_url, preAuthorizedCode, expiresAt }
+    
+    if (new Date(offer.expiresAt).getTime() < Date.now()) {
+      OidcStore.deleteCredentialOffer(preAuthorizedCode)
+      this.setStatus(410)
+      throw new Error('Credential offer expired')
+    }
+
+    // Resolve base URL from tenant metadata
+    let baseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000'
+    let credentialIssuer = baseUrl
+    
+    if (offer.tenantId) {
+      const tenant = getTenantById(offer.tenantId)
+      if (tenant?.metadata?.issuer) {
+        const issuerMetadata = tenant.metadata.issuer as any
+        credentialIssuer = issuerMetadata.credential_issuer || `${baseUrl}/tenants/${offer.tenantId}`
+      }
+    }
+
+    // Build OIDC4VCI credential offer object per spec
+    const credentialOffer = {
+      credential_issuer: credentialIssuer,
+      credentials: offer.credentials.map((c: any) => ({
+        format: c.format || 'jwt_vc',
+        types: c.type || ['VerifiableCredential'],
+      })),
+      grants: {
+        'urn:ietf:params:oauth:grant-type:pre-authorized_code': {
+          'pre-authorized_code': preAuthorizedCode,
+        },
+      },
+    }
+
+    request.logger?.info(
+      { module: 'issuer', operation: 'getCredentialOffer', preAuthorizedCode, credentialIssuer },
+      'Served credential offer',
+    )
+
+    return credentialOffer
   }
 
   /**
@@ -98,13 +169,13 @@ export class OidcIssuerController extends Controller {
       this.setStatus(400)
       throw new Error('unsupported grant_type')
     }
-    const offer = credentialOfferStore[body.pre_authorized_code]
+    const offer = OidcStore.getCredentialOfferByCode(body.pre_authorized_code)
     if (!offer) {
       this.setStatus(400)
       throw new Error('invalid or expired pre_authorized_code')
     }
     if (new Date(offer.expiresAt).getTime() < Date.now()) {
-      delete credentialOfferStore[body.pre_authorized_code]
+      OidcStore.deleteCredentialOffer(body.pre_authorized_code)
       this.setStatus(400)
       throw new Error('code expired')
     }
@@ -207,7 +278,7 @@ export class OidcIssuerController extends Controller {
         revoked: false,
         schemaId: credTmpl?.schemaId,
       }
-      issuedVcStore[vcId] = record
+      OidcStore.saveIssuedCredential(record)
       request.logger?.info(
         { module: 'issuer', operation: 'issue', credentialId: vcId, issuerDid, subject: body.subject_did },
         'Issued credential',
@@ -233,7 +304,7 @@ export class OidcIssuerController extends Controller {
       responsePayload = await issueWithAgent(baseAgent)
     }
 
-    delete credentialOfferStore[body.pre_authorized_code]
+    OidcStore.deleteCredentialOffer(body.pre_authorized_code)
     return responsePayload
   }
 
@@ -241,7 +312,7 @@ export class OidcIssuerController extends Controller {
   @Get('issuer/credentials/{id}')
   @Security('jwt', ['tenant'])
   public async getCredential(@Path() id: string): Promise<any> {
-    const rec = issuedVcStore[id]
+    const rec = OidcStore.getIssuedCredentialById(id)
     if (!rec) {
       this.setStatus(404)
       throw new Error('credential not found')
@@ -253,14 +324,13 @@ export class OidcIssuerController extends Controller {
   @Post('issuer/credentials/{id}/revoke')
   @Security('jwt', ['tenant'])
   public async revokeCredential(@Request() request: ExRequest, @Path() id: string): Promise<any> {
-    const rec = issuedVcStore[id]
+    const rec = OidcStore.getIssuedCredentialById(id)
     if (!rec) {
       this.setStatus(404)
       throw new Error('credential not found')
     }
     if (rec.revoked) return { id, revoked: true }
-    rec.revoked = true
-    rec.revokedAt = new Date().toISOString()
+    OidcStore.revokeCredential(id)
     request.logger?.warn({ module: 'issuer', operation: 'revoke', credentialId: id }, 'Revoked credential')
     return { id, revoked: true }
   }
@@ -269,10 +339,6 @@ export class OidcIssuerController extends Controller {
   @Get('issuer/credentials')
   @Security('jwt', ['tenant'])
   public async listCredentials(@Query() subject?: string, @Query() issuer?: string): Promise<any[]> {
-    return Object.values(issuedVcStore).filter((rec) => {
-      if (subject && rec.subject !== subject) return false
-      if (issuer && rec.issuer !== issuer) return false
-      return true
-    })
+    return OidcStore.listIssuedCredentials({ subject, issuer })
   }
 }
