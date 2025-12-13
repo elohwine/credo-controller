@@ -1,37 +1,134 @@
-### Copilot / AI agent instructions for credo-controller
+### Copilot / AI agent instructions for IdenEx Credentis (credo-controller)
 
-Short goal: help an AI coding agent become productive quickly in this TypeScript Express + TSOA REST API that wraps Credo/AFJ.
+**Mission:** Build a Verifiable Commerce Platform for Zimbabwe (+ Africa) using OID4VC, anchored in EcoCash/mobile money payments. Transform SME trust via verifiable credentials: Cart → Pay → ReceiptVC, merchant attestations, trust scores, delegated agents (ACK pattern), and Gen-UI interfaces.
 
-Key quick facts
-- Main entry points: `src/server.ts` (app + middleware), `src/index.ts` (startServer). CLI bootstrap: `src/cliAgent.ts` and compiled `bin/afj-rest.js`.
-- TSOA: routes & OpenAPI are generated into `src/routes/routes.ts`. Never hand-edit generated files — run `yarn run tsoa` then `node ./scripts/patch-swagger.js`.
+---
 
-Developer commands
-- Dev: `yarn dev` (fast; runs tsoa + starts sample app).
-- Build: `yarn build` (clean, compile, generate routes/spec, patch swagger).
-- Regenerate routes/spec: `yarn run tsoa` (or `yarn run compile`). Then run `node ./scripts/patch-swagger.js` before building.
-- Tests: `yarn test` (Jest). Type checks: `yarn run check-types`.
+## Quick Start
 
-Project-specific patterns to know
-- Dependency injection: controllers & services use `tsyringe`. See `src/utils/tsyringeTsoaIocContainer.ts` and DI registration in `src/server.ts`. Add services via `container.register` / `registerInstance`.
-- Multi-tenancy: TenantsModule is provisioned in `src/cliAgent.ts`. Tenant routes live under `src/controllers/multi-tenancy`. Use `(agent.modules as any).tenants.getTenantAgent()` or `withTenantAgent()` to operate a tenant agent. Tenant data is often stored in agent genericRecords — secrets may be there (be cautious).
-- Wallet/KMS: Askar is the default wallet (check `src/cliAgent.ts` — AskarModule with ProfilePerWallet). Avoid assuming external KMS unless you add one.
-- Swagger tweaks: `scripts/patch-swagger.js` performs repo-specific OpenAPI fixes — always run it after TSOA generation.
-- Generated code & patches: `src/routes/*` is generated; `patches/` contains patch-package patches applied on install.
+**Entry points:** `src/server.ts` (Express app), `src/cliAgent.ts` (Credo agent bootstrap), `bin/afj-rest.js` (CLI).  
+**UI apps:** `credo-ui/wallet` (demo wallet, Nuxt), `credo-ui/wallet-dev` (dev wallet, Nuxt), `credo-ui/portal` (issuer/verifier portal, Next.js).
 
-Integration & infra touch points
-- OpenTelemetry: initialized at `src/tracer.ts` and started in `src/server.ts`.
-- Persistence: DB repositories live under `src/persistence` (e.g., `TenantRepository.ts`, `IssuedCredentialRepository.ts`). Some repos use SQLite/better-sqlite3.
-- External deps: look at `package.json` for `@credo-ts/*` and Hyperledger/Afj modules — these drive credential, DID, and tenant behavior.
+**Dev commands:**
+- `yarn dev` — Start API dev server (TSOA regenerates routes, starts sample app)
+- `yarn build` — Clean, compile TS, regenerate TSOA routes/swagger, patch OpenAPI
+- `yarn run tsoa && node ./scripts/patch-swagger.js` — Regenerate API schema after controller changes
+- `yarn test` — Run Jest tests
 
-Files to inspect first
-- `src/server.ts`, `src/authentication.ts`, `src/cliAgent.ts`, `src/controllers/multi-tenancy/MultiTenancyController.ts`, `src/controllers/oidc/OidcIssuerController.ts`.
+**TSOA workflow:** Routes/OpenAPI are **generated** into `src/routes/routes.ts` + `src/routes/swagger.json`. Never hand-edit. After controller changes: `yarn run tsoa` → `node ./scripts/patch-swagger.js` → commit generated files.
 
-Quick examples
-- Regenerate API + build: `yarn run tsoa` → `node ./scripts/patch-swagger.js` → `yarn build`.
-- Add a DI service: register it in `src/server.ts` with `container.registerInstance('MyService', myInstance)` then inject in controller constructor.
+---
 
-If you want, I can expand any of these short sections into focused examples (controller template, tenant-onboard flow, or an integration test). Tell me which area to expand.
+## Architecture Patterns
+
+**Multi-tenancy (Credo TenantsModule):**
+- Root agent + per-tenant agents via `TenantsModule` (AskarModule ProfilePerWallet)
+- Tenant provisioning: `TenantProvisioningService` creates tenant, mints issuer/verifier DIDs (did:key), stores metadata in genericRecords + `TenantRepository` (SQLite)
+- Access tenant agent: `await (agent.modules as any).tenants.getTenantAgent({ tenantId })`
+- Auth: JWT with role `RestTenantAgent` (see `src/authentication.ts`)
+
+**OID4VC Issuance & Verification:**
+- **Issuer:** `OpenId4VcIssuerModule` mounted at `/oidc` (credential offers, token, credential, jwks endpoints)
+- **Verifier:** `OpenId4VcVerifierModule` (presentation requests, verification)
+- **Credential mapper:** `src/cliAgent.ts` lines 130-165 — maps credential request → signed VC using tenant DID + claims from issuance session metadata
+- **Schemas:** `src/utils/credentialDefinitionStore.ts` — in-memory credential definitions (GenericID exists; need CartSnapshotVC, InvoiceVC, PaymentReceiptVC)
+
+**Workflows (EcoCash payment flows):**
+- `WorkflowService` + `ActionRegistry` (CredentialActions, FinanceActions, ExternalActions)
+- Webhook: `src/controllers/webhooks/EcoCashWebhookController.ts` receives payment notifications → triggers workflow
+- Persistence: `WorkflowRepository` (SQLite), `IssuedCredentialRepository`
+
+**Dependency Injection (tsyringe):**
+- Register services in `src/server.ts`: `container.registerInstance(Agent, agent)` or `container.register(...)`
+- Controllers auto-resolve via `src/utils/tsyringeTsoaIocContainer.ts`
+
+**Persistence (better-sqlite3):**
+- `DatabaseManager` auto-runs migrations from `migrations/*.sql` on startup
+- Repos: `TenantRepository`, `IssuedCredentialRepository`, `WorkflowRepository`, `WalletCredentialRepository`
+- DB path: `data/persistence.db` (configurable via `PERSISTENCE_DB_PATH`)
+
+**Secrets & KMS:**
+- Currently: JWT secrets stored in agent genericRecords (plaintext in Askar wallet)
+- **Gap:** No external KMS/HSM integration; per-tenant key rotation not implemented
+
+---
+
+## Implementation Status (Phased Roadmap)
+
+**Phase 0 - Foundations (70% done):**
+- ✅ EcoCash webhook handler, persistence layer, tenant DID provisioning, OID4VC modules
+- ⚠️ Missing: KMS per-tenant mapping, idempotency enforcement via `sourceReference` in webhook
+
+**Phase 1 - Core Verifiable e-commerce MVP (40% done):**
+- ✅ Workflow engine, credential issuance service, wallet UIs, portal foundation
+- ❌ Missing: CartSnapshotVC/InvoiceVC/PaymentReceiptVC schemas, `/cart/{id}/issue-cartvc`, `/invoices/from-cart`, EcoCash payment initiation endpoint, verifier UI component
+
+**Phase 2-6:** Not started (MerchantVC, trust score, agent delegation/ControllerCredential, Gen-UI tools, escrow/refunds, partnerships)
+
+---
+
+## Key Files & Responsibilities
+
+| File/Dir | Purpose |
+|----------|---------|
+| `src/cliAgent.ts` | Credo agent config: Askar, TenantsModule, OID4VC issuer/verifier, credential mapper |
+| `src/server.ts` | Express setup, middleware (CORS, rate-limit, auth, correlation IDs, OTel), DI registration |
+| `src/authentication.ts` | JWT auth, tenant token validation, agent resolution per request |
+| `src/controllers/multi-tenancy/` | Tenant CRUD: create, list, delete tenants |
+| `src/controllers/oidc/` | OidcIssuerController (offers, credentials), OidcVerifierController, OidcMetadataController |
+| `src/controllers/wallet/` | WalletAuthController (register, login, issue membership VC), WalletController (credential CRUD) |
+| `src/controllers/webhooks/` | EcoCashWebhookController (payment notifications → workflow triggers) |
+| `src/services/TenantProvisioningService.ts` | Provisions tenant DIDs + OpenID metadata on tenant creation |
+| `src/services/WorkflowService.ts` | Workflow engine: executes action sequences |
+| `src/services/CredentialIssuanceService.ts` | Issues VCs using Credo W3cCredentialsModule |
+| `src/persistence/DatabaseManager.ts` | SQLite connection + auto-migration runner |
+| `src/utils/credentialDefinitionStore.ts` | In-memory credential schemas (extend for new VC types) |
+| `credo-ui/portal/` | Next.js issuer/verifier portal (needs verifier UI + trust card components) |
+| `credo-ui/wallet/` | Nuxt demo wallet |
+| `credo-ui/wallet-dev/` | Nuxt dev wallet (advanced DID/key management) |
+
+---
+
+## Common Tasks
+
+**Add a new VC schema (e.g., CartSnapshotVC):**
+1. Define JSON-LD context in `src/config/credentials.ts` or separate file
+2. Add to `credentialDefinitionStore.ts`: `credentialDefinitionStore.set('CartSnapshot', { credentialType: [...], format: 'jwt_vc_json', ... })`
+3. Create controller endpoint (e.g., `POST /cart/:id/issue`) using `CredentialIssuanceService`
+4. Run `yarn run tsoa && node ./scripts/patch-swagger.js`
+
+**Wire a workflow (Cart → Invoice → Payment → Receipt):**
+1. Seed workflow definition in `migrations/003_create_workflows.sql` or via `POST /workflows`
+2. Define actions in `src/services/workflow/actions/` (e.g., `IssueInvoiceAction`, `InitiatePaymentAction`)
+3. Register actions in `ActionRegistry`
+4. Trigger via `WorkflowService.executeWorkflow(workflowId, context)`
+
+**Add a verifier UI component:**
+1. Create React component in `credo-ui/portal/components/walt/verifier/`
+2. Call backend `POST /oidc/verify` or use Credo `W3cCredentialsModule.verifyCredential()`
+3. Display signature status, issuer DID, revocation status
+
+---
+
+## Critical Constraints
+
+- **Never edit `src/routes/routes.ts` or `src/routes/swagger.json` by hand** — always regenerate via TSOA
+- **Tenant sessions must be ended** — middleware in `src/server.ts` calls `tenantAgent.endSession()` after response
+- **Secrets in genericRecords are plaintext** — avoid logging; plan KMS migration
+- **OID4VC credential mapper must return holder binding** — see `credentialRequestToCredentialMapper` in `src/cliAgent.ts`
+- **Idempotency:** EcoCash webhook must deduplicate via `sourceReference` to avoid duplicate ReceiptVCs
+
+---
+
+## Next Priorities (Phase 1 completion)
+
+1. Define CartSnapshotVC, InvoiceVC, PaymentReceiptVC schemas (JSON-LD contexts)
+2. Implement `POST /cart/:id/issue-cartvc` and `POST /invoices/from-cart`
+3. Wire EcoCash payment initiation (`POST /payments/initiate` → EcoCash API)
+4. Build verifier UI in portal (`components/walt/verifier/CredentialVerifier.tsx`)
+5. Add idempotency check in `EcoCashWebhookController` (check `sourceReference` in DB before processing)
+
+For detailed phase breakdown, see project overview doc (Cart → Pay → ReceiptVC → Trust Score → Agent Delegation → Gen-UI → Escrow/Lenders).
 
 {
   "summary": "All agent entry points load Askar as the default wallet/KMS, but tenant onboarding stops after creating the TenantRecord: no persistent tenant table, no DID provisioning, and no OpenID issuer/verifier metadata, leaving critical SaaS gaps despite Askar compliance.",
