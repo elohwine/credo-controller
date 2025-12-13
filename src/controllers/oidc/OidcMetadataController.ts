@@ -9,14 +9,68 @@ import { getTenantById } from '../../persistence/TenantRepository'
  * Public OIDC metadata endpoints for issuer/verifier discovery
  * No authentication required - these are public discovery documents
  */
-@Route('tenants')
+@Route('')
 @Tags('OIDC Discovery')
 export class OidcMetadataController extends Controller {
+  /**
+   * Platform-level OpenID Credential Issuer metadata (no-tenant)
+   * Serves a minimal issuer metadata document at `/.well-known/openid-credential-issuer`
+   * This is useful for non-tenant offers that reference the base server as issuer.
+   */
+  @Get('.well-known/openid-credential-issuer')
+  public async getPlatformIssuerMetadata(@Request() request: ExRequest): Promise<Record<string, unknown>> {
+    const baseUrl = process.env.PUBLIC_BASE_URL || `${request.protocol}://${request.get('host')}`
+    // Minimal metadata required by wallets to discover token endpoint and issuer
+    const metadata: Record<string, unknown> = {
+      issuer: baseUrl,
+      credential_issuer: baseUrl,
+      token_endpoint: `${baseUrl}/oidc/token`,
+      credential_endpoint: `${baseUrl}/oidc/credential-offers`,
+      // Indicate support for pre-authorized_code grant
+      grants: ['urn:ietf:params:oauth:grant-type:pre-authorized_code'],
+    }
+
+    // Populate credential configurations from the global credential definition store so
+    // wallet UIs can display human-friendly credential cards when the platform is the issuer.
+    try {
+      // Lazy-require to avoid circular deps during startup
+      const { credentialDefinitionStore } = require('../../utils/credentialDefinitionStore')
+      const definitions = credentialDefinitionStore.list() || []
+
+      const credentialConfigurations: Record<string, any> = {}
+      definitions.forEach((def: any) => {
+        const configId = `${def.credentialDefinitionId}_jwt_vc_json`
+        credentialConfigurations[configId] = {
+          format: 'jwt_vc_json',
+          scope: def.name,
+          cryptographic_binding_methods_supported: ['did'],
+          cryptographic_suites_supported: ['Ed25519Signature2018'],
+          credential_definition: {
+            type: def.credentialType || ['VerifiableCredential'],
+          },
+          display: [
+            {
+              name: def.name,
+              locale: 'en-US',
+            },
+          ],
+        }
+      })
+
+      metadata.credential_configurations_supported = credentialConfigurations
+    } catch (error) {
+      request.logger?.warn({ error: (error as Error).message }, 'Failed to load global credential configurations')
+      metadata.credential_configurations_supported = {}
+    }
+
+    request.logger?.info({ module: 'oidc-metadata', operation: 'getPlatformIssuerMetadata', baseUrl }, 'Served platform issuer metadata')
+    return metadata
+  }
   /**
    * Get OpenID Credential Issuer metadata (public endpoint)
    * Implements: https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#name-credential-issuer-metadata
    */
-  @Get('{tenantId}/.well-known/openid-credential-issuer')
+  @Get('tenants/{tenantId}/.well-known/openid-credential-issuer')
   public async getIssuerMetadata(
     @Request() request: ExRequest,
     @Path() tenantId: string,
@@ -78,7 +132,7 @@ export class OidcMetadataController extends Controller {
    * Get OpenID Verifier metadata (public endpoint)
    * Implements verifier discovery for OIDC4VP flows
    */
-  @Get('{tenantId}/.well-known/openid-verifier')
+  @Get('tenants/{tenantId}/.well-known/openid-verifier')
   public async getVerifierMetadata(
     @Request() request: ExRequest,
     @Path() tenantId: string,
@@ -107,7 +161,7 @@ export class OidcMetadataController extends Controller {
    * Get tenant's issuer DID document (public endpoint)
    * Useful for resolving issuer identity during verification
    */
-  @Get('{tenantId}/issuer/did')
+  @Get('tenants/{tenantId}/issuer/did')
   public async getIssuerDid(
     @Request() request: ExRequest,
     @Path() tenantId: string,

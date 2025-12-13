@@ -20,20 +20,20 @@ export interface CredentialDefinitionRecord extends RegisterCredentialDefinition
 class CredentialDefinitionStore {
   public register(input: RegisterCredentialDefinitionRequest): CredentialDefinitionRecord | { error: string } {
     const tenantId = input.tenantId || 'global'
-    
+
     // Check if definition already exists for this tenant+name+version+issuer
     const existing = this.findByNameVersionIssuer(input.name, input.version, input.issuerDid, tenantId)
     if (existing) {
       return { error: 'Credential definition with name+version+issuer already exists for this tenant' }
     }
-    
+
     const record: CredentialDefinitionRecord = {
       credentialDefinitionId: randomUUID(),
       createdAt: new Date().toISOString(),
       ...input,
       tenantId,
     }
-    
+
     // Persist to database
     const db = DatabaseManager.getDatabase()
     const insert = db.prepare(`
@@ -41,7 +41,7 @@ class CredentialDefinitionStore {
       (id, tenant_id, credential_definition_id, schema_id, definition_data, issuer_did, tag, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
-    
+
     insert.run(
       randomUUID(),
       tenantId,
@@ -58,7 +58,7 @@ class CredentialDefinitionStore {
       `${record.name}@${record.version}`,
       record.createdAt
     )
-    
+
     return record
   }
 
@@ -67,7 +67,7 @@ class CredentialDefinitionStore {
     const query = tenantId
       ? db.prepare('SELECT * FROM credential_definitions WHERE tenant_id = ? ORDER BY created_at DESC')
       : db.prepare('SELECT * FROM credential_definitions ORDER BY created_at DESC')
-    
+
     const rows = (tenantId ? query.all(tenantId) : query.all()) as Array<{
       credential_definition_id: string
       schema_id: string
@@ -76,7 +76,7 @@ class CredentialDefinitionStore {
       created_at: string
       tenant_id: string
     }>
-    
+
     return rows.map((row) => {
       const data = JSON.parse(row.definition_data)
       return {
@@ -92,7 +92,9 @@ class CredentialDefinitionStore {
 
   public get(id: string): CredentialDefinitionRecord | undefined {
     const db = DatabaseManager.getDatabase()
-    const row = db.prepare('SELECT * FROM credential_definitions WHERE credential_definition_id = ?')
+
+    // First try to find by credential_definition_id (UUID)
+    let row = db.prepare('SELECT * FROM credential_definitions WHERE credential_definition_id = ?')
       .get(id) as {
         credential_definition_id: string
         schema_id: string
@@ -101,9 +103,30 @@ class CredentialDefinitionStore {
         created_at: string
         tenant_id: string
       } | undefined
-    
+
+    // If not found, try to find by credential type name in the definition_data
+    if (!row) {
+      // SQLite json_extract to search in the credentialType array
+      row = db.prepare(`
+        SELECT * FROM credential_definitions 
+        WHERE json_extract(definition_data, '$.credentialType') LIKE ?
+        ORDER BY created_at DESC
+        LIMIT 1
+      `).get(`%"${id}"%`) as typeof row
+    }
+
+    // Also try by name field
+    if (!row) {
+      row = db.prepare(`
+        SELECT * FROM credential_definitions 
+        WHERE json_extract(definition_data, '$.name') = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+      `).get(id) as typeof row
+    }
+
     if (!row) return undefined
-    
+
     const data = JSON.parse(row.definition_data)
     return {
       credentialDefinitionId: row.credential_definition_id,
@@ -120,7 +143,7 @@ class CredentialDefinitionStore {
     const query = tenantId
       ? db.prepare('SELECT * FROM credential_definitions WHERE schema_id = ? AND tenant_id = ?')
       : db.prepare('SELECT * FROM credential_definitions WHERE schema_id = ?')
-    
+
     const rows = (tenantId ? query.all(schemaId, tenantId) : query.all(schemaId)) as Array<{
       credential_definition_id: string
       schema_id: string
@@ -129,7 +152,7 @@ class CredentialDefinitionStore {
       created_at: string
       tenant_id: string
     }>
-    
+
     return rows.map((row) => {
       const data = JSON.parse(row.definition_data)
       return {
@@ -161,9 +184,9 @@ class CredentialDefinitionStore {
       created_at: string
       tenant_id: string
     } | undefined
-    
+
     if (!row) return undefined
-    
+
     const data = JSON.parse(row.definition_data)
     return {
       credentialDefinitionId: row.credential_definition_id,

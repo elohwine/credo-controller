@@ -6,6 +6,7 @@ interface DisplayMapping {
 
 export interface IssuerMetadataInput {
   issuerDid: string
+  issuerUrl: string
   credentialEndpoint: string
   tokenEndpoint: string
   baseUrl: string
@@ -16,12 +17,12 @@ export interface IssuerMetadataInput {
 export function buildIssuerMetadata(input: IssuerMetadataInput) {
   // Build credential_configurations_supported from credential definitions
   const credentialConfigurations: Record<string, any> = {}
-  
+
   if (input.tenantId) {
     try {
       const { credentialDefinitionStore } = require('./credentialDefinitionStore')
       const definitions = credentialDefinitionStore.list(input.tenantId)
-      
+
       definitions.forEach((def: any) => {
         const configId = `${def.name}_jwt_vc_json`
         credentialConfigurations[configId] = {
@@ -47,7 +48,7 @@ export function buildIssuerMetadata(input: IssuerMetadataInput) {
   }
 
   return {
-    credential_issuer: input.baseUrl,
+    credential_issuer: input.issuerUrl,
     issuer: input.issuerDid,
     credential_endpoint: input.credentialEndpoint,
     token_endpoint: input.tokenEndpoint,

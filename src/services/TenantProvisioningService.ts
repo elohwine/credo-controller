@@ -39,10 +39,10 @@ export async function provisionTenantResources({ agent, tenantRecord, baseUrl, d
   const displayLabel = displayName ?? tenantRecord.config?.label ?? tenantRecord.id
   const display = displayLabel
     ? {
-        name: displayLabel,
-        description: `${displayLabel} OpenID endpoints`,
-        locale: 'en-US',
-      }
+      name: displayLabel,
+      description: `${displayLabel} OpenID endpoints`,
+      locale: 'en-US',
+    }
     : undefined
 
   const result = await agent.modules.tenants.withTenantAgent({ tenantId: tenantRecord.id }, async (tenantAgent: TenantAgent<any>) => {
@@ -62,8 +62,11 @@ export async function provisionTenantResources({ agent, tenantRecord, baseUrl, d
     const verifierVm = verifierDidState.didState.didDocument?.verificationMethod?.[0]
     const verifierKid = verifierVm?.id ?? `${verifierDid}#key-1`
 
+    const issuerUrl = `${resolvedBaseUrl}/tenants/${tenantRecord.id}`
+
     const issuerMetadata = buildIssuerMetadata({
       issuerDid,
+      issuerUrl,
       baseUrl: resolvedBaseUrl,
       credentialEndpoint: `${resolvedBaseUrl}/oidc/token`,
       tokenEndpoint: `${resolvedBaseUrl}/oidc/token`,

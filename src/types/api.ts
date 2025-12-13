@@ -109,6 +109,7 @@ export interface IssuedCredentialRecord {
 /** Presentation request creation */
 export interface CreatePresentationRequestBody {
   presentationDefinition?: any
+  verifierDid?: string
 }
 
 /** Presentation request response */
@@ -121,6 +122,7 @@ export interface CreatePresentationRequestResponse {
 export interface VerifyPresentationRequestBody {
   requestId: string
   verifiablePresentation: string
+  presentationSubmission?: any
 }
 
 /** Verify presentation response */

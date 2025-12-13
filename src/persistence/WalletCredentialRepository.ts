@@ -8,6 +8,7 @@ export interface WalletCredential {
     credentialData: string // JSON string
     issuerDid: string
     type: string
+    format: string
     addedOn: string
 }
 
@@ -18,6 +19,7 @@ interface WalletCredentialRow {
     credential_data: string
     issuer_did: string
     type: string
+    format: string
     added_on: string
 }
 
@@ -79,15 +81,49 @@ export function saveWalletCredential(credential: Omit<WalletCredential, 'addedOn
 
 export function getWalletCredentialsByWalletId(walletId: string): WalletCredential[] {
     const database = ensureDb()
-    const rows = database.prepare('SELECT * FROM wallet_credentials WHERE wallet_id = ? ORDER BY added_on DESC').all(walletId)
-    return Array.isArray(rows) ? rows.filter(isWalletCredentialRow).map(mapWalletCredentialRow) : []
+    // Attempt to detect available timestamp column name and query accordingly
+    const info = database.prepare("PRAGMA table_info('wallet_credentials')").all()
+    const cols = info.map((c: any) => c.name)
+    let orderBy = 'added_on'
+    if (!cols.includes(orderBy)) {
+        if (cols.includes('added_at')) orderBy = 'added_at'
+        else if (cols.includes('addedOn')) orderBy = 'addedOn'
+        else orderBy = cols.includes('created_at') ? 'created_at' : cols[0]
+    }
+    const rows = database.prepare(`SELECT * FROM wallet_credentials WHERE wallet_id = ? ORDER BY ${orderBy} DESC`).all(walletId) as any[]
+    if (!Array.isArray(rows)) return []
+    // Map rows flexibly
+    return rows.map((r: any) => {
+        // normalize keys to expected shape
+        const row = r as any
+        const added = row.added_on ?? row.added_at ?? row.addedOn ?? row.created_at ?? new Date().toISOString()
+        return {
+            id: row.id,
+            walletId: row.wallet_id ?? row.walletId,
+            credentialId: row.credential_id ?? row.credentialId,
+            credentialData: row.credential_data ?? row.credentialData,
+            issuerDid: row.issuer_did ?? row.issuerDid,
+            type: row.type,
+            addedOn: typeof added === 'string' ? added : new Date(added).toISOString(),
+        } as WalletCredential
+    })
 }
 
 export function getWalletCredentialById(id: string): WalletCredential | null {
     const database = ensureDb()
-    const row = database.prepare('SELECT * FROM wallet_credentials WHERE id = ?').get(id)
-    if (!isWalletCredentialRow(row)) return null
-    return mapWalletCredentialRow(row)
+    const row: any = database.prepare('SELECT * FROM wallet_credentials WHERE id = ?').get(id)
+    if (!row) return null
+    const added = row.added_on ?? row.added_at ?? row.addedOn ?? row.created_at ?? new Date().toISOString()
+    return {
+        id: row.id,
+        walletId: row.wallet_id ?? row.walletId,
+        credentialId: row.credential_id ?? row.credentialId,
+        credentialData: row.credential_data ?? row.credentialData,
+        issuerDid: row.issuer_did ?? row.issuerDid,
+        type: row.type,
+        format: row.format || 'jwt_vc',
+        addedOn: typeof added === 'string' ? added : new Date(added).toISOString(),
+    }
 }
 
 function isWalletCredentialRow(value: unknown): value is WalletCredentialRow {
@@ -100,7 +136,7 @@ function isWalletCredentialRow(value: unknown): value is WalletCredentialRow {
         typeof row.credential_data === 'string' &&
         typeof row.issuer_did === 'string' &&
         typeof row.type === 'string' &&
-        typeof row.added_on === 'string'
+        (typeof row.added_on === 'string' || typeof (row as any).added_at === 'string' || typeof (row as any).addedOn === 'string' || typeof (row as any).created_at === 'string')
     )
 }
 
@@ -112,6 +148,7 @@ function mapWalletCredentialRow(row: WalletCredentialRow): WalletCredential {
         credentialData: row.credential_data,
         issuerDid: row.issuer_did,
         type: row.type,
+        format: row.format || 'jwt_vc',
         addedOn: row.added_on,
     }
 }

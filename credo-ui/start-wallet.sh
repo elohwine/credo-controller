@@ -1,3 +1,3 @@
 #!/bin/bash
-cd "$(dirname "$0")/waltid-identity/waltid-applications/waltid-web-wallet/apps/waltid-demo-wallet"
+cd "$(dirname "$0")/wallet"
 yarn dev

@@ -1,6 +1,9 @@
 import type { InitConfig } from '@credo-ts/core'
+import { Router } from 'express'
 import type { WalletConfig } from '@credo-ts/core/build/types'
 import type { TenantsModule } from '@credo-ts/tenants'
+
+import { OpenId4VcHolderModule, OpenId4VcVerifierModule, OpenId4VcIssuerModule } from '@credo-ts/openid4vc'
 
 import { PolygonDidRegistrar, PolygonDidResolver, PolygonModule } from '@ayanworks/credo-polygon-w3c-module'
 import { AskarModule, AskarMultiWalletDatabaseScheme } from '@credo-ts/askar'
@@ -101,6 +104,77 @@ export const buildModules = (cfg: {
       rpcUrl: cfg.rpcUrl || (process.env.RPC_URL as string),
       serverUrl: cfg.fileServerUrl || (process.env.SERVER_URL as string),
     }),
+    // OpenID4VC Issuer module - for issuing credentials via OIDC4VCI
+    openId4VcIssuer: new OpenId4VcIssuerModule({
+      baseUrl: process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
+      endpoints: {
+        credentialOffer: '/credential-offers',
+        accessToken: '/token',
+        credential: '/credential',
+        jwks: '/jwks',
+      },
+      // We provide a dummy router which we will mount in server.ts
+      app: Router() as any,
+      // Simple mapper that returns the credential matching the request
+      credentialRequestToCredentialMapper: async ({ credentialConfigurationId, holderBinding, agentContext, issuanceSession }) => {
+        // Load actual user data from issuance session metadata
+        // Reference: https://credo.js.org/guides/tutorials/openid4vc/issuing-credentials-using-openid4vc-issuer-module#implementing-the-credential-mapper
+        const metadata = issuanceSession.issuanceMetadata as any
+        const claims = metadata?.claims || {}
+
+        // Extract subject DID from holder binding
+        let subjectDid = 'did:example:unknown'
+        if (holderBinding && 'did' in holderBinding) {
+          subjectDid = (holderBinding as any).did
+        } else if (metadata?.subjectDid) {
+          subjectDid = metadata.subjectDid
+        }
+
+        // Query credential definition from database
+        const { credentialDefinitionStore } = await import('./utils/credentialDefinitionStore')
+        const credDef = credentialDefinitionStore.get(credentialConfigurationId)
+
+        if (!credDef) {
+          throw new Error(`Credential definition not found for: ${credentialConfigurationId}`)
+        }
+
+        // Get issuer DID from agent
+        const { DidsApi } = await import('@credo-ts/core')
+        const didsApi = agentContext.dependencyManager.resolve(DidsApi)
+        const [didRecord] = await didsApi.getCreatedDids({ method: 'key' })
+        const issuerDid = credDef.issuerDid || didRecord?.did || 'did:example:issuer'
+
+        // Build credential payload with REAL user data
+        return {
+          credentialSupportedId: credentialConfigurationId,
+          format: (credDef.format === 'sd_jwt' ? 'vc+sd-jwt' : 'jwt_vc_json') as any,
+          holder: holderBinding,
+          payload: {
+            '@context': ['https://www.w3.org/2018/credentials/v1'],
+            type: credDef.credentialType || ['VerifiableCredential', credentialConfigurationId],
+            issuer: issuerDid,
+            issuanceDate: new Date().toISOString(),
+            credentialSubject: {
+              id: subjectDid,
+              ...claims // Map all claims from registration: name, email, walletId, role
+            }
+          },
+          issuer: {
+            method: 'did' as const,
+            didUrl: `${issuerDid}#${issuerDid.split(':').pop()}`
+          }
+        }
+      }
+    }),
+    // OpenID4VC Verifier module - for verifying credentials via OIDC4VP
+    openId4VcVerifier: new OpenId4VcVerifierModule({
+      baseUrl: process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
+      authorizationRequestEndpoint: '/oidc/presentation-requests',
+      authorizationEndpoint: '/oidc/present',
+      // We provide a dummy router because we handle routing via TSOA/OidcVerifierController
+      // The module might attach routes, but we won't expose them directly via this router
+      app: Router() as any,
+    }),
   }
 }
 
@@ -152,12 +226,12 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
 
   const tenantModules = tenancy
     ? {
-        tenants: new TenantsModuleClass<typeof baseModules>({
-          sessionAcquireTimeout: Number(process.env.SESSION_ACQUIRE_TIMEOUT) || Infinity,
-          sessionLimit: Number(process.env.SESSION_LIMIT) || Infinity,
-        }),
-        ...baseModules,
-      }
+      tenants: new TenantsModuleClass<typeof baseModules>({
+        sessionAcquireTimeout: Number(process.env.SESSION_ACQUIRE_TIMEOUT) || Infinity,
+        sessionLimit: Number(process.env.SESSION_LIMIT) || Infinity,
+      }),
+      ...baseModules,
+    }
     : baseModules
 
   const agent = new Agent({ config: agentConfig, modules: tenantModules as any, dependencies: agentDependencies })
@@ -173,6 +247,42 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
   }
 
   await agent.initialize()
+
+  // Initialize OpenID4VC Issuer with supported credentials from DB
+  // Reference: https://credo.js.org/guides/tutorials/openid4vc/issuing-credentials-using-openid4vc-issuer-module
+  try {
+    const { credentialDefinitionStore } = await import('./utils/credentialDefinitionStore')
+
+    // Query for GenericID credential definition
+    const genericIdDef = credentialDefinitionStore.get('GenericID')
+
+    if (!genericIdDef) {
+      agent.config.logger.warn('GenericID credential definition not found in database. Skipping OpenID4VC Issuer initialization.')
+    } else {
+      const openId4VcIssuer = await agent.modules.openId4VcIssuer.createIssuer({
+        display: [
+          {
+            name: 'Credo Controller',
+            description: 'Multi-tenant SSI platform',
+            text_color: '#000000',
+            background_color: '#FFFFFF',
+          },
+        ],
+        credentialsSupported: [
+          {
+            format: genericIdDef.format === 'sd_jwt' ? 'vc+sd-jwt' : 'jwt_vc_json',
+            id: 'GenericID',
+            cryptographic_binding_methods_supported: ['did:key', 'did:web'],
+            cryptographic_suites_supported: ['EdDSA'],
+            types: genericIdDef.credentialType || ['VerifiableCredential', 'GenericID'],
+          },
+        ],
+      })
+      agent.config.logger.info(`OpenID4VC Issuer initialized with ID: ${openId4VcIssuer.issuerId}`)
+    }
+  } catch (e: any) {
+    agent.config.logger.error(`Failed to initialize OpenID4VC Issuer: ${e.message}`)
+  }
 
   const genericRecord = await agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
   const record = genericRecord[0]

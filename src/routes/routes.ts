@@ -42,11 +42,17 @@ import { CredentialDefinitionController } from './../controllers/anoncreds/cred-
 // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
 import { AgentController } from './../controllers/agent/AgentController';
 // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-import { OidcIssuerController } from './../controllers/oidc/OidcIssuerController';
-// WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
 import { WalletAuthController } from './../controllers/wallet/WalletAuthController';
 // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
 import { WalletController } from './../controllers/wallet/WalletController';
+// WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+import { OidcIssuerController } from './../controllers/oidc/OidcIssuerController';
+// WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+import { EcoCashWebhookController } from './../controllers/webhooks/EcoCashWebhookController';
+// WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+import { WorkflowController } from './../controllers/workflow/WorkflowController';
+// WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+import { PortalController } from './../controllers/PortalController';
 import { expressAuthentication } from './../authentication';
 // @ts-ignore - no great way to install types from subpackage
 import { iocContainer } from './../utils/tsyringeTsoaIocContainer';
@@ -155,6 +161,7 @@ const models: TsoaRoute.Models = {
         "dataType": "refObject",
         "properties": {
             "presentationDefinition": {"dataType":"any"},
+            "verifierDid": {"dataType":"string"},
         },
         "additionalProperties": false,
     },
@@ -177,6 +184,7 @@ const models: TsoaRoute.Models = {
         "properties": {
             "requestId": {"dataType":"string","required":true},
             "verifiablePresentation": {"dataType":"string","required":true},
+            "presentationSubmission": {"dataType":"any"},
         },
         "additionalProperties": false,
     },
@@ -1333,61 +1341,6 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-    "CreateCredentialOfferResponse": {
-        "dataType": "refObject",
-        "properties": {
-            "offerId": {"dataType":"string","required":true},
-            "credential_offer_url": {"dataType":"string","required":true},
-            "credential_offer_uri": {"dataType":"string","required":true},
-            "preAuthorizedCode": {"dataType":"string","required":true},
-            "expiresAt": {"dataType":"string","required":true},
-        },
-        "additionalProperties": false,
-    },
-    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-    "OfferCredentialTemplate": {
-        "dataType": "refObject",
-        "properties": {
-            "type": {"dataType":"array","array":{"dataType":"string"},"required":true},
-            "schemaId": {"dataType":"string"},
-            "claimsTemplate": {"dataType":"any"},
-            "format": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["jwt_vc"]},{"dataType":"enum","enums":["sd_jwt"]}]},
-            "credentialDefinitionId": {"dataType":"string"},
-            "issuerDid": {"dataType":"string"},
-        },
-        "additionalProperties": false,
-    },
-    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-    "CreateCredentialOfferRequest": {
-        "dataType": "refObject",
-        "properties": {
-            "credentials": {"dataType":"array","array":{"dataType":"refObject","ref":"OfferCredentialTemplate"},"required":true},
-            "issuerDid": {"dataType":"string"},
-            "expiresIn": {"dataType":"double"},
-        },
-        "additionalProperties": false,
-    },
-    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-    "TokenResponseBody": {
-        "dataType": "refObject",
-        "properties": {
-            "verifiableCredential": {"dataType":"string","required":true},
-            "credentialId": {"dataType":"string","required":true},
-        },
-        "additionalProperties": false,
-    },
-    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-    "TokenRequestBody": {
-        "dataType": "refObject",
-        "properties": {
-            "grant_type": {"dataType":"string","required":true},
-            "pre_authorized_code": {"dataType":"string","required":true},
-            "subject_did": {"dataType":"string","required":true},
-            "format": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["jwt_vc"]},{"dataType":"enum","enums":["sd_jwt"]}]},
-        },
-        "additionalProperties": false,
-    },
-    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "RegisterRequest": {
         "dataType": "refObject",
         "properties": {
@@ -1415,27 +1368,6 @@ const models: TsoaRoute.Models = {
             "username": {"dataType":"string","required":true},
             "email": {"dataType":"string","required":true},
             "walletId": {"dataType":"string","required":true},
-        },
-        "additionalProperties": false,
-    },
-    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-    "WalletListing": {
-        "dataType": "refObject",
-        "properties": {
-            "id": {"dataType":"string","required":true},
-            "name": {"dataType":"string","required":true},
-            "createdOn": {"dataType":"string","required":true},
-            "addedOn": {"dataType":"string","required":true},
-            "permission": {"dataType":"string","required":true},
-        },
-        "additionalProperties": false,
-    },
-    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-    "WalletListings": {
-        "dataType": "refObject",
-        "properties": {
-            "account": {"dataType":"string","required":true},
-            "wallets": {"dataType":"array","array":{"dataType":"refObject","ref":"WalletListing"},"required":true},
         },
         "additionalProperties": false,
     },
@@ -1476,6 +1408,55 @@ const models: TsoaRoute.Models = {
         "properties": {
             "account": {"dataType":"string","required":true},
             "wallets": {"dataType":"array","array":{"dataType":"refObject","ref":"WalletListingItem"},"required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "CreateCredentialOfferResponse": {
+        "dataType": "refObject",
+        "properties": {
+            "offerId": {"dataType":"string","required":true},
+            "credential_offer_url": {"dataType":"string","required":true},
+            "credential_offer_uri": {"dataType":"string","required":true},
+            "preAuthorizedCode": {"dataType":"string","required":true},
+            "expiresAt": {"dataType":"string","required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "OfferCredentialTemplate": {
+        "dataType": "refObject",
+        "properties": {
+            "type": {"dataType":"array","array":{"dataType":"string"},"required":true},
+            "schemaId": {"dataType":"string"},
+            "claimsTemplate": {"dataType":"any"},
+            "format": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["jwt_vc"]},{"dataType":"enum","enums":["sd_jwt"]}]},
+            "credentialDefinitionId": {"dataType":"string"},
+            "issuerDid": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "CreateCredentialOfferRequest": {
+        "dataType": "refObject",
+        "properties": {
+            "credentials": {"dataType":"array","array":{"dataType":"refObject","ref":"OfferCredentialTemplate"},"required":true},
+            "issuerDid": {"dataType":"string"},
+            "expiresIn": {"dataType":"double"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "EcoCashWebhookPayload": {
+        "dataType": "refObject",
+        "properties": {
+            "paymentRequestId": {"dataType":"string"},
+            "status": {"dataType":"string","required":true},
+            "transactionId": {"dataType":"string"},
+            "amount": {"dataType":"double"},
+            "currency": {"dataType":"string"},
+            "sourceReference": {"dataType":"string"},
+            "metadata": {"dataType":"any"},
         },
         "additionalProperties": false,
     },
@@ -1752,6 +1733,40 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOidcVerifierController_getSupportedFormats: Record<string, TsoaRoute.ParameterSchema> = {
+        };
+        app.get('/oidc/verifier/formats',
+            ...(fetchMiddlewares<RequestHandler>(OidcVerifierController)),
+            ...(fetchMiddlewares<RequestHandler>(OidcVerifierController.prototype.getSupportedFormats)),
+
+            async function OidcVerifierController_getSupportedFormats(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOidcVerifierController_getSupportedFormats, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OidcVerifierController>(OidcVerifierController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'getSupportedFormats',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsOidcVerifierController_createPresentationRequest: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 body: {"in":"body","name":"body","required":true,"ref":"CreatePresentationRequestBody"},
@@ -1815,6 +1830,41 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'verifyPresentation',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOidcMetadataController_getPlatformIssuerMetadata: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.get('/.well-known/openid-credential-issuer',
+            ...(fetchMiddlewares<RequestHandler>(OidcMetadataController)),
+            ...(fetchMiddlewares<RequestHandler>(OidcMetadataController.prototype.getPlatformIssuerMetadata)),
+
+            async function OidcMetadataController_getPlatformIssuerMetadata(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOidcMetadataController_getPlatformIssuerMetadata, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OidcMetadataController>(OidcMetadataController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'getPlatformIssuerMetadata',
                 controller,
                 response,
                 next,
@@ -4024,6 +4074,7 @@ export function RegisterRoutes(app: Router) {
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsDidExpansionController_verifyPublishedDidWeb: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 domain: {"in":"path","name":"domain","required":true,"dataType":"string"},
         };
         app.get('/dids/verify-web/:domain',
@@ -4719,225 +4770,6 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-        const argsOidcIssuerController_createCredentialOffer: Record<string, TsoaRoute.ParameterSchema> = {
-                request: {"in":"request","name":"request","required":true,"dataType":"object"},
-                body: {"in":"body","name":"body","required":true,"ref":"CreateCredentialOfferRequest"},
-        };
-        app.post('/oidc/issuer/credential-offers',
-            authenticateMiddleware([{"jwt":["tenant"]}]),
-            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController)),
-            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController.prototype.createCredentialOffer)),
-
-            async function OidcIssuerController_createCredentialOffer(request: ExRequest, response: ExResponse, next: any) {
-
-            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-
-            let validatedArgs: any[] = [];
-            try {
-                validatedArgs = templateService.getValidatedArgs({ args: argsOidcIssuerController_createCredentialOffer, request, response });
-
-                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
-
-                const controller: any = await container.get<OidcIssuerController>(OidcIssuerController);
-                if (typeof controller['setStatus'] === 'function') {
-                controller.setStatus(undefined);
-                }
-
-              await templateService.apiHandler({
-                methodName: 'createCredentialOffer',
-                controller,
-                response,
-                next,
-                validatedArgs,
-                successStatus: 201,
-              });
-            } catch (err) {
-                return next(err);
-            }
-        });
-        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-        const argsOidcIssuerController_getCredentialOffer: Record<string, TsoaRoute.ParameterSchema> = {
-                request: {"in":"request","name":"request","required":true,"dataType":"object"},
-                preAuthorizedCode: {"in":"path","name":"preAuthorizedCode","required":true,"dataType":"string"},
-        };
-        app.get('/oidc/credential-offers/:preAuthorizedCode',
-            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController)),
-            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController.prototype.getCredentialOffer)),
-
-            async function OidcIssuerController_getCredentialOffer(request: ExRequest, response: ExResponse, next: any) {
-
-            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-
-            let validatedArgs: any[] = [];
-            try {
-                validatedArgs = templateService.getValidatedArgs({ args: argsOidcIssuerController_getCredentialOffer, request, response });
-
-                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
-
-                const controller: any = await container.get<OidcIssuerController>(OidcIssuerController);
-                if (typeof controller['setStatus'] === 'function') {
-                controller.setStatus(undefined);
-                }
-
-              await templateService.apiHandler({
-                methodName: 'getCredentialOffer',
-                controller,
-                response,
-                next,
-                validatedArgs,
-                successStatus: undefined,
-              });
-            } catch (err) {
-                return next(err);
-            }
-        });
-        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-        const argsOidcIssuerController_token: Record<string, TsoaRoute.ParameterSchema> = {
-                request: {"in":"request","name":"request","required":true,"dataType":"object"},
-                body: {"in":"body","name":"body","required":true,"ref":"TokenRequestBody"},
-        };
-        app.post('/oidc/token',
-            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController)),
-            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController.prototype.token)),
-
-            async function OidcIssuerController_token(request: ExRequest, response: ExResponse, next: any) {
-
-            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-
-            let validatedArgs: any[] = [];
-            try {
-                validatedArgs = templateService.getValidatedArgs({ args: argsOidcIssuerController_token, request, response });
-
-                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
-
-                const controller: any = await container.get<OidcIssuerController>(OidcIssuerController);
-                if (typeof controller['setStatus'] === 'function') {
-                controller.setStatus(undefined);
-                }
-
-              await templateService.apiHandler({
-                methodName: 'token',
-                controller,
-                response,
-                next,
-                validatedArgs,
-                successStatus: undefined,
-              });
-            } catch (err) {
-                return next(err);
-            }
-        });
-        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-        const argsOidcIssuerController_getCredential: Record<string, TsoaRoute.ParameterSchema> = {
-                id: {"in":"path","name":"id","required":true,"dataType":"string"},
-        };
-        app.get('/oidc/issuer/credentials/:id',
-            authenticateMiddleware([{"jwt":["tenant"]}]),
-            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController)),
-            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController.prototype.getCredential)),
-
-            async function OidcIssuerController_getCredential(request: ExRequest, response: ExResponse, next: any) {
-
-            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-
-            let validatedArgs: any[] = [];
-            try {
-                validatedArgs = templateService.getValidatedArgs({ args: argsOidcIssuerController_getCredential, request, response });
-
-                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
-
-                const controller: any = await container.get<OidcIssuerController>(OidcIssuerController);
-                if (typeof controller['setStatus'] === 'function') {
-                controller.setStatus(undefined);
-                }
-
-              await templateService.apiHandler({
-                methodName: 'getCredential',
-                controller,
-                response,
-                next,
-                validatedArgs,
-                successStatus: undefined,
-              });
-            } catch (err) {
-                return next(err);
-            }
-        });
-        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-        const argsOidcIssuerController_revokeCredential: Record<string, TsoaRoute.ParameterSchema> = {
-                request: {"in":"request","name":"request","required":true,"dataType":"object"},
-                id: {"in":"path","name":"id","required":true,"dataType":"string"},
-        };
-        app.post('/oidc/issuer/credentials/:id/revoke',
-            authenticateMiddleware([{"jwt":["tenant"]}]),
-            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController)),
-            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController.prototype.revokeCredential)),
-
-            async function OidcIssuerController_revokeCredential(request: ExRequest, response: ExResponse, next: any) {
-
-            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-
-            let validatedArgs: any[] = [];
-            try {
-                validatedArgs = templateService.getValidatedArgs({ args: argsOidcIssuerController_revokeCredential, request, response });
-
-                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
-
-                const controller: any = await container.get<OidcIssuerController>(OidcIssuerController);
-                if (typeof controller['setStatus'] === 'function') {
-                controller.setStatus(undefined);
-                }
-
-              await templateService.apiHandler({
-                methodName: 'revokeCredential',
-                controller,
-                response,
-                next,
-                validatedArgs,
-                successStatus: undefined,
-              });
-            } catch (err) {
-                return next(err);
-            }
-        });
-        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-        const argsOidcIssuerController_listCredentials: Record<string, TsoaRoute.ParameterSchema> = {
-                subject: {"in":"query","name":"subject","dataType":"string"},
-                issuer: {"in":"query","name":"issuer","dataType":"string"},
-        };
-        app.get('/oidc/issuer/credentials',
-            authenticateMiddleware([{"jwt":["tenant"]}]),
-            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController)),
-            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController.prototype.listCredentials)),
-
-            async function OidcIssuerController_listCredentials(request: ExRequest, response: ExResponse, next: any) {
-
-            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-
-            let validatedArgs: any[] = [];
-            try {
-                validatedArgs = templateService.getValidatedArgs({ args: argsOidcIssuerController_listCredentials, request, response });
-
-                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
-
-                const controller: any = await container.get<OidcIssuerController>(OidcIssuerController);
-                if (typeof controller['setStatus'] === 'function') {
-                controller.setStatus(undefined);
-                }
-
-              await templateService.apiHandler({
-                methodName: 'listCredentials',
-                controller,
-                response,
-                next,
-                validatedArgs,
-                successStatus: undefined,
-              });
-            } catch (err) {
-                return next(err);
-            }
-        });
-        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsWalletAuthController_register: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 body: {"in":"body","name":"body","required":true,"ref":"RegisterRequest"},
@@ -5010,6 +4842,77 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletAuthController_loginWithWallet: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.post('/api/wallet/auth/login-wallet',
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController.prototype.loginWithWallet)),
+
+            async function WalletAuthController_loginWithWallet(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletAuthController_loginWithWallet, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletAuthController>(WalletAuthController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'loginWithWallet',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletAuthController_verifyWalletLogin: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                body: {"in":"body","name":"body","required":true,"ref":"VerifyPresentationRequestBody"},
+        };
+        app.post('/api/wallet/auth/login-wallet/verify',
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController.prototype.verifyWalletLogin)),
+
+            async function WalletAuthController_verifyWalletLogin(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletAuthController_verifyWalletLogin, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletAuthController>(WalletAuthController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'verifyWalletLogin',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsWalletAuthController_getSession: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
         };
@@ -5034,41 +4937,6 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'getSession',
-                controller,
-                response,
-                next,
-                validatedArgs,
-                successStatus: undefined,
-              });
-            } catch (err) {
-                return next(err);
-            }
-        });
-        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-        const argsWalletAuthController_getWallets: Record<string, TsoaRoute.ParameterSchema> = {
-                request: {"in":"request","name":"request","required":true,"dataType":"object"},
-        };
-        app.get('/api/wallet/auth/accounts/wallets',
-            ...(fetchMiddlewares<RequestHandler>(WalletAuthController)),
-            ...(fetchMiddlewares<RequestHandler>(WalletAuthController.prototype.getWallets)),
-
-            async function WalletAuthController_getWallets(request: ExRequest, response: ExResponse, next: any) {
-
-            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-
-            let validatedArgs: any[] = [];
-            try {
-                validatedArgs = templateService.getValidatedArgs({ args: argsWalletAuthController_getWallets, request, response });
-
-                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
-
-                const controller: any = await container.get<WalletAuthController>(WalletAuthController);
-                if (typeof controller['setStatus'] === 'function') {
-                controller.setStatus(undefined);
-                }
-
-              await templateService.apiHandler({
-                methodName: 'getWallets',
                 controller,
                 response,
                 next,
@@ -5189,7 +5057,8 @@ export function RegisterRoutes(app: Router) {
         const argsWalletController_getWallets: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
         };
-        app.get('/api/wallet/wallet/accounts/wallets',
+        app.get('/api/wallet/accounts/wallets',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
             ...(fetchMiddlewares<RequestHandler>(WalletController)),
             ...(fetchMiddlewares<RequestHandler>(WalletController.prototype.getWallets)),
 
@@ -5224,7 +5093,8 @@ export function RegisterRoutes(app: Router) {
         const argsWalletController_listCredentials: Record<string, TsoaRoute.ParameterSchema> = {
                 walletId: {"in":"path","name":"walletId","required":true,"dataType":"string"},
         };
-        app.get('/api/wallet/:walletId/credentials',
+        app.get('/api/wallet/wallet/:walletId/credentials',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
             ...(fetchMiddlewares<RequestHandler>(WalletController)),
             ...(fetchMiddlewares<RequestHandler>(WalletController.prototype.listCredentials)),
 
@@ -5256,11 +5126,49 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletController_getDids: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                walletId: {"in":"path","name":"walletId","required":true,"dataType":"string"},
+        };
+        app.get('/api/wallet/wallet/:walletId/dids',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WalletController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletController.prototype.getDids)),
+
+            async function WalletController_getDids(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletController_getDids, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletController>(WalletController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'getDids',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsWalletController_getCredential: Record<string, TsoaRoute.ParameterSchema> = {
                 walletId: {"in":"path","name":"walletId","required":true,"dataType":"string"},
                 credentialId: {"in":"path","name":"credentialId","required":true,"dataType":"string"},
         };
-        app.get('/api/wallet/:walletId/credentials/:credentialId',
+        app.get('/api/wallet/wallet/:walletId/credentials/:credentialId',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
             ...(fetchMiddlewares<RequestHandler>(WalletController)),
             ...(fetchMiddlewares<RequestHandler>(WalletController.prototype.getCredential)),
 
@@ -5293,10 +5201,12 @@ export function RegisterRoutes(app: Router) {
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsWalletController_resolveCredentialOffer: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 walletId: {"in":"path","name":"walletId","required":true,"dataType":"string"},
                 body: {"in":"body","name":"body","required":true,"dataType":"any"},
         };
-        app.post('/api/wallet/:walletId/exchange/resolveCredentialOffer',
+        app.post('/api/wallet/wallet/:walletId/exchange/resolveCredentialOffer',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
             ...(fetchMiddlewares<RequestHandler>(WalletController)),
             ...(fetchMiddlewares<RequestHandler>(WalletController.prototype.resolveCredentialOffer)),
 
@@ -5332,7 +5242,8 @@ export function RegisterRoutes(app: Router) {
                 walletId: {"in":"path","name":"walletId","required":true,"dataType":"string"},
                 issuer: {"in":"query","name":"issuer","required":true,"dataType":"string"},
         };
-        app.get('/api/wallet/:walletId/exchange/resolveIssuerOpenIDMetadata',
+        app.get('/api/wallet/wallet/:walletId/exchange/resolveIssuerOpenIDMetadata',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
             ...(fetchMiddlewares<RequestHandler>(WalletController)),
             ...(fetchMiddlewares<RequestHandler>(WalletController.prototype.resolveIssuerOpenIDMetadata)),
 
@@ -5365,11 +5276,13 @@ export function RegisterRoutes(app: Router) {
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsWalletController_useOfferRequest: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 walletId: {"in":"path","name":"walletId","required":true,"dataType":"string"},
                 did: {"in":"query","name":"did","required":true,"dataType":"string"},
                 body: {"in":"body","name":"body","required":true,"dataType":"any"},
         };
-        app.post('/api/wallet/:walletId/exchange/useOfferRequest',
+        app.post('/api/wallet/wallet/:walletId/exchange/useOfferRequest',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
             ...(fetchMiddlewares<RequestHandler>(WalletController)),
             ...(fetchMiddlewares<RequestHandler>(WalletController.prototype.useOfferRequest)),
 
@@ -5401,21 +5314,23 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-        const argsWalletController_resolveVctUrl: Record<string, TsoaRoute.ParameterSchema> = {
+        const argsWalletController_resolvePresentationRequest: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 walletId: {"in":"path","name":"walletId","required":true,"dataType":"string"},
-                vct: {"in":"query","name":"vct","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"dataType":"any"},
         };
-        app.get('/api/wallet/:walletId/exchange/resolveVctUrl',
+        app.post('/api/wallet/wallet/:walletId/exchange/resolvePresentationRequest',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
             ...(fetchMiddlewares<RequestHandler>(WalletController)),
-            ...(fetchMiddlewares<RequestHandler>(WalletController.prototype.resolveVctUrl)),
+            ...(fetchMiddlewares<RequestHandler>(WalletController.prototype.resolvePresentationRequest)),
 
-            async function WalletController_resolveVctUrl(request: ExRequest, response: ExResponse, next: any) {
+            async function WalletController_resolvePresentationRequest(request: ExRequest, response: ExResponse, next: any) {
 
             // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
 
             let validatedArgs: any[] = [];
             try {
-                validatedArgs = templateService.getValidatedArgs({ args: argsWalletController_resolveVctUrl, request, response });
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletController_resolvePresentationRequest, request, response });
 
                 const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
 
@@ -5425,7 +5340,446 @@ export function RegisterRoutes(app: Router) {
                 }
 
               await templateService.apiHandler({
-                methodName: 'resolveVctUrl',
+                methodName: 'resolvePresentationRequest',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletController_matchCredentialsForPresentationDefinition: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                walletId: {"in":"path","name":"walletId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"dataType":"any"},
+        };
+        app.post('/api/wallet/wallet/:walletId/exchange/matchCredentialsForPresentationDefinition',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WalletController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletController.prototype.matchCredentialsForPresentationDefinition)),
+
+            async function WalletController_matchCredentialsForPresentationDefinition(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletController_matchCredentialsForPresentationDefinition, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletController>(WalletController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'matchCredentialsForPresentationDefinition',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletController_usePresentationRequest: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                walletId: {"in":"path","name":"walletId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"dataType":"any"},
+        };
+        app.post('/api/wallet/wallet/:walletId/exchange/usePresentationRequest',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WalletController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletController.prototype.usePresentationRequest)),
+
+            async function WalletController_usePresentationRequest(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletController_usePresentationRequest, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletController>(WalletController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'usePresentationRequest',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOidcIssuerController_createCredentialOffer: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                body: {"in":"body","name":"body","required":true,"ref":"CreateCredentialOfferRequest"},
+        };
+        app.post('/oidc/issuer/credential-offers',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController)),
+            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController.prototype.createCredentialOffer)),
+
+            async function OidcIssuerController_createCredentialOffer(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOidcIssuerController_createCredentialOffer, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OidcIssuerController>(OidcIssuerController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'createCredentialOffer',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: 201,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOidcIssuerController_getCredential: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                id: {"in":"path","name":"id","required":true,"dataType":"string"},
+        };
+        app.get('/oidc/issuer/credentials/:id',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController)),
+            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController.prototype.getCredential)),
+
+            async function OidcIssuerController_getCredential(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOidcIssuerController_getCredential, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OidcIssuerController>(OidcIssuerController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'getCredential',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOidcIssuerController_revokeCredential: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                id: {"in":"path","name":"id","required":true,"dataType":"string"},
+        };
+        app.post('/oidc/issuer/credentials/:id/revoke',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController)),
+            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController.prototype.revokeCredential)),
+
+            async function OidcIssuerController_revokeCredential(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOidcIssuerController_revokeCredential, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OidcIssuerController>(OidcIssuerController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'revokeCredential',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOidcIssuerController_listCredentials: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                subject: {"in":"query","name":"subject","dataType":"string"},
+        };
+        app.get('/oidc/issuer/credentials',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController)),
+            ...(fetchMiddlewares<RequestHandler>(OidcIssuerController.prototype.listCredentials)),
+
+            async function OidcIssuerController_listCredentials(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOidcIssuerController_listCredentials, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OidcIssuerController>(OidcIssuerController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'listCredentials',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsEcoCashWebhookController_handleEcoCashWebhook: Record<string, TsoaRoute.ParameterSchema> = {
+                payload: {"in":"body","name":"payload","required":true,"ref":"EcoCashWebhookPayload"},
+                apiKey: {"in":"header","name":"X-API-KEY","dataType":"string"},
+                request: {"in":"request","name":"request","dataType":"object"},
+        };
+        app.post('/webhooks/ecocash',
+            ...(fetchMiddlewares<RequestHandler>(EcoCashWebhookController)),
+            ...(fetchMiddlewares<RequestHandler>(EcoCashWebhookController.prototype.handleEcoCashWebhook)),
+
+            async function EcoCashWebhookController_handleEcoCashWebhook(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsEcoCashWebhookController_handleEcoCashWebhook, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<EcoCashWebhookController>(EcoCashWebhookController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'handleEcoCashWebhook',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWorkflowController_executeWorkflow: Record<string, TsoaRoute.ParameterSchema> = {
+                workflowId: {"in":"path","name":"workflowId","required":true,"dataType":"string"},
+                input: {"in":"body","name":"input","required":true,"dataType":"any"},
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.post('/workflows/:workflowId/execute',
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController)),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController.prototype.executeWorkflow)),
+
+            async function WorkflowController_executeWorkflow(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWorkflowController_executeWorkflow, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WorkflowController>(WorkflowController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'executeWorkflow',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWorkflowController_listWorkflows: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                category: {"in":"query","name":"category","dataType":"string"},
+        };
+        app.get('/workflows',
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController)),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController.prototype.listWorkflows)),
+
+            async function WorkflowController_listWorkflows(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWorkflowController_listWorkflows, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WorkflowController>(WorkflowController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'listWorkflows',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWorkflowController_registerWorkflow: Record<string, TsoaRoute.ParameterSchema> = {
+                definition: {"in":"body","name":"definition","required":true,"dataType":"any"},
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.post('/workflows',
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController)),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController.prototype.registerWorkflow)),
+
+            async function WorkflowController_registerWorkflow(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWorkflowController_registerWorkflow, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WorkflowController>(WorkflowController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'registerWorkflow',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsPortalController_getCredentialList: Record<string, TsoaRoute.ParameterSchema> = {
+        };
+        app.get('/api/list',
+            ...(fetchMiddlewares<RequestHandler>(PortalController)),
+            ...(fetchMiddlewares<RequestHandler>(PortalController.prototype.getCredentialList)),
+
+            async function PortalController_getCredentialList(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsPortalController_getCredentialList, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<PortalController>(PortalController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'getCredentialList',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsPortalController_getCredentialOffer: Record<string, TsoaRoute.ParameterSchema> = {
+                id: {"in":"path","name":"id","required":true,"dataType":"string"},
+        };
+        app.get('/api/vc/:id',
+            ...(fetchMiddlewares<RequestHandler>(PortalController)),
+            ...(fetchMiddlewares<RequestHandler>(PortalController.prototype.getCredentialOffer)),
+
+            async function PortalController_getCredentialOffer(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsPortalController_getCredentialOffer, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<PortalController>(PortalController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'getCredentialOffer',
                 controller,
                 response,
                 next,

@@ -122,6 +122,31 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     req.logger = rootLogger.child({ correlationId })
     runWithContext({ correlationId }, () => next())
   })
+
+  // Request/Response logging middleware (development friendly)
+  app.use((req: ExRequest, res: ExResponse, next: NextFunction) => {
+    const start = Date.now()
+    const safeHeaders = { ...req.headers }
+    // avoid logging sensitive auth header value fully
+    if (safeHeaders.authorization) safeHeaders.authorization = 'REDACTED'
+    req.logger?.info({ method: req.method, path: req.path, headers: safeHeaders, body: req.body }, 'Incoming request')
+
+    // capture response body by wrapping res.send
+    const originalSend = res.send.bind(res)
+    let responseBody: any = undefined
+    // @ts-ignore
+    res.send = (body?: any) => {
+      responseBody = body
+      return originalSend(body)
+    }
+
+    res.on('finish', () => {
+      const duration = Date.now() - start
+      req.logger?.info({ method: req.method, path: req.path, status: res.statusCode, duration, response: responseBody }, 'Request completed')
+    })
+
+    next()
+  })
   app.use('/docs/', serve, (_req: ExRequest, res: ExResponse, next: NextFunction) => {
     import('./routes/swagger.json')
       .then((swaggerJson) => {
@@ -159,6 +184,18 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
 
   const securityMiddleware = new SecurityMiddleware()
   app.use(securityMiddleware.use)
+  // Mount Credo OIDC4VC Routers
+  // We use a safe cast or check for the module existence since Agent type is generic
+  const modules = (agent as any).modules
+  if (modules?.openId4VcIssuer?.config?.app) {
+    agent.config.logger.info('Mounting OpenID4VC Issuer routes at /oidc')
+    app.use('/oidc', modules.openId4VcIssuer.config.app)
+  }
+  if (modules?.openId4VcVerifier?.config?.app) {
+    agent.config.logger.info('Mounting OpenID4VC Verifier routes at /oidc')
+    app.use('/oidc', modules.openId4VcVerifier.config.app)
+  }
+
   RegisterRoutes(app)
 
   app.use((async (err: unknown, req: ExRequest, res: ExResponse, next: NextFunction): Promise<ExResponse | void> => {

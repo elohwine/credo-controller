@@ -2,7 +2,6 @@ import type { DidCreateResponse, CreateDidJwkRequest, PrepareDidWebRequest } fro
 import type { Request as ExRequest } from 'express'
 
 import { KeyType, TypedArrayEncoder } from '@credo-ts/core'
-import axios from 'axios'
 import bs58 from 'bs58'
 import { JWK } from 'jose'
 import { Controller, Post, Get, Route, Tags, Body, SuccessResponse, Security, Request, Path } from 'tsoa'
@@ -267,10 +266,13 @@ export class DidExpansionController extends Controller {
     return didStore.list()
   }
 
-  /** Verify a published did:web by fetching remote did.json and comparing id */
+  /** Verify a published did:web by fetching remote did.json via agent resolution and comparing id */
   @Get('verify-web/{domain}')
   @Security('jwt', ['tenant'])
-  public async verifyPublishedDidWeb(@Path() domain: string): Promise<any> {
+  public async verifyPublishedDidWeb(
+    @Request() request: ExRequest,
+    @Path() domain: string,
+  ): Promise<any> {
     const norm = domain
       .trim()
       .toLowerCase()
@@ -280,10 +282,11 @@ export class DidExpansionController extends Controller {
     const did = 'did:web:' + methodSpecificId
     const url = `https://${norm}/.well-known/did.json`
     try {
-      const res = await axios.get(url, { timeout: 5000 })
-      const remote = res.data
+      request.logger?.info({ did }, 'Verifying did:web via agent resolution')
+      const result = await request.agent.dids.resolve(did)
+      const remote = result.didDocument
       const match = remote?.id === did
-      return { did, url, match, remote }
+      return { did, url, match, remote, resolutionMetadata: result.didResolutionMetadata }
     } catch (e: any) {
       this.setStatus(502)
       return { did, url, match: false, error: e.message }

@@ -1,4 +1,4 @@
-import type { ServerConfig } from '../src/utils/ServerConfig'
+                        import type { ServerConfig } from '../src/utils/ServerConfig'
 
 import { AgentConfig } from '@credo-ts/core'
 import bodyParser from 'body-parser'

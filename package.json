@@ -37,6 +37,7 @@
     "postinstall": "patch-package",
     "lint": "eslint --config eslint.config.mjs .",
     "validate": "yarn lint && yarn check-types && yarn check-format",
+    "dev:all": "concurrently -k \"yarn dev\" \"(cd credo-ui/waltid-identity/waltid-applications/waltid-web-wallet/apps/waltid-demo-wallet && yarn dev)\"",
     "rebuild": "npm rebuild",
     "seed:models": "tsnd --transpile-only scripts/seed-vc-models.ts"
   },
@@ -46,6 +47,7 @@
     "@credo-ts/askar": "0.5.15",
     "@credo-ts/core": "0.5.15",
     "@credo-ts/node": "^0.5.15",
+    "@credo-ts/openid4vc": "^0.6.0",
     "@credo-ts/push-notifications": "^0.7.1",
     "@credo-ts/question-answer": "0.5.15",
     "@credo-ts/tenants": "0.5.15",
@@ -71,6 +73,7 @@
     "better-sqlite3": "^12.4.1",
     "body-parser": "^2.2.0",
     "bs58": "^6.0.0",
+    "concurrently": "^8.2.0",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",

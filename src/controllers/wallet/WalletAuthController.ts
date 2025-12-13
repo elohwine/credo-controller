@@ -7,10 +7,12 @@ import jwt from 'jsonwebtoken'
 import { Agent, Key, KeyType, TypedArrayEncoder } from '@credo-ts/core'
 import { container } from 'tsyringe'
 import { createWalletUser, getWalletUserByUsername, getWalletUserByEmail, getWalletUserByWalletId, type WalletUser } from '../../persistence/UserRepository'
-import { saveWalletCredential } from '../../persistence/WalletCredentialRepository'
+import { saveWalletCredential, getWalletCredentialsByWalletId } from '../../persistence/WalletCredentialRepository'
 import { saveLoginChallenge, getLoginChallenge, deleteLoginChallenge, cleanupExpiredChallenges } from '../../persistence/LoginChallengeRepository'
 import { UnauthorizedError } from '../../errors/errors'
+import { AgentRole } from '../../enums'
 import type { RestMultiTenantAgentModules } from '../../cliAgent'
+import type { VerifyPresentationRequestBody } from '../../types/api'
 
 interface LoginRequest {
   username?: string
@@ -80,6 +82,9 @@ export class WalletAuthController extends Controller {
       username: user.username,
       email: user.email,
       walletId: user.walletId,
+      // Multi-tenancy fields
+      role: AgentRole.RestTenantAgent,
+      tenantId: user.walletId, // We use the user's walletId field to store the Tenant ID
       iat: Math.floor(Date.now() / 1000),
       exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60), // 30 days
     }
@@ -87,7 +92,7 @@ export class WalletAuthController extends Controller {
   }
 
   @Post('/register')
-  public async register(@Request() request: ExRequest, @Body() body: RegisterRequest): Promise<{ message: string; walletId: string; credential?: string }> {
+  public async register(@Request() request: ExRequest, @Body() body: RegisterRequest): Promise<{ message: string; walletId: string; credential?: string; credentialOffer?: string; credentialOfferDeepLink?: string }> {
     // Check if user exists
     const existing = getWalletUserByUsername(body.username)
     if (existing) {
@@ -98,27 +103,56 @@ export class WalletAuthController extends Controller {
     // Get the base agent
     const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
 
-    // 1. Create user DID (Subject)
-    const didResult = await baseAgent.dids.create({ method: 'key', options: { keyType: KeyType.Ed25519 } })
-    const userDid = didResult.didState.did
-    if (!userDid) {
-      throw new Error('Failed to create user DID')
+    // 1. Create Credo Tenant
+    // We import provisionTenantResources dynamically or assume it's available
+    const { provisionTenantResources } = await import('../../services/TenantProvisioningService')
+
+    // Create the tenant record
+    const tenantRecord = await baseAgent.modules.tenants.createTenant({
+      config: {
+        label: body.username,
+      }
+    })
+
+    // Provision resources (DIDs) for the tenant
+    let issuerDid = '' // This will be the User's DID (Tenant's DID)
+
+    // Determine Base URL
+    const protocol = request.protocol || 'http'
+    const host = request.get('host') || 'localhost:3000'
+    const fallbackBaseUrl = `${protocol}://${host}`
+    const baseUrl = process.env.PUBLIC_BASE_URL || fallbackBaseUrl
+
+    try {
+      const provisioning = await provisionTenantResources({
+        agent: baseAgent,
+        tenantRecord,
+        baseUrl,
+        displayName: body.username
+      })
+      issuerDid = provisioning.issuerDid
+    } catch (e: any) {
+      // Cleanup if provisioning fails
+      await baseAgent.modules.tenants.deleteTenantById(tenantRecord.id)
+      throw new Error(`Failed to provision tenant: ${e.message}`)
     }
 
-    // 2. Get Base Tenant DID (Issuer)
-    // We try to find an existing DID for the base agent to act as the "Platform Issuer"
-    let issuerDid: string | undefined
+    const userDid = issuerDid
+    // Store Tenant ID as walletId
+    const tenantId = tenantRecord.id
+
+    // 2. Get Platform DID (Issuer)
+    let platformIssuerDid: string | undefined
     const createdDids = await baseAgent.dids.getCreatedDids({ method: 'key' })
     if (createdDids.length > 0) {
-      issuerDid = createdDids[0].did
+      platformIssuerDid = createdDids[0].did
     } else {
-      // Create one if none exists (first time setup)
       const issuerDidResult = await baseAgent.dids.create({ method: 'key', options: { keyType: KeyType.Ed25519 } })
-      issuerDid = issuerDidResult.didState.did
+      platformIssuerDid = issuerDidResult.didState.did
     }
 
-    if (!issuerDid) {
-      throw new Error('Failed to determine Issuer DID')
+    if (!platformIssuerDid) {
+      throw new Error('Failed to determine Platform Issuer DID')
     }
 
     // Create user in database
@@ -126,81 +160,52 @@ export class WalletAuthController extends Controller {
       username: body.username,
       email: body.email,
       passwordHash: this.hashPassword(body.password),
-      walletId: userDid,
+      walletId: tenantId, // Using Tenant ID here
     })
 
-    // Issue GenericID VC with PII
-    let credential: string | undefined
+    // Issue GenericID VC Offer (Bootstrap)
+    let credentialOffer: string | undefined
+    let credentialOfferDeepLink: string | undefined
+
     try {
-      const vcId = crypto.randomUUID()
-      const now = Math.floor(Date.now() / 1000)
-      const payload = {
-        jti: vcId,
-        iss: issuerDid, // Signed by Platform
-        sub: userDid,   // Subject is User
-        nbf: now,
-        iat: now,
-        vc: {
-          '@context': ['https://www.w3.org/2018/credentials/v1'],
-          type: ['VerifiableCredential', 'GenericID'],
-          credentialSubject: {
-            id: userDid,
-            name: body.username,
-            email: body.email,
-          },
+      const { credentialIssuanceService } = await import('../../services/CredentialIssuanceService')
+
+      // Determine Base URL
+      const protocol = request.protocol || 'http'
+      const host = request.get('host') || 'localhost:3000'
+      const baseUrl = process.env.PUBLIC_BASE_URL || `${protocol}://${host}`
+
+      const offerResult = await credentialIssuanceService.createOffer({
+        credentialType: 'GenericID',
+        claims: {
+          name: body.username,
+          email: body.email,
+          walletId: tenantId,
+          role: 'member'
         },
-      }
-
-      // Sign the VC with Issuer's Key
-      const resolvedDid = await baseAgent.dids.resolve(issuerDid)
-      if (!resolvedDid.didDocument?.verificationMethod?.length) {
-        throw new Error(`No verification method found for issuer ${issuerDid}`)
-      }
-      const verificationMethod = resolvedDid.didDocument.verificationMethod[0]
-      const publicKeyBase58 = verificationMethod.publicKeyBase58
-      if (!publicKeyBase58) {
-        throw new Error(`No publicKeyBase58 found for issuer ${issuerDid}`)
-      }
-      const key = Key.fromPublicKeyBase58(publicKeyBase58, KeyType.Ed25519)
-      const header = { alg: 'EdDSA', typ: 'JWT', kid: verificationMethod.id }
-      const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url')
-      const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url')
-      const signingInput = `${encodedHeader}.${encodedPayload}`
-
-      // Sign using the base agent's wallet (which holds the issuer key)
-      const sig = await baseAgent.context.wallet.sign({
-        data: TypedArrayEncoder.fromString(signingInput),
-        key,
-      })
-      const signatureB64Url = Buffer.from(sig).toString('base64url')
-      credential = `${signingInput}.${signatureB64Url}`
-
-      request.logger?.info({ userDid, issuerDid, vcId }, 'Issued GenericID VC on signup')
-
-      // Save to Wallet Storage
-      saveWalletCredential({
-        id: crypto.randomUUID(),
-        walletId: userDid,
-        credentialId: vcId,
-        credentialData: credential,
-        issuerDid: issuerDid,
-        type: 'GenericID'
+        subjectDid: issuerDid, // User's DID
+        baseUrl
       })
 
-    } catch (e) {
-      request.logger?.error({ error: (e as Error).message }, 'Failed to issue GenericID VC')
-      // Continue without VC for now, but log error
+      credentialOffer = offerResult.credential_offer_uri
+      credentialOfferDeepLink = offerResult.credential_offer_deeplink
+
+      request.logger?.info({ offerId: offerResult.offerId }, 'Created Bootstrap GenericID Offer')
+
+    } catch (e: any) {
+      console.error('Failed to create Bootstrap Offer:', e)
     }
 
     return {
       message: 'User registered successfully',
-      walletId: userDid,
-      credential
+      walletId: tenantId,
+      credentialOffer,
+      credentialOfferDeepLink
     }
   }
 
   @Post('/login')
-  public async login(@Request() request: ExRequest, @Body() body: LoginRequest): Promise<{ token: string }> {
+  public async login(@Request() request: ExRequest, @Body() body: LoginRequest): Promise<{ token: string; credentialOfferUri?: string }> {
     // Find user by username or email
     let user: WalletUser | null = null
     if (body.username) {
@@ -216,8 +221,175 @@ export class WalletAuthController extends Controller {
 
     const token = await this.generateJwtToken(user)
 
+    // After successful username/password login, check whether this wallet already
+    // has a GenericID verifiable credential. If not, create a pre-authorized
+    // credential offer so the frontend can fetch/accept it.
+    try {
+      const existing = getWalletCredentialsByWalletId(user.walletId)
+      let hasGeneric = false
+      for (const c of existing) {
+        try {
+          const doc = typeof (c as any).credentialData === 'string' ? JSON.parse((c as any).credentialData) : (c as any).credentialData || (c as any).credential_data
+          const types = doc?.vc?.type || doc?.type || doc?.types || []
+          if (Array.isArray(types) && types.includes('GenericID')) {
+            hasGeneric = true
+            break
+          }
+        } catch (e) {
+          // ignore parse errors
+        }
+      }
+
+      if (!hasGeneric) {
+        // Create a pre-authorized offer for this user using unified service
+        const { credentialIssuanceService } = await import('../../services/CredentialIssuanceService')
+
+        const baseUrl = `${request.protocol}://${request.get('host')}`
+        const offerResult = await credentialIssuanceService.createOffer({
+          credentialType: 'GenericID',
+          claims: {
+            name: user.username,
+            email: user.email,
+            walletId: user.walletId,
+          },
+          subjectDid: user.walletId,
+          baseUrl,
+        })
+
+        const credentialOfferUri = offerResult.credential_offer_uri
+        const credentialOfferDeepLink = offerResult.credential_offer_deeplink
+
+        // Expose as response headers
+        try {
+          this.setHeader('x-credential-offer-uri', credentialOfferUri)
+          this.setHeader('x-credential-offer-deeplink', credentialOfferDeepLink)
+        } catch (_) {
+          // fall back silently if setting header is not available
+        }
+
+        request.logger?.info({ credentialOfferUri, credentialOfferDeepLink, offerId: offerResult.offerId }, 'Created pre-authorized credential offer for user login')
+
+        return { token, credentialOfferUri, credentialOfferDeepLink } as any
+      }
+    } catch (e) {
+      request.logger?.error({ err: (e as Error).message }, 'Post-login GenericID offer creation failed')
+    }
+
     return { token }
   }
+
+  /**
+   * Initiate Vc-Based Login (SIOPv2)
+   */
+  @Post('/login-wallet')
+  public async loginWithWallet(@Request() request: ExRequest): Promise<{ authorizationRequest: string; state: string }> {
+    const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
+
+    // Define what we are asking for: The 'GenericID' credential
+    const presentationDefinition = {
+      id: 'LoginRequest',
+      input_descriptors: [
+        {
+          id: 'MemberCredential',
+          name: 'Member Credential',
+          purpose: 'Login to Credo Controller',
+          constraints: {
+            fields: [
+              {
+                path: ['$.type'],
+                filter: {
+                  type: 'array',
+                  contains: { const: 'GenericID' }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+
+    // Create Authorization Request
+    const result = await (baseAgent.modules as any).openId4VcVerifier.createAuthorizationRequest({
+      requestSigner: {
+        method: 'did',
+        did: await (baseAgent.dids as any).getCreatedDids({ method: 'key' }).then((dids: any[]) => dids[0].did)
+      },
+      presentationExchange: {
+        definition: presentationDefinition
+      }
+    })
+
+    return {
+      authorizationRequest: result.authorizationRequest,
+      state: result.authorizationRequest.split('state=')[1]?.split('&')[0] || 'unknown'
+    }
+  }
+
+  /**
+   * Verify VC-Based Login
+   */
+  @Post('/login-wallet/verify')
+  public async verifyWalletLogin(@Request() request: ExRequest, @Body() body: VerifyPresentationRequestBody): Promise<{ token: string }> {
+    const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
+
+    try {
+      const verificationResult = await (baseAgent.modules as any).openId4VcVerifier.verifyAuthorizationResponse({
+        authorizationResponse: {
+          vp_token: body.verifiablePresentation,
+          presentation_submission: body.presentationSubmission,
+          state: body.requestId // Frontend sends state as requestId
+        }
+      })
+
+      if (!verificationResult.isVerified) {
+        throw new UnauthorizedError(`Verification failed: ${verificationResult.error?.message}`)
+      }
+
+      // Extract Tenant ID from the presented credential
+      // We expect the 'GenericID' to contain the 'walletId' or 'sub' mapping to tenant.
+      // Simplification: Parse the VP payload manually to find the credential
+      const vp = verificationResult.presentation
+      const vc = Array.isArray(vp.verifiableCredential) ? vp.verifiableCredential[0] : vp.verifiableCredential
+
+      // Decode VC if it's a JWT
+      // For now, assuming we trust the verification, we need to deserialize the credential data
+      // But 'presentation' object in Credo result is the W3C model.
+
+      // Hack: we need the claim 'walletId' or 'sub'. 
+      // If expecting 'GenericID' format we issued:
+      const credentialSubject = (vc as any).credentialSubject
+      const walletId = credentialSubject.id // In our issue logic, sub/id was the User DID. 
+      // Wait, in 'register', we set `walletId: tenantId` in the DB, and `sub: userDid` in the VC.
+      // And we saved it to `WalletCredentialRepository`.
+      // We need a way to look up the User/Tenant by the DID presented.
+
+      // Ideally the VC has a claim 'walletId'.
+      // In 'register', we didn't explicitly check if 'GenericID' scheme has 'walletId'. 
+      // Let's modify 'register' to include 'walletId' in claims if not there.
+      // Re-checking register: claims: { name, email, walletId, role }. YES.
+
+      const tenantId = credentialSubject.walletId
+      if (!tenantId) {
+        throw new Error('Credential missing walletId claim')
+      }
+
+      // Generate Session Token
+      const secret = await this.getJwtSecret()
+      const token = jwt.sign({
+        walletId: tenantId,
+        role: 'member',
+        tenantId: tenantId,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60)
+      }, secret)
+
+      return { token }
+
+    } catch (e: any) {
+      throw new UnauthorizedError(`Login Failed: ${e.message}`)
+    }
+  }
+
 
   @Get('/session')
   public async getSession(@Request() request: ExRequest): Promise<SessionResponse> {
@@ -241,41 +413,6 @@ export class WalletAuthController extends Controller {
         username: user.username,
         email: user.email,
         walletId: user.walletId
-      }
-    } catch (error) {
-      throw new UnauthorizedError('Invalid token')
-    }
-  }
-
-  @Get('/accounts/wallets')
-  public async getWallets(@Request() request: ExRequest): Promise<WalletListings> {
-    const authHeader = request.headers.authorization
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new UnauthorizedError('No token provided')
-    }
-
-    const token = authHeader.substring(7) // Remove 'Bearer ' prefix
-    const secret = await this.getJwtSecret()
-
-    try {
-      const decoded = jwt.verify(token, secret) as any
-      const user = getWalletUserByWalletId(decoded.walletId)
-      if (!user) {
-        throw new UnauthorizedError('User not found')
-      }
-
-      // Return user's wallet information
-      const wallet: WalletListing = {
-        id: user.walletId,
-        name: `${user.username}'s Wallet`,
-        createdOn: user.createdAt,
-        addedOn: user.createdAt,
-        permission: 'owner'
-      }
-
-      return {
-        account: user.username,
-        wallets: [wallet]
       }
     } catch (error) {
       throw new UnauthorizedError('Invalid token')

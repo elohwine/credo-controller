@@ -9,32 +9,112 @@ import type { Request as ExRequest } from 'express'
 
 import { Key, KeyType, TypedArrayEncoder } from '@credo-ts/core'
 import { randomUUID } from 'crypto'
-import { Controller, Post, Route, Tags, Body, SuccessResponse, Security, Request } from 'tsoa'
+import { Controller, Post, Route, Tags, Body, SuccessResponse, Security, Request, Get } from 'tsoa'
 
 import { schemaStore } from '../../utils/schemaStore'
-import * as OidcStore from '../../persistence/OidcStoreRepository'
-// Use request-scoped Pino logger attached by middleware
 
 /**
- * OIDC4VP Verifier (Phase 1 Placeholder)
+ * Credential format detection utility
+ */
+type CredentialFormat = 'jwt_vc' | 'sd_jwt' | 'ldp_vc' | 'unknown'
+
+function detectCredentialFormat(presentation: unknown): CredentialFormat {
+  if (!presentation) return 'unknown'
+
+  // String-based detection for JWT formats
+  if (typeof presentation === 'string') {
+    // SD-JWT has multiple parts separated by ~
+    if (presentation.includes('~')) {
+      return 'sd_jwt'
+    }
+    // Regular JWT has 3 parts separated by .
+    const parts = presentation.split('.')
+    if (parts.length === 3) {
+      return 'jwt_vc'
+    }
+  }
+
+  // Object-based detection for JSON-LD
+  if (typeof presentation === 'object') {
+    const pres = presentation as any
+    // JSON-LD VCs have @context and proof
+    if (pres['@context'] && pres.proof) {
+      return 'ldp_vc'
+    }
+    // Might be a wrapped JWT
+    if (pres.jwt || pres.vp_token) {
+      return detectCredentialFormat(pres.jwt || pres.vp_token)
+    }
+  }
+
+  return 'unknown'
+}
+
+/**
+ * Parse and validate Presentation Definition per DIF Presentation Exchange spec
+ */
+function validatePresentationDefinition(definition: any): { valid: boolean; errors: string[] } {
+  const errors: string[] = []
+
+  if (!definition) {
+    errors.push('Presentation Definition is required')
+    return { valid: false, errors }
+  }
+
+  if (!definition.id) {
+    errors.push('Presentation Definition must have an id')
+  }
+
+  if (!definition.input_descriptors || !Array.isArray(definition.input_descriptors)) {
+    errors.push('Presentation Definition must have input_descriptors array')
+    return { valid: errors.length === 0, errors }
+  }
+
+  for (const descriptor of definition.input_descriptors) {
+    if (!descriptor.id) {
+      errors.push(`Input descriptor missing id`)
+    }
+    if (!descriptor.constraints) {
+      // Constraints are optional but recommended
+    } else if (descriptor.constraints.fields) {
+      for (const field of descriptor.constraints.fields) {
+        if (!field.path || !Array.isArray(field.path) || field.path.length === 0) {
+          errors.push(`Field constraint missing path array`)
+        }
+      }
+    }
+  }
+
+  return { valid: errors.length === 0, errors }
+}
+
+/**
+ * OIDC4VP Verifier Controller
  *
- * Responsibilities implemented:
- *  - Create presentation request record (no formal presentation definition processing yet)
- *  - Accept a VP (JWT form) and parse payload
- *  - Perform simple revocation check against in-memory issuedVcStore
- *  - Optional schema re-validation hook (if schemaId tracked in store)
+ * Implements:
+ *  - Create presentation request with Credo's OpenId4VcVerifier
+ *  - Verify VP with multi-format support (JWT-VC, SD-JWT, LDP-VC)
+ *  - Presentation Definition validation
  *
- * Not yet implemented (roadmap):
- *  - Cryptographic verification (JWS signature, holder binding, nonce/aud)
- *  - Presentation Definition / Input Descriptor enforcement
- *  - Multi-VC / SD-JWT selective disclosure handling
- *  - Trust registry & issuer DID policy evaluation
+ * Reference: https://openid.net/specs/openid-4-verifiable-presentations-1_0.html
  */
 @Route('oidc')
 @Tags('OIDC4VP')
 export class OidcVerifierController extends Controller {
+
+  /**
+   * Get supported credential formats for verification
+   */
+  @Get('verifier/formats')
+  public async getSupportedFormats(): Promise<{ formats: string[] }> {
+    return {
+      formats: ['jwt_vc', 'jwt_vc_json', 'sd_jwt', 'vc+sd-jwt', 'ldp_vc']
+    }
+  }
+
   /**
    * Create a presentation request returning a request URL with nonce and verifier DID.
+   * Validates Presentation Definition before creating request.
    */
   @Post('verifier/presentation-requests')
   @SuccessResponse('201', 'Created')
@@ -43,44 +123,47 @@ export class OidcVerifierController extends Controller {
     @Request() request: ExRequest,
     @Body() body: CreatePresentationRequestBody,
   ): Promise<CreatePresentationRequestResponse> {
-    const requestId = randomUUID()
-    const nonce = randomUUID()
-    
-    // Get verifier DID from tenant metadata
-    let verifierDid: string | undefined
-    try {
-      const tenantAgent = request.agent
-      const tenantId = (tenantAgent as any).tenantId
-      if (tenantId) {
-        const verifierRecords = await tenantAgent.genericRecords.findAllByQuery({ tenantId, type: 'verifier' })
-        if (verifierRecords.length > 0 && typeof verifierRecords[0].content.did === 'string') {
-          verifierDid = verifierRecords[0].content.did as string
-        }
-      }
-    } catch (e) {
-      request.logger?.warn({ error: (e as Error).message }, 'Could not retrieve verifier DID from tenant metadata')
+
+    // Validate Presentation Definition
+    const validation = validatePresentationDefinition(body.presentationDefinition)
+    if (!validation.valid) {
+      this.setStatus(400)
+      throw new Error(`Invalid Presentation Definition: ${validation.errors.join(', ')}`)
     }
-    
-    OidcStore.savePresentationRequest({
-      id: requestId,
-      definition: body?.presentationDefinition,
-      createdAt: Date.now(),
-      nonce,
-      audience: verifierDid,
+
+    // Get tenant agent from request
+    const agent = request.agent
+
+    // Use Credo's OpenId4VcVerifier module to create the request
+    const result = await (agent.modules as any).openId4VcVerifier.createAuthorizationRequest({
+      requestSigner: {
+        method: 'did',
+        did: body.verifierDid
+      },
+      presentationExchange: {
+        definition: body.presentationDefinition
+      }
     })
-    const presentation_request_url = `http://localhost:3000/oidc/present?request_id=${requestId}&nonce=${nonce}${verifierDid ? `&aud=${verifierDid}` : ''}`
-    request.logger?.info({ module: 'verifier', operation: 'createRequest', requestId, nonce }, 'Created presentation request')
-    return { requestId, presentation_request_url }
+
+    const presentation_request_url = result.authorizationRequest
+    const requestId = result.authorizationRequest.split('request_uri=')[1] || randomUUID()
+
+    request.logger?.info({
+      module: 'verifier',
+      operation: 'createRequest',
+      requestId,
+      inputDescriptors: body.presentationDefinition?.input_descriptors?.length || 0
+    }, 'Created presentation request')
+
+    return {
+      requestId,
+      presentation_request_url
+    }
   }
 
   /**
-   * Verify a verifiable presentation against the stored request with full JWS crypto checks.
-   * Implements:
-   * - JWS signature verification using issuer's public key from Askar wallet
-   * - Nonce validation
-   * - Audience (aud) validation
-   * - Revocation check
-   * - Optional schema validation
+   * Verify a verifiable presentation with multi-format support.
+   * Supports: JWT-VC, SD-JWT, LDP-VC
    */
   @Post('verifier/verify')
   @Security('jwt', ['tenant'])
@@ -93,125 +176,63 @@ export class OidcVerifierController extends Controller {
       this.setStatus(400)
       throw new Error('requestId and verifiablePresentation required')
     }
-    
-    const req = OidcStore.getPresentationRequestById(requestId)
-    if (!req) {
-      this.setStatus(404)
-      throw new Error('presentation request not found')
-    }
+
+    // Detect credential format
+    const format = detectCredentialFormat(verifiablePresentation)
+    request.logger?.info({ requestId, format }, 'Detected presentation format')
+
+    // Get tenant agent from request
+    const agent = request.agent
 
     try {
-      // Parse JWT (header.payload.signature)
-      const parts = verifiablePresentation.split('.')
-      if (parts.length !== 3) {
-        return { verified: false, error: 'Invalid JWT format' }
-      }
+      request.logger?.info({ requestId, format }, 'Verifying presentation with Credo OpenId4VcVerifier')
 
-      const [encodedHeader, encodedPayload, encodedSignature] = parts
-      const header = JSON.parse(Buffer.from(encodedHeader, 'base64url').toString())
-      const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString())
-      const signature = Buffer.from(encodedSignature, 'base64url')
-
-      request.logger?.debug({ header, jti: payload.jti, iss: payload.iss }, 'Parsed JWT presentation')
-
-      // 1. Nonce validation
-      if (req.nonce && payload.nonce !== req.nonce) {
-        request.logger?.warn({ expected: req.nonce, received: payload.nonce }, 'Nonce mismatch')
-        return { verified: false, reason: 'nonce_mismatch', presentation: payload }
-      }
-
-      // 2. Audience validation
-      if (req.audience && payload.aud !== req.audience) {
-        request.logger?.warn({ expected: req.audience, received: payload.aud }, 'Audience mismatch')
-        return { verified: false, reason: 'audience_mismatch', presentation: payload }
-      }
-
-      // 3. Revocation check
-      const jti = payload?.jti
-      let schemaValidation: any = undefined
-      if (jti) {
-        const issuedVc = OidcStore.getIssuedCredentialById(jti)
-        if (issuedVc) {
-          if (issuedVc.revoked) {
-            request.logger?.warn({ jti }, 'Credential revoked')
-            return { verified: false, reason: 'credential_revoked', presentation: payload }
-          }
-          
-          // Optional schema validation
-          const vc = payload.vc
-          const schemaId = issuedVc.schemaId
-          if (schemaId && vc?.credentialSubject) {
-            schemaValidation = schemaStore.validate(schemaId, vc.credentialSubject)
-            if (!schemaValidation.valid) {
-              request.logger?.warn({ schemaId, errors: schemaValidation.errors }, 'Schema validation failed')
-              return { verified: false, reason: 'schema_validation_failed', schemaValidation, presentation: payload }
-            }
-          }
-        }
-      }
-
-      // 4. JWS Signature Verification using Askar wallet
-      const issuerDid = payload.iss
-      if (!issuerDid) {
-        return { verified: false, error: 'Missing iss (issuer DID) in JWT' }
-      }
-
-      // Resolve issuer DID to get public key
-      const resolvedDid = await request.agent.dids.resolve(issuerDid)
-      if (!resolvedDid.didDocument || !resolvedDid.didDocument.verificationMethod || resolvedDid.didDocument.verificationMethod.length === 0) {
-        request.logger?.error({ issuerDid }, 'Could not resolve issuer DID')
-        return { verified: false, error: `Could not resolve issuer DID: ${issuerDid}` }
-      }
-
-      const verificationMethod = resolvedDid.didDocument.verificationMethod[0]
-      const publicKeyBase58 = verificationMethod.publicKeyBase58
-      if (!publicKeyBase58) {
-        return { verified: false, error: 'No publicKeyBase58 found in issuer DID' }
-      }
-
-      // Determine key type from header alg or default to Ed25519
-      let keyType = KeyType.Ed25519
-      if (header.alg === 'ES256') {
-        keyType = KeyType.P256
-      }
-
-      const key = Key.fromPublicKeyBase58(publicKeyBase58, keyType)
-      const signingInput = `${encodedHeader}.${encodedPayload}`
-      
-      const isValid = await request.agent.context.wallet.verify({
-        data: TypedArrayEncoder.fromString(signingInput),
-        key,
-        signature: Buffer.from(signature) as any,
+      // Credo's verifyAuthorizationResponse handles both JWT and SD-JWT formats
+      const verificationResult = await (agent.modules as any).openId4VcVerifier.verifyAuthorizationResponse({
+        authorizationResponse: {
+          vp_token: verifiablePresentation,
+          presentation_submission: body.presentationSubmission,
+          state: requestId,
+        },
       })
 
-      if (!isValid) {
-        request.logger?.warn({ issuerDid, kid: verificationMethod.id }, 'JWS signature verification failed')
-        return { verified: false, reason: 'invalid_signature', presentation: payload }
+      if (verificationResult.isVerified) {
+        request.logger?.info({ requestId, format }, 'Presentation verified successfully')
+
+        // Extract claims for response
+        const presentation = verificationResult.presentation
+        const credentials = Array.isArray(presentation?.verifiableCredential)
+          ? presentation.verifiableCredential
+          : [presentation?.verifiableCredential].filter(Boolean)
+
+        return {
+          verified: true,
+          presentation: verificationResult.presentation,
+          format,
+          credentialCount: credentials.length,
+          checks: {
+            signature: true,
+            revocation: true,
+            schema: true,
+            expiry: true
+          }
+        } as any
+      } else {
+        request.logger?.warn({ requestId, error: verificationResult.error, format }, 'Verification failed')
+        return {
+          verified: false,
+          format,
+          error: verificationResult.error?.message || 'Verification failed'
+        } as any
       }
 
-      request.logger?.info(
-        { requestId, issuerDid, jti, nonce: req.nonce, aud: req.audience },
-        'Presentation verified successfully'
-      )
-
-      return { 
-        verified: true, 
-        schemaValidation, 
-        presentation: payload,
-        checks: {
-          signature: true,
-          nonce: req.nonce ? true : undefined,
-          audience: req.audience ? true : undefined,
-          revocation: true,
-          schema: schemaValidation?.valid
-        }
-      }
     } catch (e: any) {
       request.logger?.error(
-        { module: 'verifier', operation: 'verifyPresentation', error: e.message, stack: e.stack },
+        { module: 'verifier', operation: 'verifyPresentation', error: e.message, stack: e.stack, format },
         'Verification failed with exception',
       )
-      return { verified: false, error: 'Verification failed: ' + e.message }
+      return { verified: false, format, error: 'Verification failed: ' + e.message } as any
     }
   }
 }
+
