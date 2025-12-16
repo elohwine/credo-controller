@@ -21,8 +21,11 @@ export async function usePresentation(query: any) {
         },
       );
       return response;
-    } catch (e) {
+    } catch (e: any) {
       failed.value = true;
+      const errorMsg = e?.data?.message || e?.data?.details || e?.message || 'Failed to resolve presentation request';
+      failMessage.value = errorMsg;
+      console.error('[Presentation] Resolve request failed:', errorMsg);
       throw e;
     }
   }
@@ -158,6 +161,9 @@ export async function usePresentation(query: any) {
         redirectUri: string | null | undefined;
         errorMessage: string;
       } = await response.json();
+      failMessage.value = error.message || error.errorMessage || 'Presentation failed';
+      console.error('[Presentation] Accept failed:', failMessage.value);
+      // Error will be shown by global handler
       failMessage.value = error.message;
 
       console.log("Error response: " + JSON.stringify(error));

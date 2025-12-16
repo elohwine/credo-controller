@@ -7,7 +7,7 @@
                 "./src/*"
             ],
             "@credentis-web-wallet/*": [
-                "../../libs/*"
+                "./libs/*"
             ]
         },
         "allowImportingTsExtensions": true

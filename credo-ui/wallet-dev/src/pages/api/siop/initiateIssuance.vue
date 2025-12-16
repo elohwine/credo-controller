@@ -10,10 +10,10 @@
 </template>
 
 <script lang="ts" setup>
-import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
-import LoadingIndicator from "@waltid-web-wallet/components/loading/LoadingIndicator.vue";
-import WalletListing from "@waltid-web-wallet/components/wallets/WalletListing.vue";
-import {listWallets, setWallet, type WalletListing as WalletListingType} from "@waltid-web-wallet/composables/accountWallet.ts";
+import CenterMain from "@credentis-web-wallet/components/CenterMain.vue";
+import LoadingIndicator from "@credentis-web-wallet/components/loading/LoadingIndicator.vue";
+import WalletListing from "@credentis-web-wallet/components/wallets/WalletListing.vue";
+import {listWallets, setWallet, type WalletListing as WalletListingType} from "@credentis-web-wallet/composables/accountWallet.ts";
 
 const queryRequest = new URL("http://example.invalid" + useRoute().fullPath)
   .search; // new URL(window.location.href).search

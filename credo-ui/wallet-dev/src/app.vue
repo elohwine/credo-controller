@@ -12,6 +12,7 @@
     >
       <!-- dark:bg-gray-900 dark:text-gray-200 -->
       <ModalBase />
+      <NotificationContainer />
       <VitePwaManifest />
       <NuxtLoadingIndicator />
       <!--            {{ tenant }}-->
@@ -25,8 +26,9 @@
 <script lang="ts" setup>
 import "@unocss/reset/tailwind-compat.css";
 import "uno.css";
-import {useTenant} from "@waltid-web-wallet/composables/tenants.ts";
-import ModalBase from "@waltid-web-wallet/components/modals/ModalBase.vue";
+import {useTenant} from "@credentis-web-wallet/composables/tenants.ts";
+import ModalBase from "@credentis-web-wallet/components/modals/ModalBase.vue";
+import NotificationContainer from "@credentis-web-wallet/components/NotificationContainer.vue";
 
 const { status } = useAuth();
 const route = useRoute()

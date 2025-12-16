@@ -1,0 +1,90 @@
+[90m2025-12-16 13:40:10.232  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   TenantsModule.register][39m The '@credo-ts/tenants' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-16 13:40:10.244  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   OpenId4VcIssuerModule.register][39m The '@credo-ts/openid4vc' Issuer module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-16 13:40:10.249  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   OpenId4VcVerifierModule.register][39m The '@credo-ts/openid4vc' Verifier module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-16 13:40:10.251  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   OpenId4VcHolderModule.register][39m The '@credo-ts/openid4vc' Holder module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-16 13:40:10.261  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   DifPresentationExchangeModule.register][39m The 'DifPresentationExchangeModule' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-16 13:40:10.264  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   SdJwtVcModule.register][39m The 'SdJwtVc' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-16 13:40:10.267  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   X509Module.register][39m The 'X509' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-16 13:40:10.268  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   MdocModule.register][39m The 'Mdoc' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-16 13:40:10.273  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   undefined.constructor][39m Creating agent with config 
+{
+  [37magentConfig[39m: {
+    [37mwalletConfig[39m: {
+      [37mid[39m: [31m'sample-wallet'[39m,
+      [37mkey[39m: [31m'[*****]'[39m,
+      [37mstorage[39m: {
+        [37mcredentials[39m: [31mundefined[39m
+      }
+    },
+    [37mlabel[39m: [31m'Multi-Tenant Test Agent'[39m,
+    [37mendpoints[39m: [
+      [31m'http://127.0.0.1:3001'[39m
+    ],
+    [37mlogger[39m: [32m3[39m,
+    [37mautoUpdateStorageOnStartup[39m: [33mtrue[39m,
+    [37mbackupBeforeStorageUpdate[39m: [33mfalse[39m,
+    [37magentDependencies[39m: [33mtrue[39m
+  }
+}
+[90m2025-12-16 13:40:10.300  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   WalletApi.initialize][39m Initializing wallet 'sample-wallet' 
+{
+  [37mid[39m: [31m'sample-wallet'[39m,
+  [37mkey[39m: [31m'[*****]'[39m,
+  [37mstorage[39m: {
+    [37mcredentials[39m: [31mundefined[39m
+  }
+}
+[2025-12-16 15:40:09.828 +0200] [32mINFO[39m: [36mRegistered action: finance.calculate_invoice[39m
+    service: "credo-controller"
+    module: "ActionRegistry"
+[2025-12-16 15:40:09.829 +0200] [32mINFO[39m: [36mRegistered action: credential.issue[39m
+    service: "credo-controller"
+    module: "ActionRegistry"
+[2025-12-16 15:40:09.829 +0200] [32mINFO[39m: [36mRegistered action: external.fetch[39m
+    service: "credo-controller"
+    module: "ActionRegistry"
+[2025-12-16 15:40:09.829 +0200] [32mINFO[39m: [36mRegistered action: external.ecocash_payment[39m
+    service: "credo-controller"
+    module: "ActionRegistry"
+[2025-12-16 15:40:10.235 +0200] [33mWARN[39m: [36mThe '@credo-ts/tenants' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-16 15:40:10.246 +0200] [33mWARN[39m: [36mThe '@credo-ts/openid4vc' Issuer module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-16 15:40:10.250 +0200] [33mWARN[39m: [36mThe '@credo-ts/openid4vc' Verifier module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-16 15:40:10.252 +0200] [33mWARN[39m: [36mThe '@credo-ts/openid4vc' Holder module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-16 15:40:10.262 +0200] [33mWARN[39m: [36mThe 'DifPresentationExchangeModule' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-16 15:40:10.265 +0200] [33mWARN[39m: [36mThe 'SdJwtVc' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-16 15:40:10.267 +0200] [33mWARN[39m: [36mThe 'X509' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-16 15:40:10.269 +0200] [33mWARN[39m: [36mThe 'Mdoc' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-16 15:40:10.277 +0200] [32mINFO[39m: [36mCreating agent with config[39m
+    service: "credo-controller"
+    agentConfig: {
+      "walletConfig": {
+        "id": "sample-wallet",
+        "key": "[*****]",
+        "storage": {}
+      },
+      "label": "Multi-Tenant Test Agent",
+      "endpoints": [
+        "http://127.0.0.1:3001"
+      ],
+      "logger": 3,
+      "autoUpdateStorageOnStartup": true,
+      "backupBeforeStorageUpdate": false,
+      "agentDependencies": true
+    }
+[2025-12-16 15:40:10.302 +0200] [32mINFO[39m: [36mInitializing wallet 'sample-wallet'[39m
+    service: "credo-controller"
+    id: "sample-wallet"
+    key: "[*****]"
+    storage: {}
+[90m2025-12-16 13:40:11.849  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   initialize][39m Agent storage is up to date. 
+[2025-12-16 15:40:11.849 +0200] [32mINFO[39m: [36mAgent storage is up to date.[39m
+    service: "credo-controller"
+{"stack":"Error: connect ECONNREFUSED 127.0.0.1:4318\n    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)","message":"connect ECONNREFUSED 127.0.0.1:4318","errno":"-111","code":"ECONNREFUSED","syscall":"connect","address":"127.0.0.1","port":"4318","name":"Error","toJSON":"function () {\n                    return Object.getOwnPropertyNames(this).reduce((alt, key) => {\n                        alt[key] = this[key];\n                        return alt;\n                    }, {});\n                }"}

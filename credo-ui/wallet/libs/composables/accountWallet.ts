@@ -20,14 +20,26 @@ export async function listWallets() {
     // The cookie name is 'auth.token' as configured in nuxt.config.ts
     const tokenCookie = useCookie('auth.token')
 
-    const { data, refresh } = useFetch<WalletListings>("/wallet-api/accounts/wallets", {
-        headers: {
-            // Include the Bearer token from the cookie
-            Authorization: tokenCookie.value ? `Bearer ${tokenCookie.value}` : ''
+    try {
+        const { data, refresh, error } = useFetch<WalletListings>("/wallet-api/accounts/wallets", {
+            headers: {
+                // Include the Bearer token from the cookie
+                Authorization: tokenCookie.value ? `Bearer ${tokenCookie.value}` : ''
+            }
+        });
+        await refresh()
+        
+        if (error.value) {
+            console.error('Failed to list wallets:', error.value)
+            // Error notification will be shown by global error handler
         }
-    });
-    await refresh()
-    return data;
+        
+        return data;
+    } catch (error) {
+        console.error('Exception listing wallets:', error)
+        // Global error handler will show notification
+        throw error
+    }
 }
 
 export function setWallet(

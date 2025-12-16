@@ -56,10 +56,10 @@
 </template>
 
 <script setup>
-import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
-import WalletPageHeader from "@waltid-web-wallet/components/WalletPageHeader.vue";
-import {listWallets, setWallet} from "@waltid-web-wallet/composables/accountWallet.ts";
-import LoadingIndicator from "@waltid-web-wallet/components/loading/LoadingIndicator.vue";
+import CenterMain from "@credentis-web-wallet/components/CenterMain.vue";
+import WalletPageHeader from "@credentis-web-wallet/components/WalletPageHeader.vue";
+import {listWallets, setWallet} from "@credentis-web-wallet/composables/accountWallet.ts";
+import LoadingIndicator from "@credentis-web-wallet/components/loading/LoadingIndicator.vue";
 
 const config = useRuntimeConfig();
 

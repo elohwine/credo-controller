@@ -1,11 +1,11 @@
-import {defineNuxtConfig} from "nuxt/config";
+import { defineNuxtConfig } from "nuxt/config";
 import presetIcons from "@unocss/preset-icons";
 import path from "path";
 
 export default defineNuxtConfig({
-    devtools: {enabled: true},
+    devtools: { enabled: true },
     srcDir: "src",
-    
+
     // Configure dev server to use port 4000
     devServer: {
         port: 4000,
@@ -14,7 +14,7 @@ export default defineNuxtConfig({
 
     modules: [
         "@vueuse/nuxt",
-        ["@unocss/nuxt", {autoImport: false}],
+        ["@unocss/nuxt", { autoImport: false }],
         "@nuxtjs/i18n",
         "@nuxtjs/color-mode",
         "@vite-pwa/nuxt",
@@ -49,9 +49,9 @@ export default defineNuxtConfig({
                     method: 'post'
                 },
 
-                signOut: {path: '/logout', method: 'post'},
-                signUp: {path: '/register', method: 'post'},
-                getSession: {path: '/session', method: 'get'},
+                signOut: { path: '/logout', method: 'post' },
+                signUp: { path: '/register', method: 'post' },
+                getSession: { path: '/session', method: 'get' },
             },
 
             pages: {
@@ -72,7 +72,7 @@ export default defineNuxtConfig({
 
         strategies: "injectManifest",
         injectRegister: "script",
-        injectManifest: {injectionPoint: undefined},
+        injectManifest: { injectionPoint: undefined },
         registerType: "autoUpdate",
         // notification-worker.js
         manifest: {
@@ -182,13 +182,13 @@ export default defineNuxtConfig({
         logLevel: "info",
         resolve: {
             alias: {
-                "@credentis-web-wallet": path.resolve(__dirname, "../../libs"),
+                "@credentis-web-wallet": path.resolve(__dirname, "./libs"),
             }
         },
         server: {
             proxy: {
                 '/wallet-api': {
-                    target: 'http://localhost:3000',
+                    target: 'http://localhost:6000',
                     changeOrigin: true,
                     // rewrite to backend route prefix
                     rewrite: (p: string) => p.replace(/^\/wallet-api/, '/api/wallet')
@@ -213,7 +213,7 @@ export default defineNuxtConfig({
         },
         devProxy: {
             '/wallet-api': {
-                target: 'http://localhost:3000',
+                target: 'http://localhost:6000',
                 changeOrigin: true,
                 // Nitro/devProxy accepts `rewrite` or `pathRewrite` depending on version.
                 // Support both to maximize compatibility.

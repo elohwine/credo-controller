@@ -106,10 +106,10 @@
 </template>
 
 <script setup>
-import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
-import {groupBy} from "@waltid-web-wallet/composables/groupings.ts";
-import {useCurrentWallet} from "@waltid-web-wallet/composables/accountWallet.ts";
-import LoadingIndicator from "@waltid-web-wallet/components/loading/LoadingIndicator.vue";
+import CenterMain from "@credentis-web-wallet/components/CenterMain.vue";
+import {groupBy} from "@credentis-web-wallet/composables/groupings.ts";
+import {useCurrentWallet} from "@credentis-web-wallet/composables/accountWallet.ts";
+import LoadingIndicator from "@credentis-web-wallet/components/loading/LoadingIndicator.vue";
 
 const groupedHistoryElements = ref({});
 

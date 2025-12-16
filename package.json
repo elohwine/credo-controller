@@ -47,7 +47,7 @@
     "@credo-ts/askar": "0.5.15",
     "@credo-ts/core": "0.5.15",
     "@credo-ts/node": "^0.5.15",
-    "@credo-ts/openid4vc": "^0.6.0",
+    "@credo-ts/openid4vc": "0.5.15",
     "@credo-ts/push-notifications": "^0.7.1",
     "@credo-ts/question-answer": "0.5.15",
     "@credo-ts/tenants": "0.5.15",

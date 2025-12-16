@@ -358,8 +358,8 @@
 </template>
 
 <script lang="ts" setup>
-import LoginMethodView from "@waltid-web-wallet/components/login/LoginMethodView.vue";
-import InlineLoadingCircle from "@waltid-web-wallet/components/loading/InlineLoadingCircle.vue";
+import LoginMethodView from "@credentis-web-wallet/components/login/LoginMethodView.vue";
+import InlineLoadingCircle from "@credentis-web-wallet/components/loading/InlineLoadingCircle.vue";
 
 import {useElementHover} from "@vueuse/core";
 import {create, parseCreationOptionsFromJSON} from "@github/webauthn-json/browser-ponyfill";

@@ -496,6 +496,7 @@
 import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot} from "@headlessui/vue";
 import {ExclamationCircleIcon, XMarkIcon} from "@heroicons/vue/24/outline";
 import {useTenant} from "@credentis-web-wallet/composables/tenants.ts";
+import {useNotifications} from "@credentis-web-wallet/composables/notifications.ts";
 
 const tenant = (await useTenant().value) as any;
 const { logoImage } = tenant;
@@ -516,6 +517,9 @@ async function register() {
     email: emailInput,
     password: passwordInput,
   };
+  
+  const { success: showSuccess, error: showError } = useNotifications();
+  
   await $fetch("/wallet-api/auth/register", {
     method: "POST",
     body: user,
@@ -523,14 +527,17 @@ async function register() {
     .then((response) => {
       success.value = true;
       isProgress.value = false;
+      showSuccess('Registration successful! Welcome to IdenEx Credentis');
       navigateTo("/");
     })
     .catch((err) => {
       isProgress.value = false;
+      const errorMsg = err.data?.cause ?? err.data?.message ?? "Registration failed";
       error.value = {
         isError: true,
-        message: err.data.cause ?? err.data.message ?? "An error occurred",
+        message: errorMsg,
       };
+      showError(errorMsg);
     });
 }
 

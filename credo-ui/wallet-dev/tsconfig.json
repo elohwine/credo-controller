@@ -6,8 +6,8 @@
             "~/*": [
                 "./src/*"
             ],
-            "@waltid-web-wallet/*": [
-                "../../libs/*"
+            "@credentis-web-wallet/*": [
+                "./libs/*"
             ]
         },
         "allowImportingTsExtensions": true

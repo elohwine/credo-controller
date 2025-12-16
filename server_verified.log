@@ -1,0 +1,387 @@
+[90m2025-12-15 00:07:00.434  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   TenantsModule.register][39m The '@credo-ts/tenants' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-15 00:07:00.443  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   OpenId4VcIssuerModule.register][39m The '@credo-ts/openid4vc' Issuer module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-15 00:07:00.447  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   OpenId4VcVerifierModule.register][39m The '@credo-ts/openid4vc' Verifier module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-15 00:07:00.450  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   OpenId4VcHolderModule.register][39m The '@credo-ts/openid4vc' Holder module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-15 00:07:00.456  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   DifPresentationExchangeModule.register][39m The 'DifPresentationExchangeModule' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-15 00:07:00.458  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   SdJwtVcModule.register][39m The 'SdJwtVc' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-15 00:07:00.459  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   X509Module.register][39m The 'X509' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-15 00:07:00.461  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   MdocModule.register][39m The 'Mdoc' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-15 00:07:00.468  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   undefined.constructor][39m Creating agent with config 
+{
+  [37magentConfig[39m: {
+    [37mwalletConfig[39m: {
+      [37mid[39m: [31m'sample-wallet'[39m,
+      [37mkey[39m: [31m'[*****]'[39m,
+      [37mstorage[39m: {
+        [37mcredentials[39m: [31mundefined[39m
+      }
+    },
+    [37mlabel[39m: [31m'Multi-Tenant Test Agent'[39m,
+    [37mendpoints[39m: [
+      [31m'http://127.0.0.1:3001'[39m
+    ],
+    [37mlogger[39m: [32m3[39m,
+    [37mautoUpdateStorageOnStartup[39m: [33mtrue[39m,
+    [37mbackupBeforeStorageUpdate[39m: [33mfalse[39m,
+    [37magentDependencies[39m: [33mtrue[39m
+  }
+}
+[90m2025-12-15 00:07:00.489  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   WalletApi.initialize][39m Initializing wallet 'sample-wallet' 
+{
+  [37mid[39m: [31m'sample-wallet'[39m,
+  [37mkey[39m: [31m'[*****]'[39m,
+  [37mstorage[39m: {
+    [37mcredentials[39m: [31mundefined[39m
+  }
+}
+[90m2025-12-15 00:07:01.240  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   initialize][39m Agent storage is up to date. 
+✅ Agent initialized
+ℹ️ Found existing issuer: c8b0806e-54c0-485c-8969-06e343b056d0
+ℹ️ CURRENT Config: [{"format":"jwt_vc","id":"GenericIDCredential","cryptographic_binding_methods_supported":["did:key","did:web"],"cryptographic_suites_supported":["EdDSA"],"types":["VerifiableCredential","GenericIDCredential"]}]
+✅ UPDATED Config: [{"format":"jwt_vc","id":"GenericIDCredential","cryptographic_binding_methods_supported":["did:key","did:web"],"cryptographic_suites_supported":["EdDSA"],"types":["VerifiableCredential","GenericIDCredential"]}]
+[IssuerMetadataCache] Cached metadata for http://127.0.0.1:3000
+✅ Cached Metadata for Root Issuer: http://127.0.0.1:3000/oidc/issuer/c8b0806e-54c0-485c-8969-06e343b056d0
+[90m2025-12-15 00:07:01.303  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/server.ts:46  setupServer][39m Persistence initialized at ./data/persistence.db 
+[90m2025-12-15 00:07:01.312  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/server.ts:56  setupServer][39m OpenTelemetry SDK started 
+[90m2025-12-15 00:07:01.314  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/server.ts:121  setupServer][39m Setting API key: test-api-key-12345 
+[90m2025-12-15 00:07:01.316  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/server.ts:203  setupServer][39m Mounting OpenID4VC Issuer routes at /oidc/issuer 
+[90m2025-12-15 00:07:01.316  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/server.ts:207  setupServer][39m Mounting OpenID4VC Verifier routes at /oidc/verifier 
+🚀 Server running on http://localhost:3000
+🔌 Inbound transport on http://localhost:3001
+[2025-12-15 02:07:00.275 +0200] [32mINFO[39m: [36mRegistered action: finance.calculate_invoice[39m
+    service: "credo-controller"
+    module: "ActionRegistry"
+[2025-12-15 02:07:00.276 +0200] [32mINFO[39m: [36mRegistered action: credential.issue[39m
+    service: "credo-controller"
+    module: "ActionRegistry"
+[2025-12-15 02:07:00.276 +0200] [32mINFO[39m: [36mRegistered action: external.fetch[39m
+    service: "credo-controller"
+    module: "ActionRegistry"
+[2025-12-15 02:07:00.276 +0200] [32mINFO[39m: [36mRegistered action: external.ecocash_payment[39m
+    service: "credo-controller"
+    module: "ActionRegistry"
+[2025-12-15 02:07:00.435 +0200] [33mWARN[39m: [36mThe '@credo-ts/tenants' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-15 02:07:00.445 +0200] [33mWARN[39m: [36mThe '@credo-ts/openid4vc' Issuer module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-15 02:07:00.449 +0200] [33mWARN[39m: [36mThe '@credo-ts/openid4vc' Verifier module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-15 02:07:00.450 +0200] [33mWARN[39m: [36mThe '@credo-ts/openid4vc' Holder module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-15 02:07:00.457 +0200] [33mWARN[39m: [36mThe 'DifPresentationExchangeModule' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-15 02:07:00.458 +0200] [33mWARN[39m: [36mThe 'SdJwtVc' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-15 02:07:00.459 +0200] [33mWARN[39m: [36mThe 'X509' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-15 02:07:00.462 +0200] [33mWARN[39m: [36mThe 'Mdoc' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-15 02:07:00.471 +0200] [32mINFO[39m: [36mCreating agent with config[39m
+    service: "credo-controller"
+    agentConfig: {
+      "walletConfig": {
+        "id": "sample-wallet",
+        "key": "[*****]",
+        "storage": {}
+      },
+      "label": "Multi-Tenant Test Agent",
+      "endpoints": [
+        "http://127.0.0.1:3001"
+      ],
+      "logger": 3,
+      "autoUpdateStorageOnStartup": true,
+      "backupBeforeStorageUpdate": false,
+      "agentDependencies": true
+    }
+[2025-12-15 02:07:00.490 +0200] [32mINFO[39m: [36mInitializing wallet 'sample-wallet'[39m
+    service: "credo-controller"
+    id: "sample-wallet"
+    key: "[*****]"
+    storage: {}
+[2025-12-15 02:07:01.241 +0200] [32mINFO[39m: [36mAgent storage is up to date.[39m
+    service: "credo-controller"
+[2025-12-15 02:07:01.300 +0200] [32mINFO[39m: [36mDatabase initialized at: ./data/persistence.db[39m
+    service: "credo-controller"
+    module: "DatabaseManager"
+[2025-12-15 02:07:01.300 +0200] [32mINFO[39m: [36mCurrent database version: 2[39m
+    service: "credo-controller"
+    module: "DatabaseManager"
+[2025-12-15 02:07:01.300 +0200] [32mINFO[39m: [36mApplying migration 3: create_workflows[39m
+    service: "credo-controller"
+    module: "DatabaseManager"
+[2025-12-15 02:07:01.301 +0200] [32mINFO[39m: [36mMigration 3 applied successfully[39m
+    service: "credo-controller"
+    module: "DatabaseManager"
+[2025-12-15 02:07:01.301 +0200] [32mINFO[39m: [36mAll migrations applied successfully[39m
+    service: "credo-controller"
+    module: "DatabaseManager"
+[2025-12-15 02:07:01.303 +0200] [32mINFO[39m: [36mPersistence initialized at ./data/persistence.db[39m
+    service: "credo-controller"
+[2025-12-15 02:07:01.312 +0200] [32mINFO[39m: [36mOpenTelemetry SDK started[39m
+    service: "credo-controller"
+[2025-12-15 02:07:01.314 +0200] [32mINFO[39m: [36mSetting API key: test-api-key-12345[39m
+    service: "credo-controller"
+[2025-12-15 02:07:01.316 +0200] [32mINFO[39m: [36mMounting OpenID4VC Issuer routes at /oidc/issuer[39m
+    service: "credo-controller"
+[2025-12-15 02:07:01.316 +0200] [32mINFO[39m: [36mMounting OpenID4VC Verifier routes at /oidc/verifier[39m
+    service: "credo-controller"
+{"stack":"Error: connect ECONNREFUSED 127.0.0.1:4318\n    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)\n    at TCPConnectWrap.callbackTrampoline (node:internal/async_hooks:130:17)","message":"connect ECONNREFUSED 127.0.0.1:4318","errno":"-111","code":"ECONNREFUSED","syscall":"connect","address":"127.0.0.1","port":"4318","name":"Error","toJSON":"function () {\n                    return Object.getOwnPropertyNames(this).reduce((alt, key) => {\n                        alt[key] = this[key];\n                        return alt;\n                    }, {});\n                }"}
+[2025-12-15 02:07:55.650 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "5a9a2d4b-bfb3-4d31-b1ff-2951bef35b66"
+    method: "GET"
+    path: "/api/wallet/auth/session"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "close",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "authorization": "REDACTED",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+      "sec-ch-ua": "\"Chromium\";v=\"142\", \"Google Chrome\";v=\"142\", \"Not_A Brand\";v=\"99\"",
+      "sec-ch-ua-mobile": "?0",
+      "accept": "*/*",
+      "sec-fetch-site": "same-origin",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:4000/wallet/befb6bd0-3d4c-499d-b752-79c1b6138826/exchange/issuance?request=http%3A%2F%2F127.0.0.1%3A3000%2Foidc%2Fissuer%2Fc8b0806e-54c0-485c-8969-06e343b056d0%2Foffers%2F4f8fe1ac-f955-4ff5-abf9-f79fa73c73e4",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "cookie": "auth.token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjEwYjJmOGE3LWYyMmItNGM2Ny1iOTUzLTIwNDQzOTU3NTkyYyIsInVzZXJuYW1lIjoidGVzdHVzZXIzIiwiZW1haWwiOiJ0ZXN0dXNlcjNAZW1haWwuY29tIiwid2FsbGV0SWQiOiJiZWZiNmJkMC0zZDRjLTQ5OWQtYjc1Mi03OWMxYjYxMzg4MjYiLCJyb2xlIjoiUmVzdFRlbmFudEFnZW50IiwidGVuYW50SWQiOiJiZWZiNmJkMC0zZDRjLTQ5OWQtYjc1Mi03OWMxYjYxMzg4MjYiLCJpYXQiOjE3NjU3NTU4MzAsImV4cCI6MTc2ODM0NzgzMH0.QFKlwvYYfGzNQ_sfQ41P-OGXWIGkgj1P7Z21UVRVgW4",
+      "if-none-match": "W/\"94-OIVbulYifJjsPqbnV00GTcR7gEU\""
+    }
+[2025-12-15 02:07:55.685 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "5a9a2d4b-bfb3-4d31-b1ff-2951bef35b66"
+    method: "GET"
+    path: "/api/wallet/auth/session"
+    status: 304
+    duration: 36
+    response: "{\"id\":\"10b2f8a7-f22b-4c67-b953-20443957592c\",\"username\":\"testuser3\",\"email\":\"testuser3@email.com\",\"walletId\":\"befb6bd0-3d4c-499d-b752-79c1b6138826\"}"
+[LOGIN] ===== START LOGIN FLOW =====
+[LOGIN] User authenticated: {
+  userId: '10b2f8a7-f22b-4c67-b953-20443957592c',
+  walletId: 'befb6bd0-3d4c-499d-b752-79c1b6138826'
+}
+[LOGIN] JWT token generated
+[LOGIN] Getting tenant agent for: befb6bd0-3d4c-499d-b752-79c1b6138826
+[90m2025-12-15 00:07:57.105  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   WalletApi.initialize][39m Initializing wallet 'tenant-befb6bd0-3d4c-499d-b752-79c1b6138826' 
+{
+  [37mstorage[39m: {
+    [37mtype[39m: [31m'sqlite'[39m,
+    [37mcredentials[39m: [31mundefined[39m
+  },
+  [37mid[39m: [31m'tenant-befb6bd0-3d4c-499d-b752-79c1b6138826'[39m,
+  [37mkey[39m: [31m'[*****]'[39m,
+  [37mkeyDerivationMethod[39m: [31m'RAW'[39m
+}
+[2025-12-15 02:07:57.063 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "e2dcf166-30a6-49f8-97b5-0ed36d05db03"
+    method: "POST"
+    path: "/api/wallet/auth/login"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "close",
+      "content-length": "46",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+      "accept": "application/json",
+      "sec-ch-ua": "\"Chromium\";v=\"142\", \"Google Chrome\";v=\"142\", \"Not_A Brand\";v=\"99\"",
+      "content-type": "application/json",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:4000",
+      "sec-fetch-site": "same-origin",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:4000/wallet/befb6bd0-3d4c-499d-b752-79c1b6138826/exchange/issuance?request=http%3A%2F%2F127.0.0.1%3A3000%2Foidc%2Fissuer%2Fc8b0806e-54c0-485c-8969-06e343b056d0%2Foffers%2F4f8fe1ac-f955-4ff5-abf9-f79fa73c73e4",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "cookie": "auth.token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjEwYjJmOGE3LWYyMmItNGM2Ny1iOTUzLTIwNDQzOTU3NTkyYyIsInVzZXJuYW1lIjoidGVzdHVzZXIzIiwiZW1haWwiOiJ0ZXN0dXNlcjNAZW1haWwuY29tIiwid2FsbGV0SWQiOiJiZWZiNmJkMC0zZDRjLTQ5OWQtYjc1Mi03OWMxYjYxMzg4MjYiLCJyb2xlIjoiUmVzdFRlbmFudEFnZW50IiwidGVuYW50SWQiOiJiZWZiNmJkMC0zZDRjLTQ5OWQtYjc1Mi03OWMxYjYxMzg4MjYiLCJpYXQiOjE3NjU3NTU4MzAsImV4cCI6MTc2ODM0NzgzMH0.QFKlwvYYfGzNQ_sfQ41P-OGXWIGkgj1P7Z21UVRVgW4"
+    }
+    body: {
+      "username": "testuser3",
+      "password": "test1234"
+    }
+[2025-12-15 02:07:57.116 +0200] [32mINFO[39m: [36mInitializing wallet 'tenant-befb6bd0-3d4c-499d-b752-79c1b6138826'[39m
+    service: "credo-controller"
+    storage: {
+      "type": "sqlite"
+    }
+    id: "tenant-befb6bd0-3d4c-499d-b752-79c1b6138826"
+    key: "[*****]"
+    keyDerivationMethod: "RAW"
+    correlationId: "e2dcf166-30a6-49f8-97b5-0ed36d05db03"
+[90m2025-12-15 00:07:57.184  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   undefined.constructor][39m Creating agent with config 
+{
+  [37magentConfig[39m: {
+    [37mwalletConfig[39m: {
+      [37mstorage[39m: {
+        [37mtype[39m: [31m'sqlite'[39m,
+        [37mcredentials[39m: [31mundefined[39m
+      },
+      [37mid[39m: [31m'tenant-befb6bd0-3d4c-499d-b752-79c1b6138826'[39m,
+      [37mkey[39m: [31m'[*****]'[39m,
+      [37mkeyDerivationMethod[39m: [31m'RAW'[39m
+    },
+    [37mlabel[39m: [31m'testuser3'[39m,
+    [37mendpoints[39m: [
+      [31m'http://127.0.0.1:3001'[39m
+    ],
+    [37mlogger[39m: [32m3[39m,
+    [37mautoUpdateStorageOnStartup[39m: [33mtrue[39m,
+    [37mbackupBeforeStorageUpdate[39m: [33mfalse[39m,
+    [37magentDependencies[39m: [33mtrue[39m
+  }
+}
+[2025-12-15 02:07:57.185 +0200] [32mINFO[39m: [36mCreating agent with config[39m
+    service: "credo-controller"
+    agentConfig: {
+      "walletConfig": {
+        "storage": {
+          "type": "sqlite"
+        },
+        "id": "tenant-befb6bd0-3d4c-499d-b752-79c1b6138826",
+        "key": "[*****]",
+        "keyDerivationMethod": "RAW"
+      },
+      "label": "testuser3",
+      "endpoints": [
+        "http://127.0.0.1:3001"
+      ],
+      "logger": 3,
+      "autoUpdateStorageOnStartup": true,
+      "backupBeforeStorageUpdate": false,
+      "agentDependencies": true
+    }
+    correlationId: "e2dcf166-30a6-49f8-97b5-0ed36d05db03"
+[90m2025-12-15 00:07:57.194  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   initialize][39m Agent storage is up to date. 
+[LOGIN] Tenant agent retrieved
+[LOGIN] Checking Askar for existing GenericID credentials
+[LOGIN] Fetched credentials from Askar, count: 0
+[LOGIN] GenericID check result - hasGeneric: false
+[LOGIN] ===== NO GENERICID - CREATING OFFER =====
+[2025-12-15 02:07:57.195 +0200] [32mINFO[39m: [36mAgent storage is up to date.[39m
+    service: "credo-controller"
+    correlationId: "e2dcf166-30a6-49f8-97b5-0ed36d05db03"
+[LOGIN] Credential issuance service imported
+[LOGIN] Base URL: http://localhost:3000
+[LOGIN] Looking up issuer DID from generic records...
+[LOGIN] Found issuer records: 1
+[LOGIN] Extracted issuer DID from records: did:key:z6Mkjo8fmknFwULtr62mN3wj8VNXHLseseBMxH7mEXHYKRrL
+[LOGIN] Final subject DID: did:key:z6Mkjo8fmknFwULtr62mN3wj8VNXHLseseBMxH7mEXHYKRrL
+[LOGIN] Creating offer with: {
+  credentialType: 'GenericIDCredential',
+  subjectDid: 'did:key:z6Mkjo8fmknFwULtr62mN3wj8VNXHLseseBMxH7mEXHYKRrL',
+  tenantId: 'befb6bd0-3d4c-499d-b752-79c1b6138826',
+  baseUrl: 'http://localhost:3000'
+}
+[90m2025-12-15 00:07:57.208  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   undefined.constructor][39m Creating agent with config 
+{
+  [37magentConfig[39m: {
+    [37mwalletConfig[39m: {
+      [37mstorage[39m: {
+        [37mtype[39m: [31m'sqlite'[39m,
+        [37mcredentials[39m: [31mundefined[39m
+      },
+      [37mid[39m: [31m'tenant-befb6bd0-3d4c-499d-b752-79c1b6138826'[39m,
+      [37mkey[39m: [31m'[*****]'[39m,
+      [37mkeyDerivationMethod[39m: [31m'RAW'[39m
+    },
+    [37mlabel[39m: [31m'testuser3'[39m,
+    [37mendpoints[39m: [
+      [31m'http://127.0.0.1:3001'[39m
+    ],
+    [37mlogger[39m: [32m3[39m,
+    [37mautoUpdateStorageOnStartup[39m: [33mtrue[39m,
+    [37mbackupBeforeStorageUpdate[39m: [33mfalse[39m,
+    [37magentDependencies[39m: [33mtrue[39m
+  }
+}
+[90m2025-12-15 00:07:57.213  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   initialize][39m Agent storage is up to date. 
+[2025-12-15 02:07:57.203 +0200] [32mINFO[39m: [36mCreating credential offer[39m
+    service: "credo-controller"
+    module: "CredentialIssuanceService"
+    credentialType: "GenericIDCredential"
+    tenantId: "befb6bd0-3d4c-499d-b752-79c1b6138826"
+[2025-12-15 02:07:57.209 +0200] [32mINFO[39m: [36mCreating agent with config[39m
+    service: "credo-controller"
+    agentConfig: {
+      "walletConfig": {
+        "storage": {
+          "type": "sqlite"
+        },
+        "id": "tenant-befb6bd0-3d4c-499d-b752-79c1b6138826",
+        "key": "[*****]",
+        "keyDerivationMethod": "RAW"
+      },
+      "label": "testuser3",
+      "endpoints": [
+        "http://127.0.0.1:3001"
+      ],
+      "logger": 3,
+      "autoUpdateStorageOnStartup": true,
+      "backupBeforeStorageUpdate": false,
+      "agentDependencies": true
+    }
+    correlationId: "e2dcf166-30a6-49f8-97b5-0ed36d05db03"
+[2025-12-15 02:07:57.213 +0200] [32mINFO[39m: [36mAgent storage is up to date.[39m
+    service: "credo-controller"
+    correlationId: "e2dcf166-30a6-49f8-97b5-0ed36d05db03"
+[2025-12-15 02:07:57.214 +0200] [32mINFO[39m: [36mAvailable modules on Base Agent[39m
+    service: "credo-controller"
+    module: "CredentialIssuanceService"
+    moduleKeys: [
+      "tenants",
+      "openId4VcIssuer",
+      "openId4VcVerifier",
+      "openId4VcHolder"
+    ]
+    tenantId: "befb6bd0-3d4c-499d-b752-79c1b6138826"
+2025-12-15T00:07:57.260Z-(sphereon:events) Emitting 'OID4VCI_OFFER_CREATED' event, {
+  eventName: 'OID4VCI_OFFER_CREATED',
+  id: '018aad1d-4ff1-4997-84e8-7c4f767ac198',
+  data: 'openid-credential-offer://?credential_offer_uri=http%3A%2F%2F127.0.0.1%3A3000%2Foidc%2Fissuer%2Fc8b0806e-54c0-485c-8969-06e343b056d0%2Foffers%2F9fa75a07-2e7e-4b52-ae7b-ba7f9680d83e',
+  initiator: '<unknown>',
+  initiatorType: 'external',
+  system: 'oid4vci',
+  subsystem: 'api'
+}
+[LOGIN] ===== OFFER CREATED SUCCESSFULLY =====
+[LOGIN] credentialOfferUri: http://127.0.0.1:3000/oidc/issuer/c8b0806e-54c0-485c-8969-06e343b056d0/offers/9fa75a07-2e7e-4b52-ae7b-ba7f9680d83e
+[LOGIN] credentialOfferDeepLink: openid-credential-offer://?credential_offer_uri=http%3A%2F%2F127.0.0.1%3A3000%2Foidc%2Fissuer%2Fc8b0806e-54c0-485c-8969-06e343b056d0%2Foffers%2F9fa75a07-2e7e-4b52-ae7b-ba7f9680d83e
+[LOGIN] Using Value-Based Deep Link for resolution (Bypassing HTTP fetch)
+[LOGIN] ===== OFFER RESOLUTION FAILED =====
+[LOGIN] Error: Invalid param. Some keys have been used from version: 1011 version while 'credential_configuration_ids' is used from version: [1013]
+[LOGIN] Stack: Error: Invalid param. Some keys have been used from version: 1011 version while 'credential_configuration_ids' is used from version: [1013]
+    at recordVersion (/home/eloh_/PROJECTS/credo-controller/node_modules/@sphereon/oid4vci-common/dist/functions/CredentialOfferUtil.js:410:11)
+    at getVersionFromURIParam (/home/eloh_/PROJECTS/credo-controller/node_modules/@sphereon/oid4vci-common/dist/functions/CredentialOfferUtil.js:395:16)
+    at determineSpecVersionFromURI (/home/eloh_/PROJECTS/credo-controller/node_modules/@sphereon/oid4vci-common/dist/functions/CredentialOfferUtil.js:33:15)
+    at CredentialOfferClient.<anonymous> (/home/eloh_/PROJECTS/credo-controller/node_modules/@sphereon/oid4vci-client/dist/CredentialOfferClient.js:31:78)
+    at Generator.next (<anonymous>)
+    at /home/eloh_/PROJECTS/credo-controller/node_modules/@sphereon/oid4vci-client/dist/CredentialOfferClient.js:8:71
+    at new Promise (<anonymous>)
+    at __awaiter (/home/eloh_/PROJECTS/credo-controller/node_modules/@sphereon/oid4vci-client/dist/CredentialOfferClient.js:4:12)
+    at CredentialOfferClient.fromURI (/home/eloh_/PROJECTS/credo-controller/node_modules/@sphereon/oid4vci-client/dist/CredentialOfferClient.js:22:16)
+    at OpenID4VCIClient.<anonymous> (/home/eloh_/PROJECTS/credo-controller/node_modules/@sphereon/oid4vci-client/dist/OpenID4VCIClient.js:88:95)
+[LOGIN] ===== ERROR IN LOGIN FLOW =====
+[LOGIN] Error message: Credential Issuance Failed: Invalid param. Some keys have been used from version: 1011 version while 'credential_configuration_ids' is used from version: [1013]
+[LOGIN] Error stack: Error: Credential Issuance Failed: Invalid param. Some keys have been used from version: 1011 version while 'credential_configuration_ids' is used from version: [1013]
+    at WalletAuthController.login (/home/eloh_/PROJECTS/credo-controller/build/controllers/wallet/WalletAuthController.js:359:27)
+    at async ExpressTemplateService.apiHandler (/home/eloh_/PROJECTS/credo-controller/node_modules/@tsoa/runtime/dist/routeGeneration/templates/express/expressTemplateService.js:10:26)
+    at async WalletAuthController_login (/home/eloh_/PROJECTS/credo-controller/build/routes/routes.js:3999:13)
+[LOGIN] Error ending session: This container has been disposed, you cannot interact with a disposed container
+[2025-12-15 02:07:57.271 +0200] [32mINFO[39m: [36mCredential offer created[39m
+    service: "credo-controller"
+    module: "CredentialIssuanceService"
+    offerId: "be40f6f9-5366-4df7-82c0-f39452ddaa81"
+    uri: "http://127.0.0.1:3000/oidc/issuer/c8b0806e-54c0-485c-8969-06e343b056d0/offers/9fa75a07-2e7e-4b52-ae7"
+[2025-12-15 02:07:57.286 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "e2dcf166-30a6-49f8-97b5-0ed36d05db03"
+    method: "POST"
+    path: "/api/wallet/auth/login"
+    status: 500
+    duration: 223
+    response: "{\"message\":\"Credential Issuance Failed: Invalid param. Some keys have been used from version: 1011 version while 'credential_configuration_ids' is used from version: [1013]\"}"
+{"stack":"Error: connect ECONNREFUSED 127.0.0.1:4318\n    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)\n    at TCPConnectWrap.callbackTrampoline (node:internal/async_hooks:130:17)","message":"connect ECONNREFUSED 127.0.0.1:4318","errno":"-111","code":"ECONNREFUSED","syscall":"connect","address":"127.0.0.1","port":"4318","name":"Error","toJSON":"function () {\n                    return Object.getOwnPropertyNames(this).reduce((alt, key) => {\n                        alt[key] = this[key];\n                        return alt;\n                    }, {});\n                }"}
+{"stack":"Error: connect ECONNREFUSED 127.0.0.1:4318\n    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)\n    at TCPConnectWrap.callbackTrampoline (node:internal/async_hooks:130:17)","message":"connect ECONNREFUSED 127.0.0.1:4318","errno":"-111","code":"ECONNREFUSED","syscall":"connect","address":"127.0.0.1","port":"4318","name":"Error","toJSON":"function () {\n                    return Object.getOwnPropertyNames(this).reduce((alt, key) => {\n                        alt[key] = this[key];\n                        return alt;\n                    }, {});\n                }"}

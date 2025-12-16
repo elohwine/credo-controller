@@ -6,6 +6,7 @@ import { KeyType } from '@credo-ts/core'
 
 import { upsertTenant } from '../persistence/TenantRepository'
 import { didStore } from '../utils/didStore'
+import { issuerMetadataCache } from '../utils/issuerMetadataCache'
 import { buildIssuerMetadata, buildVerifierMetadata } from '../utils/openidMetadata'
 import { registerDefaultModelsForTenant } from './modelRegistry'
 
@@ -46,6 +47,44 @@ export async function provisionTenantResources({ agent, tenantRecord, baseUrl, d
     : undefined
 
   const result = await agent.modules.tenants.withTenantAgent({ tenantId: tenantRecord.id }, async (tenantAgent: TenantAgent<any>) => {
+    // Determine type (default to USER if not specified in config)
+    // We pass tenantType from params or legacy config
+    const tenantType = (tenantRecord.config as any)?.tenantType || 'USER'
+    const domain = (tenantRecord.config as any)?.domain
+
+    console.log(`[Provisioning] Tenant ${tenantRecord.id} type: ${tenantType}`)
+
+    if (tenantType === 'USER') {
+      // === USER TENANT (HOLDER ONLY) ===
+      // 1. Create Holder DID (did:key)
+      const holderDidResult = await tenantAgent.dids.create({ method: 'key', options: { keyType: KeyType.Ed25519 } })
+      const holderDid = holderDidResult.didState.did
+      const holderVm = holderDidResult.didState.didDocument?.verificationMethod?.[0]
+      const holderKid = holderVm?.id ?? `${holderDid}#key-1`
+
+      if (!holderDid) throw new Error('Failed to create Holder DID')
+
+      console.log(`[Provisioning] Created Holder DID: ${holderDid}`)
+
+      // 2. Return result properly
+      // Note: We populate issuerDid/verifierDid with the Holder DID to satisfy NOT NULL constraints in DB,
+      // but we do NOT generate issuer metadata or register the tenant as a published issuer.
+      return {
+        issuerDid: holderDid, // Placeholder
+        issuerKid: holderKid, // Placeholder
+        verifierDid: holderDid, // Placeholder
+        verifierKid: holderKid, // Placeholder
+        metadata: {
+          issuer: {},   // Empty = Not an Issuer
+          verifier: {}, // Empty = Not a Verifier
+        },
+        askarProfile: tenantAgent.wallet?.walletConfig?.id || tenantRecord.id,
+      }
+    }
+
+    // === ORG TENANT (ISSUER / VERIFIER) ===
+    // Legacy logic for full issuer setup
+
     const issuerDidState = await tenantAgent.dids.create({ method: 'key', options: { keyType: KeyType.Ed25519 } })
     if (issuerDidState.didState.state !== 'finished') {
       throw new Error('Failed to create issuer DID for tenant')
@@ -91,6 +130,9 @@ export async function provisionTenantResources({ agent, tenantRecord, baseUrl, d
       tags: { tenantId: tenantRecord.id, type: 'issuer' },
     })
 
+    // Populate in-memory cache for scoped fetch (avoids HTTP loopback)
+    issuerMetadataCache.set(issuerUrl, issuerMetadata, issuerDid, issuerKid, tenantRecord.id)
+
     await tenantAgent.genericRecords.save({
       id: `tenant:${tenantRecord.id}:verifier`,
       content: {
@@ -101,6 +143,10 @@ export async function provisionTenantResources({ agent, tenantRecord, baseUrl, d
       tags: { tenantId: tenantRecord.id, type: 'verifier' },
     })
 
+    // ... (DID Store saving logic remains same, just moved down) ... 
+    // Optimization: Only save DIDs if we created them as Issuer/Verifier
+
+    // Save Issuer Key
     const issuerPkBase58 = extractPublicKeyBase58(issuerVm)
     if (issuerPkBase58) {
       didStore.save({
@@ -115,6 +161,7 @@ export async function provisionTenantResources({ agent, tenantRecord, baseUrl, d
       })
     }
 
+    // Save Verifier Key
     const verifierPkBase58 = extractPublicKeyBase58(verifierVm)
     if (verifierPkBase58) {
       didStore.save({
@@ -142,6 +189,10 @@ export async function provisionTenantResources({ agent, tenantRecord, baseUrl, d
     }
   })
 
+  // Extract config again for upsert
+  const tenantType = (tenantRecord.config as any)?.tenantType || 'USER'
+  const domain = (tenantRecord.config as any)?.domain
+
   upsertTenant({
     id: tenantRecord.id,
     label: tenantRecord.config?.label ?? tenantRecord.id,
@@ -153,13 +204,17 @@ export async function provisionTenantResources({ agent, tenantRecord, baseUrl, d
     verifierKid: result.verifierKid,
     askarProfile: result.askarProfile,
     metadata: result.metadata,
+    tenantType: tenantType,
+    domain: domain
   })
 
-  // Seed default VC models (schemas + credential definitions) for this tenant
-  try {
-    await registerDefaultModelsForTenant({ issuerDid: result.issuerDid, tenantId: tenantRecord.id })
-  } catch (e) {
-    agent.config.logger.warn('Failed to seed default VC models for tenant', { err: (e as Error).message })
+  // Seed default VC models (schemas + credential definitions) for this tenant ONLY if ORG
+  if (tenantType === 'ORG') {
+    try {
+      await registerDefaultModelsForTenant({ issuerDid: result.issuerDid, tenantId: tenantRecord.id })
+    } catch (e) {
+      agent.config.logger.warn('Failed to seed default VC models for tenant', { err: (e as Error).message })
+    }
   }
 
   return result satisfies TenantProvisioningResult

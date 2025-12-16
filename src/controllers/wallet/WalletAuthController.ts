@@ -4,7 +4,7 @@ import type { Request as ExRequest } from 'express'
 import { Controller, Post, Get, Route, Tags, Body, Request } from 'tsoa'
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
-import { Agent, Key, KeyType, TypedArrayEncoder } from '@credo-ts/core'
+import { Agent, Key, KeyType, TypedArrayEncoder, W3cCredentialService } from '@credo-ts/core'
 import { container } from 'tsyringe'
 import { createWalletUser, getWalletUserByUsername, getWalletUserByEmail, getWalletUserByWalletId, type WalletUser } from '../../persistence/UserRepository'
 import { saveWalletCredential, getWalletCredentialsByWalletId } from '../../persistence/WalletCredentialRepository'
@@ -25,6 +25,8 @@ interface RegisterRequest {
   username: string
   email: string
   password: string
+  tenantType?: 'USER' | 'ORG'
+  domain?: string
 }
 
 interface LoginChallengeResponse {
@@ -92,7 +94,7 @@ export class WalletAuthController extends Controller {
   }
 
   @Post('/register')
-  public async register(@Request() request: ExRequest, @Body() body: RegisterRequest): Promise<{ message: string; walletId: string; credential?: string; credentialOffer?: string; credentialOfferDeepLink?: string }> {
+  public async register(@Request() request: ExRequest, @Body() body: RegisterRequest): Promise<{ message: string; walletId: string; holderDid?: string }> {
     // Check if user exists
     const existing = getWalletUserByUsername(body.username)
     if (existing) {
@@ -111,7 +113,9 @@ export class WalletAuthController extends Controller {
     const tenantRecord = await baseAgent.modules.tenants.createTenant({
       config: {
         label: body.username,
-      }
+        tenantType: body.tenantType || 'USER', // Pass to Provisioning Service
+        domain: body.domain
+      } as any // Cast to any to bypass Credo config type checks if strictly typed
     })
 
     // Provision resources (DIDs) for the tenant
@@ -163,49 +167,20 @@ export class WalletAuthController extends Controller {
       walletId: tenantId, // Using Tenant ID here
     })
 
-    // Issue GenericID VC Offer (Bootstrap)
-    let credentialOffer: string | undefined
-    let credentialOfferDeepLink: string | undefined
-
-    try {
-      const { credentialIssuanceService } = await import('../../services/CredentialIssuanceService')
-
-      // Determine Base URL
-      const protocol = request.protocol || 'http'
-      const host = request.get('host') || 'localhost:3000'
-      const baseUrl = process.env.PUBLIC_BASE_URL || `${protocol}://${host}`
-
-      const offerResult = await credentialIssuanceService.createOffer({
-        credentialType: 'GenericID',
-        claims: {
-          name: body.username,
-          email: body.email,
-          walletId: tenantId,
-          role: 'member'
-        },
-        subjectDid: issuerDid, // User's DID
-        baseUrl
-      })
-
-      credentialOffer = offerResult.credential_offer_uri
-      credentialOfferDeepLink = offerResult.credential_offer_deeplink
-
-      request.logger?.info({ offerId: offerResult.offerId }, 'Created Bootstrap GenericID Offer')
-
-    } catch (e: any) {
-      console.error('Failed to create Bootstrap Offer:', e)
-    }
+    // Registration complete - user can claim credentials separately from issuers
+    request.logger?.info({ walletId: tenantId }, 'User registered successfully - wallet ready')
 
     return {
       message: 'User registered successfully',
       walletId: tenantId,
-      credentialOffer,
-      credentialOfferDeepLink
+      holderDid: issuerDid // Return the user's DID for future credential claims
     }
   }
 
   @Post('/login')
-  public async login(@Request() request: ExRequest, @Body() body: LoginRequest): Promise<{ token: string; credentialOfferUri?: string }> {
+  public async login(@Request() request: ExRequest, @Body() body: LoginRequest): Promise<{ token: string; hasGenericId?: boolean }> {
+    console.log('[LOGIN] ===== START LOGIN FLOW =====')
+
     // Find user by username or email
     let user: WalletUser | null = null
     if (body.username) {
@@ -215,67 +190,91 @@ export class WalletAuthController extends Controller {
     }
 
     if (!user || user.passwordHash !== this.hashPassword(body.password)) {
+      console.log('[LOGIN] Authentication failed')
       this.setStatus(401)
       throw new Error('Invalid credentials')
     }
 
+    console.log('[LOGIN] User authenticated:', { userId: user.id, walletId: user.walletId })
     const token = await this.generateJwtToken(user)
+    console.log('[LOGIN] JWT token generated')
 
     // After successful username/password login, check whether this wallet already
     // has a GenericID verifiable credential. If not, create a pre-authorized
     // credential offer so the frontend can fetch/accept it.
+    const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
+    let tenantAgent: any
+
     try {
-      const existing = getWalletCredentialsByWalletId(user.walletId)
+      console.log('[LOGIN] Getting tenant agent for:', user.walletId)
+      tenantAgent = await baseAgent.modules.tenants.getTenantAgent({ tenantId: user.walletId })
+      console.log('[LOGIN] Tenant agent retrieved')
+
+      console.log('[LOGIN] Checking Askar for existing GenericID credentials')
+      const w3cCredentialService = tenantAgent.dependencyManager.resolve(W3cCredentialService)
+      const existingCredentials = await w3cCredentialService.getAllCredentialRecords(tenantAgent.context)
+      console.log('[LOGIN] Fetched credentials from Askar, count:', existingCredentials.length)
+
       let hasGeneric = false
-      for (const c of existing) {
-        try {
-          const doc = typeof (c as any).credentialData === 'string' ? JSON.parse((c as any).credentialData) : (c as any).credentialData || (c as any).credential_data
-          const types = doc?.vc?.type || doc?.type || doc?.types || []
-          if (Array.isArray(types) && types.includes('GenericID')) {
+      for (const credRecord of existingCredentials) {
+        const cred = credRecord?.credential
+        if (!cred) continue
+
+        console.log('[LOGIN] Checking credential:', { id: credRecord.id, hasCredProp: !!cred })
+
+        // `credential` can be an object (W3C) or a JWT string depending on format.
+        if (typeof cred === 'string') {
+          try {
+            const payloadPart = cred.split('.')[1]
+            if (!payloadPart) continue
+            const json = Buffer.from(payloadPart.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+            const payload = JSON.parse(json)
+            const types = payload?.vc?.type ?? payload?.type ?? []
+            console.log('[LOGIN] JWT credential types:', types)
+            if (Array.isArray(types) && types.includes('GenericIDCredential')) {
+              hasGeneric = true
+              break
+            }
+          } catch (e: any) {
+            console.log('[LOGIN] Error parsing JWT credential:', e.message)
+          }
+        } else {
+          const types = (cred as any)?.vc?.type ?? (cred as any)?.type ?? []
+          console.log('[LOGIN] Object credential types:', types)
+          if (Array.isArray(types) && types.includes('GenericIDCredential')) {
             hasGeneric = true
             break
           }
-        } catch (e) {
-          // ignore parse errors
         }
       }
 
-      if (!hasGeneric) {
-        // Create a pre-authorized offer for this user using unified service
-        const { credentialIssuanceService } = await import('../../services/CredentialIssuanceService')
+      console.log('[LOGIN] GenericID check result - hasGeneric:', hasGeneric)
 
-        const baseUrl = `${request.protocol}://${request.get('host')}`
-        const offerResult = await credentialIssuanceService.createOffer({
-          credentialType: 'GenericID',
-          claims: {
-            name: user.username,
-            email: user.email,
-            walletId: user.walletId,
-          },
-          subjectDid: user.walletId,
-          baseUrl,
-        })
+      // === Simplified Login: Just return token ===
+      // Credential claiming is now a separate action the user performs via UI
+      await tenantAgent.endSession()
 
-        const credentialOfferUri = offerResult.credential_offer_uri
-        const credentialOfferDeepLink = offerResult.credential_offer_deeplink
+      return {
+        token,
+        hasGenericId: hasGeneric
+      }
 
-        // Expose as response headers
+    } catch (error: any) {
+      console.error('[LOGIN] ===== ERROR IN LOGIN FLOW =====')
+      console.error('[LOGIN] Error message:', error.message)
+      console.error('[LOGIN] Error stack:', error.stack)
+
+      if (tenantAgent) {
         try {
-          this.setHeader('x-credential-offer-uri', credentialOfferUri)
-          this.setHeader('x-credential-offer-deeplink', credentialOfferDeepLink)
-        } catch (_) {
-          // fall back silently if setting header is not available
+          await tenantAgent.endSession()
+        } catch (e: any) {
+          console.error('[LOGIN] Error ending session:', e.message)
         }
-
-        request.logger?.info({ credentialOfferUri, credentialOfferDeepLink, offerId: offerResult.offerId }, 'Created pre-authorized credential offer for user login')
-
-        return { token, credentialOfferUri, credentialOfferDeepLink } as any
       }
-    } catch (e) {
-      request.logger?.error({ err: (e as Error).message }, 'Post-login GenericID offer creation failed')
-    }
 
-    return { token }
+      // Re-throw the error so caller knows it failed
+      throw error
+    }
   }
 
   /**
@@ -377,7 +376,7 @@ export class WalletAuthController extends Controller {
       const secret = await this.getJwtSecret()
       const token = jwt.sign({
         walletId: tenantId,
-        role: 'member',
+        role: AgentRole.RestTenantAgent,
         tenantId: tenantId,
         iat: Math.floor(Date.now() / 1000),
         exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60)

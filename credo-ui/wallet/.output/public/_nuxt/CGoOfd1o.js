@@ -1,0 +1,1 @@
+import{_ as t,c as o,o as s,W as a}from"#entry";const n={},c={class:"mx-auto w-full px-4 sm:px-6 lg:mx-auto lg:max-w-6xl lg:px-8 p-3 lg:p-0 mt-3"};function l(e,r){return s(),o("main",c,[a(e.$slots,"default")])}const _=t(n,[["render",l]]);export{_ as C};

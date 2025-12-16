@@ -26,7 +26,7 @@
 </template>
 
 <script lang="ts" setup>
-import DidCreationView from "@waltid-web-wallet/components/dids/DidCreationView.vue";
+import DidCreationView from "@credentis-web-wallet/components/dids/DidCreationView.vue";
 
 const useJwkJcsPub = ref(false);
 </script>

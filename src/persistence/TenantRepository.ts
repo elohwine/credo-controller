@@ -10,6 +10,8 @@ export interface TenantMetadata {
   [key: string]: unknown
 }
 
+export type TenantType = 'USER' | 'ORG'
+
 export interface TenantPersistenceRecord {
   id: string
   label: string
@@ -21,6 +23,8 @@ export interface TenantPersistenceRecord {
   verifierKid: string
   askarProfile: string
   metadata: TenantMetadata
+  tenantType: TenantType
+  domain?: string
 }
 
 interface TenantRow {
@@ -34,6 +38,8 @@ interface TenantRow {
   verifier_kid: string
   askar_profile: string
   metadata?: string | null
+  tenant_type: string
+  domain?: string | null
 }
 
 let db: Database | undefined
@@ -50,7 +56,9 @@ export const TENANT_TABLE_SQL = `CREATE TABLE IF NOT EXISTS tenants (
   verifier_did TEXT NOT NULL,
   verifier_kid TEXT NOT NULL,
   askar_profile TEXT NOT NULL,
-  metadata TEXT NOT NULL
+  metadata TEXT NOT NULL,
+  tenant_type TEXT DEFAULT 'USER',
+  domain TEXT
 )`
 
 export function initTenantStore(dbPath?: string): Database {
@@ -64,6 +72,19 @@ export function initTenantStore(dbPath?: string): Database {
   db = new DatabaseConstructor(resolvedPath)
   db.pragma('journal_mode = WAL')
   db.prepare(TENANT_TABLE_SQL).run()
+
+  // Auto-migration for existing databases
+  try {
+    db.prepare("ALTER TABLE tenants ADD COLUMN tenant_type TEXT DEFAULT 'USER'").run()
+  } catch (e: any) {
+    // Ignore error if column exists
+  }
+  try {
+    db.prepare("ALTER TABLE tenants ADD COLUMN domain TEXT").run()
+  } catch (e: any) {
+    // Ignore error if column exists
+  }
+
   return db
 }
 
@@ -78,8 +99,8 @@ export function upsertTenant(record: TenantPersistenceRecord) {
   const database = ensureDb()
   const stmt = database.prepare(`
     INSERT INTO tenants(
-      id, label, status, created_at, issuer_did, issuer_kid, verifier_did, verifier_kid, askar_profile, metadata
-    ) VALUES (@id, @label, @status, @createdAt, @issuerDid, @issuerKid, @verifierDid, @verifierKid, @askarProfile, @metadata)
+      id, label, status, created_at, issuer_did, issuer_kid, verifier_did, verifier_kid, askar_profile, metadata, tenant_type, domain
+    ) VALUES (@id, @label, @status, @createdAt, @issuerDid, @issuerKid, @verifierDid, @verifierKid, @askarProfile, @metadata, @tenantType, @domain)
     ON CONFLICT(id) DO UPDATE SET
       label=excluded.label,
       status=excluded.status,
@@ -89,7 +110,9 @@ export function upsertTenant(record: TenantPersistenceRecord) {
       verifier_did=excluded.verifier_did,
       verifier_kid=excluded.verifier_kid,
       askar_profile=excluded.askar_profile,
-      metadata=excluded.metadata
+      metadata=excluded.metadata,
+      tenant_type=excluded.tenant_type,
+      domain=excluded.domain
   `)
   stmt.run({
     ...record,
@@ -118,17 +141,8 @@ export function removeTenant(id: string) {
 function isTenantRow(value: unknown): value is TenantRow {
   if (!value || typeof value !== 'object') return false
   const row = value as Partial<TenantRow>
-  return (
-    typeof row.id === 'string' &&
-    typeof row.label === 'string' &&
-    typeof row.status === 'string' &&
-    typeof row.created_at === 'string' &&
-    typeof row.issuer_did === 'string' &&
-    typeof row.issuer_kid === 'string' &&
-    typeof row.verifier_did === 'string' &&
-    typeof row.verifier_kid === 'string' &&
-    typeof row.askar_profile === 'string'
-  )
+  // Basic structural check only
+  return typeof row.id === 'string'
 }
 
 function mapTenantRow(row: TenantRow): TenantPersistenceRecord {
@@ -143,6 +157,8 @@ function mapTenantRow(row: TenantRow): TenantPersistenceRecord {
     verifierKid: row.verifier_kid,
     askarProfile: row.askar_profile,
     metadata: normalizeMetadata(JSON.parse(row.metadata ?? '{}')),
+    tenantType: (row.tenant_type as TenantType) || 'USER',
+    domain: row.domain || undefined
   }
 }
 

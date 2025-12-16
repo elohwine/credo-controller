@@ -263,7 +263,7 @@
         </div>
 
         <!--suppress PointlessBooleanExpressionJS -->
-        <!-- TODO: move transition to @waltid-web-wallet/components/modals/ModalBase.vue -->
+        <!-- TODO: move transition to @credentis-web-wallet/components/modals/ModalBase.vue -->
         <TransitionRoot :show="error.isError === true" as="template">
             <Dialog as="div" class="relative z-10" @close="closeModal">
                 <TransitionChild
@@ -358,10 +358,10 @@ import {
 import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot} from "@headlessui/vue";
 import {ExclamationCircleIcon, XMarkIcon} from "@heroicons/vue/24/outline";
 import {usePageLeave, useParallax} from "@vueuse/core";
-import useModalStore from "@waltid-web-wallet/stores/useModalStore.ts";
-import {useUserStore} from "@waltid-web-wallet/stores/user.ts";
+import useModalStore from "@credentis-web-wallet/stores/useModalStore.ts";
+import {useUserStore} from "@credentis-web-wallet/stores/user.ts";
 import {storeToRefs} from "pinia";
-import {useTenant} from "@waltid-web-wallet/composables/tenants.ts";
+import {useTenant} from "@credentis-web-wallet/composables/tenants.ts";
 import {decodeJwt} from "jose";
 import {MetaMaskSDK} from "@metamask/sdk";
 

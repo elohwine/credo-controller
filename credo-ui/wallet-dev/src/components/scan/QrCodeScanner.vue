@@ -47,7 +47,7 @@
 
 <script setup>
 import QrScanner from "qr-scanner";
-import LoadingIndicator from "@waltid-web-wallet/components/loading/LoadingIndicator.vue";
+import LoadingIndicator from "@credentis-web-wallet/components/loading/LoadingIndicator.vue";
 import {
     ArrowPathRoundedSquareIcon,
     ChevronUpDownIcon,
@@ -56,8 +56,8 @@ import {
     VideoCameraSlashIcon,
     XMarkIcon
 } from "@heroicons/vue/24/outline";
-import WaltButton from "@waltid-web-wallet/components/buttons/WaltButton.vue";
-import {isSiopRequest} from "@waltid-web-wallet/composables/siop-requests.ts";
+import WaltButton from "@credentis-web-wallet/components/buttons/WaltButton.vue";
+import {isSiopRequest} from "@credentis-web-wallet/composables/siop-requests.ts";
 
 const emit = defineEmits(["request"]);
 

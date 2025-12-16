@@ -453,12 +453,12 @@
 </template>
 
 <script lang="ts" setup>
-import VerifiableCredentialCard from "@waltid-web-wallet/components/credentials/VerifiableCredentialCard.vue";
-import {useCredential, type WalletCredential} from "@waltid-web-wallet/composables/credential.ts";
-import LoadingIndicator from "@waltid-web-wallet/components/loading/LoadingIndicator.vue";
-import {useCurrentWallet} from "@waltid-web-wallet/composables/accountWallet.ts";
-import BackButton from "@waltid-web-wallet/components/buttons/BackButton.vue";
-import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
+import VerifiableCredentialCard from "@credentis-web-wallet/components/credentials/VerifiableCredentialCard.vue";
+import {useCredential, type WalletCredential} from "@credentis-web-wallet/composables/credential.ts";
+import LoadingIndicator from "@credentis-web-wallet/components/loading/LoadingIndicator.vue";
+import {useCurrentWallet} from "@credentis-web-wallet/composables/accountWallet.ts";
+import BackButton from "@credentis-web-wallet/components/buttons/BackButton.vue";
+import CenterMain from "@credentis-web-wallet/components/CenterMain.vue";
 import {JSONPath} from "jsonpath-plus";
 import QrcodeVue from "qrcode.vue";
 import {ref} from "vue";

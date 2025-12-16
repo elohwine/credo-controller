@@ -182,14 +182,14 @@
 
 <script lang="ts" setup>
 import {useTitle} from "@vueuse/core";
-import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
-import PageHeader from "@waltid-web-wallet/components/PageHeader.vue";
+import CenterMain from "@credentis-web-wallet/components/CenterMain.vue";
+import PageHeader from "@credentis-web-wallet/components/PageHeader.vue";
 import {Disclosure, DisclosureButton, DisclosurePanel} from "@headlessui/vue";
-import {parseDisclosures} from "@waltid-web-wallet/composables/disclosures.ts";
-import {usePresentation} from "@waltid-web-wallet/composables/presentation.ts";
-import ActionButton from "@waltid-web-wallet/components/buttons/ActionButton.vue";
-import LoadingIndicator from "@waltid-web-wallet/components/loading/LoadingIndicator.vue";
-import VerifiableCredentialCard from "@waltid-web-wallet/components/credentials/VerifiableCredentialCard.vue";
+import {parseDisclosures} from "@credentis-web-wallet/composables/disclosures.ts";
+import {usePresentation} from "@credentis-web-wallet/composables/presentation.ts";
+import ActionButton from "@credentis-web-wallet/components/buttons/ActionButton.vue";
+import LoadingIndicator from "@credentis-web-wallet/components/loading/LoadingIndicator.vue";
+import VerifiableCredentialCard from "@credentis-web-wallet/components/credentials/VerifiableCredentialCard.vue";
 
 const immediateAccept = ref(false);
 

@@ -470,6 +470,7 @@ import {usePageLeave, useParallax} from "@vueuse/core";
 import {useTenant} from "@credentis-web-wallet/composables/tenants.ts";
 import {listWallets, setWallet} from "@credentis-web-wallet/composables/accountWallet.ts";
 import {useUserStore} from "@credentis-web-wallet/stores/user.ts";
+import {useNotifications} from "@credentis-web-wallet/composables/notifications.ts";
 import {storeToRefs} from "pinia";
 
 const signInRedirectUrl = ref("/");
@@ -498,6 +499,8 @@ const { status, data, signIn } = useAuth();
 async function login() {
   isLoggingIn.value = true;
 
+  const { success: showSuccess, error: showError } = useNotifications();
+  
   const userData = {
     username: usernameInput,
     password: passwordInput,
@@ -515,6 +518,8 @@ async function login() {
       };
       success.value = true;
       isLoggingIn.value = false;
+      
+      showSuccess('Login successful! Welcome back.');
 
       if (wallets) {
         setWallet(wallets[0].id);
@@ -530,11 +535,12 @@ async function login() {
     })
     .catch((err) => {
       console.log("Could not sign in", err);
+      const errorMsg = "Please check that you have entered your correct username and password!";
       error.value = {
         isError: true,
-        message:
-          "Please check that you have entered your correct email address and password!",
+        message: errorMsg,
       };
+      showError(errorMsg);
       isLoggingIn.value = false;
     });
 }

@@ -3,6 +3,35 @@
     class="flex flex-1 flex-col justify-center px-4 py-12 sm:px-6 lg:flex-none lg:px-20 xl:px-24 lg:bg-white lg:bg-opacity-50 sm:h-full sm:p-6"
   >
     <div class="sm:h-full w-full">
+      <!-- Pending Offers Section -->
+      <div v-if="pendingOffers && pendingOffers.length > 0" class="mb-8">
+        <h2 class="text-2xl font-bold text-black mb-4">Available Credentials</h2>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div
+            v-for="offer in pendingOffers"
+            :key="offer.id"
+            class="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 shadow-lg border-2 border-blue-200"
+          >
+            <div class="flex items-start justify-between mb-4">
+              <div>
+                <h3 class="text-lg font-semibold text-gray-900">{{ offer.credentialType }}</h3>
+                <p class="text-sm text-gray-600 mt-1">{{ offer.issuerName }}</p>
+              </div>
+              <span class="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
+                New
+              </span>
+            </div>
+            <button
+              @click="acceptOffer(offer)"
+              :disabled="acceptingOfferId === offer.id"
+              class="w-full mt-4 px-4 py-2 text-white bg-[#01337D] rounded-lg shadow hover:bg-[#002159] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#002159] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {{ acceptingOfferId === offer.id ? 'Accepting...' : 'Accept Credential' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- GenericID Banner (shows only once for new users) -->
       <GenericIdBanner
         :walletId="walletId"
@@ -89,7 +118,7 @@
 import VerifiableCredentialCard from "@credentis-web-wallet/components/credentials/VerifiableCredentialCard.vue";
 import GenericIdBanner from "@credentis-web-wallet/components/GenericIdBanner.vue";
 import scannerSVG from "~/public/svg/scanner.svg";
-import { computed } from "vue";
+import { computed, ref, onMounted, onUnmounted } from "vue";
 
 const route = useRoute();
 const walletId = route.params.wallet;
@@ -116,6 +145,56 @@ const genericIdCredential = computed(() => {
       return false;
     }
   });
+});
+
+// Pending offers polling
+const pendingOffers = ref([]);
+const acceptingOfferId = ref(null);
+let pollingInterval = null;
+
+const fetchPendingOffers = async () => {
+  try {
+    const response = await $fetch('/wallet-api/credentials/pending-offers', {
+      credentials: 'include'
+    });
+    pendingOffers.value = response.offers || [];
+  } catch (err) {
+    console.error('Failed to fetch pending offers:', err);
+  }
+};
+
+const acceptOffer = async (offer) => {
+  try {
+    acceptingOfferId.value = offer.id;
+    await $fetch('/wallet-api/credentials/accept-offer', {
+      method: 'POST',
+      credentials: 'include',
+      body: { offerUri: offer.offerUri }
+    });
+    
+    // Refresh credentials list
+    await refresh();
+    
+    // Remove accepted offer from pending list
+    pendingOffers.value = pendingOffers.value.filter(o => o.id !== offer.id);
+  } catch (err) {
+    console.error('Failed to accept offer:', err);
+    alert('Failed to accept credential: ' + err.message);
+  } finally {
+    acceptingOfferId.value = null;
+  }
+};
+
+// Poll for offers every 30 seconds
+onMounted(() => {
+  fetchPendingOffers();
+  pollingInterval = setInterval(fetchPendingOffers, 30000);
+});
+
+onUnmounted(() => {
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+  }
 });
 
 definePageMeta({

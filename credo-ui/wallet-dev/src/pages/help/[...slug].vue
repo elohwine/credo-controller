@@ -5,7 +5,7 @@
 </template>
 
 <script lang="ts" setup>
-import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
+import CenterMain from "@credentis-web-wallet/components/CenterMain.vue";
 
 definePageMeta({
   layout: "default-reduced-nav",

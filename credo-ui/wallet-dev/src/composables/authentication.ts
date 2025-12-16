@@ -1,4 +1,4 @@
-import {useUserStore} from "@waltid-web-wallet/stores/user.ts";
+import {useUserStore} from "@credentis-web-wallet/stores/user.ts";
 import {storeToRefs} from "pinia";
 
 export async function logout() {

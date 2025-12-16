@@ -353,10 +353,10 @@ import {
     XMarkIcon
 } from "@heroicons/vue/24/outline";
 import {ChevronDownIcon, MagnifyingGlassIcon} from "@heroicons/vue/20/solid";
-import {useUserStore} from "@waltid-web-wallet/stores/user.ts";
+import {useUserStore} from "@credentis-web-wallet/stores/user.ts";
 import {storeToRefs} from "pinia";
-import {useCurrentWallet} from "@waltid-web-wallet/composables/accountWallet.ts";
-import {useTenant} from "@waltid-web-wallet/composables/tenants.ts";
+import {useCurrentWallet} from "@credentis-web-wallet/composables/accountWallet.ts";
+import {useTenant} from "@credentis-web-wallet/composables/tenants.ts";
 import {logout} from "~/composables/authentication";
 
 const runtimeConfig = useRuntimeConfig();

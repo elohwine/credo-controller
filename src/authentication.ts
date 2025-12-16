@@ -21,6 +21,44 @@ const cache = new Map<string, string>()
 export const getFromCache = (key: string) => cache.get(key)
 export const setInCache = (key: string, value: string) => cache.set(key, value)
 
+function getCookieValue(cookieHeader: string | undefined, name: string): string | undefined {
+  if (!cookieHeader) return undefined
+
+  // Very small cookie parser (avoids adding cookie-parser dependency).
+  // Supports: "a=b; auth.token=<jwt>; c=d".
+  const parts = cookieHeader.split(';')
+  for (const part of parts) {
+    const trimmed = part.trim()
+    if (!trimmed) continue
+    const eqIndex = trimmed.indexOf('=')
+    if (eqIndex === -1) continue
+    const key = trimmed.slice(0, eqIndex).trim()
+    if (key !== name) continue
+    const rawValue = trimmed.slice(eqIndex + 1)
+    try {
+      return decodeURIComponent(rawValue)
+    } catch {
+      return rawValue
+    }
+  }
+
+  return undefined
+}
+
+function getJwtFromRequest(request: Request): string | undefined {
+  const authHeader = request.headers['authorization']
+  if (typeof authHeader === 'string' && authHeader.length > 0) {
+    return authHeader.replace(/^Bearer\s+/i, '').trim()
+  }
+
+  // Wallet UI stores token in cookie "auth.token".
+  const cookieHeader = typeof request.headers.cookie === 'string' ? request.headers.cookie : undefined
+  const cookieToken = getCookieValue(cookieHeader, 'auth.token')
+  if (cookieToken && cookieToken.length > 0) return cookieToken.trim()
+
+  return undefined
+}
+
 export async function expressAuthentication(request: Request, securityName: string, scopes?: string[]) {
   const logger = new TsLogger(LogLevel.info)
   const agent = container.resolve(Agent as unknown as new (...args: any[]) => Agent)
@@ -35,10 +73,6 @@ export async function expressAuthentication(request: Request, securityName: stri
   }
 
   const apiKeyHeader = request.headers['authorization']
-
-  if (!apiKeyHeader) {
-    return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
-  }
 
   if (securityName === 'apiKey') {
     // Auth: For BW/Dedicated agent to GET their token
@@ -57,8 +91,7 @@ export async function expressAuthentication(request: Request, securityName: stri
 
   if (securityName === 'jwt') {
     const tenancy = 'tenants' in (agent.modules as any)
-    const tokenWithHeader = apiKeyHeader
-    const token = tokenWithHeader!.replace('Bearer ', '')
+    const token = getJwtFromRequest(request)
     const reqPath = request.path
     let decodedToken: jwt.JwtPayload
     if (!token) {
@@ -96,63 +129,60 @@ export async function expressAuthentication(request: Request, securityName: stri
     if (tenancy) {
       // it should be a shared agent
       if (role !== AgentRole.RestRootAgentWithTenants && role !== AgentRole.RestTenantAgent) {
-        logger.debug('Unknown role. The agent is a multi-tenant agent')
+        logger.error(`[AUTH-DEBUG] Unknown role: ${role}. The agent is a multi-tenant agent`)
         return Promise.reject(new StatusException('Unknown role', 401))
       }
       if (role === AgentRole.RestTenantAgent) {
         // Logic if the token is of tenant agent
         if (scopes && !scopes?.includes(SCOPES.TENANT_AGENT)) {
-          logger.debug('Tenants cannot access this route')
+          logger.error(`[AUTH-DEBUG] Missing Scope. Required: ${SCOPES.TENANT_AGENT}, Provided Scopes: ${scopes}`)
           return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
         } else {
           // Auth: tenant agent
           const tenantId: string = decodedToken.tenantId
           if (!tenantId) {
+            logger.error('[AUTH-DEBUG] Missing tenantId in token')
             return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
           }
-          const tenantAgent = await (agent.modules as any).tenants.getTenantAgent({ tenantId })
-          if (!tenantAgent) {
+          try {
+            const tenantAgent = await (agent.modules as any).tenants.getTenantAgent({ tenantId })
+            if (!tenantAgent) {
+              logger.error(`[AUTH-DEBUG] Tenant Agent not found for ID: ${tenantId}`)
+              return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
+            }
+            // Only need to registerInstance for TenantAgent.
+            request.agent = tenantAgent
+            return true
+          } catch (error: any) {
+            logger.error(`[AUTH-DEBUG] Failed to get tenant agent: ${error.message}`)
             return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
           }
-
-          // Only need to registerInstance for TenantAgent.
-          request.agent = tenantAgent
-          return true
         }
       } else if (role === AgentRole.RestRootAgentWithTenants) {
         // Auth: base wallet
         if (!scopes?.includes(SCOPES.MULTITENANT_BASE_AGENT)) {
-          logger.error('Basewallet can only manage tenants')
+          logger.error('[AUTH-DEBUG] Basewallet can only manage tenants')
           return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
         }
 
         request.agent = agent as any
         return true
       } else {
-        logger.debug('Invalid Token')
+        logger.error('[AUTH-DEBUG] Invalid Token Role')
         return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
       }
     } else {
       if (role !== AgentRole.RestRootAgent) {
-        logger.debug('This is a dedicated agent')
+        logger.error('[AUTH-DEBUG] This is a dedicated agent but role is not RestRootAgent')
         return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
       } else {
         // Auth: dedicated agent
-
-        // TODO: replace with scopes, instead of routes
-        if (reqPath.includes('/multi-tenancy/'))
-          return Promise.reject(
-            new StatusException(
-              `${ErrorMessages.Unauthorized}: Multitenant routes are diabled for dedicated agent`,
-              401,
-            ),
-          )
-
         request.agent = agent as any
         return true
       }
     }
   }
+  logger.error('[AUTH-DEBUG] Fallthrough Rejection')
   return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
 }
 

@@ -121,10 +121,10 @@
 </template>
 
 <script lang="ts" setup>
-import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
+import CenterMain from "@credentis-web-wallet/components/CenterMain.vue";
 import {ArrowUturnLeftIcon, CheckIcon, KeyIcon} from "@heroicons/vue/24/outline";
-import {useCurrentWallet} from "@waltid-web-wallet/composables/accountWallet.ts";
-import InlineLoadingCircle from "@waltid-web-wallet/components/loading/InlineLoadingCircle.vue";
+import {useCurrentWallet} from "@credentis-web-wallet/composables/accountWallet.ts";
+import InlineLoadingCircle from "@credentis-web-wallet/components/loading/InlineLoadingCircle.vue";
 
 const loading = ref(false);
 const response = ref("");

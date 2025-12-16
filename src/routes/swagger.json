@@ -2572,6 +2572,10 @@
       },
       "Pick_W3cJsonLdSignCredentialOptions.Exclude_keyofW3cJsonLdSignCredentialOptions.format__": {
         "properties": {
+          "verificationMethod": {
+            "type": "string",
+            "description": "URI of the verificationMethod to be used for signing the credential.\n\nMust be a valid did url pointing to a key."
+          },
           "proofType": {
             "type": "string",
             "description": "The proofType to be used for signing the credential.\n\nMust be a valid Linked Data Signature suite."
@@ -2583,16 +2587,12 @@
           "credential": {
             "$ref": "#/components/schemas/W3cCredential",
             "description": "The credential to be signed."
-          },
-          "verificationMethod": {
-            "type": "string",
-            "description": "URI of the verificationMethod to be used for signing the credential.\n\nMust be a valid did url pointing to a key."
           }
         },
         "required": [
+          "verificationMethod",
           "proofType",
-          "credential",
-          "verificationMethod"
+          "credential"
         ],
         "type": "object",
         "description": "From T, pick a set of properties whose keys are in the union K"
@@ -2689,13 +2689,13 @@
       },
       "Pick_LinkedDataProofOptions.Exclude_keyofLinkedDataProofOptions.cryptosuite__": {
         "properties": {
+          "verificationMethod": {
+            "type": "string"
+          },
           "proofPurpose": {
             "type": "string"
           },
           "created": {
-            "type": "string"
-          },
-          "verificationMethod": {
             "type": "string"
           },
           "type": {
@@ -2718,9 +2718,9 @@
           }
         },
         "required": [
+          "verificationMethod",
           "proofPurpose",
           "created",
-          "verificationMethod",
           "type"
         ],
         "type": "object",
@@ -3013,6 +3013,16 @@
           },
           "password": {
             "type": "string"
+          },
+          "tenantType": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "ORG"
+            ]
+          },
+          "domain": {
+            "type": "string"
           }
         },
         "required": [
@@ -3102,6 +3112,7 @@
         "additionalProperties": false
       },
       "WalletListingItem": {
+        "description": "Full WalletController with scoped fetch interception for local issuer well-known metadata.\nOnly minimal modifications applied to fix ECONNRESET / invalid fetch issues.",
         "properties": {
           "id": {
             "type": "string"
@@ -3258,6 +3269,33 @@
         },
         "required": [
           "status"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "PendingOffer": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "issuerName": {
+            "type": "string"
+          },
+          "credentialType": {
+            "type": "string"
+          },
+          "offerUri": {
+            "type": "string"
+          },
+          "claims": {
+            "$ref": "#/components/schemas/Record_string.any_"
+          }
+        },
+        "required": [
+          "id",
+          "issuerName",
+          "credentialType",
+          "offerUri"
         ],
         "type": "object",
         "additionalProperties": false
@@ -9239,13 +9277,7 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "credentialOfferDeepLink": {
-                      "type": "string"
-                    },
-                    "credentialOffer": {
-                      "type": "string"
-                    },
-                    "credential": {
+                    "holderDid": {
                       "type": "string"
                     },
                     "walletId": {
@@ -9300,8 +9332,8 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "credentialOfferUri": {
-                      "type": "string"
+                    "hasGenericId": {
+                      "type": "boolean"
                     },
                     "token": {
                       "type": "string"
@@ -9604,7 +9636,6 @@
             }
           }
         },
-        "description": "Get Wallets (Account Info)\nCorresponds to: GET /wallet-api/wallet/accounts/wallets\nThis matches the frontend route expectation: /api/wallet/wallet/accounts/wallets",
         "tags": [
           "WalletAPI"
         ],
@@ -9642,7 +9673,6 @@
             }
           }
         },
-        "description": "List Wallet Credentials\nCorresponds to: GET /wallet-api/wallet/{walletId}/credentials",
         "tags": [
           "WalletAPI"
         ],
@@ -9703,7 +9733,6 @@
             }
           }
         },
-        "description": "List DIDs for a wallet (proxy of /dids)\nCorresponds to: GET /wallet-api/wallet/{walletId}/dids",
         "tags": [
           "WalletAPI"
         ],
@@ -9747,7 +9776,6 @@
             }
           }
         },
-        "description": "Get Wallet Credential\nCorresponds to: GET /wallet-api/wallet/{walletId}/credentials/{credentialId}",
         "tags": [
           "WalletAPI"
         ],
@@ -9799,7 +9827,6 @@
             }
           }
         },
-        "description": "Resolve Credential Offer using Credo's OpenID4VC Holder module\nCorresponds to: POST /wallet-api/wallet/{walletId}/exchange/resolveCredentialOffer",
         "tags": [
           "WalletAPI"
         ],
@@ -9851,7 +9878,6 @@
             }
           }
         },
-        "description": "Resolve Issuer OpenID Metadata\nCorresponds to: GET /wallet-api/wallet/{walletId}/exchange/resolveIssuerOpenIDMetadata",
         "tags": [
           "WalletAPI"
         ],
@@ -9903,7 +9929,6 @@
             }
           }
         },
-        "description": "Use Offer Request (Execute Issuance) using Credo's OpenID4VC Holder module\nCorresponds to: POST /wallet-api/wallet/{walletId}/exchange/useOfferRequest",
         "tags": [
           "WalletAPI"
         ],
@@ -9965,7 +9990,6 @@
             }
           }
         },
-        "description": "Resolve Presentation Request\nCorresponds to: POST /wallet-api/wallet/{walletId}/exchange/resolvePresentationRequest",
         "tags": [
           "WalletAPI"
         ],
@@ -10020,7 +10044,6 @@
             }
           }
         },
-        "description": "Match Credentials for Presentation Definition\nCorresponds to: POST /wallet-api/wallet/{walletId}/exchange/matchCredentialsForPresentationDefinition",
         "tags": [
           "WalletAPI"
         ],
@@ -10072,7 +10095,6 @@
             }
           }
         },
-        "description": "Use Presentation Request (Submit Proof)\nCorresponds to: POST /wallet-api/wallet/{walletId}/exchange/usePresentationRequest",
         "tags": [
           "WalletAPI"
         ],
@@ -10450,6 +10472,120 @@
           "content": {
             "application/json": {
               "schema": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/credentials/pending-offers": {
+      "get": {
+        "operationId": "GetPendingOffers",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "offers": {
+                      "items": {
+                        "$ref": "#/components/schemas/PendingOffer"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "offers"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Check for pending offers that the user should claim\nFor now, checks if user needs GenericID and creates offer from Main Issuer",
+        "tags": [
+          "Wallet-Credentials"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": []
+      }
+    },
+    "/api/wallet/credentials/accept-offer": {
+      "post": {
+        "operationId": "AcceptOffer",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "credentialId": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Accept and resolve a credential offer",
+        "tags": [
+          "Wallet-Credentials"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "offerUri": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "offerUri"
+                ],
+                "type": "object"
+              }
             }
           }
         }

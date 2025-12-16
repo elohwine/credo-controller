@@ -54,7 +54,19 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   initWalletUserStore()
   await otelSDK.start()
   agent.config.logger.info('OpenTelemetry SDK started')
+
+  if (process.env.DEBUG_AGENT_MODULES === 'true') {
+    // DEBUG: Log agent modules before and after registration
+    console.log('[server.ts] Agent modules before container registration:', Object.keys((agent.modules as any) || {}))
+    console.log('[server.ts] Has openId4VcIssuer?', !!(agent.modules as any)?.openId4VcIssuer)
+  }
+
   container.registerInstance(Agent, agent as Agent)
+
+  if (process.env.DEBUG_AGENT_MODULES === 'true') {
+    console.log('[server.ts] Agent modules after container registration:', Object.keys((agent.modules as any) || {}))
+  }
+
   fs.writeFileSync('config.json', JSON.stringify(config, null, 2))
 
   const app = config.app ?? express()
@@ -67,6 +79,8 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
       'http://127.0.0.1:3000',
       'http://127.0.0.1:4000',
       'http://127.0.0.1:5000',
+      'http://localhost:6000',
+      'http://127.0.0.1:6000',
     ]
 
     app.use(cors({
@@ -187,18 +201,23 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   // Mount Credo OIDC4VC Routers
   // We use a safe cast or check for the module existence since Agent type is generic
   const modules = (agent as any).modules
-  if (modules?.openId4VcIssuer?.config?.app) {
-    agent.config.logger.info('Mounting OpenID4VC Issuer routes at /oidc')
-    app.use('/oidc', modules.openId4VcIssuer.config.app)
+  if (modules?.openId4VcIssuer?.config?.router) {
+    agent.config.logger.info('Mounting OpenID4VC Issuer routes at /oidc/issuer')
+    app.use('/oidc/issuer', modules.openId4VcIssuer.config.router)
   }
-  if (modules?.openId4VcVerifier?.config?.app) {
-    agent.config.logger.info('Mounting OpenID4VC Verifier routes at /oidc')
-    app.use('/oidc', modules.openId4VcVerifier.config.app)
+  if (modules?.openId4VcVerifier?.config?.router) {
+    agent.config.logger.info('Mounting OpenID4VC Verifier routes at /oidc/verifier')
+    app.use('/oidc/verifier', modules.openId4VcVerifier.config.router)
   }
 
   RegisterRoutes(app)
 
   app.use((async (err: unknown, req: ExRequest, res: ExResponse, next: NextFunction): Promise<ExResponse | void> => {
+    // Check if headers were already sent
+    if (res.headersSent) {
+      return next(err)
+    }
+
     // End tenant session if active
     if (err instanceof ValidateError) {
       agent.config.logger.warn(`Caught Validation Error for ${req.path}:`, {
@@ -227,7 +246,11 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
         message: error.message || 'Internal Server Error',
       })
     }
-    next()
+
+    // If we reach here and no error was handled, send a generic 500
+    return res.status(500).json({
+      message: 'Internal Server Error',
+    })
   }) as ErrorRequestHandler)
 
   return app

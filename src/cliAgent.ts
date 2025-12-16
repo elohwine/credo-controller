@@ -23,6 +23,7 @@ import {
   ProofsModule,
   WebDidResolver,
   W3cCredentialsModule,
+  ClaimFormat,
 } from '@credo-ts/core'
 import { agentDependencies } from '@credo-ts/node'
 import { QuestionAnswerModule } from '@credo-ts/question-answer'
@@ -74,6 +75,11 @@ export const buildModules = (cfg: {
   autoAcceptProofs?: AutoAcceptProof
   walletScheme?: AskarMultiWalletDatabaseScheme
 }) => {
+  const publicBaseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000'
+  const normalizedBaseUrl = publicBaseUrl.replace(/\/$/, '')
+  const oidcIssuerBaseUrl = `${normalizedBaseUrl}/oidc/issuer`
+  const oidcVerifierBaseUrl = `${normalizedBaseUrl}/oidc/verifier`
+
   return {
     askar: new AskarModule({
       ariesAskar,
@@ -106,75 +112,66 @@ export const buildModules = (cfg: {
     }),
     // OpenID4VC Issuer module - for issuing credentials via OIDC4VCI
     openId4VcIssuer: new OpenId4VcIssuerModule({
-      baseUrl: process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
+      baseUrl: oidcIssuerBaseUrl,
+      router: Router(),
       endpoints: {
-        credentialOffer: '/credential-offers',
-        accessToken: '/token',
-        credential: '/credential',
-        jwks: '/jwks',
-      },
-      // We provide a dummy router which we will mount in server.ts
-      app: Router() as any,
-      // Simple mapper that returns the credential matching the request
-      credentialRequestToCredentialMapper: async ({ credentialConfigurationId, holderBinding, agentContext, issuanceSession }) => {
-        // Load actual user data from issuance session metadata
-        // Reference: https://credo.js.org/guides/tutorials/openid4vc/issuing-credentials-using-openid4vc-issuer-module#implementing-the-credential-mapper
-        const metadata = issuanceSession.issuanceMetadata as any
-        const claims = metadata?.claims || {}
+        credentialOffer: {},
+        accessToken: {},
+        credential: {
+          credentialRequestToCredentialMapper: async ({ agentContext, issuanceSession, holderBinding, credentialConfigurationIds }) => {
+            const credentialConfigurationId = credentialConfigurationIds[0]
 
-        // Extract subject DID from holder binding
-        let subjectDid = 'did:example:unknown'
-        if (holderBinding && 'did' in holderBinding) {
-          subjectDid = (holderBinding as any).did
-        } else if (metadata?.subjectDid) {
-          subjectDid = metadata.subjectDid
-        }
+            const metadata = (issuanceSession.issuanceMetadata as any) ?? {}
+            const claims = metadata?.claims || {}
 
-        // Query credential definition from database
-        const { credentialDefinitionStore } = await import('./utils/credentialDefinitionStore')
-        const credDef = credentialDefinitionStore.get(credentialConfigurationId)
+            let subjectDid = metadata?.subjectDid || 'did:example:unknown'
+            if (holderBinding && typeof holderBinding === 'object' && 'did' in holderBinding) {
+              subjectDid = (holderBinding as any).did
+            }
 
-        if (!credDef) {
-          throw new Error(`Credential definition not found for: ${credentialConfigurationId}`)
-        }
+            const { credentialDefinitionStore } = await import('./utils/credentialDefinitionStore')
+            const credDef = credentialDefinitionStore.get(credentialConfigurationId)
+            if (!credDef) {
+              throw new Error(`Credential definition not found for: ${credentialConfigurationId}`)
+            }
 
-        // Get issuer DID from agent
-        const { DidsApi } = await import('@credo-ts/core')
-        const didsApi = agentContext.dependencyManager.resolve(DidsApi)
-        const [didRecord] = await didsApi.getCreatedDids({ method: 'key' })
-        const issuerDid = credDef.issuerDid || didRecord?.did || 'did:example:issuer'
+            const { DidsApi } = await import('@credo-ts/core')
+            const didsApi = agentContext.dependencyManager.resolve(DidsApi)
+            const [didRecord] = await didsApi.getCreatedDids({ method: 'key' })
+            const issuerDid = credDef.issuerDid || didRecord?.did || 'did:example:issuer'
 
-        // Build credential payload with REAL user data
-        return {
-          credentialSupportedId: credentialConfigurationId,
-          format: (credDef.format === 'sd_jwt' ? 'vc+sd-jwt' : 'jwt_vc_json') as any,
-          holder: holderBinding,
-          payload: {
-            '@context': ['https://www.w3.org/2018/credentials/v1'],
-            type: credDef.credentialType || ['VerifiableCredential', credentialConfigurationId],
-            issuer: issuerDid,
-            issuanceDate: new Date().toISOString(),
-            credentialSubject: {
-              id: subjectDid,
-              ...claims // Map all claims from registration: name, email, walletId, role
+            const verificationMethod = `${issuerDid}#${issuerDid.split(':').pop()}`
+
+            return {
+              credentialSupportedId: credentialConfigurationId,
+              format: ClaimFormat.JwtVc,
+              verificationMethod,
+              credential: {
+                '@context': ['https://www.w3.org/2018/credentials/v1'],
+                type: credDef.credentialType || ['VerifiableCredential', credentialConfigurationId],
+                issuer: issuerDid,
+                issuanceDate: new Date().toISOString(),
+                credentialSubject: {
+                  id: subjectDid,
+                  ...claims,
+                },
+              } as any,
             }
           },
-          issuer: {
-            method: 'did' as const,
-            didUrl: `${issuerDid}#${issuerDid.split(':').pop()}`
-          }
-        }
-      }
+        },
+      },
     }),
     // OpenID4VC Verifier module - for verifying credentials via OIDC4VP
     openId4VcVerifier: new OpenId4VcVerifierModule({
-      baseUrl: process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
-      authorizationRequestEndpoint: '/oidc/presentation-requests',
-      authorizationEndpoint: '/oidc/present',
-      // We provide a dummy router because we handle routing via TSOA/OidcVerifierController
-      // The module might attach routes, but we won't expose them directly via this router
-      app: Router() as any,
+      baseUrl: oidcVerifierBaseUrl,
+      router: Router(),
+      endpoints: {
+        authorizationRequest: {},
+        authorization: {},
+      },
     }),
+    // OpenID4VC Holder module - for wallets to receive and present credentials
+    openId4VcHolder: new OpenId4VcHolderModule(),
   }
 }
 
@@ -224,11 +221,14 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
     walletScheme,
   })
 
+  // Node.js timers use 32-bit signed integers. Using Infinity will clamp to 1ms and emit warnings.
+  const maxTimerMs = 2_147_483_647
+
   const tenantModules = tenancy
     ? {
       tenants: new TenantsModuleClass<typeof baseModules>({
-        sessionAcquireTimeout: Number(process.env.SESSION_ACQUIRE_TIMEOUT) || Infinity,
-        sessionLimit: Number(process.env.SESSION_LIMIT) || Infinity,
+        sessionAcquireTimeout: Number(process.env.SESSION_ACQUIRE_TIMEOUT) || maxTimerMs,
+        sessionLimit: Number(process.env.SESSION_LIMIT) || maxTimerMs,
       }),
       ...baseModules,
     }
@@ -253,35 +253,60 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
   try {
     const { credentialDefinitionStore } = await import('./utils/credentialDefinitionStore')
 
-    // Query for GenericID credential definition
-    const genericIdDef = credentialDefinitionStore.get('GenericID')
+    // Query for GenericIDCredential definition (matches modelRegistry.ts naming)
+    const genericIdDef = credentialDefinitionStore.get('GenericIDCredential')
 
     if (!genericIdDef) {
-      agent.config.logger.warn('GenericID credential definition not found in database. Skipping OpenID4VC Issuer initialization.')
+      agent.config.logger.warn('GenericIDCredential definition not found in database. Skipping OpenID4VC Issuer initialization.')
     } else {
-      const openId4VcIssuer = await agent.modules.openId4VcIssuer.createIssuer({
-        display: [
-          {
-            name: 'Credo Controller',
-            description: 'Multi-tenant SSI platform',
-            text_color: '#000000',
-            background_color: '#FFFFFF',
-          },
-        ],
-        credentialsSupported: [
-          {
-            format: genericIdDef.format === 'sd_jwt' ? 'vc+sd-jwt' : 'jwt_vc_json',
-            id: 'GenericID',
-            cryptographic_binding_methods_supported: ['did:key', 'did:web'],
-            cryptographic_suites_supported: ['EdDSA'],
-            types: genericIdDef.credentialType || ['VerifiableCredential', 'GenericID'],
-          },
-        ],
-      })
-      agent.config.logger.info(`OpenID4VC Issuer initialized with ID: ${openId4VcIssuer.issuerId}`)
+      // Define the credentials config we want
+      const credentialsSupported = [
+        {
+          format: genericIdDef.format === 'sd_jwt' ? 'vc+sd-jwt' : 'jwt_vc_json',
+          id: 'GenericIDCredential',
+          cryptographic_binding_methods_supported: ['did:key', 'did:web'],
+          cryptographic_suites_supported: ['EdDSA'],
+          types: genericIdDef.credentialType || ['VerifiableCredential', 'GenericIDCredential'],
+        },
+      ]
+
+      const displayMetadata = [
+        {
+          name: 'Credo Controller',
+          description: 'Multi-tenant SSI platform',
+          text_color: '#000000',
+          background_color: '#FFFFFF',
+        },
+      ]
+
+      // Check for existing issuers first
+      const existingIssuers = await agent.modules.openId4VcIssuer.getAllIssuers()
+
+      if (existingIssuers && existingIssuers.length > 0) {
+        // Update existing issuer's metadata to include GenericIDCredential
+        const issuer = existingIssuers[0]
+        agent.config.logger.info(`Found existing issuer: ${issuer.issuerId}. Updating metadata with GenericIDCredential...`)
+
+        // Update the issuer's metadata using updateIssuerMetadata
+        await agent.modules.openId4VcIssuer.updateIssuerMetadata({
+          issuerId: issuer.issuerId,
+          credentialsSupported,
+          display: displayMetadata,
+        })
+
+        agent.config.logger.info(`OpenID4VC Issuer ${issuer.issuerId} updated with GenericIDCredential config`)
+      } else {
+        // Create new issuer if none exists
+        const openId4VcIssuer = await agent.modules.openId4VcIssuer.createIssuer({
+          display: displayMetadata,
+          credentialsSupported,
+        })
+        agent.config.logger.info(`OpenID4VC Issuer created with ID: ${openId4VcIssuer.issuerId}`)
+      }
     }
   } catch (e: any) {
-    agent.config.logger.error(`Failed to initialize OpenID4VC Issuer: ${e.message}`)
+    agent.config.logger.error(`Failed to initialize/update OpenID4VC Issuer: ${e.message}`)
+    agent.config.logger.error(e.stack)
   }
 
   const genericRecord = await agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
@@ -296,6 +321,12 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
     record.content.secretKey = await generateSecretKey()
     record.setTag('hasSecretKey', true)
     await agent.genericRecords.update(record)
+  }
+
+  if (process.env.DEBUG_AGENT_MODULES === 'true') {
+    console.log('[cliAgent] Agent modules before setupServer:', Object.keys((agent.modules as any) || {}))
+    console.log('[cliAgent] Has openId4VcIssuer?', !!(agent.modules as any)?.openId4VcIssuer)
+    console.log('[cliAgent] Has tenants?', !!(agent.modules as any)?.tenants)
   }
 
   const app = await setupServer(agent, { webhookUrl, port: adminPort, schemaFileServerURL }, apiKey)

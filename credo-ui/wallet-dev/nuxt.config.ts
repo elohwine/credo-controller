@@ -74,8 +74,8 @@ export default defineNuxtConfig({
         registerType: "autoUpdate",
         // notification-worker.js
         manifest: {
-            name: "walt.id wallet",
-            short_name: "walt.id",
+            name: "IdenEx Credentis Wallet (Dev)",
+            short_name: "Credentis",
             display: "standalone",
             theme_color: "#0573f0",
             icons: [
@@ -105,17 +105,17 @@ export default defineNuxtConfig({
                     type: "image/png",
                 },
                 {
-                    src: "/icons/waltid-icon-192x192.png",
+                    src: "/icons/credentis-icon-192x192.png",
                     sizes: "192x192",
                     type: "image/png",
                 },
                 {
-                    src: "/icons/waltid-icon-512x512.png",
+                    src: "/icons/credentis-icon-512x512.png",
                     sizes: "512x512",
                     type: "image/png",
                 },
                 {
-                    src: "/icons/waltid-icon-512x512.png",
+                    src: "/icons/credentis-icon-512x512.png",
                     sizes: "512x512",
                     type: "image/png",
                     purpose: "any maskable",
@@ -181,7 +181,7 @@ export default defineNuxtConfig({
         logLevel: "info",
         resolve: {
             alias: {
-                "@waltid-web-wallet": path.resolve(__dirname, "../../libs"),
+                "@credentis-web-wallet": path.resolve(__dirname, "./libs"),
             },
         },
         server: {
@@ -201,7 +201,7 @@ export default defineNuxtConfig({
             projectId: process.env.ProjectId,
             issuerCallbackUrl: "http://localhost:7100",
             credentialsRepositoryUrl: "http://localhost:3000",
-            demoWalletUrl: "https://wallet-dev.walt.id",
+            demoWalletUrl: "http://localhost:4000",
         },
     },
 

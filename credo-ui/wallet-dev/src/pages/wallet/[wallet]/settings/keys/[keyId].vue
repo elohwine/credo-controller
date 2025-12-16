@@ -164,10 +164,10 @@
 </template>
 
 <script lang="ts" setup>
-import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
-import BackButton from "@waltid-web-wallet/components/buttons/BackButton.vue";
+import CenterMain from "@credentis-web-wallet/components/CenterMain.vue";
+import BackButton from "@credentis-web-wallet/components/buttons/BackButton.vue";
 import {ArrowUpOnSquareIcon, ExclamationTriangleIcon, TrashIcon} from "@heroicons/vue/24/outline";
-import {useCurrentWallet} from "@waltid-web-wallet/composables/accountWallet.ts";
+import {useCurrentWallet} from "@credentis-web-wallet/composables/accountWallet.ts";
 import {computed, onMounted, ref} from "vue";
 
 import {Switch, SwitchGroup, SwitchLabel} from "@headlessui/vue";

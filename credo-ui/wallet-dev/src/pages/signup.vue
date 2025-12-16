@@ -185,9 +185,9 @@
 
 <script lang="ts" setup>
 import {ArrowRightStartOnRectangleIcon, EnvelopeIcon, IdentificationIcon, KeyIcon} from "@heroicons/vue/20/solid";
-import ActionResultModal from "@waltid-web-wallet/components/modals/ActionResultModal.vue";
-import useModalStore from "@waltid-web-wallet/stores/useModalStore.ts";
-import {useTenant} from "@waltid-web-wallet/composables/tenants.ts";
+import ActionResultModal from "@credentis-web-wallet/components/modals/ActionResultModal.vue";
+import useModalStore from "@credentis-web-wallet/stores/useModalStore.ts";
+import {useTenant} from "@credentis-web-wallet/composables/tenants.ts";
 
 const tenant = await useTenant().value;
 const bgImg = tenant?.bgImage;

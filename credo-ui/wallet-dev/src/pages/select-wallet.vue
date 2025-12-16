@@ -20,8 +20,8 @@
 
 <script lang="ts" setup>
 import {InboxArrowDownIcon} from "@heroicons/vue/24/outline";
-import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
-import WalletListing from "@waltid-web-wallet/components/wallets/WalletListing.vue";
+import CenterMain from "@credentis-web-wallet/components/CenterMain.vue";
+import WalletListing from "@credentis-web-wallet/components/wallets/WalletListing.vue";
 
 const wallets = (await listWallets())?.value?.wallets;
 </script>

@@ -26,11 +26,11 @@ export interface IssuanceRequest {
     /** Subject DID (the holder's DID) - optional, can be provided at acceptance time */
     subjectDid?: string
 
-    /** Override issuer DID - if not provided, uses platform's default */
+    /** Override issuer DID - if not provided, uses tenant's issuer DID */
     issuerDid?: string
 
-    /** Tenant ID for multi-tenant scenarios */
-    tenantId?: string
+    /** Tenant ID for multi-tenant scenarios (REQUIRED for credential issuance) */
+    tenantId: string
 
     /** Expiration time in milliseconds (default: 1 hour) */
     expiresInMs?: number
@@ -74,54 +74,42 @@ export class CredentialIssuanceService {
      * @returns Offer details with deeplink for wallet acceptance
      */
     async createOffer(request: IssuanceRequest): Promise<IssuanceResult> {
-        logger.info({ credentialType: request.credentialType }, 'Creating credential offer')
+        logger.info({ credentialType: request.credentialType, tenantId: request.tenantId }, 'Creating credential offer')
 
-        // 1. Resolve issuer DID
-        let issuerDid = request.issuerDid
-        if (!issuerDid) {
-            issuerDid = await this.getDefaultIssuerDid()
+        // 1. Resolve base agent which has OpenId4VcIssuer module
+        const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
+
+        if (!request.tenantId) {
+            throw new Error('tenantId is required for credential issuance')
         }
 
-        // 2. Determine credential type (config ID)
-        // We assume request.credentialType matches the registered Credential Configuration ID.
-        // If legacy mapping is needed, it should be done here or in configuration.
-        const credentialConfigurationId = request.credentialType
-
-        // Define type array for return value
-        const credentialType = ['VerifiableCredential', request.credentialType]
-
-        // 3. Resolve Agent
-        const agent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
-
-        // 4. Create offer using Credo Native Module
-        // We use the 'pre-authorized' flow by default for this service
-        const preAuthorizedCode = randomUUID()
-
-        // Map credentialType string to a configuration ID that Credo understands
-        // For now, we assume the config ID matches the credential type or we need to find it.
-        // But Credo createCredentialOffer takes `credentialConfigurationIds`.
+        // Get tenant agent for DID/context purposes
+        const tenantAgent = await (baseAgent.modules as any).tenants.getTenantAgent({ tenantId: request.tenantId })
 
         try {
-            const modules = (agent as any).modules
-            logger.info({ moduleKeys: Object.keys(modules || {}) }, 'Available modules on Agent')
+            // Use BASE agent's openId4VcIssuer, NOT tenant agent (which doesn't have it)
+            const baseModules = (baseAgent.modules as any)
+            logger.info({ moduleKeys: Object.keys(baseModules || {}), tenantId: request.tenantId }, 'Available modules on Base Agent')
 
-            if (!modules.openId4VcIssuer) {
-                throw new Error(`OpenId4VcIssuer module is missing. Available: ${Object.keys(modules || {}).join(', ')}`)
+            if (!baseModules.openId4VcIssuer) {
+                throw new Error(`OpenId4VcIssuer module is missing on base agent. Available: ${Object.keys(baseModules || {}).join(', ')}`)
             }
 
-            // Get the first issuer (we initialized one in cliAgent.ts)
-            // Reference: https://credo.js.org/guides/tutorials/openid4vc/issuing-credentials-using-openid4vc-issuer-module
-            const issuers = await modules.openId4VcIssuer.getAllIssuers()
+            // Get the issuer for this tenant
+            const issuers = await baseModules.openId4VcIssuer.getAllIssuers()
             if (!issuers || issuers.length === 0) {
-                throw new Error('No OpenID4VC issuers found. Agent initialization may have failed.')
+                throw new Error('No OpenID4VC issuers found for this tenant. Tenant provisioning may have failed.')
             }
             const openId4VcIssuer = issuers[0]
 
+            // Define type array for return value
+            const credentialType = ['VerifiableCredential', request.credentialType]
+
             // Create credential offer using the Credo API
-            // This matches the documentation at https://credo.js.org/guides/tutorials/openid4vc/issuing-credentials-using-openid4vc-issuer-module#creating-a-credential-offer
-            const { credentialOffer, issuanceSession } = await modules.openId4VcIssuer.createCredentialOffer({
+            // NOTE: Credo uses offeredCredentials: string[] per OpenId4VciCreateCredentialOfferOptions
+            const result = await baseModules.openId4VcIssuer.createCredentialOffer({
                 issuerId: openId4VcIssuer.issuerId,
-                offeredCredentials: [request.credentialType], // e.g., 'GenericID'
+                offeredCredentials: request.credentialType,
                 preAuthorizedCodeFlowConfig: {
                     userPinRequired: false,
                 },
@@ -131,20 +119,39 @@ export class CredentialIssuanceService {
                 }
             })
 
-            // The credentialOffer should contain the URI
-            const credentialOfferUri = credentialOffer
+            // Credo returns: { credentialOffer: string (the fully formed deep link), issuanceSession: ... }
+            // The credentialOffer string is like: "openid-credential-offer://?credential_offer_uri=http%3A%2F%2F..."
+            const credentialOfferDeepLink = result.credentialOffer
+            const issuanceSession = result.issuanceSession
+
+            // Extract the actual HTTP URI for clients that need it (decode it first)
+            let credentialOfferUri = ''
+            if (credentialOfferDeepLink && credentialOfferDeepLink.includes('credential_offer_uri=')) {
+                const encodedUri = credentialOfferDeepLink.split('credential_offer_uri=')[1]
+                credentialOfferUri = decodeURIComponent(encodedUri)
+            } else {
+                // Fallback for value-based offers or other formats
+                credentialOfferUri = credentialOfferDeepLink
+            }
+
+            logger.info({ offerId: issuanceSession?.id, uri: credentialOfferUri?.slice(0, 100) }, 'Credential offer created')
 
             return {
-                offerId: issuanceSession.id,
-                preAuthorizedCode: issuanceSession.preAuthorizedCode || '',
-                credential_offer_uri: typeof credentialOfferUri === 'string' ? credentialOfferUri : JSON.stringify(credentialOfferUri),
-                credential_offer_deeplink: `openid-credential-offer://?credential_offer=${encodeURIComponent(typeof credentialOfferUri === 'string' ? credentialOfferUri : JSON.stringify(credentialOfferUri))}`,
+                offerId: issuanceSession?.id || 'unknown',
+                preAuthorizedCode: issuanceSession?.preAuthorizedCode || '',
+                credential_offer_uri: credentialOfferUri,
+                credential_offer_deeplink: credentialOfferDeepLink,
                 expiresAt: new Date(Date.now() + (request.expiresInMs || 3600000)).toISOString(),
                 credentialType,
             }
         } catch (e: any) {
-            logger.error({ error: e.message, stack: e.stack }, 'Failed to create native credential offer')
+            logger.error({ error: e.message, stack: e.stack, tenantId: request.tenantId }, 'Failed to create credential offer')
             throw new Error(`Failed to create credential offer: ${e.message}`)
+        } finally {
+            // End tenant session
+            if (tenantAgent && typeof (tenantAgent as any).endSession === 'function') {
+                await (tenantAgent as any).endSession()
+            }
         }
     }
 
