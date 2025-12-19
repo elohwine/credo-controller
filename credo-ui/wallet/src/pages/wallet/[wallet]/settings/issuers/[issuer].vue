@@ -144,7 +144,7 @@ const {
 } = useLazyFetch<IssuerCredentials>(
   `/wallet-api/wallet/${currentWallet.value}/issuers/${issuer}/credentials`,
 );
-const credentialType = ref<string>("jwt_vc_json");
+const credentialType = ref<string>("jwt_vc");
 
 definePageMeta({
   layout: window.innerWidth > 1024 ? "desktop" : "mobile",

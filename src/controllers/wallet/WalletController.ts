@@ -169,10 +169,35 @@ export class WalletController extends Controller {
   @Get('accounts/wallets')
   public async getWallets(@Request() request: ExRequest): Promise<WalletListingsResponse> {
     const authHeader = request.headers.authorization
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    let token: string | undefined
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7)
+    } else {
+      // Try to read from cookie named `auth.token` (HttpOnly cookie set by UI)
+      const cookieHeader = typeof request.headers.cookie === 'string' ? request.headers.cookie : undefined
+      if (cookieHeader) {
+        const parts = cookieHeader.split(';')
+        for (const part of parts) {
+          const trimmed = part.trim()
+          if (!trimmed) continue
+          const eqIndex = trimmed.indexOf('=')
+          if (eqIndex === -1) continue
+          const key = trimmed.slice(0, eqIndex).trim()
+          if (key !== 'auth.token') continue
+          const rawValue = trimmed.slice(eqIndex + 1)
+          try {
+            token = decodeURIComponent(rawValue)
+          } catch {
+            token = rawValue
+          }
+          break
+        }
+      }
+    }
+    if (!token) {
       throw new UnauthorizedError('No token provided')
     }
-    const token = authHeader.substring(7)
     const secret = await this.getJwtSecret()
     try {
       const decoded = jwt.verify(token, secret) as any
@@ -540,7 +565,7 @@ export class WalletController extends Controller {
         let vcType = 'VerifiableCredential'
         let issuerDid = ''
 
-        if (credentialRecord.format === 'jwt_vc_json' || credentialRecord.format === 'jwt_vc') {
+        if (credentialRecord.format === 'jwt_vc' || credentialRecord.format === 'jwt_vc') {
           const jwtToken = credentialRecord.credential
           verifiableCredential = jwtToken
           try {

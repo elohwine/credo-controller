@@ -24,9 +24,9 @@ export function buildIssuerMetadata(input: IssuerMetadataInput) {
       const definitions = credentialDefinitionStore.list(input.tenantId)
 
       definitions.forEach((def: any) => {
-        const configId = `${def.name}_jwt_vc_json`
+        const configId = `${def.name}_jwt_vc`
         credentialConfigurations[configId] = {
-          format: 'jwt_vc_json',
+          format: 'jwt_vc',
           scope: def.name,
           cryptographic_binding_methods_supported: ['did'],
           cryptographic_suites_supported: ['Ed25519Signature2018'],

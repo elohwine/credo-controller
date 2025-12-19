@@ -44,9 +44,9 @@ try {
     schema: { type: 'string' },
   }
   fs.writeFileSync(swaggerPath, JSON.stringify(spec, null, 2))
-   
+
   console.log('[patch-swagger] Injected x-correlation-id header in responses')
 } catch (e) {
-   
+
   console.warn('[patch-swagger] Failed to patch swagger.json:', e.message)
 }

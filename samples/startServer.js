@@ -22,9 +22,9 @@ async function run() {
   const issuerRouter = Router()
   const verifierRouter = Router()
 
-  // Mount routers so the module endpoints are reachable
-  app.use('/oidc/issuer', issuerRouter)
-  app.use('/oidc/verifier', verifierRouter)
+  // Routers are passed to the OpenId4VcIssuerModule and will be mounted automatically
+  // by setupServer to ensure they are placed after global middlewares (CORS, etc.)
+
 
   // DEBUG ENDPOINT TO INSPECT ISSUER CONFIG
   app.get('/debug/issuer', async (req, res) => {
@@ -83,7 +83,7 @@ async function run() {
           credentialOffer: {},
           accessToken: {},
           credential: {
-            credentialRequestToCredentialMapper: async ({ issuanceSession, holderBinding, credentialConfigurationIds }) => {
+                credentialRequestToCredentialMapper: async ({ issuanceSession, holderBinding, credentialConfigurationIds }) => {
               const metadata = issuanceSession?.issuanceMetadata || {}
               const claims = metadata?.claims || {}
 
@@ -94,9 +94,10 @@ async function run() {
                 subjectDid = holderBinding.did
               }
 
-              // Minimal example VC payload.
+                // Minimal example VC payload.
               return {
                 credentialSupportedId: credentialConfigurationId,
+                // Use canonical JWT VC format
                 format: 'jwt_vc',
                 verificationMethod: 'did:example:issuer#key-1',
                 credential: {
@@ -130,17 +131,36 @@ async function run() {
   await agent.initialize()
   console.log('✅ Agent initialized')
 
-  // Initialize OpenID4VC issuer instance so offers can be created
+    // Initialize OpenID4VC issuer instance so offers can be created
   try {
-    const credentialsSupported = [
-      {
-        format: 'jwt_vc',
-        id: 'GenericIDCredential',
+    // Advertise a broad set of formats so wallets can discover compatible configs
+    const supportedFormats = ['jwt_vc', 'jwt_vc_json', 'jwt_vc_json-ld', 'vc+sd-jwt', 'ldp_vc', 'mso_mdoc']
+
+    const credentialsSupported = []
+    const credentialConfigurationsSupported = {}
+
+    supportedFormats.forEach((fmt) => {
+      const id = fmt === 'jwt_vc' ? 'GenericIDCredential' : `GenericIDCredential_${fmt}`
+      credentialsSupported.push({
+        format: fmt,
+        id,
         cryptographic_binding_methods_supported: ['did:key', 'did:web'],
         cryptographic_suites_supported: ['EdDSA'],
         types: ['VerifiableCredential', 'GenericIDCredential'],
-      },
-    ]
+      })
+
+      credentialConfigurationsSupported[id] = {
+        cryptographic_binding_methods_supported: ['did:key', 'did:web'],
+        credential_signing_alg_values_supported: ['EdDSA'],
+        proof_types_supported: {
+          jwt: { proof_signing_alg_values_supported: ['EdDSA'] },
+        },
+        format: fmt,
+        credential_definition: {
+          type: ['VerifiableCredential', 'GenericIDCredential'],
+        },
+      }
+    })
 
     const display = [
       {
@@ -152,69 +172,50 @@ async function run() {
 
     const existingIssuers = await agent.modules.openId4VcIssuer.getAllIssuers()
     if (existingIssuers && existingIssuers.length > 0) {
-      const issuer = existingIssuers[0]
-      console.log(`ℹ️ Found existing issuer: ${issuer.issuerId}`)
-      console.log(`ℹ️ CURRENT Config: ${JSON.stringify(issuer.credentialsSupported)}`)
-
-      await agent.modules.openId4VcIssuer.updateIssuerMetadata({
-        issuerId: issuer.issuerId,
-        credentialsSupported,
-        display,
-      })
-
-      const updated = await agent.modules.openId4VcIssuer.getIssuerByIssuerId(issuer.issuerId)
-      console.log(`✅ UPDATED Config: ${JSON.stringify(updated.credentialsSupported)}`)
-
-      // POPULATE CACHE TO PREVENT LOOPBACK (The "Why are we facing this again?" fix)
-      try {
-        const { issuerMetadataCache } = require('../build/utils/issuerMetadataCache')
-        // We need the Full Metadata (published at .well-known), effectively what getIssuerMetadata returns?
-        // Credo doesn't expose getIssuerMetadata directly on module public API easily.
-        // We construct a mock minimal metadata or fetch it once?
-        // Actually, WalletController needs 'metadata' object.
-        // Let's manually construct the minimal required metadata using the record.
-
-        // This structure must match what Credo expects in `resolved.metadata`
-        const metadata = {
-          credential_issuer: updated.issuerId, // This is technically the ID, but often URL in specs. 
-          // Wait, 'issuerUrl' IS the ID for OID4VCI? No, issuerUrl is the base URL.
-          credential_endpoint: `${updated.issuerId}/credential`,
-          batch_credential_endpoint: `${updated.issuerId}/batch_credential`,
-          credentials_supported: updated.credentialsSupported
+      // Remove any existing issuer records then recreate to ensure clean metadata
+      for (const issuer of existingIssuers) {
+        console.log(`ℹ️ Found existing issuer: ${issuer.issuerId} - attempting delete`)
+        try {
+          if (typeof agent.modules.openId4VcIssuer.deleteIssuer === 'function') {
+            await agent.modules.openId4VcIssuer.deleteIssuer({ issuerId: issuer.issuerId })
+            console.log(`🗑️ Deleted issuer ${issuer.issuerId}`)
+          } else if (typeof agent.modules.openId4VcIssuer.updateIssuerMetadata === 'function') {
+            // If delete isn't available, clear metadata by updating to empty and continue
+            await agent.modules.openId4VcIssuer.updateIssuerMetadata({ issuerId: issuer.issuerId, credentialsSupported: [], credentialConfigurationsSupported: {} })
+            console.log(`⚠️ Cleared metadata for issuer ${issuer.issuerId} (delete not supported)`)
+          }
+        } catch (err) {
+          console.warn(`Failed to remove existing issuer ${issuer.issuerId}:`, err.message)
         }
-
-        // Use the baseURL we configured (127.0.0.1:3000/oidc/issuer) + /issuerId?
-        // No, Credo constructs the Issuer URL as: <baseUrl>/<issuerId>
-        const issuerUrl = `http://127.0.0.1:3000/oidc/issuer/${updated.issuerId}`
-
-        issuerMetadataCache.set(issuerUrl, metadata, 'did:example:unknown', 'kid-1')
-        console.log(`✅ Cached Metadata for Root Issuer: ${issuerUrl}`)
-      } catch (err) {
-        console.warn('Failed to cache root issuer metadata:', err.message)
       }
+    }
 
-    } else {
+    // Create a fresh issuer to advertise all supported formats
+    try {
       const openId4VcIssuer = await agent.modules.openId4VcIssuer.createIssuer({
         display,
         credentialsSupported,
+        credentialConfigurationsSupported,
       })
       console.log(`✅ OpenID4VC Issuer initialized: ${openId4VcIssuer.issuerId}`)
 
-      // Populate cache for new issuer too
+      // Populate cache for new issuer
       try {
         const { issuerMetadataCache } = require('../build/utils/issuerMetadataCache')
-        // Re-fetch to get full object if needed, or just construct
         const issuerUrl = `http://127.0.0.1:3000/oidc/issuer/${openId4VcIssuer.issuerId}`
         const metadata = {
           credential_issuer: issuerUrl,
           credentials_supported: credentialsSupported,
-          credential_endpoint: `${issuerUrl}/credential`
+          credential_configurations_supported: credentialConfigurationsSupported,
+          credential_endpoint: `${issuerUrl}/credential`,
         }
         issuerMetadataCache.set(issuerUrl, metadata, 'did:example:unknown', 'kid-1')
         console.log(`✅ Cached Metadata for Root Issuer: ${issuerUrl}`)
       } catch (err) {
         console.warn('Failed to cache root issuer metadata:', err.message)
       }
+    } catch (e) {
+      console.error('❌ Failed to create OpenID4VC Issuer:', e)
     }
   } catch (e) {
     console.error('❌ Failed to initialize/update OpenID4VC Issuer:', e)
@@ -237,7 +238,7 @@ async function run() {
     }
   })
 
-  await startServer(
+  const server = await startServer(
     agent,
     {
       port: 3000,
@@ -247,6 +248,8 @@ async function run() {
     },
     'test-api-key-12345'
   )
+  server.keepAliveTimeout = 0; // Disable keep-alive to prevent socket hang ups
+  // server.headersTimeout = 66000; // Not needed if keep-alive is 0
 
   console.log(`🚀 Server running on http://localhost:3000`)
   console.log(`🔌 Inbound transport on http://localhost:3001`)

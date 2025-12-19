@@ -1190,7 +1190,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Pick_W3cJsonLdSignCredentialOptions.Exclude_keyofW3cJsonLdSignCredentialOptions.format__": {
         "dataType": "refAlias",
-        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"verificationMethod":{"dataType":"string","required":true},"proofType":{"dataType":"string","required":true},"proofPurpose":{"dataType":"any"},"created":{"dataType":"string"},"credential":{"ref":"W3cCredential","required":true}},"validators":{}},
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"proofType":{"dataType":"string","required":true},"proofPurpose":{"dataType":"any"},"created":{"dataType":"string"},"credential":{"ref":"W3cCredential","required":true},"verificationMethod":{"dataType":"string","required":true}},"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Omit_W3cJsonLdSignCredentialOptions.format_": {
@@ -1240,7 +1240,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Pick_LinkedDataProofOptions.Exclude_keyofLinkedDataProofOptions.cryptosuite__": {
         "dataType": "refAlias",
-        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"verificationMethod":{"dataType":"string","required":true},"proofPurpose":{"dataType":"string","required":true},"created":{"dataType":"string","required":true},"type":{"dataType":"string","required":true},"domain":{"dataType":"string"},"challenge":{"dataType":"string"},"jws":{"dataType":"string"},"proofValue":{"dataType":"string"},"nonce":{"dataType":"string"}},"validators":{}},
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"proofPurpose":{"dataType":"string","required":true},"created":{"dataType":"string","required":true},"verificationMethod":{"dataType":"string","required":true},"type":{"dataType":"string","required":true},"domain":{"dataType":"string"},"challenge":{"dataType":"string"},"jws":{"dataType":"string"},"proofValue":{"dataType":"string"},"nonce":{"dataType":"string"}},"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Omit_LinkedDataProofOptions.cryptosuite_": {
@@ -1434,7 +1434,7 @@ const models: TsoaRoute.Models = {
             "type": {"dataType":"array","array":{"dataType":"string"},"required":true},
             "schemaId": {"dataType":"string"},
             "claimsTemplate": {"dataType":"any"},
-            "format": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["jwt_vc"]},{"dataType":"enum","enums":["sd_jwt"]}]},
+            "format": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["jwt_vc"]},{"dataType":"enum","enums":["sd_jwt"]},{"dataType":"enum","enums":["jwt_vc_json"]},{"dataType":"enum","enums":["jwt_vc_json-ld"]}]},
             "credentialDefinitionId": {"dataType":"string"},
             "issuerDid": {"dataType":"string"},
         },
@@ -5450,8 +5450,8 @@ export function RegisterRoutes(app: Router) {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 body: {"in":"body","name":"body","required":true,"ref":"CreateCredentialOfferRequest"},
         };
-        app.post('/oidc/issuer/credential-offers',
-            authenticateMiddleware([{"jwt":["tenant"]}]),
+        app.post('/custom-oidc/issuer/credential-offers',
+            authenticateMiddleware([{"apiKey":[]}]),
             ...(fetchMiddlewares<RequestHandler>(OidcIssuerController)),
             ...(fetchMiddlewares<RequestHandler>(OidcIssuerController.prototype.createCredentialOffer)),
 
@@ -5487,7 +5487,7 @@ export function RegisterRoutes(app: Router) {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 id: {"in":"path","name":"id","required":true,"dataType":"string"},
         };
-        app.get('/oidc/issuer/credentials/:id',
+        app.get('/custom-oidc/issuer/credentials/:id',
             authenticateMiddleware([{"jwt":["tenant"]}]),
             ...(fetchMiddlewares<RequestHandler>(OidcIssuerController)),
             ...(fetchMiddlewares<RequestHandler>(OidcIssuerController.prototype.getCredential)),
@@ -5524,7 +5524,7 @@ export function RegisterRoutes(app: Router) {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 id: {"in":"path","name":"id","required":true,"dataType":"string"},
         };
-        app.post('/oidc/issuer/credentials/:id/revoke',
+        app.post('/custom-oidc/issuer/credentials/:id/revoke',
             authenticateMiddleware([{"jwt":["tenant"]}]),
             ...(fetchMiddlewares<RequestHandler>(OidcIssuerController)),
             ...(fetchMiddlewares<RequestHandler>(OidcIssuerController.prototype.revokeCredential)),
@@ -5561,7 +5561,7 @@ export function RegisterRoutes(app: Router) {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 subject: {"in":"query","name":"subject","dataType":"string"},
         };
-        app.get('/oidc/issuer/credentials',
+        app.get('/custom-oidc/issuer/credentials',
             authenticateMiddleware([{"jwt":["tenant"]}]),
             ...(fetchMiddlewares<RequestHandler>(OidcIssuerController)),
             ...(fetchMiddlewares<RequestHandler>(OidcIssuerController.prototype.listCredentials)),

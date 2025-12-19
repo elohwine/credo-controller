@@ -66,8 +66,8 @@ const getOfferUrl = async (
             .issuerKey,
         credentialConfigurationId:
           Object.keys(credential_configurations_supported).find(
-            (key) => key === c.id + "_jwt_vc_json"
-          ) || c.id + "_jwt_vc_json",
+            (key) => key === c.id + "_jwt_vc"
+          ) || c.id + "_jwt_vc",
         credentialData: offer,
       };
 

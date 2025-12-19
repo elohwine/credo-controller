@@ -152,9 +152,10 @@ export async function expressAuthentication(request: Request, securityName: stri
             }
             // Only need to registerInstance for TenantAgent.
             request.agent = tenantAgent
-            return true
+            // TSOA assigns the return value of this function to request.user
+            return decodedToken
           } catch (error: any) {
-            logger.error(`[AUTH-DEBUG] Failed to get tenant agent: ${error.message}`)
+            logger.error(`Failed to get tenant agent: ${error.message}`)
             return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
           }
         }

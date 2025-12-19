@@ -27,6 +27,8 @@
     "check-format": "yarn prettier --list-different",
     "tsoa": "tsoa spec-and-routes",
     "dev": "tsoa spec-and-routes && tsnd --respawn samples/simpleStart.ts",
+    "start:issuer": "node samples/startServer.js",
+    "start:holder": "node samples/startHolderServer.js",
     "build": "yarn run clean && yarn run compile",
     "prestart:dev": "yarn run clean && yarn run compile",
     "start:dev": "yarn build && ./bin/afj-rest.js --config ./samples/cliConfig.json",

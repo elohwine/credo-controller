@@ -40,7 +40,7 @@ export class WalletCredentialsController extends Controller {
 
             // Check if user has GenericID
             const credentials = await tenantAgent.credentials.getAll()
-            const hasGenericId = credentials.some(cred => {
+            const hasGenericId = credentials.some((cred: any) => {
                 const types = (cred as any)?.type || []
                 return types.includes('GenericIDCredential')
             })
@@ -60,20 +60,24 @@ export class WalletCredentialsController extends Controller {
                 if (holderDid && issuerApiUrl) {
                     // Call Main Issuer to create offer
                     try {
-                        const response = await fetch(`${issuerApiUrl}/api/credentials/offer`, {
+                        const targetUrl = `${issuerApiUrl}/custom-oidc/issuer/credential-offers`
+                        const response = await fetch(targetUrl, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'x-api-key': process.env.ISSUER_API_KEY || 'test-api-key-12345'
+                                'x-api-key': process.env.ISSUER_API_KEY || 'test-api-key-12345',
+                                'Authorization': process.env.ISSUER_API_KEY || 'test-api-key-12345'
                             },
-                            body: JSON.stringify({
-                                credentialType: 'GenericIDCredential',
-                                claims: {
-                                    holderDid,
-                                    issuedAt: new Date().toISOString()
-                                },
-                                subjectDid: holderDid
-                            })
+                                    body: JSON.stringify({
+                                        credentials: [
+                                            {
+                                                credentialDefinitionId: 'GenericIDCredential',
+                                                // Request generic Credo-supported format (validated by API)
+                                                format: 'jwt_vc',
+                                                type: ['VerifiableCredential', 'GenericIDCredential']
+                                            }
+                                        ]
+                                    })
                         })
 
                         if (response.ok) {
@@ -121,6 +125,11 @@ export class WalletCredentialsController extends Controller {
 
             // Resolve offer
             const resolvedOffer = await tenantAgent.modules.openId4VcHolder.resolveCredentialOffer(body.offerUri)
+
+            // Accept issuer-provided credential formats as-is. Removing previous
+            // compatibility shim that rewrote 'jwt_vc' -> 'jwt_vc_json' so the
+            // holder will request the canonical 'jwt_vc' format when the issuer
+            // advertises it.
 
             // Accept using pre-authorized code
             const credentials = await tenantAgent.modules.openId4VcHolder.acceptCredentialOfferUsingPreAuthorizedCode(

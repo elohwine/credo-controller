@@ -23,7 +23,7 @@ export function mapFormat(format: string): string {
   switch (format) {
     case 'JWT + W3C VC':
     case 'SD-JWT + W3C VC':
-      return 'jwt_vc_json';
+      return 'jwt_vc';
     case 'SD-JWT + IETF SD-JWT VC':
       return 'vc+sd-jwt';
     default:

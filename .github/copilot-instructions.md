@@ -93,7 +93,7 @@
 
 **Add a new VC schema (e.g., CartSnapshotVC):**
 1. Define JSON-LD context in `src/config/credentials.ts` or separate file
-2. Add to `credentialDefinitionStore.ts`: `credentialDefinitionStore.set('CartSnapshot', { credentialType: [...], format: 'jwt_vc_json', ... })`
+2. Add to `credentialDefinitionStore.ts`: `credentialDefinitionStore.set('CartSnapshot', { credentialType: [...], format: 'jwt_vc', ... })`
 3. Create controller endpoint (e.g., `POST /cart/:id/issue`) using `CredentialIssuanceService`
 4. Run `yarn run tsoa && node ./scripts/patch-swagger.js`
 

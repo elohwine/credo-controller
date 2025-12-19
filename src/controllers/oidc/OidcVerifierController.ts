@@ -108,7 +108,7 @@ export class OidcVerifierController extends Controller {
   @Get('verifier/formats')
   public async getSupportedFormats(): Promise<{ formats: string[] }> {
     return {
-      formats: ['jwt_vc', 'jwt_vc_json', 'sd_jwt', 'vc+sd-jwt', 'ldp_vc']
+      formats: ['jwt_vc', 'jwt_vc', 'sd_jwt', 'vc+sd-jwt', 'ldp_vc']
     }
   }
 

@@ -16,16 +16,11 @@ export type WalletListings = {
 }
 
 export async function listWallets() {
-    // Read the auth token from the cookie set by @sidebase/nuxt-auth
-    // The cookie name is 'auth.token' as configured in nuxt.config.ts
-    const tokenCookie = useCookie('auth.token')
-
     try {
+        // The server authenticates from the HttpOnly cookie `auth.token`.
+        // Ensure the browser sends cookies by including credentials on the fetch.
         const { data, refresh, error } = useFetch<WalletListings>("/wallet-api/accounts/wallets", {
-            headers: {
-                // Include the Bearer token from the cookie
-                Authorization: tokenCookie.value ? `Bearer ${tokenCookie.value}` : ''
-            }
+            credentials: 'include'
         });
         await refresh()
         

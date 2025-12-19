@@ -31,11 +31,11 @@ const resource = resourceFromAttributes({
 const traceExporter = otelDisabled
   ? undefined
   : new OTLPTraceExporter({
-      url: process.env.OTEL_TRACES_OTLP_ENDPOINT,
-      headers: {
-        Authorization: `Api-Key ${process.env.OTEL_HEADERS_KEY}`,
-      },
-    })
+    url: process.env.OTEL_TRACES_OTLP_ENDPOINT,
+    headers: {
+      Authorization: `Api-Key ${process.env.OTEL_HEADERS_KEY}`,
+    },
+  })
 
 const logProvider = new LoggerProvider({ resource })
 
@@ -59,17 +59,17 @@ type OtelSdkLike = {
 
 export const otelSDK: OtelSdkLike = otelDisabled
   ? {
-      start: async () => {},
-      shutdown: async () => {},
-    }
+    start: async () => { },
+    shutdown: async () => { },
+  }
   : new NodeSDK({
-      traceExporter,
-      resource,
-      instrumentations: [new HttpInstrumentation(), new ExpressInstrumentation(), new NestInstrumentation()],
-    })
+    traceExporter,
+    resource,
+    instrumentations: [new HttpInstrumentation(), new ExpressInstrumentation(), new NestInstrumentation()],
+  })
 
 if (!otelDisabled && typeof (process as NodeJS.Process).on === 'function') {
-  ;(process as NodeJS.Process).on('SIGTERM', () => {
+  ; (process as NodeJS.Process).on('SIGTERM', () => {
     Promise.all([otelSDK.shutdown(), logProvider.shutdown()])
       .then(() => console.log('SDK and Logger shut down successfully'))
       .catch((err) => console.error('Error during shutdown', err))

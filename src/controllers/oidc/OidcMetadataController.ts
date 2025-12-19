@@ -39,9 +39,21 @@ export class OidcMetadataController extends Controller {
 
       const credentialConfigurations: Record<string, any> = {}
       definitions.forEach((def: any) => {
-        const configId = `${def.credentialDefinitionId}_jwt_vc_json`
+        const storedFormat = (def.format || 'jwt_vc') as string
+        // Map stored format to advertised OpenID4VC format
+        let advertisedFormat = 'jwt_vc'
+        let suffix = '_jwt_vc'
+        if (storedFormat.toLowerCase() === 'sd_jwt') {
+          advertisedFormat = 'vc+sd-jwt'
+          suffix = '_vc+sd-jwt'
+        } else if (storedFormat.toLowerCase().startsWith('jwt_vc_json')) {
+          advertisedFormat = 'jwt_vc_json'
+          suffix = '_jwt_vc_json'
+        }
+
+        const configId = `${def.credentialDefinitionId}${suffix}`
         credentialConfigurations[configId] = {
-          format: 'jwt_vc_json',
+          format: advertisedFormat,
           scope: def.name,
           cryptographic_binding_methods_supported: ['did'],
           cryptographic_suites_supported: ['Ed25519Signature2018'],
@@ -96,9 +108,20 @@ export class OidcMetadataController extends Controller {
       
       const credentialConfigurations: Record<string, any> = {}
       definitions.forEach((def: any) => {
-        const configId = `${def.credentialDefinitionId}_jwt_vc_json`
+        const storedFormat = (def.format || 'jwt_vc') as string
+        let advertisedFormat = 'jwt_vc'
+        let suffix = '_jwt_vc'
+        if (storedFormat.toLowerCase() === 'sd_jwt') {
+          advertisedFormat = 'vc+sd-jwt'
+          suffix = '_vc+sd-jwt'
+        } else if (storedFormat.toLowerCase().startsWith('jwt_vc_json')) {
+          advertisedFormat = 'jwt_vc_json'
+          suffix = '_jwt_vc_json'
+        }
+
+        const configId = `${def.credentialDefinitionId}${suffix}`
         credentialConfigurations[configId] = {
-          format: 'jwt_vc_json',
+          format: advertisedFormat,
           scope: def.name,
           cryptographic_binding_methods_supported: ['did'],
           cryptographic_suites_supported: ['Ed25519Signature2018'],

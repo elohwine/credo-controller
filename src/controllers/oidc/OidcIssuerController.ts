@@ -37,7 +37,7 @@ import type { RestAgentModules, RestMultiTenantAgentModules } from '../../cliAge
  *  - Add nonce / token binding checks, rate limiting, aud/exp in JWT
  *  - Persist to durable storage
  */
-@Route('oidc')
+@Route('custom-oidc')
 @Tags('OIDC4VC')
 export class OidcIssuerController extends Controller {
   /**
@@ -45,7 +45,7 @@ export class OidcIssuerController extends Controller {
    */
   @Post('issuer/credential-offers')
   @SuccessResponse('201', 'Created')
-  @Security('jwt', ['tenant'])
+  @Security('apiKey')
   public async createCredentialOffer(
     @Request() request: ExRequest,
     @Body() body: CreateCredentialOfferRequest,
@@ -59,56 +59,85 @@ export class OidcIssuerController extends Controller {
     const agent = request.agent
 
     // Transform API template to Credo options
-    const credentialConfigurations = body.credentials.map((template) => {
-      // For now, assuming template.credentialDefinitionId maps to a supported configuration
-      // In a real native impl, we should have registered these configurations first.
-      // For this refactor, we will try to pass necessary metadata dynamically if supported, 
-      // or rely on the module's existing config if we had set it up.
-      // CHECK: Credo's createCredentialOffer expects 'credentialConfigurationIds' or full config.
+    const credentialConfigurations = [] as string[]
+    // Map incoming templates to registered issuer credential configuration IDs.
+    for (const template of body.credentials) {
+      // Attempt to resolve credential definition from store
+      const { credentialDefinitionStore } = require('../../utils/credentialDefinitionStore')
+      const def = credentialDefinitionStore.get(template.credentialDefinitionId as string)
 
-      // As we are "moving to native", we should be using the IDs that the Issuer Module knows about.
-      // But since we haven't registered them in the module explicitly, we might need to assume 
-      // the user or logic has done so, or we pass what we can. 
+      // Common formats advertised by issuer (should match CLI_COMMON_FORMATS)
+      const COMMON_FORMATS = ['jwt_vc', 'jwt_vc_json', 'jwt_vc_json-ld', 'vc+sd-jwt', 'ldp_vc', 'mso_mdoc']
 
-      // Fallback: Use the template directly if the module allows ad-hoc (it usually requires registered config).
-      // If we strictly follow "no custom impl", we should have pre-registered issuer metadata / configs.
-      // However, to keep this refactor strictly to the *endpoint logic*, we will assume
-      // the IDs passed are valid or we map them.
+      if (def) {
+        // If caller specified a desired format, prefer mapping to that format
+        const requestedFormats = [] as string[]
+        if (template.format) {
+          const fmt = (template.format as string).toLowerCase()
+          if (fmt === 'sd_jwt' || fmt === 'vc+sd-jwt') requestedFormats.push('vc+sd-jwt')
+          else if (fmt.startsWith('jwt_vc_json')) requestedFormats.push('jwt_vc_json')
+          else if (fmt === 'jwt_vc' || fmt === 'jwt_json') requestedFormats.push('jwt_vc')
+          else requestedFormats.push(fmt)
+        } else {
+          // No requested format: advertise all common formats so holder can pick
+          requestedFormats.push(...COMMON_FORMATS)
+        }
 
-      return template.credentialDefinitionId as string
-    })
+        for (const f of requestedFormats) {
+          const cfgId = `${def.credentialDefinitionId}_${f}`
+          credentialConfigurations.push(cfgId)
+        }
+      } else {
+        // Fallback to raw id if we couldn't resolve definition
+        credentialConfigurations.push(template.credentialDefinitionId as string)
+      }
+    }
+
+    // Get the correct issuer (assuming single issuer for now)
+    const issuers = await (agent.modules as any).openId4VcIssuer.getAllIssuers()
+    if (!issuers || issuers.length === 0) {
+      throw new Error('No OpenID4VC Issuer configured')
+    }
+    const issuerId = issuers[0].issuerId
+
+    // Log inputs
+    request.logger?.info({
+      issuerId,
+      credentialConfigurations,
+      credentialsOriginal: body.credentials
+    }, 'Calling createCredentialOffer')
 
     // Create offer using Credo Native Module
     // Note: ensure we cast to any if types aren't fully picked up yet
-    const { credentialOffer, credentialOfferUri } = await (agent.modules as any).openId4VcIssuer.createCredentialOffer({
-      credentialConfigurationIds: credentialConfigurations,
+    const result = await (agent.modules as any).openId4VcIssuer.createCredentialOffer({
+      issuerId,
+      offeredCredentials: credentialConfigurations,
+      preAuthorizedCodeFlowConfig: {
+        userPinRequired: false
+      },
       grants: {
         authorization_code: {
           issuer_state: randomUUID()
         },
         'urn:ietf:params:oauth:grant-type:pre-authorized_code': {
-          'pre-authorized_code': randomUUID(), // Credo generates this if we don't? Let's assume we can pass it or it auto-gens.
-          // actually Credo usually generates the code if we specify the grant type
+          'pre-authorized_code': randomUUID(),
+          user_pin_required: false
         }
       }
     })
 
-    // Credo returns the objects. We just return them to the caller.
+    // In this version of Credo, credentialOffer is the URI string, and issuanceSession contains details
+    const { credentialOffer: offerUri, issuanceSession } = result as any
+    const payload = issuanceSession.credentialOfferPayload
 
-    // We need to persist the offer? Credo's module handles internal storage usually.
-    // But we might want to log it.
-
-    request.logger?.info({ module: 'issuer', operation: 'createOffer', credentialOfferUri }, 'Created native credential offer')
-
-    // Extract info for response
-    // credOffer is the object, uri is the string
+    request.logger?.info({ module: 'issuer', operation: 'createOffer', credentialOfferUri: offerUri }, 'Created native credential offer')
 
     return {
-      offerId: credentialOffer.id, // check actual property name in Credo
-      credential_offer_url: `openid-credential-offer://?credential_offer_uri=${encodeURIComponent(credentialOfferUri)}`,
-      credential_offer_uri: credentialOfferUri,
-      preAuthorizedCode: credentialOffer.grants?.['urn:ietf:params:oauth:grant-type:pre-authorized_code']?.['pre-authorized_code'] as string,
-      expiresAt: new Date(Date.now() + 3600000).toISOString() // Approximate or fetch from offer
+      offerId: issuanceSession.id,
+      credential_offer_url: offerUri,
+      credential_offer_uri: offerUri,
+      preAuthorizedCode: payload.grants?.['urn:ietf:params:oauth:grant-type:pre-authorized_code']?.['pre-authorized_code'] as string,
+      expiresAt: new Date(Date.now() + 3600000).toISOString()
     }
   }
 
@@ -159,7 +188,7 @@ export class OidcIssuerController extends Controller {
     if (subject) {
       // Subject DID is usually in credentialAttributes or specific metadata depending on format
       // This might need more specific filtering based on CredentialExchangeRecord structure
-      return records.filter(r => r.connectionId === subject || (r as any).credentialAttributes?.some((a: any) => a.value === subject))
+      return records.filter((r: any) => r.connectionId === subject || (r as any).credentialAttributes?.some((a: any) => a.value === subject))
     }
     return records
   }

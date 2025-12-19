@@ -238,6 +238,8 @@ async function main() {
           issuedAt: new Date().toISOString(),
         },
       },
+      // Ensure GenericID uses canonical JWT-VC format by default
+      format: 'jwt_vc',
     },
     {
       name: 'OpenBadgeDef',

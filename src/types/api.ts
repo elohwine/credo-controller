@@ -57,7 +57,8 @@ export interface OfferCredentialTemplate {
   type: string[]
   schemaId?: string
   claimsTemplate?: any
-  format?: 'jwt_vc' | 'sd_jwt'
+  // Accept both generic Credo 'jwt_vc' and wallet-specific JSON variants
+  format?: 'jwt_vc' | 'sd_jwt' | 'jwt_vc_json' | 'jwt_vc_json-ld'
   credentialDefinitionId?: string
   issuerDid?: string
 }
@@ -83,7 +84,7 @@ export interface TokenRequestBody {
   grant_type: string
   pre_authorized_code: string
   subject_did: string
-  format?: 'jwt_vc' | 'sd_jwt'
+  format?: 'jwt_vc' | 'sd_jwt' | 'jwt_vc_json' | 'jwt_vc_json-ld'
 }
 
 /** Token response with issued credential */

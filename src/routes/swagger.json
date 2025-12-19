@@ -2572,10 +2572,6 @@
       },
       "Pick_W3cJsonLdSignCredentialOptions.Exclude_keyofW3cJsonLdSignCredentialOptions.format__": {
         "properties": {
-          "verificationMethod": {
-            "type": "string",
-            "description": "URI of the verificationMethod to be used for signing the credential.\n\nMust be a valid did url pointing to a key."
-          },
           "proofType": {
             "type": "string",
             "description": "The proofType to be used for signing the credential.\n\nMust be a valid Linked Data Signature suite."
@@ -2587,12 +2583,16 @@
           "credential": {
             "$ref": "#/components/schemas/W3cCredential",
             "description": "The credential to be signed."
+          },
+          "verificationMethod": {
+            "type": "string",
+            "description": "URI of the verificationMethod to be used for signing the credential.\n\nMust be a valid did url pointing to a key."
           }
         },
         "required": [
-          "verificationMethod",
           "proofType",
-          "credential"
+          "credential",
+          "verificationMethod"
         ],
         "type": "object",
         "description": "From T, pick a set of properties whose keys are in the union K"
@@ -2689,13 +2689,13 @@
       },
       "Pick_LinkedDataProofOptions.Exclude_keyofLinkedDataProofOptions.cryptosuite__": {
         "properties": {
-          "verificationMethod": {
-            "type": "string"
-          },
           "proofPurpose": {
             "type": "string"
           },
           "created": {
+            "type": "string"
+          },
+          "verificationMethod": {
             "type": "string"
           },
           "type": {
@@ -2718,9 +2718,9 @@
           }
         },
         "required": [
-          "verificationMethod",
           "proofPurpose",
           "created",
+          "verificationMethod",
           "type"
         ],
         "type": "object",
@@ -3205,7 +3205,9 @@
             "type": "string",
             "enum": [
               "jwt_vc",
-              "sd_jwt"
+              "sd_jwt",
+              "jwt_vc_json",
+              "jwt_vc_json-ld"
             ]
           },
           "credentialDefinitionId": {
@@ -10125,7 +10127,7 @@
         }
       }
     },
-    "/oidc/issuer/credential-offers": {
+    "/custom-oidc/issuer/credential-offers": {
       "post": {
         "operationId": "CreateCredentialOffer",
         "responses": {
@@ -10154,9 +10156,7 @@
         ],
         "security": [
           {
-            "jwt": [
-              "tenant"
-            ]
+            "apiKey": []
           }
         ],
         "parameters": [],
@@ -10172,7 +10172,7 @@
         }
       }
     },
-    "/oidc/issuer/credentials/{id}": {
+    "/custom-oidc/issuer/credentials/{id}": {
       "get": {
         "operationId": "GetCredential",
         "responses": {
@@ -10216,7 +10216,7 @@
         ]
       }
     },
-    "/oidc/issuer/credentials/{id}/revoke": {
+    "/custom-oidc/issuer/credentials/{id}/revoke": {
       "post": {
         "operationId": "RevokeCredential",
         "responses": {
@@ -10260,7 +10260,7 @@
         ]
       }
     },
-    "/oidc/issuer/credentials": {
+    "/custom-oidc/issuer/credentials": {
       "get": {
         "operationId": "ListCredentials",
         "responses": {
