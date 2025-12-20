@@ -1,7 +1,7 @@
 const { startServer } = require('../build/index')
 const express = require('express')
 const { Router } = require('express')
-const { Agent, AutoAcceptCredential, AutoAcceptProof, ConnectionsModule, CredentialsModule, DidsModule, HttpOutboundTransport, KeyDidRegistrar, KeyDidResolver, LogLevel, ProofsModule, WebDidResolver, W3cCredentialsModule } = require('@credo-ts/core')
+const { Agent, AutoAcceptCredential, AutoAcceptProof, ConnectionsModule, CredentialsModule, DidsModule, HttpOutboundTransport, KeyDidRegistrar, KeyDidResolver, LogLevel, ProofsModule, WebDidResolver, W3cCredentialsModule, W3cCredential, W3cCredentialSubject, W3cIssuer, ClaimFormat } = require('@credo-ts/core')
 const { AskarModule, AskarMultiWalletDatabaseScheme } = require('@credo-ts/askar')
 const { TenantsModule } = require('@credo-ts/tenants')
 const { OpenId4VcIssuerModule, OpenId4VcVerifierModule, OpenId4VcHolderModule } = require('@credo-ts/openid4vc')
@@ -83,7 +83,7 @@ async function run() {
           credentialOffer: {},
           accessToken: {},
           credential: {
-                credentialRequestToCredentialMapper: async ({ issuanceSession, holderBinding, credentialConfigurationIds }) => {
+                credentialRequestToCredentialMapper: async ({ agentContext, issuanceSession, holderBinding, credentialConfigurationIds }) => {
               const metadata = issuanceSession?.issuanceMetadata || {}
               const claims = metadata?.claims || {}
 
@@ -94,22 +94,48 @@ async function run() {
                 subjectDid = holderBinding.did
               }
 
-                // Minimal example VC payload.
+              // Get or create an issuer DID from the agent
+              const { DidsApi, KeyType } = require('@credo-ts/core')
+              const didsApi = agentContext.dependencyManager.resolve(DidsApi)
+              let issuerDids = await didsApi.getCreatedDids({ method: 'key' })
+              let issuerDid
+              
+              if (issuerDids.length === 0) {
+                // Create a did:key for the issuer with Ed25519 key
+                const created = await didsApi.create({ 
+                  method: 'key',
+                  options: {
+                    keyType: KeyType.Ed25519
+                  }
+                })
+                issuerDid = created.didState.did
+              } else {
+                issuerDid = issuerDids[0].did
+              }
+              
+              // Get the verification method (key reference) for signing
+              const issuerDidDocument = await didsApi.resolveDidDocument(issuerDid)
+              const verificationMethod = issuerDidDocument.verificationMethod?.[0]?.id || `${issuerDid}#${issuerDid.replace('did:key:', '')}`
+
+              // Create a proper W3cCredential instance (Credo requires this, not a plain object)
+              const credentialType = credentialConfigurationId.replace(/_jwt_vc_json$/, '')
+              
+              const credential = new W3cCredential({
+                context: ['https://www.w3.org/2018/credentials/v1'],
+                type: ['VerifiableCredential', credentialType],
+                issuer: new W3cIssuer({ id: issuerDid }),
+                issuanceDate: new Date().toISOString(),
+                credentialSubject: new W3cCredentialSubject({
+                  id: subjectDid,
+                  claims: claims,  // Additional claims as a nested object
+                }),
+              })
+
               return {
                 credentialSupportedId: credentialConfigurationId,
-                // Use canonical JWT VC format
-                format: 'jwt_vc',
-                verificationMethod: 'did:example:issuer#key-1',
-                credential: {
-                  '@context': ['https://www.w3.org/2018/credentials/v1'],
-                  type: ['VerifiableCredential', credentialConfigurationId],
-                  issuer: 'did:example:issuer',
-                  issuanceDate: new Date().toISOString(),
-                  credentialSubject: {
-                    id: subjectDid,
-                    ...claims,
-                  },
-                },
+                format: ClaimFormat.JwtVc,  // Use proper enum from @credo-ts/core
+                credential,
+                verificationMethod,  // Required: points to the signing key
               }
             },
           },
@@ -134,13 +160,16 @@ async function run() {
     // Initialize OpenID4VC issuer instance so offers can be created
   try {
     // Advertise a broad set of formats so wallets can discover compatible configs
-    const supportedFormats = ['jwt_vc', 'jwt_vc_json', 'jwt_vc_json-ld', 'vc+sd-jwt', 'ldp_vc', 'mso_mdoc']
+    // NOTE: Credo will try to convert *all* configured credential configurations between draft versions
+    // during offer creation. Some formats require extra metadata fields (e.g., sd-jwt needs `vct`).
+    // To keep the sample stable, advertise only jwt_vc_json here.
+    const supportedFormats = ['jwt_vc_json']
 
     const credentialsSupported = []
     const credentialConfigurationsSupported = {}
 
     supportedFormats.forEach((fmt) => {
-      const id = fmt === 'jwt_vc' ? 'GenericIDCredential' : `GenericIDCredential_${fmt}`
+      const id = `GenericIDCredential_${fmt}`
       credentialsSupported.push({
         format: fmt,
         id,

@@ -2572,6 +2572,10 @@
       },
       "Pick_W3cJsonLdSignCredentialOptions.Exclude_keyofW3cJsonLdSignCredentialOptions.format__": {
         "properties": {
+          "verificationMethod": {
+            "type": "string",
+            "description": "URI of the verificationMethod to be used for signing the credential.\n\nMust be a valid did url pointing to a key."
+          },
           "proofType": {
             "type": "string",
             "description": "The proofType to be used for signing the credential.\n\nMust be a valid Linked Data Signature suite."
@@ -2583,16 +2587,12 @@
           "credential": {
             "$ref": "#/components/schemas/W3cCredential",
             "description": "The credential to be signed."
-          },
-          "verificationMethod": {
-            "type": "string",
-            "description": "URI of the verificationMethod to be used for signing the credential.\n\nMust be a valid did url pointing to a key."
           }
         },
         "required": [
+          "verificationMethod",
           "proofType",
-          "credential",
-          "verificationMethod"
+          "credential"
         ],
         "type": "object",
         "description": "From T, pick a set of properties whose keys are in the union K"
@@ -2689,13 +2689,13 @@
       },
       "Pick_LinkedDataProofOptions.Exclude_keyofLinkedDataProofOptions.cryptosuite__": {
         "properties": {
+          "verificationMethod": {
+            "type": "string"
+          },
           "proofPurpose": {
             "type": "string"
           },
           "created": {
-            "type": "string"
-          },
-          "verificationMethod": {
             "type": "string"
           },
           "type": {
@@ -2718,9 +2718,9 @@
           }
         },
         "required": [
+          "verificationMethod",
           "proofPurpose",
           "created",
-          "verificationMethod",
           "type"
         ],
         "type": "object",
@@ -9697,6 +9697,78 @@
         ]
       }
     },
+    "/api/wallet/wallet/{walletId}/credentials/exists/{credentialType}": {
+      "get": {
+        "operationId": "HasCredentialOfType",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "credentials": {
+                      "items": {},
+                      "type": "array"
+                    },
+                    "count": {
+                      "type": "number",
+                      "format": "double"
+                    },
+                    "exists": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "credentials",
+                    "count",
+                    "exists"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Check if holder already has a specific credential type",
+        "tags": [
+          "WalletAPI"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "walletId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "credentialType",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/wallet/wallet/{walletId}/dids": {
       "get": {
         "operationId": "GetDids",
@@ -9953,14 +10025,14 @@
           {
             "in": "query",
             "name": "did",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {}

@@ -1190,7 +1190,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Pick_W3cJsonLdSignCredentialOptions.Exclude_keyofW3cJsonLdSignCredentialOptions.format__": {
         "dataType": "refAlias",
-        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"proofType":{"dataType":"string","required":true},"proofPurpose":{"dataType":"any"},"created":{"dataType":"string"},"credential":{"ref":"W3cCredential","required":true},"verificationMethod":{"dataType":"string","required":true}},"validators":{}},
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"verificationMethod":{"dataType":"string","required":true},"proofType":{"dataType":"string","required":true},"proofPurpose":{"dataType":"any"},"created":{"dataType":"string"},"credential":{"ref":"W3cCredential","required":true}},"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Omit_W3cJsonLdSignCredentialOptions.format_": {
@@ -1240,7 +1240,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Pick_LinkedDataProofOptions.Exclude_keyofLinkedDataProofOptions.cryptosuite__": {
         "dataType": "refAlias",
-        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"proofPurpose":{"dataType":"string","required":true},"created":{"dataType":"string","required":true},"verificationMethod":{"dataType":"string","required":true},"type":{"dataType":"string","required":true},"domain":{"dataType":"string"},"challenge":{"dataType":"string"},"jws":{"dataType":"string"},"proofValue":{"dataType":"string"},"nonce":{"dataType":"string"}},"validators":{}},
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"verificationMethod":{"dataType":"string","required":true},"proofPurpose":{"dataType":"string","required":true},"created":{"dataType":"string","required":true},"type":{"dataType":"string","required":true},"domain":{"dataType":"string"},"challenge":{"dataType":"string"},"jws":{"dataType":"string"},"proofValue":{"dataType":"string"},"nonce":{"dataType":"string"}},"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Omit_LinkedDataProofOptions.cryptosuite_": {
@@ -5143,6 +5143,44 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletController_hasCredentialOfType: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                walletId: {"in":"path","name":"walletId","required":true,"dataType":"string"},
+                credentialType: {"in":"path","name":"credentialType","required":true,"dataType":"string"},
+        };
+        app.get('/api/wallet/wallet/:walletId/credentials/exists/:credentialType',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WalletController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletController.prototype.hasCredentialOfType)),
+
+            async function WalletController_hasCredentialOfType(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletController_hasCredentialOfType, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletController>(WalletController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'hasCredentialOfType',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsWalletController_getDids: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 walletId: {"in":"path","name":"walletId","required":true,"dataType":"string"},
@@ -5296,8 +5334,8 @@ export function RegisterRoutes(app: Router) {
         const argsWalletController_useOfferRequest: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 walletId: {"in":"path","name":"walletId","required":true,"dataType":"string"},
-                did: {"in":"query","name":"did","required":true,"dataType":"string"},
-                body: {"in":"body","name":"body","required":true,"dataType":"any"},
+                did: {"in":"query","name":"did","dataType":"string"},
+                body: {"in":"body","name":"body","dataType":"any"},
         };
         app.post('/api/wallet/wallet/:walletId/exchange/useOfferRequest',
             authenticateMiddleware([{"jwt":["tenant"]}]),

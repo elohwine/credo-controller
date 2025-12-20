@@ -23,8 +23,6 @@ interface WalletCredentialRow {
     added_on: string
 }
 
-let db: Database | undefined
-
 export const WALLET_CREDENTIALS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS wallet_credentials (
   id TEXT PRIMARY KEY,
   wallet_id TEXT NOT NULL,
@@ -35,30 +33,41 @@ export const WALLET_CREDENTIALS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS wallet_c
   added_on DATETIME DEFAULT CURRENT_TIMESTAMP
 )`
 
-export function initWalletCredentialStore(): Database {
-    if (db) {
-        return db
-    }
-
-    db = DatabaseManager.getDatabase()
-    // Ensure table exists
-    db.prepare(WALLET_CREDENTIALS_TABLE_SQL).run()
-    return db
-}
+let tableInitialized = false
 
 function ensureDb(): Database {
-    if (!db) {
-        return initWalletCredentialStore()
+    // Always get the database from DatabaseManager to ensure consistency
+    const database = DatabaseManager.getDatabase()
+    
+    // Ensure table exists (only check once per session)
+    if (!tableInitialized) {
+        try {
+            database.prepare(WALLET_CREDENTIALS_TABLE_SQL).run()
+        } catch (e) {
+            // Table might already exist, that's fine
+        }
+        tableInitialized = true
     }
-    return db
+    
+    return database
+}
+
+export function initWalletCredentialStore(): Database {
+    return ensureDb()
 }
 
 export function saveWalletCredential(credential: Omit<WalletCredential, 'addedOn'>): WalletCredential {
     const database = ensureDb()
     const now = new Date().toISOString()
+    
+    // Check which timestamp column exists
+    const info = database.prepare("PRAGMA table_info('wallet_credentials')").all()
+    const cols = (info as any[]).map((c: any) => c.name)
+    const timestampCol = cols.includes('added_on') ? 'added_on' : 'added_at'
+    
     const stmt = database.prepare(`
-    INSERT INTO wallet_credentials(id, wallet_id, credential_id, credential_data, issuer_did, type, added_on)
-    VALUES (@id, @walletId, @credentialId, @credentialData, @issuerDid, @type, @addedOn)
+    INSERT INTO wallet_credentials(id, wallet_id, credential_id, credential_data, issuer_did, type, format, ${timestampCol})
+    VALUES (@id, @walletId, @credentialId, @credentialData, @issuerDid, @type, @format, @addedOn)
   `)
 
     const record = {
@@ -71,8 +80,9 @@ export function saveWalletCredential(credential: Omit<WalletCredential, 'addedOn
         walletId: record.walletId,
         credentialId: record.credentialId,
         credentialData: record.credentialData,
-        issuerDid: record.issuerDid,
-        type: record.type,
+        issuerDid: record.issuerDid || '',
+        type: record.type || 'VerifiableCredential',
+        format: record.format || 'jwt_vc',
         addedOn: record.addedOn
     })
 

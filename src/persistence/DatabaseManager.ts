@@ -106,7 +106,8 @@ export class DatabaseManager {
     const migrationFiles = [
       { version: 1, file: '001_create_stores.sql', name: 'create_stores' },
       { version: 2, file: '002_wallet_auth_tables.sql', name: 'wallet_auth_tables' },
-      { version: 3, file: '003_create_workflows.sql', name: 'create_workflows' }
+      { version: 3, file: '003_create_workflows.sql', name: 'create_workflows' },
+      { version: 4, file: '004_add_credential_columns.sql', name: 'add_credential_columns' }
     ]
 
     for (const migration of migrationFiles) {

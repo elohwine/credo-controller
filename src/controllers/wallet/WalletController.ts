@@ -144,6 +144,15 @@ export class WalletController extends Controller {
     return request.agent as unknown as Agent<RestMultiTenantAgentModules>
   }
 
+  /**
+   * Get the base agent (not tenant agent) for OID4VC holder operations.
+   * The openId4VcHolder module is registered on the base agent, not on tenant agents.
+   * Tenant agents don't have direct access to these modules.
+   */
+  private getBaseAgentForHolder(): Agent<RestMultiTenantAgentModules> {
+    return container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
+  }
+
   private normalizeResponse(raw: any): any {
     if (typeof raw === 'object' && raw !== null) return raw
     if (typeof raw === 'string') {
@@ -226,23 +235,81 @@ export class WalletController extends Controller {
     @Request() request: ExRequest,
     @Path() walletId: string
   ): Promise<any[]> {
+    // Read from TENANT's Credo wallet (Askar) - credentials are stored per-tenant
     const agent = this.getAgent(request)
     try {
       const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
       const credentialRecords = await w3cCredentialService.getAllCredentialRecords(agent.context)
-      return credentialRecords.map((record: any) => ({
-        wallet: walletId,
-        id: record.id,
-        document: record.credential,
-        disclosures: null,
-        addedOn: record.createdAt || new Date().toISOString(),
-        manifest: null,
-        parsedDocument: null,
-        format: 'jwt_vc'
-      }))
+      console.log('[listCredentials] Found credentials in tenant wallet:', credentialRecords.length, 'for wallet:', walletId)
+      
+      return credentialRecords.map((record: any) => {
+        // Extract credential type from the credential
+        let credentialType = 'VerifiableCredential'
+        let issuerDid = ''
+        
+        if (record.credential) {
+          const types = record.credential.type || []
+          credentialType = types.find((t: string) => t !== 'VerifiableCredential') || types[0] || 'VerifiableCredential'
+          issuerDid = typeof record.credential.issuer === 'string' 
+            ? record.credential.issuer 
+            : record.credential.issuer?.id || ''
+        }
+        
+        return {
+          wallet: walletId,
+          id: record.id,
+          document: record.credential,
+          disclosures: null,
+          addedOn: record.createdAt || new Date().toISOString(),
+          manifest: null,
+          parsedDocument: record.credential,
+          format: record.credential?.claimFormat || 'jwt_vc',
+          type: credentialType,
+          issuerDid
+        }
+      })
     } catch (error: any) {
+      console.error('[listCredentials] Error:', error.message)
       this.setStatus(500)
       throw new Error(`Failed to fetch credentials from wallet: ${error.message}`)
+    }
+  }
+  
+  /**
+   * Check if holder already has a specific credential type
+   */
+  @Get('wallet/{walletId}/credentials/exists/{credentialType}')
+  public async hasCredentialOfType(
+    @Request() request: ExRequest,
+    @Path() walletId: string,
+    @Path() credentialType: string
+  ): Promise<{ exists: boolean; count: number; credentials: any[] }> {
+    // Check in TENANT's Credo wallet
+    const agent = this.getAgent(request)
+    try {
+      const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
+      const allRecords = await w3cCredentialService.getAllCredentialRecords(agent.context)
+      
+      const matchingCredentials = allRecords.filter((record: any) => {
+        const types = record.credential?.type || []
+        return types.includes(credentialType)
+      })
+      
+      console.log(`[hasCredentialOfType] Checking for '${credentialType}' in tenant wallet: found ${matchingCredentials.length}`)
+      
+      return {
+        exists: matchingCredentials.length > 0,
+        count: matchingCredentials.length,
+        credentials: matchingCredentials.map((r: any) => ({
+          id: r.id,
+          types: r.credential?.type,
+          issuer: r.credential?.issuer,
+          issuanceDate: r.credential?.issuanceDate
+        }))
+      }
+    } catch (error: any) {
+      console.error('[hasCredentialOfType] Error:', error.message)
+      return { exists: false, count: 0, credentials: [] }
     }
   }
 
@@ -345,9 +412,10 @@ export class WalletController extends Controller {
       throw new Error('No credential offer URI provided')
     }
 
-    // Use agent and attempt to pre-resolve issuer metadata from genericRecords
-    const agent = this.getAgent(request)
-    console.log('[resolveCredentialOffer] Using Credo agent to resolve offer')
+    // Use BASE agent (not tenant agent) for OID4VC holder operations
+    // The openId4VcHolder module is registered on the base agent only
+    const agent = this.getBaseAgentForHolder()
+    console.log('[resolveCredentialOffer] Using BASE Credo agent to resolve offer')
     console.log('[resolveCredentialOffer] about to call holder.resolveCredentialOffer with toResolve:', toResolve)
     console.log('[resolveCredentialOffer] original wrapper offerUri:', offerUri)
 
@@ -464,8 +532,8 @@ export class WalletController extends Controller {
   public async useOfferRequest(
     @Request() request: ExRequest,
     @Path() walletId: string,
-    @Query() did: string,
-    @Body() body: any
+    @Query() did?: string,  // Optional - we use base agent's DID for OID4VC operations
+    @Body() body?: any
   ): Promise<any> {
     console.log('[useOfferRequest] === START (Credo OID4VC) ===')
     try { console.log('[useOfferRequest] Input:', { walletId, did, bodyType: typeof body }) } catch (e) { }
@@ -497,8 +565,10 @@ export class WalletController extends Controller {
       throw new Error('No credential offer URI provided')
     }
 
-    const agent = this.getAgent(request)
-    console.log('[useOfferRequest] Resolving offer with Credo...')
+    // Use BASE agent (not tenant agent) for OID4VC holder operations
+    // The openId4VcHolder module is registered on the base agent only
+    const agent = this.getBaseAgentForHolder()
+    console.log('[useOfferRequest] Resolving offer with BASE Credo agent...')
     console.log('[useOfferRequest] about to call holder.resolveCredentialOffer with toResolve2:', toResolve2)
     console.log('[useOfferRequest] original wrapper offerUri:', offerUri)
 
@@ -540,33 +610,94 @@ export class WalletController extends Controller {
         }
       }
 
-      console.log('[useOfferRequest] Offer resolved, accepting...')
-      const acceptResult = await (agent.modules as any).openId4VcHolder.acceptCredentialOffer({
-        credentialOffer: resolved.credentialOffer,
-        credentialBindingResolver: async ({ credentialFormat, supportedDidMethods, keyType }: any) => {
-          console.log('[useOfferRequest] Credential binding resolver called:', { credentialFormat, supportedDidMethods, keyType })
-          return { method: 'did', didUrl: did }
+      console.log('[useOfferRequest] Offer resolved, accepting using pre-authorized code flow...')
+      
+      // Important: The openId4VcHolder module is on the BASE agent, so we must use
+      // a DID that exists in the BASE agent's wallet (not the tenant wallet).
+      // Get or create a DID in the base agent for holder operations.
+      let baseAgentDids = await agent.dids.getCreatedDids({ method: 'key' })
+      let holderDid: string
+      
+      if (baseAgentDids.length === 0) {
+        console.log('[useOfferRequest] No DID in base agent, creating one...')
+        const createdDid = await agent.dids.create({ method: 'key' })
+        holderDid = createdDid.didState.did as string
+        console.log('[useOfferRequest] Created DID in base agent:', holderDid)
+      } else {
+        holderDid = baseAgentDids[0].did
+        console.log('[useOfferRequest] Using existing DID from base agent:', holderDid)
+      }
+      
+      // For did:key, we need to add the fragment (key reference) to the DID.
+      // The fragment is the same as the method-specific identifier for did:key
+      let holderDidUrl = holderDid
+      if (holderDid.startsWith('did:key:') && !holderDid.includes('#')) {
+        // Extract the key identifier and use it as fragment
+        const keyId = holderDid.replace('did:key:', '')
+        holderDidUrl = `${holderDid}#${keyId}`
+      }
+      console.log('[useOfferRequest] Using holder DID URL for binding:', holderDidUrl)
+      
+      // Use the correct API method: acceptCredentialOfferUsingPreAuthorizedCode
+      const acceptResult = await (agent.modules as any).openId4VcHolder.acceptCredentialOfferUsingPreAuthorizedCode(
+        resolved,
+        {
+          credentialBindingResolver: async ({ credentialFormat, supportedDidMethods, keyType }: any) => {
+            console.log('[useOfferRequest] Credential binding resolver called:', { credentialFormat, supportedDidMethods, keyType })
+            return { method: 'did', didUrl: holderDidUrl }
+          }
         }
-      })
+      )
 
+      // acceptCredentialOfferUsingPreAuthorizedCode returns an array of credential records directly
+      const credentials = Array.isArray(acceptResult) ? acceptResult : (acceptResult?.credentials || [])
+      
       console.log('[useOfferRequest] Credo accept result:', {
-        credentialCount: acceptResult.credentials?.length,
-        format: acceptResult.credentials?.[0]?.format
+        credentialCount: credentials.length,
+        firstCredentialType: typeof credentials[0],
+        firstCredentialFormat: credentials[0]?.claimFormat || credentials[0]?.type || 'unknown'
       })
 
       const { randomUUID } = await import('crypto')
       let savedCredentialId = ''
       let verifiableCredential = ''
+      
+      // Get the TENANT agent to store credentials in the user's wallet
+      const tenantAgent = this.getAgent(request)
+      const tenantW3cService = tenantAgent.dependencyManager.resolve(W3cCredentialService)
 
-      for (const credentialRecord of acceptResult.credentials || []) {
+      for (const credentialRecord of credentials) {
         const credentialId = randomUUID()
         savedCredentialId = credentialId
         let credentialData: any = {}
         let vcType = 'VerifiableCredential'
         let issuerDid = ''
+        
+        // The credential may be a W3cJwtVerifiableCredential instance or a plain object
+        // Check for claimFormat (Credo) or format property
+        const format = credentialRecord.claimFormat || credentialRecord.format || ''
+        
+        // Get the serialized JWT - may be in .serializedJwt or .credential property, or the record itself could be a string
+        let jwtToken: string = ''
+        if (typeof credentialRecord === 'string') {
+          jwtToken = credentialRecord
+        } else if (credentialRecord.serializedJwt) {
+          jwtToken = credentialRecord.serializedJwt
+        } else if (typeof credentialRecord.credential === 'string') {
+          jwtToken = credentialRecord.credential
+        } else if (credentialRecord.jwt) {
+          jwtToken = credentialRecord.jwt
+        }
+        
+        console.log('[useOfferRequest] Processing credential:', {
+          format,
+          hasJwt: !!jwtToken,
+          jwtLength: jwtToken?.length,
+          credentialType: typeof credentialRecord,
+          credentialKeys: typeof credentialRecord === 'object' ? Object.keys(credentialRecord || {}) : []
+        })
 
-        if (credentialRecord.format === 'jwt_vc' || credentialRecord.format === 'jwt_vc') {
-          const jwtToken = credentialRecord.credential
+        if (format === 'jwt_vc' || format === 'jwt_vc_json' || jwtToken) {
           verifiableCredential = jwtToken
           try {
             const parts = jwtToken.split('.')
@@ -580,40 +711,54 @@ export class WalletController extends Controller {
             console.warn('[useOfferRequest] Could not decode JWT:', e)
           }
 
-          await saveWalletCredential({
-            id: credentialId,
-            walletId,
-            credentialId,
-            type: vcType,
-            format: 'jwt_vc',
-            credentialData: JSON.stringify({ jwt: jwtToken, ...credentialData }),
-            issuerDid: issuerDid || resolved.metadata?.credentialIssuer?.credential_issuer || '',
-          })
-        } else if (credentialRecord.format === 'vc+sd-jwt') {
-          verifiableCredential = credentialRecord.credential
-          await saveWalletCredential({
-            id: credentialId,
-            walletId,
-            credentialId,
-            type: 'SD-JWT',
-            format: 'sd_jwt_vc',
-            credentialData: JSON.stringify({ sdJwt: credentialRecord.credential }),
-            issuerDid: resolved.metadata?.credentialIssuer?.credential_issuer || '',
-          })
+          // Store in TENANT'S Credo wallet (Askar) so it appears in their credential list
+          try {
+            // The credentialRecord should be a W3cJwtVerifiableCredential if from OID4VC
+            if (credentialRecord && typeof credentialRecord === 'object' && credentialRecord.credential) {
+              const storedRecord = await tenantW3cService.storeCredential(tenantAgent.context, {
+                credential: credentialRecord,
+              })
+              savedCredentialId = storedRecord.id
+              console.log('[useOfferRequest] Stored credential in tenant wallet:', storedRecord.id)
+            } else {
+              console.log('[useOfferRequest] Credential is not a W3cCredential instance, skipping tenant wallet storage')
+            }
+          } catch (storeError: any) {
+            console.warn('[useOfferRequest] Could not store in tenant wallet:', storeError?.message)
+          }
+        } else if (format === 'vc+sd-jwt') {
+          verifiableCredential = credentialRecord.compact || credentialRecord.credential || ''
+          
+          // Store SD-JWT in tenant wallet
+          try {
+            if (credentialRecord && typeof credentialRecord === 'object') {
+              const storedRecord = await tenantW3cService.storeCredential(tenantAgent.context, {
+                credential: credentialRecord,
+              })
+              savedCredentialId = storedRecord.id
+              console.log('[useOfferRequest] Stored SD-JWT credential in tenant wallet:', storedRecord.id)
+            }
+          } catch (storeError: any) {
+            console.warn('[useOfferRequest] Could not store SD-JWT in tenant wallet:', storeError?.message)
+          }
         } else {
-          verifiableCredential = JSON.stringify(credentialRecord.credential)
-          await saveWalletCredential({
-            id: credentialId,
-            walletId,
-            credentialId,
-            type: credentialRecord.credential?.type?.[1] || 'VerifiableCredential',
-            format: credentialRecord.format || 'ldp_vc',
-            credentialData: JSON.stringify(credentialRecord.credential),
-            issuerDid: credentialRecord.credential?.issuer?.id || credentialRecord.credential?.issuer || '',
-          })
+          // Fallback: try to store whatever we have
+          verifiableCredential = typeof credentialRecord === 'string' ? credentialRecord : JSON.stringify(credentialRecord)
+          
+          try {
+            if (credentialRecord && typeof credentialRecord === 'object') {
+              const storedRecord = await tenantW3cService.storeCredential(tenantAgent.context, {
+                credential: credentialRecord,
+              })
+              savedCredentialId = storedRecord.id
+              console.log('[useOfferRequest] Stored credential (fallback) in tenant wallet:', storedRecord.id)
+            }
+          } catch (storeError: any) {
+            console.warn('[useOfferRequest] Could not store in tenant wallet (fallback):', storeError?.message)
+          }
         }
 
-        console.log('[useOfferRequest] Saved credential:', credentialId)
+        console.log('[useOfferRequest] Processed credential:', savedCredentialId)
       }
 
       console.log('[useOfferRequest] === SUCCESS (Credo) ===')
@@ -738,7 +883,8 @@ export class WalletController extends Controller {
       this.setStatus(400)
       throw new Error('Missing presentationRequest or selectedCredentials')
     }
-    const agent = this.getAgent(request)
+    // Use BASE agent (not tenant agent) for OID4VC holder operations
+    const agent = this.getBaseAgentForHolder()
     try {
       console.log('[usePresentationRequest] Resolving request for submission...')
       const resolved = await (agent.modules as any).openId4VcHolder.resolveOpenId4VpAuthorizationRequest(presentationRequest)

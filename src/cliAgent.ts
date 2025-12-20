@@ -37,81 +37,77 @@ import { TsLogger } from './utils/logger'
 
 export interface AriesRestConfig {
   label: string
-    try {
-    const { credentialDefinitionStore } = await import('./utils/credentialDefinitionStore')
+  walletConfig: WalletConfig
+  adminPort: number
+  endpoints?: string[]
+  autoAcceptConnections?: boolean
+  autoAcceptCredentials?: AutoAcceptCredential
+  autoAcceptProofs?: AutoAcceptProof
+  logLevel?: LogLevel
+  inboundTransports?: { transport: 'http'; port: number }[]
+  outboundTransports?: 'http'[]
+  tenancy?: boolean
+  webhookUrl?: string
+  didRegistryContractAddress?: string
+  schemaManagerContractAddress?: string
+  rpcUrl?: string
+  fileServerUrl?: string
+  fileServerToken?: string
+  walletScheme?: AskarMultiWalletDatabaseScheme
+  schemaFileServerURL?: string
+  apiKey: string
+  updateJwtSecret?: boolean
+}
 
-    // Build credentialsSupported/credentialConfigurationsSupported from
-    // actual credential definitions in the DB so config IDs match what
-    // the `OidcMetadataController` publishes and what holders discover.
-    const definitions = credentialDefinitionStore.list() || []
-    const supportedFormats = ['jwt_vc', 'jwt_vc_json', 'jwt_vc_json-ld', 'vc+sd-jwt', 'ldp_vc', 'mso_mdoc']
+export async function readRestConfig(path: string) {
+  const configString = await readFile(path, { encoding: 'utf-8' })
+  return JSON.parse(configString)
+}
 
-    const credentialsSupported: any[] = []
-    const credentialConfigurationsSupported: Record<string, any> = {}
+export const buildModules = (cfg: {
+  didRegistryContractAddress?: string
+  schemaManagerContractAddress?: string
+  fileServerToken?: string
+  fileServerUrl?: string
+  rpcUrl?: string
+  autoAcceptConnections?: boolean
+  autoAcceptCredentials?: AutoAcceptCredential
+  autoAcceptProofs?: AutoAcceptProof
+  walletScheme?: AskarMultiWalletDatabaseScheme
+}) => {
+  const publicBaseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000'
+  const normalizedBaseUrl = publicBaseUrl.replace(/\/$/, '')
+  const oidcIssuerBaseUrl = `${normalizedBaseUrl}/oidc/issuer`
+  const oidcVerifierBaseUrl = `${normalizedBaseUrl}/oidc/verifier`
 
-    definitions.forEach((def: any) => {
-      const types = def.credentialType || ['VerifiableCredential', def.name || 'GenericIDCredential']
-      const defName = def.name || 'GenericIDCredential'
-      supportedFormats.forEach((fmt) => {
-        const advertised = fmt
-        const idByUuid = `${def.credentialDefinitionId}_${advertised}`
-        const idByName = `${defName}_${advertised}`
-
-        // Primary: register a UUID-based config id
-        credentialsSupported.push({
-          format: advertised,
-          id: idByUuid,
-          cryptographic_binding_methods_supported: ['did:key', 'did:web'],
-          cryptographic_suites_supported: ['EdDSA'],
-          types,
-        })
-        credentialConfigurationsSupported[idByUuid] = {
-          cryptographic_binding_methods_supported: ['did:key', 'did:web'],
-          credential_signing_alg_values_supported: ['EdDSA'],
-          proof_types_supported: { jwt: { proof_signing_alg_values_supported: ['EdDSA'] } },
-          format: advertised,
-          credential_definition: { type: types },
-        }
-
-        // Secondary: also register a human-friendly name-based config id
-        if (!credentialConfigurationsSupported[idByName]) {
-          credentialsSupported.push({
-            format: advertised,
-            id: idByName,
-            cryptographic_binding_methods_supported: ['did:key', 'did:web'],
-            cryptographic_suites_supported: ['EdDSA'],
-            types,
-          })
-          credentialConfigurationsSupported[idByName] = {
-            cryptographic_binding_methods_supported: ['did:key', 'did:web'],
-            credential_signing_alg_values_supported: ['EdDSA'],
-            proof_types_supported: { jwt: { proof_signing_alg_values_supported: ['EdDSA'] } },
-            format: advertised,
-            credential_definition: { type: types },
-          }
-        }
-      })
-
-      // For backward compatibility, also register a short id without suffix
-      // for the canonical 'jwt_vc' format (some clients expect 'GenericIDCredential')
-      const shortId = defName
-      if (!credentialConfigurationsSupported[shortId]) {
-        credentialConfigurationsSupported[shortId] = {
-          cryptographic_binding_methods_supported: ['did:key', 'did:web'],
-          credential_signing_alg_values_supported: ['EdDSA'],
-          proof_types_supported: { jwt: { proof_signing_alg_values_supported: ['EdDSA'] } },
-          format: 'jwt_vc',
-          credential_definition: { type: types },
-        }
-        credentialsSupported.push({
-          format: 'jwt_vc',
-          id: shortId,
-          cryptographic_binding_methods_supported: ['did:key', 'did:web'],
-          cryptographic_suites_supported: ['EdDSA'],
-          types,
-        })
-      }
-    })
+  return {
+    askar: new AskarModule({
+      ariesAskar,
+      multiWalletDatabaseScheme: cfg.walletScheme || AskarMultiWalletDatabaseScheme.ProfilePerWallet,
+    }),
+    dids: new DidsModule({
+      registrars: [new KeyDidRegistrar(), new PolygonDidRegistrar()],
+      resolvers: [new KeyDidResolver(), new WebDidResolver(), new PolygonDidResolver()],
+    }),
+    connections: new ConnectionsModule({ autoAcceptConnections: cfg.autoAcceptConnections ?? true }),
+    proofs: new ProofsModule({
+      autoAcceptProofs: cfg.autoAcceptProofs || AutoAcceptProof.ContentApproved,
+      proofProtocols: [],
+    }),
+    credentials: new CredentialsModule({
+      autoAcceptCredentials: cfg.autoAcceptCredentials ?? AutoAcceptCredential.ContentApproved,
+    }),
+    w3cCredentials: new W3cCredentialsModule({}),
+    cache: new CacheModule({
+      cache: new InMemoryLruCache({ limit: Number(process.env.INMEMORY_LRU_CACHE_LIMIT) || Infinity }),
+    }),
+    questionAnswer: new QuestionAnswerModule(),
+    polygon: new PolygonModule({
+      didContractAddress: cfg.didRegistryContractAddress || (process.env.DID_CONTRACT_ADDRESS as string),
+      schemaManagerContractAddress:
+        cfg.schemaManagerContractAddress || (process.env.SCHEMA_MANAGER_CONTRACT_ADDRESS as string),
+      fileServerToken: cfg.fileServerToken || (process.env.FILE_SERVER_TOKEN as string),
+      rpcUrl: cfg.rpcUrl || (process.env.RPC_URL as string),
       serverUrl: cfg.fileServerUrl || (process.env.SERVER_URL as string),
     }),
     // OpenID4VC Issuer module - for issuing credentials via OIDC4VCI
@@ -144,22 +140,22 @@ export interface AriesRestConfig {
             const [didRecord] = await didsApi.getCreatedDids({ method: 'key' })
             const issuerDid = credDef.issuerDid || didRecord?.did || 'did:example:issuer'
 
-            const payload = {
-              '@context': ['https://www.w3.org/2018/credentials/v1'],
-              type: credDef.credentialType || ['VerifiableCredential', credentialConfigurationId],
-              issuanceDate: new Date().toISOString(),
-              credentialSubject: {
-                id: subjectDid,
-                ...claims,
-              },
-            } as any
+            const verificationMethod = `${issuerDid}#${issuerDid.split(':').pop()}`
 
-            // For SD-JWT we must return an issuer object matching SdJwtVcIssuer
             return {
               credentialSupportedId: credentialConfigurationId,
-              format: ClaimFormat.SdJwtVc,
-              issuer: { method: 'did', didUrl: issuerDid },
-              payload,
+              format: ClaimFormat.JwtVc,
+              verificationMethod,
+              credential: {
+                '@context': ['https://www.w3.org/2018/credentials/v1'],
+                type: credDef.credentialType || ['VerifiableCredential', credentialConfigurationId],
+                issuer: issuerDid,
+                issuanceDate: new Date().toISOString(),
+                credentialSubject: {
+                  id: subjectDid,
+                  ...claims,
+                },
+              } as any,
             }
           },
         },
@@ -258,103 +254,22 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
     const { credentialDefinitionStore } = await import('./utils/credentialDefinitionStore')
 
     // Query for GenericIDCredential definition (matches modelRegistry.ts naming)
-      const genericIdDef = credentialDefinitionStore.get('GenericIDCredential')
+    const genericIdDef = credentialDefinitionStore.get('GenericIDCredential')
 
-      if (!genericIdDef) {
-        agent.config.logger.warn('GenericIDCredential definition not found in database. Will still ensure issuer metadata is present and use canonical format (jwt_vc).')
-      }
+    if (!genericIdDef) {
+      agent.config.logger.warn('GenericIDCredential definition not found in database. Skipping OpenID4VC Issuer initialization.')
+    } else {
+      // Define the credentials config we want
+      const credentialsSupported = [
+        {
+          format: genericIdDef.format === 'sd_jwt' ? 'vc+sd-jwt' : 'jwt_vc_json',
+          id: 'GenericIDCredential',
+          cryptographic_binding_methods_supported: ['did:key', 'did:web'],
+          cryptographic_suites_supported: ['EdDSA'],
+          types: genericIdDef.credentialType || ['VerifiableCredential', 'GenericIDCredential'],
+        },
+      ]
 
-      // Compute baseFormat and credential metadata using either the stored definition or sensible defaults
-      // Prefer SD-JWT format for GenericIDCredential when requested
-      let baseFormat = 'vc+sd-jwt'
-      let types = ['VerifiableCredential', 'GenericIDCredential']
-      if (genericIdDef) {
-        types = genericIdDef.credentialType || types
-        if (genericIdDef.format === 'sd_jwt') {
-          baseFormat = 'vc+sd-jwt'
-        } else if (genericIdDef.format && typeof genericIdDef.format === 'string') {
-          const fmt = genericIdDef.format.toLowerCase()
-          if (fmt === 'sd_jwt') {
-            baseFormat = 'vc+sd-jwt'
-          } else if (fmt === 'jwt_vc' || fmt === 'jwt_vc_json' || fmt === 'jwt_json' || fmt === 'jwt_vc_json-ld') {
-            baseFormat = 'jwt_vc'
-          }
-        }
-      }
-
-      // Advertise a set of common formats so holders that support different
-      // variants can discover compatible credential configurations. Use the
-      // actual credentialDefinitionId from the DB to construct config IDs so
-      // they match the IDs produced by the metadata controller and the
-      // holder's well-known document.
-      const supportedFormats = ['jwt_vc', 'jwt_vc_json', 'jwt_vc_json-ld', 'vc+sd-jwt', 'ldp_vc', 'mso_mdoc']
-
-      const credentialsSupported: any[] = []
-      const credentialConfigurationsSupported: Record<string, any> = {}
-
-      // If we have a persisted GenericID definition, build configs per-format
-      // using its credentialDefinitionId so consumers can reference them.
-      const defs = credentialDefinitionStore.list()
-      const genericDefs = defs.filter((d: any) => (d.name === 'GenericIDDef' || d.name === 'GenericIDCredential' || (d.credentialType || []).includes('GenericIDCredential')))
-
-      if (genericDefs.length > 0) {
-        for (const def of genericDefs) {
-          for (const fmt of supportedFormats) {
-            const advertised = fmt
-            const configId = `${def.credentialDefinitionId}_${advertised}`
-
-            credentialsSupported.push({
-              format: advertised,
-              id: configId,
-              cryptographic_binding_methods_supported: ['did:key', 'did:web'],
-              cryptographic_suites_supported: ['EdDSA'],
-              types: def.credentialType || types,
-            })
-
-            credentialConfigurationsSupported[configId] = {
-              cryptographic_binding_methods_supported: ['did:key', 'did:web'],
-              credential_signing_alg_values_supported: ['EdDSA'],
-              proof_types_supported: {
-                jwt: {
-                  proof_signing_alg_values_supported: ['EdDSA'],
-                },
-              },
-              format: advertised,
-              credential_definition: {
-                type: def.credentialType || types,
-              },
-            }
-          }
-        }
-      } else {
-        // Fallback: advertise GenericIDCredential with a canonical id
-        for (const fmt of supportedFormats) {
-          const advertised = fmt
-          const configId = `GenericIDCredential_${advertised}`
-
-          credentialsSupported.push({
-            format: advertised,
-            id: configId,
-            cryptographic_binding_methods_supported: ['did:key', 'did:web'],
-            cryptographic_suites_supported: ['EdDSA'],
-            types,
-          })
-
-          credentialConfigurationsSupported[configId] = {
-            cryptographic_binding_methods_supported: ['did:key', 'did:web'],
-            credential_signing_alg_values_supported: ['EdDSA'],
-            proof_types_supported: {
-              jwt: {
-                proof_signing_alg_values_supported: ['EdDSA'],
-              },
-            },
-            format: advertised,
-            credential_definition: {
-              type: types,
-            },
-          }
-        }
-      }
       const displayMetadata = [
         {
           name: 'Credo Controller',
@@ -376,7 +291,6 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
         await agent.modules.openId4VcIssuer.updateIssuerMetadata({
           issuerId: issuer.issuerId,
           credentialsSupported,
-          credentialConfigurationsSupported: credentialConfigurationsSupported,
           display: displayMetadata,
         })
 
@@ -386,10 +300,10 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
         const openId4VcIssuer = await agent.modules.openId4VcIssuer.createIssuer({
           display: displayMetadata,
           credentialsSupported,
-          credentialConfigurationsSupported: credentialConfigurationsSupported,
         })
         agent.config.logger.info(`OpenID4VC Issuer created with ID: ${openId4VcIssuer.issuerId}`)
       }
+    }
   } catch (e: any) {
     agent.config.logger.error(`Failed to initialize/update OpenID4VC Issuer: ${e.message}`)
     agent.config.logger.error(e.stack)

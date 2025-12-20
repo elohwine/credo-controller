@@ -213,58 +213,11 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
 
   const securityMiddleware = new SecurityMiddleware()
   app.use(securityMiddleware.use)
-  // Provide an override for issuer-level well-known metadata so we can
-  // advertise multiple credential formats derived from our credential
-  // definition store. Register it BEFORE TSOA routes so it takes
-  // precedence for discovery requests.
-  app.get('/oidc/issuer/:issuerId/.well-known/openid-credential-issuer', async (req: ExRequest, res: ExResponse, next: NextFunction) => {
-    try {
-      const issuerId = req.params.issuerId
-      const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`
-      const issuerBase = `${baseUrl.replace(/\/$/, '')}/oidc/issuer/${issuerId}`
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { credentialDefinitionStore } = require('./utils/credentialDefinitionStore')
-        const definitions = credentialDefinitionStore.list() || []
-
-        const credentialConfigurations: Record<string, any> = {}
-        const supportedFormats = ['jwt_vc', 'jwt_vc_json', 'jwt_vc_json-ld', 'vc+sd-jwt', 'ldp_vc', 'mso_mdoc']
-
-        definitions.forEach((def: any) => {
-          supportedFormats.forEach((fmt) => {
-            const suffix = `_${fmt}`
-            const configId = `${def.credentialDefinitionId}${suffix}`
-            credentialConfigurations[configId] = {
-              format: fmt,
-              scope: def.name,
-              cryptographic_binding_methods_supported: ['did'],
-              cryptographic_suites_supported: ['Ed25519Signature2018'],
-              credential_definition: { type: def.credentialType || ['VerifiableCredential'] },
-              display: [{ name: def.name, locale: 'en-US' }],
-            }
-          })
-        })
-
-        const metadata = {
-          issuer: issuerBase,
-          credential_issuer: issuerBase,
-          token_endpoint: `${issuerBase}/token`,
-          credential_endpoint: `${issuerBase}/credential`,
-          grants: ['urn:ietf:params:oauth:grant-type:pre-authorized_code'],
-          credential_configurations_supported: credentialConfigurations,
-        }
-
-        req.logger?.info({ issuerId }, 'Served augmented issuer well-known (pre-TSOA)')
-        return res.json(metadata)
-      } catch (e) {
-        req.logger?.warn({ err: (e as Error).message }, 'Failed to build augmented issuer metadata (pre-TSOA)')
-        return next()
-      }
-    } catch (err) {
-      return next()
-    }
-  })
+  // Note: For issuer-level well-known (/.../issuer/:issuerId/.well-known/...),
+  // let Credo's native OpenID4VC issuer module serve its stored metadata.
+  // This ensures the advertised credential configurations match what was
+  // registered when the issuer record was created (e.g., GenericIDCredential_jwt_vc_json).
+  // Only provide platform-level (non-issuer-specific) augmented metadata if needed.
 
   // Mount TSOA routes (API controllers)
   // take precedence over the generic Credo OpenID4VC router which matches prefixes.
@@ -274,68 +227,6 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   // We use a safe cast or check for the module existence since Agent type is generic
   const modules = (agent as any).modules
 
-  // Provide an override for issuer-level well-known metadata so we can
-  // advertise multiple credential formats derived from our credential
-  // definition store. This runs before the OpenID4VC issuer router so
-  // holders discover compatible formats even if the issuer module
-  // stored a different canonical representation.
-  app.get('/oidc/issuer/:issuerId/.well-known/openid-credential-issuer', async (req: ExRequest, res: ExResponse, next: NextFunction) => {
-    try {
-      const issuerId = req.params.issuerId
-      const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`
-      const issuerBase = `${baseUrl.replace(/\/$/, '')}/oidc/issuer/${issuerId}`
-
-      // Build credential_configurations_supported by enumerating credential definitions
-      try {
-        // Lazy-load to avoid circular deps at startup
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { credentialDefinitionStore } = require('./utils/credentialDefinitionStore')
-        const definitions = credentialDefinitionStore.list() || []
-
-        const credentialConfigurations: Record<string, any> = {}
-        const supportedFormats = ['jwt_vc', 'jwt_vc_json', 'jwt_vc_json-ld', 'vc+sd-jwt', 'ldp_vc', 'mso_mdoc']
-
-        definitions.forEach((def: any) => {
-          supportedFormats.forEach((fmt) => {
-            const suffix = `_${fmt}`
-            const configId = `${def.credentialDefinitionId}${suffix}`
-            credentialConfigurations[configId] = {
-              format: fmt,
-              scope: def.name,
-              cryptographic_binding_methods_supported: ['did'],
-              cryptographic_suites_supported: ['Ed25519Signature2018'],
-              credential_definition: {
-                type: def.credentialType || ['VerifiableCredential'],
-              },
-              display: [
-                {
-                  name: def.name,
-                  locale: 'en-US',
-                },
-              ],
-            }
-          })
-        })
-
-        const metadata = {
-          issuer: issuerBase,
-          credential_issuer: issuerBase,
-          token_endpoint: `${issuerBase}/token`,
-          credential_endpoint: `${issuerBase}/credential`,
-          grants: ['urn:ietf:params:oauth:grant-type:pre-authorized_code'],
-          credential_configurations_supported: credentialConfigurations,
-        }
-
-        req.logger?.info({ issuerId }, 'Served augmented issuer well-known')
-        return res.json(metadata)
-      } catch (e) {
-        req.logger?.warn({ err: (e as Error).message }, 'Failed to build augmented issuer metadata')
-        return next()
-      }
-    } catch (err) {
-      return next()
-    }
-  })
   if (modules?.openId4VcIssuer?.config?.router) {
     agent.config.logger.info('Mounting OpenID4VC Issuer routes at /oidc/issuer')
     // Compatibility shim: normalize wallet-specific JSON VC formats to the generic 'jwt_vc'

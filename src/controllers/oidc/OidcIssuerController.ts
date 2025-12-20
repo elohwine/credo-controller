@@ -67,38 +67,52 @@ export class OidcIssuerController extends Controller {
       const def = credentialDefinitionStore.get(template.credentialDefinitionId as string)
 
       // Common formats advertised by issuer (should match CLI_COMMON_FORMATS)
-      const COMMON_FORMATS = ['jwt_vc', 'jwt_vc_json', 'jwt_vc_json-ld', 'vc+sd-jwt', 'ldp_vc', 'mso_mdoc']
+      // Prefer jwt_vc_json first because holders commonly expect the JSON variant
+      const COMMON_FORMATS = ['jwt_vc_json', 'jwt_vc_json-ld', 'vc+sd-jwt', 'ldp_vc', 'mso_mdoc', 'jwt_vc']
 
-      if (def) {
-        // If caller specified a desired format, prefer mapping to that format
-        const requestedFormats = [] as string[]
-        if (template.format) {
-          const fmt = (template.format as string).toLowerCase()
-          if (fmt === 'sd_jwt' || fmt === 'vc+sd-jwt') requestedFormats.push('vc+sd-jwt')
-          else if (fmt.startsWith('jwt_vc_json')) requestedFormats.push('jwt_vc_json')
-          else if (fmt === 'jwt_vc' || fmt === 'jwt_json') requestedFormats.push('jwt_vc')
-          else requestedFormats.push(fmt)
-        } else {
-          // No requested format: advertise all common formats so holder can pick
-          requestedFormats.push(...COMMON_FORMATS)
-        }
-
-        for (const f of requestedFormats) {
-          const cfgId = `${def.credentialDefinitionId}_${f}`
-          credentialConfigurations.push(cfgId)
-        }
+      // Always use the caller's credentialDefinitionId for building config IDs
+      // This ensures we match what the issuer advertises (e.g., GenericIDCredential_jwt_vc_json)
+      // The def lookup is just for validation - the template ID controls the config ID name
+      const templateId = template.credentialDefinitionId as string
+      
+      // If caller specified a desired format, prefer mapping to that format
+      const requestedFormats = [] as string[]
+      if (template.format) {
+        const fmt = (template.format as string).toLowerCase()
+        if (fmt === 'sd_jwt' || fmt === 'vc+sd-jwt') requestedFormats.push('vc+sd-jwt')
+        else if (fmt.startsWith('jwt_vc_json')) requestedFormats.push('jwt_vc_json')
+        else if (fmt === 'jwt_vc' || fmt === 'jwt_json') requestedFormats.push('jwt_vc')
+        else requestedFormats.push(fmt)
       } else {
-        // Fallback to raw id if we couldn't resolve definition
-        credentialConfigurations.push(template.credentialDefinitionId as string)
+        // No requested format: use jwt_vc_json as the default (most compatible)
+        requestedFormats.push('jwt_vc_json')
+      }
+
+      for (const f of requestedFormats) {
+        const cfgId = `${templateId}_${f}`
+        credentialConfigurations.push(cfgId)
       }
     }
 
-    // Get the correct issuer (assuming single issuer for now)
+    // Pick the issuer that actually supports the offered credential configuration IDs.
+    // We can have multiple issuer records (e.g., old ones with cleared metadata).
     const issuers = await (agent.modules as any).openId4VcIssuer.getAllIssuers()
     if (!issuers || issuers.length === 0) {
       throw new Error('No OpenID4VC Issuer configured')
     }
-    const issuerId = issuers[0].issuerId
+
+    const offeredSet = new Set(credentialConfigurations)
+    const issuerWithMatchingSupported = issuers.find((i: any) => {
+      const supported = (i?.credentialsSupported || []) as Array<{ id?: string }>
+      return supported.some((s) => !!s?.id && offeredSet.has(s.id))
+    })
+
+    const issuerWithAnySupported = issuers.find((i: any) => (i?.credentialsSupported || []).length > 0)
+
+    const issuerId =
+      issuerWithMatchingSupported?.issuerId ||
+      issuerWithAnySupported?.issuerId ||
+      issuers[0].issuerId
 
     // Log inputs
     request.logger?.info({

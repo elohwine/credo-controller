@@ -106,7 +106,7 @@ async function run() {
     // this handler takes precedence over generated TSOA/controller routes.
     app.get('/.well-known/openid-credential-issuer', (_req, res) => {
         const base = HOLDER_BASE_URL
-        const supportedFormats = ['jwt_vc', 'jwt_vc_json', 'jwt_vc_json-ld', 'vc+sd-jwt', 'ldp_vc', 'mso_mdoc']
+        const supportedFormats = ['jwt_vc_json']
 
         const credential_configurations_supported = {}
         supportedFormats.forEach((fmt) => {
@@ -150,7 +150,7 @@ async function run() {
     // sample holder; in production you'd derive this from agent capabilities.
     app.get('/.well-known/openid-credential-issuer', (_req, res) => {
         const base = HOLDER_BASE_URL
-        const supportedFormats = ['jwt_vc', 'jwt_vc_json', 'jwt_vc_json-ld', 'vc+sd-jwt', 'ldp_vc', 'mso_mdoc']
+        const supportedFormats = ['jwt_vc_json']
 
         const credential_configurations_supported = {}
         supportedFormats.forEach((fmt) => {

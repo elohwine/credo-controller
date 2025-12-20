@@ -72,12 +72,15 @@ export async function expressAuthentication(request: Request, securityName: stri
     return true
   }
 
-  const apiKeyHeader = request.headers['authorization']
+  // Check both x-api-key header and authorization header for API key
+  const xApiKeyHeader = request.headers['x-api-key'] as string | undefined
+  const authorizationHeader = request.headers['authorization'] as string | undefined
 
   if (securityName === 'apiKey') {
     // Auth: For BW/Dedicated agent to GET their token
-    if (apiKeyHeader) {
-      const providedApiKey = apiKeyHeader as string
+    // Prefer x-api-key, fallback to authorization header
+    const providedApiKey = xApiKeyHeader || authorizationHeader
+    if (providedApiKey) {
       logger.info(`Provided API key: ${providedApiKey}`)
       logger.info(`Expected API key: ${dynamicApiKey}`)
       if (providedApiKey === dynamicApiKey) {
