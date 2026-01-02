@@ -101,6 +101,16 @@ export async function provisionTenantResources({ agent, tenantRecord, baseUrl, d
     const verifierVm = verifierDidState.didState.didDocument?.verificationMethod?.[0]
     const verifierKid = verifierVm?.id ?? `${verifierDid}#key-1`
 
+    // Seed default VC models (schemas + credential definitions) for this tenant ONLY if ORG
+    if (tenantType === 'ORG') {
+      try {
+        await registerDefaultModelsForTenant({ issuerDid, tenantId: tenantRecord.id })
+        console.log(`[Provisioning] Default models registered for ORG tenant ${tenantRecord.id}`)
+      } catch (e) {
+        console.warn('Failed to seed default VC models for tenant', { err: (e as Error).message })
+      }
+    }
+
     const issuerUrl = `${resolvedBaseUrl}/tenants/${tenantRecord.id}`
 
     const issuerMetadata = buildIssuerMetadata({
@@ -119,6 +129,47 @@ export async function provisionTenantResources({ agent, tenantRecord, baseUrl, d
       presentationEndpoint: `${resolvedBaseUrl}/oidc/verifier/verify`,
       display,
     })
+
+    // Create or Update native OpenID4VC Issuer record in the tenant wallet
+    try {
+      const existingIssuers = await (tenantAgent.modules as any).openId4VcIssuer.getAllIssuers();
+
+      const newCredentialsSupported = (issuerMetadata as any).credentials_supported || [];
+      const newDisplay = (issuerMetadata as any).display || [];
+
+      if (existingIssuers && existingIssuers.length > 0) {
+        // Reuse the first issuer found
+        const existingIssuer = existingIssuers[0];
+        console.log(`[Provisioning] Reuse existing OpenID4VC issuer ${existingIssuer.issuerId} for tenant ${tenantRecord.id}`);
+
+        await (tenantAgent.modules as any).openId4VcIssuer.updateIssuerMetadata({
+          issuerId: existingIssuer.issuerId,
+          credentialsSupported: newCredentialsSupported,
+          display: newDisplay,
+        });
+      } else {
+        // Only create if none exist
+        await (tenantAgent.modules as any).openId4VcIssuer.createIssuer({
+          credentialsSupported: newCredentialsSupported,
+          display: newDisplay,
+        });
+        console.log(`[Provisioning] Created new native OpenID4VC issuer for tenant ${tenantRecord.id}`);
+      }
+
+      // Create or Update native OpenID4VC Verifier record in the tenant wallet
+      const existingVerifiers = await (tenantAgent.modules as any).openId4VcVerifier.getAllVerifiers();
+      if (existingVerifiers && existingVerifiers.length > 0) {
+        console.log(`[Provisioning] Reuse existing OpenID4VC verifier for tenant ${tenantRecord.id}`);
+      } else {
+        await (tenantAgent.modules as any).openId4VcVerifier.createVerifier({
+          // Verifier doesn't have complex metadata in this version of Credo, 
+          // but we initialize the record so it's ready.
+        });
+        console.log(`[Provisioning] Created new native OpenID4VC verifier for tenant ${tenantRecord.id}`);
+      }
+    } catch (e) {
+      console.warn('[Provisioning] Failed to create/update native OpenID4VC issuer/verifier', { err: (e as Error).message });
+    }
 
     await tenantAgent.genericRecords.save({
       id: `tenant:${tenantRecord.id}:issuer`,
@@ -207,15 +258,6 @@ export async function provisionTenantResources({ agent, tenantRecord, baseUrl, d
     tenantType: tenantType,
     domain: domain
   })
-
-  // Seed default VC models (schemas + credential definitions) for this tenant ONLY if ORG
-  if (tenantType === 'ORG') {
-    try {
-      await registerDefaultModelsForTenant({ issuerDid: result.issuerDid, tenantId: tenantRecord.id })
-    } catch (e) {
-      agent.config.logger.warn('Failed to seed default VC models for tenant', { err: (e as Error).message })
-    }
-  }
 
   return result satisfies TenantProvisioningResult
 }

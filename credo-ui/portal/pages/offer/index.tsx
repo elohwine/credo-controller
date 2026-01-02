@@ -2,11 +2,11 @@ import QRCode from "react-qr-code";
 import Button from "@/components/walt/button/Button";
 import Icon from "@/components/walt/logo/Icon";
 import WaltIcon from "@/components/walt/logo/WaltIcon";
-import {useContext, useEffect, useState} from "react";
-import {useRouter} from "next/router";
-import {CredentialsContext, EnvContext} from "@/pages/_app";
-import {sendToWebWallet} from "@/utils/sendToWebWallet";
-import {getOfferUrl} from "@/utils/getOfferUrl";
+import { useContext, useEffect, useState } from "react";
+import { useRouter } from "next/router";
+import { CredentialsContext, EnvContext } from "@/pages/_app";
+import { sendToWebWallet } from "@/utils/sendToWebWallet";
+import { getOfferUrl } from "@/utils/getOfferUrl";
 import nextConfig from "@/next.config";
 import BackButton from "@/components/walt/button/BackButton";
 
@@ -65,7 +65,7 @@ export default function Offer() {
             router.query.vpProfile as string
           );
           console.log('Offer response:', response.data);
-          setOfferURL(response.data.credential_offer_url);
+          setOfferURL(response.data.credential_offer_deeplink || response.data.credential_offer_url);
         }
       } catch (error: any) {
         console.error('Failed to create credential offer:', error);

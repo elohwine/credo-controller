@@ -46,6 +46,7 @@ export class OidcIssuerController extends Controller {
   @Post('issuer/credential-offers')
   @SuccessResponse('201', 'Created')
   @Security('apiKey')
+  @Security('jwt', ['tenant'])
   public async createCredentialOffer(
     @Request() request: ExRequest,
     @Body() body: CreateCredentialOfferRequest,
@@ -74,7 +75,7 @@ export class OidcIssuerController extends Controller {
       // This ensures we match what the issuer advertises (e.g., GenericIDCredential_jwt_vc_json)
       // The def lookup is just for validation - the template ID controls the config ID name
       const templateId = template.credentialDefinitionId as string
-      
+
       // If caller specified a desired format, prefer mapping to that format
       const requestedFormats = [] as string[]
       if (template.format) {
@@ -102,6 +103,7 @@ export class OidcIssuerController extends Controller {
     }
 
     const offeredSet = new Set(credentialConfigurations)
+
     const issuerWithMatchingSupported = issuers.find((i: any) => {
       const supported = (i?.credentialsSupported || []) as Array<{ id?: string }>
       return supported.some((s) => !!s?.id && offeredSet.has(s.id))
@@ -121,6 +123,13 @@ export class OidcIssuerController extends Controller {
       credentialsOriginal: body.credentials
     }, 'Calling createCredentialOffer')
 
+    // Extract claims from the first credential template (if provided)
+    const firstCred = body.credentials[0] as any
+    const claims = firstCred?.claims || firstCred?.claimsTemplate?.credentialSubject || {}
+
+    request.logger?.info({ module: 'issuer', operation: 'createOffer', claimsCount: Object.keys(claims).length, claimsKeys: Object.keys(claims) }, 'Extracted claims from body')
+    console.log('[OidcIssuerController] Extracted claims:', JSON.stringify(claims))
+
     // Create offer using Credo Native Module
     // Note: ensure we cast to any if types aren't fully picked up yet
     const result = await (agent.modules as any).openId4VcIssuer.createCredentialOffer({
@@ -128,6 +137,10 @@ export class OidcIssuerController extends Controller {
       offeredCredentials: credentialConfigurations,
       preAuthorizedCodeFlowConfig: {
         userPinRequired: false
+      },
+      // Pass claims to issuance session so credentialRequestToCredentialMapper can access them
+      issuanceMetadata: {
+        claims: claims
       },
       grants: {
         authorization_code: {
@@ -145,6 +158,36 @@ export class OidcIssuerController extends Controller {
     const payload = issuanceSession.credentialOfferPayload
 
     request.logger?.info({ module: 'issuer', operation: 'createOffer', credentialOfferUri: offerUri }, 'Created native credential offer')
+
+    // === PUSH NOTIFICATION (WEBHOOK) ===
+    // If OFFER_PUSH_URL is configured, push the offer URI to the holder immediately
+    if (process.env.OFFER_PUSH_URL) {
+      const pushUrl = process.env.OFFER_PUSH_URL
+      const pushApiKey = process.env.OFFER_PUSH_API_KEY
+      request.logger?.info({ pushUrl, offerId: issuanceSession.id }, 'Attempting to push offer to holder')
+
+      // Fire and forget (don't block response)
+      import('node-fetch').then(({ default: fetch }) => {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (pushApiKey) {
+          headers['x-api-key'] = pushApiKey
+        }
+
+        fetch(pushUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ credential_offer_uri: offerUri })
+        })
+          .then(res => {
+            if (res.ok) request.logger?.info({ status: res.status }, 'Push notification successful')
+            else request.logger?.warn({ status: res.status, statusText: res.statusText }, 'Push notification failed')
+          })
+          .catch(err => {
+            request.logger?.error({ error: err.message }, 'Push notification error')
+          })
+      })
+    }
+
 
     return {
       offerId: issuanceSession.id,

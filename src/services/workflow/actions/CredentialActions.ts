@@ -16,14 +16,7 @@ export class CredentialActions {
     static async issueCredential(context: WorkflowActionContext, config: any = {}) {
         logger.info('Preparing credential offer')
 
-        // Resolve OidcIssuerController to use its logic (or refactor Controller to use a Service)
-        // For now, we'll simulate the offer creation logic here or call a service if we had one.
-        // Since OidcIssuerController has the logic, we should ideally extract it to OidcIssuerService.
-        // But to avoid refactoring the whole controller now, we will construct the offer payload here
-        // and use the OidcStore directly.
-
-        const { OidcIssuerController } = await import('../../../controllers/oidc/OidcIssuerController')
-        const issuerController = container.resolve(OidcIssuerController)
+        const { credentialIssuanceService } = await import('../../../services/CredentialIssuanceService')
 
         // 1. Map Data to Claims
         const claims: Record<string, any> = {}
@@ -44,46 +37,16 @@ export class CredentialActions {
             Object.assign(claims, context.input)
         }
 
-        // 2. Create Offer Request Body
-        // We need to construct a fake request body to reuse the controller's method
-        // OR better: just call the store directly like the controller does.
-        // Let's use the store directly to be cleaner.
-
-        const { saveCredentialOffer } = await import('../../../persistence/OidcStoreRepository')
-        const { randomUUID } = await import('crypto')
-
-        const offerId = randomUUID()
-        const preAuthorizedCode = randomUUID()
-        const expiresAt = new Date(Date.now() + (10 * 60 * 1000)).toISOString() // 10 mins
-
-        // Construct the credential payload
-        const credentialPayload = {
-            type: ['VerifiableCredential', config.type || 'GenericCredential'],
-            format: 'jwt_vc',
-            claimsTemplate: claims,
-            issuerDid: config.issuerDid || 'did:example:issuer'
-        }
-
-        saveCredentialOffer({
-            offerId,
-            preAuthorizedCode,
-            credentials: [credentialPayload],
-            issuerDid: credentialPayload.issuerDid,
-            expiresAt,
-            tenantId: context.tenantId
+        // 2. Create Offer using Unified Service
+        const result = await credentialIssuanceService.createOffer({
+            credentialType: config.type || 'GenericCredential',
+            claims: claims,
+            tenantId: context.tenantId || 'default'
         })
 
         // 3. Update State with Offer Details
-        const baseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000'
-        const credential_offer_uri = `${baseUrl}/oidc/credential-offers/${preAuthorizedCode}`
+        context.state.offer = result
 
-        context.state.offer = {
-            offerId,
-            preAuthorizedCode,
-            credential_offer_uri,
-            expiresAt
-        }
-
-        logger.info({ offerId }, 'Credential offer created')
+        logger.info({ offerId: result.offerId }, 'Credential offer created via IssuanceService')
     }
 }

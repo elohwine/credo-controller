@@ -87,5 +87,16 @@ $ curl -X POST http://127.0.0.1:3000/custom-oidc/issuer/credential-offers \
 ✅ **Issue Resolved**: Credential format alignment achieved  
 ✅ **Offer Creation**: Working  
 ✅ **Metadata Alignment**: Issuer and holder advertise compatible formats  
-⚠️ **Accept-Offer**: Requires tenant module configuration (out of scope for format alignment fix)
+✅ **Accept-Offer**: Fixed to use base agent for OID4VC operations  
 
+## Future Enhancement: Auto-Accept Toggle
+
+> [!NOTE]
+> **Planned**: Add a user setting in the wallet UI to toggle auto-accept behavior.
+> - **Default**: Manual acceptance (user reviews and accepts offers)
+> - **Optional**: Auto-accept (offers are accepted automatically when received)
+
+### Implementation Notes
+- Add `autoAcceptOffers` boolean to user preferences/settings
+- Modify `/pending-offers` polling or push webhook to check this setting
+- If enabled, trigger `/accept-offer` automatically after receiving an offer

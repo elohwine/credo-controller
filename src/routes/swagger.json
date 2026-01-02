@@ -306,7 +306,9 @@
             "type": "string",
             "enum": [
               "jwt_vc",
-              "sd_jwt"
+              "sd_jwt",
+              "jwt_vc_json",
+              "jwt_vc_json-ld"
             ]
           },
           "tenantId": {
@@ -358,7 +360,9 @@
             "type": "string",
             "enum": [
               "jwt_vc",
-              "sd_jwt"
+              "sd_jwt",
+              "jwt_vc_json",
+              "jwt_vc_json-ld"
             ]
           }
         },
@@ -465,6 +469,16 @@
           },
           "connectionImageUrl": {
             "type": "string"
+          },
+          "tenantType": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "ORG"
+            ]
+          },
+          "domain": {
+            "type": "string"
           }
         },
         "required": [
@@ -488,7 +502,26 @@
             "description": "Optional human readable display name (used in metadata display objects)"
           },
           "config": {
-            "$ref": "#/components/schemas/Omit_CustomTenantConfig.walletConfig_"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Omit_CustomTenantConfig.walletConfig_"
+              },
+              {
+                "properties": {
+                  "domain": {
+                    "type": "string"
+                  },
+                  "tenantType": {
+                    "type": "string",
+                    "enum": [
+                      "USER",
+                      "ORG"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            ]
           }
         },
         "required": [
@@ -2689,6 +2722,9 @@
       },
       "Pick_LinkedDataProofOptions.Exclude_keyofLinkedDataProofOptions.cryptosuite__": {
         "properties": {
+          "domain": {
+            "type": "string"
+          },
           "verificationMethod": {
             "type": "string"
           },
@@ -2699,9 +2735,6 @@
             "type": "string"
           },
           "type": {
-            "type": "string"
-          },
-          "domain": {
             "type": "string"
           },
           "challenge": {
@@ -3215,6 +3248,9 @@
           },
           "issuerDid": {
             "type": "string"
+          },
+          "claims": {
+            "$ref": "#/components/schemas/Record_string.any_"
           }
         },
         "required": [
@@ -3298,6 +3334,1587 @@
           "issuerName",
           "credentialType",
           "offerUri"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CartItem": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number",
+            "format": "double"
+          },
+          "quantity": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "price",
+          "quantity"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CartSnapshotRequest": {
+        "properties": {
+          "cartId": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CartItem"
+            },
+            "type": "array"
+          },
+          "totalAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "merchantDid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cartId",
+          "items",
+          "totalAmount",
+          "currency"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "InvoiceRequest": {
+        "properties": {
+          "cartRef": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "dueDate": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cartRef",
+          "amount",
+          "currency"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CatalogItem": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "merchantId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "images": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "price": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "sku": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "merchantId",
+          "title",
+          "images",
+          "price",
+          "currency",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateCatalogItemRequest": {
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "images": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "price": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "sku": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "price"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "WaCartItem": {
+        "properties": {
+          "itemId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number",
+            "format": "double"
+          },
+          "quantity": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "itemId",
+          "title",
+          "price",
+          "quantity"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "Cart": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "merchantId": {
+            "type": "string"
+          },
+          "buyerPhone": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WaCartItem"
+            },
+            "type": "array"
+          },
+          "total": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "quoted",
+              "invoiced",
+              "paid",
+              "cancelled"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "merchantId",
+          "items",
+          "total",
+          "currency",
+          "status",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateCartRequest": {
+        "properties": {
+          "payload": {
+            "type": "string",
+            "description": "Base64-encoded wa.me payload OR raw JSON payload"
+          },
+          "buyerPhone": {
+            "type": "string",
+            "description": "Buyer's phone number (from WhatsApp)"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "TrustDriver": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "number",
+            "format": "double"
+          },
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "sourceVcId": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "weight",
+          "value"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "TrustScore": {
+        "properties": {
+          "merchantId": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "drivers": {
+            "items": {
+              "$ref": "#/components/schemas/TrustDriver"
+            },
+            "type": "array"
+          },
+          "lastComputed": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "merchantId",
+          "score",
+          "drivers",
+          "lastComputed"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "TrustEvent": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "merchantId": {
+            "type": "string"
+          },
+          "eventType": {
+            "type": "string",
+            "enum": [
+              "payment",
+              "dispute",
+              "refund",
+              "kyc_attestation",
+              "review",
+              "delivery"
+            ]
+          },
+          "eventData": {},
+          "impact": {
+            "type": "number",
+            "format": "double"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "merchantId",
+          "eventType",
+          "impact",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "RecordEventRequest": {
+        "properties": {
+          "eventType": {
+            "type": "string",
+            "enum": [
+              "payment",
+              "dispute",
+              "refund",
+              "kyc_attestation",
+              "review",
+              "delivery"
+            ]
+          },
+          "eventData": {},
+          "impact": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "eventType"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "VerificationResult": {
+        "properties": {
+          "vcId": {
+            "type": "string"
+          },
+          "vcType": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "valid",
+              "invalid",
+              "revoked",
+              "expired",
+              "not_found"
+            ]
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "issuanceDate": {
+            "type": "string"
+          },
+          "expirationDate": {
+            "type": "string"
+          },
+          "subject": {},
+          "verifiedAt": {
+            "type": "string"
+          },
+          "signature": {
+            "properties": {
+              "verified": {
+                "type": "boolean"
+              },
+              "algorithm": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "verified",
+              "algorithm"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "vcId",
+          "vcType",
+          "status",
+          "verifiedAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "VerificationLog": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "vcId": {
+            "type": "string"
+          },
+          "vcType": {
+            "type": "string"
+          },
+          "verificationResult": {
+            "type": "string"
+          },
+          "verifierInfo": {},
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "vcId",
+          "verificationResult",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "Escalation": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "merchantId": {
+            "type": "string"
+          },
+          "receiptId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ]
+          },
+          "packageUrl": {
+            "type": "string"
+          },
+          "regulatorActionStatus": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "under_review",
+              "resolved",
+              "dismissed"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "merchantId",
+          "reason",
+          "severity",
+          "regulatorActionStatus",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateEscalationRequest": {
+        "properties": {
+          "merchantId": {
+            "type": "string"
+          },
+          "receiptId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ]
+          },
+          "evidence": {
+            "properties": {
+              "refundRate": {
+                "type": "number",
+                "format": "double"
+              },
+              "disputeCount": {
+                "type": "number",
+                "format": "double"
+              },
+              "transactionIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "merchantId",
+          "reason"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "EscalationPackage": {
+        "properties": {
+          "escalationId": {
+            "type": "string"
+          },
+          "merchantId": {
+            "type": "string"
+          },
+          "generatedAt": {
+            "type": "string"
+          },
+          "summary": {
+            "properties": {
+              "disputeRate": {
+                "type": "number",
+                "format": "double"
+              },
+              "totalTransactions": {
+                "type": "number",
+                "format": "double"
+              },
+              "trustScore": {
+                "type": "number",
+                "format": "double"
+              },
+              "severity": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "disputeRate",
+              "totalTransactions",
+              "trustScore",
+              "severity",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "evidence": {
+            "properties": {
+              "recentEvents": {
+                "items": {},
+                "type": "array"
+              },
+              "trustScoreBreakdown": {}
+            },
+            "required": [
+              "recentEvents",
+              "trustScoreBreakdown"
+            ],
+            "type": "object"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "escalationId",
+          "merchantId",
+          "generatedAt",
+          "summary",
+          "evidence"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "WhatsAppWebhookPayload": {
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "entry": {
+            "items": {
+              "properties": {
+                "changes": {
+                  "items": {
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "properties": {
+                          "messages": {
+                            "items": {
+                              "properties": {
+                                "interactive": {
+                                  "properties": {
+                                    "button_reply": {
+                                      "properties": {
+                                        "title": {
+                                          "type": "string"
+                                        },
+                                        "id": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "title",
+                                        "id"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type"
+                                  ],
+                                  "type": "object"
+                                },
+                                "text": {
+                                  "properties": {
+                                    "body": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "body"
+                                  ],
+                                  "type": "object"
+                                },
+                                "type": {
+                                  "type": "string"
+                                },
+                                "timestamp": {
+                                  "type": "string"
+                                },
+                                "id": {
+                                  "type": "string"
+                                },
+                                "from": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "timestamp",
+                                "id",
+                                "from"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "contacts": {
+                            "items": {
+                              "properties": {
+                                "wa_id": {
+                                  "type": "string"
+                                },
+                                "profile": {
+                                  "properties": {
+                                    "name": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "name"
+                                  ],
+                                  "type": "object"
+                                }
+                              },
+                              "required": [
+                                "wa_id",
+                                "profile"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "metadata": {
+                            "properties": {
+                              "phone_number_id": {
+                                "type": "string"
+                              },
+                              "display_phone_number": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "phone_number_id",
+                              "display_phone_number"
+                            ],
+                            "type": "object"
+                          },
+                          "messaging_product": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "metadata",
+                          "messaging_product"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "value"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "changes",
+                "id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "object",
+          "entry"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "Employee": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "did": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "baseSalary": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "nssaNumber": {
+            "type": "string"
+          },
+          "tin": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "terminated",
+              "on_leave"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "firstName",
+          "lastName",
+          "baseSalary",
+          "currency",
+          "status",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateEmployeeRequest": {
+        "properties": {
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "baseSalary": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "nssaNumber": {
+            "type": "string"
+          },
+          "tin": {
+            "type": "string"
+          },
+          "did": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "firstName",
+          "lastName",
+          "baseSalary"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "PayrollRun": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "period": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "processing",
+              "completed",
+              "paid"
+            ]
+          },
+          "totalGross": {
+            "type": "number",
+            "format": "double"
+          },
+          "totalNet": {
+            "type": "number",
+            "format": "double"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "period",
+          "status",
+          "totalGross",
+          "totalNet",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateRunRequest": {
+        "properties": {
+          "period": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "period"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "Payslip": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "employeeId": {
+            "type": "string"
+          },
+          "period": {
+            "type": "string"
+          },
+          "grossAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "deductions": {
+            "properties": {
+              "other": {
+                "type": "number",
+                "format": "double"
+              },
+              "aids_levy": {
+                "type": "number",
+                "format": "double"
+              },
+              "paye": {
+                "type": "number",
+                "format": "double"
+              },
+              "nssa": {
+                "type": "number",
+                "format": "double"
+              }
+            },
+            "required": [
+              "other",
+              "aids_levy",
+              "paye",
+              "nssa"
+            ],
+            "type": "object"
+          },
+          "netAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "payslipVcId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "runId",
+          "employeeId",
+          "period",
+          "grossAmount",
+          "deductions",
+          "netAmount",
+          "currency",
+          "status",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "OnboardingData": {
+        "properties": {
+          "personalInfo": {
+            "properties": {
+              "nokPhone": {
+                "type": "string"
+              },
+              "nokName": {
+                "type": "string"
+              },
+              "address": {
+                "type": "string"
+              },
+              "dob": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "bankDetails": {
+            "properties": {
+              "payoutMethod": {
+                "type": "string",
+                "enum": [
+                  "bank",
+                  "ecocash"
+                ]
+              },
+              "ecocashNumber": {
+                "type": "string"
+              },
+              "account": {
+                "type": "string"
+              },
+              "bankName": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "documents": {
+            "properties": {
+              "passport": {
+                "type": "string"
+              },
+              "idFront": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object",
+        "additionalProperties": false
+      },
+      "OnboardingRequest": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "candidateEmail": {
+            "type": "string"
+          },
+          "candidatePhone": {
+            "type": "string"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "invited",
+              "in_progress",
+              "review",
+              "approved",
+              "rejected",
+              "completed"
+            ]
+          },
+          "currentStep": {
+            "type": "string",
+            "enum": [
+              "init",
+              "personal_details",
+              "documents",
+              "contract",
+              "complete"
+            ]
+          },
+          "accessToken": {
+            "type": "string"
+          },
+          "employeeId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/OnboardingData"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "candidateEmail",
+          "fullName",
+          "status",
+          "currentStep",
+          "accessToken",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "InitOnboardingPayload": {
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "fullName"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "Partial_OnboardingData_": {
+        "properties": {
+          "personalInfo": {
+            "properties": {
+              "nokPhone": {
+                "type": "string"
+              },
+              "nokName": {
+                "type": "string"
+              },
+              "address": {
+                "type": "string"
+              },
+              "dob": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "bankDetails": {
+            "properties": {
+              "payoutMethod": {
+                "type": "string",
+                "enum": [
+                  "bank",
+                  "ecocash"
+                ]
+              },
+              "ecocashNumber": {
+                "type": "string"
+              },
+              "account": {
+                "type": "string"
+              },
+              "bankName": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "documents": {
+            "properties": {
+              "passport": {
+                "type": "string"
+              },
+              "idFront": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object",
+        "description": "Make all properties in T optional"
+      },
+      "UpdateOnboardingPayload": {
+        "properties": {
+          "step": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Partial_OnboardingData_"
+          }
+        },
+        "required": [
+          "step",
+          "data"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateStatusListPayload": {
+        "properties": {
+          "size": {
+            "type": "number",
+            "format": "double"
+          },
+          "tenantId": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "additionalProperties": false
+      },
+      "UpdateStatusPayload": {
+        "properties": {
+          "listData": {
+            "type": "string"
+          },
+          "index": {
+            "type": "number",
+            "format": "double"
+          },
+          "revoked": {
+            "type": "boolean"
+          },
+          "tenantId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "listData",
+          "index",
+          "revoked"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "LeaveRequest": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "employeeId": {
+            "type": "string"
+          },
+          "leaveType": {
+            "type": "string",
+            "enum": [
+              "annual",
+              "sick",
+              "unpaid",
+              "maternity",
+              "study"
+            ]
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          },
+          "daysCount": {
+            "type": "number",
+            "format": "double"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ]
+          },
+          "approverId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "employeeId",
+          "leaveType",
+          "startDate",
+          "endDate",
+          "daysCount",
+          "status",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateLeaveRequestPayload": {
+        "properties": {
+          "employeeId": {
+            "type": "string"
+          },
+          "leaveType": {
+            "type": "string",
+            "enum": [
+              "annual",
+              "sick",
+              "unpaid",
+              "maternity",
+              "study"
+            ]
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          },
+          "daysCount": {
+            "type": "number",
+            "format": "double"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "employeeId",
+          "leaveType",
+          "startDate",
+          "endDate",
+          "daysCount"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "UpdateOperationsStatusPayload": {
+        "properties": {
+          "adminDid": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "rejected",
+              "paid"
+            ]
+          }
+        },
+        "required": [
+          "adminDid",
+          "status"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "ExpenseClaim": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "employeeId": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "travel",
+              "meals",
+              "equipment",
+              "other"
+            ]
+          },
+          "receiptUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "paid",
+              "rejected"
+            ]
+          },
+          "approvedBy": {
+            "type": "string"
+          },
+          "paidAt": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "employeeId",
+          "description",
+          "amount",
+          "currency",
+          "category",
+          "status",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateExpenseClaimPayload": {
+        "properties": {
+          "employeeId": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "travel",
+              "meals",
+              "equipment",
+              "other"
+            ]
+          },
+          "receiptUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "employeeId",
+          "description",
+          "amount",
+          "currency",
+          "category"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "IncomeStatement": {
+        "properties": {
+          "periodStart": {
+            "type": "string"
+          },
+          "periodEnd": {
+            "type": "string"
+          },
+          "revenue": {
+            "type": "number",
+            "format": "double"
+          },
+          "expenses": {
+            "type": "number",
+            "format": "double"
+          },
+          "netIncome": {
+            "type": "number",
+            "format": "double"
+          },
+          "breakdown": {
+            "properties": {
+              "operations": {
+                "type": "number",
+                "format": "double"
+              },
+              "payroll": {
+                "type": "number",
+                "format": "double"
+              },
+              "sales": {
+                "type": "number",
+                "format": "double"
+              }
+            },
+            "required": [
+              "operations",
+              "payroll",
+              "sales"
+            ],
+            "type": "object"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "generatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "periodStart",
+          "periodEnd",
+          "revenue",
+          "expenses",
+          "netIncome",
+          "breakdown",
+          "currency",
+          "generatedAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "StatementOfferResponse": {
+        "properties": {
+          "uri": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateStatementOfferRequest": {
+        "properties": {
+          "startDate": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "startDate",
+          "endDate"
         ],
         "type": "object",
         "additionalProperties": false
@@ -4097,6 +5714,40 @@
             }
           }
         ]
+      }
+    },
+    "/multi-tenancy": {
+      "get": {
+        "operationId": "ListTenants",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "MultiTenancy"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "Basewallet"
+            ]
+          }
+        ],
+        "parameters": []
       }
     },
     "/multi-tenancy/create-tenant": {
@@ -9680,6 +11331,9 @@
         ],
         "security": [
           {
+            "apiKey": []
+          },
+          {
             "jwt": [
               "tenant"
             ]
@@ -10008,6 +11662,9 @@
         ],
         "security": [
           {
+            "apiKey": []
+          },
+          {
             "jwt": [
               "tenant"
             ]
@@ -10229,6 +11886,11 @@
         "security": [
           {
             "apiKey": []
+          },
+          {
+            "jwt": [
+              "tenant"
+            ]
           }
         ],
         "parameters": [],
@@ -10631,7 +12293,7 @@
             }
           }
         },
-        "description": "Accept and resolve a credential offer",
+        "description": "Accept and resolve a credential offer\n\nNote: The OpenId4VcHolderModule is registered on the BASE agent, not tenant agents.\nWe use the base agent for OID4VC operations and store credentials in the tenant wallet.",
         "tags": [
           "Wallet-Credentials"
         ],
@@ -10657,6 +12319,2191 @@
                   "offerUri"
                 ],
                 "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/finance/cart/{cartId}/issue-snapshot": {
+      "post": {
+        "operationId": "IssueCartSnapshot",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Issue a CartSnapshotVC for the current shopping cart.\nThis provides a verifiable record of what the user intends to purchase.",
+        "tags": [
+          "Finance & E-Commerce"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cartId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CartSnapshotRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/finance/invoices/issue": {
+      "post": {
+        "operationId": "IssueInvoice",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Issue an InvoiceVC based on a cart reference.",
+        "tags": [
+          "Finance & E-Commerce"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvoiceRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/finance/receipts/issue": {
+      "post": {
+        "operationId": "IssueReceipt",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Issue a ReceiptVC after payment is confirmed.",
+        "tags": [
+          "Finance & E-Commerce"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "transactionId": {
+                    "type": "string"
+                  },
+                  "currency": {
+                    "type": "string"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "invoiceRef": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "transactionId",
+                  "currency",
+                  "amount",
+                  "invoiceRef"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalog/merchant/{merchantId}/items": {
+      "post": {
+        "operationId": "CreateItem",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogItem"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Add a new item to the merchant's catalog.",
+        "tags": [
+          "Unified Catalog"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCatalogItemRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalog/search": {
+      "get": {
+        "operationId": "SearchItems",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogItem"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Search the unified catalog.",
+        "tags": [
+          "Unified Catalog"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/wa/cart/create": {
+      "post": {
+        "operationId": "CreateCartFromPayload",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cart"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Parse a wa.me payload and create a shopping cart.\nThe payload is typically base64-encoded JSON from the wa.me link.",
+        "tags": [
+          "WhatsApp Commerce"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCartRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wa/cart/{cartId}": {
+      "get": {
+        "operationId": "GetCart",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cart"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get cart by ID",
+        "tags": [
+          "WhatsApp Commerce"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cartId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/wa/cart/{cartId}/items": {
+      "post": {
+        "operationId": "AddItemToCart",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cart"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Add item to existing cart",
+        "tags": [
+          "WhatsApp Commerce"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cartId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "quantity": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "itemId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "itemId"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wa/link/{merchantId}/{itemId}": {
+      "get": {
+        "operationId": "GenerateWaLink",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "payload": {
+                      "type": "string"
+                    },
+                    "link": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "payload",
+                    "link"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Generate a wa.me link for a catalog item",
+        "tags": [
+          "WhatsApp Commerce"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "waNumber",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/trust/{merchantId}": {
+      "get": {
+        "operationId": "GetTrustScore",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrustScore"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get trust score for a merchant.\nReturns cached score if fresh, otherwise recomputes.",
+        "tags": [
+          "Trust Engine"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "maxAgeMinutes",
+            "required": false,
+            "schema": {
+              "format": "double",
+              "type": "number"
+            }
+          }
+        ]
+      }
+    },
+    "/api/trust/{merchantId}/compute": {
+      "post": {
+        "operationId": "ComputeTrustScore",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrustScore"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Force recompute trust score for a merchant.",
+        "tags": [
+          "Trust Engine"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/trust/{merchantId}/events": {
+      "post": {
+        "operationId": "RecordEvent",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrustEvent"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Record a trust-relevant event for a merchant.\nThis affects the merchant's trust score on next computation.",
+        "tags": [
+          "Trust Engine"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordEventRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trust/{merchantId}/card": {
+      "get": {
+        "operationId": "GetTrustCard",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "lastUpdated": {
+                      "type": "string"
+                    },
+                    "topDrivers": {
+                      "items": {
+                        "properties": {
+                          "icon": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "number",
+                            "format": "double"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "icon",
+                          "value",
+                          "name"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "badge": {
+                      "type": "string",
+                      "enum": [
+                        "gold",
+                        "silver",
+                        "bronze",
+                        "new"
+                      ]
+                    },
+                    "score": {
+                      "type": "number",
+                      "format": "double"
+                    },
+                    "merchantId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "lastUpdated",
+                    "topDrivers",
+                    "badge",
+                    "score",
+                    "merchantId"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get trust card data (summary for UI display)",
+        "tags": [
+          "Trust Engine"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/verify/{vcId}": {
+      "get": {
+        "operationId": "VerifyCredential",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationResult"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Verify a credential by its ID.\nThis endpoint provides a public verifier page for receipt validation.",
+        "tags": [
+          "VC Verification"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vcId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/verify/scan": {
+      "post": {
+        "operationId": "VerifyScan",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationResult"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Verify a credential by scanning (POST with payload).\nUseful for QR code scanning workflows.",
+        "tags": [
+          "VC Verification"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/verify/{vcId}/history": {
+      "get": {
+        "operationId": "GetVerificationHistory",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VerificationLog"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get verification history for a VC.",
+        "tags": [
+          "VC Verification"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vcId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/verify/{vcId}/page": {
+      "get": {
+        "operationId": "GetVerificationPage",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "qrCode": {
+                      "type": "string"
+                    },
+                    "displayData": {
+                      "properties": {
+                        "transactionId": {
+                          "type": "string"
+                        },
+                        "items": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "date": {
+                          "type": "string"
+                        },
+                        "amount": {
+                          "type": "string"
+                        },
+                        "merchant": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "title"
+                      ],
+                      "type": "object"
+                    },
+                    "verification": {
+                      "$ref": "#/components/schemas/VerificationResult"
+                    }
+                  },
+                  "required": [
+                    "displayData",
+                    "verification"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get verification page data (for rendering human-readable receipt).",
+        "tags": [
+          "VC Verification"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vcId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/regulator/escalations": {
+      "post": {
+        "operationId": "CreateEscalation",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Escalation"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a new escalation with evidence package.\nAutomatically generates a signed evidence bundle for regulator review.",
+        "tags": [
+          "Regulator Portal"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEscalationRequest"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "ListEscalations",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Escalation"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List all escalations with optional filters.",
+        "tags": [
+          "Regulator Portal"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "merchantId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/regulator/escalations/{escalationId}/package": {
+      "get": {
+        "operationId": "GetEscalationPackage",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EscalationPackage"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get escalation evidence package with cryptographic proof.",
+        "tags": [
+          "Regulator Portal"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "escalationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/regulator/escalations/{escalationId}/status": {
+      "post": {
+        "operationId": "UpdateEscalationStatus",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Escalation"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Update escalation status (regulator action).",
+        "tags": [
+          "Regulator Portal"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "escalationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "notes": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "under_review",
+                      "resolved",
+                      "dismissed"
+                    ]
+                  }
+                },
+                "required": [
+                  "status"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wa/webhook": {
+      "get": {
+        "operationId": "VerifyWebhook",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "WhatsApp Webhook Verification\nHandles the GET challenge from Meta to verify the webhook URL.",
+        "tags": [
+          "WhatsApp"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "hub.mode",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hub.verify_token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hub.challenge",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "HandleWebhook",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "WhatsApp Webhook Event Handler\nReceives incoming messages and statuses.",
+        "tags": [
+          "WhatsApp"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WhatsAppWebhookPayload"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/payroll/employees": {
+      "get": {
+        "operationId": "ListEmployees",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Employee"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List all employees",
+        "tags": [
+          "Payroll Module"
+        ],
+        "security": [],
+        "parameters": []
+      },
+      "post": {
+        "operationId": "SaveEmployee",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Employee"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create or update an employee",
+        "tags": [
+          "Payroll Module"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmployeeRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/payroll/runs": {
+      "get": {
+        "operationId": "ListRuns",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PayrollRun"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List payroll runs",
+        "tags": [
+          "Payroll Module"
+        ],
+        "security": [],
+        "parameters": []
+      },
+      "post": {
+        "operationId": "CreateRun",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PayrollRun"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Calculate a new payroll run (Draft)",
+        "tags": [
+          "Payroll Module"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRunRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/payroll/runs/{runId}": {
+      "get": {
+        "operationId": "GetRunDetails",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "payslips": {
+                      "items": {
+                        "$ref": "#/components/schemas/Payslip"
+                      },
+                      "type": "array"
+                    },
+                    "run": {
+                      "$ref": "#/components/schemas/PayrollRun"
+                    }
+                  },
+                  "required": [
+                    "payslips",
+                    "run"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get details of a specific payroll run including payslips",
+        "tags": [
+          "Payroll Module"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/payroll/runs/{runId}/issue": {
+      "post": {
+        "operationId": "IssuePayslips",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "issuedCount": {
+                      "type": "number",
+                      "format": "double"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "issuedCount"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Issue Payslip VCs for a completed payroll run",
+        "tags": [
+          "Payroll Module"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/payroll/runs/{runId}/payout": {
+      "post": {
+        "operationId": "ProcessPayout",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Process salary disbursements (EcoCash Bulk) and Statutory Remittances",
+        "tags": [
+          "Payroll Module"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/onboarding/init": {
+      "post": {
+        "operationId": "InitOnboarding",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingRequest"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Invite a new candidate for onboarding.\nGenerates a request ID and access token.",
+        "tags": [
+          "HR"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InitOnboardingPayload"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/onboarding/{id}": {
+      "get": {
+        "operationId": "GetRequest",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingRequest"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get onboarding request details.\nCan be accessed by candidate (via token) or HR (via auth).",
+        "tags": [
+          "HR"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/onboarding/{id}/step": {
+      "put": {
+        "operationId": "UpdateStep",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingRequest"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Update progress and save form data.\nUsed by the candidate portal/wizard.",
+        "tags": [
+          "HR"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOnboardingPayload"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/onboarding/{id}/approve": {
+      "post": {
+        "operationId": "ApproveRequest",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "employeeId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "employeeId",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Approve onboarding and hire candidate.\nIssues EmploymentContractVC and creates Employee record.",
+        "tags": [
+          "HR"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/revocation/list": {
+      "post": {
+        "operationId": "CreateList",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "size": {
+                      "type": "number",
+                      "format": "double"
+                    },
+                    "encodedList": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "size",
+                    "encodedList"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a new Status List credential body",
+        "tags": [
+          "Trust"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStatusListPayload"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/revocation/update": {
+      "post": {
+        "operationId": "UpdateStatus",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "encodedList": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "encodedList"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Update a status bit in a list",
+        "tags": [
+          "Trust"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStatusPayload"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/verifier/verify": {
+      "post": {
+        "operationId": "Verify",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Verify a credential against policies and revocation status.\nRecords the attempt in the audit log.",
+        "tags": [
+          "Trust"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/verifier/history": {
+      "get": {
+        "operationId": "GetHistory",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {},
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get the history of verifications performed by this tenant.",
+        "tags": [
+          "Trust"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "format": "double",
+              "type": "number"
+            }
+          }
+        ]
+      }
+    },
+    "/api/operations/leave": {
+      "post": {
+        "operationId": "RequestLeave",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaveRequest"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Submit a new leave request",
+        "tags": [
+          "HR & Operations"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLeaveRequestPayload"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "ListLeave",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LeaveRequest"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List leave requests (optionally filtered by employee)",
+        "tags": [
+          "HR & Operations"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "employeeId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/operations/leave/{leaveId}/status": {
+      "put": {
+        "operationId": "UpdateLeaveStatus",
+        "responses": {
+          "204": {
+            "description": "No content",
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Update leave request status (Approve/Reject)",
+        "tags": [
+          "HR & Operations"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "leaveId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOperationsStatusPayload"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/operations/expenses": {
+      "post": {
+        "operationId": "SubmitExpense",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenseClaim"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Submit a new expense claim",
+        "tags": [
+          "HR & Operations"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateExpenseClaimPayload"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "ListExpenses",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ExpenseClaim"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List expense claims (optionally filtered by employee)",
+        "tags": [
+          "HR & Operations"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "employeeId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/operations/expenses/{claimId}/status": {
+      "put": {
+        "operationId": "UpdateExpenseStatus",
+        "responses": {
+          "204": {
+            "description": "No content",
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Update expense claim status (Approve/Reject/Pay)",
+        "tags": [
+          "HR & Operations"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claimId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOperationsStatusPayload"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/finance/income-statement": {
+      "get": {
+        "operationId": "GetIncomeStatement",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncomeStatement"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Generate an Income Statement (P&L) for a specific period.\nAggregates Sales, Payroll, and Expenses.",
+        "tags": [
+          "Financial Reporting"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "startDate",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "endDate",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/finance/income-statement/offer": {
+      "post": {
+        "operationId": "CreateIncomeStatementOffer",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatementOfferResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a Credential Offer for a verifiable Financial Statement (Income Statement).\nThe returned URI can be displayed as a QR code for an auditor to scan.",
+        "tags": [
+          "Financial Reporting"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStatementOfferRequest"
               }
             }
           }

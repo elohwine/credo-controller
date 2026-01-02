@@ -1,228 +1,139 @@
-# IdenEx Credentis Platform - Project Overview
+# IdenEx Credentis - Project Overview
 
-> **Verifiable Commerce Platform** for Zimbabwe and Africa  
-> *Making trust a feature for e-commerce*
-
----
-
-## Vision
-
-Transform Quote → Invoice → EcoCash → Receipt flows into a **Verifiable Commerce Platform** with:
-- Wallet-deliverable credentials
-- Merchant trust scoring
-- EcoCash-anchored payment proofs
-- Gen-UI conversational interfaces
+> **Verifiable Trust Infrastructure** for Africa's Digital Economy  
+> *Building the layer above accounting: Trust, Portability, and Verification.*
 
 ---
 
-## Platform Identity
+## 🚀 Strategic Vision: "The ZimLedger Killer" Strategy
 
-| Name | Purpose |
-|------|---------|
-| **IdenEx** | Company name (Identity Exchange) |
-| **Credentis** | Platform name |
+**The Insight:**  
+Zimbabwean SMEs already use digital tools (EcoCash, NSSA, ZimLedger) but remain trapped in silos. ZimLedger records *activity* but is **trust-blind**—it generates PDFs, not portable proof.
 
----
+**Our Proposition:**  
+We are not competing head-on by building another accounting app. We are building **Trust + Data Infrastructure**.
+- **ZimLedger** records that you sold something.
+- **Credentis** proves it to a bank, regulator, or partner without you needing to say a word.
 
-## Phase 0 — Foundations ✅ (Partially Complete)
-
-**Objective:** Stable, auditable POC
-
-### Deliverables
-- [x] Hardened `webhooks/ecocash` handler (signature validation, idempotency)
-- [x] Persisted payment_requests, vc_store, agent_profiles tables
-- [x] Tenant KMS mapping for per-tenant signing keys
-- [x] OpenAPI endpoints (`/quotes`, `/invoices`, `/payments/initiate`, `/credentials/issue-receipt`)
-
-### Acceptance Criteria
-- [x] Webhook → ReceiptVC issued in sandbox
-- [x] `GET /vc/{id}/verify` returns valid signature
+**Core Instruction:**  
+> "Implement the Finance industry module with full quote → invoice → payment → receipt VC workflows, payroll and statutory sub-modules (NSSA, PAYE as plugins), Ecocash as a payment provider adapter, organization-level directories, and auditable financial statements — all built on shared DID/VC primitives so that other industries (education, health, supply chain) can reuse the same core without duplication."
 
 ---
 
-## Phase 1 — Core Verifiable e-Commerce (MVP SHOWCASE) 🎯
+## 🏗 Modular Architecture
 
-**Objective:** Ship **Cart → CartSnapshotVC → InvoiceVC → Pay → ReceiptVC → Wallet + Verifier**
+The platform is designed with a **Core Layer** of shared primitives and **Industry Modules** that plug into it.
 
-### Deliverables
-- [ ] **CartSnapshotVC** schema + `POST /cart/{cartId}/issue-cartvc`
-- [ ] Auto-Invoice from CartSnapshot: `POST /invoices/from-cart`
-- [ ] `POST /payments/initiate` with `agentDid` + `sourceReference`
-- [ ] Webhook → ReceiptVC linking cart & invoice
-- [ ] Wallet Inbox UI + Verifier Modal
-- [ ] 90-120s demo recording
+### 1. Shared Primitives (The "Kernel")
+*Used by ALL industries (Finance, Education, Health, Logistics)*
+- **DID Management**: Identity for every entity (User, Org, Device).
+- **VC Issuance & Verification**: The engine for creating and checking proofs.
+- **Trust Ratings**: Configurable scoring engine (TrustEngine).
+- **Audit Trails**: Cryptographic logs of all critical events.
+- **Payment Provider Abstraction**: Adapters for EcoCash, InnBucks, Banks.
+- **Lifecycle Engine**: State machines for generic workflows (Quote -> Order -> Receipt).
 
-### VC Schemas Required
-```
-CartSnapshotVC, InvoiceVC, PaymentReceiptVC, TransactionVC
-```
+### 2. Finance Industry Module (The First Application)
+*Feature parity with ZimLedger, plus Verifiable Superpowers.*
+- **Workflows**: Quote → Invoice → Payment → Verifiable Receipt (VC).
+- **Payroll**: Payslip VCs, NSSA/PAYE calculators (pluggable).
+- **Organizations**: VC-backed directories (Clients, Suppliers, Employees).
+- **Reporting**: Financial Statements traceable to signed transaction VCs.
 
-### Acceptance Criteria
-- [ ] CartSnapshotVC validated independently
-- [ ] Invoice contains `cartRef`
-- [ ] ReceiptVC includes `transactionRef.ecocashRef` + `invoiceRef`
-- [ ] Wallet shows receipt, verifier returns `valid:true`
-
-### KPIs
-- Checkout conversion rate (CartSnapshotVC vs baseline)
-- VC issuance latency
-
----
-
-## Phase 2 — Merchant Trust & Evidence Layer
-
-**Objective:** Add merchant attestations, Trust Score, visible trust signals
-
-### Deliverables
-- [ ] **MerchantVC** (KYC/EcoCash/Omari/Innbucks attestation)
-- [ ] Trust Score engine + `POST /trust/compute`
-- [ ] Trust Card UI (badge + evidence list linking to VCs)
-- [ ] ZimLedger migration adapter (CSV/PDF → TransactionVCs)
-
-### Acceptance Criteria
-- [ ] MerchantVC verifiable and linked to tenant DID
-- [ ] Trust Score shows drivers mapped to VCs
-- [ ] A/B test: conversion improvement with Trust Card
-
-### KPIs
-- % merchants with MerchantVC
-- Cart abandonment delta for "verified" merchants
+### 3. HR & Ops Module (Benchmarks: Connecteam, Workday)
+*Mobile-First Employee Lifecycle Management*
+- **Onboarding**: Form-driven flow + KYC/ID Verification (Connecteam-style).
+- **Contracts**: E-signatures & Offer Letters (Signed VCs).
+- **Operations**: Leave management, Expense claims, Time & Attendance (GPS/WhatsApp).
+- **Payouts**: Bank & EcoCash setup + Bulk Payout Connectors.
+- **Distribution**: Multi-channel payslip delivery (WhatsApp/Email/Portal). -> `PayslipVC`
 
 ---
 
-## Phase 3 — Agent Delegation (ACK) + Gen-UI Tools
+## 🗺 Roadmap & Progress
 
-**Objective:** Support delegated agents (humans, LLMs) with ControllerCredential
+### Phase 1: MVP - WhatsApp Commerce & VCs (Current Focus) 🎯
+**Goal**: Enable verifiable commerce flow via WhatsApp and Web Connect.
+- [x] **Core Backend**: SQLite, TSOA, Credo Agent initialization.
+- [x] **Unified Catalog API**: `Create Item`, `Search Items` (PostgreSQL/SQLite).
+- [x] **WhatsApp Commerce**:
+    - [x] Payload Resolver (`wa.me` links -> Cart).
+    - [x] Cart Management.
+    - [x] Webhook Handler (Verified `hub.challenge` & Message Processing).
+- [x] **Finance Workflows** (via Workflow Engine):
+    - [x] Create Quote (Issues `QuoteVC`).
+    - [x] Convert to Invoice (Issues `InvoiceVC`).
+    - [x] Issue Receipt (Issues `ReceiptVC`).
+- [x] **Payment Orchestration**:
+    - [x] EcoCash Adapter (Simulation/API).
+    - [x] Payment-triggered Receipt issuance.
+- [x] **VC Issuance Service**: Unified `createOffer` for all types.
 
-### Deliverables
-- [ ] **ControllerCredential** schema + `POST /tenants/{t}/agents`
-- [ ] `agentAuth` middleware enforcing permissions
-- [ ] Gen-UI tool endpoints: `initiatePayment`, `verifyReceipt`, `computeTrustScore`
-- [ ] Tool registration JSON for Vercel AI SDK / Gemini
+### Phase 2: Trust Engine & Regulators (Completed) ✅
+**Goal**: Make trust visible and portable.
+- [x] **Trust Engine**:
+    - [x] Weighted Score Calculation (KYC, Payments, Disputes, Reviews).
+    - [x] `TrustCard` API (Badge, Score, Top Drivers).
+    - [x] Event Recording API.
+- [x] **Regulator Portal**:
+    - [x] Escalation Management (Signed Evidence Packages).
+    - [x] Public Verifier Page (`/verify/{vcId}`).
+- [x] **UI Integration**:
+    - [x] Merchant Catalog Dashboard with Trust Card.
+    - [x] Public Verification Page.
 
-### Acceptance Criteria
-- [ ] Agent calls `payments/initiate` only with valid ControllerCredential
-- [ ] Tool calls logged for audit
+### Phase 3: Statutory & Payroll (In Progress) 🏗
+**Goal**: Localize for Zimbabwe business compliance.
+- [x] **Payroll Sub-module**:
+    - [x] Employee Registry (Database Schema & API).
+    - [x] Payroll Engine (Calculation Logic).
+    - [ ] `PayslipVC` Schema Registration.
+- [ ] **Statutory Plugins**:
+    - [x] NSSA Calculator Logic (Implemented in Service).
+    - [x] PAYE Calculator Logic (Implemented in Service).
+    - [ ] ZIMRA Tax Clearance VC.
 
-### KPIs
-- Agent action success rate
-- Audit log coverage
+### Phase 4: HR & Ops Expansion (New)
+**Goal**: "Workday Lite" - Operational workflows.
+- [ ] **Onboarding Flow**: Employee KYC & Contract Signing.
+- [ ] **Leave & Expenses**: Request/Approve workflows.
+- [ ] **Bulk Payouts**: Connect Payroll Run to EcoCash Bulk Payer.
 
----
-
-## Phase 4 — Gen-UI Interactive Analytics
-
-**Objective:** Conversational, actionable interfaces with VC evidence
-
-### Deliverables
-- [ ] Tool wrappers: `initiatePayment`, `verifyReceipt`, `fetchTransactions`
-- [ ] `gemini-chatbot` fork with streaming UI components
-- [ ] Natural language queries: "Show last 30 days revenue for Merchant X"
-- [ ] Receipt Card, Trust Card, Interactive Chart components
-
-### Acceptance Criteria
-- [ ] Gen-UI streams payment progress in chat
-- [ ] User queries return interactive charts with VC links
-
-### KPIs
-- Time-to-insight vs static dashboard
-- Tool calls per session
-
----
-
-## Phase 5 — Advanced Trust & Financial Services
-
-**Objective:** Escrow, refunds, lender integrations, ledger anchoring
-
-### Deliverables
-- [ ] Escrow/Provisional ReceiptVC flow
-- [ ] RefundVC issuance + ReceiptVC revocation
-- [ ] **PaymentHistoryVC** aggregator (periodic signed summaries)
-- [ ] Lender onboarding demo
-- [ ] Optional permissioned ledger anchoring
-
-### Acceptance Criteria
-- [ ] Refund triggers revocation, verifier shows revoked state
-- [ ] Lender verifies PaymentHistoryVC for loan decisions
-
-### KPIs
-- Loans enabled via PaymentHistoryVC
-- Disputes resolved via verifiable evidence
+### Phase 5: Financial Statements & Reporting
+**Goal**: "QuickBooks Killer" - Auditable-by-default reporting.
+- [ ] **Statement Generator**: Income Statement, Balance Sheet from VCs.
+- [ ] **SummaryVCs**: Signed financial statements for bank/lender consumption.
+- [ ] **Audit View**: Drill-down from line item to signed ReceiptVC.
 
 ---
 
-## Phase 6 — Scale & Geographic Expansion
+## 🛠 Technical Stack
 
-**Objective:** Partner formalization, multi-region, Africa expansion
-
-### Deliverables
-- [ ] Partner MoUs (EcoCash, ZimLedger, banks)
-- [ ] Multi-tenant scaling (KMS per tenant)
-- [ ] Country playbooks (Kenya, Rwanda, Ghana)
-
-### KPIs
-- Tenants onboarded
-- Partner MoUs signed
-- Expansion pilots launched
+| Component | Technology | Role |
+|-----------|------------|------|
+| **Core Framework** | Node.js + TypeScript | Business Logic |
+| **Identity/VCs** | Credo (Aries/OpenID4VC) | DIDs, Credentials, Trust |
+| **API Layer** | TSOA + Express | Type-safe REST API |
+| **Database** | SQLite (Better-SQLite3) | Persistence (Migratable to PG) |
+| **Workflow Engine** | Custom JSON-Logic | Orchestration of VCs/Payments |
+| **Frontend** | React (Next.js) + Tailwind | Portals & Wallet UI |
+| **Integrations** | WhatsApp API, EcoCash | External Channels |
 
 ---
 
-## Cross-Phase Items (Always Running)
-
-| Area | Details |
-|------|---------|
-| **Security** | KMS/HSM, webhook validation, rate limits, consent logs |
-| **Observability** | Immutable issuance logs, tool call logging |
-| **Developer Docs** | OpenAPI, VC schema registry, example VPs |
-| **Pilot Measurement** | KPIs per phase, A/B baselines |
-
----
-
-## Immediate Next Steps
-
-1. ✅ Finalize Quote → Invoice → ReceiptVC flows using Credo OID4VC
-2. [ ] Create JSON-LD schemas: CartSnapshotVC, InvoiceVC, ReceiptVC, MerchantVC
-3. [ ] Implement `POST /cart/{cartId}/issue-cartvc` + `POST /invoices/from-cart`
-4. [ ] Build Wallet Inbox & Verifier Modal
-5. [ ] Add `computeTrustScore` stub
-6. [ ] Register Gen-UI tools in gemini-chatbot fork
-
----
-
-## Risks & Mitigations
-
-| Risk | Mitigation |
-|------|------------|
-| Partner dependence (EcoCash co-sign) | Platform signs first + PSP evidence; pursue MoUs |
-| Merchant adoption friction | Universal plugin for **any** financial platform (ZimLedger, QuickBooks, Xero, bank APIs, EcoCash merchant portal, Omari, etc.) - import via API or CSV/PDF |
-| PII in VCs | **VCs should contain full PII** - that's the point! User controls wallet. Platform stores **encrypted VC data only**. No plaintext PII in backend DB |
-| Agent abuse | Strict ControllerCredential, short TTL, audit logs |
-| Regulatory uncertainty | Early regulator engagement, show audit benefits |
-
----
-
-## Acceptance Checklist (Per Pilot)
-
-- [ ] Merchant issues CartSnapshotVC → InvoiceVC → Payment → ReceiptVC e2e
-- [ ] Buyer receives ReceiptVC in wallet, verifier returns `valid:true`
-- [ ] Trust Card links to MerchantVC and PaymentHistoryVC
-- [ ] Agent operates only within permissioned scope
-- [ ] Refunds revoke ReceiptVC correctly
-- [ ] Gen-UI tools orchestrate flows with streaming feedback
+## 💎 The "IdenEx Difference"
+| Feature | ZimLedger (Competitor) | IdenEx Credentis |
+|---------|-----------------------|------------------|
+| **Output** | PDF Invoice/Receipt | Verifiable Credential (VC) |
+| **Trust** | Platform-dependent | Cryptographically Portable |
+| **Verification** | Trust the PDF | Scan QR / Click Link to Verify |
+| **Regulator** | Offline Reports | Real-time / Signed Bundles |
+| **Ecosystem** | Walled Garden | Open Standards (DID/VC) |
 
 ---
 
 ## Quick Links
-
-| Resource | Path |
-|----------|------|
-| Backend Server | `yarn dev` or `node samples/startServer.js` |
-| Portal (Issuer UI) | `credo-ui/portal/` |
-| Wallet (Holder UI) | `credo-ui/wallet/` |
-| EcoCash Integration | `src/controllers/webhooks/EcoCashWebhookController.ts` |
-| Workflow Engine | `src/services/workflow/` |
-| VC Schemas | `src/utils/credentialDefinitionStore.ts` |
-
----
-
-*IdenEx Credentis — Verifiable Trust for African Commerce*
+- **Backend**: `yarn dev` (Port 3000)
+- **Portals**: `credo-ui/portal` (Port 5000)
+- **Wallet**: `credo-ui/wallet` (Port 4000)
+- **Docs**: `/docs` (Swagger UI)

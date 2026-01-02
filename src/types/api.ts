@@ -61,6 +61,7 @@ export interface OfferCredentialTemplate {
   format?: 'jwt_vc' | 'sd_jwt' | 'jwt_vc_json' | 'jwt_vc_json-ld'
   credentialDefinitionId?: string
   issuerDid?: string
+  claims?: Record<string, any>
 }
 
 /** Create credential offer request */

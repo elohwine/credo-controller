@@ -176,10 +176,119 @@ async function main() {
         },
       },
     },
+    {
+      name: 'PayslipVC',
+      version: '1.0.0',
+      jsonSchema: {
+        $id: 'PayslipVC-1.0.0',
+        type: 'object',
+        required: ['credentialSubject'],
+        properties: {
+          credentialSubject: {
+            type: 'object',
+            required: ['payslipId', 'employeeName', 'period', 'netAmount'],
+            properties: {
+              payslipId: { type: 'string' },
+              employeeName: { type: 'string' },
+              nssaNumber: { type: 'string' },
+              period: { type: 'string' },
+              grossAmount: { type: 'number' },
+              netAmount: { type: 'number' },
+              currency: { type: 'string' },
+              deductions: { type: 'object' },
+              employer: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+    {
+      name: 'EmploymentContractVC',
+      version: '1.0.0',
+      jsonSchema: {
+        $id: 'EmploymentContractVC-1.0.0',
+        type: 'object',
+        required: ['credentialSubject'],
+        properties: {
+          credentialSubject: {
+            type: 'object',
+            required: ['employeeId', 'name', 'role', 'startDate', 'employer'],
+            properties: {
+              employeeId: { type: 'string' },
+              name: { type: 'string' },
+              role: { type: 'string' },
+              startDate: { type: 'string' },
+              employer: { type: 'string' },
+              termsHash: { type: 'string' }
+            },
+          },
+        },
+      },
+    },
+    {
+      name: 'FinancialStatementCredential',
+      version: '1.0.0',
+      jsonSchema: {
+        $id: 'FinancialStatementCredential-1.0.0',
+        type: 'object',
+        required: ['credentialSubject'],
+        properties: {
+          credentialSubject: {
+            type: 'object',
+            required: [
+              'statementType',
+              'periodStart',
+              'periodEnd',
+              'revenue',
+              'expenses',
+              'netIncome',
+              'assets',
+              'liabilities',
+              'equity',
+              'currency',
+              'generatedAt'
+            ],
+            properties: {
+              statementType: { type: 'string' }, // 'IncomeStatement' | 'BalanceSheet'
+              periodStart: { type: 'string', format: 'date' },
+              periodEnd: { type: 'string', format: 'date' },
+              revenue: { type: 'number' },
+              expenses: { type: 'number' },
+              netIncome: { type: 'number' },
+              assets: { type: 'number' },
+              liabilities: { type: 'number' },
+              equity: { type: 'number' },
+              currency: { type: 'string' },
+              generatedAt: { type: 'string', format: 'date-time' }
+            },
+          },
+        },
+      },
+    },
+    {
+      name: 'StatusList2021Credential',
+      version: '1.0.0',
+      jsonSchema: {
+        $id: 'StatusList2021Credential-1.0.0',
+        type: 'object',
+        required: ['credentialSubject'],
+        properties: {
+          credentialSubject: {
+            type: 'object',
+            required: ['type', 'statusPurpose', 'encodedList'],
+            properties: {
+              type: { type: 'string', const: 'StatusList2021' },
+              statusPurpose: { type: 'string', const: 'revocation' },
+              encodedList: { type: 'string' }
+            },
+          },
+        },
+      },
+    },
   ]
 
   const registeredSchemas: Record<string, RegisteredSchema> = {}
-  
+
   // First, list existing schemas
   let existingSchemas: RegisteredSchema[] = []
   try {
@@ -188,7 +297,7 @@ async function main() {
   } catch (e) {
     console.log('Could not list schemas, assuming none exist')
   }
-  
+
   for (const s of schemas) {
     const existing = existingSchemas.find(es => es.name === s.name && es.version === s.version)
     if (existing) {
@@ -280,6 +389,71 @@ async function main() {
             { date: '2025-01-01', type: 'Consultation', notes: 'Routine check' },
             { date: '2025-02-15', type: 'Lab', notes: 'Blood test normal' },
           ],
+        },
+      },
+    },
+    {
+      name: 'PayslipDef',
+      version: '1.0.0',
+      schemaName: 'PayslipVC',
+      credentialType: ['VerifiableCredential', 'PayslipVC'],
+      claimsTemplate: {
+        credentialSubject: {
+          payslipId: 'SLIP-001',
+          employeeName: 'John Doe',
+          period: '2026-01',
+          netAmount: 1234.56,
+          currency: 'USD',
+          employer: 'Demo Corp',
+        },
+      },
+    },
+    {
+      name: 'EmploymentContractDef',
+      version: '1.0.0',
+      schemaName: 'EmploymentContractVC',
+      credentialType: ['VerifiableCredential', 'EmploymentContractVC'],
+      claimsTemplate: {
+        credentialSubject: {
+          employeeId: 'EMP-001',
+          name: 'Jane Doe',
+          role: 'Designer',
+          startDate: '2026-02-01',
+          employer: 'Demo Corp',
+        },
+      },
+    },
+    {
+      name: 'FinancialStatementDef',
+      version: '1.0.0',
+      schemaName: 'FinancialStatementCredential',
+      credentialType: ['VerifiableCredential', 'FinancialStatementCredential'],
+      claimsTemplate: {
+        credentialSubject: {
+          statementType: 'IncomeStatement',
+          periodStart: '2023-01-01',
+          periodEnd: '2023-12-31',
+          revenue: 1000000.00,
+          expenses: 800000.00,
+          netIncome: 200000.00,
+          assets: 1500000.00,
+          liabilities: 500000.00,
+          equity: 1000000.00,
+          currency: 'USD',
+          generatedAt: new Date().toISOString(),
+        },
+      },
+    },
+    {
+      name: 'StatusList2021Def',
+      version: '1.0.0',
+      schemaName: 'StatusList2021Credential',
+      credentialType: ['VerifiableCredential', 'StatusList2021Credential'],
+      claimsTemplate: {
+        credentialSubject: {
+          type: 'StatusList2021',
+          statusPurpose: 'revocation',
+          encodedList: 'H4sIAAAAAAAAA-3BMQEAAADCoPVPbQwfoAAAAAAAAAAAAAAAAAAAAIC3AYbSVKsAQAAA',
         },
       },
     },

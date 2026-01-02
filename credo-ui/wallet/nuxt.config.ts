@@ -192,6 +192,10 @@ export default defineNuxtConfig({
                     changeOrigin: true,
                     // rewrite to backend route prefix
                     rewrite: (p: string) => p.replace(/^\/wallet-api/, '/api/wallet')
+                },
+                '/api/finance': {
+                    target: 'http://localhost:6000',
+                    changeOrigin: true,
                 }
             }
         }

@@ -351,6 +351,7 @@ import {ref} from "vue";
 import {Dialog, DialogPanel, Menu, MenuButton, MenuItem, MenuItems, TransitionChild, TransitionRoot} from "@headlessui/vue";
 import {
     ArrowPathIcon,
+    ArrowDownOnSquareStackIcon,
     Bars3CenterLeftIcon,
     BellIcon,
     ClipboardDocumentListIcon,
@@ -360,8 +361,10 @@ import {
     HomeIcon,
     KeyIcon,
     ListBulletIcon,
+    QrCodeIcon,
     QuestionMarkCircleIcon,
     ShieldCheckIcon,
+    ShoppingCartIcon,
     XMarkIcon
 } from "@heroicons/vue/24/outline";
 import {ChevronDownIcon, MagnifyingGlassIcon} from "@heroicons/vue/20/solid";
@@ -439,21 +442,26 @@ const navigation = [
       // {name: 'History', href: '/history', icon: ClockIcon}
     ],
   },
-  // {
-  //     name: "Recent notifications",
-  //     items: [
-  //         {name: 'Pending requests', href: '/notifications/requests', icon: ArrowUpTrayIcon},
-  //         {name: 'Pending offers', href: '/notifications/offers', icon: ArrowDownTrayIcon},
-  //     ]
-  // },
-
-  //{
-  //name: "Settings",
-  //items: [
-  //    {name: 'DIDs', href: '/settings/dids', icon: FingerPrintIcon},
-  //    {name: 'Keys', href: '/settings/keys', icon: KeyIcon},
-  //]
-  //}
+  {
+    name: "Workflows",
+    items: [
+      {
+        name: "Scan QR",
+        href: `/wallet/${currentWallet.value}/scan`,
+        icon: QrCodeIcon,
+      },
+      {
+        name: "Request Credentials",
+        href: `/wallet/${currentWallet.value}/settings/issuers`,
+        icon: ArrowDownOnSquareStackIcon,
+      },
+      {
+        name: "Finance Portal (Demo)",
+        href: "/demo/finance-portal",
+        icon: ShoppingCartIcon,
+      },
+    ],
+  },
 ];
 const secondaryNavigation = [
   { name: "Select wallet", href: "/", icon: ListBulletIcon },

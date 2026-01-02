@@ -14,7 +14,7 @@ interface RegisterCredentialDefinitionBody {
   credentialType: string[]
   issuerDid: string
   claimsTemplate?: Record<string, unknown>
-  format?: 'jwt_vc' | 'sd_jwt'
+  format?: 'jwt_vc' | 'sd_jwt' | 'jwt_vc_json' | 'jwt_vc_json-ld'
 }
 
 @Route('oidc/credential-definitions')
@@ -26,7 +26,7 @@ export class OID4VCredentialDefinitionController extends Controller {
     // Return all credential definitions, deduplicated by name+version
     const allDefs = credentialDefinitionStore.list()
     const seen = new Map<string, any>()
-    
+
     // Keep only the most recent definition for each name+version combination
     for (const def of allDefs) {
       const key = `${def.name}:${def.version}`
@@ -34,7 +34,7 @@ export class OID4VCredentialDefinitionController extends Controller {
         seen.set(key, def)
       }
     }
-    
+
     return Array.from(seen.values())
   }
 
@@ -75,6 +75,44 @@ export class OID4VCredentialDefinitionController extends Controller {
       { module: 'credentialDefinition', operation: 'register', credentialDefinitionId: result.credentialDefinitionId },
       'Registered credential definition',
     )
+
+    // Update OIDC Issuer Metadata for the tenant
+    try {
+      const { buildIssuerMetadata } = require('../../utils/openidMetadata')
+      const { issuerMetadataCache } = require('../../utils/issuerMetadataCache')
+      const tenantId = (request as any).user?.tenantId
+      const agent = request.agent
+
+      if (tenantId && agent.modules.openId4VcIssuer) {
+        const issuers = await agent.modules.openId4VcIssuer.getAllIssuers()
+        if (issuers.length > 0) {
+          const issuer = issuers[0]
+          const issuerUrl = `${process.env.PUBLIC_BASE_URL}/tenants/${tenantId}`
+
+          const newMetadata = buildIssuerMetadata({
+            issuerDid: body.issuerDid,
+            issuerUrl,
+            baseUrl: process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
+            credentialEndpoint: `${process.env.PUBLIC_BASE_URL}/oidc/token`,
+            tokenEndpoint: `${process.env.PUBLIC_BASE_URL}/oidc/token`,
+            tenantId
+          })
+
+          await agent.modules.openId4VcIssuer.updateIssuerMetadata({
+            issuerId: issuer.issuerId,
+            credentialsSupported: newMetadata.credentials_supported,
+            credentialConfigurationsSupported: newMetadata.credential_configurations_supported
+          })
+
+          // Update cache
+          issuerMetadataCache.set(issuerUrl, newMetadata, body.issuerDid, 'kid-1', tenantId)
+          console.log(`✅ Updated OIDC Issuer metadata for tenant ${tenantId}`)
+        }
+      }
+    } catch (e: any) {
+      console.warn('Failed to update OIDC issuer metadata after registration:', e.message)
+    }
+
     return result
   }
 }

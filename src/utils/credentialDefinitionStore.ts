@@ -8,7 +8,7 @@ export interface RegisterCredentialDefinitionRequest {
   issuerDid: string
   credentialType: string[]
   claimsTemplate?: Record<string, unknown>
-  format?: 'jwt_vc' | 'sd_jwt'
+  format?: 'jwt_vc' | 'sd_jwt' | 'jwt_vc_json' | 'jwt_vc_json-ld'
   tenantId?: string
 }
 
@@ -93,6 +93,19 @@ class CredentialDefinitionStore {
   public get(id: string): CredentialDefinitionRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
+    // Strip common format suffixes that may be appended to the credential type name
+    // e.g., "GenericIDCredential_jwt_vc_json" -> "GenericIDCredential"
+    const formatSuffixes = ['_jwt_vc_json', '_jwt_vc_json-ld', '_vc+sd-jwt', '_ldp_vc', '_mso_mdoc', '_jwt_vc', '_sd_jwt']
+    let baseId = id
+    for (const suffix of formatSuffixes) {
+      if (id.endsWith(suffix)) {
+        baseId = id.slice(0, -suffix.length)
+        break
+      }
+    }
+
+    console.log(`[CredDefStore] Looking up credential definition - original: "${id}", base: "${baseId}"`)
+
     // First try to find by credential_definition_id (UUID)
     let row = db.prepare('SELECT * FROM credential_definitions WHERE credential_definition_id = ?')
       .get(id) as {
@@ -104,7 +117,13 @@ class CredentialDefinitionStore {
         tenant_id: string
       } | undefined
 
-    // If not found, try to find by credential type name in the definition_data
+    // If not found, try with the base ID (without format suffix)
+    if (!row && baseId !== id) {
+      row = db.prepare('SELECT * FROM credential_definitions WHERE credential_definition_id = ?')
+        .get(baseId) as typeof row
+    }
+
+    // If not found, try to find by credential type name in the definition_data using base ID
     if (!row) {
       // SQLite json_extract to search in the credentialType array
       row = db.prepare(`
@@ -112,20 +131,26 @@ class CredentialDefinitionStore {
         WHERE json_extract(definition_data, '$.credentialType') LIKE ?
         ORDER BY created_at DESC
         LIMIT 1
-      `).get(`%"${id}"%`) as typeof row
+      `).get(`%"${baseId}"%`) as typeof row
     }
 
-    // Also try by name field
+    // Also try by name field using base ID
     if (!row) {
       row = db.prepare(`
         SELECT * FROM credential_definitions 
         WHERE json_extract(definition_data, '$.name') = ?
         ORDER BY created_at DESC
         LIMIT 1
-      `).get(id) as typeof row
+      `).get(baseId) as typeof row
     }
 
-    if (!row) return undefined
+    if (!row) {
+      console.log(`[CredDefStore] No credential definition found for: "${id}" (base: "${baseId}")`)
+      return undefined
+    }
+
+    console.log(`[CredDefStore] Found credential definition: ${row.credential_definition_id}`)
+
 
     const data = JSON.parse(row.definition_data)
     return {

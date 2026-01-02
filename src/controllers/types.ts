@@ -38,6 +38,8 @@ import type { DIDDocument } from 'did-resolver'
 
 export type CustomTenantConfig = Pick<InitConfig, 'label' | 'connectionImageUrl'> & {
   walletConfig: Pick<WalletConfig, 'id' | 'key' | 'keyDerivationMethod'>
+  tenantType?: 'USER' | 'ORG'
+  domain?: string
 }
 
 export interface AgentInfo {
@@ -439,7 +441,10 @@ export interface CreateTenantOptions {
   baseUrl?: string
   /** Optional human readable display name (used in metadata display objects) */
   displayName?: string
-  config: Omit<CustomTenantConfig, 'walletConfig'>
+  config: Omit<CustomTenantConfig, 'walletConfig'> & {
+    tenantType?: 'USER' | 'ORG'
+    domain?: string
+  }
 }
 
 /* ---------------- Multi-Tenancy Response Models (TSOA) ---------------- */

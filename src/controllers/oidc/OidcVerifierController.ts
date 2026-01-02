@@ -133,12 +133,17 @@ export class OidcVerifierController extends Controller {
 
     // Get tenant agent from request
     const agent = request.agent
+    const verifiers = await (agent.modules as any).openId4VcVerifier.getAllVerifiers()
+    request.logger?.info({ body, agentId: agent.config.label, verifierCount: verifiers.length }, 'createPresentationRequest: incoming body and agent')
 
     // Use Credo's OpenId4VcVerifier module to create the request
+    // Use Credo's OpenId4VcVerifier module to create the request
     const result = await (agent.modules as any).openId4VcVerifier.createAuthorizationRequest({
+      verifierId: verifiers[0]?.verifierId,
       requestSigner: {
         method: 'did',
-        did: body.verifierDid
+        did: body.verifierDid,
+        didUrl: body.verifierDid, // Required by openIdTokenIssuerToJwtIssuer
       },
       presentationExchange: {
         definition: body.presentationDefinition

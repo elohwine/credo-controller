@@ -5,18 +5,26 @@
             <div class="text-black bg-[#CBD2D9] px-2 py-1 rounded-full text-xs">Expired</div>
         </div>
 
-        <div class="mb-8">
+        <div class="mb-4">
             <div class="text-2xl font-bold bold">
                 {{ !isDetailView ? titleTitelized?.length > 20 ? titleTitelized?.slice(0, 20) + "..." :
                     titleTitelized : titleTitelized }}
             </div>
         </div>
 
-        <div :class="{ 'sm:mt-18': isNotExpired, 'sm:mt-8': !isNotExpired }">
+        <!-- Claims Preview Section -->
+        <div v-if="displayClaims && Object.keys(displayClaims).length > 0" class="mb-4 space-y-1">
+            <div v-for="(value, key) in displayClaims" :key="key" class="flex justify-between text-sm">
+                <span class="opacity-75 capitalize">{{ formatClaimKey(key) }}:</span>
+                <span class="font-medium truncate ml-2 max-w-[150px]">{{ formatClaimValue(value) }}</span>
+            </div>
+        </div>
+
+        <div :class="{ 'sm:mt-4': isNotExpired, 'sm:mt-2': !isNotExpired }">
             <div class="flex justify-between items-end gap-2">
                 <div>
-                    <div :class="{ 'text-[#0573f000]': !issuerName }">Issuer</div>
-                    <div :class="{ 'text-[#0573f000]': !issuerName }" class="font-bold">
+                    <div :class="{ 'text-[#0573f000]': !issuerName }" class="text-xs opacity-75">Issuer</div>
+                    <div :class="{ 'text-[#0573f000]': !issuerName }" class="font-bold text-sm">
                         {{ issuerName ?? 'Unknown' }}
                     </div>
                 </div>
@@ -24,7 +32,7 @@
             </div>
         </div>
 
-        <div v-if="showId" class="font-mono mt-3">ID: {{ credential?.id }}</div>
+        <div v-if="showId" class="font-mono mt-3 text-xs opacity-75">ID: {{ credential?.id }}</div>
     </div>
 </template>
 
@@ -54,6 +62,60 @@ const manifestCard = computed(() => manifest.value?.display?.card ?? manifest.va
 const isDetailView = ref(props.isDetailView ?? false);
 const vcCardDiv: any = ref(null);
 
+// Extract claims from credentialSubject for display
+const displayClaims = computed(() => {
+    if (!credential.value) return {};
+    
+    const subject = credential.value.credentialSubject || credential.value;
+    if (!subject || typeof subject !== 'object') return {};
+    
+    // Filter out internal/meta fields, show only user-relevant claims
+    const skipFields = ['id', 'type', '@context', 'issuer', 'issuanceDate', 'expirationDate', 'proof', 'credentialSubjectIds', 'issuerId'];
+    const claims: Record<string, any> = {};
+    
+    const extractClaims = (obj: any) => {
+        for (const [key, value] of Object.entries(obj)) {
+            if (skipFields.includes(key) || key.startsWith('@')) continue;
+            if (value === null || value === undefined || value === '') continue;
+            
+            // If we find a nested object, check if it's 'claims' or just recurse to find flat values
+            if (typeof value === 'object' && !Array.isArray(value)) {
+                extractClaims(value);
+                continue;
+            }
+            
+            claims[key] = value;
+        }
+    };
+    
+    extractClaims(subject);
+    
+    // Sort keys and limit to top 5 if in list view
+    if (!isDetailView.value) {
+        const limitedClaims: Record<string, any> = {};
+        Object.keys(claims).slice(0, 5).forEach(k => limitedClaims[k] = claims[k]);
+        return limitedClaims;
+    }
+    
+    return claims;
+});
+
+// Format claim keys for display (camelCase -> Title Case)
+const formatClaimKey = (key: string): string => {
+    return key
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, str => str.toUpperCase())
+        .trim();
+};
+
+// Format claim values for display
+const formatClaimValue = (value: any): string => {
+    if (Array.isArray(value)) return value.map(v => typeof v === 'object' ? JSON.stringify(v) : v).join(', ');
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+};
+
 watchEffect(async () => {
     try {
         if (vcCardDiv.value) {
@@ -75,3 +137,4 @@ watchEffect(async () => {
     } catch (_) { }
 });
 </script>
+

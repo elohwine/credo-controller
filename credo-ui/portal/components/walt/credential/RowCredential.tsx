@@ -1,6 +1,6 @@
-import {AvailableCredential, CredentialFormats, DIDMethods} from "@/types/credentials";
+import { AvailableCredential, CredentialFormats, DIDMethods } from "@/types/credentials";
 import EditCredentialModal from "../modal/EditCredentialModal";
-import {PencilSquareIcon} from "@heroicons/react/24/outline";
+import { PencilSquareIcon } from "@heroicons/react/24/outline";
 import Dropdown from "@/components/walt/forms/Dropdown";
 import React from "react";
 
@@ -16,13 +16,18 @@ export default function RowCredential({
   setCredentialsToIssue,
 }: Props) {
   const [credentialSubject, setCredentialSubject] = React.useState(
-    credentialToEdit.offer.credentialSubject
+    credentialToEdit.offer.credentialSubject || {}
   );
   const [selectedFormat, setSelectedFormat] = React.useState(
     CredentialFormats[0]
   );
   const [selectedDID, setSelectedDID] = React.useState(DIDMethods[0]);
   const [modalVisible, setModalVisible] = React.useState(false);
+
+  // Extract credential type from title or id
+  const credentialType = credentialToEdit.title?.replace(/\s+/g, '') ||
+    credentialToEdit.id?.split('_')[0] ||
+    'GenericIDCredential';
 
   React.useEffect(() => {
     setCredentialsToIssue(
@@ -86,7 +91,9 @@ export default function RowCredential({
         }}
         credentialSubject={credentialSubject}
         setCredentialSubject={setCredentialSubject}
+        credentialType={credentialType}
       />
     </>
   );
 }
+

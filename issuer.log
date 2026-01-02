@@ -1,0 +1,649 @@
+✅ Persistence initialized
+[90m2025-12-28 13:28:36.249  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   TenantsModule.register][39m The '@credo-ts/tenants' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-28 13:28:36.259  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   OpenId4VcIssuerModule.register][39m The '@credo-ts/openid4vc' Issuer module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-28 13:28:36.262  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   OpenId4VcVerifierModule.register][39m The '@credo-ts/openid4vc' Verifier module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-28 13:28:36.265  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   OpenId4VcHolderModule.register][39m The '@credo-ts/openid4vc' Holder module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-28 13:28:36.276  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   DifPresentationExchangeModule.register][39m The 'DifPresentationExchangeModule' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-28 13:28:36.279  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   SdJwtVcModule.register][39m The 'SdJwtVc' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-28 13:28:36.281  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   X509Module.register][39m The 'X509' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-28 13:28:36.282  [39m[1m[93mWARN[39m[22m [90m[credo-controller-service   MdocModule.register][39m The 'Mdoc' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages. 
+[90m2025-12-28 13:28:36.286  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   undefined.constructor][39m Creating agent with config 
+{
+  [37magentConfig[39m: {
+    [37mwalletConfig[39m: {
+      [37mid[39m: [31m'sample-wallet'[39m,
+      [37mkey[39m: [31m'[*****]'[39m,
+      [37mstorage[39m: {
+        [37mcredentials[39m: [31mundefined[39m
+      }
+    },
+    [37mlabel[39m: [31m'Multi-Tenant Test Agent'[39m,
+    [37mendpoints[39m: [
+      [31m'http://127.0.0.1:3001'[39m
+    ],
+    [37mlogger[39m: [32m3[39m,
+    [37mautoUpdateStorageOnStartup[39m: [33mtrue[39m,
+    [37mbackupBeforeStorageUpdate[39m: [33mfalse[39m,
+    [37magentDependencies[39m: [33mtrue[39m
+  }
+}
+[90m2025-12-28 13:28:36.311  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   WalletApi.initialize][39m Initializing wallet 'sample-wallet' 
+{
+  [37mid[39m: [31m'sample-wallet'[39m,
+  [37mkey[39m: [31m'[*****]'[39m,
+  [37mstorage[39m: {
+    [37mcredentials[39m: [31mundefined[39m
+  }
+}
+[2025-12-28 15:28:36.043 +0200] [32mINFO[39m: [36mRegistered action: finance.calculate_invoice[39m
+    service: "credo-controller"
+    module: "ActionRegistry"
+[2025-12-28 15:28:36.044 +0200] [32mINFO[39m: [36mRegistered action: credential.issue[39m
+    service: "credo-controller"
+    module: "ActionRegistry"
+[2025-12-28 15:28:36.044 +0200] [32mINFO[39m: [36mRegistered action: external.fetch[39m
+    service: "credo-controller"
+    module: "ActionRegistry"
+[2025-12-28 15:28:36.044 +0200] [32mINFO[39m: [36mRegistered action: external.ecocash_payment[39m
+    service: "credo-controller"
+    module: "ActionRegistry"
+[2025-12-28 15:28:36.232 +0200] [32mINFO[39m: [36mDatabase initialized at: ./data/persistence.db[39m
+    service: "credo-controller"
+    module: "DatabaseManager"
+[2025-12-28 15:28:36.232 +0200] [32mINFO[39m: [36mCurrent database version: 4[39m
+    service: "credo-controller"
+    module: "DatabaseManager"
+[2025-12-28 15:28:36.232 +0200] [32mINFO[39m: [36mAll migrations applied successfully[39m
+    service: "credo-controller"
+    module: "DatabaseManager"
+[2025-12-28 15:28:36.252 +0200] [33mWARN[39m: [36mThe '@credo-ts/tenants' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-28 15:28:36.259 +0200] [33mWARN[39m: [36mThe '@credo-ts/openid4vc' Issuer module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-28 15:28:36.263 +0200] [33mWARN[39m: [36mThe '@credo-ts/openid4vc' Verifier module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-28 15:28:36.267 +0200] [33mWARN[39m: [36mThe '@credo-ts/openid4vc' Holder module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-28 15:28:36.276 +0200] [33mWARN[39m: [36mThe 'DifPresentationExchangeModule' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-28 15:28:36.279 +0200] [33mWARN[39m: [36mThe 'SdJwtVc' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-28 15:28:36.281 +0200] [33mWARN[39m: [36mThe 'X509' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-28 15:28:36.283 +0200] [33mWARN[39m: [36mThe 'Mdoc' module is experimental and could have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.[39m
+    service: "credo-controller"
+[2025-12-28 15:28:36.290 +0200] [32mINFO[39m: [36mCreating agent with config[39m
+    service: "credo-controller"
+    agentConfig: {
+      "walletConfig": {
+        "id": "sample-wallet",
+        "key": "[*****]",
+        "storage": {}
+      },
+      "label": "Multi-Tenant Test Agent",
+      "endpoints": [
+        "http://127.0.0.1:3001"
+      ],
+      "logger": 3,
+      "autoUpdateStorageOnStartup": true,
+      "backupBeforeStorageUpdate": false,
+      "agentDependencies": true
+    }
+[2025-12-28 15:28:36.313 +0200] [32mINFO[39m: [36mInitializing wallet 'sample-wallet'[39m
+    service: "credo-controller"
+    id: "sample-wallet"
+    key: "[*****]"
+    storage: {}
+[90m2025-12-28 13:28:37.453  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   initialize][39m Agent storage is up to date. 
+✅ Agent initialized
+[2025-12-28 15:28:37.455 +0200] [32mINFO[39m: [36mAgent storage is up to date.[39m
+    service: "credo-controller"
+ℹ️ Advertising 11 types: GenericIDCredential, CartSnapshotVC, InvoiceVC, ReceiptVC, QuoteVC, PaymentReceipt, MdocHealthSummary, EHRSummary, OpenBadge, GenericIDDef, PaymentReceiptDef
+ℹ️ Reusing existing issuer: 992d127e-6df0-4006-8d87-a68a566f4c62 (found 32 total)
+✅ OpenID4VC Issuer metadata updated: 992d127e-6df0-4006-8d87-a68a566f4c62
+[IssuerMetadataCache] Cached metadata for http://127.0.0.1:3000
+✅ Cached Metadata for Root Issuer: http://127.0.0.1:3000/oidc/issuer/992d127e-6df0-4006-8d87-a68a566f4c62
+[90m2025-12-28 13:28:37.555  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/server.ts:46  setupServer][39m Persistence initialized at ./data/persistence.db 
+[90m2025-12-28 13:28:37.567  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/server.ts:56  setupServer][39m OpenTelemetry SDK started 
+[90m2025-12-28 13:28:37.571  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/server.ts:138  setupServer][39m Setting API key: test-api-key-12345 
+[90m2025-12-28 13:28:37.606  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/server.ts:231  setupServer][39m Mounting OpenID4VC Issuer routes at /oidc/issuer 
+[90m2025-12-28 13:28:37.608  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/server.ts:273  setupServer][39m Mounting OpenID4VC Verifier routes at /oidc/verifier 
+🚀 Server running on http://localhost:3000
+🔌 Inbound transport on http://localhost:3001
+[2025-12-28 15:28:37.555 +0200] [32mINFO[39m: [36mPersistence initialized at ./data/persistence.db[39m
+    service: "credo-controller"
+[2025-12-28 15:28:37.568 +0200] [32mINFO[39m: [36mOpenTelemetry SDK started[39m
+    service: "credo-controller"
+[2025-12-28 15:28:37.573 +0200] [32mINFO[39m: [36mSetting API key: test-api-key-12345[39m
+    service: "credo-controller"
+[2025-12-28 15:28:37.607 +0200] [32mINFO[39m: [36mMounting OpenID4VC Issuer routes at /oidc/issuer[39m
+    service: "credo-controller"
+[2025-12-28 15:28:37.608 +0200] [32mINFO[39m: [36mMounting OpenID4VC Verifier routes at /oidc/verifier[39m
+    service: "credo-controller"
+{"stack":"Error: connect ECONNREFUSED 127.0.0.1:4318\n    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)\n    at TCPConnectWrap.callbackTrampoline (node:internal/async_hooks:130:17)","message":"connect ECONNREFUSED 127.0.0.1:4318","errno":"-111","code":"ECONNREFUSED","syscall":"connect","address":"127.0.0.1","port":"4318","name":"Error","toJSON":"function () {\n                    return Object.getOwnPropertyNames(this).reduce((alt, key) => {\n                        alt[key] = this[key];\n                        return alt;\n                    }, {});\n                }"}
+[90m2025-12-28 16:48:59.250  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/authentication.ts:66  expressAuthentication][39m securityName::: apiKey 
+[90m2025-12-28 16:48:59.256  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/authentication.ts:67  expressAuthentication][39m scopes:::  
+[90m2025-12-28 16:48:59.257  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/authentication.ts:84  expressAuthentication][39m Provided API key: test-api-key-12345 
+[90m2025-12-28 16:48:59.258  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/authentication.ts:85  expressAuthentication][39m Expected API key: test-api-key-12345 
+[90m2025-12-28 16:48:59.285  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/authentication.ts:66  expressAuthentication][39m securityName::: jwt 
+[90m2025-12-28 16:48:59.287  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service src/authentication.ts:67  expressAuthentication][39m scopes::: tenant,dedicated,Basewallet 
+[2025-12-28 18:48:58.894 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "5e46dc88-4d1c-4cb0-90b8-f07602ab2297"
+    method: "GET"
+    path: "/api/list"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "keep-alive",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:5000",
+      "sec-fetch-site": "same-site",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:5000/",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "if-none-match": "W/\"92-lRpO+lLPXLKp27GTuV8MqzLmAv4\""
+    }
+[2025-12-28 18:48:58.987 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "5e46dc88-4d1c-4cb0-90b8-f07602ab2297"
+    method: "GET"
+    path: "/api/list"
+    status: 304
+    duration: 94
+    response: "[\"QuoteVC\",\"ReceiptVC\",\"InvoiceVC\",\"CartSnapshotVC\",\"GenericIDCredential\",\"PaymentReceipt\",\"MdocHealthSummary\",\"EHRSummary\",\"OpenBadgeCredential\"]"
+[2025-12-28 18:48:59.015 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "e2f38ba2-5400-4a46-916a-1cc5d6f10bff"
+    method: "GET"
+    path: "/api/vc/QuoteVC"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "keep-alive",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:5000",
+      "sec-fetch-site": "same-site",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:5000/",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "if-none-match": "W/\"ed-fARI4lUfmtKPJ8EKcnlXgLAzkiw\""
+    }
+[2025-12-28 18:48:59.030 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "e2f38ba2-5400-4a46-916a-1cc5d6f10bff"
+    method: "GET"
+    path: "/api/vc/QuoteVC"
+    status: 304
+    duration: 15
+    response: "{\"id\":\"QuoteVC\",\"title\":\"QuoteVC\",\"description\":\"QuoteVC credential (v1.0.0)\",\"issuer\":\"did:key:z6MkiqdSk9AjShZLZbGy5toyrqZkkHcsUttbTMVyeNV8hdhz\",\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"QuoteVC\"],\"credentialSubject\":{}}}"
+[2025-12-28 18:48:59.043 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "da31bf4e-85ae-46a6-8be5-4eb290e4eba5"
+    method: "GET"
+    path: "/api/vc/GenericIDCredential"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "keep-alive",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:5000",
+      "sec-fetch-site": "same-site",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:5000/",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "if-none-match": "W/\"172-chW2ItXkYsHQee2/BhBvj2ZuSPw\""
+    }
+[2025-12-28 18:48:59.048 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "da31bf4e-85ae-46a6-8be5-4eb290e4eba5"
+    method: "GET"
+    path: "/api/vc/GenericIDCredential"
+    status: 304
+    duration: 5
+    response: "{\"id\":\"GenericIDCredential\",\"title\":\"GenericIDCredential\",\"description\":\"GenericIDCredential credential (v1.0.0)\",\"issuer\":\"did:key:z6MkiqdSk9AjShZLZbGy5toyrqZkkHcsUttbTMVyeNV8hdhz\",\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"GenericIDCredential\"],\"credentialSubject\":{\"fullName\":\"Seed User\",\"identifier\":\"SEED-ID-1\",\"issuedAt\":\"2025-12-28T08:11:59.342Z\"}}}"
+[2025-12-28 18:48:59.058 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "4dcb5c7b-d6de-4945-a5e8-85afc7f14ba5"
+    method: "GET"
+    path: "/api/vc/MdocHealthSummary"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "keep-alive",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:5000",
+      "sec-fetch-site": "same-site",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:5000/",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "if-none-match": "W/\"171-S4hBa39/pMr7OanGEf8D8Z0j0Zc\""
+    }
+[2025-12-28 18:48:59.067 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "4dcb5c7b-d6de-4945-a5e8-85afc7f14ba5"
+    method: "GET"
+    path: "/api/vc/MdocHealthSummary"
+    status: 304
+    duration: 9
+    response: "{\"id\":\"MdocHealthSummary\",\"title\":\"MdocHealthSummary\",\"description\":\"MdocHealthSummary credential (v0.1.0)\",\"issuer\":\"did:key:z6MkiqdSk9AjShZLZbGy5toyrqZkkHcsUttbTMVyeNV8hdhz\",\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"MdocHealthSummary\"],\"credentialSubject\":{\"patientId\":\"PAT-123\",\"conditions\":[\"hypertension\"],\"lastUpdated\":\"2025-12-28T08:11:59.341Z\"}}}"
+[2025-12-28 18:48:59.070 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "0c9604aa-242a-4dda-ba2a-e106fc6eb1d2"
+    method: "GET"
+    path: "/api/vc/EHRSummary"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "keep-alive",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:5000",
+      "sec-fetch-site": "same-site",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:5000/",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "if-none-match": "W/\"161-B9iwQN1RaUu5ZMfFkyqQ8Tg7cko\""
+    }
+[2025-12-28 18:48:59.077 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "0c9604aa-242a-4dda-ba2a-e106fc6eb1d2"
+    method: "GET"
+    path: "/api/vc/EHRSummary"
+    status: 304
+    duration: 7
+    response: "{\"id\":\"EHRSummary\",\"title\":\"EHRSummary\",\"description\":\"EHRSummary credential (v1.0.0)\",\"issuer\":\"did:key:z6MkiqdSk9AjShZLZbGy5toyrqZkkHcsUttbTMVyeNV8hdhz\",\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"EHRSummary\"],\"credentialSubject\":{\"patientId\":\"PAT-123\",\"encounters\":[{\"date\":\"2025-01-01\",\"type\":\"Consultation\",\"notes\":\"Routine check\"}]}}}"
+[2025-12-28 18:48:59.081 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "81b20508-ee85-4f8d-850c-f7e206a5fbbd"
+    method: "GET"
+    path: "/api/vc/PaymentReceipt"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "keep-alive",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:5000",
+      "sec-fetch-site": "same-site",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:5000/",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "if-none-match": "W/\"163-5tay/9Uf0KTPffMNeCyBhocU4Po\""
+    }
+[2025-12-28 18:48:59.085 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "81b20508-ee85-4f8d-850c-f7e206a5fbbd"
+    method: "GET"
+    path: "/api/vc/PaymentReceipt"
+    status: 304
+    duration: 4
+    response: "{\"id\":\"PaymentReceipt\",\"title\":\"PaymentReceipt\",\"description\":\"PaymentReceipt credential (v1.0.0)\",\"issuer\":\"did:key:z6MkiqdSk9AjShZLZbGy5toyrqZkkHcsUttbTMVyeNV8hdhz\",\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"PaymentReceipt\"],\"credentialSubject\":{\"transactionId\":\"TX-SEED-0001\",\"amount\":\"42.00\",\"currency\":\"USD\",\"merchant\":\"SeedMerchant\"}}}"
+[2025-12-28 18:48:59.100 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "3e97a209-1b02-4673-973b-fe54a0974178"
+    method: "GET"
+    path: "/api/vc/ReceiptVC"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "keep-alive",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:5000",
+      "sec-fetch-site": "same-site",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:5000/",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "if-none-match": "W/\"f5-OCHo3Cl1nF13yBpJmGDuzv8rVtI\""
+    }
+[2025-12-28 18:48:59.107 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "3e97a209-1b02-4673-973b-fe54a0974178"
+    method: "GET"
+    path: "/api/vc/ReceiptVC"
+    status: 304
+    duration: 6
+    response: "{\"id\":\"ReceiptVC\",\"title\":\"ReceiptVC\",\"description\":\"ReceiptVC credential (v1.0.0)\",\"issuer\":\"did:key:z6MkiqdSk9AjShZLZbGy5toyrqZkkHcsUttbTMVyeNV8hdhz\",\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"ReceiptVC\"],\"credentialSubject\":{}}}"
+[2025-12-28 18:48:59.111 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "1454a53c-14a1-4a8b-ab4d-f3c34b602742"
+    method: "GET"
+    path: "/api/vc/OpenBadgeCredential"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "keep-alive",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:5000",
+      "sec-fetch-site": "same-site",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:5000/",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "if-none-match": "W/\"1a9-2K+9wrMY6bBLj+YQ7DbX8Ll2k70\""
+    }
+[2025-12-28 18:48:59.119 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "1454a53c-14a1-4a8b-ab4d-f3c34b602742"
+    method: "GET"
+    path: "/api/vc/OpenBadgeCredential"
+    status: 304
+    duration: 8
+    response: "{\"id\":\"OpenBadgeCredential\",\"title\":\"OpenBadge\",\"description\":\"OpenBadge credential (v3.0.0)\",\"issuer\":\"did:key:z6MkiqdSk9AjShZLZbGy5toyrqZkkHcsUttbTMVyeNV8hdhz\",\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"OpenBadgeCredential\"],\"credentialSubject\":{\"id\":\"did:example:learner123\",\"badgeClass\":\"Blockchain Fundamentals\",\"awardDate\":\"2025-12-28\",\"criteriaUrl\":\"https://example.org/badges/blockchain-fundamentals\"}}}"
+[2025-12-28 18:48:59.210 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "091bc76a-88d7-49cb-a1e5-eb91b32829a8"
+    method: "POST"
+    path: "/agent/token"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "keep-alive",
+      "content-length": "2",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "authorization": "REDACTED",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+      "content-type": "application/json",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:5000",
+      "sec-fetch-site": "same-site",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:5000/",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6"
+    }
+    body: {}
+[2025-12-28 18:48:59.254 +0200] [32mINFO[39m: [36msecurityName::: apiKey[39m
+    service: "credo-controller"
+    correlationId: "091bc76a-88d7-49cb-a1e5-eb91b32829a8"
+[2025-12-28 18:48:59.256 +0200] [32mINFO[39m: [36mscopes::: [39m
+    service: "credo-controller"
+    correlationId: "091bc76a-88d7-49cb-a1e5-eb91b32829a8"
+[2025-12-28 18:48:59.258 +0200] [32mINFO[39m: [36mProvided API key: test-api-key-12345[39m
+    service: "credo-controller"
+    correlationId: "091bc76a-88d7-49cb-a1e5-eb91b32829a8"
+[2025-12-28 18:48:59.259 +0200] [32mINFO[39m: [36mExpected API key: test-api-key-12345[39m
+    service: "credo-controller"
+    correlationId: "091bc76a-88d7-49cb-a1e5-eb91b32829a8"
+[2025-12-28 18:48:59.281 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "08a2b27d-7bee-49c4-a8c2-72f5321663a7"
+    method: "GET"
+    path: "/agent"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "keep-alive",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "authorization": "REDACTED",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:5000",
+      "sec-fetch-site": "same-site",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:5000/",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "if-none-match": "W/\"5c-EqpUGIBvCf1g/6SPYrMlWwYwrhk\""
+    }
+[2025-12-28 18:48:59.286 +0200] [32mINFO[39m: [36msecurityName::: jwt[39m
+    service: "credo-controller"
+    correlationId: "08a2b27d-7bee-49c4-a8c2-72f5321663a7"
+[2025-12-28 18:48:59.287 +0200] [32mINFO[39m: [36mscopes::: tenant,dedicated,Basewallet[39m
+    service: "credo-controller"
+    correlationId: "08a2b27d-7bee-49c4-a8c2-72f5321663a7"
+[2025-12-28 18:48:59.308 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "c5c69840-4cd1-45a8-ab04-00baac713ed5"
+    method: "GET"
+    path: "/api/vc/InvoiceVC"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "keep-alive",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:5000",
+      "sec-fetch-site": "same-site",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:5000/",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "if-none-match": "W/\"f5-CVmqbtY5VM6faohBhnBgVqJFVsE\""
+    }
+[2025-12-28 18:48:59.313 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "c5c69840-4cd1-45a8-ab04-00baac713ed5"
+    method: "GET"
+    path: "/api/vc/InvoiceVC"
+    status: 304
+    duration: 5
+    response: "{\"id\":\"InvoiceVC\",\"title\":\"InvoiceVC\",\"description\":\"InvoiceVC credential (v1.0.0)\",\"issuer\":\"did:key:z6MkiqdSk9AjShZLZbGy5toyrqZkkHcsUttbTMVyeNV8hdhz\",\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"InvoiceVC\"],\"credentialSubject\":{}}}"
+[2025-12-28 18:48:59.318 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "d342ed5e-d2cc-4abb-bf7c-73437b702401"
+    method: "GET"
+    path: "/api/vc/CartSnapshotVC"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "keep-alive",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:5000",
+      "sec-fetch-site": "same-site",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:5000/",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "if-none-match": "W/\"109-aIw4mkVyex6ivinfadLeQ7MNznM\""
+    }
+[2025-12-28 18:48:59.326 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "d342ed5e-d2cc-4abb-bf7c-73437b702401"
+    method: "GET"
+    path: "/api/vc/CartSnapshotVC"
+    status: 304
+    duration: 9
+    response: "{\"id\":\"CartSnapshotVC\",\"title\":\"CartSnapshotVC\",\"description\":\"CartSnapshotVC credential (v1.0.0)\",\"issuer\":\"did:key:z6MkiqdSk9AjShZLZbGy5toyrqZkkHcsUttbTMVyeNV8hdhz\",\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"CartSnapshotVC\"],\"credentialSubject\":{}}}"
+[2025-12-28 18:48:59.433 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "091bc76a-88d7-49cb-a1e5-eb91b32829a8"
+    method: "POST"
+    path: "/agent/token"
+    status: 200
+    duration: 223
+    response: "{\"token\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiUmVzdFJvb3RBZ2VudFdpdGhUZW5hbnRzIiwiaWF0IjoxNzY2OTQwNTM5fQ.2WY4DFRF6cbL6CtzIswXBcuGdyq_U4pBWJ-beLX0qj4\"}"
+[90m2025-12-28 16:48:59.482  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   WalletApi.initialize][39m Initializing wallet 'tenant-dafe09ad-7065-45fe-b752-ff9d97783f2a' 
+{
+  [37mstorage[39m: {
+    [37mtype[39m: [31m'sqlite'[39m,
+    [37mcredentials[39m: [31mundefined[39m
+  },
+  [37mid[39m: [31m'tenant-dafe09ad-7065-45fe-b752-ff9d97783f2a'[39m,
+  [37mkey[39m: [31m'[*****]'[39m,
+  [37mkeyDerivationMethod[39m: [31m'RAW'[39m
+}
+[2025-12-28 18:48:59.487 +0200] [32mINFO[39m: [36mInitializing wallet 'tenant-dafe09ad-7065-45fe-b752-ff9d97783f2a'[39m
+    service: "credo-controller"
+    storage: {
+      "type": "sqlite"
+    }
+    id: "tenant-dafe09ad-7065-45fe-b752-ff9d97783f2a"
+    key: "[*****]"
+    keyDerivationMethod: "RAW"
+    correlationId: "08a2b27d-7bee-49c4-a8c2-72f5321663a7"
+[90m2025-12-28 16:48:59.646  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   undefined.constructor][39m Creating agent with config 
+{
+  [37magentConfig[39m: {
+    [37mwalletConfig[39m: {
+      [37mstorage[39m: {
+        [37mtype[39m: [31m'sqlite'[39m,
+        [37mcredentials[39m: [31mundefined[39m
+      },
+      [37mid[39m: [31m'tenant-dafe09ad-7065-45fe-b752-ff9d97783f2a'[39m,
+      [37mkey[39m: [31m'[*****]'[39m,
+      [37mkeyDerivationMethod[39m: [31m'RAW'[39m
+    },
+    [37mlabel[39m: [31m'Portal Default Tenant'[39m,
+    [37mendpoints[39m: [
+      [31m'http://127.0.0.1:3001'[39m
+    ],
+    [37mlogger[39m: [32m3[39m,
+    [37mautoUpdateStorageOnStartup[39m: [33mtrue[39m,
+    [37mbackupBeforeStorageUpdate[39m: [33mfalse[39m,
+    [37mtenantType[39m: [31m'ORG'[39m,
+    [37magentDependencies[39m: [33mtrue[39m
+  }
+}
+[90m2025-12-28 16:48:59.681  [39m[1m[94mINFO[39m[22m  [90m[credo-controller-service   initialize][39m Agent storage is up to date. 
+[OidcMetadata] Found 8 definitions for tenant dafe09ad-7065-45fe-b752-ff9d97783f2a
+[2025-12-28 18:48:59.649 +0200] [32mINFO[39m: [36mCreating agent with config[39m
+    service: "credo-controller"
+    agentConfig: {
+      "walletConfig": {
+        "storage": {
+          "type": "sqlite"
+        },
+        "id": "tenant-dafe09ad-7065-45fe-b752-ff9d97783f2a",
+        "key": "[*****]",
+        "keyDerivationMethod": "RAW"
+      },
+      "label": "Portal Default Tenant",
+      "endpoints": [
+        "http://127.0.0.1:3001"
+      ],
+      "logger": 3,
+      "autoUpdateStorageOnStartup": true,
+      "backupBeforeStorageUpdate": false,
+      "tenantType": "ORG",
+      "agentDependencies": true
+    }
+    correlationId: "08a2b27d-7bee-49c4-a8c2-72f5321663a7"
+[2025-12-28 18:48:59.668 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "c10ffe57-e5d2-4592-b46d-27d798a5b698"
+    method: "GET"
+    path: "/workflows"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "keep-alive",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "authorization": "REDACTED",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:5000",
+      "sec-fetch-site": "same-site",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:5000/",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "if-none-match": "W/\"c1b-NHFAvQ/jeS9ko+n/CTYciONbcog\""
+    }
+[2025-12-28 18:48:59.675 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "c10ffe57-e5d2-4592-b46d-27d798a5b698"
+    method: "GET"
+    path: "/workflows"
+    status: 304
+    duration: 7
+    response: "[{\"id\":\"finance-quote-v1\",\"tenantId\":\"default\",\"name\":\"Create Quote\",\"category\":\"Finance\",\"provider\":\"EcoCash\",\"description\":\"Issue a Quote VC to a buyer with calculated totals\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"items\":{\"type\":\"array\",\"title\":\"Line Items (JSON)\",\"description\":\"Array of items: [{\\"description\\":\\"Item\\",\\"unitPrice\\":10,\\"qty\\":1}]\"},\"discount\":{\"type\":\"string\",\"title\":\"Discount\",\"description\":\"e.g. \\"10\\" for $10 or \\"10%\\" for 10%\"},\"taxRate\":{\"type\":\"number\",\"title\":\"Tax Rate (%)\",\"description\":\"e.g. 15 for 15%\"},\"buyerDid\":{\"type\":\"string\",\"title\":\"Buyer DID\",\"description\":\"DID of the buyer\"}},\"required\":[\"items\"]},\"actions\":[{\"action\":\"finance.calculate_invoice\",\"config\":{\"taxRate\":15,\"taxInclusive\":false}},{\"action\":\"credential.issue\",\"config\":{\"type\":\"QuoteVC\",\"mapping\":{\"quoteId\":\"state.offer.offerId\",\"items\":\"input.items\",\"subtotal\":\"state.finance.subtotal\",\"taxAmount\":\"state.finance.taxAmount\",\"discountAmount\":\"state.finance.discountAmount\",\"grandTotal\":\"state.finance.grandTotal\",\"currency\":\"state.finance.currency\",\"buyerDid\":\"input.buyerDid\"},\"copyInput\":false}}],\"createdAt\":\"2025-12-27T10:54:44.000Z\"},{\"id\":\"finance-invoice-v1\",\"tenantId\":\"default\",\"name\":\"Create Invoice\",\"category\":\"Finance\",\"provider\":\"EcoCash\",\"description\":\"Generate Invoice VC after quote acceptance with EcoCash payment instructions\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"quoteId\":{\"type\":\"string\",\"title\":\"Quote ID\",\"description\":\"Reference to the accepted quote\"},\"customerMsisdn\":{\"type\":\"string\",\"title\":\"Customer Phone\",\"description\":\"EcoCash phone number (e.g. 263774222475)\"},\"amount\":{\"type\":\"number\",\"title\":\"Amount\",\"description\":\"Payment amount\"},\"currency\":{\"type\":\"string\",\"title\":\"Currency\",\"description\":\"USD or ZWL\"}},\"required\":[\"quoteId\",\"customerMsisdn\",\"amount\"]},\"actions\":[{\"action\":\"external.ecocash_payment\",\"config\":{\"apiKey\":\"405mvFAY3Tz6o3V48JX6NDeSWGneVLaB\",\"sandboxMode\":true}},{\"action\":\"credential.issue\",\"config\":{\"type\":\"InvoiceVC\",\"mapping\":{\"invoiceId\":\"state.offer.offerId\",\"quoteId\":\"input.quoteId\",\"amount\":\"input.amount\",\"currency\":\"input.currency\",\"paymentInstructions\":\"state.ecocashPayment.sourceReference\",\"status\":\"state.ecocashPayment.status\"}}}],\"createdAt\":\"2025-12-27T10:54:44.000Z\"},{\"id\":\"finance-receipt-v1\",\"tenantId\":\"default\",\"name\":\"Issue Receipt\",\"category\":\"Finance\",\"provider\":\"EcoCash\",\"description\":\"Issue Receipt VC after successful EcoCash payment (webhook-triggered)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"transactionId\":{\"type\":\"string\",\"title\":\"Transaction ID\"},\"amount\":{\"type\":\"number\",\"title\":\"Amount\"},\"currency\":{\"type\":\"string\",\"title\":\"Currency\"},\"sourceReference\":{\"type\":\"string\",\"title\":\"Source Reference\"}},\"required\":[\"transactionId\",\"amount\"]},\"actions\":[{\"action\":\"credential.issue\",\"config\":{\"type\":\"ReceiptVC\",\"mapping\":{\"receiptId\":\"state.offer.offerId\",\"transactionId\":\"input.transactionId\",\"amount\":\"input.amount\",\"currency\":\"input.currency\",\"sourceReference\":\"input.sourceReference\",\"timestamp\":\"input.metadata.timestamp\"}}}],\"createdAt\":\"2025-12-27T10:54:44.000Z\"}]"
+[2025-12-28 18:48:59.682 +0200] [32mINFO[39m: [36mAgent storage is up to date.[39m
+    service: "credo-controller"
+    correlationId: "08a2b27d-7bee-49c4-a8c2-72f5321663a7"
+[2025-12-28 18:48:59.687 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "08a2b27d-7bee-49c4-a8c2-72f5321663a7"
+    method: "GET"
+    path: "/agent"
+    status: 304
+    duration: 406
+    response: "{\"label\":\"Portal Default Tenant\",\"endpoints\":[\"http://127.0.0.1:3001\"],\"isInitialized\":true}"
+[2025-12-28 18:48:59.714 +0200] [32mINFO[39m: [36mIncoming request[39m
+    service: "credo-controller"
+    correlationId: "4cee997d-fed0-4fe0-8cad-f1d5d997962f"
+    method: "GET"
+    path: "/tenants/dafe09ad-7065-45fe-b752-ff9d97783f2a/.well-known/openid-credential-issuer"
+    headers: {
+      "host": "localhost:3000",
+      "connection": "keep-alive",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
+      "origin": "http://localhost:5000",
+      "sec-fetch-site": "same-site",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      "referer": "http://localhost:5000/",
+      "accept-encoding": "gzip, deflate, br, zstd",
+      "accept-language": "en-ZW,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,sn;q=0.6",
+      "if-none-match": "W/\"1c0a-/cenAHL4mcy4lyVtZ6mPkCNc6HU\""
+    }
+[2025-12-28 18:48:59.731 +0200] [32mINFO[39m: [36mServed issuer metadata[39m
+    service: "credo-controller"
+    correlationId: "4cee997d-fed0-4fe0-8cad-f1d5d997962f"
+    module: "oidc-metadata"
+    operation: "getIssuerMetadata"
+    tenantId: "dafe09ad-7065-45fe-b752-ff9d97783f2a"
+[2025-12-28 18:48:59.733 +0200] [32mINFO[39m: [36mRequest completed[39m
+    service: "credo-controller"
+    correlationId: "4cee997d-fed0-4fe0-8cad-f1d5d997962f"
+    method: "GET"
+    path: "/tenants/dafe09ad-7065-45fe-b752-ff9d97783f2a/.well-known/openid-credential-issuer"
+    status: 304
+    duration: 19
+    response: "{\"credential_issuer\":\"http://localhost:3000/tenants/dafe09ad-7065-45fe-b752-ff9d97783f2a\",\"issuer\":\"did:key:z6MknKVZt1AegU4suACXQXTrDztr98H87rzSyevK9YauVVYo\",\"credential_endpoint\":\"http://localhost:3000/oidc/token\",\"token_endpoint\":\"http://localhost:3000/oidc/token\",\"credential_configurations_supported\":{\"GenericIDCredential_jwt_vc_json\":{\"format\":\"jwt_vc_json\",\"scope\":\"GenericIDCredential\",\"cryptographic_binding_methods_supported\":[\"did\"],\"cryptographic_suites_supported\":[\"Ed25519Signature2018\"],\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"GenericIDCredential\"]},\"display\":[{\"name\":\"GenericIDCredential\",\"locale\":\"en-US\"}]},\"MdocHealthSummary_jwt_vc_json\":{\"format\":\"jwt_vc_json\",\"scope\":\"MdocHealthSummary\",\"cryptographic_binding_methods_supported\":[\"did\"],\"cryptographic_suites_supported\":[\"Ed25519Signature2018\"],\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"MdocHealthSummary\"]},\"display\":[{\"name\":\"MdocHealthSummary\",\"locale\":\"en-US\"}]},\"PaymentReceipt_jwt_vc_json\":{\"format\":\"jwt_vc_json\",\"scope\":\"PaymentReceipt\",\"cryptographic_binding_methods_supported\":[\"did\"],\"cryptographic_suites_supported\":[\"Ed25519Signature2018\"],\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"PaymentReceipt\"]},\"display\":[{\"name\":\"PaymentReceipt\",\"locale\":\"en-US\"}]},\"EHRSummary_jwt_vc_json\":{\"format\":\"jwt_vc_json\",\"scope\":\"EHRSummary\",\"cryptographic_binding_methods_supported\":[\"did\"],\"cryptographic_suites_supported\":[\"Ed25519Signature2018\"],\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"EHRSummary\"]},\"display\":[{\"name\":\"EHRSummary\",\"locale\":\"en-US\"}]},\"OpenBadge_jwt_vc_json\":{\"format\":\"jwt_vc_json\",\"scope\":\"OpenBadge\",\"cryptographic_binding_methods_supported\":[\"did\"],\"cryptographic_suites_supported\":[\"Ed25519Signature2018\"],\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"OpenBadgeCredential\"]},\"display\":[{\"name\":\"OpenBadge\",\"locale\":\"en-US\"}]},\"InvoiceVC_jwt_vc_json\":{\"format\":\"jwt_vc_json\",\"scope\":\"InvoiceVC\",\"cryptographic_binding_methods_supported\":[\"did\"],\"cryptographic_suites_supported\":[\"Ed25519Signature2018\"],\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"InvoiceVC\"]},\"display\":[{\"name\":\"InvoiceVC\",\"locale\":\"en-US\"}]},\"ReceiptVC_jwt_vc_json\":{\"format\":\"jwt_vc_json\",\"scope\":\"ReceiptVC\",\"cryptographic_binding_methods_supported\":[\"did\"],\"cryptographic_suites_supported\":[\"Ed25519Signature2018\"],\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"ReceiptVC\"]},\"display\":[{\"name\":\"ReceiptVC\",\"locale\":\"en-US\"}]},\"CartSnapshotVC_jwt_vc_json\":{\"format\":\"jwt_vc_json\",\"scope\":\"CartSnapshotVC\",\"cryptographic_binding_methods_supported\":[\"did\"],\"cryptographic_suites_supported\":[\"Ed25519Signature2018\"],\"credential_definition\":{\"type\":[\"VerifiableCredential\",\"CartSnapshotVC\"]},\"display\":[{\"name\":\"CartSnapshotVC\",\"locale\":\"en-US\"}]}},\"credentials_supported\":[{\"id\":\"GenericIDCredential_jwt_vc\",\"format\":\"jwt_vc\",\"types\":[\"VerifiableCredential\",\"GenericIDCredential\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"GenericIDCredential\"}]},{\"id\":\"GenericIDCredential_jwt_vc_json\",\"format\":\"jwt_vc_json\",\"types\":[\"VerifiableCredential\",\"GenericIDCredential\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"GenericIDCredential\"}]},{\"id\":\"MdocHealthSummary_jwt_vc\",\"format\":\"jwt_vc\",\"types\":[\"VerifiableCredential\",\"MdocHealthSummary\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"MdocHealthSummary\"}]},{\"id\":\"MdocHealthSummary_jwt_vc_json\",\"format\":\"jwt_vc_json\",\"types\":[\"VerifiableCredential\",\"MdocHealthSummary\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"MdocHealthSummary\"}]},{\"id\":\"PaymentReceipt_jwt_vc\",\"format\":\"jwt_vc\",\"types\":[\"VerifiableCredential\",\"PaymentReceipt\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"PaymentReceipt\"}]},{\"id\":\"PaymentReceipt_jwt_vc_json\",\"format\":\"jwt_vc_json\",\"types\":[\"VerifiableCredential\",\"PaymentReceipt\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"PaymentReceipt\"}]},{\"id\":\"EHRSummary_jwt_vc\",\"format\":\"jwt_vc\",\"types\":[\"VerifiableCredential\",\"EHRSummary\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"EHRSummary\"}]},{\"id\":\"EHRSummary_jwt_vc_json\",\"format\":\"jwt_vc_json\",\"types\":[\"VerifiableCredential\",\"EHRSummary\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"EHRSummary\"}]},{\"id\":\"OpenBadge_jwt_vc\",\"format\":\"jwt_vc\",\"types\":[\"VerifiableCredential\",\"OpenBadgeCredential\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"OpenBadge\"}]},{\"id\":\"OpenBadge_jwt_vc_json\",\"format\":\"jwt_vc_json\",\"types\":[\"VerifiableCredential\",\"OpenBadgeCredential\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"OpenBadge\"}]},{\"id\":\"InvoiceVC_jwt_vc\",\"format\":\"jwt_vc\",\"types\":[\"VerifiableCredential\",\"InvoiceVC\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"InvoiceVC\"}]},{\"id\":\"InvoiceVC_jwt_vc_json\",\"format\":\"jwt_vc_json\",\"types\":[\"VerifiableCredential\",\"InvoiceVC\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"InvoiceVC\"}]},{\"id\":\"ReceiptVC_jwt_vc\",\"format\":\"jwt_vc\",\"types\":[\"VerifiableCredential\",\"ReceiptVC\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"ReceiptVC\"}]},{\"id\":\"ReceiptVC_jwt_vc_json\",\"format\":\"jwt_vc_json\",\"types\":[\"VerifiableCredential\",\"ReceiptVC\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"ReceiptVC\"}]},{\"id\":\"CartSnapshotVC_jwt_vc\",\"format\":\"jwt_vc\",\"types\":[\"VerifiableCredential\",\"CartSnapshotVC\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"CartSnapshotVC\"}]},{\"id\":\"CartSnapshotVC_jwt_vc_json\",\"format\":\"jwt_vc_json\",\"types\":[\"VerifiableCredential\",\"CartSnapshotVC\"],\"cryptographic_binding_methods_supported\":[\"did:key\",\"did:web\",\"did:jwk\"],\"cryptographic_suites_supported\":[\"EdDSA\",\"ES256\"],\"display\":[{\"name\":\"CartSnapshotVC\"}]}],\"display\":[{\"name\":\"Portal Default Tenant\",\"description\":\"Portal Default Tenant OpenID endpoints\",\"locale\":\"en-US\"}]}"
+{"stack":"Error: connect ECONNREFUSED 127.0.0.1:4318\n    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)\n    at TCPConnectWrap.callbackTrampoline (node:internal/async_hooks:130:17)","message":"connect ECONNREFUSED 127.0.0.1:4318","errno":"-111","code":"ECONNREFUSED","syscall":"connect","address":"127.0.0.1","port":"4318","name":"Error","toJSON":"function () {\n                    return Object.getOwnPropertyNames(this).reduce((alt, key) => {\n                        alt[key] = this[key];\n                        return alt;\n                    }, {});\n                }"}
+{"stack":"Error: connect ECONNREFUSED 127.0.0.1:4318\n    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)\n    at TCPConnectWrap.callbackTrampoline (node:internal/async_hooks:130:17)","message":"connect ECONNREFUSED 127.0.0.1:4318","errno":"-111","code":"ECONNREFUSED","syscall":"connect","address":"127.0.0.1","port":"4318","name":"Error","toJSON":"function () {\n                    return Object.getOwnPropertyNames(this).reduce((alt, key) => {\n                        alt[key] = this[key];\n                        return alt;\n                    }, {});\n                }"}

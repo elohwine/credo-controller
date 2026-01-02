@@ -38,6 +38,51 @@
         :credentialId="genericIdCredential?.id"
       />
 
+      <!-- Quick Access Workflows -->
+      <div class="mb-10">
+        <h2 class="text-xl font-bold text-gray-900 mb-4">Quick Access</h2>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <NuxtLink :to="`/wallet/${walletId}/scan`" class="group relative flex items-center space-x-3 rounded-2xl border border-gray-300 bg-white px-6 py-5 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 hover:border-blue-400 transition-all">
+            <div class="flex-shrink-0">
+              <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                <QrCodeIcon class="h-6 w-6" aria-hidden="true" />
+              </div>
+            </div>
+            <div class="min-w-0 flex-1">
+              <span class="absolute inset-0" aria-hidden="true" />
+              <p class="text-sm font-semibold text-gray-900">Scan QR Code</p>
+              <p class="truncate text-xs text-gray-500">Receive or present VCs</p>
+            </div>
+          </NuxtLink>
+
+          <NuxtLink :to="`/wallet/${walletId}/settings/issuers`" class="group relative flex items-center space-x-3 rounded-2xl border border-gray-300 bg-white px-6 py-5 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 hover:border-blue-400 transition-all">
+            <div class="flex-shrink-0">
+              <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                <ArrowDownOnSquareStackIcon class="h-6 w-6" aria-hidden="true" />
+              </div>
+            </div>
+            <div class="min-w-0 flex-1">
+              <span class="absolute inset-0" aria-hidden="true" />
+              <p class="text-sm font-semibold text-gray-900">Request VC</p>
+              <p class="truncate text-xs text-gray-500">From trusted issuers</p>
+            </div>
+          </NuxtLink>
+
+          <NuxtLink to="/demo/finance-portal" class="group relative flex items-center space-x-3 rounded-2xl border border-gray-300 bg-white px-6 py-5 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 hover:border-blue-400 transition-all">
+            <div class="flex-shrink-0">
+              <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-green-50 text-green-600 group-hover:bg-green-600 group-hover:text-white transition-colors">
+                <ShoppingCartIcon class="h-6 w-6" aria-hidden="true" />
+              </div>
+            </div>
+            <div class="min-w-0 flex-1">
+              <span class="absolute inset-0" aria-hidden="true" />
+              <p class="text-sm font-semibold text-gray-900">Finance Portal</p>
+              <p class="truncate text-xs text-gray-500">E-commerce checkout</p>
+            </div>
+          </NuxtLink>
+        </div>
+      </div>
+
       <div
         v-if="credentials && credentials.length > 0"
         class="sm:flex items-center gap-4 mb-5 hidden"
@@ -118,6 +163,11 @@
 import VerifiableCredentialCard from "@credentis-web-wallet/components/credentials/VerifiableCredentialCard.vue";
 import GenericIdBanner from "@credentis-web-wallet/components/GenericIdBanner.vue";
 import scannerSVG from "~/public/svg/scanner.svg";
+import { 
+  QrCodeIcon, 
+  ArrowDownOnSquareStackIcon, 
+  ShoppingCartIcon 
+} from "@heroicons/vue/24/outline";
 import { computed, ref, onMounted, onUnmounted } from "vue";
 
 const route = useRoute();
@@ -130,8 +180,11 @@ const {
   error,
 } = await useLazyFetch(
   `/wallet-api/wallet/${walletId}/credentials?showDeleted=false&showPending=false`,
+  {
+    // Prevent duplicate requests when navigating - use 'defer' to wait for pending request
+    dedupe: 'defer'
+  }
 );
-refreshNuxtData();
 
 // Find the GenericID credential (issued during registration)
 const genericIdCredential = computed(() => {

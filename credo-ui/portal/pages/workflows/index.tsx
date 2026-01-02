@@ -24,17 +24,27 @@ export default function WorkflowsPage() {
                 const credoBackend = env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000';
                 const apiKey = process.env.NEXT_PUBLIC_CREDO_API_KEY || 'test-api-key-12345';
 
-                // Get root token (simplified auth for demo)
-                const rootTokenRes = await axios.post(
-                    `${credoBackend}/agent/token`,
-                    {},
-                    { headers: { Authorization: apiKey } }
-                );
-                const rootToken = rootTokenRes.data.token;
+                let rootToken = '';
+                try {
+                    // Get root token (simplified auth for demo)
+                    const rootTokenRes = await axios.post(
+                        `${credoBackend}/agent/token`,
+                        {},
+                        { headers: { Authorization: apiKey } }
+                    );
+                    rootToken = rootTokenRes.data.token;
+                } catch (e) {
+                    console.warn('Failed to get root token for workflows, trying public access...', e);
+                }
 
                 // Fetch workflows
+                const headers: any = {};
+                if (rootToken) {
+                    headers.Authorization = `Bearer ${rootToken}`;
+                }
+
                 const response = await axios.get(`${credoBackend}/workflows`, {
-                    headers: { Authorization: `Bearer ${rootToken}` },
+                    headers
                 });
 
                 setWorkflows(response.data || []);
@@ -104,7 +114,7 @@ export default function WorkflowsPage() {
                         <div className="bg-white rounded-lg shadow-lg p-6 max-w-2xl mx-auto">
                             <div className="flex justify-between items-center mb-6">
                                 <h2 className="text-2xl font-bold text-gray-900">{selectedWorkflow.name}</h2>
-                                <Button onClick={() => { setSelectedWorkflow(null); setResult(null); setError(null); }} style="secondary">
+                                <Button onClick={() => { setSelectedWorkflow(null); setResult(null); setError(null); }} color="secondary">
                                     Back to List
                                 </Button>
                             </div>

@@ -19,7 +19,14 @@ const queryRequest = new URL("http://example.invalid" + useRoute().fullPath)
   .search; // new URL(window.location.href).search
 console.log("queryRequest: ", queryRequest);
 
-const walletRequestUrl = "openid-initiate-issuance://" + queryRequest;
+// Check if query params contain credential_offer_uri
+const searchParams = new URLSearchParams(queryRequest);
+const hasOfferUri = searchParams.has('credential_offer_uri') || searchParams.has('?credential_offer_uri');
+
+// Use openid-credential-offer:// scheme if it's a credential offer, otherwise default to initiate-issuance
+const scheme = hasOfferUri ? "openid-credential-offer://" : "openid-initiate-issuance://";
+// If the queryRequest starts with ?, strip it to avoid double ? if needed, or just append
+const walletRequestUrl = scheme + (queryRequest.startsWith('?') ? queryRequest : '?' + queryRequest);
 console.log("walletRequestUrl: ", walletRequestUrl);
 const encodedWalletRequestUrl = btoa(walletRequestUrl);
 console.log("encodedWalletRequestUrl: ", encodedWalletRequestUrl);

@@ -12,11 +12,45 @@ import { CreateTenantOptions, CreateTenantResponse, TenantMetadataResponse } fro
 import { provisionTenantResources } from '../../services/TenantProvisioningService'
 import { getTenantById } from '../../persistence/TenantRepository'
 
+import { listTenants as listPersistenceTenants } from '../../persistence/TenantRepository'
+
 @Tags('MultiTenancy')
 @Security('jwt', [SCOPES.MULTITENANT_BASE_AGENT])
 @Route('/multi-tenancy')
 @injectable()
 export class MultiTenancyController extends Controller {
+  @Get('/')
+  public async listTenants(@Request() request: Req) {
+    try {
+      const agent = request.agent as unknown as Agent<any>
+
+      // Get tenants from Credo module
+      const credoTenants = await agent.modules.tenants.getAllTenants()
+
+      // Get tenants from persistence
+      const persistenceTenants = listPersistenceTenants()
+
+      // Combine them: for each credo tenant, attach persistence metadata if available
+      return credoTenants.map((ct: any) => {
+        const pt = persistenceTenants.find(p => p.id === ct.id)
+        const tenantJson = JsonTransformer.toJSON(ct) as Record<string, any>
+        return {
+          ...tenantJson,
+          id: ct.id,
+          label: ct.config?.label,
+          persistence: pt ? {
+            issuerDid: pt.issuerDid,
+            verifierDid: pt.verifierDid,
+            verifierKid: pt.verifierKid,
+            metadata: pt.metadata
+          } : undefined
+        }
+      })
+    } catch (error) {
+      throw ErrorHandlingService.handle(error)
+    }
+  }
+
   @Post('/create-tenant')
   public async createTenant(
     @Request() request: Req,

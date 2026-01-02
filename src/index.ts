@@ -17,7 +17,7 @@ export const startServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   // to also host the websocket server
   if (!config.socketServer) {
     server.on('upgrade', (request, socket, head) => {
-      socketServer.handleUpgrade(request, socket as Socket, head, () => {})
+      socketServer.handleUpgrade(request, socket as Socket, head, () => { })
     })
   }
 

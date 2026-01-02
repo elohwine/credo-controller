@@ -124,6 +124,12 @@ export const buildModules = (cfg: {
             const metadata = (issuanceSession.issuanceMetadata as any) ?? {}
             const claims = metadata?.claims || {}
 
+            // Debug logging to trace claims flow
+            console.log('[CredentialMapper] credentialConfigurationId:', credentialConfigurationId)
+            console.log('[CredentialMapper] issuanceMetadata:', JSON.stringify(metadata, null, 2))
+            console.log('[CredentialMapper] extracted claims:', JSON.stringify(claims))
+            console.log('[CredentialMapper] holderBinding:', JSON.stringify(holderBinding))
+
             let subjectDid = metadata?.subjectDid || 'did:example:unknown'
             if (holderBinding && typeof holderBinding === 'object' && 'did' in holderBinding) {
               subjectDid = (holderBinding as any).did
@@ -248,61 +254,59 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
 
   await agent.initialize()
 
-  // Initialize OpenID4VC Issuer with supported credentials from DB
+  // Initialize OpenID4VC Issuer with ALL supported credentials from DB
   // Reference: https://credo.js.org/guides/tutorials/openid4vc/issuing-credentials-using-openid4vc-issuer-module
   try {
     const { credentialDefinitionStore } = await import('./utils/credentialDefinitionStore')
 
-    // Query for GenericIDCredential definition (matches modelRegistry.ts naming)
-    const genericIdDef = credentialDefinitionStore.get('GenericIDCredential')
+    // Load ALL credential definitions from the database
+    const allDefs = credentialDefinitionStore.list()
+    agent.config.logger.info(`Found ${allDefs.length} credential definitions in database`)
 
-    if (!genericIdDef) {
-      agent.config.logger.warn('GenericIDCredential definition not found in database. Skipping OpenID4VC Issuer initialization.')
+    if (allDefs.length === 0) {
+      agent.config.logger.warn('No credential definitions found. Issuer will have empty metadata.')
+    }
+
+    // Build credentialsSupported from ALL definitions
+    const credentialsSupported = allDefs.map((def) => ({
+      format: def.format === 'sd_jwt' ? 'vc+sd-jwt' : 'jwt_vc_json',
+      id: `${def.name}_jwt_vc_json`,
+      cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
+      cryptographic_suites_supported: ['EdDSA', 'ES256'],
+      types: def.credentialType || ['VerifiableCredential', def.name],
+    }))
+
+    const displayMetadata = [
+      {
+        name: 'Credo Controller',
+        description: 'Multi-tenant SSI platform',
+        text_color: '#000000',
+        background_color: '#FFFFFF',
+      },
+    ]
+
+    // Check for existing issuers first
+    const existingIssuers = await agent.modules.openId4VcIssuer.getAllIssuers()
+
+    if (existingIssuers && existingIssuers.length > 0) {
+      // Reuse existing issuer - just update its metadata with all credentials
+      const issuer = existingIssuers[0]
+      agent.config.logger.info(`Reusing existing issuer: ${issuer.issuerId}. Updating metadata with ${credentialsSupported.length} credentials...`)
+
+      await agent.modules.openId4VcIssuer.updateIssuerMetadata({
+        issuerId: issuer.issuerId,
+        credentialsSupported,
+        display: displayMetadata,
+      })
+
+      agent.config.logger.info(`OpenID4VC Issuer ${issuer.issuerId} updated successfully`)
     } else {
-      // Define the credentials config we want
-      const credentialsSupported = [
-        {
-          format: genericIdDef.format === 'sd_jwt' ? 'vc+sd-jwt' : 'jwt_vc_json',
-          id: 'GenericIDCredential',
-          cryptographic_binding_methods_supported: ['did:key', 'did:web'],
-          cryptographic_suites_supported: ['EdDSA'],
-          types: genericIdDef.credentialType || ['VerifiableCredential', 'GenericIDCredential'],
-        },
-      ]
-
-      const displayMetadata = [
-        {
-          name: 'Credo Controller',
-          description: 'Multi-tenant SSI platform',
-          text_color: '#000000',
-          background_color: '#FFFFFF',
-        },
-      ]
-
-      // Check for existing issuers first
-      const existingIssuers = await agent.modules.openId4VcIssuer.getAllIssuers()
-
-      if (existingIssuers && existingIssuers.length > 0) {
-        // Update existing issuer's metadata to include GenericIDCredential
-        const issuer = existingIssuers[0]
-        agent.config.logger.info(`Found existing issuer: ${issuer.issuerId}. Updating metadata with GenericIDCredential...`)
-
-        // Update the issuer's metadata using updateIssuerMetadata
-        await agent.modules.openId4VcIssuer.updateIssuerMetadata({
-          issuerId: issuer.issuerId,
-          credentialsSupported,
-          display: displayMetadata,
-        })
-
-        agent.config.logger.info(`OpenID4VC Issuer ${issuer.issuerId} updated with GenericIDCredential config`)
-      } else {
-        // Create new issuer if none exists
-        const openId4VcIssuer = await agent.modules.openId4VcIssuer.createIssuer({
-          display: displayMetadata,
-          credentialsSupported,
-        })
-        agent.config.logger.info(`OpenID4VC Issuer created with ID: ${openId4VcIssuer.issuerId}`)
-      }
+      // Create new issuer only if none exists
+      const openId4VcIssuer = await agent.modules.openId4VcIssuer.createIssuer({
+        display: displayMetadata,
+        credentialsSupported,
+      })
+      agent.config.logger.info(`OpenID4VC Issuer created with ID: ${openId4VcIssuer.issuerId}`)
     }
   } catch (e: any) {
     agent.config.logger.error(`Failed to initialize/update OpenID4VC Issuer: ${e.message}`)

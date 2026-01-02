@@ -100,7 +100,7 @@ function extractAndNormalizeInnerOfferUrl(wrapperOrUrl: string | undefined, maxD
   if (!wrapperOrUrl) return null
   let candidate = wrapperOrUrl
 
-  if (candidate.startsWith('openid-credential-offer://')) {
+  if (candidate.startsWith('openid-credential-offer://') || candidate.startsWith('openid-initiate-issuance://')) {
     const q = candidate.split('?')[1] || ''
     const params = new URLSearchParams(q)
     const keys = ['credential_offer_uri', 'credential_offer_url', 'credential_offer', 'request']
@@ -231,6 +231,8 @@ export class WalletController extends Controller {
   }
 
   @Get('wallet/{walletId}/credentials')
+  @Security('apiKey')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
   public async listCredentials(
     @Request() request: ExRequest,
     @Path() walletId: string
@@ -241,20 +243,20 @@ export class WalletController extends Controller {
       const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
       const credentialRecords = await w3cCredentialService.getAllCredentialRecords(agent.context)
       console.log('[listCredentials] Found credentials in tenant wallet:', credentialRecords.length, 'for wallet:', walletId)
-      
+
       return credentialRecords.map((record: any) => {
         // Extract credential type from the credential
         let credentialType = 'VerifiableCredential'
         let issuerDid = ''
-        
+
         if (record.credential) {
           const types = record.credential.type || []
           credentialType = types.find((t: string) => t !== 'VerifiableCredential') || types[0] || 'VerifiableCredential'
-          issuerDid = typeof record.credential.issuer === 'string' 
-            ? record.credential.issuer 
+          issuerDid = typeof record.credential.issuer === 'string'
+            ? record.credential.issuer
             : record.credential.issuer?.id || ''
         }
-        
+
         return {
           wallet: walletId,
           id: record.id,
@@ -274,7 +276,7 @@ export class WalletController extends Controller {
       throw new Error(`Failed to fetch credentials from wallet: ${error.message}`)
     }
   }
-  
+
   /**
    * Check if holder already has a specific credential type
    */
@@ -289,14 +291,14 @@ export class WalletController extends Controller {
     try {
       const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
       const allRecords = await w3cCredentialService.getAllCredentialRecords(agent.context)
-      
+
       const matchingCredentials = allRecords.filter((record: any) => {
         const types = record.credential?.type || []
         return types.includes(credentialType)
       })
-      
+
       console.log(`[hasCredentialOfType] Checking for '${credentialType}' in tenant wallet: found ${matchingCredentials.length}`)
-      
+
       return {
         exists: matchingCredentials.length > 0,
         count: matchingCredentials.length,
@@ -400,10 +402,25 @@ export class WalletController extends Controller {
     }
 
     console.log('[resolveCredentialOffer] Parsed offerUri:', (offerUri || '').slice(0, 200))
+    console.log('[resolveCredentialOffer] Extracting inner URL from:', offerUri)
 
-    const toResolve = extractAndNormalizeInnerOfferUrl(offerUri) || ((offerUri && (offerUri.startsWith('http://') || offerUri.startsWith('https://'))) ? offerUri.replace(/localhost/g, '127.0.0.1') : null)
+    let toResolve = null
+    try {
+      toResolve = extractAndNormalizeInnerOfferUrl(offerUri)
+      console.log('[resolveCredentialOffer] extracted result:', toResolve)
+    } catch (e) {
+      console.log('[resolveCredentialOffer] extraction failed:', e)
+    }
+
+    // Fallback for direct HTTP
+    if (!toResolve && offerUri && (offerUri.startsWith('http://') || offerUri.startsWith('https://'))) {
+      const hasLocalhost = offerUri.includes('localhost')
+      toResolve = offerUri.replace(/localhost/g, '127.0.0.1')
+      console.log('[resolveCredentialOffer] fallback http used (localhost replaced: ' + hasLocalhost + '):', toResolve)
+    }
 
     if (!toResolve) {
+      console.error('[resolveCredentialOffer] No credential offer URL could be derived. offerUri was:', offerUri)
       this.setStatus(400)
       throw new Error('No credential offer URL could be derived (ensure request contains credential_offer_uri)')
     }
@@ -411,6 +428,11 @@ export class WalletController extends Controller {
       this.setStatus(400)
       throw new Error('No credential offer URI provided')
     }
+
+    // Construct proper openid-credential-offer:// format for Credo
+    // Credo expects: openid-credential-offer://?credential_offer_uri=<url>
+    const credoOfferUri = `openid-credential-offer://?credential_offer_uri=${encodeURIComponent(toResolve)}`
+    console.log('[resolveCredentialOffer] Constructed Credo format:', credoOfferUri.slice(0, 150))
 
     // Use BASE agent (not tenant agent) for OID4VC holder operations
     // The openId4VcHolder module is registered on the base agent only
@@ -490,8 +512,15 @@ export class WalletController extends Controller {
         offeredCredentials: resolved.offeredCredentials?.length
       })
 
+      // Extract credential_issuer with multiple fallbacks
+      let credentialIssuerUrl = resolved.metadata?.credentialIssuer?.credential_issuer
+        || resolved.credentialOfferPayload?.credential_issuer
+        || issuerOrigin // Fallback to the origin we extracted from the offer URL
+
+      console.log('[resolveCredentialOffer] credential_issuer:', credentialIssuerUrl)
+
       const response = {
-        credential_issuer: resolved.metadata?.credentialIssuer?.credential_issuer,
+        credential_issuer: credentialIssuerUrl,
         credential_configuration_ids: resolved.offeredCredentialConfigurations ? Object.keys(resolved.offeredCredentialConfigurations) : [],
         credentials: resolved.offeredCredentials,
         grants: resolved.credentialOfferPayload?.grants,
@@ -513,7 +542,24 @@ export class WalletController extends Controller {
     @Path() walletId: string,
     @Query() issuer: string
   ): Promise<any> {
-    const metadataUrl = `${issuer.replace(/\/+$/, '')}/.well-known/openid-credential-issuer`
+    // Validate that issuer is present and is an absolute URL
+    if (!issuer || typeof issuer !== 'string') {
+      this.setStatus(400)
+      throw new Error('Missing required "issuer" query parameter')
+    }
+
+    // Normalize localhost to 127.0.0.1
+    let normalizedIssuer = issuer.replace(/localhost/g, '127.0.0.1').replace(/\/+$/, '')
+
+    // Ensure it's an absolute URL
+    if (!normalizedIssuer.startsWith('http://') && !normalizedIssuer.startsWith('https://')) {
+      this.setStatus(400)
+      throw new Error(`Issuer must be an absolute URL (got: "${issuer}")`)
+    }
+
+    const metadataUrl = `${normalizedIssuer}/.well-known/openid-credential-issuer`
+    console.log('[resolveIssuerOpenIDMetadata] Fetching metadata from:', metadataUrl)
+
     try {
       // Use explicit node-fetch to avoid surprises with global fetch
       const { default: nodeFetch } = await import('node-fetch')
@@ -529,6 +575,8 @@ export class WalletController extends Controller {
   }
 
   @Post('wallet/{walletId}/exchange/useOfferRequest')
+  @Security('apiKey')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
   public async useOfferRequest(
     @Request() request: ExRequest,
     @Path() walletId: string,
@@ -611,13 +659,13 @@ export class WalletController extends Controller {
       }
 
       console.log('[useOfferRequest] Offer resolved, accepting using pre-authorized code flow...')
-      
+
       // Important: The openId4VcHolder module is on the BASE agent, so we must use
       // a DID that exists in the BASE agent's wallet (not the tenant wallet).
       // Get or create a DID in the base agent for holder operations.
       let baseAgentDids = await agent.dids.getCreatedDids({ method: 'key' })
       let holderDid: string
-      
+
       if (baseAgentDids.length === 0) {
         console.log('[useOfferRequest] No DID in base agent, creating one...')
         const createdDid = await agent.dids.create({ method: 'key' })
@@ -627,7 +675,7 @@ export class WalletController extends Controller {
         holderDid = baseAgentDids[0].did
         console.log('[useOfferRequest] Using existing DID from base agent:', holderDid)
       }
-      
+
       // For did:key, we need to add the fragment (key reference) to the DID.
       // The fragment is the same as the method-specific identifier for did:key
       let holderDidUrl = holderDid
@@ -637,7 +685,7 @@ export class WalletController extends Controller {
         holderDidUrl = `${holderDid}#${keyId}`
       }
       console.log('[useOfferRequest] Using holder DID URL for binding:', holderDidUrl)
-      
+
       // Use the correct API method: acceptCredentialOfferUsingPreAuthorizedCode
       const acceptResult = await (agent.modules as any).openId4VcHolder.acceptCredentialOfferUsingPreAuthorizedCode(
         resolved,
@@ -651,7 +699,7 @@ export class WalletController extends Controller {
 
       // acceptCredentialOfferUsingPreAuthorizedCode returns an array of credential records directly
       const credentials = Array.isArray(acceptResult) ? acceptResult : (acceptResult?.credentials || [])
-      
+
       console.log('[useOfferRequest] Credo accept result:', {
         credentialCount: credentials.length,
         firstCredentialType: typeof credentials[0],
@@ -661,7 +709,7 @@ export class WalletController extends Controller {
       const { randomUUID } = await import('crypto')
       let savedCredentialId = ''
       let verifiableCredential = ''
-      
+
       // Get the TENANT agent to store credentials in the user's wallet
       const tenantAgent = this.getAgent(request)
       const tenantW3cService = tenantAgent.dependencyManager.resolve(W3cCredentialService)
@@ -672,11 +720,11 @@ export class WalletController extends Controller {
         let credentialData: any = {}
         let vcType = 'VerifiableCredential'
         let issuerDid = ''
-        
+
         // The credential may be a W3cJwtVerifiableCredential instance or a plain object
         // Check for claimFormat (Credo) or format property
         const format = credentialRecord.claimFormat || credentialRecord.format || ''
-        
+
         // Get the serialized JWT - may be in .serializedJwt or .credential property, or the record itself could be a string
         let jwtToken: string = ''
         if (typeof credentialRecord === 'string') {
@@ -688,7 +736,7 @@ export class WalletController extends Controller {
         } else if (credentialRecord.jwt) {
           jwtToken = credentialRecord.jwt
         }
-        
+
         console.log('[useOfferRequest] Processing credential:', {
           format,
           hasJwt: !!jwtToken,
@@ -728,7 +776,7 @@ export class WalletController extends Controller {
           }
         } else if (format === 'vc+sd-jwt') {
           verifiableCredential = credentialRecord.compact || credentialRecord.credential || ''
-          
+
           // Store SD-JWT in tenant wallet
           try {
             if (credentialRecord && typeof credentialRecord === 'object') {
@@ -744,7 +792,7 @@ export class WalletController extends Controller {
         } else {
           // Fallback: try to store whatever we have
           verifiableCredential = typeof credentialRecord === 'string' ? credentialRecord : JSON.stringify(credentialRecord)
-          
+
           try {
             if (credentialRecord && typeof credentialRecord === 'object') {
               const storedRecord = await tenantW3cService.storeCredential(tenantAgent.context, {

@@ -51,7 +51,7 @@ export class OidcMetadataController extends Controller {
           suffix = '_jwt_vc_json'
         }
 
-        const configId = `${def.credentialDefinitionId}${suffix}`
+        const configId = `${def.name}${suffix}`
         credentialConfigurations[configId] = {
           format: advertisedFormat,
           scope: def.name,
@@ -102,10 +102,11 @@ export class OidcMetadataController extends Controller {
     // Dynamically add credential_configurations_supported from credential definitions
     const metadata = { ...issuerMetadata }
     try {
-        // NOTE: controller is under src/controllers/oidc, utils is two levels up
-        const { credentialDefinitionStore } = require('../../utils/credentialDefinitionStore')
+      // NOTE: controller is under src/controllers/oidc, utils is two levels up
+      const { credentialDefinitionStore } = require('../../utils/credentialDefinitionStore')
       const definitions = credentialDefinitionStore.list(tenantId)
-      
+      console.log(`[OidcMetadata] Found ${definitions.length} definitions for tenant ${tenantId}`);
+
       const credentialConfigurations: Record<string, any> = {}
       definitions.forEach((def: any) => {
         const storedFormat = (def.format || 'jwt_vc') as string
@@ -119,7 +120,7 @@ export class OidcMetadataController extends Controller {
           suffix = '_jwt_vc_json'
         }
 
-        const configId = `${def.credentialDefinitionId}${suffix}`
+        const configId = `${def.name}${suffix}`
         credentialConfigurations[configId] = {
           format: advertisedFormat,
           scope: def.name,
@@ -136,7 +137,7 @@ export class OidcMetadataController extends Controller {
           ],
         }
       })
-      
+
       metadata.credential_configurations_supported = credentialConfigurations
     } catch (error) {
       request.logger?.warn({ error: (error as Error).message }, 'Failed to load credential configurations')

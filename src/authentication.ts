@@ -144,13 +144,13 @@ export async function expressAuthentication(request: Request, securityName: stri
           // Auth: tenant agent
           const tenantId: string = decodedToken.tenantId
           if (!tenantId) {
-            logger.error('[AUTH-DEBUG] Missing tenantId in token')
+            logger.error('Missing tenantId in token')
             return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
           }
           try {
             const tenantAgent = await (agent.modules as any).tenants.getTenantAgent({ tenantId })
             if (!tenantAgent) {
-              logger.error(`[AUTH-DEBUG] Tenant Agent not found for ID: ${tenantId}`)
+              logger.error(`Tenant Agent not found for ID: ${tenantId}`)
               return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
             }
             // Only need to registerInstance for TenantAgent.

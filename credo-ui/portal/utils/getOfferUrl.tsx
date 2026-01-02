@@ -17,7 +17,7 @@ const getOfferUrl = async (
       : undefined;
   const tenantId = runtimeTenantId || process.env.NEXT_PUBLIC_TENANT_ID || 'default';
   console.log('Resolved tenantId:', tenantId, 'from runtime:', runtimeTenantId, 'env:', process.env.NEXT_PUBLIC_TENANT_ID);
-  
+
   if (!tenantId || tenantId === 'default') {
     throw new Error('No valid tenant ID found. Please refresh the page to initialize tenant authentication.');
   }
@@ -64,10 +64,21 @@ const getOfferUrl = async (
         issuerKey:
           DIDMethodsConfig[c.selectedDID as keyof typeof DIDMethodsConfig]
             .issuerKey,
-        credentialConfigurationId:
-          Object.keys(credential_configurations_supported).find(
-            (key) => key === c.id + "_jwt_vc"
-          ) || c.id + "_jwt_vc",
+        credentialConfigurationId: (() => {
+          const supportedIds = Object.keys(credential_configurations_supported);
+          // 1. Try exact match with _jwt_vc_json
+          let match = supportedIds.find(key => key === c.id + "_jwt_vc_json");
+          // 2. Try match with prefix
+          if (!match) match = supportedIds.find(key => key.startsWith(c.id + "_"));
+          // 3. Try match if it contains the name
+          if (!match) match = supportedIds.find(key => key.includes(c.id));
+          // 4. Fallback to default guess
+          if (!match) {
+            console.warn(`[getOfferUrl] No matching configuration found for ${c.id} in metadata. Falling back.`, supportedIds);
+            match = c.id + "_jwt_vc_json";
+          }
+          return match;
+        })(),
         credentialData: offer,
       };
 
@@ -154,19 +165,19 @@ const getOfferUrl = async (
   );
 
   // Use Credo backend credential offer endpoint
-  const issueUrl = `${NEXT_PUBLIC_ISSUER.replace('/oidc/issuer', '')}/oidc/issuer/credential-offers`;
-  
+  const issueUrl = `${NEXT_PUBLIC_ISSUER.replace('/oidc/issuer', '')}/custom-oidc/issuer/credential-offers`;
+
   // Transform payload to match Credo backend format
   // Map each credential to the OfferCredentialTemplate structure
   const credoPayload = {
     credentials: credentials.map((c) => {
       // Use the actual credentialDefinitionId from the backend (UUID)
       const credDefId = c.credentialDefinitionId || c.id;
-      
+
       return {
         credentialDefinitionId: credDefId,
         type: c.offer?.type || ['VerifiableCredential'],
-        format: (c.selectedFormat === 'SD-JWT + IETF SD-JWT VC' ? 'sd_jwt' : 'jwt_vc') as 'jwt_vc' | 'sd_jwt',
+        format: (c.selectedFormat === 'SD-JWT + IETF SD-JWT VC' ? 'sd_jwt' : 'jwt_vc_json') as 'jwt_vc_json' | 'sd_jwt',
         claimsTemplate: {
           credentialSubject: c.offer?.credentialSubject || {}
         },
@@ -175,14 +186,24 @@ const getOfferUrl = async (
     }),
     issuerDid: credentials[0]?.issuerDid || data?.issuerDid || DIDMethodsConfig[credentials[0]?.selectedDID as keyof typeof DIDMethodsConfig]?.issuerDid
   };
-  
+
+  credoPayload.credentials.forEach((c, i) => {
+    console.log(`[getOfferUrl] Credential ${i} claims:`, JSON.stringify(c.claimsTemplate?.credentialSubject));
+  });
+
   console.log('Sending credential offer payload:', JSON.stringify(credoPayload, null, 2));
-  
+
   // Resolve tenant token (localStorage preferred)
-  const runtimeTenantToken =
+  let runtimeTenantToken =
     typeof window !== 'undefined'
-      ? (window.localStorage.getItem('tenantToken') || window.localStorage.getItem('credoTenantToken'))
+      ? (window.localStorage.getItem('credoTenantToken') || window.localStorage.getItem('tenantToken'))
       : undefined;
+
+  // Filter out invalid string values
+  if (runtimeTenantToken === 'undefined' || runtimeTenantToken === 'null') {
+    runtimeTenantToken = undefined;
+  }
+
   const tenantToken = runtimeTenantToken || process.env.NEXT_PUBLIC_TENANT_TOKEN || '';
   if (!tenantToken) {
     throw new Error('Missing tenant token (NEXT_PUBLIC_TENANT_TOKEN or localStorage tenantToken). Cannot create credential offer.');

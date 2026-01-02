@@ -102,16 +102,23 @@ export class CredentialIssuanceService {
             }
             const openId4VcIssuer = issuers[0]
 
-            // Define type array for return value
-            const credentialType = ['VerifiableCredential', request.credentialType]
+            // Ensure we use the full credential configuration ID (e.g. ReceiptVC_jwt_vc_json)
+            // our startServer.js and Portal UI use this suffix by default.
+            let configId = request.credentialType
+            if (!configId.includes('_jwt_vc')) {
+                configId = `${configId}_jwt_vc_json`
+            }
 
             // Create credential offer using the Credo API
-            // NOTE: Credo uses offeredCredentials: string[] per OpenId4VciCreateCredentialOfferOptions
             const result = await baseModules.openId4VcIssuer.createCredentialOffer({
                 issuerId: openId4VcIssuer.issuerId,
-                offeredCredentials: request.credentialType,
+                offeredCredentials: [configId],
                 preAuthorizedCodeFlowConfig: {
                     userPinRequired: false,
+                    // Set detailed expiration for development testing (10 minutes)
+                    tokenStatusConfig: {
+                        accessTokenLifetimeInSeconds: 600,
+                    }
                 },
                 issuanceMetadata: {
                     claims: request.claims,
@@ -120,7 +127,6 @@ export class CredentialIssuanceService {
             })
 
             // Credo returns: { credentialOffer: string (the fully formed deep link), issuanceSession: ... }
-            // The credentialOffer string is like: "openid-credential-offer://?credential_offer_uri=http%3A%2F%2F..."
             const credentialOfferDeepLink = result.credentialOffer
             const issuanceSession = result.issuanceSession
 
@@ -130,11 +136,10 @@ export class CredentialIssuanceService {
                 const encodedUri = credentialOfferDeepLink.split('credential_offer_uri=')[1]
                 credentialOfferUri = decodeURIComponent(encodedUri)
             } else {
-                // Fallback for value-based offers or other formats
                 credentialOfferUri = credentialOfferDeepLink
             }
 
-            logger.info({ offerId: issuanceSession?.id, uri: credentialOfferUri?.slice(0, 100) }, 'Credential offer created')
+            logger.info({ offerId: issuanceSession?.id, uri: credentialOfferUri?.slice(0, 100), configId }, 'Credential offer created')
 
             return {
                 offerId: issuanceSession?.id || 'unknown',
@@ -142,7 +147,7 @@ export class CredentialIssuanceService {
                 credential_offer_uri: credentialOfferUri,
                 credential_offer_deeplink: credentialOfferDeepLink,
                 expiresAt: new Date(Date.now() + (request.expiresInMs || 3600000)).toISOString(),
-                credentialType,
+                credentialType: ['VerifiableCredential', request.credentialType.replace(/_jwt_vc(_json)?$/, '')],
             }
         } catch (e: any) {
             logger.error({ error: e.message, stack: e.stack, tenantId: request.tenantId }, 'Failed to create credential offer')

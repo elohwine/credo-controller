@@ -107,7 +107,15 @@ export class DatabaseManager {
       { version: 1, file: '001_create_stores.sql', name: 'create_stores' },
       { version: 2, file: '002_wallet_auth_tables.sql', name: 'wallet_auth_tables' },
       { version: 3, file: '003_create_workflows.sql', name: 'create_workflows' },
-      { version: 4, file: '004_add_credential_columns.sql', name: 'add_credential_columns' }
+      { version: 4, file: '004_add_credential_columns.sql', name: 'add_credential_columns' },
+      { version: 5, file: '005_create_catalog_items.sql', name: 'create_catalog_items' },
+      { version: 6, file: '006_create_carts.sql', name: 'create_carts' },
+      { version: 7, file: '007_create_trust_tables.sql', name: 'create_trust_tables' },
+      { version: 8, file: '008_create_escalations.sql', name: 'create_escalations' },
+      { version: 9, file: '009_create_payroll.sql', name: 'create_payroll' },
+      { version: 10, file: '010_create_onboarding.sql', name: 'create_onboarding' },
+      { version: 11, file: '011_create_audit_logs.sql', name: 'create_audit_logs' },
+      { version: 12, file: '012_create_operations.sql', name: 'create_operations' }
     ]
 
     for (const migration of migrationFiles) {
