@@ -38,18 +38,18 @@ export default function VerifyPage() {
         }
     }
 
-    if (loading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center">Verifying...</div>;
+    if (loading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><span style={{ color: '#2188CA' }}>Verifying...</span></div>;
     if (error) return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-red-600">{error}</div>;
     if (!result) return null;
 
     const isSuccess = result.status === 'valid';
 
     return (
-        <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="min-h-screen py-12 px-4 sm:px-6 lg:px-8 bg-gray-50">
             <Head>
-                <title>Credential Verification - Credo</title>
+                <title>Credential Verification - Credentis</title>
             </Head>
-            <div className="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden md:max-w-2xl">
+            <div className="max-w-md mx-auto bg-white rounded-xl shadow-lg border-t-4 overflow-hidden md:max-w-2xl" style={{ borderTopColor: '#2188CA' }}>
                 <div className="md:flex">
                     <div className="p-8 w-full">
                         <div className="flex items-center justify-between mb-6">
@@ -79,7 +79,7 @@ export default function VerifyPage() {
                             {result.subject && (
                                 <div className="border-t pt-4 mt-4">
                                     <h3 className="text-lg font-medium text-gray-900 mb-3">Credential Data</h3>
-                                    <div className="bg-gray-50 p-4 rounded text-sm space-y-2">
+                                    <div className="p-4 rounded text-sm space-y-2" style={{ backgroundColor: '#D0E6F3' }}>
                                         {Object.entries(result.subject).map(([key, value]: [string, any]) => (
                                             <div key={key} className="flex justify-between">
                                                 <span className="text-gray-500 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}:</span>

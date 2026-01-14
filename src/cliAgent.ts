@@ -267,14 +267,24 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
       agent.config.logger.warn('No credential definitions found. Issuer will have empty metadata.')
     }
 
-    // Build credentialsSupported from ALL definitions
-    const credentialsSupported = allDefs.map((def) => ({
-      format: def.format === 'sd_jwt' ? 'vc+sd-jwt' : 'jwt_vc_json',
-      id: `${def.name}_jwt_vc_json`,
-      cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
-      cryptographic_suites_supported: ['EdDSA', 'ES256'],
-      types: def.credentialType || ['VerifiableCredential', def.name],
-    }))
+    // Build credentialsSupported from ALL definitions.
+    // IMPORTANT: advertise both definition-name IDs (e.g., FinancialStatementDef_jwt_vc_json)
+    // and leaf-type IDs (e.g., FinancialStatementCredential_jwt_vc_json) for compatibility.
+    const credentialsSupported = allDefs.flatMap((def) => {
+      const leafType = Array.isArray(def.credentialType) && def.credentialType.length
+        ? def.credentialType[def.credentialType.length - 1]
+        : def.name
+
+      const idBases = Array.from(new Set([def.name, leafType].filter(Boolean)))
+
+      return idBases.map((base) => ({
+        format: def.format === 'sd_jwt' ? 'vc+sd-jwt' : 'jwt_vc_json',
+        id: `${base}_jwt_vc_json`,
+        cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
+        cryptographic_suites_supported: ['EdDSA', 'ES256'],
+        types: def.credentialType || ['VerifiableCredential', base],
+      }))
+    })
 
     const displayMetadata = [
       {

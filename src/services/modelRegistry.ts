@@ -286,5 +286,48 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
       },
       'jwt_vc_json'
     )
+
+    // --- HR / Employment VCs ---
+
+    const employmentContractSchemaId = ensureSchema('EmploymentContractVC', '1.0.0', {
+      $id: 'EmploymentContractVC-1.0.0',
+      type: 'object',
+      required: ['credentialSubject'],
+      properties: {
+        credentialSubject: {
+          type: 'object',
+          required: ['employeeId', 'name', 'employer', 'startDate'],
+          properties: {
+            employeeId: { type: 'string' },
+            name: { type: 'string' },
+            role: { type: 'string' },
+            department: { type: 'string' },
+            employer: { type: 'string' },
+            startDate: { type: 'string', format: 'date-time' },
+            salary: { type: 'string' },
+            contractType: { type: 'string' }
+          }
+        }
+      }
+    })
+
+    registerDef(
+      'EmploymentContractVC',
+      '1.0.0',
+      employmentContractSchemaId,
+      ['VerifiableCredential', 'EmploymentContractVC'],
+      {
+        credentialSubject: {
+          employeeId: 'EMP-001',
+          name: 'John Doe',
+          role: 'Software Engineer',
+          department: 'Engineering',
+          employer: 'Credo Demo Corp',
+          startDate: new Date().toISOString(),
+          contractType: 'Full-time'
+        },
+      },
+      'jwt_vc_json'
+    )
   })
 }

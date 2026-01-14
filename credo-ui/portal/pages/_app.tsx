@@ -1,8 +1,14 @@
 import React from "react";
 import axios from "axios";
 import "@/styles/globals.css";
+import '@mantine/core/styles.css';
+import '@mantine/notifications/styles.css';
+import '@mantine/dates/styles.css';
 import type { AppProps } from "next/app";
 import { AvailableCredential } from "@/types/credentials";
+import { MantineProvider, ColorSchemeScript } from '@mantine/core';
+import { Notifications } from '@mantine/notifications';
+import { credentisTheme } from '@/lib/theme/credentis-theme';
 
 import Layout from "@/components/Layout";
 
@@ -123,38 +129,66 @@ export default function App({ Component, pageProps }: AppProps) {
   React.useEffect(() => {
     setLoading(true);
     axios.get('/api/env')
-      .then((response) => {
+      .then(async (response) => {
         if (response.data.hasOwnProperty('NEXT_PUBLIC_VC_REPO')) {
           setEnv(response.data);
 
-          // Fetch credentials with error handling
-          axios
-            .get(`${response.data.NEXT_PUBLIC_VC_REPO}/api/list`)
-            .then((credentials) => {
-              credentials.data.forEach((credential: string) => {
-                axios
-                  .get(
-                    `${response.data.NEXT_PUBLIC_VC_REPO}/api/vc/${credential}`
-                  )
-                  .then((data) => {
-                    setAvailableCredentials((prev) => [
-                      ...prev,
-                      {
-                        id: credential,
-                        title: credential,
-                        offer: data.data,
-                      },
-                    ]);
-                  })
-                  .catch((err) => {
-                    console.warn(`Failed to load credential ${credential}:`, err.message);
-                  });
-              });
-            })
-            .catch((err) => {
-              console.warn('Failed to load credentials list:', err.message);
-              setError('Could not load credentials. Backend may be offline.');
+          try {
+            const credoBackend = response.data.NEXT_PUBLIC_VC_REPO;
+            const apiKey = process.env.NEXT_PUBLIC_CREDO_API_KEY || 'test-api-key-12345';
+
+            // Get root token
+            const rootTokenRes = await axios.post(
+              `${credoBackend}/agent/token`,
+              {},
+              { headers: { Authorization: apiKey } }
+            );
+            const rootToken = rootTokenRes.data.token;
+
+            // Get or create tenant
+            let tenantId = localStorage.getItem('credoTenantId');
+            let tenantToken: string;
+
+            if (!tenantId || tenantId === 'undefined' || tenantId === 'null') {
+              const createRes = await axios.post(
+                `${credoBackend}/multi-tenancy/create-tenant`,
+                { config: { label: 'Portal Tenant' }, baseUrl: credoBackend },
+                { headers: { Authorization: `Bearer ${rootToken}` } }
+              );
+              tenantId = createRes.data.tenantId;
+              tenantToken = createRes.data.token;
+              if (tenantId) localStorage.setItem('credoTenantId', tenantId);
+              if (tenantToken) localStorage.setItem('credoTenantToken', tenantToken);
+            } else {
+              const tokenRes = await axios.post(
+                `${credoBackend}/multi-tenancy/get-token/${tenantId}`,
+                {},
+                { headers: { Authorization: `Bearer ${rootToken}` } }
+              );
+              tenantToken = tokenRes.data.token;
+              if (tenantToken) localStorage.setItem('credoTenantToken', tenantToken);
+            }
+
+            // Fetch credential definitions from the modern endpoint
+            const defsRes = await axios.get(`${credoBackend}/oidc/credential-definitions`, {
+              headers: { Authorization: `Bearer ${tenantToken}` },
             });
+
+            const defs: any[] = Array.isArray(defsRes.data) ? defsRes.data : [];
+            const credentials = defs.map((def) => ({
+              id: def.name || def.credentialDefinitionId,
+              title: def.name || def.credentialDefinitionId,
+              offer: {
+                credentialType: def.credentialType || [],
+                claimsTemplate: def.claimsTemplate || {},
+              },
+            }));
+
+            setAvailableCredentials(credentials);
+          } catch (err: any) {
+            console.warn('Failed to load credentials:', err.message);
+            setError('Could not load credentials. Backend may be offline.');
+          }
         } else {
           setError('Environment configuration is incomplete. Please check .env.local file.');
         }
@@ -174,76 +208,79 @@ export default function App({ Component, pageProps }: AppProps) {
   }, []);
 
   return (
-    <EnvContext.Provider value={env}>
-      <CredentialsContext.Provider
-        value={[AvailableCredentials, setAvailableCredentials]}
-      >
-        {error && (
-          <div
-            style={{
-              position: 'fixed',
-              top: '20px',
-              right: '20px',
-              backgroundColor: '#ef4444',
-              color: 'white',
-              padding: '16px 24px',
-              borderRadius: '8px',
-              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-              zIndex: 9999,
-              maxWidth: '400px',
-              display: 'flex',
-              alignItems: 'start',
-              gap: '12px'
-            }}
-          >
-            <span style={{ fontSize: '20px' }}>⚠️</span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Connection Error</div>
-              <div style={{ fontSize: '14px' }}>{error}</div>
-            </div>
-            <button
-              onClick={() => setError(null)}
+    <MantineProvider theme={credentisTheme} defaultColorScheme="light">
+      <Notifications position="top-right" />
+      <EnvContext.Provider value={env}>
+        <CredentialsContext.Provider
+          value={[AvailableCredentials, setAvailableCredentials]}
+        >
+          {error && (
+            <div
               style={{
-                background: 'transparent',
-                border: 'none',
+                position: 'fixed',
+                top: '20px',
+                right: '20px',
+                backgroundColor: '#ef4444',
                 color: 'white',
-                cursor: 'pointer',
-                fontSize: '20px',
-                padding: '0',
-                lineHeight: '1'
+                padding: '16px 24px',
+                borderRadius: '8px',
+                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                zIndex: 9999,
+                maxWidth: '400px',
+                display: 'flex',
+                alignItems: 'start',
+                gap: '12px'
               }}
             >
-              ×
-            </button>
-          </div>
-        )}
+              <span style={{ fontSize: '20px' }}>⚠️</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Connection Error</div>
+                <div style={{ fontSize: '14px' }}>{error}</div>
+              </div>
+              <button
+                onClick={() => setError(null)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontSize: '20px',
+                  padding: '0',
+                  lineHeight: '1'
+                }}
+              >
+                ×
+              </button>
+            </div>
+          )}
 
-        {loading && !error && (
-          <div
-            style={{
-              position: 'fixed',
-              top: '20px',
-              right: '20px',
-              backgroundColor: '#3b82f6',
-              color: 'white',
-              padding: '12px 20px',
-              borderRadius: '8px',
-              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-              zIndex: 9999,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px'
-            }}
-          >
-            <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-            <span>Connecting to backend...</span>
-          </div>
-        )}
+          {loading && !error && (
+            <div
+              style={{
+                position: 'fixed',
+                top: '20px',
+                right: '20px',
+                backgroundColor: '#3b82f6',
+                color: 'white',
+                padding: '12px 20px',
+                borderRadius: '8px',
+                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                zIndex: 9999,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}
+            >
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+              <span>Connecting to backend...</span>
+            </div>
+          )}
 
-        <Layout>
-          <Component {...pageProps} />
-        </Layout>
-      </CredentialsContext.Provider>
-    </EnvContext.Provider>
+          <Layout>
+            <Component {...pageProps} />
+          </Layout>
+        </CredentialsContext.Provider>
+      </EnvContext.Provider>
+    </MantineProvider>
   );
 }

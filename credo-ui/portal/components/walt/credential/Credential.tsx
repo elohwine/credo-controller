@@ -1,6 +1,10 @@
+/**
+ * Credential - Mantine-based credential card with Credentis branding
+ */
+
 'use client';
 
-import WaltIcon from "@/components/walt/logo/WaltIcon";
+import { Paper, Text, Image, Box } from '@mantine/core';
 
 type Props = {
   id: string;
@@ -17,33 +21,45 @@ export default function Credential({
   selected = false,
   onClick,
 }: Props) {
-  const blueDark = 'bg-gradient-to-r from-primary-400 to-primary-600 z-[-2]';
-  const blueLight = 'bg-gradient-to-r from-primary-700 to-primary-900 z-[-2]';
-
   return (
-    <div onClick={() => onClick(id)}>
-      <div
-        className={`${
-          selected ? 'drop-shadow-2xl' : 'drop-shadow-sm'
-        } flex flex-col
-         rounded-xl py-7 px-8 text-gray-100 h-[225px] w-[360px] cursor-pointer overflow-hidden ${
-           selected ? blueLight : blueDark
-         }`}
-      >
-        <div className="flex flex-row">
-          {selected ? (
-            <WaltIcon height={35} width={35} outline type="white" />
-          ) : (
-            <WaltIcon height={35} width={35} outline type="white" />
-          )}
-        </div>
-        <div className="mb-8 mt-12">
-          <h6 className={'text-2xl font-bold '}>
-            {title.length > 20 ? title.substring(0, 20) + '...' : title}
-          </h6>
-          <span>{description}</span>
-        </div>
-      </div>
-    </div>
+    <Paper
+      onClick={() => onClick(id)}
+      p="xl"
+      radius="lg"
+      style={{
+        width: 360,
+        height: 225,
+        cursor: 'pointer',
+        background: selected
+          ? 'linear-gradient(135deg, var(--mantine-color-credentis-6) 0%, var(--mantine-color-credentis-8) 100%)'
+          : 'linear-gradient(135deg, var(--mantine-color-credentis-5) 0%, var(--mantine-color-credentis-7) 100%)',
+        boxShadow: selected
+          ? '0 20px 40px rgba(33, 136, 202, 0.3)'
+          : '0 4px 12px rgba(0, 0, 0, 0.1)',
+        transition: 'all 0.2s ease',
+        transform: selected ? 'scale(1.02)' : 'scale(1)',
+      }}
+    >
+      <Box>
+        <Image
+          src="/credentis-logo.png"
+          alt="Credentis"
+          h={35}
+          w="auto"
+          fit="contain"
+          style={{ filter: 'brightness(0) invert(1)' }}
+        />
+      </Box>
+      <Box mt="xl" pt="md">
+        <Text size="xl" fw={700} c="white">
+          {title.length > 20 ? title.substring(0, 20) + '...' : title}
+        </Text>
+        {description && (
+          <Text size="sm" c="white" opacity={0.8} mt="xs">
+            {description}
+          </Text>
+        )}
+      </Box>
+    </Paper>
   );
 }

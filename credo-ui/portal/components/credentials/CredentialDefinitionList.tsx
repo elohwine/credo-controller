@@ -20,6 +20,12 @@ interface CredentialDefinitionListProps {
 const groupByType = (defs: CredentialDefinition[]) => {
   const groups: Record<string, CredentialDefinition[]> = {};
   
+  // Safety check: ensure defs is an array
+  if (!Array.isArray(defs)) {
+    console.warn('Expected definitions to be an array, received:', typeof defs);
+    return groups;
+  }
+  
   defs.forEach(def => {
     // Use the last credentialType (most specific) as the group key
     const typeKey = def.credentialType[def.credentialType.length - 1] || 'Unknown';
@@ -61,10 +67,10 @@ const typeMetadata: Record<string, { label: string; colorClass: string; iconBg: 
   },
 };
 
-const CredentialDefinitionList: React.FC<CredentialDefinitionListProps> = ({ definitions }) => {
-  const grouped = groupByType(definitions);
+const CredentialDefinitionList: React.FC<CredentialDefinitionListProps> = ({ definitions = [] }) => {
+  const grouped = groupByType(definitions || []);
   
-  if (definitions.length === 0) {
+  if (!definitions || definitions.length === 0) {
     return (
       <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
         <p className="text-gray-500 text-lg">No credential definitions available.</p>

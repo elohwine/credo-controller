@@ -138,10 +138,10 @@ export class ReportingService {
             generatedAt: statement.generatedAt
         }
 
-        // We use the 'FinancialStatementCredential' schema
+        // We use the 'FinancialStatementDef' schema (matches DB entry)
         const result = await credentialIssuanceService.createOffer({
             tenantId,
-            credentialType: 'FinancialStatementCredential',
+            credentialType: 'FinancialStatementDef',
             claims: credentialSubject
         })
 

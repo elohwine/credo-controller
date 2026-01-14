@@ -1,146 +1,88 @@
-import CustomCredentialModal from "@/components/walt/modal/CustomCredentialModal";
-import {MagnifyingGlassIcon} from "@heroicons/react/24/outline";
-import Credential from "@/components/walt/credential/Credential";
-import {AvailableCredential} from "@/types/credentials";
-import Button from "@/components/walt/button/Button";
-import {CredentialsContext} from "@/pages/_app";
-import {Inter} from "next/font/google";
-import React, {useState} from "react";
-import {useRouter} from "next/router";
-
-const inter = Inter({ subsets: ['latin'] });
-
-type CredentialToIssue = AvailableCredential & {
-  selected: boolean;
-};
+import React from 'react';
+import Layout from '@/components/Layout';
+import { ActionCard } from '@/components/dashboard/ActionCard';
+import { Container, Title, SimpleGrid, Box, Text, Divider } from '@mantine/core';
+import {
+    IconBuildingStore,
+    IconCoin,
+    IconPackage,
+    IconChartBar,
+    IconUsers,
+    IconUserPlus,
+    IconCash,
+    IconCertificate,
+    IconFileCheck,
+    IconGitBranch,
+    IconStars,
+    IconShieldOff,
+    IconBrandWhatsapp,
+} from '@tabler/icons-react';
 
 export default function Home() {
-  const [AvailableCredentials] = React.useContext(CredentialsContext);
-  const router = useRouter();
+    return (
+        <Layout title="Dashboard">
+            <Container size="xl" py="xl">
+                <Box mb="xl">
+                    <Title order={2} size="h1" mb="sm" fw={900}>Welcome to Credentis</Title>
+                    <Text c="dimmed" size="lg">Select a module to manage your verifiable commerce operations.</Text>
+                </Box>
 
-  const [credentialsToIssue, setCredentialsToIssue] = useState<
-    CredentialToIssue[]
-  >(prepareCredentialsToIssue);
-  const [searchTerm, setSearchTerm] = useState<string>('');
-  const [modalVisible, setModalVisible] = useState(false);
+                {/* Core Modules - Prominent */}
+                <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="lg" mb={50}>
+                     <ActionCard 
+                        title="Credentials" 
+                        description="Manage credential definitions and schemas"
+                        icon={IconCertificate} 
+                        href="/credential-models"
+                    />
+                    <ActionCard 
+                        title="Issue / Verify" 
+                        description="Issue credentials to wallets or verify presentations"
+                        icon={IconFileCheck} 
+                        href="/select-credentials"
+                    />
+                    <ActionCard 
+                        title="Workflows" 
+                        description="Monitor automated business processes"
+                        icon={IconGitBranch} 
+                        href="/workflows"
+                    />
+                </SimpleGrid>
 
-  const showButton = credentialsToIssue.some((cred) => cred.selected);
-  const credentials = !searchTerm
-    ? credentialsToIssue
-    : credentialsToIssue.filter((credential) => {
-        return credential.title
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase());
-      });
+                <Divider my="xl" label="Modules" labelPosition="center" />
+                
+                {/* Business */}
+                <Box mb="xl">
+                    <Title order={4} mb="md" c="dimmed" tt="uppercase" size="sm" fw={700}>Business Operations</Title>
+                    <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }} spacing="lg">
+                        <ActionCard title="Catalog" description="Products & services" icon={IconBuildingStore} href="/catalog" />
+                        <ActionCard title="Finance" description="Reports & statements" icon={IconCoin} href="/finance" />
+                        <ActionCard title="Inventory" description="Stock management" icon={IconPackage} href="/inventory/dashboard" />
+                        <ActionCard title="Metrics" description="System analytics" icon={IconChartBar} href="/metrics" />
+                    </SimpleGrid>
+                </Box>
 
-  function prepareCredentialsToIssue(): CredentialToIssue[] {
-    return AvailableCredentials.map((cred: AvailableCredential) => {
-      return {
-        ...cred,
-        selected: false,
-      };
-    });
-  }
+                {/* People */}
+                <Box mb="xl">
+                    <Title order={4} mb="md" c="dimmed" tt="uppercase" size="sm" fw={700}>People & HR</Title>
+                    <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="lg">
+                        <ActionCard title="HR Ops" description="Staff management" icon={IconUsers} href="/hr/operations" />
+                        <ActionCard title="Onboarding" description="New employee setup" icon={IconUserPlus} href="/onboarding" />
+                        <ActionCard title="Payroll" description="Salary & compensation" icon={IconCash} href="/payroll" />
+                    </SimpleGrid>
+                </Box>
 
-  React.useEffect(() => {
-    setCredentialsToIssue(prepareCredentialsToIssue);
-  }, [AvailableCredentials]);
+                {/* Trust */}
+                <Box>
+                    <Title order={4} mb="md" c="dimmed" tt="uppercase" size="sm" fw={700}>Trust & Security</Title>
+                    <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="lg">
+                        <ActionCard title="Trust Scores" description="Reputation management" icon={IconStars} href="/trust" />
+                        <ActionCard title="Revocation" description="Manage invalid credentials" icon={IconShieldOff} href="/revocation" />
+                        <ActionCard title="WhatsApp" description="Commerce integration" icon={IconBrandWhatsapp} href="/whatsapp" />
+                    </SimpleGrid>
+                </Box>
 
-  function getIdsForCredentialsToIssue() {
-    const ids: string[] = [];
-    credentialsToIssue.forEach((cred) => {
-      if (cred.selected) {
-        ids.push(cred.id);
-      }
-    });
-
-    return ids;
-  }
-
-  function handleCredentialSelect(id: string) {
-    const updatedCreds = credentialsToIssue.map((cred) => {
-      if (cred.id === id) {
-        return {
-          ...cred,
-          selected: !cred.selected,
-        };
-      } else {
-        return cred;
-      }
-    });
-
-    setCredentialsToIssue(updatedCreds);
-  }
-
-  function handleStartIssuance() {
-    const idsToIssue = getIdsForCredentialsToIssue();
-
-    const params = new URLSearchParams();
-    params.append('ids', idsToIssue.join(','));
-
-    router.push(`/credentials?${params.toString()}`);
-  }
-
-  function handleSearchTermChange(e: any) {
-    const value = e.target.value;
-    setSearchTerm(value);
-  }
-
-  return (
-    <div>
-      <div className="flex flex-col justify-center items-center mt-10">
-        <h1 className="text-4xl font-bold text-primary-900 text-center mt-5">
-          IdenEx Portal
-        </h1>
-        <p className="mt-4 text-lg text-primary-900">
-          Select Credential(s) to issue or verify
-        </p>
-      </div>
-      <main className="flex flex-col items-center gap-5 justify-between mt-16 md:w-[740px] m-auto">
-        <div className="flex flex-row gap-5 w-full px-5">
-          <div className="flex flex-row w-full border-b border-b-1 border-gray-200">
-            <MagnifyingGlassIcon className="h-6 mt-3 text-gray-500" />
-            <input
-              type="text"
-              className="w-full mt-1 border-none outline-none focus:ring-0 bg-gray-50"
-              onChange={handleSearchTermChange}
-            />
-          </div>
-          {/* Commented out for now, because of oidc credentialConfigurationId introduction */}
-          {/* <Button size='sm' onClick={() => { setModalVisible(true); }}>Custom Credential</Button> */}
-        </div>
-        {credentials.length === 0 && (
-          <div className="w-full mt-10 text-center">
-            No Credential with that name.
-          </div>
-        )}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-y-10 gap-x-5 mt-10">
-          {credentials.map(({ id, title, selected }) => (
-            <Credential
-              id={id}
-              title={title}
-              selected={selected}
-              onClick={handleCredentialSelect}
-              key={id}
-            />
-          ))}
-        </div>
-      </main>
-      <Button
-        className={`transition-all duration-700 ease-in-out fixed ${
-          !showButton && '-translate-y-20'
-        } top-5 right-5 left-0`}
-        size="lg"
-        onClick={handleStartIssuance}
-      >
-        Start
-      </Button>
-      <CustomCredentialModal
-        show={modalVisible}
-        onClose={() => {
-          setModalVisible(!modalVisible);
-        }}
-      />
-    </div>
-  );
+            </Container>
+        </Layout>
+    );
 }

@@ -8,6 +8,12 @@ const config: Config = {
   ],
   theme: {
     colors: {
+      brand: {
+        curious: '#2188CA',
+        linkWater: '#D0E6F3',
+        viking: '#6FB4DC',
+        cornflower: '#88C4E3',
+      },
       primary: {
         50: '#E6F6FF',
         100: '#BAE3FF',

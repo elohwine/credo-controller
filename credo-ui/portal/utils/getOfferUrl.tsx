@@ -1,6 +1,7 @@
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
 import { AvailableCredential, CredentialFormats, DIDMethods, DIDMethodsConfig } from "@/types/credentials";
+import { ensurePortalTenant } from "@/utils/portalTenant";
 
 const getOfferUrl = async (
   credentials: Array<AvailableCredential>,
@@ -15,11 +16,19 @@ const getOfferUrl = async (
     typeof window !== 'undefined'
       ? (window.localStorage.getItem('tenantId') || window.localStorage.getItem('credoTenantId'))
       : undefined;
-  const tenantId = runtimeTenantId || process.env.NEXT_PUBLIC_TENANT_ID || 'default';
+  let tenantId = runtimeTenantId || process.env.NEXT_PUBLIC_TENANT_ID;
   console.log('Resolved tenantId:', tenantId, 'from runtime:', runtimeTenantId, 'env:', process.env.NEXT_PUBLIC_TENANT_ID);
 
-  if (!tenantId || tenantId === 'default') {
-    throw new Error('No valid tenant ID found. Please refresh the page to initialize tenant authentication.');
+  // If we don't have a tenantId yet, initialize one on-demand.
+  if (!tenantId || tenantId === 'undefined' || tenantId === 'null') {
+    try {
+      const auth = await ensurePortalTenant(NEXT_PUBLIC_VC_REPO)
+      tenantId = auth.tenantId
+    } catch (e: any) {
+      throw new Error(
+        `No valid tenant ID found and auto-initialization failed. Please refresh the page. (${e?.message || 'unknown error'})`
+      )
+    }
   }
 
   // Fetch OpenID issuer metadata from Credo backend (fail safe)
@@ -33,6 +42,18 @@ const getOfferUrl = async (
   } catch (e: any) {
     console.warn("Failed to fetch issuer metadata", e?.message);
     data = {};
+  }
+
+  // Try a non-tenant well-known as fallback (some deployments don't mount /tenants/:id)
+  if (!data?.credential_configurations_supported) {
+    try {
+      const fallbackUrl = `${NEXT_PUBLIC_ISSUER}/.well-known/openid-credential-issuer`
+      console.log('Fetching metadata fallback from:', fallbackUrl)
+      const resp = await fetch(fallbackUrl)
+      data = await resp.json()
+    } catch {
+      // ignore
+    }
   }
   const credential_configurations_supported: Record<string, any> =
     data?.credential_configurations_supported || {};

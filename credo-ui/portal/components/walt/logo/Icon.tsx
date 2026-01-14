@@ -9,8 +9,8 @@ type Props = {
 export default function WaltIcon({ width, height, className }: Props) {
   return (
     <Image
-      src="/logo.svg"
-      alt="Logo"
+      src="/credentis-logo.png"
+      alt="Credentis"
       width={width}
       height={height}
       className={className}

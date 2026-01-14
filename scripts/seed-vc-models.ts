@@ -285,6 +285,103 @@ async function main() {
         },
       },
     },
+    // ========== INVENTORY VC SCHEMAS (Phase 1 Extension) ==========
+    {
+      name: 'GoodsReceivedVC',
+      version: '1.0.0',
+      jsonSchema: {
+        $id: 'GoodsReceivedVC-1.0.0',
+        type: 'object',
+        required: ['credentialSubject'],
+        properties: {
+          credentialSubject: {
+            type: 'object',
+            required: ['eventId', 'lotId', 'catalogItemId', 'quantity', 'eventHash', 'receivedAt'],
+            properties: {
+              eventId: { type: 'string' },
+              lotId: { type: 'string' },
+              catalogItemId: { type: 'string' },
+              quantity: { type: 'number' },
+              unitCost: { type: 'number' },
+              currency: { type: 'string' },
+              supplierId: { type: 'string' },
+              supplierInvoiceRef: { type: 'string' },
+              locationId: { type: 'string' },
+              lotNumber: { type: 'string' },
+              serialNumber: { type: 'string' },
+              barcode: { type: 'string' },
+              eventHash: { type: 'string' },
+              prevEventHash: { type: 'string' },
+              sequenceNumber: { type: 'number' },
+              receivedAt: { type: 'string', format: 'date-time' }
+            },
+          },
+        },
+      },
+    },
+    {
+      name: 'SaleFulfillmentVC',
+      version: '1.0.0',
+      jsonSchema: {
+        $id: 'SaleFulfillmentVC-1.0.0',
+        type: 'object',
+        required: ['credentialSubject'],
+        properties: {
+          credentialSubject: {
+            type: 'object',
+            required: ['receiptId', 'fulfillments', 'eventHashes', 'fulfilledAt'],
+            properties: {
+              receiptId: { type: 'string' },
+              transactionId: { type: 'string' },
+              fulfillments: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    lotId: { type: 'string' },
+                    lotNumber: { type: 'string' },
+                    serialNumber: { type: 'string' },
+                    quantity: { type: 'number' },
+                    unitCost: { type: 'number' },
+                    eventHash: { type: 'string' }
+                  }
+                }
+              },
+              totalItems: { type: 'number' },
+              eventHashes: { type: 'array', items: { type: 'string' } },
+              fulfilledAt: { type: 'string', format: 'date-time' }
+            },
+          },
+        },
+      },
+    },
+    {
+      name: 'StockTransferVC',
+      version: '1.0.0',
+      jsonSchema: {
+        $id: 'StockTransferVC-1.0.0',
+        type: 'object',
+        required: ['credentialSubject'],
+        properties: {
+          credentialSubject: {
+            type: 'object',
+            required: ['transferId', 'fromLocationId', 'toLocationId', 'catalogItemId', 'quantity', 'eventHash'],
+            properties: {
+              transferId: { type: 'string' },
+              lotId: { type: 'string' },
+              catalogItemId: { type: 'string' },
+              fromLocationId: { type: 'string' },
+              toLocationId: { type: 'string' },
+              quantity: { type: 'number' },
+              eventHash: { type: 'string' },
+              prevEventHash: { type: 'string' },
+              reason: { type: 'string' },
+              transferredAt: { type: 'string', format: 'date-time' }
+            },
+          },
+        },
+      },
+    },
   ]
 
   const registeredSchemas: Record<string, RegisteredSchema> = {}
@@ -454,6 +551,66 @@ async function main() {
           type: 'StatusList2021',
           statusPurpose: 'revocation',
           encodedList: 'H4sIAAAAAAAAA-3BMQEAAADCoPVPbQwfoAAAAAAAAAAAAAAAAAAAAIC3AYbSVKsAQAAA',
+        },
+      },
+    },
+    // ========== INVENTORY CREDENTIAL DEFINITIONS (Phase 1 Extension) ==========
+    {
+      name: 'GoodsReceivedDef',
+      version: '1.0.0',
+      schemaName: 'GoodsReceivedVC',
+      credentialType: ['VerifiableCredential', 'GoodsReceivedVC'],
+      claimsTemplate: {
+        credentialSubject: {
+          eventId: 'EVT-sample',
+          lotId: 'LOT-sample',
+          catalogItemId: 'ITM-sample',
+          quantity: 100,
+          unitCost: 10.00,
+          currency: 'USD',
+          supplierId: 'supplier-001',
+          supplierInvoiceRef: 'INV-001',
+          locationId: 'LOC-001',
+          eventHash: 'sha256-hash',
+          sequenceNumber: 1,
+          receivedAt: new Date().toISOString()
+        },
+      },
+    },
+    {
+      name: 'SaleFulfillmentDef',
+      version: '1.0.0',
+      schemaName: 'SaleFulfillmentVC',
+      credentialType: ['VerifiableCredential', 'SaleFulfillmentVC'],
+      claimsTemplate: {
+        credentialSubject: {
+          receiptId: 'RCP-sample',
+          transactionId: 'TX-sample',
+          fulfillments: [
+            { lotId: 'LOT-001', quantity: 5, eventHash: 'sha256-hash' }
+          ],
+          totalItems: 5,
+          eventHashes: ['sha256-hash'],
+          fulfilledAt: new Date().toISOString()
+        },
+      },
+    },
+    {
+      name: 'StockTransferDef',
+      version: '1.0.0',
+      schemaName: 'StockTransferVC',
+      credentialType: ['VerifiableCredential', 'StockTransferVC'],
+      claimsTemplate: {
+        credentialSubject: {
+          transferId: 'TRF-sample',
+          lotId: 'LOT-001',
+          catalogItemId: 'ITM-001',
+          fromLocationId: 'LOC-001',
+          toLocationId: 'LOC-002',
+          quantity: 50,
+          eventHash: 'sha256-hash',
+          reason: 'Stock redistribution',
+          transferredAt: new Date().toISOString()
         },
       },
     },

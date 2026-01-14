@@ -28,35 +28,48 @@ export function buildIssuerMetadata(input: IssuerMetadataInput) {
         // Support multiple common formats for each definition
         const formats = ['jwt_vc', 'jwt_vc_json']
 
-        formats.forEach(format => {
-          const configId = `${def.name}_${format}`
-          credentialConfigurations[configId] = {
-            format: format,
-            scope: def.name,
-            cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
-            credential_signing_alg_values_supported: ['EdDSA', 'ES256'],
-            proof_types_supported: {
-              jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] },
-            },
-            credential_definition: {
-              type: def.credentialType || ['VerifiableCredential', def.name],
-            },
-            display: [
-              {
-                name: def.name,
-                locale: 'en-US',
-              },
-            ],
-          }
+        // Some parts of the codebase (and some clients) reference credential configuration IDs
+        // by the *credential definition name* (e.g., FinancialStatementDef_jwt_vc_json), while
+        // others reference by the *leaf VC type* (e.g., FinancialStatementCredential_jwt_vc_json).
+        // To avoid hard-to-debug 500s during offer creation, we advertise BOTH.
+        const leafType = Array.isArray(def.credentialType) && def.credentialType.length
+          ? def.credentialType[def.credentialType.length - 1]
+          : def.name
+        const idBases = Array.from(new Set([def.name, leafType].filter(Boolean)))
 
-          // Also populate Draft 11 credentials_supported array for native module compatibility
-          credentialsSupported.push({
-            id: configId,
-            format: format,
-            types: def.credentialType || ['VerifiableCredential', def.name],
-            cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
-            cryptographic_suites_supported: ['EdDSA', 'ES256'],
-            display: [{ name: def.name }],
+        formats.forEach((format) => {
+          idBases.forEach((base) => {
+            const configId = `${base}_${format}`
+            if (!credentialConfigurations[configId]) {
+              credentialConfigurations[configId] = {
+                format: format,
+                scope: base,
+                cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
+                credential_signing_alg_values_supported: ['EdDSA', 'ES256'],
+                proof_types_supported: {
+                  jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] },
+                },
+                credential_definition: {
+                  type: def.credentialType || ['VerifiableCredential', base],
+                },
+                display: [
+                  {
+                    name: base,
+                    locale: 'en-US',
+                  },
+                ],
+              }
+            }
+
+            // Also populate Draft 11 credentials_supported array for native module compatibility
+            credentialsSupported.push({
+              id: configId,
+              format: format,
+              types: def.credentialType || ['VerifiableCredential', base],
+              cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
+              cryptographic_suites_supported: ['EdDSA', 'ES256'],
+              display: [{ name: base }],
+            })
           })
         })
       })

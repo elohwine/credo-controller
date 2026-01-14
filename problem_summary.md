@@ -1,38 +1,27 @@
-# Problem Summary: Reporting Verification FK Failure
+# Problem Summary: Reporting Verification - RESOLVED ✅
 
-## Issue
-The `scripts/verify-reporting.ts` script fails with `FOREIGN KEY constraint failed` when attempting to seed data for the Financial Reporting test.
+## Issue (FIXED)
+The `scripts/verify-reporting.ts` script failed with `FOREIGN KEY constraint failed` when attempting to seed data for the Financial Reporting test.
 
-## Error Detail
+## Root Cause
+1. **FK cleanup order**: The script deleted `payroll_runs` before `payslips`, violating FK constraint since `payslips.run_id` references `payroll_runs.id`
+2. **FK pragma missing**: The script's database connection didn't enable `PRAGMA foreign_keys = ON`
+3. **Credential naming mismatch**: `ReportingService` requested `'FinancialStatementCredential'` but DB had `'FinancialStatementDef'`
+
+## Resolution
+1. ✅ Added `database.pragma('foreign_keys = ON')` to match app behavior
+2. ✅ Fixed cleanup order: `payslips -> expense_claims -> payroll_runs -> employees -> carts`
+3. ✅ Updated `ReportingService.ts` to use `'FinancialStatementDef'` credential type
+4. ✅ Verification now passes end-to-end:
+   - Seeds Revenue ($1000), Payroll ($500), Operations ($100)
+   - Generates Income Statement with correct calculations (Net Income = $400)
+   - Creates Credential Offer for FinancialStatementDef VC
+
+## Verification Output
 ```
-🚀 Starting Financial Reporting Verification...
-1. Seeding Financial Data...
-❌ Verification Failed: FOREIGN KEY constraint failed
+🎉 Financial Reporting Verified Successfully!
+   ✅ Income Statement Calculations Correct
+   ✅ Offer Created: http://127.0.0.1:3000/oidc/issuer/...
 ```
 
-## Context
-- The script attempts to seed:
-    1. `carts` (Revenue)
-    2. `employees` (Seed data for expense FK)
-    3. `payroll_runs` (Wages expense)
-    4. `expense_claims` (Operations expense - **Failed Step**)
-
-- **Root Cause Analysis**:
-    - The `expense_claims` table has a Foreign Key to `employees(id)`.
-    - Although the script inserts an employee before inserting the claim, the constraint still fails.
-    - Speculation: 
-        - The transaction might not be committed visible to the next statement immediately if using the same connection in a weird state (unlikely with synchronous `better-sqlite3`).
-        - The `tenant_id` might be mismatched or the `employee_id` inserted doesn't exactly match the one being used (checked, seemed correct).
-        - **Potential Hidden FK**: The `carts` insertion might also be triggering a missing `merchant_id` check if `carts` references specific merchant tables not seen in `006_create_carts.sql` (but `006` usually doesn't enforce merchant FK).
-        - **Dirty State**: Despite `DELETE` statements, a `WAL` file or open connections might be locking/confusing the state.
-
-## Tasks at Hand
-1.  **Debug FK Violation**:
-    -   Verify strict Schema for `carts`, `employees`, `payroll_runs`, `expense_claims`.
-    -   Check if `carts` requires a `merchants` table entry (if migration 001/010 enforcement is stricter than thought).
-    -   Isolate the failure: Run a script inserting ONLY the employee and then the claim.
-2.  **Fix `verify-reporting.ts`**:
-    -   Ensure all dependencies (Tenants, Merchants, Employees) are seeded.
-3.  **Complete Phase 5**:
-    -   Once seeded, verify `ReportingService` aggregates correctly.
-    -   Verify `ReportingController` returns valid JSON and Offer URI.
+## Phase 5 Status: COMPLETE ✅

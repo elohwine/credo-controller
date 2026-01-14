@@ -13,22 +13,23 @@ export default function WaltIcon({
   type = 'primary',
   outline = false,
 }: Props) {
-  let firstColor = '#0573F0';
-  let secondColor = '#E6F6FF';
+  // Credentis brand colors
+  let firstColor = '#2188CA';  // curious blue
+  let secondColor = '#D0E6F3'; // link water
 
   if (type === 'gray') {
-    firstColor = '#CBD2D9';
-    secondColor = '#52606D';
+    firstColor = '#9AA5B1';
+    secondColor = '#3E4C59';
   }
 
   if (type === 'black') {
-    firstColor = '#111827';
-    secondColor = '#f3f4f6';
+    firstColor = '#0A3D5C'; // dark brand
+    secondColor = '#D0E6F3';
   }
 
   if (type === 'white') {
     firstColor = '#F5F7FA';
-    secondColor = '#0573F0';
+    secondColor = '#2188CA';
   }
 
   if (type === 'green') {

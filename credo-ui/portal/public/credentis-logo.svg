@@ -1,0 +1,26 @@
+<svg width="200" height="240" viewBox="0 0 200 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Outer arc with nodes -->
+  <path d="M100 20 A80 80 0 0 1 170 70" stroke="#2188CA" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <path d="M170 130 A80 80 0 0 1 100 180" stroke="#2188CA" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <path d="M30 130 A80 80 0 0 1 30 70" stroke="#2188CA" stroke-width="6" fill="none" stroke-linecap="round"/>
+  
+  <!-- Connection nodes -->
+  <circle cx="100" cy="20" r="8" fill="#2188CA"/>
+  <circle cx="170" cy="100" r="8" fill="#2188CA"/>
+  <circle cx="30" cy="100" r="8" fill="#2188CA"/>
+  
+  <!-- Inner circle -->
+  <circle cx="100" cy="100" r="55" stroke="#2188CA" stroke-width="4" fill="none"/>
+  
+  <!-- Pillar/Column -->
+  <path d="M80 60 L120 60 L120 68 L115 68 L115 130 L120 130 L120 140 L80 140 L80 130 L85 130 L85 68 L80 68 Z" fill="#2188CA"/>
+  <!-- Pillar grooves -->
+  <rect x="92" y="68" width="3" height="62" fill="white" opacity="0.3"/>
+  <rect x="100" y="68" width="3" height="62" fill="white" opacity="0.3"/>
+  <rect x="108" y="68" width="3" height="62" fill="white" opacity="0.3"/>
+  <!-- Pillar capital decorations -->
+  <path d="M78 58 Q100 50 122 58 L122 62 L78 62 Z" fill="#2188CA"/>
+  
+  <!-- Credentis text -->
+  <text x="100" y="215" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="500" fill="#2188CA" text-anchor="middle">Credentis</text>
+</svg>

@@ -1,7 +1,5 @@
 import QRCode from "react-qr-code";
 import Button from "@/components/walt/button/Button";
-import Icon from "@/components/walt/logo/Icon";
-import WaltIcon from "@/components/walt/logo/WaltIcon";
 import { useContext, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { CredentialsContext, EnvContext } from "@/pages/_app";
@@ -37,12 +35,8 @@ export default function Offer() {
         } else {
           let ids = router.query.ids?.toString().split(',') ?? [];
           credentials = AvailableCredentials.filter((cred) => {
-            for (const id of ids) {
-              if (id.toString() == cred.id.toString()) {
-                return true;
-              }
-            }
-            return false;
+            if (!cred?.id) return false
+            return ids.some((id) => id && String(id) === String(cred.id))
           });
         }
         if (credentials) {
@@ -106,12 +100,12 @@ export default function Offer() {
   }
 
   return (
-    <div className="flex flex-col justify-center items-center bg-gray-50">
+    <div className="flex flex-col justify-center items-center bg-white">
       <div
         className="my-5 flex flex-row justify-center cursor-pointer"
         onClick={() => router.push('/')}
       >
-        <Icon height={35} width={35} />
+        <img src="/credentis-logo.png" alt="Credentis" style={{ height: 35, width: 'auto' }} />
       </div>
       <div className="relative w-10/12 sm:w-7/12 lg:w-5/12 text-center shadow-2xl rounded-lg pt-8 pb-8 px-10 bg-white">
         <BackButton />
@@ -143,9 +137,9 @@ export default function Offer() {
           </Button>
         </div>
         <div className="flex flex-col items-center mt-12">
-          <div className="flex flex-row gap-2 items-center content-center text-sm text-center text-gray-500">
-            <p className="">Secured by IdenEx</p>
-            <WaltIcon height={15} width={15} type="gray" />
+          <div className="flex flex-row gap-2 items-center content-center text-sm text-center" style={{ color: '#7B8794' }}>
+            <p className="">Secured by Credentis</p>
+            <img src="/credentis-logo.png" alt="Credentis" style={{ height: 15, width: 'auto' }} />
           </div>
         </div>
       </div>

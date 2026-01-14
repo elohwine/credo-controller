@@ -56,7 +56,7 @@ export class OidcIssuerController extends Controller {
       throw new Error('credentials array required')
     }
 
-    const tenantId = (request.agent as TenantAgent<any> | undefined)?.context?.contextCorrelationId
+    const tenantId = (request as any)?.user?.tenantId as string | undefined
     const agent = request.agent
 
     // Transform API template to Credo options
@@ -97,17 +97,62 @@ export class OidcIssuerController extends Controller {
 
     // Pick the issuer that actually supports the offered credential configuration IDs.
     // We can have multiple issuer records (e.g., old ones with cleared metadata).
-    const issuers = await (agent.modules as any).openId4VcIssuer.getAllIssuers()
+    let issuers = await (agent.modules as any).openId4VcIssuer.getAllIssuers()
     if (!issuers || issuers.length === 0) {
       throw new Error('No OpenID4VC Issuer configured')
     }
 
     const offeredSet = new Set(credentialConfigurations)
 
-    const issuerWithMatchingSupported = issuers.find((i: any) => {
+    let issuerWithMatchingSupported = issuers.find((i: any) => {
       const supported = (i?.credentialsSupported || []) as Array<{ id?: string }>
       return supported.some((s) => !!s?.id && offeredSet.has(s.id))
     })
+
+    // If we can't find a matching issuer, try refreshing metadata from DB for this tenant.
+    // This prevents common runtime failures when credential definition names and VC types differ
+    // (e.g., FinancialStatementDef vs FinancialStatementCredential) or when models were seeded
+    // after the issuer record was created.
+    if (!issuerWithMatchingSupported && tenantId) {
+      try {
+        const definitions = credentialDefinitionStore.list(tenantId)
+
+        const formats = ['jwt_vc', 'jwt_vc_json']
+        const refreshedSupported = definitions.flatMap((def: any) => {
+          const leafType = Array.isArray(def.credentialType) && def.credentialType.length
+            ? def.credentialType[def.credentialType.length - 1]
+            : def.name
+          const idBases = Array.from(new Set([def.name, leafType].filter(Boolean)))
+
+          return formats.flatMap((format) =>
+            idBases.map((base) => ({
+              id: `${base}_${format}`,
+              format,
+              types: def.credentialType || ['VerifiableCredential', base],
+              cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
+              cryptographic_suites_supported: ['EdDSA', 'ES256'],
+              display: [{ name: base }],
+            }))
+          )
+        })
+
+        for (const i of issuers as any[]) {
+          await (agent.modules as any).openId4VcIssuer.updateIssuerMetadata({
+            issuerId: i.issuerId,
+            credentialsSupported: refreshedSupported,
+            display: i.display || [],
+          })
+        }
+
+        issuers = await (agent.modules as any).openId4VcIssuer.getAllIssuers()
+        issuerWithMatchingSupported = issuers.find((i: any) => {
+          const supported = (i?.credentialsSupported || []) as Array<{ id?: string }>
+          return supported.some((s) => !!s?.id && offeredSet.has(s.id))
+        })
+      } catch (e: any) {
+        request.logger?.warn({ err: e.message, tenantId }, 'Failed to refresh issuer metadata')
+      }
+    }
 
     const issuerWithAnySupported = issuers.find((i: any) => (i?.credentialsSupported || []).length > 0)
 

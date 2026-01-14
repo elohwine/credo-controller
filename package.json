@@ -94,7 +94,8 @@
     "tweetnacl": "^1.0.3",
     "ws": "^8.18.2",
     "yargs": "^17.7.2",
-    "yarn": "^1.22.22"
+    "yarn": "^1.22.22",
+    "zod": "^4.3.4"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

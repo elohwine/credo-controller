@@ -41,9 +41,14 @@ export class DatabaseManager {
       verbose: config.verbose ? ((message?: unknown) => this.logQuery(String(message))) : undefined,
     })
 
-    // Enable foreign keys and WAL mode for better concurrency
+    // Performance optimizations for production
     this.instance.pragma('foreign_keys = ON')
-    this.instance.pragma('journal_mode = WAL')
+    this.instance.pragma('journal_mode = WAL')           // Write-Ahead Logging for concurrency
+    this.instance.pragma('synchronous = NORMAL')         // Balance durability vs speed
+    this.instance.pragma('cache_size = -64000')          // 64MB cache (negative = KB)
+    this.instance.pragma('temp_store = MEMORY')          // Temp tables in memory
+    this.instance.pragma('mmap_size = 268435456')        // 256MB memory-mapped I/O
+    this.instance.pragma('busy_timeout = 5000')          // 5s timeout for locks
 
     this.logger.info(`Database initialized at: ${dbPath}`)
 

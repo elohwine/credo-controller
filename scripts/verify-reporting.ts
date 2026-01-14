@@ -9,6 +9,9 @@ const DB_PATH = './data/persistence.db'
 async function main() {
     console.log('🚀 Starting Financial Reporting Verification...')
     const database = db(DB_PATH)
+    
+    // Enable foreign keys to match app behavior
+    database.pragma('foreign_keys = ON')
 
     // 1. Seed Data (Direct DB)
     console.log('1. Seeding Financial Data...')
@@ -16,34 +19,45 @@ async function main() {
     const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD
     const now = new Date().toISOString()
 
-    // Clean up previous runs
-    database.prepare("DELETE FROM carts WHERE merchant_id = ?").run(tenantId)
-    database.prepare("DELETE FROM payroll_runs WHERE tenant_id = ?").run(tenantId)
+    // Clean up previous runs - need to delete in FK order
+    // payslips -> expense_claims -> payroll_runs -> employees -> carts
+    console.log('   Cleaning up previous runs...')
+    database.prepare("DELETE FROM payslips WHERE run_id IN (SELECT id FROM payroll_runs WHERE tenant_id = ?)").run(tenantId)
     database.prepare("DELETE FROM expense_claims WHERE tenant_id = ?").run(tenantId)
+    database.prepare("DELETE FROM payroll_runs WHERE tenant_id = ?").run(tenantId)
     database.prepare("DELETE FROM employees WHERE first_name = 'Test' AND last_name = 'User'").run()
+    database.prepare("DELETE FROM carts WHERE merchant_id = ?").run(tenantId)
+    console.log('   Cleanup done')
 
     // Revenue: Paid Cart
+    console.log('   Inserting cart...')
     const cartId = `CART-${randomUUID()}`
     database.prepare(`
         INSERT INTO carts (id, merchant_id, items, total, status, updated_at)
         VALUES (?, ?, '[]', 1000, 'paid', ?)
     `).run(cartId, tenantId, now)
+    console.log('   Cart inserted:', cartId)
 
     // Seed Employee for Expense Claim FK
+    console.log('   Inserting employee...')
     const empId = `emp-${randomUUID()}`
     database.prepare(`
         INSERT INTO employees (id, tenant_id, first_name, last_name, base_salary)
         VALUES (?, ?, 'Test', 'User', 1000)
     `).run(empId, tenantId)
+    console.log('   Employee inserted:', empId)
 
     // Expense: Payroll Run
+    console.log('   Inserting payroll run...')
     const runId = `RUN-${randomUUID()}`
     database.prepare(`
         INSERT INTO payroll_runs (id, tenant_id, period, status, total_gross, created_at)
         VALUES (?, ?, '2025-01', 'completed', 500, ?)
     `).run(runId, tenantId, now)
+    console.log('   Payroll run inserted:', runId)
 
     // Expense: Operation Claim
+    console.log('   Inserting expense claim...')
     const claimId = `EXP-${randomUUID()}`
     database.prepare(`
         INSERT INTO expense_claims (id, tenant_id, employee_id, description, amount, category, status, paid_at)

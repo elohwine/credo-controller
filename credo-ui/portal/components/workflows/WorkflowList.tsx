@@ -14,15 +14,18 @@ interface WorkflowListProps {
     onSelect: (workflow: Workflow) => void;
 }
 
-const WorkflowList: React.FC<WorkflowListProps> = ({ workflows, onSelect }) => {
+const WorkflowList: React.FC<WorkflowListProps> = ({ workflows = [], onSelect }) => {
+    // Safety check: ensure workflows is an array
+    const workflowsArray = Array.isArray(workflows) ? workflows : [];
+    
     // Group by category
-    const grouped = workflows.reduce((acc, wf) => {
+    const grouped = workflowsArray.reduce((acc, wf) => {
         if (!acc[wf.category]) acc[wf.category] = [];
         acc[wf.category].push(wf);
         return acc;
     }, {} as Record<string, Workflow[]>);
 
-    if (workflows.length === 0) {
+    if (workflowsArray.length === 0) {
         return (
             <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
                 <p className="text-gray-500 text-lg">No workflows available.</p>

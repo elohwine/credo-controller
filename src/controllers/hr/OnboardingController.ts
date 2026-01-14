@@ -22,6 +22,42 @@ interface UpdateOnboardingPayload {
 export class OnboardingController extends Controller {
 
     /**
+     * List all onboarding cases for a tenant.
+     * Used by HR dashboard to show pending/active onboardings.
+     */
+    @Get('/cases')
+    public async listCases(
+        @Request() request?: ExRequest
+    ): Promise<{ cases: OnboardingRequest[] }> {
+        const tenantId = (request as any)?.user?.tenantId || 'default'
+        logger.info({ tenantId }, 'Listing onboarding cases')
+        const cases = await onboardingService.listCases(tenantId)
+        return { cases }
+    }
+
+    /**
+     * Create a new onboarding case (alias for init).
+     * Accepts portal-style payload with employeeName.
+     */
+    @Post('/cases')
+    public async createCase(
+        @Body() payload: { employeeName: string; email: string; startDate?: string; department?: string; role?: string },
+        @Request() request?: ExRequest
+    ): Promise<OnboardingRequest> {
+        const tenantId = (request as any)?.user?.tenantId || 'default'
+        logger.info({ payload }, 'Creating onboarding case')
+        try {
+            const req = await onboardingService.createRequest(tenantId, payload.email, payload.employeeName, undefined)
+            this.setStatus(201)
+            return req
+        } catch (error: any) {
+            logger.error({ error: error.message }, 'Failed to create case')
+            this.setStatus(500)
+            throw new Error(`Failed to create case: ${error.message}`)
+        }
+    }
+
+    /**
      * Invite a new candidate for onboarding.
      * Generates a request ID and access token.
      */
@@ -83,18 +119,20 @@ export class OnboardingController extends Controller {
     /**
      * Approve onboarding and hire candidate.
      * Issues EmploymentContractVC and creates Employee record.
+     * Returns the credential offer for the employee to claim.
      */
     @Post('{id}/approve')
     public async approveRequest(
         @Path() id: string
-    ): Promise<{ status: string, employeeId: string }> {
+    ): Promise<{ status: string; employeeId: string; credentialOffer?: any }> {
         // TODO: Validate auth (HR Admin only)
         try {
             logger.info({ id }, 'Approving onboarding request')
-            const employeeId = await onboardingService.approveRequest(id)
+            const result = await onboardingService.approveRequest(id)
             return {
                 status: 'approved',
-                employeeId
+                employeeId: result.employeeId,
+                credentialOffer: result.credentialOffer
             }
         } catch (error: any) {
             logger.error({ error: error.message }, 'Failed to approve request')

@@ -86,52 +86,53 @@ export default function CredentialModelsPage() {
   return (
     <>
       <Head>
-        <title>Credential Models - Credo Portal</title>
+        <title>Credential Models - Credentis Portal</title>
         <meta name="description" content="Browse and manage credential definition models" />
       </Head>
 
-      <div className="min-h-screen bg-gray-50">
-        {/* Header */}
-        <header className="bg-white shadow-sm border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900">Credential Models</h1>
-                <p className="mt-2 text-sm text-gray-600">
-                  Browse and manage verifiable credential definitions by category
-                </p>
-              </div>
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => window.location.reload()}
-                  className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-full text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+      <div className="py-6">
+        <div className="bg-white border border-[#D0E6F3] rounded-xl p-5 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Credential Models</h1>
+              <p className="mt-1 text-sm text-gray-600">
+                Browse and manage verifiable credential definitions by category
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span
+                className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold"
+                style={{ backgroundColor: '#D0E6F3', color: '#0F3F5E' }}
+              >
+                {definitions.length} {definitions.length === 1 ? 'Model' : 'Models'}
+              </span>
+              <button
+                onClick={() => window.location.reload()}
+                className="inline-flex items-center px-4 py-2 border rounded-full text-sm font-semibold bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2"
+                style={{ borderColor: '#D0E6F3', color: '#0F3F5E', boxShadow: 'none' }}
+              >
+                <svg
+                  className="-ml-1 mr-2 h-5 w-5"
+                  style={{ color: '#2188CA' }}
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
                 >
-                  <svg
-                    className="-ml-1 mr-2 h-5 w-5 text-gray-500"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                    />
-                  </svg>
-                  Refresh
-                </button>
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-primary-100 text-primary-800">
-                  {definitions.length} {definitions.length === 1 ? 'Model' : 'Models'}
-                </span>
-              </div>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                Refresh
+              </button>
             </div>
           </div>
-        </header>
+        </div>
 
-        {/* Main Content */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <main className="py-8">
           {isLoading && (
             <div className="flex justify-center items-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-700"></div>
@@ -164,7 +165,7 @@ export default function CredentialModelsPage() {
             </div>
           )}
 
-          {!isLoading && !error && <CredentialDefinitionList definitions={definitions} />}
+          {!isLoading && !error && <CredentialDefinitionList definitions={definitions || []} />}
         </main>
 
         {/* Footer Info */}

@@ -32,6 +32,8 @@ The platform is designed with a **Core Layer** of shared primitives and **Indust
 - **Audit Trails**: Cryptographic logs of all critical events.
 - **Payment Provider Abstraction**: Adapters for EcoCash, InnBucks, Banks.
 - **Lifecycle Engine**: State machines for generic workflows (Quote -> Order -> Receipt).
+- **ACK-ID Agent Registry**: AI/automation agent provisioning with `ControllerCredential` (owner→agent DID linkage).
+- **ACK-Pay Adapters**: Provider-agnostic payment interface with `PaymentReceiptCredential` issuance.
 
 ### 2. Finance Industry Module (The First Application)
 *Feature parity with ZimLedger, plus Verifiable Superpowers.*
@@ -105,6 +107,89 @@ The platform is designed with a **Core Layer** of shared primitives and **Indust
 - [ ] **SummaryVCs**: Signed financial statements for bank/lender consumption.
 - [ ] **Audit View**: Drill-down from line item to signed ReceiptVC.
 
+### Phase 6: ACK-ID Agent Registry & Delegation (New) 🤖
+**Goal**: Enable delegated AI agents with verifiable ownership chains.
+**Reference**: [Agent Commerce Kit (ACK)](https://www.agentcommercekit.com/)
+- [ ] **Agent Provisioning**:
+    - [ ] Create agent DIDs on provision (did:key or did:web).
+    - [ ] Issue `ControllerCredential` linking owner → agent.
+    - [ ] Agent DID documents include service endpoints.
+- [ ] **Agent Registry** (`src/ai/agents/`):
+    - [x] Database schema (`migrations/014_create_ai_agents.sql`).
+    - [x] Repository (`src/persistence/AiAgentRepository.ts`).
+    - [ ] Controller (`src/controllers/ai/AiAgentController.ts`).
+    - [ ] Provisioning service with ACK SDK integration.
+- [ ] **Delegation & Consent**:
+    - [ ] `DelegationCredential` with scopes + limits.
+    - [ ] Policy engine for scope enforcement.
+    - [ ] Consent receipt VCs for user authorization.
+- [ ] **Lifecycle Management**:
+    - [ ] Status transitions (active/suspended/revoked).
+    - [ ] Key rotation with credential re-issuance.
+    - [ ] Agent audit trail.
+
+### Phase 7: ACK-Pay Payment Protocol (New) 💳
+**Goal**: Standardize payments with verifiable receipts per ACK-Pay spec.
+**Reference**: [ACK-Pay Protocol](https://www.agentcommercekit.com/ack-pay)
+- [ ] **Payment Request Flow**:
+    - [ ] `PaymentRequest` schema (id, paymentOptions, expiresAt).
+    - [ ] Signed JWT payment request tokens.
+    - [ ] 402 Payment Required response pattern.
+- [ ] **ACK-Pay Adapters** (`src/ai/payments/`):
+    - [x] Base adapter interface (`AckPayAdapter.ts`).
+    - [x] EcoCash adapter (`EcoCashAckPayAdapter.ts`).
+    - [ ] MNEE stablecoin adapter.
+    - [ ] Bank transfer adapter.
+- [ ] **Receipt Issuance**:
+    - [ ] `PaymentReceiptCredential` on payment confirmation.
+    - [ ] Receipt includes paymentRequestToken + paymentOptionId.
+    - [ ] Provider reference in metadata (ecocashRef/mneeTxHash).
+- [ ] **Idempotency & Reconciliation**:
+    - [x] Database schema for payment tracking.
+    - [ ] Idempotency key enforcement.
+    - [ ] State machine: initiated → pending → paid/failed → refunded.
+- [ ] **Webhook Integration**:
+    - [ ] Wire EcoCash webhook to ACK-Pay receipt issuance.
+    - [ ] Deduplicate receipts via provider reference.
+
+### Phase 8: Gen-UI & Agentic Workflows (New) 🎨
+**Goal**: Workflow-driven UI generation for agent interactions.
+- [ ] **Workflow-to-UI Schema**:
+    - [ ] JSON schema for "actions requiring user input".
+    - [ ] Form renderer in portal.
+    - [ ] Approval workflows with step-up auth.
+- [ ] **Agent Commerce Flows**:
+    - [ ] Cart → PaymentRequest → Receipt via AI agent.
+    - [ ] WhatsApp agent handoff with consent.
+    - [ ] Escrow patterns for high-value transactions.
+- [ ] **Human Oversight Integration**:
+    - [ ] Manager approval thresholds.
+    - [ ] Regulator escalation triggers.
+    - [ ] Audit evidence capture.
+
+### Phase 9: Production Hardening (Completed) ✅
+**Goal**: Production-grade security and operations.
+- [x] **Audit Logging**: Middleware + database persistence.
+- [x] **Input Validation**: Zod schemas for all endpoints.
+- [x] **Metrics & Health**: Prometheus endpoints, health checks.
+- [x] **Database Tuning**: SQLite WAL mode, pragmas.
+- [x] **Backup & Recovery**: Automated backup script.
+
+### Phase 10: Advanced Security & Scale (Future) 🔮
+**Goal**: Enterprise-grade custody and multi-region.
+- [ ] **Secrets Management**:
+    - [ ] Vault/HSM integration for signing keys.
+    - [ ] Per-tenant secret rotation.
+    - [ ] KMS adapter interface.
+- [ ] **Advanced Revocation**:
+    - [ ] Bitstring Status List publication per tenant.
+    - [ ] `credentialStatus` in all issued VCs.
+    - [ ] Verifier status list resolution.
+- [ ] **Multi-Region**:
+    - [ ] Database replication strategy.
+    - [ ] Tenant data residency controls.
+    - [ ] Disaster recovery plan.
+
 ---
 
 ## 🛠 Technical Stack
@@ -118,6 +203,42 @@ The platform is designed with a **Core Layer** of shared primitives and **Indust
 | **Workflow Engine** | Custom JSON-Logic | Orchestration of VCs/Payments |
 | **Frontend** | React (Next.js) + Tailwind | Portals & Wallet UI |
 | **Integrations** | WhatsApp API, EcoCash | External Channels |
+| **ACK Protocols** | @agentcommercekit/* | Agent Identity & Payments |
+
+---
+
+## 🤖 ACK Protocol Integration
+
+**Agent Commerce Kit (ACK)** provides open standards for AI agent identity and payments.
+
+### ACK-ID (Agent Identity)
+- **Purpose**: Verifiable agent identities with ownership chains
+- **Key Artifact**: `ControllerCredential` — proves owner DID → agent DID relationship
+- **SDK**: `@agentcommercekit/ack-id`
+- **Docs**: https://www.agentcommercekit.com/ack-id
+
+### ACK-Pay (Agent Payments)
+- **Purpose**: Agent-driven payment flows with verifiable receipts
+- **Key Artifacts**:
+  - `PaymentRequest` — structured request with payment options
+  - `PaymentReceiptCredential` — VC proving payment satisfaction
+- **SDK**: `@agentcommercekit/ack-pay`
+- **Docs**: https://www.agentcommercekit.com/ack-pay
+
+### Implementation Files
+| File | Purpose |
+|------|---------|
+| `src/ai/types/ack-types.ts` | Type definitions for ACK-ID/ACK-Pay |
+| `src/ai/payments/AckPayAdapter.ts` | Provider-agnostic payment interface |
+| `src/ai/payments/adapters/EcoCashAckPayAdapter.ts` | EcoCash ACK-Pay implementation |
+| `src/persistence/AiAgentRepository.ts` | Agent registry database operations |
+| `migrations/014_create_ai_agents.sql` | Agent + payment tables schema |
+
+### Design Principles (from ACK)
+- **Open Standards**: W3C DIDs + VCs for vendor neutrality
+- **Cryptographic Trust**: No central authority for identity/payment verification
+- **Compliance-Ready**: KYC/KYB integration points
+- **Human Oversight**: Strategic human approvals in automated flows
 
 ---
 
@@ -137,3 +258,5 @@ The platform is designed with a **Core Layer** of shared primitives and **Indust
 - **Portals**: `credo-ui/portal` (Port 5000)
 - **Wallet**: `credo-ui/wallet` (Port 4000)
 - **Docs**: `/docs` (Swagger UI)
+- **ACK Alignment**: `ACK_PHASE_ALIGNMENT.md` (Implementation details)
+- **Naming Guide**: `docs/AGENT_TERMINOLOGY_AND_NAMING.md` (AI vs Credo agent conventions)

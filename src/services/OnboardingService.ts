@@ -92,6 +92,27 @@ export class OnboardingService {
         }
     }
 
+    /**
+     * List all onboarding cases for a tenant
+     */
+    async listCases(tenantId: string): Promise<OnboardingRequest[]> {
+        const db = DatabaseManager.getDatabase()
+        const rows = db.prepare('SELECT * FROM onboarding_requests WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId) as any[]
+
+        return rows.map(req => ({
+            id: req.id,
+            tenantId: req.tenant_id,
+            candidateEmail: req.candidate_email,
+            candidatePhone: req.candidate_phone,
+            fullName: req.full_name,
+            status: req.status as any,
+            currentStep: req.current_step as any,
+            accessToken: req.access_token,
+            employeeId: req.employee_id,
+            createdAt: req.created_at
+        }))
+    }
+
     async updateProgress(id: string, step: string, data: Partial<OnboardingData>): Promise<OnboardingRequest> {
         const db = DatabaseManager.getDatabase()
         const current = await this.getRequest(id)
@@ -127,12 +148,13 @@ export class OnboardingService {
 
     /**
      * Approve onboarding: Create employee and issue contract VC
+     * Returns employeeId and credential offer details
      */
-    async approveRequest(id: string): Promise<string> {
+    async approveRequest(id: string): Promise<{ employeeId: string; credentialOffer?: any }> {
         const req = await this.getRequest(id)
         if (!req) throw new Error('Request not found')
 
-        if (req.status === 'completed') return req.employeeId!
+        if (req.status === 'completed') return { employeeId: req.employeeId! }
 
         const names = req.fullName.split(' ')
         const firstName = names[0]
@@ -149,30 +171,33 @@ export class OnboardingService {
             status: 'active'
         })
 
-        // 2. Issue EmploymentContractVC (Mock logic for MVP)
-        // In real flow, we'd sign the markdown contract. 
-        // Here we just issue a VC stating they are employed.
+        // 2. Issue EmploymentContractVC 
+        let credentialOffer: any = null
         try {
-            await credentialIssuanceService.createOffer({
-                credentialType: 'EmploymentContractDef', // Needs to be added to definitions
+            const offer = await credentialIssuanceService.createOffer({
+                credentialType: 'EmploymentContractVC', // Matches the registered definition
                 claims: {
                     employeeId: employee.id,
                     name: req.fullName,
                     role: 'Software Engineer', // TODO: Add role to onboarding request
+                    department: 'Engineering',
                     startDate: new Date().toISOString(),
-                    employer: 'Credo Demo Corp'
+                    employer: 'Credo Demo Corp',
+                    contractType: 'Full-time'
                 },
                 tenantId: req.tenantId
             })
-        } catch (e) {
-            logger.warn({ error: e }, 'Failed to issue contract VC during approval (non-blocking)')
+            credentialOffer = offer
+            logger.info({ offerId: offer.offerId, employeeId: employee.id }, 'Employment contract VC issued')
+        } catch (e: any) {
+            logger.warn({ error: e.message }, 'Failed to issue contract VC during approval (non-blocking)')
         }
 
         const db = DatabaseManager.getDatabase()
         db.prepare('UPDATE onboarding_requests SET status = ?, employee_id = ? WHERE id = ?')
             .run('completed', employee.id, id)
 
-        return employee.id
+        return { employeeId: employee.id, credentialOffer }
     }
 }
 

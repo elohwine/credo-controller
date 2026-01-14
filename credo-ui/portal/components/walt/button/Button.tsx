@@ -1,7 +1,12 @@
-import {ReactNode} from "react";
-import {AiOutlineLoading3Quarters} from "react-icons/ai";
+/**
+ * Button - Mantine-based button with Credentis branding
+ */
 
-type ButtonSize = 'sm' | 'md' | 'lg' | 'xl';
+import { Button as MantineButton } from '@mantine/core';
+import { ReactNode } from 'react';
+
+type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+type ButtonVariant = 'filled' | 'light' | 'outline' | 'subtle' | 'transparent';
 
 type ButtonProps = {
   size?: ButtonSize;
@@ -11,124 +16,51 @@ type ButtonProps = {
   loading?: boolean;
   type?: 'button' | 'submit' | 'reset';
   loadingText?: string;
-  style?: 'button' | 'link';
-  color?: 'primary' | 'secondary' | 'green';
+  variant?: ButtonVariant;
+  color?: 'credentis' | 'gray' | 'green' | 'red';
   className?: string;
+  fullWidth?: boolean;
+  leftSection?: ReactNode;
+  rightSection?: ReactNode;
+  style?: 'button' | 'link'; // Legacy prop for compatibility
 };
 
 export default function Button({
-  size,
+  size = 'md',
   children,
   onClick,
   disabled = false,
   loading = false,
   type = 'button',
-  loadingText = 'Loading',
-  style = 'button',
-  color = 'primary',
+  loadingText,
+  variant = 'filled',
+  color = 'credentis',
   className = '',
+  fullWidth = false,
+  leftSection,
+  rightSection,
+  style = 'button',
 }: ButtonProps) {
-  const buttonSize = size || 'md';
-  let baseClasses =
-    'inline-flex items-center text-sm leading-4 font-medium rounded-full focus:outline-none';
-
-  // Button Primary Style Classes
-  const backgroundClassesButtonPrimaryStyle =
-    'bg-primary-400 hover:bg-primary-700 disabled:bg-gray-200 shadow-sm';
-  const textClassesButtonPrimaryStyle =
-    'text-primary-50 disabled:text-gray-400';
-
-  // Button Secondary Style Classes
-  const backgroundClassesButtonSecondaryStyle =
-    'bg-gray-200 hover:bg-gray-300 disabled:bg-gray-200 shadow-sm';
-  const textClassesButtonSecondaryStyle =
-    'text-gray-500 disabled:text-gray-400';
-
-  // Button Green Style Classes
-  const backgroundClassesButtonGreenStyle =
-    'bg-green-700 hover:bg-green-700 disabled:bg-green-200 shadow-sm';
-  const textClassesButtonGreenStyle = 'text-green-50 disabled:text-green-400';
-
-  // Link Secondary Style Classes
-  const textClassesLinkSecondaryStyle =
-    'text-gray-500 underline hover:text-primary-400';
-  const backgroundClassesLinkSecondaryStyle = 'bg-transparent';
-
-  // Link primary Style Classes
-  const textClassesLinkPrimaryStyle =
-    'text-primary-400 underline hover:text-primary-700';
-  const backgroundClassesLinkPrimaryStyle = 'bg-transparent';
-
-  // Button Size Classes
-  const buttonSizeClasses = {
-    sm: 'px-5 py-1.5',
-    md: 'px-8 py-2.5',
-    lg: 'px-10 py-3.5',
-    xl: 'px-12 py-4',
-  };
-
-  let finalClasses = `${baseClasses}`;
-
-  if (style === 'button') {
-    if (color === 'primary') {
-      finalClasses =
-        finalClasses +
-        ' ' +
-        backgroundClassesButtonPrimaryStyle +
-        ' ' +
-        textClassesButtonPrimaryStyle;
-    } else if (color === 'secondary') {
-      finalClasses =
-        finalClasses +
-        ' ' +
-        backgroundClassesButtonSecondaryStyle +
-        ' ' +
-        textClassesButtonSecondaryStyle;
-    } else if (color === 'green') {
-      finalClasses =
-        finalClasses +
-        ' ' +
-        backgroundClassesButtonGreenStyle +
-        ' ' +
-        textClassesButtonGreenStyle;
-    }
-  }
-
-  if (style === 'link') {
-    if (color === 'primary') {
-      finalClasses =
-        finalClasses +
-        ' ' +
-        backgroundClassesLinkPrimaryStyle +
-        ' ' +
-        textClassesLinkPrimaryStyle;
-    } else if (color === 'secondary') {
-      finalClasses =
-        finalClasses +
-        ' ' +
-        backgroundClassesLinkSecondaryStyle +
-        ' ' +
-        textClassesLinkSecondaryStyle;
-    }
-  }
-
-  finalClasses = className + finalClasses + ' ' + buttonSizeClasses[buttonSize];
+  // Map legacy style prop to variant
+  const mappedVariant = style === 'link' ? 'subtle' : variant;
 
   return (
-    <button
-      disabled={disabled}
+    <MantineButton
+      size={size}
       onClick={onClick}
+      disabled={disabled}
+      loading={loading}
       type={type}
-      className={finalClasses}
+      variant={mappedVariant}
+      color={color}
+      className={className}
+      fullWidth={fullWidth}
+      leftSection={leftSection}
+      rightSection={rightSection}
+      radius="md"
+      loaderProps={{ type: 'dots' }}
     >
-      {loading ? (
-        <div className="flex flex-row gap-2 items-center">
-          <AiOutlineLoading3Quarters className="animate-spin" />
-          <p>{loadingText}</p>
-        </div>
-      ) : (
-        <div> {children} </div>
-      )}
-    </button>
+      {loading && loadingText ? loadingText : children}
+    </MantineButton>
   );
 }

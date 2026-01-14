@@ -3559,6 +3559,15 @@
           },
           "createdAt": {
             "type": "string"
+          },
+          "quoteOfferUrl": {
+            "type": "string"
+          },
+          "invoiceOfferUrl": {
+            "type": "string"
+          },
+          "receiptOfferUrl": {
+            "type": "string"
           }
         },
         "required": [
@@ -3586,6 +3595,38 @@
         },
         "required": [
           "payload"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CheckoutResponse": {
+        "properties": {
+          "cartId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "quoteOfferUrl": {
+            "type": "string"
+          },
+          "invoiceOfferUrl": {
+            "type": "string"
+          },
+          "ecocashRef": {
+            "type": "string"
+          },
+          "paymentInstructions": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cartId",
+          "status",
+          "message"
         ],
         "type": "object",
         "additionalProperties": false
@@ -4915,6 +4956,875 @@
         "required": [
           "startDate",
           "endDate"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "InventoryLocation": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "warehouse",
+              "shop",
+              "transit",
+              "virtual"
+            ]
+          },
+          "address": {
+            "type": "string"
+          },
+          "did": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "name",
+          "type",
+          "status",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateLocationRequest": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "warehouse",
+              "shop",
+              "transit",
+              "virtual"
+            ]
+          },
+          "address": {
+            "type": "string"
+          },
+          "did": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "InventoryLot": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "catalogItemId": {
+            "type": "string"
+          },
+          "locationId": {
+            "type": "string"
+          },
+          "lotNumber": {
+            "type": "string"
+          },
+          "serialNumber": {
+            "type": "string"
+          },
+          "barcode": {
+            "type": "string"
+          },
+          "quantityInitial": {
+            "type": "number",
+            "format": "double"
+          },
+          "quantityOnHand": {
+            "type": "number",
+            "format": "double"
+          },
+          "quantityReserved": {
+            "type": "number",
+            "format": "double"
+          },
+          "quantityAvailable": {
+            "type": "number",
+            "format": "double"
+          },
+          "unitCost": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "expiryDate": {
+            "type": "string"
+          },
+          "receivedAt": {
+            "type": "string"
+          },
+          "supplierId": {
+            "type": "string"
+          },
+          "supplierInvoiceRef": {
+            "type": "string"
+          },
+          "grnVcId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "depleted",
+              "expired",
+              "quarantine"
+            ]
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/Record_string.any_"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "catalogItemId",
+          "locationId",
+          "quantityInitial",
+          "quantityOnHand",
+          "quantityReserved",
+          "quantityAvailable",
+          "currency",
+          "status",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "InventoryEventType": {
+        "type": "string",
+        "enum": [
+          "RECEIVE",
+          "TRANSFER_OUT",
+          "TRANSFER_IN",
+          "RESERVE",
+          "UNRESERVE",
+          "SELL",
+          "ADJUST",
+          "RETURN",
+          "WRITE_OFF"
+        ]
+      },
+      "InventoryEvent": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "eventType": {
+            "$ref": "#/components/schemas/InventoryEventType"
+          },
+          "catalogItemId": {
+            "type": "string"
+          },
+          "lotId": {
+            "type": "string"
+          },
+          "locationId": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "unitCost": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "referenceType": {
+            "type": "string"
+          },
+          "referenceId": {
+            "type": "string"
+          },
+          "counterpartyId": {
+            "type": "string"
+          },
+          "eventHash": {
+            "type": "string"
+          },
+          "prevEventHash": {
+            "type": "string"
+          },
+          "sequenceNumber": {
+            "type": "number",
+            "format": "double"
+          },
+          "vcId": {
+            "type": "string"
+          },
+          "vcType": {
+            "type": "string"
+          },
+          "actorId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/Record_string.any_"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "eventType",
+          "catalogItemId",
+          "locationId",
+          "quantity",
+          "currency",
+          "eventHash",
+          "sequenceNumber",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "ReceiveGoodsBody": {
+        "properties": {
+          "catalogItemId": {
+            "type": "string"
+          },
+          "locationId": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "unitCost": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "lotNumber": {
+            "type": "string"
+          },
+          "serialNumber": {
+            "type": "string"
+          },
+          "barcode": {
+            "type": "string"
+          },
+          "expiryDate": {
+            "type": "string"
+          },
+          "supplierId": {
+            "type": "string"
+          },
+          "supplierInvoiceRef": {
+            "type": "string"
+          },
+          "issueVC": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "catalogItemId",
+          "locationId",
+          "quantity"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "ReserveStockBody": {
+        "properties": {
+          "items": {
+            "items": {
+              "properties": {
+                "preferredLotId": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "locationId": {
+                  "type": "string"
+                },
+                "catalogItemId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "quantity",
+                "locationId",
+                "catalogItemId"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "cartId": {
+            "type": "string"
+          },
+          "expiresInMs": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "items",
+          "cartId"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "StockLevel": {
+        "properties": {
+          "catalogItemId": {
+            "type": "string"
+          },
+          "locationId": {
+            "type": "string"
+          },
+          "quantityOnHand": {
+            "type": "number",
+            "format": "double"
+          },
+          "quantityReserved": {
+            "type": "number",
+            "format": "double"
+          },
+          "quantityAvailable": {
+            "type": "number",
+            "format": "double"
+          },
+          "totalCost": {
+            "type": "number",
+            "format": "double"
+          },
+          "avgUnitCost": {
+            "type": "number",
+            "format": "double"
+          },
+          "lastEventHash": {
+            "type": "string"
+          },
+          "lastEventAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "catalogItemId",
+          "locationId",
+          "quantityOnHand",
+          "quantityReserved",
+          "quantityAvailable",
+          "totalCost"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "ScanBarcodeResponse": {
+        "properties": {
+          "catalogItem": {},
+          "lots": {
+            "items": {
+              "$ref": "#/components/schemas/InventoryLot"
+            },
+            "type": "array"
+          },
+          "stockLevel": {
+            "$ref": "#/components/schemas/StockLevel"
+          }
+        },
+        "required": [
+          "lots"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "VerifyChainResponse": {
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "eventCount": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "valid",
+          "errors"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "TraceReceiptResponse": {
+        "properties": {
+          "receiptId": {
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/InventoryEvent"
+            },
+            "type": "array"
+          },
+          "fulfillments": {
+            "items": {
+              "properties": {
+                "grnVcId": {
+                  "type": "string"
+                },
+                "eventHash": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "serialNumber": {
+                  "type": "string"
+                },
+                "lotNumber": {
+                  "type": "string"
+                },
+                "lotId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "eventHash",
+                "quantity",
+                "lotId"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "chainValid": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "receiptId",
+          "events",
+          "fulfillments",
+          "chainValid"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "unhealthy"
+            ]
+          },
+          "checks": {
+            "properties": {
+              "memory": {
+                "type": "boolean"
+              },
+              "agent": {
+                "type": "boolean"
+              },
+              "database": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "memory",
+              "agent",
+              "database"
+            ],
+            "type": "object"
+          },
+          "details": {
+            "$ref": "#/components/schemas/Record_string.any_"
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "checks",
+          "details",
+          "timestamp"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "MetricsResponse": {
+        "properties": {
+          "system": {
+            "properties": {
+              "memory": {
+                "properties": {
+                  "rss": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "heapTotal": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "heapUsed": {
+                    "type": "number",
+                    "format": "double"
+                  }
+                },
+                "required": [
+                  "rss",
+                  "heapTotal",
+                  "heapUsed"
+                ],
+                "type": "object"
+              },
+              "uptime": {
+                "type": "number",
+                "format": "double"
+              }
+            },
+            "required": [
+              "memory",
+              "uptime"
+            ],
+            "type": "object"
+          },
+          "database": {
+            "properties": {
+              "tableStats": {
+                "items": {
+                  "properties": {
+                    "rowCount": {
+                      "type": "number",
+                      "format": "double"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "rowCount",
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "totalSize": {
+                "type": "number",
+                "format": "double"
+              }
+            },
+            "required": [
+              "tableStats",
+              "totalSize"
+            ],
+            "type": "object"
+          },
+          "business": {
+            "properties": {
+              "tenants": {
+                "properties": {
+                  "active": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "total": {
+                    "type": "number",
+                    "format": "double"
+                  }
+                },
+                "required": [
+                  "active",
+                  "total"
+                ],
+                "type": "object"
+              },
+              "inventory": {
+                "properties": {
+                  "stockouts": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "totalEvents": {
+                    "type": "number",
+                    "format": "double"
+                  }
+                },
+                "required": [
+                  "stockouts",
+                  "totalEvents"
+                ],
+                "type": "object"
+              },
+              "wallets": {
+                "properties": {
+                  "totalRegistered": {
+                    "type": "number",
+                    "format": "double"
+                  }
+                },
+                "required": [
+                  "totalRegistered"
+                ],
+                "type": "object"
+              },
+              "credentials": {
+                "properties": {
+                  "last24h": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "totalIssued": {
+                    "type": "number",
+                    "format": "double"
+                  }
+                },
+                "required": [
+                  "last24h",
+                  "totalIssued"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "tenants",
+              "inventory",
+              "wallets",
+              "credentials"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "system",
+          "database",
+          "business"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "PaymentRecord": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "cartId": {
+            "type": "string"
+          },
+          "paymentRequestToken": {
+            "type": "string"
+          },
+          "providerRef": {
+            "type": "string"
+          },
+          "payerPhone": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "cartId",
+          "paymentRequestToken",
+          "providerRef",
+          "payerPhone",
+          "amount",
+          "currency",
+          "state",
+          "idempotencyKey",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "ReceiptRecord": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "paymentId": {
+            "type": "string"
+          },
+          "credentialOfferUrl": {
+            "type": "string"
+          },
+          "credentialType": {
+            "type": "string"
+          },
+          "issuedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "paymentId",
+          "credentialOfferUrl",
+          "credentialType",
+          "issuedAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "PaymentLookupResult": {
+        "properties": {
+          "found": {
+            "type": "boolean"
+          },
+          "payment": {
+            "$ref": "#/components/schemas/PaymentRecord"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/ReceiptRecord"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "found"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "ReceiptVerificationResult": {
+        "properties": {
+          "verified": {
+            "type": "boolean"
+          },
+          "receipt": {
+            "properties": {
+              "timestamp": {
+                "type": "string"
+              },
+              "paymentMethod": {
+                "type": "string"
+              },
+              "items": {
+                "items": {},
+                "type": "array"
+              },
+              "cartId": {
+                "type": "string"
+              },
+              "merchantId": {
+                "type": "string"
+              },
+              "payerPhone": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "number",
+                "format": "double"
+              },
+              "transactionId": {
+                "type": "string"
+              },
+              "receiptId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "timestamp",
+              "paymentMethod",
+              "items",
+              "cartId",
+              "merchantId",
+              "payerPhone",
+              "currency",
+              "amount",
+              "transactionId",
+              "receiptId"
+            ],
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "verified"
         ],
         "type": "object",
         "additionalProperties": false
@@ -12062,7 +12972,7 @@
             }
           }
         },
-        "description": "EcoCash webhook endpoint for payment status updates\nThis endpoint is called by EcoCash when payment status changes",
+        "description": "EcoCash webhook endpoint for payment status updates\nThis endpoint is called by EcoCash when payment status changes\n\nFlow on SUCCESS:\n1. Validate idempotency via sourceReference\n2. Update ack_payments record state to 'paid'\n3. Issue ReceiptVC (PaymentReceiptCredential)\n4. Send receipt to WhatsApp via WhatsAppPayloadController\n5. Update cart status to 'paid'",
         "tags": [
           "Webhooks"
         ],
@@ -12473,6 +13383,9 @@
                     "type": "number",
                     "format": "double"
                   },
+                  "cartId": {
+                    "type": "string"
+                  },
                   "invoiceRef": {
                     "type": "string"
                   }
@@ -12792,6 +13705,310 @@
             }
           }
         ]
+      }
+    },
+    "/api/wa/cart/{cartId}/present-options": {
+      "post": {
+        "operationId": "PresentCartOptions",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "success"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Present cart options to WhatsApp user.\nShows interactive menu with:\n- 📄 Save Quote (optional - for wallet users)\n- 💳 Pay Now (proceed to EcoCash payment)\n- ❌ Cancel Order",
+        "tags": [
+          "WhatsApp Commerce"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cartId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/wa/cart/{cartId}/issue-quote": {
+      "post": {
+        "operationId": "IssueQuoteVC",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Issue a QuoteVC for wallet users (OPTIONAL step).\nUser can save this quote to their wallet before deciding to pay.\nDoes NOT change cart status - user can still proceed to payment.",
+        "tags": [
+          "WhatsApp Commerce"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cartId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "sendToWhatsApp": {
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wa/cart/{cartId}/checkout": {
+      "post": {
+        "operationId": "Checkout",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Full checkout flow: Quote → EcoCash Payment → InvoiceVC\nInitiates EcoCash payment and issues InvoiceVC.\n\nFlow:\n1. Validate cart status (must be 'pending' or 'quoted')\n2. Call EcoCash API to initiate C2B payment\n3. Issue InvoiceVC with payment instructions\n4. Send WhatsApp message with payment instructions\n5. Wait for EcoCash webhook to trigger ReceiptVC issuance",
+        "tags": [
+          "WhatsApp Commerce"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cartId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "sendToWhatsApp": {
+                    "type": "boolean"
+                  },
+                  "skipQuote": {
+                    "type": "boolean"
+                  },
+                  "customerMsisdn": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "customerMsisdn"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wa/carts": {
+      "get": {
+        "operationId": "GetAllCarts",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "carts": {
+                      "items": {
+                        "$ref": "#/components/schemas/Cart"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "carts"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get all carts (for portal dashboard)",
+        "tags": [
+          "WhatsApp Commerce"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "merchantId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/wa/cart/{cartId}/send-receipt": {
+      "post": {
+        "operationId": "SendReceiptToWhatsApp",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "success"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Send a receipt credential to WhatsApp after payment confirmation\nCalled by EcoCash webhook handler after successful payment",
+        "tags": [
+          "WhatsApp Commerce"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cartId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "transactionId": {
+                    "type": "string"
+                  },
+                  "receiptOfferUrl": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "transactionId",
+                  "receiptOfferUrl"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
       }
     },
     "/api/trust/{merchantId}": {
@@ -13805,6 +15022,108 @@
         ]
       }
     },
+    "/api/onboarding/cases": {
+      "get": {
+        "operationId": "ListCases",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cases": {
+                      "items": {
+                        "$ref": "#/components/schemas/OnboardingRequest"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "cases"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List all onboarding cases for a tenant.\nUsed by HR dashboard to show pending/active onboardings.",
+        "tags": [
+          "HR"
+        ],
+        "security": [],
+        "parameters": []
+      },
+      "post": {
+        "operationId": "CreateCase",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingRequest"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a new onboarding case (alias for init).\nAccepts portal-style payload with employeeName.",
+        "tags": [
+          "HR"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "role": {
+                    "type": "string"
+                  },
+                  "department": {
+                    "type": "string"
+                  },
+                  "startDate": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "employeeName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email",
+                  "employeeName"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/onboarding/init": {
       "post": {
         "operationId": "InitOnboarding",
@@ -13946,6 +15265,7 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "credentialOffer": {},
                     "employeeId": {
                       "type": "string"
                     },
@@ -13971,7 +15291,7 @@
             }
           }
         },
-        "description": "Approve onboarding and hire candidate.\nIssues EmploymentContractVC and creates Employee record.",
+        "description": "Approve onboarding and hire candidate.\nIssues EmploymentContractVC and creates Employee record.\nReturns the credential offer for the employee to claim.",
         "tags": [
           "HR"
         ],
@@ -14508,6 +15828,1071 @@
             }
           }
         }
+      }
+    },
+    "/api/inventory/locations": {
+      "post": {
+        "operationId": "CreateLocation",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryLocation"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create an inventory location (warehouse, shop, etc.)",
+        "tags": [
+          "Inventory Management"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLocationRequest"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "GetLocations",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InventoryLocation"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List all active locations for tenant",
+        "tags": [
+          "Inventory Management"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": []
+      }
+    },
+    "/api/inventory/receive": {
+      "post": {
+        "operationId": "ReceiveGoods",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "vcOffer": {},
+                    "event": {
+                      "$ref": "#/components/schemas/InventoryEvent"
+                    },
+                    "lot": {
+                      "$ref": "#/components/schemas/InventoryLot"
+                    }
+                  },
+                  "required": [
+                    "event",
+                    "lot"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Receive goods into inventory (supplier → warehouse/shop).\nCreates a new lot and appends a RECEIVE event to the hash chain.\nOptionally issues a GoodsReceivedVC for cryptographic verification.",
+        "tags": [
+          "Inventory Management"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiveGoodsBody"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory/reserve": {
+      "post": {
+        "operationId": "ReserveStock",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "events": {
+                      "items": {
+                        "$ref": "#/components/schemas/InventoryEvent"
+                      },
+                      "type": "array"
+                    },
+                    "allocations": {
+                      "items": {},
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "events",
+                    "allocations"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reserve stock for a cart/order.\nUses FIFO allocation and creates RESERVE events.",
+        "tags": [
+          "Inventory Management"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReserveStockBody"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory/levels": {
+      "get": {
+        "operationId": "GetStockLevels",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StockLevel"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get current stock levels.\nQuery by catalog item and/or location.",
+        "tags": [
+          "Inventory Management"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "catalogItemId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "locationId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/inventory/lots/{lotId}": {
+      "get": {
+        "operationId": "GetLot",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/InventoryLot"
+                    }
+                  ],
+                  "nullable": true
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get a specific lot by ID",
+        "tags": [
+          "Inventory Management"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lotId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/inventory/scan/{barcode}": {
+      "get": {
+        "operationId": "ScanBarcode",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanBarcodeResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Scan barcode to lookup item and stock.\nWorks with lot barcodes or catalog SKUs.",
+        "tags": [
+          "Inventory Management"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "barcode",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "locationId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/inventory/events": {
+      "get": {
+        "operationId": "GetEvents",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InventoryEvent"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get event history for an item at a location.\nReturns the hash-chained event log.",
+        "tags": [
+          "Inventory Management"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "catalogItemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "locationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "double",
+              "type": "number"
+            }
+          }
+        ]
+      }
+    },
+    "/api/inventory/verify-chain": {
+      "get": {
+        "operationId": "VerifyChain",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyChainResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Verify the integrity of the event hash chain.\nChecks that all hashes are correct and chain links are valid.",
+        "tags": [
+          "Inventory Management"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "catalogItemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "locationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/inventory/trace/receipt/{receiptId}": {
+      "get": {
+        "operationId": "TraceReceipt",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraceReceiptResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Trace inventory events behind a receipt.\nReturns the full provenance chain from receipt back to goods received.",
+        "tags": [
+          "Inventory Management"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receiptId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/inventory/analytics/valuation": {
+      "get": {
+        "operationId": "GetValuation",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get inventory valuation across all locations",
+        "tags": [
+          "Inventory Management"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "parameters": []
+      }
+    },
+    "/api/inventory/analytics/aging": {
+      "get": {
+        "operationId": "GetAging",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {},
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get inventory aging report (time since receipt)",
+        "tags": [
+          "Inventory Management"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "parameters": []
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "HealthCheck",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "System is unhealthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Health check endpoint for load balancers and orchestrators\nReturns 200 if healthy, 503 if unhealthy",
+        "tags": [
+          "Health & Metrics"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "LivenessProbe",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Liveness probe for Kubernetes\nSimple check that the process is running",
+        "tags": [
+          "Health & Metrics"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "ReadinessProbe",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "reason": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "reason": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "reason",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Readiness probe for Kubernetes\nChecks if the service can accept traffic",
+        "tags": [
+          "Health & Metrics"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/metrics/json": {
+      "get": {
+        "operationId": "GetJsonMetrics",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricsResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "JSON metrics endpoint for custom dashboards",
+        "tags": [
+          "Health & Metrics"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "GetPrometheusMetrics",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Prometheus-compatible metrics endpoint\nReturns metrics in Prometheus text format",
+        "tags": [
+          "Health & Metrics"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/payments/lookup": {
+      "get": {
+        "operationId": "LookupPayment",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentLookupResult"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Look up a payment by reference (sourceReference, transactionId, or idempotency key)",
+        "tags": [
+          "Payments"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/payments/{paymentId}": {
+      "get": {
+        "operationId": "GetPaymentById",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentLookupResult"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get payment by ID",
+        "tags": [
+          "Payments"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "paymentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/payments": {
+      "get": {
+        "operationId": "ListPayments",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "payments": {
+                      "items": {
+                        "$ref": "#/components/schemas/PaymentRecord"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "payments"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List all payments with optional filters",
+        "tags": [
+          "Payments"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tenantId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "double",
+              "type": "number"
+            }
+          }
+        ]
+      }
+    },
+    "/api/receipts/verify/{transactionId}": {
+      "get": {
+        "operationId": "VerifyReceipt",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptVerificationResult"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Verify a receipt by transaction ID\nUsed by delivery agents to confirm payment before releasing goods",
+        "tags": [
+          "Receipts"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "transactionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/receipts": {
+      "get": {
+        "operationId": "ListReceipts",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "receipts": {
+                      "items": {
+                        "$ref": "#/components/schemas/ReceiptRecord"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "receipts"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List all receipts",
+        "tags": [
+          "Receipts"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "double",
+              "type": "number"
+            }
+          }
+        ]
       }
     },
     "/api/list": {

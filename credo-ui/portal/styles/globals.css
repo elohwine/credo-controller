@@ -2,18 +2,50 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Import glassmorphism styles */
+@import './glass.css';
+
+/* Credentis Design Tokens */
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
+  /* Brand Colors */
+  --credentis-curious: #2188CA;
+  --credentis-link-water: #D0E6F3;
+  --credentis-viking: #6FB4DC;
+  --credentis-cornflower: #88C4E3;
+  
+  /* Semantic */
+  --foreground-rgb: 15, 63, 94;
+  --background-rgb: 208, 230, 243;
+  
+  /* Spacing */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  
+  /* Radius */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+}
+
+/* Base body styles with Credentis palette */
+body {
+  background-color: #ffffff;
+  color: rgb(var(--foreground-rgb));
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
+    --foreground-rgb: 208, 230, 243;
+    --background-rgb: 15, 63, 94;
+  }
+  
+  body {
+    background-color: #0f3f5e;
   }
 }
+
 
 

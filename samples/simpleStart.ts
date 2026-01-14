@@ -6,8 +6,21 @@ import { generateSecretKey } from '../src/utils/helpers'
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
 import { schemaStore } from '../src/utils/schemaStore'
 import { credentialDefinitionStore } from '../src/utils/credentialDefinitionStore'
+import { startNgrokTunnel, getNgrokUrl } from '../src/utils/ngrokTunnel'
 
 const run = async () => {
+  // Start ngrok tunnel for webhook support in dev
+  const enableNgrok = process.env.ENABLE_NGROK !== 'false' && process.env.NODE_ENV !== 'production'
+  let ngrokUrl: string | null = null
+  
+  if (enableNgrok) {
+    try {
+      ngrokUrl = await startNgrokTunnel({ port: 3000 })
+    } catch (error) {
+      console.warn('⚠️  Ngrok failed to start - webhooks will only work locally')
+      console.warn('   Set ENABLE_NGROK=false to suppress this warning')
+    }
+  }
   // CRITICAL: Initialize DatabaseManager before agent setup for persistent stores
   const dbPath = process.env.PERSISTENCE_DB_PATH || './data/persistence.db'
   console.log('Initializing persistence layer at:', dbPath)
@@ -46,6 +59,12 @@ const run = async () => {
   console.log('Agent endpoint: http://localhost:3001')
   console.log('API docs: http://localhost:3000/docs')
   console.log(`API Key: ${apiKey}`)
+  if (ngrokUrl) {
+    console.log(`Ngrok URL: ${ngrokUrl}`)
+    console.log(`Webhooks:`)
+    console.log(`  - WhatsApp: ${ngrokUrl}/webhooks/whatsapp`)
+    console.log(`  - EcoCash: ${ngrokUrl}/webhooks/ecocash`)
+  }
   console.log('===========================================\n')
 
   const app = await setupServer(agent, conf, apiKey)
@@ -60,6 +79,9 @@ const run = async () => {
   console.log(`📡 Agent endpoint: http://localhost:3001`)
   console.log(`📚 API docs: http://localhost:3000/docs`)
   console.log(`🔑 API Key: ${apiKey}`)
+  if (ngrokUrl) {
+    console.log(`🌐 Public URL: ${ngrokUrl}`)
+  }
 }
 
 async function seedCredentialModels() {

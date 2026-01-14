@@ -12,11 +12,26 @@
             </div>
         </div>
 
-        <!-- Claims Preview Section -->
-        <div v-if="displayClaims && Object.keys(displayClaims).length > 0" class="mb-4 space-y-1">
-            <div v-for="(value, key) in displayClaims" :key="key" class="flex justify-between text-sm">
-                <span class="opacity-75 capitalize">{{ formatClaimKey(key) }}:</span>
-                <span class="font-medium truncate ml-2 max-w-[150px]">{{ formatClaimValue(value) }}</span>
+        <!-- Template-driven Preview Section -->
+        <div v-if="templateFields.length > 0" class="mb-4 space-y-1">
+            <div v-for="row in templateFields" :key="row.label" class="flex justify-between text-sm">
+                <span class="opacity-75">{{ row.label }}:</span>
+                <span class="font-medium truncate ml-2 max-w-[180px]">{{ formatValue(row.value) }}</span>
+            </div>
+        </div>
+
+        <!-- Optional line items table (detail view only) -->
+        <div v-if="isDetailView && templateTable" class="mb-4 mt-2">
+            <div class="text-xs opacity-75 mb-2">Line items</div>
+            <div class="bg-white/10 rounded-xl p-3">
+                <div class="grid grid-cols-2 text-xs font-bold opacity-80 mb-2">
+                    <div>{{ templateTable.headers[0] }}</div>
+                    <div class="text-right">{{ templateTable.headers[1] }}</div>
+                </div>
+                <div v-for="(r, idx) in templateTable.rows" :key="idx" class="grid grid-cols-2 text-sm py-1">
+                    <div class="truncate pr-2">{{ formatValue(r.description) }}</div>
+                    <div class="text-right">{{ formatValue(r.amount) }}</div>
+                </div>
             </div>
         </div>
 
@@ -38,6 +53,7 @@
 
 <script lang="ts" setup>
 import {useCredential} from "../../composables/credential.ts";
+import {getCredentialTemplate} from "../../credentials/templates";
 import {computed, defineProps, ref, watchEffect} from "vue";
 
 const props = defineProps({
@@ -62,55 +78,24 @@ const manifestCard = computed(() => manifest.value?.display?.card ?? manifest.va
 const isDetailView = ref(props.isDetailView ?? false);
 const vcCardDiv: any = ref(null);
 
-// Extract claims from credentialSubject for display
-const displayClaims = computed(() => {
-    if (!credential.value) return {};
-    
-    const subject = credential.value.credentialSubject || credential.value;
-    if (!subject || typeof subject !== 'object') return {};
-    
-    // Filter out internal/meta fields, show only user-relevant claims
-    const skipFields = ['id', 'type', '@context', 'issuer', 'issuanceDate', 'expirationDate', 'proof', 'credentialSubjectIds', 'issuerId'];
-    const claims: Record<string, any> = {};
-    
-    const extractClaims = (obj: any) => {
-        for (const [key, value] of Object.entries(obj)) {
-            if (skipFields.includes(key) || key.startsWith('@')) continue;
-            if (value === null || value === undefined || value === '') continue;
-            
-            // If we find a nested object, check if it's 'claims' or just recurse to find flat values
-            if (typeof value === 'object' && !Array.isArray(value)) {
-                extractClaims(value);
-                continue;
-            }
-            
-            claims[key] = value;
-        }
-    };
-    
-    extractClaims(subject);
-    
-    // Sort keys and limit to top 5 if in list view
-    if (!isDetailView.value) {
-        const limitedClaims: Record<string, any> = {};
-        Object.keys(claims).slice(0, 5).forEach(k => limitedClaims[k] = claims[k]);
-        return limitedClaims;
-    }
-    
-    return claims;
+const template = computed(() => {
+    if (!credential.value) return null;
+    return getCredentialTemplate(credential.value);
 });
 
-// Format claim keys for display (camelCase -> Title Case)
-const formatClaimKey = (key: string): string => {
-    return key
-        .replace(/([A-Z])/g, ' $1')
-        .replace(/^./, str => str.toUpperCase())
-        .trim();
-};
+const templateFields = computed(() => {
+    const fields = template.value?.fields ?? [];
+    if (!isDetailView.value) return fields.slice(0, 5);
+    return fields;
+});
 
-// Format claim values for display
-const formatClaimValue = (value: any): string => {
-    if (Array.isArray(value)) return value.map(v => typeof v === 'object' ? JSON.stringify(v) : v).join(', ');
+const templateTable = computed(() => {
+    return template.value?.table ?? null;
+});
+
+const formatValue = (value: any): string => {
+    if (value === null || value === undefined) return '';
+    if (Array.isArray(value)) return value.map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))).join(', ');
     if (typeof value === 'boolean') return value ? 'Yes' : 'No';
     if (typeof value === 'object') return JSON.stringify(value);
     return String(value);

@@ -1,4 +1,3 @@
-import WaltIcon from "@/components/walt/logo/WaltIcon";
 import {CheckCircleIcon} from "@heroicons/react/24/outline";
 import {useContext, useEffect, useState} from "react";
 import {useRouter} from "next/router";
@@ -130,7 +129,7 @@ export default function Success() {
   }, [router.isReady, env]);
 
   return (
-    <div className="h-screen flex justify-center items-center bg-gray-50">
+    <div className="h-screen flex justify-center items-center bg-white">
       <Modal show={modal} securedByWalt={false} onClose={() => setModal(false)}>
         <div className="flex flex-col items-center">
           <div className="w-full">
@@ -177,7 +176,7 @@ export default function Success() {
               <div className="absolute inset-0">
                 <div className="flex h-full w-full flex-col drop-shadow-sm rounded-xl py-7 px-8 text-gray-100 cursor-pointer overflow-hidden bg-gradient-to-r from-green-700 to-green-900 z-[-2]">
                   <div className="flex flex-row">
-                    <WaltIcon height={35} width={35} outline type="white" />
+                    <img src="/credentis-logo.png" alt="Credentis" style={{ height: 35, width: 'auto' }} />
                   </div>
                   <div className="mb-8 mt-12">
                     <h6 className={'text-2xl font-bold overflow-hidden text-ellipsis whitespace-nowrap'}>
@@ -312,9 +311,9 @@ export default function Success() {
           </div>
         </div>
         <div className="flex flex-col items-center mt-12">
-          <div className="flex flex-row gap-2 items-center content-center text-sm text-center text-gray-500">
-            <p className="">Secured by IdenEx</p>
-            <WaltIcon height={15} width={15} type="gray" />
+          <div className="flex flex-row gap-2 items-center content-center text-sm text-center" style={{ color: '#7B8794' }}>
+            <p className="">Secured by Credentis</p>
+            <img src="/credentis-logo.png" alt="Credentis" style={{ height: 15, width: 'auto' }} />
           </div>
         </div>
       </div>

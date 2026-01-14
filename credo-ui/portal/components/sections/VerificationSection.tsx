@@ -1,7 +1,6 @@
 import RowCredential from "@/components/walt/credential/RowCredential";
 import PolicyListItem from "@/components/walt/policy/PolicyListItem";
 import {AvailableCredential} from "@/types/credentials";
-import WaltIcon from "@/components/walt/logo/WaltIcon";
 import InputField from "@/components/walt/forms/Input";
 import Button from "@/components/walt/button/Button";
 import React, {useContext, useState} from "react";
@@ -24,9 +23,24 @@ export default function VerificationSection() {
 
   const params = router.query;
 
-  const idsToIssue = (params as unknown as { ids: string }).ids?.split(',')
-    ? (params as unknown as { ids: string }).ids?.split(',')
-    : [(params as unknown as { ids: string }).ids];
+  // Safely parse idsToIssue from URL parameters
+  const idsToIssue: string[] = React.useMemo(() => {
+    const idsParam = (params as any)?.ids;
+    if (!idsParam) return [];
+    
+    // Handle both comma-separated and single ID cases
+    if (typeof idsParam === 'string') {
+      return idsParam.includes(',') ? idsParam.split(',').filter(Boolean) : [idsParam];
+    }
+    
+    // Handle array case
+    if (Array.isArray(idsParam)) {
+      return idsParam.filter(Boolean);
+    }
+    
+    return [];
+  }, [params]);
+  
   const [credentialsToIssue, setCredentialsToIssue] = useState<
     AvailableCredential[]
   >([]);
@@ -34,15 +48,17 @@ export default function VerificationSection() {
   React.useEffect(() => {
     setCredentialsToIssue(
       AvailableCredentials.filter((cred) => {
-        for (const id of idsToIssue) {
-          if (id.toString() == cred.id.toString()) {
-            return true;
-          }
-        }
-        return false;
+        // Safety check: ensure we have valid IDs and credentials
+        if (!cred?.id || idsToIssue.length === 0) return false;
+        
+        return idsToIssue.some(id => {
+          // Safety check: ensure id exists and can be converted to string
+          if (!id) return false;
+          return String(id) === String(cred.id);
+        });
       })
     );
-  }, [AvailableCredentials]);
+  }, [AvailableCredentials, idsToIssue]);
 
   function handleVerify() {
     const vps = [];
@@ -77,7 +93,7 @@ export default function VerificationSection() {
   }
 
   if (params.ids === undefined) {
-    return <Button onClick={() => router.push('/')}>Select Credentials</Button>;
+    return <Button onClick={() => router.push('/select-credentials')}>Select Credentials</Button>;
   }
 
   return (
@@ -148,7 +164,7 @@ export default function VerificationSection() {
       <div className="mt-12" />
       <hr />
       <div className="flex flex-row justify-center gap-3 mt-14">
-        <Button onClick={handleCancel} style="link" color="secondary">
+        <Button onClick={handleCancel} style="link" color="gray">
           Cancel
         </Button>
         <Button onClick={handleVerify}>Verify</Button>
@@ -156,7 +172,7 @@ export default function VerificationSection() {
       <div className="flex flex-col items-center mt-12">
         <div className="flex flex-row gap-2 items-center content-center text-sm text-center text-gray-500">
           <p className="">Secured by IdenEx</p>
-          <WaltIcon height={15} width={15} type="gray" />
+          <img src="/credentis-logo.png" alt="Credentis" style={{ height: 15, width: 'auto' }} />
         </div>
       </div>
     </>

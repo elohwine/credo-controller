@@ -1,4 +1,3 @@
-import WaltIcon from "@/components/walt/logo/WaltIcon";
 import {XCircleIcon} from "@heroicons/react/24/outline";
 import {useState} from "react";
 
@@ -19,7 +18,7 @@ export default function Failed() {
           <div className="w-80 h-60 sm:h-[225px] sm:w-[400px]">
             <div className="flex h-full w-full flex-col drop-shadow-sm rounded-xl py-7 px-8 text-gray-100 overflow-hidden bg-gradient-to-r from-red-700 to-red-900 z-[-2]">
               <div className="flex flex-row">
-                <WaltIcon height={35} width={35} outline type="white" />
+                <img src="/credentis-logo.png" alt="Credentis" style={{ height: 35, width: 'auto' }} />
               </div>
               <div className="mb-8 mt-12">
                 <h6 className={'text-2xl font-bold '}>Failed to verify</h6>
@@ -45,9 +44,9 @@ export default function Failed() {
           </div>
         </div>
         <div className="flex flex-col items-center mt-12">
-          <div className="flex flex-row gap-2 items-center content-center text-sm text-center text-gray-500">
-            <p className="">Secured by IdenEx Credentis</p>
-            <WaltIcon height={15} width={15} type="gray" />
+          <div className="flex flex-row gap-2 items-center content-center text-sm text-center" style={{ color: '#7B8794' }}>
+            <p className="">Secured by Credentis</p>
+            <img src="/credentis-logo.png" alt="Credentis" style={{ height: 15, width: 'auto' }} />
           </div>
         </div>
       </div>

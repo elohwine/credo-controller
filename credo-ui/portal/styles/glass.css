@@ -1,0 +1,210 @@
+/**
+ * Glassmorphism CSS for Credentis
+ * 
+ * RULES:
+ * - Glass is ONLY for trust surfaces (credentials, proofs, verification)
+ * - NEVER use glass on forms, inputs, buttons, tables, navigation
+ * - Glass consumes Credentis palette colors, never defines new ones
+ * 
+ * Components that CAN use glass:
+ * - CredentialCard
+ * - ProofResult
+ * - VerifiedSeal
+ * - WalletIdentity
+ * - TrustScore
+ * - PaymentReceipt
+ * 
+ * Components that CANNOT use glass:
+ * - Buttons, Inputs, Tables, Forms, Modals, Navigation, Admin dashboards
+ */
+
+/* ============================================
+   CSS Custom Properties (Credentis Palette)
+   ============================================ */
+:root {
+  --credentis-curious: #2188CA;
+  --credentis-link-water: #D0E6F3;
+  --credentis-viking: #6FB4DC;
+  --credentis-cornflower: #88C4E3;
+  
+  /* Glass effect variables */
+  --glass-blur: 16px;
+  --glass-saturation: 180%;
+  --glass-border-color: rgba(255, 255, 255, 0.18);
+  --glass-shadow: 0 8px 32px rgba(33, 136, 202, 0.15);
+}
+
+/* ============================================
+   Glass Surface (Light touch)
+   Use for: subtle trust indicators, backgrounds
+   ============================================ */
+.glass-surface {
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  background-color: rgba(33, 136, 202, 0.1); /* Curious Blue at 10% */
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+/* ============================================
+   Glass Card (Medium presence)
+   Use for: wallet previews, trust summaries
+   ============================================ */
+.glass-card {
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  background-color: rgba(208, 230, 243, 0.75); /* Link Water at 75% */
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 8px 32px rgba(33, 136, 202, 0.15);
+}
+
+/* ============================================
+   Glass Credential (Hero presence)
+   Use for: credential cards, verification results
+   ============================================ */
+.glass-credential {
+  backdrop-filter: blur(20px) saturate(200%);
+  -webkit-backdrop-filter: blur(20px) saturate(200%);
+  background: linear-gradient(
+    135deg,
+    rgba(208, 230, 243, 0.9) 0%,
+    rgba(136, 196, 227, 0.8) 100%
+  );
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 
+    0 8px 32px rgba(33, 136, 202, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+/* ============================================
+   Glass Verified (Success state)
+   Use for: verification success, proof confirmed
+   ============================================ */
+.glass-verified {
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  background: linear-gradient(
+    135deg,
+    rgba(31, 184, 126, 0.15) 0%,
+    rgba(208, 230, 243, 0.8) 100%
+  );
+  border-radius: 16px;
+  border: 1px solid rgba(31, 184, 126, 0.3);
+  box-shadow: 0 8px 32px rgba(31, 184, 126, 0.15);
+}
+
+/* ============================================
+   Glass Overlay (Modal backgrounds)
+   Use for: proof presentation overlays
+   ============================================ */
+.glass-overlay {
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  background-color: rgba(15, 63, 94, 0.4); /* Dark Credentis at 40% */
+}
+
+/* ============================================
+   Firefox Fallback
+   Firefox has backdrop-filter disabled by default
+   ============================================ */
+@-moz-document url-prefix() {
+  .glass-surface {
+    background-color: rgba(208, 230, 243, 0.95);
+  }
+  
+  .glass-card {
+    background-color: rgba(208, 230, 243, 0.98);
+  }
+  
+  .glass-credential {
+    background: linear-gradient(
+      135deg,
+      rgba(208, 230, 243, 0.98) 0%,
+      rgba(136, 196, 227, 0.95) 100%
+    );
+  }
+  
+  .glass-verified {
+    background: linear-gradient(
+      135deg,
+      rgba(31, 184, 126, 0.2) 0%,
+      rgba(208, 230, 243, 0.95) 100%
+    );
+  }
+  
+  .glass-overlay {
+    background-color: rgba(15, 63, 94, 0.85);
+  }
+}
+
+/* ============================================
+   Reduced Motion Support
+   Respect user preferences
+   ============================================ */
+@media (prefers-reduced-motion: reduce) {
+  .glass-surface,
+  .glass-card,
+  .glass-credential,
+  .glass-verified {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* ============================================
+   Hover States (Glass elements only)
+   ============================================ */
+.glass-card:hover {
+  box-shadow: 0 12px 40px rgba(33, 136, 202, 0.2);
+  transform: translateY(-2px);
+  transition: all 0.3s ease;
+}
+
+.glass-credential:hover {
+  box-shadow: 
+    0 12px 40px rgba(33, 136, 202, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transform: translateY(-2px);
+  transition: all 0.3s ease;
+}
+
+/* ============================================
+   Glass Text Readability
+   Ensure text is readable on glass surfaces
+   ============================================ */
+.glass-surface,
+.glass-card,
+.glass-credential {
+  color: #0f3f5e; /* Dark Credentis for contrast */
+}
+
+.glass-surface h1,
+.glass-surface h2,
+.glass-surface h3,
+.glass-card h1,
+.glass-card h2,
+.glass-card h3,
+.glass-credential h1,
+.glass-credential h2,
+.glass-credential h3 {
+  color: #155782; /* Credentis dark */
+  font-weight: 600;
+}
+
+/* ============================================
+   Glass Badge (Small accent)
+   Use for: verified badges, status indicators
+   ============================================ */
+.glass-badge {
+  backdrop-filter: blur(8px) saturate(150%);
+  -webkit-backdrop-filter: blur(8px) saturate(150%);
+  background-color: rgba(33, 136, 202, 0.15);
+  border-radius: 9999px;
+  border: 1px solid rgba(33, 136, 202, 0.2);
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #2188CA;
+}

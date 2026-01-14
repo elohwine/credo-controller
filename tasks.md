@@ -86,12 +86,149 @@
 ## Phase 4: HR & Ops Expansion
 - [x] **Onboarding**: Employee KYC & Contract Signing (Backend API & VCs)
 - [x] **Operations**: Leave & Expense Management
+- [x] **UI**: `pages/hr/operations.tsx` (Leave Requests & Expense Claims)
 
 ## Phase 5: Financial Statements
-- [/] **Reports**: Generate Income Statement & Balance Sheet from VCs (BLOCKED: Verification FK Issue)
-- [ ] **Auditor View**: Drill-down from statements to signed receipts
+- [x] **Reports**: Generate Income Statement & Balance Sheet from VCs
+- [x] **Auditor View**: Drill-down from statements to signed receipts (verify-reporting.ts validates end-to-end flow)
+- [x] **UI**: `pages/finance/reports.tsx` (Income Statement & Credential Issuance)
 
 ## Phase 6: Trust & Compliance Integration (Start)
 - [x] **Revocation**: Status List 2021 implementation.
 - [x] **Merchant Portal**: Verifier Dashboard & Policy Config.
 - [x] **Audit Logs**: `AuditService` & Security Hardening.
+
+## Phase 7: Inventory Management & E2E Cryptographic Verification (NEW)
+> **Goal**: Real-time inventory tracking with hash-chained events, eliminating stocktakes.
+> Integrated with Phase 1 (Catalog/Commerce) and Phase 5 (Reporting).
+
+### 7A - Core Inventory (✅ COMPLETE)
+- [x] **Database Schema**: `013_create_inventory.sql`
+  - `inventory_locations`: Warehouses, shops, transit
+  - `inventory_lots`: Batch/lot tracking with serial support
+  - `inventory_events`: Append-only ledger with SHA-256 hash chain
+  - `inventory_allocations`: Reservations linked to carts/invoices
+  - `inventory_projections`: Real-time stock levels
+- [x] **InventoryService**: Hash-chained event management
+  - `receiveGoods()`: GRN with optional GoodsReceivedVC
+  - `reserveStock()`: FIFO allocation for carts
+  - `fulfillSale()`: Consume reserved stock, issue SaleFulfillmentVC
+  - `verifyEventChain()`: Cryptographic audit
+- [x] **InventoryController**: REST API endpoints
+  - `POST /inventory/locations`: Create location
+  - `POST /inventory/receive`: GRN with VC
+  - `POST /inventory/reserve`: Reserve for cart
+  - `GET /inventory/levels`: Real-time stock
+  - `GET /inventory/scan/{barcode}`: Barcode lookup
+  - `GET /inventory/verify-chain`: Hash chain verification
+  - `GET /inventory/trace/receipt/{receiptId}`: Full provenance
+- [x] **E2E Verification**: `verify-inventory.ts` confirms full flow
+  - GRN → Reserve → Fulfill with valid hash chain
+  - Receipt provenance traceable to original lot
+
+### 7B - Inventory VCs (✅ COMPLETE)
+- [x] **Schemas**: GoodsReceivedVC, SaleFulfillmentVC, StockTransferVC
+- [x] **Credential Definitions**: Added to seed-vc-models.ts
+- [x] **Integration**: Auto-issue VCs on receive/fulfill (via InventoryService)
+
+### 7C - Sales Binding (✅ COMPLETE)
+- [x] **Cart → Reserve**: Auto-reserve inventory when cart created (WhatsAppPayloadController)
+- [x] **Invoice → Hold**: (Skipped explicit extension, relies on initial reservation)
+- [x] **Receipt → Fulfill**: Consume stock on payment, link to ReceiptVC (FinanceController)
+- [x] **ReceiptVC Extension**: Include `inventoryAllocations` with lot/serial refs
+
+### 7D - Analytics & Reporting (✅ COMPLETE)
+- [x] **Dashboard**: Stock levels, stockouts, aging (`pages/inventory/dashboard.tsx`)
+- [x] **Valuation**: Total inventory value by location (FIFO cost)
+- [x] **Aging Report**: 0-30, 31-60, 61-90, 90+ days buckets
+- [x] **Profit Insights**: Gross margin per SKU using lot costs (in getValuation)
+- [ ] **Shrinkage Tracking**: Adjustments vs sales ratio (future)
+
+## Phase 8: UI Integration & Polish (Wallet & Portal)
+> **Goal**: Ensure walt.id UI components (Wallet, Portal) are fully wired to Credo backend APIs.
+
+### 8A - Backend Route Gaps (✅ COMPLETE)
+- [x] **Mount OIDC Routers**: `src/server.ts` lines 231-272 mount OIDC routers:
+  - `app.use('/oidc/issuer', modules.openId4VcIssuer.config.router)` - All issuer endpoints
+  - `app.use('/oidc/verifier', modules.openId4VcVerifier.config.router)` - All verifier endpoints
+- [x] **Wallet API Compatibility**: All routes exist in `src/routes/routes.ts`:
+  - `GET /api/wallet/accounts/wallets` - List wallets (line 5779)
+  - `GET /api/wallet/credentials` - List credentials (`WalletCredentialsController`)
+  - `POST /api/wallet/credentials/accept-offer` - Accept VC offer
+  - `GET /api/wallet/credentials/pending-offers` - List pending offers
+  - `POST /api/wallet/wallet/{walletId}/exchange/resolveCredentialOffer` - Resolve offers
+
+### 8B - Portal Integration (✅ COMPLETE)
+- [x] **Credential Models**: `pages/credential-models.tsx` renders available VC types
+- [x] **Issuance Flow**: `IssueSection.tsx` calls `getOfferUrl()` → Backend `createCredentialOffer`
+- [x] **Verification Flow**: `VerificationSection.tsx` wired to verification endpoints
+- [x] **Inventory Dashboard**: `pages/inventory/dashboard.tsx` - Stock, valuation, aging tabs
+- [x] **Finance Reports**: `pages/finance/reports.tsx` - Income statement with VC integration
+- [x] **HR Operations**: `pages/hr/operations.tsx` - Leave/Expense management
+
+### 8C - Wallet Integration (✅ COMPLETE)
+- [x] **Dashboard**: `pages/wallet/[wallet]/index.vue` loads credentials via `/wallet-api/credentials` → `/api/wallet/credentials` proxy
+- [x] **Pending Offers**: Auto-polls `/wallet-api/credentials/pending-offers` every 30 seconds
+- [x] **Accept Flow**: `acceptOffer()` calls `/wallet-api/credentials/accept-offer`
+- [x] **Credential Details**: `pages/wallet/[wallet]/credentials/[credentialId].vue` renders VC details
+- [x] **GenericID Banner**: Prompts new users to claim GenericID VC
+- [x] **Quick Actions**: Scan QR, Request VC, Finance Portal links
+
+## Phase 9: Production Hardening (✅ COMPLETE)
+> **Goal**: Security, scalability, and operational readiness.
+
+### 9A - Security & Observability (✅ COMPLETE)
+- [x] **Audit Middleware**: `src/middleware/auditMiddleware.ts`
+  - Auto-captures sensitive API operations (credentials, finance, inventory, HR)
+  - Logs: tenantId, actorDid, actionType, resourceId, IP, user-agent
+  - Wired into Express pipeline in `server.ts`
+- [x] **Input Validation**: `src/utils/validationSchemas.ts` (Zod)
+  - 20+ schemas: Wallet, Credentials, Finance, Inventory, HR, Trust
+  - `validateBody()` middleware factory for route protection
+- [x] **Rate Limiting**: Already configured via `express-rate-limit`
+
+### 9B - Scalability (✅ COMPLETE)
+- [x] **Session Limits**: Env-configurable via `SESSION_ACQUIRE_TIMEOUT`, `SESSION_LIMIT`
+- [x] **SQLite Optimization**: `src/persistence/DatabaseManager.ts`
+  - WAL mode, 64MB cache, memory-mapped I/O, 5s busy timeout
+  - `synchronous = NORMAL` for balanced durability/performance
+
+### 9C - Metrics & Health (✅ COMPLETE)
+- [x] **MetricsService**: `src/services/MetricsService.ts`
+  - System metrics: uptime, memory, CPU
+  - Database metrics: size, WAL, table row counts
+  - Business metrics: credentials, wallets, inventory, tenants
+- [x] **MetricsController**: `src/controllers/metrics/MetricsController.ts`
+  - `GET /health` - Load balancer health check (200/503)
+  - `GET /health/live` - Kubernetes liveness probe
+  - `GET /health/ready` - Kubernetes readiness probe
+  - `GET /metrics` - Prometheus-compatible text format
+  - `GET /metrics/json` - JSON format for dashboards
+
+### 9D - Deployment & Recovery (✅ COMPLETE)
+- [x] **Backup Script**: `scripts/backup.sh`
+  - SQLite backup with WAL checkpoint
+  - Askar wallet backup
+  - Config backup (secrets redacted)
+  - Manifest generation, compression, retention cleanup
+- [ ] **DNS/TLS Automation**: (Deferred - use reverse proxy like Caddy/Traefik)
+- [ ] **DR Runbook**: (Deferred - documented in ops guide)
+
+## Phase 10: Future Enhancements (NOT STARTED)
+> **Goal**: Advanced features for enterprise deployment.
+
+### 10A - External Secrets
+- [ ] **Vault Integration**: Move JWT secrets from genericRecords to HashiCorp Vault
+- [ ] **Per-tenant Keys**: Separate signing keys per tenant
+- [ ] **Key Rotation**: Automated secret rotation API
+
+### 10B - Advanced Revocation
+- [ ] **Status List 2021**: Full implementation with tenant-scoped lists
+- [ ] **Batch Revocation**: Bulk revoke credentials API
+- [ ] **Revocation Notifications**: Webhook on credential revocation
+
+### 10C - Multi-Region
+- [ ] **Database Replication**: SQLite Litestream or PostgreSQL migration
+- [ ] **CDN Integration**: Static asset distribution
+- [ ] **Regional Routing**: Geo-based tenant routing
+

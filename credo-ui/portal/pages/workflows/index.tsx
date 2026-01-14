@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useState } from 'react';
-import Head from 'next/head';
 import axios from 'axios';
 import { EnvContext } from '@/pages/_app';
+import Layout from '@/components/Layout';
 import WorkflowList from '@/components/workflows/WorkflowList';
 import DynamicForm from '@/components/workflows/DynamicForm';
 import Button from '@/components/walt/button/Button';
@@ -92,87 +92,70 @@ export default function WorkflowsPage() {
     };
 
     return (
-        <>
-            <Head>
-                <title>Workflows - Credo Portal</title>
-            </Head>
-
-            <div className="min-h-screen bg-gray-50">
-                <header className="bg-white shadow-sm border-b border-gray-200">
-                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-                        <h1 className="text-3xl font-bold text-gray-900">Issuance Workflows</h1>
-                        <p className="mt-2 text-sm text-gray-600">
-                            Select a workflow to start an issuance process
-                        </p>
+        <Layout title="Issuance Workflows">
+            {isLoading ? (
+                <div className="text-center py-12">Loading workflows...</div>
+            ) : selectedWorkflow ? (
+                <div className="bg-white rounded-lg shadow-lg p-6 max-w-2xl mx-auto">
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-2xl font-bold text-gray-900">{selectedWorkflow.name}</h2>
+                        <Button onClick={() => { setSelectedWorkflow(null); setResult(null); setError(null); }} color="gray">
+                            Back to List
+                        </Button>
                     </div>
-                </header>
 
-                <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                    {isLoading ? (
-                        <div className="text-center py-12">Loading workflows...</div>
-                    ) : selectedWorkflow ? (
-                        <div className="bg-white rounded-lg shadow-lg p-6 max-w-2xl mx-auto">
-                            <div className="flex justify-between items-center mb-6">
-                                <h2 className="text-2xl font-bold text-gray-900">{selectedWorkflow.name}</h2>
-                                <Button onClick={() => { setSelectedWorkflow(null); setResult(null); setError(null); }} color="secondary">
-                                    Back to List
-                                </Button>
-                            </div>
+                    <p className="text-gray-600 mb-6">{selectedWorkflow.description}</p>
 
-                            <p className="text-gray-600 mb-6">{selectedWorkflow.description}</p>
+                    {!result ? (
+                        <DynamicForm
+                            schema={selectedWorkflow.inputSchema}
+                            onSubmit={handleExecute}
+                            isLoading={isExecuting}
+                        />
+                    ) : (
+                        <div className="text-center">
+                            <h3 className="text-lg font-bold text-green-800 mb-4">Workflow Executed Successfully!</h3>
 
-                            {!result ? (
-                                <DynamicForm
-                                    schema={selectedWorkflow.inputSchema}
-                                    onSubmit={handleExecute}
-                                    isLoading={isExecuting}
+                            {result.offer && (
+                                <CredentialOfferCard
+                                    offerUri={result.offer.credential_offer_uri || result.offer.credentialOffer}
+                                    deepLink={result.offer.credential_offer_deeplink}
+                                    credentialType={result.offer.credentialType || selectedWorkflow.name}
+                                    claims={result.offer.claims}
+                                    financeResult={result.finance}
                                 />
-                            ) : (
-                                <div className="text-center">
-                                    <h3 className="text-lg font-bold text-green-800 mb-4">Workflow Executed Successfully!</h3>
+                            )}
 
-                                    {result.offer && (
-                                        <CredentialOfferCard
-                                            offerUri={result.offer.credential_offer_uri || result.offer.credentialOffer}
-                                            deepLink={result.offer.credential_offer_deeplink}
-                                            credentialType={result.offer.credentialType || selectedWorkflow.name}
-                                            claims={result.offer.claims}
-                                            financeResult={result.finance}
-                                        />
-                                    )}
-
-                                    {/* Finance result without offer (calculation only) */}
-                                    {!result.offer && result.finance && (
-                                        <div className="bg-green-50 border border-green-200 rounded-lg p-6 max-w-md mx-auto">
-                                            <h4 className="font-semibold text-gray-700 border-b pb-2 mb-4">Calculation Result</h4>
-                                            <div className="grid grid-cols-2 gap-2 text-sm">
-                                                <span className="text-gray-600">Subtotal:</span>
-                                                <span className="font-mono">{result.finance.subtotal}</span>
-                                                <span className="text-gray-600">Tax:</span>
-                                                <span className="font-mono">{result.finance.taxAmount}</span>
-                                                <span className="text-gray-600 font-bold">Total:</span>
-                                                <span className="font-bold font-mono">{result.finance.grandTotal}</span>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    <div className="mt-6">
-                                        <Button onClick={() => setResult(null)}>Run Again</Button>
+                            {/* Finance result without offer (calculation only) */}
+                            {!result.offer && result.finance && (
+                                <div className="bg-green-50 border border-green-200 rounded-lg p-6 max-w-md mx-auto">
+                                    <h4 className="font-semibold text-gray-700 border-b pb-2 mb-4">Calculation Result</h4>
+                                    <div className="grid grid-cols-2 gap-2 text-sm">
+                                        <span className="text-gray-600">Subtotal:</span>
+                                        <span className="font-mono">{result.finance.subtotal}</span>
+                                        <span className="text-gray-600">Tax:</span>
+                                        <span className="font-mono">{result.finance.taxAmount}</span>
+                                        <span className="text-gray-600 font-bold">Total:</span>
+                                        <span className="font-bold font-mono">{result.finance.grandTotal}</span>
                                     </div>
                                 </div>
                             )}
 
-                            {error && (
-                                <div className="mt-6 bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
-                                    {error}
-                                </div>
-                            )}
+                            <div className="mt-6">
+                                <Button onClick={() => setResult(null)}>Run Again</Button>
+                            </div>
                         </div>
+                    )}
+
+                    {error && (
+                        <div className="mt-6 bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+                            {error}
+                        </div>
+                    )}
+                </div>
                     ) : (
                         <WorkflowList workflows={workflows} onSelect={setSelectedWorkflow} />
                     )}
-                </main>
-            </div>
-        </>
+        </Layout>
     );
 }

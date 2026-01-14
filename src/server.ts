@@ -35,10 +35,25 @@ import { initWalletUserStore } from './persistence/UserRepository'
 import { rootLogger } from './utils/pinoLogger'
 import { runWithContext } from './utils/requestContext'
 import { DatabaseManager } from './persistence/DatabaseManager'
+import { auditMiddleware } from './middleware/auditMiddleware'
+
+import { startNgrokTunnel, getNgrokUrl } from './utils/ngrokTunnel'
 
 dotenv.config()
 
 export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: string) => {
+  // Start ngrok tunnel for webhook support in dev (only on main server port 3000)
+  const enableNgrok = process.env.ENABLE_NGROK !== 'false' && process.env.NODE_ENV !== 'production'
+  if (enableNgrok && config.port === 3000 && !getNgrokUrl()) {
+    try {
+      const ngrokUrl = await startNgrokTunnel({ port: config.port })
+      agent?.config?.logger?.info?.(`Ngrok tunnel established: ${ngrokUrl}`)
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      agent?.config?.logger?.warn?.(`Ngrok failed to start: ${msg}`)
+    }
+  }
+
   // Initialize persistence layer before using any stores
   try {
     const dbPath = process.env.PERSISTENCE_DB_PATH || './data/persistence.db'
@@ -192,6 +207,9 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
 
   // apply rate limiter to all requests
   app.use(limiter)
+
+  // Audit middleware for compliance logging
+  app.use(auditMiddleware)
 
   // Note: Having used it above, redirects accordingly
   app.use((req, res, next) => {
