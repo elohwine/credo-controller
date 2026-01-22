@@ -21,6 +21,21 @@ export default function Credentials() {
   const router = useRouter();
   const params = router.query;
 
+  useEffect(() => {
+    if (!router.isReady) return;
+
+    const ids = params?.ids;
+    const hasIds =
+      (typeof ids === 'string' && ids.trim().length > 0) ||
+      (Array.isArray(ids) && ids.some((v) => typeof v === 'string' && v.trim().length > 0));
+
+    // If user navigated here directly (e.g., via menu/bookmark) without selecting credentials,
+    // send them through the credential selection flow.
+    if (!hasIds) {
+      router.replace('/select-credentials');
+    }
+  }, [router.isReady, params, router]);
+
   function handlePortalModeChange() {
     if (portalType === VERIFY_MODE) {
       setPortalType(ISSUE_MODE);
@@ -41,6 +56,15 @@ export default function Credentials() {
       }
     }
   }, [params]);
+
+  // While redirecting, keep the page quiet (prevents brief flashes of the old UI).
+  if (router.isReady) {
+    const ids = params?.ids;
+    const hasIds =
+      (typeof ids === 'string' && ids.trim().length > 0) ||
+      (Array.isArray(ids) && ids.some((v) => typeof v === 'string' && v.trim().length > 0));
+    if (!hasIds) return null;
+  }
 
   return (
     <div className="flex flex-col justify-center items-center">

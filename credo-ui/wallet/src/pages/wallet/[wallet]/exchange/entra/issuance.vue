@@ -4,19 +4,19 @@
       <template v-slot:title>
         <div class="ml-3">
           <h1
-            class="text-2xl font-bold leading-7 text-gray-900 sm:truncate sm:leading-9"
+            class="text-2xl font-bold leading-7 text-[#0F3F5E] sm:truncate sm:leading-9"
           >
             Receive entra credentials
           </h1>
-          <p>
-            issued by <span class="underline">{{ issuerHost }}</span>
+          <p class="text-sm text-[#627D98]">
+            issued by <span class="underline text-[#0F3F5E]">{{ issuerHost }}</span>
           </p>
         </div>
       </template>
 
       <template v-if="!immediateAccept" v-slot:menu>
         <ActionButton
-          class="inline-flex items-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:scale-105 hover:animate-pulse hover:bg-red-700 focus:animate-none focus:outline focus:outline-offset-2 focus:outline-red-700"
+          class="inline-flex items-center rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:scale-105 hover:bg-red-700 focus:outline focus:outline-offset-2 focus:outline-red-700"
           display-text="Reject"
           icon="heroicons:x-mark"
           type="button"
@@ -28,18 +28,19 @@
             :class="[
               failed
                 ? 'animate-pulse bg-red-600 hover:scale-105 hover:bg-red-700 focus:outline focus:outline-offset-2 focus:outline-red-700'
-                : 'bg-green-600 hover:scale-105 hover:animate-pulse hover:bg-green-700 focus:animate-none focus:outline-green-700',
+                : 'hover:scale-105 focus:outline focus:outline-offset-2 focus:outline-[#2188CA]',
             ]"
             :disabled="
               (selectedDid === null || selectedDid === undefined) &&
               !(dids && dids?.length === 1)
             "
             :failed="failed"
-            class="inline-flex items-center rounded-md px-3 py-2 text-sm font-semibold text-white shadow-sm focus:outline focus:outline-offset-2 disabled:bg-gray-200 disabled:cursor-not-allowed"
+            class="inline-flex items-center rounded-xl px-3 py-2 text-sm font-semibold text-white shadow-sm focus:outline focus:outline-offset-2 disabled:bg-gray-200 disabled:cursor-not-allowed"
             display-text="Accept"
             icon="heroicons:check"
             type="button"
             @click="acceptCredential"
+            style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
           />
           <span
             v-if="failed"
@@ -52,7 +53,7 @@
     </PageHeader>
 
     <CenterMain>
-      <h1 class="mb-2 text-2xl font-semibold">Issuance</h1>
+      <h1 class="mb-2 text-2xl font-semibold text-[#0F3F5E]">Issuance</h1>
 
       <LoadingIndicator v-if="immediateAccept" class="my-6 mb-12 w-full">
         Receiving {{ credentialCount }}
@@ -63,14 +64,14 @@
         <div v-if="!pendingDids" class="relative w-full">
           <Listbox v-if="dids?.length !== 1" v-model="selectedDid" as="div">
             <ListboxLabel
-              class="block text-sm font-medium leading-6 text-gray-900"
+              class="block text-sm font-medium leading-6 text-[#0F3F5E]"
               >Select DID:
             </ListboxLabel>
 
             <div class="relative mt-2">
               <ListboxButton
                 v-if="selectedDid !== null"
-                class="relative w-full cursor-default rounded-md bg-white py-1.5 pl-3 pr-10 text-left text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 sm:text-sm sm:leading-6 h-9"
+                class="relative w-full cursor-default rounded-md bg-white py-1.5 pl-3 pr-10 text-left text-[#0F3F5E] shadow-sm ring-1 ring-inset ring-[#D0E6F3] focus:outline-none focus:ring-2 focus:ring-[#2188CA] sm:text-sm sm:leading-6 h-9"
               >
                 <span class="flex items-center">
                   <p class="truncate font-bold">{{ selectedDid?.alias }}</p>
@@ -83,7 +84,7 @@
                 >
                   <ChevronUpDownIcon
                     aria-hidden="true"
-                    class="h-5 w-5 text-gray-400"
+                    class="h-5 w-5 text-[#9FB3C8]"
                   />
                 </span>
               </ListboxButton>
@@ -105,7 +106,7 @@
                   >
                     <li
                       :class="[
-                        active ? 'bg-indigo-600 text-white' : 'text-gray-900',
+                        active ? 'bg-[#2188CA] text-white' : 'text-[#0F3F5E]',
                         'relative cursor-default select-none py-2 pl-3 pr-9',
                       ]"
                     >
@@ -122,7 +123,7 @@
                       <span
                         v-if="selectedDid"
                         :class="[
-                          active ? 'text-white' : 'text-indigo-600',
+                          active ? 'text-white' : 'text-[#2188CA]',
                           'absolute inset-y-0 right-0 flex items-center pr-4',
                         ]"
                       >
@@ -135,36 +136,29 @@
             </div>
           </Listbox>
 
-          <div class="rounded-md bg-blue-50 p-2 mt-2">
+          <div class="rounded-md bg-[#F0F4F8] border border-[#D0E6F3] p-2 mt-2">
             <div class="flex">
-              <!--<div class="flex-shrink-0">
-                                <InformationCircleIcon class="h-5 w-5 text-blue-400" aria-hidden="true" />
-                            </div>-->
-              <div
-                class="ml-3 flex-1 flex flex-col md:flex-row md:justify-between"
-              >
+              <div class="flex-1">
                 <span
                   v-if="selectedDid != null"
-                  class="text-sm text-blue-700 max-w-xs overflow-x-scroll mr-3 truncate"
+                  class="text-sm text-[#627D98]"
                 >
-                  Will issue to DID: {{ selectedDid.alias }} ({{
-                    selectedDid.did
-                  }})
+                  Will issue to DID: {{ selectedDid.alias }} ({{ selectedDid.did }})
                 </span>
-                <button class="text-sm md:ml-6">
-                  <NuxtLink
-                    :to="`/wallet/${currentWallet}/settings/dids`"
-                    class="whitespace-nowrap font-medium text-blue-700 hover:text-blue-600"
-                  >
-                    DID management
-                    <span aria-hidden="true"> &rarr;</span>
-                  </NuxtLink>
-                </button>
               </div>
+              <button class="text-sm md:ml-6">
+                <NuxtLink
+                  :to="`/wallet/${currentWallet}/settings/dids`"
+                  class="whitespace-nowrap font-medium text-[#2188CA] hover:text-[#0F3F5E]"
+                >
+                  DID management
+                  <span aria-hidden="true"> &rarr;</span>
+                </NuxtLink>
+              </button>
             </div>
           </div>
 
-          <p class="mt-10 mb-1">The following credentials will be issued:</p>
+          <p class="mt-10 mb-1 text-[#627D98]">The following credentials will be issued:</p>
           <div
             aria-label="Credential list"
             class="h-full overflow-y-auto shadow-xl"
@@ -175,12 +169,12 @@
               class="relative"
             >
               <div
-                class="top-0 z-10 border-y border-b-gray-200 border-t-gray-100 bg-gray-50 px-3 py-1.5 text-sm font-semibold leading-6 text-gray-900"
+                class="top-0 z-10 border-y border-b-[#E4E7EB] border-t-[#F0F4F8] bg-[#F8F9FB] px-3 py-1.5 text-sm font-semibold leading-6 text-[#0F3F5E]"
               >
                 <!--<h3>{{ JSON.stringify(group).slice(1, -1) }}s:</h3>-->
                 <h3>{{ group.value }}s:</h3>
               </div>
-              <ul class="divide-y divide-gray-100" role="list">
+              <ul class="divide-y divide-[#E4E7EB]" role="list">
                 <li
                   v-for="credential in groupedCredentialTypes.get(group)"
                   :key="credential"
@@ -188,15 +182,15 @@
                 >
                   <CredentialIcon
                     :credentialType="credential.name.value"
-                    class="h-6 w-6 flex-none rounded-full bg-gray-50"
+                    class="h-6 w-6 flex-none rounded-full bg-[#F0F4F8]"
                   ></CredentialIcon>
 
                   <div class="flex min-w-0 flex-row items-center">
-                    <span class="text-lg font-semibold leading-6 text-gray-900"
+                    <span class="text-lg font-semibold leading-6 text-[#0F3F5E]"
                       >{{ credential.id }}.</span
                     >
                     <span
-                      class="ml-1 truncate text-sm leading-5 text-gray-800"
+                      class="ml-1 truncate text-sm leading-5 text-[#4A6580]"
                       >{{ credential.name.value }}</span
                     >
                   </div>
@@ -327,7 +321,7 @@ if (query.accept) {
   acceptCredential();
 }
 
-useTitle(`Claim credentials - IdenEx`);
+useTitle(`Claim credentials - Credentis`);
 </script>
 
 <style scoped></style>

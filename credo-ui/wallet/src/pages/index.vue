@@ -3,26 +3,27 @@
     <WalletPageHeader />
     <CenterMain>
       <div>
-        <h2 class="text-lg font-semibold">Select wallet</h2>
+        <h2 class="text-lg font-semibold text-[#0F3F5E]">Select wallet</h2>
 
         <ul v-if="wallets">
           <li
             v-for="wallet in wallets?.wallets"
-            class="flex items-center justify-between gap-x-6 py-5"
+            class="flex items-center justify-between gap-x-6 py-5 px-4 rounded-2xl border border-white/30 shadow-lg mb-4"
+            style="background: linear-gradient(145deg, rgba(255,255,255,0.95), rgba(208,230,243,0.90)); backdrop-filter: blur(12px) saturate(180%);"
           >
             <div class="min-w-0">
               <div class="flex items-start gap-x-3">
-                <p class="text-sm font-semibold leading-6 text-gray-900">
+                <p class="text-sm font-semibold leading-6 text-[#0F3F5E]">
                   {{ wallet.name }}
                 </p>
                 <p
-                  class="rounded-md whitespace-nowrap mt-0.5 px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset"
+                  class="rounded-md whitespace-nowrap mt-0.5 px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset text-[#0F3F5E] border-[#D0E6F3]"
                 >
                   {{ wallet.permission }}
                 </p>
               </div>
               <div
-                class="mt-1 flex items-center gap-x-2 text-xs leading-5 text-gray-500"
+                class="mt-1 flex items-center gap-x-2 text-xs leading-5 text-[#627D98]"
               >
                 <p class="whitespace-nowrap">
                   Added on
@@ -42,7 +43,8 @@
             <div class="flex flex-none items-center gap-x-4">
               <button
                 @click="setWallet(wallet.id)"
-                class="rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                class="rounded-xl px-3 py-2 text-sm font-semibold text-white shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all"
+                style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
               >
                 View wallet
               </button>
@@ -70,7 +72,7 @@ if (wallets) {
 const config = useRuntimeConfig();
 
 useHead({
-  title: "Wallet selection - IdenEx",
+  title: "Wallet selection - Credentis",
 });
 
 if (process.client) {
@@ -207,7 +209,7 @@ if (process.client) {
 }
 
 definePageMeta({
-  title: "Select your wallet - IdenEx",
+  title: "Select your wallet - Credentis",
   layout: "default-reduced-nav",
 });
 </script>

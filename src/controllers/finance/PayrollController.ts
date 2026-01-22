@@ -1,5 +1,5 @@
 import { Controller, Post, Get, Route, Tags, Body, Path, Query } from 'tsoa'
-import { payrollService, Employee, PayrollRun, Payslip } from '../../services/PayrollService'
+import { payrollService, Employee, PayrollRun, Payslip, TaxCompliance } from '../../services/PayrollService'
 import { payoutService } from '../../services/PayoutService'
 
 export interface CreateEmployeeRequest {
@@ -16,6 +16,16 @@ export interface CreateEmployeeRequest {
 
 export interface CreateRunRequest {
     period: string // YYYY-MM
+}
+
+export interface IssueTaxComplianceRequest {
+    taxType: 'NSSA' | 'PAYE' | 'AIDS_LEVY'
+    referenceNumber?: string
+}
+
+export interface UpdateTaxComplianceStatusRequest {
+    status: 'filed' | 'confirmed' | 'rejected'
+    proofOfPaymentRef?: string
 }
 
 @Route('api/payroll')
@@ -72,15 +82,32 @@ export class PayrollController extends Controller {
 
     /**
      * Issue Payslip VCs for a completed payroll run
+     * Also issues a PayrollRunVC as batch summary
      */
     @Post('runs/{runId}/issue')
     public async issuePayslips(
         @Path() runId: string
-    ): Promise<{ issuedCount: number, status: string }> {
-        const count = await payrollService.issuePayslips(runId)
+    ): Promise<{ issuedCount: number, runVcId?: string, status: string }> {
+        const result = await payrollService.issuePayslips(runId)
         return {
-            issuedCount: count,
+            issuedCount: result.issuedCount,
+            runVcId: result.runVcId,
             status: 'completed'
+        }
+    }
+
+    /**
+     * Re-offer PayrollRunVC credential
+     * Returns the credential offer URI for users who missed the initial invitation
+     */
+    @Post('runs/{runId}/reoffer')
+    public async reofferPayrollRunVC(
+        @Path() runId: string
+    ): Promise<{ offerUri: string, credential_offer_deeplink: string }> {
+        const offer = await payrollService.getPayrollRunVCOffer(runId)
+        return {
+            offerUri: offer.credential_offer_uri,
+            credential_offer_deeplink: offer.credential_offer_deeplink
         }
     }
 
@@ -92,5 +119,42 @@ export class PayrollController extends Controller {
         @Path() runId: string
     ): Promise<any> {
         return payoutService.processRunPayout(runId)
+    }
+
+    // ==================== TAX COMPLIANCE ENDPOINTS ====================
+
+    /**
+     * List all tax compliance records
+     */
+    @Get('tax-compliance')
+    public async listTaxCompliance(): Promise<TaxCompliance[]> {
+        return payrollService.listTaxCompliance()
+    }
+
+    /**
+     * Issue a TaxComplianceVC for a payroll run
+     */
+    @Post('runs/{runId}/tax-compliance')
+    public async issueTaxCompliance(
+        @Path() runId: string,
+        @Body() body: IssueTaxComplianceRequest
+    ): Promise<TaxCompliance> {
+        return payrollService.issueTaxComplianceVC(runId, body.taxType, body.referenceNumber)
+    }
+
+    /**
+     * Update tax compliance status after filing with authority
+     */
+    @Post('tax-compliance/{complianceId}/status')
+    public async updateTaxComplianceStatus(
+        @Path() complianceId: string,
+        @Body() body: UpdateTaxComplianceStatusRequest
+    ): Promise<{ success: boolean }> {
+        await payrollService.updateTaxComplianceStatus(
+            complianceId,
+            body.status,
+            body.proofOfPaymentRef
+        )
+        return { success: true }
     }
 }

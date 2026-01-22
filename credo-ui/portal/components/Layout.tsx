@@ -78,7 +78,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
     const primaryNav: NavItem[] = [
         { label: 'Home', href: '/', icon: <IconHome size={16} /> },
         { label: 'Credentials', href: '/credential-models', icon: <IconCertificate size={16} /> },
-        { label: 'Issue / Verify', href: '/credentials', icon: <IconFileCheck size={16} /> },
+        { label: 'Issue / Verify', href: '/select-credentials', icon: <IconFileCheck size={16} /> },
         { label: 'Workflows', href: '/workflows', icon: <IconGitBranch size={16} /> },
     ];
 
@@ -96,9 +96,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
         {
             label: 'People',
             items: [
-                { label: 'HR Operations', href: '/hr/operations', icon: <IconUsers size={16} />, description: 'Human resources operations' },
-                { label: 'Onboarding', href: '/onboarding', icon: <IconUserPlus size={16} />, description: 'Employee onboarding' },
-                { label: 'Payroll', href: '/payroll', icon: <IconCash size={16} />, description: 'Salary & compensation' },
+                { label: 'HR & Payroll', href: '/hr', icon: <IconUsers size={16} />, description: 'Employees, payroll & HR operations' },
             ],
         },
         {
@@ -106,6 +104,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
             items: [
                 { label: 'Trust Scores', href: '/trust', icon: <IconStars size={16} />, description: 'Trust scores & attestations' },
                 { label: 'Revocation', href: '/revocation', icon: <IconShieldOff size={16} />, description: 'Credential revocation' },
+                { label: 'Audit Logs', href: '/audit', icon: <IconFileCheck size={16} />, description: 'Platform audit trail' },
                 { label: 'WhatsApp', href: '/whatsapp', icon: <IconBrandWhatsapp size={16} />, description: 'WhatsApp commerce' },
             ],
         },
@@ -147,7 +146,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                     borderBottom: `1px solid #E5E7EB`,
                     position: 'sticky',
                     top: 0,
-                    zIndex: 100,
+                    zIndex: 40,
                 }}
             >
                 {/* Top accent bar */}
@@ -160,7 +159,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                             <img
                                 src="/credentis-logo.png"
                                 alt="Credentis"
-                                style={{ height: 56, width: 'auto', display: 'block' }}
+                                style={{ height: 84, width: 'auto', display: 'block' }}
                             />
                         </Link>
 

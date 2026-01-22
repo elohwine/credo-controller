@@ -249,23 +249,46 @@ export class WalletController extends Controller {
         let credentialType = 'VerifiableCredential'
         let issuerDid = ''
 
-        if (record.credential) {
-          const types = record.credential.type || []
+        // Get the credential object - Credo stores it in record.credential
+        const cred = record.credential
+        
+        if (cred) {
+          const types = cred.type || []
           credentialType = types.find((t: string) => t !== 'VerifiableCredential') || types[0] || 'VerifiableCredential'
-          issuerDid = typeof record.credential.issuer === 'string'
-            ? record.credential.issuer
-            : record.credential.issuer?.id || ''
+          issuerDid = typeof cred.issuer === 'string'
+            ? cred.issuer
+            : cred.issuer?.id || ''
         }
+
+        // Build a normalized credential structure for the UI
+        // Credo W3cCredential has: context, type, credentialSubject, issuer, issuanceDate, etc.
+        // The credentialSubject may have claims nested under a 'claims' property
+        const credentialSubject = cred?.credentialSubject || {}
+        const flatClaims = credentialSubject.claims && typeof credentialSubject.claims === 'object'
+          ? { ...credentialSubject, ...credentialSubject.claims }
+          : credentialSubject
+
+        // Create a normalized parsedDocument for UI consumption
+        const normalizedCred = {
+          '@context': cred?.context || cred?.['@context'] || ['https://www.w3.org/2018/credentials/v1'],
+          type: cred?.type || ['VerifiableCredential'],
+          credentialSubject: flatClaims,
+          issuer: cred?.issuer,
+          issuanceDate: cred?.issuanceDate,
+          expirationDate: cred?.expirationDate,
+        }
+
+        console.log('[listCredentials] Credential:', record.id, 'type:', credentialType, 'subject:', JSON.stringify(flatClaims).slice(0, 200))
 
         return {
           wallet: walletId,
           id: record.id,
-          document: record.credential,
+          document: cred,
           disclosures: null,
           addedOn: record.createdAt || new Date().toISOString(),
           manifest: null,
-          parsedDocument: record.credential,
-          format: record.credential?.claimFormat || 'jwt_vc',
+          parsedDocument: normalizedCred,
+          format: cred?.claimFormat || 'jwt_vc',
           type: credentialType,
           issuerDid
         }

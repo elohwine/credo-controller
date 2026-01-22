@@ -100,4 +100,34 @@ export class OperationsController extends Controller {
     ): Promise<void> {
         await operationsService.updateExpenseStatus('default', body.adminDid, claimId, body.status)
     }
+
+    /**
+     * Re-offer leave approval credential
+     * Returns the credential offer URI for users who missed the initial invitation
+     */
+    @Post('leave/{leaveId}/reoffer')
+    public async reofferLeaveApproval(
+        @Path() leaveId: string
+    ): Promise<{ offerUri: string, credential_offer_deeplink: string }> {
+        const offer = await operationsService.getLeaveApprovalVCOffer('default', leaveId)
+        return {
+            offerUri: offer.credential_offer_uri,
+            credential_offer_deeplink: offer.credential_offer_deeplink
+        }
+    }
+
+    /**
+     * Re-offer expense approval credential
+     * Returns the credential offer URI for users who missed the initial invitation
+     */
+    @Post('expenses/{claimId}/reoffer')
+    public async reofferExpenseApproval(
+        @Path() claimId: string
+    ): Promise<{ offerUri: string, credential_offer_deeplink: string }> {
+        const offer = await operationsService.getExpenseApprovalVCOffer('default', claimId)
+        return {
+            offerUri: offer.credential_offer_uri,
+            credential_offer_deeplink: offer.credential_offer_deeplink
+        }
+    }
 }

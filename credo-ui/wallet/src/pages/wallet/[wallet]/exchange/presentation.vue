@@ -1,7 +1,10 @@
 <template>
   <div>
     <CenterMain>
-      <h1 class="mb-2 text-2xl text-center font-bold">Presentation Request</h1>
+      <h1 class="mb-2 text-2xl text-center font-bold text-[#0F3F5E]">Present Credential</h1>
+      <p class="text-center text-sm text-[#627D98] mb-6">
+        The verifier is requesting proof — select a credential to present.
+      </p>
 
       <LoadingIndicator v-if="immediateAccept" class="my-6 mb-12 w-full">
         Presenting credential(s)...
@@ -17,13 +20,12 @@
 
       <div v-else class="my-10 mb-40 sm:mb-10 overflow-scroll">
         <div v-if="mobileView" v-for="(credential, credentialIdx) in matchedCredentials" :key="credentialIdx">
-          <div :class="{ 'mt-[-85px]': credentialIdx !== 0 }"
-            class="col-span-1 divide-y divide-gray-200 rounded-2xl bg-white shadow transform hover:scale-105 cursor-pointer duration-200">
+          <div class="col-span-1 transform hover:scale-[1.02] cursor-pointer duration-200">
             <VerifiableCredentialCard :credential="credential" />
           </div>
         </div>
         <div class="w-full flex justify-center gap-5" v-else>
-          <button v-if="matchedCredentials.length > 1" @click="index--" class="mt-4 text-[#002159] font-bold bg-white"
+          <button v-if="matchedCredentials.length > 1" @click="index--" class="mt-4 text-[#0F3F5E] font-bold bg-white"
             :disabled="index === 0" :class="{ 'cursor-not-allowed opacity-50': index === 0 }">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
               stroke="currentColor">
@@ -32,8 +34,8 @@
           </button>
           <VerifiableCredentialCard :key="index" :credential="{
             document: matchedCredentials[index].document,
-          }" class="sm:w-[400px]" />
-          <button v-if="matchedCredentials.length > 1" @click="index++" class="mt-4 text-[#002159] font-bold bg-white"
+          }" class="w-full max-w-2xl" />
+          <button v-if="matchedCredentials.length > 1" @click="index++" class="mt-4 text-[#0F3F5E] font-bold bg-white"
             :disabled="index === matchedCredentials.length - 1" :class="{
               'cursor-not-allowed opacity-50':
                 index === matchedCredentials.length - 1,
@@ -44,21 +46,21 @@
             </svg>
           </button>
         </div>
-        <div v-if="!mobileView" class="text-center text-gray-500 mt-2">
+        <div v-if="!mobileView" class="text-center text-[#627D98] mt-2">
           {{ index + 1 }} of {{ matchedCredentials.length }}
         </div>
         <div class="sm:w-[80%] md:w-[60%] mx-auto">
-          <div class="text-gray-500 mt-8 sm:mt-0">
+          <div class="text-[#627D98] mt-8 sm:mt-0">
             {{
               matchedCredentials.length > 1 ? "Credentials" : "Credential"
             }}
             to present
           </div>
-          <hr class="mt-1 mb-2 border-gray-200" />
+          <hr class="mt-1 mb-2 border-[#E4E7EB]" />
           <div v-for="credentialType in Object.keys(groupedCredentialsByType)">
             <div v-if="groupedCredentialsByType[credentialType].length > 1"
-              class="border border-[#E4E7EB] rounded-xl p-4 mb-4">
-              <div class="text-[#616E7C]">
+              class="border border-[#E4E7EB] rounded-xl p-4 mb-4 bg-white">
+              <div class="text-[#627D98]">
                 You have {{ groupedCredentialsByType[credentialType].length }} matching credentials of the same type;
                 please choose one.
               </div>
@@ -66,7 +68,7 @@
                 <input type="radio" :id="`${credentialType}-grouped-credential-${credential.id}`"
                   :checked="selection[credential.id]"
                   @click="groupedCredentialsByType[credentialType].forEach(c => selection[c.id] = c.id === credential.id)"
-                  class="mt-1 h-4 w-4 text-[#0573F0]" />
+                  class="mt-1 h-4 w-4 text-[#2188CA]" />
                 <CredentialDisclosure :credential="credential" :disclosureModalState="disclosureModalState"
                   :disclosures="disclosures" :selection="selection" :toggleDisclosure="toggleDisclosure"
                   :addDisclosure="addDisclosure" :removeDisclosure="removeDisclosure" />
@@ -84,12 +86,13 @@
     </CenterMain>
     <div v-if="!failed && matchedCredentials.length" class="w-full sm:max-w-2xl sm:mx-auto">
       <div
-        class="fixed sm:relative bottom-0 w-full p-4 bg-white shadow-md sm:shadow-none sm:flex sm:justify-end sm:gap-4">
-        <button @click="acceptPresentation" class="w-full sm:w-44 py-3 mt-4 text-white bg-[#002159] rounded-xl">
+        class="fixed sm:relative bottom-0 w-full p-4 bg-white/95 border-t border-[#E4E7EB] shadow-md sm:shadow-none sm:flex sm:justify-end sm:gap-4">
+        <button @click="acceptPresentation" class="w-full sm:w-44 py-3 mt-4 text-white rounded-xl shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all"
+          style="background: linear-gradient(135deg, #2188CA, #0F3F5E);">
           {{ matchedCredentials.length > 1 ? "Disclose All" : "Disclose" }}
         </button>
         <button @click="navigateTo(`/wallet/${walletId}`)"
-          class="w-full sm:w-44 py-3 mt-4 bg-white sm:border sm:border-gray-400 sm:rounded-xl">
+          class="w-full sm:w-44 py-3 mt-4 bg-white sm:border sm:border-[#CBD2D9] sm:rounded-xl text-[#0F3F5E] hover:bg-[#F0F4F8]">
           Decline
         </button>
       </div>
@@ -158,7 +161,7 @@ if (query.accept) {
   acceptPresentation();
 }
 
-useTitle(`Present credentials - IdenEx`);
+useTitle(`Present credentials - Credentis`);
 definePageMeta({
   layout: window.innerWidth > 650 ? "desktop-without-sidebar" : false,
 });

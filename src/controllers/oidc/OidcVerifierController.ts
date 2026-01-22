@@ -12,11 +12,14 @@ import { randomUUID } from 'crypto'
 import { Controller, Post, Route, Tags, Body, SuccessResponse, Security, Request, Get } from 'tsoa'
 
 import { schemaStore } from '../../utils/schemaStore'
+import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
 
 /**
  * Credential format detection utility
  */
 type CredentialFormat = 'jwt_vc' | 'sd_jwt' | 'ldp_vc' | 'unknown'
+
+const issuedCredentialRepository = new IssuedCredentialRepository()
 
 function detectCredentialFormat(presentation: unknown): CredentialFormat {
   if (!presentation) return 'unknown'
@@ -86,6 +89,38 @@ function validatePresentationDefinition(definition: any): { valid: boolean; erro
   }
 
   return { valid: errors.length === 0, errors }
+}
+
+function extractCredentialIds(credentials: unknown[]): string[] {
+  const ids: string[] = []
+
+  for (const credential of credentials) {
+    if (!credential) continue
+
+    if (typeof credential === 'string') {
+      const token = credential.includes('~') ? credential.split('~')[0] : credential
+      const parts = token.split('.')
+      if (parts.length === 3) {
+        try {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'))
+          const id = payload?.vc?.id || payload?.id || payload?.jti
+          if (id) ids.push(id)
+        } catch {
+          // Ignore malformed token
+        }
+      }
+      continue
+    }
+
+    if (typeof credential === 'object') {
+      const cred: any = credential
+      const id = cred?.id || cred?.credentialId || cred?.jti || cred?.vc?.id
+      if (id) ids.push(id)
+      continue
+    }
+  }
+
+  return Array.from(new Set(ids))
 }
 
 /**
@@ -209,6 +244,26 @@ export class OidcVerifierController extends Controller {
         const credentials = Array.isArray(presentation?.verifiableCredential)
           ? presentation.verifiableCredential
           : [presentation?.verifiableCredential].filter(Boolean)
+
+        // Revocation check against issued_credentials registry (best-effort)
+        const credentialIds = extractCredentialIds(credentials)
+        const revokedIds = credentialIds.filter((id) => issuedCredentialRepository.isRevoked(id))
+
+        if (revokedIds.length > 0) {
+          request.logger?.warn({ requestId, revokedIds }, 'Revocation check failed')
+          return {
+            verified: false,
+            format,
+            error: 'One or more credentials have been revoked',
+            revokedIds,
+            checks: {
+              signature: true,
+              revocation: false,
+              schema: true,
+              expiry: true
+            }
+          } as any
+        }
 
         return {
           verified: true,

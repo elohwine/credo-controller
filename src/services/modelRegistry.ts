@@ -118,6 +118,29 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
       }
     })
 
+    const catalogItemSchemaId = ensureSchema('CatalogItemVC', '1.0.0', {
+      $id: 'CatalogItemVC-1.0.0',
+      type: 'object',
+      required: ['credentialSubject'],
+      properties: {
+        credentialSubject: {
+          type: 'object',
+          required: ['itemId', 'title', 'price', 'currency', 'merchantId'],
+          properties: {
+            itemId: { type: 'string' },
+            title: { type: 'string' },
+            description: { type: 'string' },
+            images: { type: 'array', items: { type: 'string' } },
+            price: { type: 'number' },
+            currency: { type: 'string' },
+            sku: { type: 'string' },
+            merchantId: { type: 'string' },
+            createdAt: { type: 'string', format: 'date-time' }
+          }
+        }
+      }
+    })
+
     const ehrSchemaId = ensureSchema('EHRSummary', '1.0.0', {
       $id: 'EHRSummary-1.0.0',
       type: 'object',
@@ -168,6 +191,15 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
       '1.0.0',
       receiptSchemaId,
       ['VerifiableCredential', 'ReceiptVC'],
+      {},
+      'jwt_vc_json'
+    )
+
+    registerDef(
+      'CatalogItemVC',
+      '1.0.0',
+      catalogItemSchemaId,
+      ['VerifiableCredential', 'CatalogItemVC'],
       {},
       'jwt_vc_json'
     )

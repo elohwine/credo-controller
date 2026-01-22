@@ -1,0 +1,5 @@
+// ROLLUP_NO_REPLACE 
+ const privacy = "{\"parsed\":{\"_path\":\"/help/privacy\",\"_dir\":\"help\",\"_draft\":false,\"_partial\":false,\"_locale\":\"\",\"title\":\"Privacy policy\",\"description\":\"This is rendered from markdown.\",\"body\":{\"type\":\"root\",\"children\":[{\"type\":\"element\",\"tag\":\"h1\",\"props\":{\"id\":\"privacy-policy\"},\"children\":[{\"type\":\"text\",\"value\":\"Privacy policy\"}]},{\"type\":\"element\",\"tag\":\"p\",\"props\":{},\"children\":[{\"type\":\"text\",\"value\":\"This is \"},{\"type\":\"element\",\"tag\":\"strong\",\"props\":{},\"children\":[{\"type\":\"text\",\"value\":\"rendered from markdown\"}]},{\"type\":\"text\",\"value\":\".\"}]}],\"toc\":{\"title\":\"\",\"searchDepth\":2,\"depth\":2,\"links\":[]}},\"_type\":\"markdown\",\"_id\":\"content:help:privacy.md\",\"_source\":\"content\",\"_file\":\"help/privacy.md\",\"_stem\":\"help/privacy\",\"_extension\":\"md\"},\"hash\":\"32nCibPwUn\"}";
+
+export { privacy as default };
+//# sourceMappingURL=privacy.mjs.map

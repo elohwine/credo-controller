@@ -2609,6 +2609,10 @@
             "type": "string",
             "description": "URI of the verificationMethod to be used for signing the credential.\n\nMust be a valid did url pointing to a key."
           },
+          "credential": {
+            "$ref": "#/components/schemas/W3cCredential",
+            "description": "The credential to be signed."
+          },
           "proofType": {
             "type": "string",
             "description": "The proofType to be used for signing the credential.\n\nMust be a valid Linked Data Signature suite."
@@ -2616,16 +2620,12 @@
           "proofPurpose": {},
           "created": {
             "type": "string"
-          },
-          "credential": {
-            "$ref": "#/components/schemas/W3cCredential",
-            "description": "The credential to be signed."
           }
         },
         "required": [
           "verificationMethod",
-          "proofType",
-          "credential"
+          "credential",
+          "proofType"
         ],
         "type": "object",
         "description": "From T, pick a set of properties whose keys are in the union K"
@@ -3311,6 +3311,87 @@
         "type": "object",
         "additionalProperties": false
       },
+      "WorkflowExecutionResult": {
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "running",
+              "failed"
+            ]
+          },
+          "output": {},
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "status"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "ExecuteWorkflowRequest": {
+        "properties": {
+          "async": {
+            "type": "boolean"
+          },
+          "triggerRef": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "additionalProperties": {}
+      },
+      "RegisterWorkflowRequest": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "inputSchema": {},
+          "actions": {
+            "items": {
+              "properties": {
+                "config": {},
+                "action": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category",
+          "provider",
+          "actions"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
       "PendingOffer": {
         "properties": {
           "id": {
@@ -3451,6 +3532,36 @@
           },
           "createdAt": {
             "type": "string"
+          },
+          "catalogItemVcOffer": {
+            "properties": {
+              "credentialType": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "expiresAt": {
+                "type": "string"
+              },
+              "credential_offer_deeplink": {
+                "type": "string"
+              },
+              "credential_offer_uri": {
+                "type": "string"
+              },
+              "offerId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "credentialType",
+              "expiresAt",
+              "credential_offer_deeplink",
+              "credential_offer_uri",
+              "offerId"
+            ],
+            "type": "object"
           }
         },
         "required": [
@@ -4287,6 +4398,21 @@
             "type": "number",
             "format": "double"
           },
+          "totalNssa": {
+            "type": "number",
+            "format": "double"
+          },
+          "totalPaye": {
+            "type": "number",
+            "format": "double"
+          },
+          "totalAidsLevy": {
+            "type": "number",
+            "format": "double"
+          },
+          "runVcId": {
+            "type": "string"
+          },
           "createdAt": {
             "type": "string"
           }
@@ -4388,6 +4514,111 @@
           "currency",
           "status",
           "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "TaxCompliance": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "taxType": {
+            "type": "string",
+            "enum": [
+              "NSSA",
+              "PAYE",
+              "AIDS_LEVY",
+              "ZIMRA"
+            ]
+          },
+          "period": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "filingDate": {
+            "type": "string"
+          },
+          "referenceNumber": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "filed",
+              "confirmed",
+              "rejected"
+            ]
+          },
+          "relatedPayrollRunId": {
+            "type": "string"
+          },
+          "complianceVcId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "taxType",
+          "period",
+          "amount",
+          "currency",
+          "status",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "IssueTaxComplianceRequest": {
+        "properties": {
+          "taxType": {
+            "type": "string",
+            "enum": [
+              "NSSA",
+              "PAYE",
+              "AIDS_LEVY"
+            ]
+          },
+          "referenceNumber": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "taxType"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "UpdateTaxComplianceStatusRequest": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "filed",
+              "confirmed",
+              "rejected"
+            ]
+          },
+          "proofOfPaymentRef": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
         ],
         "type": "object",
         "additionalProperties": false
@@ -4687,6 +4918,9 @@
           "approverId": {
             "type": "string"
           },
+          "approvalVcId": {
+            "type": "string"
+          },
           "createdAt": {
             "type": "string"
           }
@@ -4811,6 +5045,9 @@
           "approvedBy": {
             "type": "string"
           },
+          "approvalVcId": {
+            "type": "string"
+          },
           "paidAt": {
             "type": "string"
           },
@@ -4872,6 +5109,12 @@
       },
       "IncomeStatement": {
         "properties": {
+          "statementId": {
+            "type": "string"
+          },
+          "organizationName": {
+            "type": "string"
+          },
           "periodStart": {
             "type": "string"
           },
@@ -4879,6 +5122,30 @@
             "type": "string"
           },
           "revenue": {
+            "type": "number",
+            "format": "double"
+          },
+          "costOfGoodsSold": {
+            "type": "number",
+            "format": "double"
+          },
+          "grossProfit": {
+            "type": "number",
+            "format": "double"
+          },
+          "operatingExpenses": {
+            "type": "number",
+            "format": "double"
+          },
+          "operatingIncome": {
+            "type": "number",
+            "format": "double"
+          },
+          "otherIncome": {
+            "type": "number",
+            "format": "double"
+          },
+          "otherExpenses": {
             "type": "number",
             "format": "double"
           },
@@ -4920,12 +5187,230 @@
           }
         },
         "required": [
+          "statementId",
+          "organizationName",
           "periodStart",
           "periodEnd",
           "revenue",
+          "costOfGoodsSold",
+          "grossProfit",
+          "operatingExpenses",
+          "operatingIncome",
+          "otherIncome",
+          "otherExpenses",
           "expenses",
           "netIncome",
           "breakdown",
+          "currency",
+          "generatedAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "BalanceSheet": {
+        "properties": {
+          "statementId": {
+            "type": "string"
+          },
+          "organizationName": {
+            "type": "string"
+          },
+          "asOfDate": {
+            "type": "string"
+          },
+          "currentAssets": {
+            "type": "number",
+            "format": "double"
+          },
+          "cash": {
+            "type": "number",
+            "format": "double"
+          },
+          "accountsReceivable": {
+            "type": "number",
+            "format": "double"
+          },
+          "inventory": {
+            "type": "number",
+            "format": "double"
+          },
+          "nonCurrentAssets": {
+            "type": "number",
+            "format": "double"
+          },
+          "propertyPlantEquipment": {
+            "type": "number",
+            "format": "double"
+          },
+          "totalAssets": {
+            "type": "number",
+            "format": "double"
+          },
+          "currentLiabilities": {
+            "type": "number",
+            "format": "double"
+          },
+          "accountsPayable": {
+            "type": "number",
+            "format": "double"
+          },
+          "shortTermDebt": {
+            "type": "number",
+            "format": "double"
+          },
+          "nonCurrentLiabilities": {
+            "type": "number",
+            "format": "double"
+          },
+          "longTermDebt": {
+            "type": "number",
+            "format": "double"
+          },
+          "totalLiabilities": {
+            "type": "number",
+            "format": "double"
+          },
+          "shareCapital": {
+            "type": "number",
+            "format": "double"
+          },
+          "retainedEarnings": {
+            "type": "number",
+            "format": "double"
+          },
+          "totalEquity": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "generatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "statementId",
+          "organizationName",
+          "asOfDate",
+          "currentAssets",
+          "cash",
+          "accountsReceivable",
+          "inventory",
+          "nonCurrentAssets",
+          "propertyPlantEquipment",
+          "totalAssets",
+          "currentLiabilities",
+          "accountsPayable",
+          "shortTermDebt",
+          "nonCurrentLiabilities",
+          "longTermDebt",
+          "totalLiabilities",
+          "shareCapital",
+          "retainedEarnings",
+          "totalEquity",
+          "currency",
+          "generatedAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CashFlowStatement": {
+        "properties": {
+          "statementId": {
+            "type": "string"
+          },
+          "organizationName": {
+            "type": "string"
+          },
+          "periodStart": {
+            "type": "string"
+          },
+          "periodEnd": {
+            "type": "string"
+          },
+          "cashFromOperations": {
+            "type": "number",
+            "format": "double"
+          },
+          "netIncome": {
+            "type": "number",
+            "format": "double"
+          },
+          "depreciation": {
+            "type": "number",
+            "format": "double"
+          },
+          "changesInWorkingCapital": {
+            "type": "number",
+            "format": "double"
+          },
+          "cashFromInvesting": {
+            "type": "number",
+            "format": "double"
+          },
+          "capitalExpenditures": {
+            "type": "number",
+            "format": "double"
+          },
+          "assetSales": {
+            "type": "number",
+            "format": "double"
+          },
+          "cashFromFinancing": {
+            "type": "number",
+            "format": "double"
+          },
+          "debtProceeds": {
+            "type": "number",
+            "format": "double"
+          },
+          "debtRepayments": {
+            "type": "number",
+            "format": "double"
+          },
+          "dividendsPaid": {
+            "type": "number",
+            "format": "double"
+          },
+          "netCashFlow": {
+            "type": "number",
+            "format": "double"
+          },
+          "beginningCash": {
+            "type": "number",
+            "format": "double"
+          },
+          "endingCash": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "generatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "statementId",
+          "organizationName",
+          "periodStart",
+          "periodEnd",
+          "cashFromOperations",
+          "netIncome",
+          "depreciation",
+          "changesInWorkingCapital",
+          "cashFromInvesting",
+          "capitalExpenditures",
+          "assetSales",
+          "cashFromFinancing",
+          "debtProceeds",
+          "debtRepayments",
+          "dividendsPaid",
+          "netCashFlow",
+          "beginningCash",
+          "endingCash",
           "currency",
           "generatedAt"
         ],
@@ -4936,10 +5421,14 @@
         "properties": {
           "uri": {
             "type": "string"
+          },
+          "statementType": {
+            "type": "string"
           }
         },
         "required": [
-          "uri"
+          "uri",
+          "statementType"
         ],
         "type": "object",
         "additionalProperties": false
@@ -4956,6 +5445,18 @@
         "required": [
           "startDate",
           "endDate"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateBalanceSheetOfferRequest": {
+        "properties": {
+          "asOfDate": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asOfDate"
         ],
         "type": "object",
         "additionalProperties": false
@@ -5825,6 +6326,687 @@
         },
         "required": [
           "verified"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "ServiceProvider": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "payment",
+              "identity",
+              "verification",
+              "notification",
+              "custom"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "baseUrl": {
+            "type": "string"
+          },
+          "authType": {
+            "type": "string",
+            "enum": [
+              "api_key",
+              "oauth2",
+              "basic",
+              "none"
+            ]
+          },
+          "configSchema": {},
+          "isSystem": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "deprecated"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "name",
+          "type",
+          "authType",
+          "isSystem",
+          "status"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateProviderRequest": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "payment",
+              "identity",
+              "verification",
+              "notification",
+              "custom"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "baseUrl": {
+            "type": "string"
+          },
+          "authType": {
+            "type": "string",
+            "enum": [
+              "api_key",
+              "oauth2",
+              "basic",
+              "none"
+            ]
+          },
+          "configSchema": {}
+        },
+        "required": [
+          "name",
+          "type"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "Partial_CreateProviderRequest_": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "payment",
+              "identity",
+              "verification",
+              "notification",
+              "custom"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "baseUrl": {
+            "type": "string"
+          },
+          "authType": {
+            "type": "string",
+            "enum": [
+              "api_key",
+              "oauth2",
+              "basic",
+              "none"
+            ]
+          },
+          "configSchema": {}
+        },
+        "type": "object",
+        "description": "Make all properties in T optional"
+      },
+      "ProviderConfig": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "providerId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "config": {
+            "$ref": "#/components/schemas/Record_string.any_"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "sandbox",
+              "production"
+            ]
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "providerId",
+          "name",
+          "config",
+          "environment",
+          "isDefault",
+          "status"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateConfigRequest": {
+        "properties": {
+          "providerId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "config": {
+            "$ref": "#/components/schemas/Record_string.any_"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "sandbox",
+              "production"
+            ]
+          },
+          "isDefault": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "providerId",
+          "name",
+          "config"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "Partial_CreateConfigRequest_": {
+        "properties": {
+          "providerId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "config": {
+            "$ref": "#/components/schemas/Record_string.any_"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "sandbox",
+              "production"
+            ]
+          },
+          "isDefault": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "description": "Make all properties in T optional"
+      },
+      "TemplateListItem": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "industry": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "triggerTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "outputVCs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "category",
+          "industry",
+          "triggerTypes",
+          "outputVCs"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "TemplateDetail": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "industry": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "triggerTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "outputVCs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "inputSchema": {
+            "$ref": "#/components/schemas/Record_string.unknown_"
+          },
+          "steps": {
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "description",
+                "action"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "configurable": {
+            "items": {
+              "properties": {
+                "default": {},
+                "options": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "field": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "label",
+                "field"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "category",
+          "industry",
+          "triggerTypes",
+          "outputVCs",
+          "inputSchema",
+          "steps",
+          "configurable"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "InstantiateTemplateResponse": {
+        "properties": {
+          "workflowId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "templateId": {
+            "type": "string"
+          },
+          "actions": {
+            "items": {
+              "properties": {
+                "config": {
+                  "$ref": "#/components/schemas/Record_string.unknown_"
+                },
+                "action": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "config",
+                "action"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "workflowId",
+          "name",
+          "tenantId",
+          "templateId",
+          "actions"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "InstantiateTemplateRequest": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "config": {
+            "$ref": "#/components/schemas/Record_string.unknown_"
+          }
+        },
+        "required": [
+          "tenantId",
+          "config"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "TriggerResponse": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "triggerType": {
+            "type": "string"
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "webhookUrl": {
+            "type": "string"
+          },
+          "lastTriggeredAt": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workflowId",
+          "tenantId",
+          "triggerType",
+          "isActive"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "Record_string.string_": {
+        "properties": {},
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object",
+        "description": "Construct a type with a set of properties K of type T"
+      },
+      "CreateWebhookTriggerRequest": {
+        "properties": {
+          "workflowId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "config": {
+            "properties": {
+              "requiredFields": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "inputMapping": {
+                "$ref": "#/components/schemas/Record_string.string_"
+              },
+              "secretKey": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "workflowId"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateScheduleTriggerRequest": {
+        "properties": {
+          "workflowId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "config": {
+            "properties": {
+              "inputData": {
+                "$ref": "#/components/schemas/Record_string.any_"
+              },
+              "timezone": {
+                "type": "string"
+              },
+              "cronExpression": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "cronExpression"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "workflowId",
+          "config"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateEventTriggerRequest": {
+        "properties": {
+          "workflowId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "config": {
+            "properties": {
+              "inputMapping": {
+                "$ref": "#/components/schemas/Record_string.string_"
+              },
+              "sourceFilter": {
+                "type": "string"
+              },
+              "eventType": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "eventType"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "workflowId",
+          "config"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "WebhookExecutionResponse": {
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "triggerId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "status",
+          "triggerId"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "EmitEventRequest": {
+        "properties": {
+          "eventType": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Record_string.any_"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "eventType",
+          "data"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "AuditLog": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "actorDid": {
+            "type": "string"
+          },
+          "actionType": {
+            "type": "string"
+          },
+          "resourceId": {
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "ipAddress": {
+            "type": "string"
+          },
+          "userAgent": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "actionType",
+          "createdAt"
         ],
         "type": "object",
         "additionalProperties": false
@@ -12901,6 +14083,65 @@
               "type": "string"
             }
           }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/custom-oidc/issuer/credentials/{id}/status": {
+      "get": {
+        "operationId": "GetCredentialStatus",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get credential revocation status (Admin)",
+        "tags": [
+          "OIDC4VC"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ]
       }
     },
@@ -13007,7 +14248,9 @@
             "description": "Ok",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowExecutionResult"
+                }
               }
             },
             "headers": {
@@ -13024,7 +14267,13 @@
         "tags": [
           "Workflow Engine"
         ],
-        "security": [],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
         "parameters": [
           {
             "in": "path",
@@ -13039,10 +14288,174 @@
           "required": true,
           "content": {
             "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecuteWorkflowRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflows/runs/{runId}/resume": {
+      "post": {
+        "operationId": "ResumeWorkflow",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowExecutionResult"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Resume a paused workflow run",
+        "tags": [
+          "Workflow Engine"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
               "schema": {}
             }
           }
         }
+      }
+    },
+    "/workflows/runs/{runId}": {
+      "get": {
+        "operationId": "GetRunStatus",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get workflow run status and steps",
+        "tags": [
+          "Workflow Engine"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workflows/runs": {
+      "get": {
+        "operationId": "ListRuns",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {},
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List workflow runs",
+        "tags": [
+          "Workflow Engine"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workflowId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "double",
+              "type": "number"
+            }
+          }
+        ]
       }
     },
     "/workflows": {
@@ -13073,7 +14486,13 @@
         "tags": [
           "Workflow Engine"
         ],
-        "security": [],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
         "parameters": [
           {
             "in": "query",
@@ -13105,20 +14524,161 @@
             }
           }
         },
-        "description": "Register a new workflow definition (Admin only)",
+        "description": "Register a new workflow definition",
         "tags": [
           "Workflow Engine"
         ],
-        "security": [],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
         "parameters": [],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {}
+              "schema": {
+                "$ref": "#/components/schemas/RegisterWorkflowRequest"
+              }
             }
           }
         }
+      }
+    },
+    "/workflows/{workflowId}": {
+      "get": {
+        "operationId": "GetWorkflow",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get a specific workflow definition",
+        "tags": [
+          "Workflow Engine"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflowId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "DeleteWorkflow",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Delete a workflow",
+        "tags": [
+          "Workflow Engine"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflowId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workflows/actions/available": {
+      "get": {
+        "operationId": "ListActions",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List available actions",
+        "tags": [
+          "Workflow Engine"
+        ],
+        "security": [],
+        "parameters": []
       }
     },
     "/api/wallet/credentials/pending-offers": {
@@ -14944,6 +16504,9 @@
                     "status": {
                       "type": "string"
                     },
+                    "runVcId": {
+                      "type": "string"
+                    },
                     "issuedCount": {
                       "type": "number",
                       "format": "double"
@@ -14967,7 +16530,59 @@
             }
           }
         },
-        "description": "Issue Payslip VCs for a completed payroll run",
+        "description": "Issue Payslip VCs for a completed payroll run\nAlso issues a PayrollRunVC as batch summary",
+        "tags": [
+          "Payroll Module"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/payroll/runs/{runId}/reoffer": {
+      "post": {
+        "operationId": "ReofferPayrollRunVC",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "credential_offer_deeplink": {
+                      "type": "string"
+                    },
+                    "offerUri": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "credential_offer_deeplink",
+                    "offerUri"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Re-offer PayrollRunVC credential\nReturns the credential offer URI for users who missed the initial invitation",
         "tags": [
           "Payroll Module"
         ],
@@ -15020,6 +16635,148 @@
             }
           }
         ]
+      }
+    },
+    "/api/payroll/tax-compliance": {
+      "get": {
+        "operationId": "ListTaxCompliance",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TaxCompliance"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List all tax compliance records",
+        "tags": [
+          "Payroll Module"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/payroll/runs/{runId}/tax-compliance": {
+      "post": {
+        "operationId": "IssueTaxCompliance",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaxCompliance"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Issue a TaxComplianceVC for a payroll run",
+        "tags": [
+          "Payroll Module"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueTaxComplianceRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/payroll/tax-compliance/{complianceId}/status": {
+      "post": {
+        "operationId": "UpdateTaxComplianceStatus",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Update tax compliance status after filing with authority",
+        "tags": [
+          "Payroll Module"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "complianceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaxComplianceStatusRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/onboarding/cases": {
@@ -15292,6 +17049,58 @@
           }
         },
         "description": "Approve onboarding and hire candidate.\nIssues EmploymentContractVC and creates Employee record.\nReturns the credential offer for the employee to claim.",
+        "tags": [
+          "HR"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/onboarding/{id}/reoffer": {
+      "post": {
+        "operationId": "ReofferContract",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "credential_offer_deeplink": {
+                      "type": "string"
+                    },
+                    "offerUri": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "credential_offer_deeplink",
+                    "offerUri"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Re-offer employment contract credential\nReturns the credential offer URI for employees who missed the initial invitation",
         "tags": [
           "HR"
         ],
@@ -15741,6 +17550,110 @@
         }
       }
     },
+    "/api/operations/leave/{leaveId}/reoffer": {
+      "post": {
+        "operationId": "ReofferLeaveApproval",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "credential_offer_deeplink": {
+                      "type": "string"
+                    },
+                    "offerUri": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "credential_offer_deeplink",
+                    "offerUri"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Re-offer leave approval credential\nReturns the credential offer URI for users who missed the initial invitation",
+        "tags": [
+          "HR & Operations"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "leaveId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/operations/expenses/{claimId}/reoffer": {
+      "post": {
+        "operationId": "ReofferExpenseApproval",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "credential_offer_deeplink": {
+                      "type": "string"
+                    },
+                    "offerUri": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "credential_offer_deeplink",
+                    "offerUri"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Re-offer expense approval credential\nReturns the credential offer URI for users who missed the initial invitation",
+        "tags": [
+          "HR & Operations"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claimId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/finance/income-statement": {
       "get": {
         "operationId": "GetIncomeStatement",
@@ -15789,6 +17702,94 @@
         ]
       }
     },
+    "/api/finance/balance-sheet": {
+      "get": {
+        "operationId": "GetBalanceSheet",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BalanceSheet"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Generate a Balance Sheet as of a specific date.",
+        "tags": [
+          "Financial Reporting"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "asOfDate",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/finance/cash-flow": {
+      "get": {
+        "operationId": "GetCashFlowStatement",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CashFlowStatement"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Generate a Cash Flow Statement for a specific period.",
+        "tags": [
+          "Financial Reporting"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "startDate",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "endDate",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/finance/income-statement/offer": {
       "post": {
         "operationId": "CreateIncomeStatementOffer",
@@ -15812,7 +17813,89 @@
             }
           }
         },
-        "description": "Create a Credential Offer for a verifiable Financial Statement (Income Statement).\nThe returned URI can be displayed as a QR code for an auditor to scan.",
+        "description": "Create a Credential Offer for a verifiable Income Statement VC.\nThe returned URI can be displayed as a QR code for an auditor to scan.",
+        "tags": [
+          "Financial Reporting"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStatementOfferRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/finance/balance-sheet/offer": {
+      "post": {
+        "operationId": "CreateBalanceSheetOffer",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatementOfferResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a Credential Offer for a verifiable Balance Sheet VC.",
+        "tags": [
+          "Financial Reporting"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBalanceSheetOfferRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/finance/cash-flow/offer": {
+      "post": {
+        "operationId": "CreateCashFlowOffer",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatementOfferResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a Credential Offer for a verifiable Cash Flow Statement VC.",
         "tags": [
           "Financial Reporting"
         ],
@@ -15859,9 +17942,7 @@
         ],
         "security": [
           {
-            "jwt": [
-              "tenant"
-            ]
+            "apiKey": []
           }
         ],
         "parameters": [],
@@ -15907,9 +17988,7 @@
         ],
         "security": [
           {
-            "jwt": [
-              "tenant"
-            ]
+            "apiKey": []
           }
         ],
         "parameters": []
@@ -15957,9 +18036,7 @@
         ],
         "security": [
           {
-            "jwt": [
-              "tenant"
-            ]
+            "apiKey": []
           }
         ],
         "parameters": [],
@@ -16020,9 +18097,7 @@
         ],
         "security": [
           {
-            "jwt": [
-              "tenant"
-            ]
+            "apiKey": []
           }
         ],
         "parameters": [],
@@ -16127,9 +18202,7 @@
         ],
         "security": [
           {
-            "jwt": [
-              "tenant"
-            ]
+            "apiKey": []
           }
         ],
         "parameters": [
@@ -16173,9 +18246,7 @@
         ],
         "security": [
           {
-            "jwt": [
-              "tenant"
-            ]
+            "apiKey": []
           }
         ],
         "parameters": [
@@ -16230,9 +18301,7 @@
         ],
         "security": [
           {
-            "jwt": [
-              "tenant"
-            ]
+            "apiKey": []
           }
         ],
         "parameters": [
@@ -16293,9 +18362,7 @@
         ],
         "security": [
           {
-            "jwt": [
-              "tenant"
-            ]
+            "apiKey": []
           }
         ],
         "parameters": [
@@ -16890,6 +18957,1495 @@
             "schema": {
               "format": "double",
               "type": "number"
+            }
+          }
+        ]
+      }
+    },
+    "/providers": {
+      "get": {
+        "operationId": "ListProviders",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ServiceProvider"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List available service providers (system + tenant-specific)",
+        "tags": [
+          "Service Providers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "CreateProvider",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceProvider"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Register a custom service provider for your organization",
+        "tags": [
+          "Service Providers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProviderRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/providers/{providerId}": {
+      "get": {
+        "operationId": "GetProvider",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ServiceProvider"
+                    }
+                  ],
+                  "nullable": true
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get a specific provider by ID",
+        "tags": [
+          "Service Providers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "providerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "operationId": "UpdateProvider",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ServiceProvider"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Update a custom provider (cannot modify system providers)",
+        "tags": [
+          "Service Providers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "providerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Partial_CreateProviderRequest_"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "DeleteProvider",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Delete a custom provider",
+        "tags": [
+          "Service Providers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "providerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/providers/configs": {
+      "get": {
+        "operationId": "ListConfigs",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderConfig"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List configurations for providers",
+        "tags": [
+          "Service Providers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "providerId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "CreateConfig",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderConfig"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a configuration for a provider (e.g., your EcoCash API key)",
+        "tags": [
+          "Service Providers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConfigRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/providers/configs/{configId}": {
+      "get": {
+        "operationId": "GetConfig",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderConfig"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get a specific configuration",
+        "tags": [
+          "Service Providers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "configId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "operationId": "UpdateConfig",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderConfig"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Update a provider configuration",
+        "tags": [
+          "Service Providers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "configId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Partial_CreateConfigRequest_"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "DeleteConfig",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Delete a provider configuration",
+        "tags": [
+          "Service Providers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "configId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workflow-templates": {
+      "get": {
+        "operationId": "ListTemplates",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TemplateListItem"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List all available workflow templates",
+        "tags": [
+          "Workflow Templates"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "industry",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workflow-templates/{templateId}": {
+      "get": {
+        "operationId": "GetTemplate",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateDetail"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get template details by ID",
+        "tags": [
+          "Workflow Templates"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workflow-templates/meta/categories": {
+      "get": {
+        "operationId": "GetCategories",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get available template categories",
+        "tags": [
+          "Workflow Templates"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/workflow-templates/meta/industries": {
+      "get": {
+        "operationId": "GetIndustries",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get available template industries",
+        "tags": [
+          "Workflow Templates"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/workflow-templates/meta/vc-types": {
+      "get": {
+        "operationId": "GetVcTypes",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get available VC types across all templates",
+        "tags": [
+          "Workflow Templates"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/workflow-templates/{templateId}/instantiate": {
+      "post": {
+        "operationId": "Instantiate",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstantiateTemplateResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Instantiate a template and create a workflow",
+        "tags": [
+          "Workflow Templates"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "admin",
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstantiateTemplateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflow-templates/{templateId}/preview": {
+      "post": {
+        "operationId": "Preview",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "actions": {
+                      "items": {
+                        "properties": {
+                          "config": {
+                            "$ref": "#/components/schemas/Record_string.unknown_"
+                          },
+                          "action": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "config",
+                          "action"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "actions"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Preview what a template would produce with given config (without saving)",
+        "tags": [
+          "Workflow Templates"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "config": {
+                    "$ref": "#/components/schemas/Record_string.unknown_"
+                  },
+                  "tenantId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "config",
+                  "tenantId"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/triggers/webhook": {
+      "post": {
+        "operationId": "CreateWebhookTrigger",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a webhook trigger for a workflow\nReturns a unique webhook URL that external systems can call",
+        "tags": [
+          "Workflow Triggers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWebhookTriggerRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/triggers/schedule": {
+      "post": {
+        "operationId": "CreateScheduleTrigger",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a scheduled trigger for a workflow\nUses cron expressions for timing",
+        "tags": [
+          "Workflow Triggers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateScheduleTriggerRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/triggers/event": {
+      "post": {
+        "operationId": "CreateEventTrigger",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create an event trigger for a workflow\nTriggers when internal events are emitted",
+        "tags": [
+          "Workflow Triggers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEventTriggerRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/triggers": {
+      "get": {
+        "operationId": "ListTriggers",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TriggerResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List triggers for the current tenant",
+        "tags": [
+          "Workflow Triggers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workflowId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "triggerType",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "isActive",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ]
+      }
+    },
+    "/triggers/{triggerId}": {
+      "get": {
+        "operationId": "GetTrigger",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get trigger by ID",
+        "tags": [
+          "Workflow Triggers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "triggerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "DeleteTrigger",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Delete a trigger",
+        "tags": [
+          "Workflow Triggers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "triggerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/triggers/{triggerId}/active": {
+      "put": {
+        "operationId": "SetTriggerActive",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Activate or deactivate a trigger",
+        "tags": [
+          "Workflow Triggers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "triggerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "isActive": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "isActive"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/triggers/webhook/{triggerId}/invoke": {
+      "post": {
+        "operationId": "InvokeWebhook",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookExecutionResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Webhook invocation endpoint - called by external systems\nThis endpoint does NOT require JWT auth - uses trigger-specific validation",
+        "tags": [
+          "Workflow Triggers"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "triggerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Webhook-Signature",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Record_string.any_"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/triggers/events/emit": {
+      "post": {
+        "operationId": "EmitEvent",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "triggeredCount": {
+                      "type": "number",
+                      "format": "double"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "triggeredCount"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Emit an internal event - triggers any listening workflows\nUseful for integrating with other parts of the system",
+        "tags": [
+          "Workflow Triggers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant",
+              "admin"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmitEventRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/triggers/events/types": {
+      "get": {
+        "operationId": "ListEventTypes",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "eventTypes": {
+                      "items": {
+                        "properties": {
+                          "description": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "description",
+                          "type"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "eventTypes"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List available event types that can be emitted",
+        "tags": [
+          "Workflow Triggers"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/audit/logs": {
+      "get": {
+        "operationId": "GetLogs",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AuditLog"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Retrieve audit logs for the tenant (optionally filtered by resourceId).",
+        "tags": [
+          "Audit"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "format": "double",
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resourceId",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ]

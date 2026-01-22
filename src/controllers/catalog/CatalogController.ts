@@ -3,6 +3,7 @@ import type { Request as ExRequest } from 'express'
 import { randomUUID } from 'crypto'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { SCOPES } from '../../enums'
+import { credentialIssuanceService } from '../../services/CredentialIssuanceService'
 
 export interface CreateCatalogItemRequest {
     title: string
@@ -23,6 +24,13 @@ export interface CatalogItem {
     currency: string
     sku?: string
     createdAt: string
+    catalogItemVcOffer?: {
+        offerId: string
+        credential_offer_uri: string
+        credential_offer_deeplink: string
+        expiresAt: string
+        credentialType: string[]
+    }
 }
 
 @Route('api/catalog')
@@ -64,8 +72,30 @@ export class CatalogController extends Controller {
                 images: JSON.stringify(item.images)
             })
 
+            // Issue a CatalogItemVC offer for the merchant (optional, best-effort)
+            let catalogItemVcOffer: CatalogItem['catalogItemVcOffer'] | undefined
+            try {
+                catalogItemVcOffer = await credentialIssuanceService.createOffer({
+                    credentialType: 'CatalogItemVC',
+                    tenantId: merchantId,
+                    claims: {
+                        itemId: item.id,
+                        title: item.title,
+                        description: item.description,
+                        images: item.images,
+                        price: item.price,
+                        currency: item.currency,
+                        sku: item.sku,
+                        merchantId: item.merchantId,
+                        createdAt: item.createdAt
+                    }
+                })
+            } catch (e: any) {
+                console.warn('[Catalog] Failed to create CatalogItemVC offer:', e?.message || e)
+            }
+
             this.setStatus(201)
-            return item
+            return { ...item, catalogItemVcOffer }
         } catch (error: any) {
             this.setStatus(500)
             throw new Error(`Failed to create item: ${error.message}`)

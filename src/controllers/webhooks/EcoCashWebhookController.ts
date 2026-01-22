@@ -1,6 +1,7 @@
 import { Controller, Post, Route, Tags, Body, Request, Security, Header } from 'tsoa'
 import { Request as ExRequest } from 'express'
 import { workflowService } from '../../services/WorkflowService'
+import { triggerService } from '../../services/TriggerService'
 import { rootLogger } from '../../utils/pinoLogger'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import axios from 'axios'
@@ -169,6 +170,23 @@ export class EcoCashWebhookController extends Controller {
                         )
                     } catch (workflowErr: any) {
                         logger.warn({ error: workflowErr.message }, 'Workflow execution failed (non-critical)')
+                    }
+
+                    // Emit payment.completed event to trigger any listening workflows
+                    try {
+                        await triggerService.emitEvent('payment.completed', {
+                            transactionId: payload.transactionId,
+                            amount: payload.amount,
+                            currency: payload.currency || 'USD',
+                            sourceReference: payload.sourceReference,
+                            paymentMethod: 'EcoCash',
+                            cartId: cartId,
+                            merchantId: existingPayment?.tenant_id,
+                            receiptOfferUrl,
+                            timestamp: new Date().toISOString()
+                        }, 'ecocash-webhook')
+                    } catch (eventErr: any) {
+                        logger.warn({ error: eventErr.message }, 'Event emission failed (non-critical)')
                     }
 
                     return {

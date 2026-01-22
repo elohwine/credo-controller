@@ -4,6 +4,7 @@ export type CredentialTemplateKind =
   | 'invoice'
   | 'quote'
   | 'receipt'
+  | 'catalog'
   | 'badge'
   | 'generic'
 
@@ -33,13 +34,39 @@ function asString(value: unknown): string | null {
 }
 
 function pickType(vc: any): string | null {
-  const t = vc?.type
-  if (Array.isArray(t)) return asString(t.at(-1))
-  return asString(t)
+  const directType = vc?.type ?? vc?.vc?.type ?? vc?._credential?.type ?? vc?.credential?.type
+  if (Array.isArray(directType)) return asString(directType.at(-1))
+  const t = asString(directType)
+  if (t) return t
+
+  // SD-JWT-VC often uses `vct` instead of W3C `type`
+  const vct = asString(vc?.vct ?? vc?.vc?.vct)
+  if (!vct) return null
+
+  // vct can be a URN/URL; normalize to a readable “type-ish” token
+  const tail = vct.split('/').at(-1) ?? vct
+  return tail.replace('_vc+sd-jwt', '').replace(/[^a-zA-Z0-9_-]/g, '') || vct
+}
+
+function normalizeType(type: string | null): string {
+  if (!type) return ''
+  return type
+    .replace(/Credential$/i, '')
+    .replace(/VC$/i, '')
+    .replace(/_/g, '')
+    .toLowerCase()
 }
 
 function pickSubject(vc: any): any {
-  return vc?.credentialSubject ?? vc?.claims ?? vc
+  // Most common shapes:
+  // - W3C VC: { credentialSubject: {...} }
+  // - Parsed SD-JWT: { claims: {...} }
+  // - JWT payload: { vc: { credentialSubject: ... } }
+  const subject = vc?.credentialSubject ?? vc?.claims ?? vc?.vc?.credentialSubject ?? vc?.vc?.claims ?? vc
+  if (subject?.claims && typeof subject.claims === 'object') {
+    return { ...subject, ...subject.claims }
+  }
+  return subject
 }
 
 function pickIssuerName(vc: any): string | null {
@@ -70,7 +97,8 @@ function asArray(value: unknown): any[] {
 }
 
 export function getCredentialTemplate(vc: any): CredentialTemplate {
-  const type = pickType(vc) ?? 'Credential'
+  const rawType = pickType(vc) ?? 'Credential'
+  const type = normalizeType(rawType)
   const subject = pickSubject(vc)
   const issuerName = pickIssuerName(vc)
   const issued = pickIssuedDate(vc)
@@ -80,7 +108,7 @@ export function getCredentialTemplate(vc: any): CredentialTemplate {
   const subtitleParts = [issued ? `Issued ${issued.slice(0, 10)}` : null, issuerName].filter(Boolean)
 
   // Map known types → friendly templates
-  if (type === 'GenericIDCredential' || type === 'Identity' || type === 'IdentityCredential') {
+  if (type === 'genericid' || type === 'identity') {
     return {
       kind: 'identity',
       title: asString(subject?.fullName) ?? asString(subject?.holderName) ?? 'Identity Credential',
@@ -94,7 +122,7 @@ export function getCredentialTemplate(vc: any): CredentialTemplate {
     }
   }
 
-  if (type === 'PaymentReceipt' || type === 'PaymentReceiptCredential' || type === 'Receipt') {
+  if (type === 'paymentreceipt' || type === 'receipt') {
     const amount = normalizeMoney(subject?.amount, subject?.currency)
     return {
       kind: 'receipt',
@@ -110,7 +138,7 @@ export function getCredentialTemplate(vc: any): CredentialTemplate {
     }
   }
 
-  if (type === 'OpenBadge') {
+  if (type === 'openbadge') {
     return {
       kind: 'badge',
       title: asString(subject?.badgeName) ?? 'OpenBadge',
@@ -123,7 +151,7 @@ export function getCredentialTemplate(vc: any): CredentialTemplate {
     }
   }
 
-  if (type === 'Diploma' || type === 'DiplomaCredential') {
+  if (type === 'diploma') {
     return {
       kind: 'diploma',
       title: asString(subject?.fullName) ?? 'Diploma',
@@ -136,17 +164,17 @@ export function getCredentialTemplate(vc: any): CredentialTemplate {
     }
   }
 
-  if (type === 'Invoice' || type === 'InvoiceCredential') {
+  if (type === 'invoice') {
     const items = asArray(subject?.items)
     return {
       kind: 'invoice',
-      title: `Invoice${subject?.invoiceNumber ? ` #${subject.invoiceNumber}` : ''}`,
+      title: `Invoice${subject?.invoiceNumber ? ` #${subject.invoiceNumber}` : subject?.invoiceId ? ` #${subject.invoiceId}` : ''}`,
       subtitle: subtitleParts.join(' · ') || undefined,
       fields: [
         { label: 'From', value: issuerName },
-        { label: 'To', value: asString(subject?.holderName) ?? asString(vc?.holder?.name) ?? null },
-        { label: 'Date', value: subject?.date },
-        { label: 'Total', value: subject?.total },
+        { label: 'To', value: asString(subject?.holderName) ?? asString(subject?.customerName) ?? asString(vc?.holder?.name) ?? null },
+        { label: 'Date', value: subject?.date ?? subject?.timestamp },
+        { label: 'Total', value: subject?.total ?? subject?.amount },
       ].filter((f) => f.value !== null && f.value !== undefined && f.value !== ''),
       table: items.length
         ? {
@@ -157,15 +185,15 @@ export function getCredentialTemplate(vc: any): CredentialTemplate {
     }
   }
 
-  if (type === 'Quote' || type === 'QuoteCredential') {
+  if (type === 'quote') {
     const lines = asArray(subject?.lines)
     return {
       kind: 'quote',
-      title: `Quote${subject?.quoteNumber ? ` #${subject.quoteNumber}` : ''}`,
+      title: `Quote${subject?.quoteNumber ? ` #${subject.quoteNumber}` : subject?.quoteId ? ` #${subject.quoteId}` : ''}`,
       subtitle: subtitleParts.join(' · ') || undefined,
       fields: [
         { label: 'From', value: issuerName },
-        { label: 'To', value: asString(subject?.holderName) ?? asString(vc?.holder?.name) ?? null },
+        { label: 'To', value: asString(subject?.holderName) ?? asString(subject?.customerName) ?? asString(vc?.holder?.name) ?? null },
         { label: 'Valid until', value: subject?.validUntil },
         { label: 'Estimated total', value: subject?.estimatedTotal },
       ].filter((f) => f.value !== null && f.value !== undefined && f.value !== ''),
@@ -175,6 +203,20 @@ export function getCredentialTemplate(vc: any): CredentialTemplate {
             rows: lines.map((i) => ({ description: i?.description, amount: i?.amount })),
           }
         : undefined,
+    }
+  }
+
+  if (type === 'catalogitem') {
+    return {
+      kind: 'catalog',
+      title: asString(subject?.title) ?? asString(subject?.name) ?? 'Catalog Item',
+      subtitle: subtitleParts.join(' · ') || undefined,
+      fields: [
+        { label: 'SKU', value: subject?.sku },
+        { label: 'Price', value: normalizeMoney(subject?.price, subject?.currency) },
+        { label: 'Merchant', value: subject?.merchantId ?? subject?.merchantDid },
+        { label: 'Description', value: subject?.description },
+      ].filter((f) => f.value !== null && f.value !== undefined && f.value !== ''),
     }
   }
 
@@ -204,7 +246,7 @@ export function getCredentialTemplate(vc: any): CredentialTemplate {
 
   return {
     kind: 'generic',
-    title: type.replace(/([a-z0-9])([A-Z])/g, '$1 $2'),
+    title: rawType.replace(/([a-z0-9])([A-Z])/g, '$1 $2'),
     subtitle: subtitleParts.join(' · ') || undefined,
     fields: fallbackFields,
   }

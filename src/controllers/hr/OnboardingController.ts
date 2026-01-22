@@ -140,4 +140,26 @@ export class OnboardingController extends Controller {
             throw new Error(`Failed to approve: ${error.message}`)
         }
     }
+
+    /**
+     * Re-offer employment contract credential
+     * Returns the credential offer URI for employees who missed the initial invitation
+     */
+    @Post('{id}/reoffer')
+    public async reofferContract(
+        @Path() id: string
+    ): Promise<{ offerUri: string, credential_offer_deeplink: string }> {
+        try {
+            logger.info({ id }, 'Re-offering employment contract credential')
+            const offer = await onboardingService.getContractVCOffer(id)
+            return {
+                offerUri: offer.credential_offer_uri,
+                credential_offer_deeplink: offer.credential_offer_deeplink
+            }
+        } catch (error: any) {
+            logger.error({ error: error.message }, 'Failed to reoffer contract')
+            this.setStatus(500)
+            throw new Error(`Failed to reoffer: ${error.message}`)
+        }
+    }
 }

@@ -3,10 +3,10 @@
         <div class="flex h-20 flex-shrink-0 border-b border-gray-200 bg-white justify-between items-center px-8">
             <NuxtLink :to="`/wallet/${currentWallet}`">
                 <div class="flex items-center px-4 gap-4">
-                    <img :src="logoImg" alt="IdenEx logo" class="h-10" />
+                    <img :src="logoImg" alt="Credentis logo" class="h-10" />
                     <div>
-                        <div class="text-[#002159] text-bold text-[20px]">ID WALLET</div>
-                        <div class="text-[#002159] text-[15px]">by IdenEx</div>
+                        <div class="text-[#0F3F5E] text-bold text-[20px]">CREDENTIS WALLET</div>
+                        <div class="text-[#2188CA] text-[15px]">Verifiable Commerce</div>
                     </div>
                 </div>
             </NuxtLink>

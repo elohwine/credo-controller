@@ -1,7 +1,7 @@
 <template>
-  <div class="bg-[#3e4c597d] sm:bg-white">
+  <div class="min-h-screen" style="background: linear-gradient(135deg, #D0E6F3 0%, #88C4E3 100%);">
     <div
-      class="sm:hidden absolute top-3 left-3 cursor-pointer bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center text-black text-xs font-bold"
+      class="sm:hidden absolute top-3 left-3 cursor-pointer bg-white/80 backdrop-blur-sm rounded-full w-8 h-8 flex items-center justify-center text-[#0F3F5E] text-xs font-bold shadow-md hover:bg-white transition-all"
       @click="navigateTo({ path: `/wallet/${walletId}` })"
     >
       X
@@ -18,9 +18,9 @@
           :options="['QR Code', 'Manual']"
         />
       </div>
-      <div v-else class="w-2/3 lg:w-1/3 p-4">
-        <h1 class="text-2xl font-bold">Present/Receive Credential</h1>
-        <p class="text-xs mb-4">Paste offer URL or scan code.</p>
+      <div v-else class="w-2/3 lg:w-1/3 p-6 rounded-2xl border border-white/30 shadow-2xl" style="background: linear-gradient(145deg, rgba(255,255,255,0.95), rgba(208,230,243,0.90)); backdrop-filter: blur(20px) saturate(180%);">
+        <h1 class="text-2xl font-bold text-[#0F3F5E]">Present/Receive Credential</h1>
+        <p class="text-sm text-[#627D98] mb-4">Paste offer URL or scan code.</p>
         <toggle
           class="mb-3"
           @update:option1-selected="qrCodeDisplay = $event"
@@ -74,17 +74,24 @@ async function startRequest(request) {
 }
 
 function redirectByOfferType(offerUrl, encoded) {
-  if (offerUrl.startsWith("openid-vc://")) {
-    return navigateTo({
-      path: `/wallet/${currentWallet.value}/exchange/entra/issuance`,
-      query: { request: encoded },
-    });
-  } else {
-    return navigateTo({
-      path: `/wallet/${currentWallet.value}/exchange/issuance`,
-      query: { request: encoded },
-    });
+  // Robust deeplink detection: support multiple openid-vc forms and include a detail view flag
+  try {
+    const normalized = String(offerUrl).trim();
+    const isOpenIdVc = /openid[-:]?vc/i.test(normalized) || normalized.includes('openid') && normalized.includes('credential');
+    if (isOpenIdVc) {
+      return navigateTo({
+        path: `/wallet/${currentWallet.value}/exchange/entra/issuance`,
+        query: { request: encoded, view: 'detail' },
+      });
+    }
+  } catch (e) {
+    console.warn('redirectByOfferType detection failed', e);
   }
+  // Default issuance flow (show list)
+  return navigateTo({
+    path: `/wallet/${currentWallet.value}/exchange/issuance`,
+    query: { request: encoded },
+  });
 }
 
 definePageMeta({

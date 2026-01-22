@@ -29,11 +29,17 @@ const AUDIT_ROUTES: Array<{ method: string; pattern: RegExp; actionType: string 
     { method: 'POST', pattern: /^\/api\/inventory\/transfer/, actionType: 'inventory.stock_transferred' },
     { method: 'POST', pattern: /^\/api\/inventory\/adjust/, actionType: 'inventory.stock_adjusted' },
     
-    // HR operations
-    { method: 'POST', pattern: /^\/api\/hr\/employees/, actionType: 'hr.employee_created' },
-    { method: 'POST', pattern: /^\/api\/hr\/payroll\/run/, actionType: 'hr.payroll_run' },
+    // HR & Payroll operations
+    { method: 'POST', pattern: /^\/api\/payroll\/employees/, actionType: 'hr.employee_created' },
+    { method: 'POST', pattern: /^\/api\/payroll\/runs$/, actionType: 'hr.payroll_run_created' },
+    { method: 'POST', pattern: /^\/api\/payroll\/runs\/.*\/issue/, actionType: 'hr.payslips_issued' },
+    { method: 'POST', pattern: /^\/api\/payroll\/tax-compliance/, actionType: 'hr.tax_compliance_issued' },
+    { method: 'PUT', pattern: /^\/api\/payroll\/tax-compliance\/.*/, actionType: 'hr.tax_compliance_updated' },
     { method: 'POST', pattern: /^\/api\/operations\/leave/, actionType: 'hr.leave_request' },
-    { method: 'POST', pattern: /^\/api\/operations\/expense/, actionType: 'hr.expense_claim' },
+    { method: 'PUT', pattern: /^\/api\/operations\/leave\/.*/ , actionType: 'hr.leave_status_updated' },
+    { method: 'POST', pattern: /^\/api\/operations\/expenses/, actionType: 'hr.expense_claim' },
+    { method: 'PUT', pattern: /^\/api\/operations\/expenses\/.*/, actionType: 'hr.expense_status_updated' },
+    { method: 'POST', pattern: /^\/api\/onboarding\/cases/, actionType: 'hr.onboarding_case_created' },
     
     // Trust operations
     { method: 'POST', pattern: /^\/api\/trust\/escalation/, actionType: 'trust.escalation_created' },

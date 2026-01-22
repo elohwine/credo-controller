@@ -35,6 +35,10 @@ export interface PayrollRun {
     status: 'draft' | 'processing' | 'completed' | 'paid'
     totalGross: number
     totalNet: number
+    totalNssa?: number
+    totalPaye?: number
+    totalAidsLevy?: number
+    runVcId?: string
     createdAt: string
 }
 
@@ -54,6 +58,21 @@ export interface Payslip {
     currency: string
     payslipVcId?: string
     status: string
+    createdAt: string
+}
+
+export interface TaxCompliance {
+    id: string
+    tenantId: string
+    taxType: 'NSSA' | 'PAYE' | 'AIDS_LEVY' | 'ZIMRA'
+    period: string
+    amount: number
+    currency: string
+    filingDate?: string
+    referenceNumber?: string
+    status: 'pending' | 'filed' | 'confirmed' | 'rejected'
+    relatedPayrollRunId?: string
+    complianceVcId?: string
     createdAt: string
 }
 
@@ -226,9 +245,14 @@ export class PayrollService {
 
     /**
      * Issue Payslip Verifiable Credentials for a completed run
+     * Also issues a PayrollRunVC as a batch summary
      */
-    async issuePayslips(runId: string): Promise<number> {
+    async issuePayslips(runId: string): Promise<{ issuedCount: number; runVcId?: string }> {
         const db = DatabaseManager.getDatabase()
+        const runRow = db.prepare('SELECT * FROM payroll_runs WHERE id = ?').get(runId) as any
+        if (!runRow) throw new Error('Run not found')
+
+        const tenantId = runRow.tenant_id || 'default'
         const slips = db.prepare(`
             SELECT p.*, e.did, e.first_name, e.last_name, e.nssa_number 
             FROM payslips p 
@@ -237,10 +261,19 @@ export class PayrollService {
         `).all(runId) as any[]
 
         let issuedCount = 0
+        const issuedVcIds: string[] = []
+
+        // Aggregate totals for PayrollRunVC
+        let totalNssa = 0
+        let totalPaye = 0
+        let totalAidsLevy = 0
 
         for (const slip of slips) {
             try {
                 const deductions = JSON.parse(slip.deductions)
+                totalNssa += deductions.nssa || 0
+                totalPaye += deductions.paye || 0
+                totalAidsLevy += deductions.aids_levy || 0
 
                 // Prepare VC Claims
                 const claims = {
@@ -252,16 +285,18 @@ export class PayrollService {
                     netAmount: slip.net_amount,
                     currency: slip.currency,
                     deductions: deductions,
-                    employer: 'Credo Merchant (Demo)' // In real app, fetch tenant name
+                    employer: 'Credentis Demo Employer'
                 }
 
                 // Issue Credential Offer
                 const offer = await credentialIssuanceService.createOffer({
-                    credentialType: 'PayslipDef',
+                    credentialType: 'PayslipVC',
                     claims: claims,
-                    tenantId: 'default', // TODO: Use actual tenant ID from run
-                    subjectDid: slip.did // If employee has DID, we can enable direct issuance
+                    tenantId: tenantId,
+                    subjectDid: slip.did
                 })
+
+                issuedVcIds.push(offer.offerId)
 
                 // Update payslip record
                 db.prepare(`
@@ -274,9 +309,198 @@ export class PayrollService {
             }
         }
 
-        db.prepare('UPDATE payroll_runs SET status = ? WHERE id = ?').run('completed', runId)
+        // Issue PayrollRunVC (batch summary)
+        let runVcId: string | undefined
+        try {
+            const runVcClaims = {
+                runId: runId,
+                period: runRow.period,
+                totalGross: runRow.total_gross,
+                totalNet: runRow.total_net,
+                totalDeductions: runRow.total_gross - runRow.total_net,
+                totalNssa,
+                totalPaye,
+                totalAidsLevy,
+                employeeCount: slips.length,
+                currency: slips[0]?.currency || 'USD',
+                employer: 'Credentis Demo Employer',
+                processedAt: new Date().toISOString(),
+                payslipVcIds: issuedVcIds
+            }
 
-        return issuedCount
+            const runVcOffer = await credentialIssuanceService.createOffer({
+                credentialType: 'PayrollRunVC',
+                claims: runVcClaims,
+                tenantId: tenantId
+            })
+
+            runVcId = runVcOffer.offerId
+            logger.info({ runId, runVcId }, 'PayrollRunVC issued')
+
+            // Update run with VC reference, offer URI, and statutory totals
+            db.prepare(`
+                UPDATE payroll_runs 
+                SET status = 'completed', run_vc_id = ?, run_vc_offer_uri = ?, total_nssa = ?, total_paye = ?, total_aids_levy = ?
+                WHERE id = ?
+            `).run(runVcId, runVcOffer.credential_offer_deeplink, totalNssa, totalPaye, totalAidsLevy, runId)
+        } catch (err) {
+            logger.error({ runId, error: err }, 'Failed to issue PayrollRunVC')
+            db.prepare('UPDATE payroll_runs SET status = ? WHERE id = ?').run('completed', runId)
+        }
+
+        return { issuedCount, runVcId }
+    }
+
+    /**
+     * Get PayrollRunVC credential offer for reoffer
+     */
+    async getPayrollRunVCOffer(runId: string): Promise<{ credential_offer_uri: string, credential_offer_deeplink: string }> {
+        const db = DatabaseManager.getDatabase()
+        const row = db.prepare('SELECT run_vc_offer_uri FROM payroll_runs WHERE id = ?').get(runId) as any
+        if (!row || !row.run_vc_offer_uri) {
+            throw new Error(`No PayrollRunVC credential offer found for run ${runId}`)
+        }
+
+        const deeplink = row.run_vc_offer_uri
+        // Extract HTTP URI from deeplink
+        let uri = deeplink
+        if (deeplink.includes('credential_offer_uri=')) {
+            const encodedUri = deeplink.split('credential_offer_uri=')[1]
+            uri = decodeURIComponent(encodedUri)
+        }
+
+        return {
+            credential_offer_uri: uri,
+            credential_offer_deeplink: deeplink
+        }
+    }
+
+
+    /**
+     * Create and issue TaxComplianceVC for statutory filing
+     */
+    async issueTaxComplianceVC(
+        runId: string,
+        taxType: 'NSSA' | 'PAYE' | 'AIDS_LEVY',
+        referenceNumber?: string
+    ): Promise<TaxCompliance> {
+        const db = DatabaseManager.getDatabase()
+        const runRow = db.prepare('SELECT * FROM payroll_runs WHERE id = ?').get(runId) as any
+        if (!runRow) throw new Error('Run not found')
+
+        const tenantId = runRow.tenant_id || 'default'
+        const complianceId = `TAX-${runRow.period}-${taxType}-${randomUUID().substring(0, 6)}`
+        const now = new Date()
+
+        // Get statutory amount based on type
+        let amount = 0
+        if (taxType === 'NSSA') amount = runRow.total_nssa || 0
+        else if (taxType === 'PAYE') amount = runRow.total_paye || 0
+        else if (taxType === 'AIDS_LEVY') amount = runRow.total_aids_levy || 0
+
+        // Insert tax compliance record
+        db.prepare(`
+            INSERT INTO tax_compliance 
+            (id, tenant_id, tax_type, period, amount, currency, status, related_payroll_run_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(complianceId, tenantId, taxType, runRow.period, amount, 'USD', 'pending', runId, now.toISOString())
+
+        // Issue TaxComplianceVC
+        const claims = {
+            complianceId,
+            taxType,
+            period: runRow.period,
+            amount,
+            currency: 'USD',
+            filingDate: now.toISOString().slice(0, 10),
+            referenceNumber: referenceNumber || `${taxType}-${now.getTime()}`,
+            status: 'pending',
+            employeeCount: await this.getEmployeeCountForRun(runId),
+            relatedPayrollRunId: runId
+        }
+
+        try {
+            const offer = await credentialIssuanceService.createOffer({
+                credentialType: 'TaxComplianceVC',
+                claims,
+                tenantId
+            })
+
+            // Update with VC reference
+            db.prepare(`
+                UPDATE tax_compliance SET compliance_vc_id = ?, reference_number = ? WHERE id = ?
+            `).run(offer.offerId, claims.referenceNumber, complianceId)
+
+            logger.info({ complianceId, taxType, vcId: offer.offerId }, 'TaxComplianceVC issued')
+
+            return {
+                id: complianceId,
+                tenantId,
+                taxType,
+                period: runRow.period,
+                amount,
+                currency: 'USD',
+                filingDate: claims.filingDate,
+                referenceNumber: claims.referenceNumber,
+                status: 'pending',
+                relatedPayrollRunId: runId,
+                complianceVcId: offer.offerId,
+                createdAt: now.toISOString()
+            }
+        } catch (err) {
+            logger.error({ complianceId, error: err }, 'Failed to issue TaxComplianceVC')
+            throw err
+        }
+    }
+
+    /**
+     * Get employee count for a payroll run
+     */
+    private async getEmployeeCountForRun(runId: string): Promise<number> {
+        const db = DatabaseManager.getDatabase()
+        const result = db.prepare('SELECT COUNT(*) as count FROM payslips WHERE run_id = ?').get(runId) as any
+        return result?.count || 0
+    }
+
+    /**
+     * List tax compliance records for a tenant
+     */
+    async listTaxCompliance(tenantId: string = 'default'): Promise<TaxCompliance[]> {
+        const db = DatabaseManager.getDatabase()
+        const rows = db.prepare(`
+            SELECT * FROM tax_compliance WHERE tenant_id = ? ORDER BY created_at DESC
+        `).all(tenantId) as any[]
+
+        return rows.map(r => ({
+            id: r.id,
+            tenantId: r.tenant_id,
+            taxType: r.tax_type,
+            period: r.period,
+            amount: r.amount,
+            currency: r.currency,
+            filingDate: r.filing_date,
+            referenceNumber: r.reference_number,
+            status: r.status,
+            relatedPayrollRunId: r.related_payroll_run_id,
+            complianceVcId: r.compliance_vc_id,
+            createdAt: r.created_at
+        }))
+    }
+
+    /**
+     * Update tax compliance status (after filing with authority)
+     */
+    async updateTaxComplianceStatus(
+        complianceId: string,
+        status: 'filed' | 'confirmed' | 'rejected',
+        proofOfPaymentRef?: string
+    ): Promise<void> {
+        const db = DatabaseManager.getDatabase()
+        db.prepare(`
+            UPDATE tax_compliance 
+            SET status = ?, filing_date = ?, proof_of_payment_ref = ?
+            WHERE id = ?
+        `).run(status, new Date().toISOString().slice(0, 10), proofOfPaymentRef || null, complianceId)
     }
 
     async listRuns(tenantId: string = 'default'): Promise<PayrollRun[]> {
@@ -289,6 +513,10 @@ export class PayrollService {
             status: r.status as any,
             totalGross: r.total_gross,
             totalNet: r.total_net,
+            totalNssa: r.total_nssa,
+            totalPaye: r.total_paye,
+            totalAidsLevy: r.total_aids_levy,
+            runVcId: r.run_vc_id,
             createdAt: r.created_at
         }))
     }
@@ -308,6 +536,10 @@ export class PayrollService {
                 status: runRow.status as any,
                 totalGross: runRow.total_gross,
                 totalNet: runRow.total_net,
+                totalNssa: runRow.total_nssa,
+                totalPaye: runRow.total_paye,
+                totalAidsLevy: runRow.total_aids_levy,
+                runVcId: runRow.run_vc_id,
                 createdAt: runRow.created_at
             },
             payslips: slipRows.map(s => ({

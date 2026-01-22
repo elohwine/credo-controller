@@ -1,8 +1,13 @@
 <template>
   <CenterMain>
     <div class="py-10">
-      <h1 class="text-3xl font-bold text-center text-[#002159] mb-8">Finance Demo Portal</h1>
-      <p class="text-center text-gray-600 mb-12">Select a credential to issue and scan the QR code or copy the URL.</p>
+      <div class="flex flex-col items-center mb-10">
+        <img src="/credentis-logo.png" alt="Credentis" class="h-12 w-12 mb-3" />
+        <h1 class="text-3xl font-bold text-center text-[#0F3F5E]">Credentis Commerce Demo</h1>
+        <p class="text-center text-[#6B7C8F] mt-2">
+          Issue demo credentials and scan the QR code to claim them.
+        </p>
+      </div>
 
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
         <button 
@@ -10,20 +15,25 @@
           :key="type.id"
           @click="issueCredential(type)"
           :disabled="loading"
-          class="flex flex-col items-center p-6 bg-white rounded-2xl shadow-lg border-2 border-transparent hover:border-[#0573F0] transition-all duration-300"
-          :class="{ 'opacity-50 cursor-not-allowed': loading, 'border-[#0573F0] bg-blue-50': activeType === type.id }"
+          class="flex flex-col items-start p-6 rounded-2xl shadow-lg border border-white/40 transition-all duration-300 backdrop-blur-md hover:shadow-xl hover:-translate-y-0.5"
+          :class="{ 'opacity-50 cursor-not-allowed': loading, 'ring-2 ring-[#2188CA]': activeType === type.id }"
+          style="background: linear-gradient(135deg, rgba(208,230,243,0.92), rgba(136,196,227,0.85));"
         >
-          <div class="w-12 h-12 mb-4 rounded-full bg-blue-100 flex items-center justify-center text-[#0573F0]">
+          <div class="w-12 h-12 mb-4 rounded-full bg-white/80 flex items-center justify-center text-[#2188CA] shadow">
             <component :is="type.icon" class="w-6 h-6" />
           </div>
-          <span class="font-bold text-gray-800">{{ type.name }}</span>
+          <span class="font-bold text-[#0F3F5E] text-lg">{{ type.name }}</span>
+          <span class="text-sm text-[#6B7C8F] mt-1">Tap to issue a demo VC</span>
+          <div class="w-full h-px bg-gradient-to-r from-[#6FB4DC] to-transparent mt-4 mb-2"></div>
+          <span class="text-xs text-[#52606D]">Wallet-ready credential offer</span>
         </button>
       </div>
 
-      <div v-if="offerUri" class="bg-white rounded-3xl shadow-xl p-8 max-w-md mx-auto text-center border border-gray-100">
-        <h3 class="text-xl font-bold mb-4 text-gray-900">Scan to Claim</h3>
+      <div v-if="offerUri" class="rounded-3xl shadow-xl p-8 max-w-md mx-auto text-center border border-white/50 backdrop-blur-md"
+           style="background: linear-gradient(135deg, rgba(208,230,243,0.92), rgba(136,196,227,0.85));">
+        <h3 class="text-xl font-bold mb-4 text-[#0F3F5E]">Scan to Claim</h3>
         
-        <div class="flex justify-center mb-6 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+        <div class="flex justify-center mb-6 p-4 bg-white/70 rounded-2xl border border-white/60">
           <qrcode-vue
             :value="offerUri"
             :size="220"
@@ -33,15 +43,15 @@
         </div>
 
         <div class="flex flex-col gap-4">
-          <div class="flex items-center gap-2 p-3 bg-gray-100 rounded-xl overflow-hidden">
+          <div class="flex items-center gap-2 p-3 bg-white/70 rounded-xl overflow-hidden">
             <input 
               readOnly 
               :value="offerUri" 
-              class="bg-transparent text-xs text-gray-500 truncate flex-1 outline-none"
+              class="bg-transparent text-xs text-[#52606D] truncate flex-1 outline-none"
             />
             <button 
               @click="copyToClipboard"
-              class="p-2 text-[#0573F0] hover:bg-blue-100 rounded-lg transition-colors"
+              class="p-2 text-[#2188CA] hover:bg-white/80 rounded-lg transition-colors"
               title="Copy to clipboard"
             >
               <template v-if="copied">
@@ -55,7 +65,7 @@
 
           <button 
             @click="openInWallet"
-            class="w-full py-3 bg-[#002159] text-white rounded-xl font-bold hover:bg-blue-800 transition-colors shadow-lg"
+            class="w-full py-3 bg-[#0F3F5E] text-white rounded-xl font-bold hover:bg-[#2188CA] transition-colors shadow-lg"
           >
             Open in Web Wallet
           </button>
@@ -179,6 +189,6 @@ definePageMeta({
 })
 
 useHead({
-  title: 'Finance Demo Portal - IdenEx'
+  title: 'Finance Demo Portal - Credentis'
 })
 </script>

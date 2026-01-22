@@ -1,3 +1,20 @@
+/**
+ * IdenEx Credentis - Credential Issuance Actions
+ * 
+ * Verifiable Trust Infrastructure for Africa's Digital Economy
+ * 
+ * Workflow actions for issuing Verifiable Credentials:
+ * - PaymentReceiptVC, InvoiceVC, QuoteVC
+ * - PayslipVC, EmploymentContractVC
+ * - DeliveryProofVC, DigitalTwinVC
+ * - CreditEligibilityVC, PolicyVC
+ * 
+ * Uses OID4VCI (OpenID for Verifiable Credential Issuance) standard.
+ * 
+ * @module services/workflow/actions/CredentialActions
+ * @copyright 2024-2026 IdenEx Credentis
+ */
+
 import { WorkflowActionContext } from '../ActionRegistry'
 import { rootLogger } from '../../../utils/pinoLogger'
 import { OidcIssuerController } from '../../../controllers/oidc/OidcIssuerController'

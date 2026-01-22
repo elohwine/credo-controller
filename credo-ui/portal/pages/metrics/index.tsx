@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import { StatCard } from '@/components/dashboard/StatCard';
+import { BRAND } from '@/lib/theme';
 import { 
     ChartBarIcon, 
     ServerIcon, 
@@ -92,11 +93,11 @@ export default function MetricsPage() {
 
     return (
         <Layout title="System Metrics">
-            <div className="px-4 sm:px-6 lg:px-8">
-                <div className="sm:flex sm:items-center">
-                    <div className="sm:flex-auto">
-                        <h1 className="text-2xl font-semibold text-gray-900">System Metrics</h1>
-                        <p className="mt-2 text-sm text-gray-700">
+            <div className="px-4 sm:px-6 lg:px-8 py-6">
+                <div className="sm:flex sm:items-center sm:justify-between mb-8">
+                    <div>
+                        <h1 className="text-3xl font-bold" style={{ color: BRAND.dark }}>System Metrics</h1>
+                        <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>
                             Real-time system health and performance monitoring
                         </p>
                     </div>
@@ -151,7 +152,7 @@ export default function MetricsPage() {
                         <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="lg" mb="xl">
                             <StatCard 
                                 title="Active Wallets" 
-                                value={metrics.business.activeWallets.toString()} 
+                                value={(metrics.business?.activeWallets ?? 0).toString()} 
                                 icon={<WalletIcon style={{ width: 24, height: 24 }} />} 
                                 iconColor="blue"
                                 trend="+12%" 
@@ -160,7 +161,7 @@ export default function MetricsPage() {
                             />
                             <StatCard 
                                 title="Credentials Issued" 
-                                value={metrics.business.credentialsIssued.toString()} 
+                                value={(metrics.business?.credentialsIssued ?? 0).toString()} 
                                 icon={<DocumentCheckIcon style={{ width: 24, height: 24 }} />} 
                                 iconColor="green"
                                 trend="+5%" 
@@ -169,7 +170,7 @@ export default function MetricsPage() {
                             />
                             <StatCard 
                                 title="Workflows Executed" 
-                                value={metrics.business.workflowsExecuted.toString()} 
+                                value={(metrics.business?.workflowsExecuted ?? 0).toString()} 
                                 icon={<BoltIcon style={{ width: 24, height: 24 }} />} 
                                 iconColor="orange"
                                 trend="+2" 

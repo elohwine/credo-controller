@@ -1,0 +1,36 @@
+app = "credentis-api"
+primary_region = "jnb"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  HOLDER_PORT = "6000"
+  PUBLIC_BASE_URL = "https://credentis-api.fly.dev"
+  HOLDER_BASE_URL = "https://credentis-api.fly.dev:6000"
+  WALLET_UI_URL = "https://credentis-wallet.fly.dev"
+  PORTAL_UI_URL = "https://credentis-portal.fly.dev"
+
+[[services]]
+  internal_port = 3000
+  protocol = "tcp"
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  [[services.http_checks]]
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "40s"
+    method = "get"
+    path = "/health"

@@ -1,14 +1,14 @@
 <template>
     <PageHeader>
         <template v-slot:icon>
-            <img alt="" class="hidden h-16 w-16 rounded-full sm:block" src="/svg/walt-s.svg"/>
+            <img alt="" class="hidden h-16 w-16 rounded-full sm:block" src="/credentis-logo.png"/>
             <!-- src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=2.6&w=256&h=256&q=80"/> -->
         </template>
 
         <template v-slot:title>
-            <img alt="" class="h-16 w-16 rounded-full sm:hidden" src="/svg/walt-s.svg"/>
+            <img alt="" class="h-16 w-16 rounded-full sm:hidden" src="/credentis-logo.png"/>
             <!-- src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=2.6&w=256&h=256&q=80"/> -->
-            <h1 class="ml-3 text-2xl font-bold leading-7 text-gray-900 sm:truncate sm:leading-9">
+            <h1 class="ml-3 text-2xl font-bold leading-7 text-[#0F3F5E] sm:truncate sm:leading-9">
                 Good <span v-if="now.getHours() < 12">morning</span>
 
                 <span v-else-if="now.getHours() > 21">night</span>
@@ -29,15 +29,16 @@
 
         <template v-slot:menu v-if="currentWallet">
             <NuxtLink
-                class="inline-flex focus:outline focus:outline-blue-600 focus:outline-offset-2 items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                class="inline-flex focus:outline focus:outline-[#2188CA] focus:outline-offset-2 items-center rounded-xl bg-white/80 backdrop-blur-sm px-4 py-2.5 text-sm font-semibold text-[#0F3F5E] shadow-md ring-1 ring-inset ring-white/40 hover:bg-white hover:shadow-lg transition-all duration-200"
                 :to="`/wallet/${currentWallet}/settings/issuers`" type="button" v-if="currentWallet">
-                <ArrowDownOnSquareStackIcon class="h-5 w-5 mr-1"/>
+                <ArrowDownOnSquareStackIcon class="h-5 w-5 mr-1.5"/>
                 Request credentials
             </NuxtLink>
             <NuxtLink
-                class="inline-flex focus:outline focus:outline-blue-600 focus:outline-offset-2 items-center rounded-md bg-blue-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                class="inline-flex focus:outline focus:outline-[#2188CA] focus:outline-offset-2 items-center rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-lg hover:shadow-xl hover:scale-105 transform transition-all duration-200"
+                style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
                 :to="`/wallet/${currentWallet}/scan`" type="button">
-                <QrCodeIcon class="h-5 w-5 mr-1"/>
+                <QrCodeIcon class="h-5 w-5 mr-1.5"/>
                 Scan to receive or present credentials
             </NuxtLink>
         </template>

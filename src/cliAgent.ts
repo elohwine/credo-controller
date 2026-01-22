@@ -148,20 +148,43 @@ export const buildModules = (cfg: {
 
             const verificationMethod = `${issuerDid}#${issuerDid.split(':').pop()}`
 
+            const credentialId = metadata?.credentialId || `urn:uuid:${issuanceSession.id}`
+            const tenantId = metadata?.tenantId || 'default'
+
+            const credentialPayload = {
+              id: credentialId,
+              '@context': ['https://www.w3.org/2018/credentials/v1'],
+              type: credDef.credentialType || ['VerifiableCredential', credentialConfigurationId],
+              issuer: issuerDid,
+              issuanceDate: new Date().toISOString(),
+              credentialSubject: {
+                id: subjectDid,
+                ...claims,
+              },
+            } as any
+
+            try {
+              const { IssuedCredentialRepository } = await import('./persistence/IssuedCredentialRepository')
+              const issuedCredentialRepository = new IssuedCredentialRepository()
+              issuedCredentialRepository.save({
+                id: issuanceSession.id,
+                tenantId,
+                credentialId,
+                holderDid: subjectDid,
+                credentialDefinitionId: metadata?.credentialDefinitionId || credentialConfigurationId,
+                credentialData: credentialPayload,
+                format: ClaimFormat.JwtVc,
+                revoked: false,
+              })
+            } catch (err: any) {
+              console.warn('[CredentialMapper] Failed to persist issued credential:', err?.message)
+            }
+
             return {
               credentialSupportedId: credentialConfigurationId,
               format: ClaimFormat.JwtVc,
               verificationMethod,
-              credential: {
-                '@context': ['https://www.w3.org/2018/credentials/v1'],
-                type: credDef.credentialType || ['VerifiableCredential', credentialConfigurationId],
-                issuer: issuerDid,
-                issuanceDate: new Date().toISOString(),
-                credentialSubject: {
-                  id: subjectDid,
-                  ...claims,
-                },
-              } as any,
+              credential: credentialPayload,
             }
           },
         },

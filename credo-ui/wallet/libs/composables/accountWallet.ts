@@ -1,4 +1,6 @@
 import { navigateTo, useFetch, useRoute, useState, useCookie } from "nuxt/app";
+import { useLocalStorage } from "@vueuse/core";
+import { watchEffect } from "vue";
 // @ts-expect-error - Nuxt auto-imports useAuth from @sidebase/nuxt-auth
 import { useAuth } from "#imports";
 
@@ -48,16 +50,35 @@ export function setWallet(
 }
 
 export function useCurrentWallet() {
-    return useState<string | null>("wallet", () => {
+    const storedWallet = useLocalStorage<string | null>("credentis.currentWallet", null);
+    const state = useState<string | null>("wallet", () => {
         const currentRoute = useRoute();
-        const currentWalletId = currentRoute.params["wallet"] as string ?? null;
+        const currentWalletId = (currentRoute.params["wallet"] as string) ?? null;
 
-        if (currentWalletId == null && currentRoute.name != "/") {
-            console.log("Error for currentWallet at: ", currentRoute);
-            return null
-        } else {
-            console.log("Returning: " + currentWalletId + ", at: " + currentRoute.fullPath);
+        if (currentWalletId) {
+            storedWallet.value = currentWalletId;
             return currentWalletId;
         }
+
+        if (storedWallet.value) {
+            return storedWallet.value;
+        }
+
+        if (currentRoute.name != "/") {
+            console.log("Error for currentWallet at: ", currentRoute);
+        }
+
+        return null;
     });
+
+    const route = useRoute();
+    watchEffect(() => {
+        const routeWallet = (route.params["wallet"] as string) ?? null;
+        if (routeWallet && state.value !== routeWallet) {
+            state.value = routeWallet;
+            storedWallet.value = routeWallet;
+        }
+    });
+
+    return state;
 }

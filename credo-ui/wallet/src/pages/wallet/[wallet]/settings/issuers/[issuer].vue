@@ -1,8 +1,8 @@
 <template>
   <!-- Desktop view -->
   <div class="hidden sm:block p-8">
-    <h1 class="text-2xl font-semibold text-left">{{ issuer }}</h1>
-    <p class="text-left text-sm">Select credential to request.</p>
+    <h1 class="text-2xl font-semibold text-left text-[#0F3F5E]">{{ issuer }}</h1>
+    <p class="text-left text-sm text-[#627D98]">Select credential to request.</p>
     <ul
       class="relative grid grid-cols-1 gap-y-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 sm:gap-x-4 sm:gap-y-6 mt-8"
     >
@@ -11,7 +11,7 @@
           (c) => c.format == credentialType,
         )"
         :key="credential.id"
-        class="col-span-1 divide-y divide-gray-200 rounded-2xl bg-white shadow transform hover:scale-105 cursor-pointer duration-200"
+        class="col-span-1 divide-y divide-gray-200 rounded-2xl shadow-lg transform hover:scale-105 hover:shadow-2xl cursor-pointer duration-200"
       >
         <NuxtLink
           :to="
@@ -24,7 +24,8 @@
         >
           <div
             ref="vcCardDiv"
-            class="p-6 rounded-2xl shadow-2xl sm:shadow-lg h-full text-gray-900 bg-gradient-to-br from-[#0573F0] to-[#03449E] border-t-white border-t-[0.5px] bg-[#7B8794]"
+            class="p-6 rounded-2xl shadow-2xl sm:shadow-lg h-full text-gray-900 border border-white/30"
+            style="background: linear-gradient(135deg, #2188CA 0%, #0F3F5E 100%);"
           >
             <div class="mb-8">
               <div class="text-2xl font-bold bold text-white">
@@ -38,12 +39,12 @@
 
             <div class="sm:mt-18">
               <div
-                :class="{ 'text-white': issuer, 'text-[#0573f000]': !issuer }"
+                :class="{ 'text-white/80': issuer, 'text-transparent': !issuer }"
               >
                 Issuer
               </div>
               <div
-                :class="{ 'text-white': issuer, 'text-[#0573f000]': !issuer }"
+                :class="{ 'text-white': issuer, 'text-transparent': !issuer }"
                 class="font-bold"
               >
                 {{ issuer ?? "Unknown" }}
@@ -57,8 +58,8 @@
 
   <!-- Mobile view -->
   <CenterMain class="sm:hidden">
-    <h1 class="text-lg font-semibold text-center">{{ issuer }}</h1>
-    <p class="text-center">Select credential to request from issuer.</p>
+    <h1 class="text-lg font-semibold text-center text-[#0F3F5E]">{{ issuer }}</h1>
+    <p class="text-center text-[#627D98]">Select credential to request from issuer.</p>
     <div class="mt-8">
       <ol>
         <li
@@ -66,7 +67,8 @@
             (c) => c.format == credentialType,
           )"
           :key="credential.id"
-          class="flex items-center justify-between py-5 rounded-lg shadow-md mt-4 mb-10"
+          class="flex items-center justify-between py-5 rounded-2xl border border-white/30 shadow-lg mt-4 mb-10"
+          style="background: linear-gradient(145deg, rgba(255,255,255,0.95), rgba(208,230,243,0.90)); backdrop-filter: blur(12px) saturate(180%);"
         >
           <NuxtLink
             :to="
@@ -78,7 +80,7 @@
             class="w-full"
           >
             <div class="flex items-start gap-x-3">
-              <p class="mx-2 text-base font-semibold leading-6 text-gray-900">
+              <p class="mx-4 text-base font-semibold leading-6 text-[#0F3F5E]">
                 {{ credential.id.split("_")[0] }}
               </p>
             </div>
@@ -91,14 +93,14 @@
             (c) => c.format == credentialType,
           ).length == 0
         "
-        class="text-lg font-semibold text-center"
+        class="text-lg font-semibold text-center text-[#627D98]"
       >
         No credentials
       </p>
-      <p v-if="error">
-        Error while trying to use issuer <code>{{ issuer }}</code
+      <p v-if="error" class="text-[#627D98]">
+        Error while trying to use issuer <code class="text-[#0F3F5E]">{{ issuer }}</code
         >:
-        <span v-if="error.data" class="text-gray-600">{{
+        <span v-if="error.data" class="text-[#627D98]">{{
           error.data.startsWith("{")
             ? JSON.parse(error.data)?.message
             : error.data

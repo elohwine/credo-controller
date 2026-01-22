@@ -36,6 +36,7 @@ import { rootLogger } from './utils/pinoLogger'
 import { runWithContext } from './utils/requestContext'
 import { DatabaseManager } from './persistence/DatabaseManager'
 import { auditMiddleware } from './middleware/auditMiddleware'
+import { triggerService } from './services/TriggerService'
 
 import { startNgrokTunnel, getNgrokUrl } from './utils/ngrokTunnel'
 
@@ -67,6 +68,16 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
 
   initTenantStore()
   initWalletUserStore()
+  
+  // Initialize trigger service for scheduled workflows
+  try {
+    await triggerService.initialize()
+    agent?.config?.logger?.info?.('TriggerService initialized')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    agent?.config?.logger?.warn?.(`TriggerService initialization failed: ${msg}`)
+  }
+  
   await otelSDK.start()
   agent.config.logger.info('OpenTelemetry SDK started')
 

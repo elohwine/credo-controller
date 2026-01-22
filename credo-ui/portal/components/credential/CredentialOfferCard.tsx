@@ -1,9 +1,7 @@
 import React, { useState, useContext } from 'react';
 import QRCode from 'react-qr-code';
-import Button from '@/components/walt/button/Button';
-import { EnvContext } from '@/pages/_app';
-import { sendToWebWallet } from '@/utils/sendToWebWallet';
-import nextConfig from '@/next.config';
+import { DevicePhoneMobileIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline';
+import { BRAND } from '@/lib/theme';
 
 interface CredentialOfferCardProps {
     /** The credential offer URI for QR code */
@@ -53,7 +51,6 @@ export default function CredentialOfferCard({
     financeResult,
     compact = false,
 }: CredentialOfferCardProps) {
-    const env = useContext(EnvContext);
     const [copyText, setCopyText] = useState(BUTTON_COPY_TEXT_DEFAULT);
 
     const handleCopy = async () => {
@@ -66,56 +63,29 @@ export default function CredentialOfferCard({
         }
     };
 
-    const handleOpenWallet = () => {
-        const walletUrl = env?.NEXT_PUBLIC_WALLET || nextConfig.publicRuntimeConfig?.NEXT_PUBLIC_WALLET as string;
-        if (walletUrl) {
-            sendToWebWallet(walletUrl, 'api/siop/initiateIssuance', offerUri);
-        }
-        onAccepted?.();
-    };
-
     return (
-        <div className={`bg-white rounded-lg shadow-lg p-6 ${compact ? 'max-w-sm' : 'max-w-md'} mx-auto`}>
+        <div className={`shadow-2xl rounded-xl p-8 bg-white ${compact ? 'max-w-sm' : 'max-w-md'} mx-auto text-center`}>
             {/* Header */}
-            <h3 className="text-xl font-bold text-gray-900 text-center mb-2">
-                {credentialType}
+            <h3 className="text-xl font-bold text-gray-900 mb-2">
+                Claim Your Credential
             </h3>
-            <p className="text-sm text-gray-500 text-center mb-4">
-                Scan to claim your credential
+            <p className="text-sm text-gray-600 mb-6">
+                Scan the QR code or open in your wallet
             </p>
 
             {/* QR Code */}
             <div className="flex justify-center mb-6">
-                <div className="bg-white p-4 border border-gray-200 rounded-lg shadow-sm">
-                    <QRCode
-                        value={deepLink || offerUri}
-                        size={compact ? 160 : 200}
-                        viewBox="0 0 256 256"
-                    />
-                </div>
+                <QRCode
+                    className="h-full max-h-[200px]"
+                    value={deepLink || offerUri}
+                    viewBox="0 0 256 256"
+                />
             </div>
-
-            {/* Claims Preview (if provided) */}
-            {claims && Object.keys(claims).length > 0 && !compact && (
-                <div className="bg-gray-50 rounded-lg p-4 mb-4">
-                    <h4 className="text-sm font-semibold text-gray-700 mb-2">Credential Claims</h4>
-                    <dl className="space-y-1 text-sm">
-                        {Object.entries(claims).slice(0, 5).map(([key, value]) => (
-                            <div key={key} className="flex justify-between">
-                                <dt className="text-gray-500">{key}:</dt>
-                                <dd className="font-mono text-gray-900 truncate max-w-[150px]">
-                                    {String(value)}
-                                </dd>
-                            </div>
-                        ))}
-                    </dl>
-                </div>
-            )}
 
             {/* Finance Result (for Quote/Invoice/Receipt) */}
             {financeResult && (
-                <div className="bg-green-50 border border-green-100 rounded-lg p-4 mb-4">
-                    <h4 className="text-sm font-semibold text-green-800 mb-2">Calculation</h4>
+                <div className="rounded-lg p-4 mb-6" style={{ backgroundColor: BRAND.linkWater }}>
+                    <h4 className="text-sm font-semibold mb-2" style={{ color: BRAND.dark }}>Calculation</h4>
                     <dl className="space-y-1 text-sm">
                         {financeResult.subtotal && (
                             <div className="flex justify-between">
@@ -132,13 +102,13 @@ export default function CredentialOfferCard({
                         {financeResult.discountAmount && (
                             <div className="flex justify-between">
                                 <dt className="text-gray-600">Discount:</dt>
-                                <dd className="font-mono text-green-600">-{financeResult.discountAmount}</dd>
+                                <dd className="font-mono" style={{ color: BRAND.curious }}>-{financeResult.discountAmount}</dd>
                             </div>
                         )}
                         {financeResult.grandTotal && (
-                            <div className="flex justify-between font-bold border-t pt-1 mt-1">
-                                <dt className="text-gray-700">Total:</dt>
-                                <dd className="font-mono">{financeResult.grandTotal}</dd>
+                            <div className="flex justify-between font-bold border-t pt-2 mt-2">
+                                <dt style={{ color: BRAND.dark }}>Total:</dt>
+                                <dd className="font-mono" style={{ color: BRAND.dark }}>{financeResult.grandTotal}</dd>
                             </div>
                         )}
                     </dl>
@@ -146,26 +116,33 @@ export default function CredentialOfferCard({
             )}
 
             {/* Action Buttons */}
-            <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <Button style="link" onClick={handleCopy}>
+            <div className="flex flex-col gap-3 mb-6">
+                <a
+                    href={deepLink || offerUri}
+                    onClick={() => onAccepted?.()}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-medium text-white transition-all hover:shadow-md"
+                    style={{ backgroundColor: BRAND.curious }}
+                >
+                    <DevicePhoneMobileIcon className="h-5 w-5" />
+                    Open in Wallet
+                </a>
+                <button
+                    onClick={handleCopy}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-medium border transition-colors hover:bg-gray-50"
+                    style={{ borderColor: BRAND.curious, color: BRAND.curious }}
+                >
+                    <ClipboardDocumentIcon className="h-5 w-5" />
                     {copyText}
-                </Button>
-                <Button onClick={handleOpenWallet}>
-                    Open Web Wallet
-                </Button>
+                </button>
             </div>
 
-            {/* Deep Link (for mobile) */}
-            {deepLink && (
-                <div className="mt-4 text-center">
-                    <a
-                        href={deepLink}
-                        className="text-sm text-primary-600 hover:underline"
-                    >
-                        Open in Mobile Wallet
-                    </a>
+            {/* Credentis Footer */}
+            <div className="flex flex-col items-center pt-6 border-t">
+                <div className="flex flex-row gap-2 items-center text-sm" style={{ color: '#7B8794' }}>
+                    <p>Secured by Credentis</p>
+                    <img src="/credentis-logo.png" alt="Credentis" style={{ height: 15, width: 'auto' }} />
                 </div>
-            )}
+            </div>
         </div>
     );
 }

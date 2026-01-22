@@ -23,10 +23,10 @@ process.env.ISSUER_API_KEY = process.env.ISSUER_API_KEY || 'test-api-key-12345'
 // Separate DB for Holder to avoid SQLite locking with Issuer
 process.env.PERSISTENCE_DB_PATH = process.env.PERSISTENCE_DB_PATH || './data/holder.db'
 
-const HOLDER_API_PORT = 6000
-const HOLDER_INBOUND_PORT = 6001
-const HOLDER_WALLET_ID = 'holder-wallet'
-const HOLDER_BASE_URL = `http://localhost:${HOLDER_API_PORT}`
+const HOLDER_API_PORT = Number(process.env.HOLDER_API_PORT || 6000)
+const HOLDER_INBOUND_PORT = Number(process.env.HOLDER_INBOUND_PORT || 6001)
+const HOLDER_WALLET_ID = process.env.HOLDER_WALLET_ID || 'holder-wallet'
+const HOLDER_BASE_URL = process.env.HOLDER_BASE_URL || `http://localhost:${HOLDER_API_PORT}`
 
 async function run() {
     const logger = new TsLogger(LogLevel.info)

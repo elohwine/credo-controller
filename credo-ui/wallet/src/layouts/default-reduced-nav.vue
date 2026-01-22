@@ -37,7 +37,7 @@
           leave-from="opacity-100"
           leave-to="opacity-0"
         >
-          <div class="fixed inset-0 bg-gray-600 bg-opacity-75" />
+          <div class="fixed inset-0 bg-[#0F3F5E]/60 backdrop-blur-sm" />
         </TransitionChild>
 
         <div class="fixed inset-0 z-40 flex">
@@ -51,7 +51,8 @@
             leave-to="-translate-x-full"
           >
             <DialogPanel
-              class="relative flex w-full max-w-xs flex-1 flex-col bg-blue-600 pb-4 pt-5"
+              class="relative flex w-full max-w-xs flex-1 flex-col pb-4 pt-5 border-r border-white/20 shadow-2xl"
+              style="background: linear-gradient(160deg, rgba(33,136,202,0.92), rgba(15,63,94,0.92)); backdrop-filter: blur(16px) saturate(180%);"
             >
               <TransitionChild
                 as="template"
@@ -74,12 +75,12 @@
                 </div>
               </TransitionChild>
               <div class="flex flex-shrink-0 items-center px-4">
-                <img alt="" class="h-14 w-auto" :src="inWalletLogoImage" />
+                <img alt="" class="h-48 w-auto drop-shadow-[0_8px_20px_rgba(0,0,0,0.45)]" :src="inWalletLogoImage" />
               </div>
 
               <nav
                 aria-label="Sidebar"
-                class="mt-5 h-full flex-shrink-0 divide-y divide-blue-800 overflow-y-auto"
+                class="mt-5 h-full flex-shrink-0 divide-y divide-white/10 overflow-y-auto"
               >
                 <div class="mt-6 pt-6">
                   <div class="space-y-1 px-2">
@@ -87,12 +88,12 @@
                       v-for="item in secondaryNavigation"
                       :key="item.name"
                       :to="item.href"
-                      class="group flex items-center rounded-md px-2 py-2 text-base font-medium text-white hover:bg-blue-700 hover:text-white"
+                      class="group flex items-center rounded-xl px-3 py-2 text-base font-medium text-[#EAF4FB] hover:bg-white/10 transition-all duration-200"
                     >
                       <component
                         :is="item.icon"
                         aria-hidden="true"
-                        class="mr-4 h-6 w-6 text-blue-200"
+                        class="mr-4 h-6 w-6 text-[#D0E6F3]"
                       />
                       {{ item.name }}
                     </NuxtLink>
@@ -123,15 +124,15 @@
     <div class="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-64 lg:flex-col">
       <!-- Sidebar component, swap this element with another sidebar if you like -->
       <div
-        class="flex flex-grow flex-col overflow-y-auto bg-blue-600 pb-4 pt-5"
-        style="color: rgb(37, 99, 235)"
+        class="flex flex-grow flex-col overflow-y-auto pb-4 pt-5 border-r border-white/20 shadow-2xl"
+        style="background: linear-gradient(160deg, rgba(33,136,202,0.92), rgba(15,63,94,0.92)); backdrop-filter: blur(16px) saturate(180%);"
       >
         <div class="flex flex-shrink-0 items-center px-4">
-          <img alt="" class="h-14 w-auto" :src="inWalletLogoImage" />
+          <img alt="" class="h-48 w-auto drop-shadow-[0_8px_20px_rgba(0,0,0,0.45)]" :src="inWalletLogoImage" />
         </div>
         <nav
           aria-label="Sidebar"
-          class="mt-5 flex flex-1 flex-col divide-y divide-blue-800 overflow-y-auto"
+          class="mt-5 flex flex-1 flex-col divide-y divide-white/10 overflow-y-auto"
         >
           <div class="mt-2 pt-2 flex flex-col justify-between h-full">
             <div class="space-y-1 px-2">
@@ -139,12 +140,12 @@
                 v-for="item in secondaryNavigation"
                 :key="item.name"
                 :to="item.href"
-                class="group flex items-center rounded-md px-2 py-2 text-base font-medium leading-6 text-white hover:bg-blue-700 hover:text-white"
+                class="group flex items-center rounded-xl px-3 py-2 text-base font-medium leading-6 text-[#EAF4FB] hover:bg-white/10 transition-all duration-200"
               >
                 <component
                   :is="item.icon"
                   aria-hidden="true"
-                  class="mr-4 h-6 w-6 text-blue-200"
+                  class="mr-4 h-6 w-6 text-[#D0E6F3]"
                 />
                 {{ item.name }}
               </NuxtLink>
@@ -164,9 +165,9 @@
     </div>
 
     <div class="flex flex-1 flex-col lg:pl-64">
-      <div class="flex h-16 flex-shrink-0 border-b border-gray-200 bg-white">
+      <div class="flex h-16 flex-shrink-0 border-b border-white/40 bg-white/70 backdrop-blur-md">
         <button
-          class="border-r border-gray-200 px-4 text-gray-400 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 lg:hidden"
+          class="border-r border-white/30 px-4 text-gray-500 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#2188CA] lg:hidden"
           type="button"
           @click="sidebarOpen = true"
         >
@@ -201,7 +202,7 @@
           </div>
           <div class="ml-4 flex items-center md:ml-6">
             <button
-              class="rounded-full bg-white p-1 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              class="rounded-full bg-white/70 backdrop-blur p-1 text-gray-500 hover:text-[#2188CA] focus:outline-none focus:ring-2 focus:ring-[#2188CA] focus:ring-offset-2 focus:ring-offset-white/60"
               type="button"
               @click="reloadData"
             >
@@ -213,7 +214,7 @@
               />
             </button>
             <button
-              class="rounded-full bg-white p-1 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              class="rounded-full bg-white/70 backdrop-blur p-1 text-gray-500 hover:text-[#2188CA] focus:outline-none focus:ring-2 focus:ring-[#2188CA] focus:ring-offset-2 focus:ring-offset-white/60"
               type="button"
             >
               <span class="sr-only">View notifications</span>
@@ -224,21 +225,21 @@
             <Menu as="div" class="relative ml-3">
               <div>
                 <MenuButton
-                  class="flex max-w-xs items-center rounded-full bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 lg:rounded-md lg:p-2 lg:hover:bg-gray-50"
+                  class="flex max-w-xs items-center rounded-full bg-white/70 backdrop-blur text-sm focus:outline-none focus:ring-2 focus:ring-[#2188CA] focus:ring-offset-2 focus:ring-offset-white/60 lg:rounded-md lg:p-2 lg:hover:bg-white/80 transition-colors"
                 >
                   <img
                     alt=""
                     class="h-8 w-8 rounded-full"
-                    src="/svg/walt-s.svg"
+                    src="/credentis-logo.png"
                   />
                   <!-- src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"/> -->
                   <span
-                    class="ml-3 hidden text-sm font-medium text-gray-700 lg:block"
+                    class="ml-3 hidden text-sm font-medium text-[#0F3F5E] lg:block"
                     >{{ user.friendlyName }}</span
                   >
                   <ChevronDownIcon
                     aria-hidden="true"
-                    class="ml-1 hidden h-5 w-5 flex-shrink-0 text-gray-400 lg:block"
+                    class="ml-1 hidden h-5 w-5 flex-shrink-0 text-[#6FB4DC] lg:block"
                   />
                 </MenuButton>
               </div>
@@ -251,13 +252,13 @@
                 leave-to-class="transform opacity-0 scale-95"
               >
                 <MenuItems
-                  class="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none"
+                  class="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-xl bg-white/80 backdrop-blur-md py-1 shadow-lg ring-1 ring-white/40 focus:outline-none"
                 >
                   <MenuItem v-slot="{ active }">
                     <NuxtLink
                       :class="[
-                        active ? 'bg-gray-100' : '',
-                        'block px-4 py-2 text-sm text-gray-700',
+                        active ? 'bg-[#D0E6F3]/60' : '',
+                        'block px-4 py-2 text-sm text-[#0F3F5E]',
                       ]"
                       to="/profile"
                       >Your Profile
@@ -266,8 +267,8 @@
                   <MenuItem v-slot="{ active }">
                     <NuxtLink
                       :class="[
-                        active ? 'bg-gray-100' : '',
-                        'block px-4 py-2 text-sm text-gray-700',
+                        active ? 'bg-[#D0E6F3]/60' : '',
+                        'block px-4 py-2 text-sm text-[#0F3F5E]',
                       ]"
                       to="/settings"
                       >Settings
@@ -276,8 +277,8 @@
                   <MenuItem v-slot="{ active }">
                     <button
                       :class="[
-                        active ? 'bg-gray-100' : '',
-                        'block px-4 py-2 text-sm text-gray-700',
+                        active ? 'bg-[#D0E6F3]/60' : '',
+                        'block px-4 py-2 text-sm text-[#0F3F5E]',
                       ]"
                       class="w-full text-left"
                       @click="logout"
@@ -357,7 +358,9 @@ const sidebarOpen = ref(false);
 
 <style>
 .router-link-exact-active {
-  color: #000;
+  color: #0F3F5E;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 0.75rem;
 }
 
 .pwa-toast {

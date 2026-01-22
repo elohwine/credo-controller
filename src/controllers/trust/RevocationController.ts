@@ -1,3 +1,14 @@
+/**
+ * IdenEx Credentis - Revocation Controller
+ * 
+ * Verifiable Trust Infrastructure for Africa's Digital Economy
+ * 
+ * Minimal revocation list APIs for status-list updates.
+ * Production deployments should persist list state per tenant.
+ * 
+ * @module controllers/trust/RevocationController
+ * @copyright 2024-2026 IdenEx Credentis
+ */
 
 import { Body, Controller, Post, Route, Tags, Request } from 'tsoa'
 import { rootLogger } from '../../utils/pinoLogger'

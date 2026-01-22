@@ -204,9 +204,11 @@ export default defineNuxtConfig({
     runtimeConfig: {
         public: {
             projectId: process.env.ProjectId,
-            issuerCallbackUrl: "http://localhost:7100",
-            credentialsRepositoryUrl: "http://localhost:3000",
-            devWalletUrl: "https://wallet-dev.IdenEx",
+            issuerCallbackUrl: process.env.NUXT_PUBLIC_ISSUER_CALLBACK_URL || "http://localhost:7100",
+            credentialsRepositoryUrl: process.env.NUXT_PUBLIC_CREDENTIALS_REPOSITORY_URL || "http://localhost:3000",
+            devWalletUrl: process.env.NUXT_PUBLIC_DEV_WALLET_URL || "https://wallet-dev.IdenEx",
+            walletBackendUrl: process.env.NUXT_PUBLIC_WALLET_BACKEND_URL || "http://localhost:6000",
+            financeApiUrl: process.env.NUXT_PUBLIC_FINANCE_API_URL || "http://localhost:6000",
         }
     },
 
@@ -214,6 +216,14 @@ export default defineNuxtConfig({
         compressPublicAssets: {
             gzip: true,
             brotli: false
+        },
+        routeRules: {
+            '/wallet-api/**': {
+                proxy: `${process.env.NUXT_PUBLIC_WALLET_BACKEND_URL || 'http://localhost:6000'}/api/wallet/**`
+            },
+            '/api/finance/**': {
+                proxy: `${process.env.NUXT_PUBLIC_FINANCE_API_URL || 'http://localhost:6000'}/api/finance/**`
+            }
         },
         devProxy: {
             '/wallet-api': {

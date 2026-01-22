@@ -58,6 +58,9 @@ async function main() {
     const mdocSchemaId = ensureSchema('MdocHealthSummary', '0.1.0', { $id: 'MdocHealthSummary-0.1.0', type: 'object' });
     const paymentSchemaId = ensureSchema('PaymentReceipt', '1.0.0', { $id: 'PaymentReceipt-1.0.0', type: 'object' });
     const genericIdSchemaId = ensureSchema('GenericIDCredential', '1.0.0', { $id: 'GenericIDCredential-1.0.0', type: 'object' });
+    const payslipSchemaId = ensureSchema('PayslipVC', '1.0.0', { $id: 'PayslipVC-1.0.0', type: 'object' });
+    const payrollRunSchemaId = ensureSchema('PayrollRunVC', '1.0.0', { $id: 'PayrollRunVC-1.0.0', type: 'object' });
+    const taxComplianceSchemaId = ensureSchema('TaxComplianceVC', '1.0.0', { $id: 'TaxComplianceVC-1.0.0', type: 'object' });
 
     registerDef('CartSnapshotVC', '1.0.0', cartSchemaId, ['VerifiableCredential', 'CartSnapshotVC']);
     registerDef('InvoiceVC', '1.0.0', invoiceSchemaId, ['VerifiableCredential', 'InvoiceVC']);
@@ -67,6 +70,9 @@ async function main() {
     registerDef('MdocHealthSummary', '0.1.0', mdocSchemaId, ['VerifiableCredential', 'MdocHealthSummary']);
     registerDef('PaymentReceipt', '1.0.0', paymentSchemaId, ['VerifiableCredential', 'PaymentReceipt']);
     registerDef('GenericIDCredential', '1.0.0', genericIdSchemaId, ['VerifiableCredential', 'GenericIDCredential']);
+    registerDef('PayslipVC', '1.0.0', payslipSchemaId, ['VerifiableCredential', 'PayslipVC']);
+    registerDef('PayrollRunVC', '1.0.0', payrollRunSchemaId, ['VerifiableCredential', 'PayrollRunVC']);
+    registerDef('TaxComplianceVC', '1.0.0', taxComplianceSchemaId, ['VerifiableCredential', 'TaxComplianceVC']);
 
     console.log('\nDone! Credential definitions seeded for tenant.');
     console.log('Verify by refreshing the Portal page.');

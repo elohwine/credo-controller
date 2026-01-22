@@ -1,7 +1,7 @@
 <template>
   <CenterMain class="sm:mt-6 lg:ml-3">
     <div
-      class="absolute sm:hidden top-0 right-0 mt-5 mr-2 bg-[#E4E7EB] rounded-full p-1"
+      class="absolute sm:hidden top-0 right-0 mt-5 mr-2 bg-[#D0E6F3] rounded-full p-1 shadow-md"
     >
       <svg
         @click="logout"
@@ -10,7 +10,7 @@
         viewBox="0 0 24 24"
         stroke-width="1.5"
         stroke="currentColor"
-        class="w-6 h-5"
+        class="w-6 h-5 text-[#0F3F5E]"
       >
         <path
           stroke-linecap="round"
@@ -19,20 +19,21 @@
         />
       </svg>
     </div>
-    <p class="text-center font-bold">{{ user.friendlyName }}</p>
-    <div class="bg-white rounded-lg shadow-md p-4 mt-4">
-      <div class="font-bold text-lg">DID</div>
-      <p class="mt-2">
+    <p class="text-center font-bold text-[#0F3F5E]">{{ user.friendlyName }}</p>
+    <div class="rounded-2xl border border-white/30 shadow-xl p-5 mt-4" style="background: linear-gradient(145deg, rgba(255,255,255,0.95), rgba(208,230,243,0.90)); backdrop-filter: blur(20px) saturate(180%);">
+      <div class="font-bold text-lg text-[#0F3F5E]">DID</div>
+      <p class="mt-2 text-[#627D98]">
         Your public Decentralised Identifier (DID) can be openly shared for
         issuers to issue credentials.
       </p>
       <div
-        class="bg-gray-100 rounded-lg p-4 mt-4 max-w-md md:max-w-lg lg:max-w-xl"
+        class="rounded-xl p-4 mt-4 max-w-md md:max-w-lg lg:max-w-xl border border-[#D0E6F3]"
+        style="background: rgba(208,230,243,0.5);"
       >
-        <div class="overflow-auto" v-if="dids.length > 0">
+        <div class="overflow-auto text-[#0F3F5E] font-mono text-sm" v-if="dids.length > 0">
           {{ dids[0].did }}
         </div>
-        <p v-else>No DID available</p>
+        <p v-else class="text-[#627D98]">No DID available</p>
       </div>
     </div>
   </CenterMain>

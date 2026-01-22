@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
-import { NoSymbolIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
+import { BRAND } from '@/lib/theme';
+import { NoSymbolIcon, CheckCircleIcon, ShieldExclamationIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 
 interface Credential {
     id: string;
@@ -57,85 +58,103 @@ export default function RevocationPage() {
 
     return (
         <Layout title="Credential Revocation">
-            <div className="px-4 sm:px-6 lg:px-8">
-                <div className="sm:flex sm:items-center">
-                    <div className="sm:flex-auto">
-                        <h1 className="text-2xl font-semibold text-gray-900">Credential Revocation</h1>
-                        <p className="mt-2 text-sm text-gray-700">
+            <div className="px-4 sm:px-6 lg:px-8 py-6">
+                <div className="sm:flex sm:items-center sm:justify-between mb-8">
+                    <div>
+                        <h1 className="text-3xl font-bold" style={{ color: BRAND.dark }}>Credential Revocation</h1>
+                        <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>
                             Manage and revoke issued credentials
                         </p>
                     </div>
                 </div>
 
-                <div className="mt-6">
+                {/* Stats */}
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-3 mb-8">
+                    {[
+                        { label: 'Total Credentials', value: credentials.length, icon: <CheckCircleIcon className="h-6 w-6" /> },
+                        { label: 'Active', value: credentials.filter(c => !c.revoked).length, icon: <ShieldExclamationIcon className="h-6 w-6" /> },
+                        { label: 'Revoked', value: credentials.filter(c => c.revoked).length, icon: <NoSymbolIcon className="h-6 w-6" /> },
+                    ].map((stat, idx) => (
+                        <div key={idx} className="relative overflow-hidden rounded-xl p-6 shadow-sm hover:shadow-md transition-all" style={{ backgroundColor: BRAND.linkWater }}>
+                            <dt>
+                                <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}>
+                                    <span className="text-white">{stat.icon}</span>
+                                </div>
+                                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.dark }}>{stat.label}</p>
+                            </dt>
+                            <dd className="ml-16 flex items-baseline">
+                                <p className="text-2xl font-semibold" style={{ color: BRAND.dark }}>{stat.value}</p>
+                            </dd>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="mb-6 relative">
+                    <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                     <input
                         type="text"
                         placeholder="Search by ID, subject, or type..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                        className="block w-full pl-10 rounded-lg border-gray-300 shadow-sm focus:ring-2 sm:text-sm"
+                        style={{ borderColor: BRAND.viking }}
                     />
                 </div>
 
-                <div className="mt-8 flex flex-col">
-                    <div className="-my-2 -mx-4 overflow-x-auto sm:-mx-6 lg:-mx-8">
-                        <div className="inline-block min-w-full py-2 align-middle md:px-6 lg:px-8">
-                            <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
-                                <table className="min-w-full divide-y divide-gray-300">
-                                    <thead className="bg-gray-50">
-                                        <tr>
-                                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Credential ID</th>
-                                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Type</th>
-                                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Subject</th>
-                                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Issued At</th>
-                                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Status</th>
-                                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-200 bg-white">
-                                        {filteredCredentials.map((cred) => (
-                                            <tr key={cred.id}>
-                                                <td className="px-3 py-4 text-sm font-mono text-gray-900">{cred.id.substring(0, 16)}...</td>
-                                                <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{cred.type}</td>
-                                                <td className="px-3 py-4 text-sm text-gray-500">{cred.subjectId}</td>
-                                                <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{new Date(cred.issuedAt).toLocaleDateString()}</td>
-                                                <td className="whitespace-nowrap px-3 py-4 text-sm">
-                                                    {cred.revoked ? (
-                                                        <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-1 text-xs font-semibold text-red-800">
-                                                            <NoSymbolIcon className="h-4 w-4 mr-1" />
-                                                            Revoked
-                                                        </span>
-                                                    ) : (
-                                                        <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-800">
-                                                            <CheckCircleIcon className="h-4 w-4 mr-1" />
-                                                            Active
-                                                        </span>
-                                                    )}
-                                                </td>
-                                                <td className="whitespace-nowrap px-3 py-4 text-sm">
-                                                    {!cred.revoked && (
-                                                        <button
-                                                            onClick={() => {
-                                                                setSelectedCredential(cred);
-                                                                setShowRevokeModal(true);
-                                                            }}
-                                                            className="text-red-600 hover:text-red-900"
-                                                        >
-                                                            Revoke
-                                                        </button>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
+                <div className="overflow-hidden rounded-xl shadow ring-1 ring-black ring-opacity-5">
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead style={{ backgroundColor: BRAND.linkWater }}>
+                            <tr>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Credential ID</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Type</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Subject</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Issued At</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Status</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200 bg-white">
+                            {filteredCredentials.map((cred) => (
+                                <tr key={cred.id} className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-6 py-4 text-sm font-mono" style={{ color: BRAND.dark }}>{cred.id.substring(0, 16)}...</td>
+                                    <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{cred.type}</td>
+                                    <td className="px-6 py-4 text-sm text-gray-500">{cred.subjectId}</td>
+                                    <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{new Date(cred.issuedAt).toLocaleDateString()}</td>
+                                    <td className="whitespace-nowrap px-6 py-4 text-sm">
+                                        {cred.revoked ? (
+                                            <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-1 text-xs font-semibold text-red-800">
+                                                <NoSymbolIcon className="h-4 w-4 mr-1" />
+                                                Revoked
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-800">
+                                                <CheckCircleIcon className="h-4 w-4 mr-1" />
+                                                Active
+                                            </span>
+                                        )}
+                                    </td>
+                                    <td className="whitespace-nowrap px-6 py-4 text-sm">
+                                        {!cred.revoked && (
+                                            <button
+                                                onClick={() => {
+                                                    setSelectedCredential(cred);
+                                                    setShowRevokeModal(true);
+                                                }}
+                                                className="rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-all hover:shadow-md"
+                                                style={{ backgroundColor: '#DC2626' }}
+                                            >
+                                                Revoke
+                                            </button>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
 
                 {showRevokeModal && selectedCredential && (
-                    <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+                    <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-[100]">
                         <div className="bg-white rounded-lg p-6 max-w-md w-full">
                             <h3 className="text-lg font-medium text-red-900 mb-4 flex items-center">
                                 <NoSymbolIcon className="h-6 w-6 mr-2 text-red-600" />

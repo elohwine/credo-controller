@@ -7,7 +7,7 @@
       <div class="w-full">
         <img
           :src="logoImage"
-          alt="IdenEx logo"
+          alt="Credentis logo"
           class="h-8 w-auto mx-auto mt-5"
         />
       </div>
@@ -50,7 +50,7 @@
                       v-model="usernameInput"
                       autocomplete="username"
                       autofocus
-                      class="block w-full rounded-md border-0 py-1.5 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6 px-2 text-gray-600"
+                      class="block w-full rounded-md border-0 py-1.5 shadow-sm ring-1 ring-inset ring-[#D0E6F3] placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-[#2188CA] sm:text-sm sm:leading-6 px-2 text-gray-600"
                       name="username"
                       :required="true"
                       type="text"
@@ -77,7 +77,7 @@
                         id="password"
                         v-model="passwordInput"
                         autocomplete="current-password"
-                        class="block w-full rounded-md border-0 py-1.5 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6 px-2 text-gray-600"
+                        class="block w-full rounded-md border-0 py-1.5 shadow-sm ring-1 ring-inset ring-[#D0E6F3] placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-[#2188CA] sm:text-sm sm:leading-6 px-2 text-gray-600"
                         name="password"
                         :required="true"
                         type="password"
@@ -90,7 +90,7 @@
                     :class="[
                       success
                         ? 'bg-green-500 hover:bg-green-600 animate-bounce'
-                        : 'bg-gradient-to-br from-[#0573F0] to-[#03449E] hover:bg-blue-500',
+                        : 'bg-gradient-to-br from-[#2188CA] to-[#0F3F5E] hover:from-[#6FB4DC] hover:to-[#2188CA]',
                     ]"
                     class="flex w-full justify-center rounded-xl px-3 py-2 text-sm font-semibold text-white shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
                     type="submit"
@@ -129,67 +129,30 @@
     <!-- Desktop View -->
     <div class="hidden sm:flex h-full">
       <div class="flex-1 flex flex-col justify-center items-center">
-        <div class="flex items-center mb-8 gap-2 justify-center">
-          <svg
-            width="50"
-            height="50"
-            viewBox="0 0 50 50"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <circle
-              cx="25"
-              cy="25"
-              r="25"
-              fill="url(#paint0_linear_1648_5718)"
-            />
-            <rect
-              x="13.8477"
-              y="16.1538"
-              width="10.7692"
-              height="3.07692"
-              fill="#E6F6FF"
-            />
-            <path
-              d="M40.0015 26.5384L37.3092 26.1538C35.3861 36.5384 24.2323 36.5384 24.2323 36.5384L23.8477 39.6153C35.54 39.923 39.4887 31.0256 40.0015 26.5384Z"
-              fill="#E6F6FF"
-            />
-            <defs>
-              <linearGradient
-                id="paint0_linear_1648_5718"
-                x1="-5.31558e-07"
-                y1="0.809066"
-                x2="53.025"
-                y2="4.32054"
-                gradientUnits="userSpaceOnUse"
-              >
-                <stop offset="0.00970874" stop-color="#0573F0" />
-                <stop offset="1" stop-color="#03449E" />
-              </linearGradient>
-            </defs>
-          </svg>
+        <div class="flex items-center mb-8 gap-3 justify-center">
+          <img src="/credentis-logo.png" alt="Credentis" class="h-12 w-12" />
           <div class="flex flex-col">
             <h1
-              class="bg-gradient-to-r from-[#0573F0] to-[#03449E] inline-block text-transparent bg-clip-text text-xl font-bold"
+              class="bg-gradient-to-r from-[#2188CA] to-[#0F3F5E] inline-block text-transparent bg-clip-text text-xl font-bold"
             >
-              ID WALLET
+              CREDENTIS WALLET
             </h1>
             <h1
-              class="bg-gradient-to-r from-[#0573F0] to-[#03449E] inline-block text-transparent bg-clip-text text-sm"
+              class="bg-gradient-to-r from-[#2188CA] to-[#6FB4DC] inline-block text-transparent bg-clip-text text-sm"
             >
-              by IdenEx
+              Verifiable Commerce
             </h1>
           </div>
         </div>
-        <div class="bg-white rounded-3xl p-8 w-96">
+        <div class="rounded-3xl p-8 w-96 border border-white/30 shadow-2xl" style="background: linear-gradient(145deg, rgba(255,255,255,0.92), rgba(208,230,243,0.85)); backdrop-filter: blur(20px) saturate(180%);">
           <div class="flex flex-col items-center">
-            <h2 class="mt-4 text-2xl font-bold tracking-tight text-black">
+            <h2 class="mt-4 text-2xl font-bold tracking-tight text-[#0F3F5E]">
               Sign in
             </h2>
-            <p class="mt-2 text-sm text-black">
+            <p class="mt-2 text-sm text-[#627D98]">
               No Account yet? {{ " " }}
               <NuxtLink
-                class="font-medium text-blue-600 hover:text-blue-500"
+                class="font-medium text-[#2188CA] hover:text-[#0F3F5E]"
                 to="/signup"
                 >Sign up here
               </NuxtLink>
@@ -221,7 +184,7 @@
                       v-model="usernameInput"
                       autocomplete="username"
                       autofocus
-                      class="block w-full rounded-md border-0 py-1.5 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6 px-2 text-gray-600"
+                      class="block w-full rounded-md border-0 py-1.5 shadow-sm ring-1 ring-inset ring-[#D0E6F3] placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-[#2188CA] sm:text-sm sm:leading-6 px-2 text-gray-600"
                       name="username"
                       :required="true"
                       type="text"
@@ -248,7 +211,7 @@
                         id="password"
                         v-model="passwordInput"
                         autocomplete="current-password"
-                        class="block w-full rounded-md border-0 py-1.5 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6 px-2 text-gray-600"
+                        class="block w-full rounded-md border-0 py-1.5 shadow-sm ring-1 ring-inset ring-[#D0E6F3] placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-[#2188CA] sm:text-sm sm:leading-6 px-2 text-gray-600"
                         name="password"
                         :required="true"
                         type="password"
@@ -262,7 +225,7 @@
                     :class="[
                       success
                         ? 'bg-green-500 hover:bg-green-600 animate-bounce'
-                        : 'bg-gradient-to-br from-[#0573F0] to-[#03449E] hover:bg-blue-500',
+                        : 'bg-gradient-to-br from-[#2188CA] to-[#0F3F5E] hover:from-[#6FB4DC] hover:to-[#2188CA]',
                     ]"
                     class="flex w-full justify-center rounded-xl px-3 py-2 text-sm font-semibold text-white shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
                     type="submit"
@@ -295,28 +258,9 @@
 
               <div class="flex justify-center items-center mt-5 gap-2">
                 <h1 class="text-center text-sm text-gray-400">
-                  Powered by IdenEx
+                  Powered by Credentis
                 </h1>
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <circle cx="8" cy="8" r="8" fill="#9AA5B1" />
-                  <rect
-                    x="4.42969"
-                    y="5.16919"
-                    width="3.44615"
-                    height="0.984615"
-                    fill="#FDFEFF"
-                  />
-                  <path
-                    d="M12.7981 8.49222L11.9366 8.36914C11.3212 11.6922 7.75198 11.6922 7.75198 11.6922L7.62891 12.6768C11.3704 12.7753 12.634 9.92812 12.7981 8.49222Z"
-                    fill="#FDFEFF"
-                  />
-                </svg>
+                <img src="/credentis-logo.png" alt="Credentis" class="h-4 w-4" />
               </div>
             </div>
           </div>
@@ -357,23 +301,23 @@
               y2="20.4808"
               gradientUnits="userSpaceOnUse"
             >
-              <stop offset="0.00970874" stop-color="#0573F0" />
-              <stop offset="1" stop-color="#03449E" />
+              <stop offset="0.00970874" stop-color="#2188CA" />
+              <stop offset="1" stop-color="#0F3F5E" />
             </linearGradient>
           </defs>
         </svg>
         <h1
-          class="bg-gradient-to-r from-[#03449E] to-[#002159] inline-block text-transparent bg-clip-text mt-5 text-5xl"
+          class="bg-gradient-to-r from-[#2188CA] to-[#0F3F5E] inline-block text-transparent bg-clip-text mt-5 text-5xl"
         >
           Powerful identity and
         </h1>
         <h1
-          class="bg-gradient-to-r from-[#03449E] to-[#002159] inline-block text-transparent bg-clip-text mt-3 text-5xl"
+          class="bg-gradient-to-r from-[#2188CA] to-[#0F3F5E] inline-block text-transparent bg-clip-text mt-3 text-5xl"
         >
           wallet infrastructure.
         </h1>
         <h1
-          class="bg-gradient-to-r from-[#03449E] to-[#002159] inline-block text-transparent bg-clip-text mt-5 text-2xl"
+          class="bg-gradient-to-r from-[#2188CA] to-[#0F3F5E] inline-block text-transparent bg-clip-text mt-5 text-2xl"
         >
           Trusted by +20.000 dev & organizations
         </h1>
@@ -381,7 +325,7 @@
     </div>
 
     <TransitionRoot :show="error.isError === true" as="template">
-      <Dialog as="div" class="relative z-10" @close="closeModal">
+      <Dialog as="div" class="relative z-[1000]" @close="closeModal">
         <TransitionChild
           as="template"
           enter="ease-out duration-300"
@@ -392,11 +336,12 @@
           leave-to="opacity-0"
         >
           <div
-            class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
+            class="fixed inset-0 transition-opacity"
+            style="background: rgba(15, 63, 94, 0.4); backdrop-filter: blur(8px);"
           />
         </TransitionChild>
 
-        <div class="fixed inset-0 z-10 overflow-y-auto">
+        <div class="fixed inset-0 z-[1001] overflow-y-auto">
           <div
             class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0"
           >
@@ -410,11 +355,12 @@
               leave-to="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
             >
               <DialogPanel
-                class="relative transform overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6"
+                class="relative transform overflow-hidden rounded-2xl border border-white/30 px-4 pb-4 pt-5 text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6"
+                style="background: linear-gradient(145deg, rgba(255,255,255,0.95), rgba(208,230,243,0.90)); backdrop-filter: blur(20px) saturate(180%);"
               >
                 <div class="absolute right-0 top-0 hidden pr-4 pt-4 sm:block">
                   <button
-                    class="rounded-md bg-white text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                    class="rounded-md bg-white/80 text-[#627D98] hover:text-[#0F3F5E] focus:outline-none focus:ring-2 focus:ring-[#2188CA] focus:ring-offset-2"
                     type="button"
                     @click="closeModal"
                   >
@@ -434,12 +380,12 @@
                   <div class="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
                     <DialogTitle
                       as="h3"
-                      class="text-base font-semibold leading-6 text-gray-900"
+                      class="text-base font-semibold leading-6 text-[#0F3F5E]"
                     >
                       Invalid login
                     </DialogTitle>
                     <div class="mt-2">
-                      <p class="text-sm text-gray-500">
+                      <p class="text-sm text-[#627D98]">
                         {{ error.message }}
                       </p>
                     </div>
@@ -447,7 +393,8 @@
                 </div>
                 <div class="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
                   <button
-                    class="mt-3 inline-flex w-full justify-center rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-neutral-50 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-blue-700 sm:mt-0 sm:w-auto"
+                      class="mt-3 inline-flex w-full justify-center rounded-md px-3 py-2 text-sm font-semibold text-white shadow-sm ring-1 ring-inset ring-[#D0E6F3] sm:mt-0 sm:w-auto"
+                      style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
                     type="button"
                     @click="closeModal"
                   >
@@ -553,7 +500,7 @@ function closeModal() {
 }
 
 definePageMeta({
-  title: "Login to your wallet - IdenEx",
+  title: "Login to your wallet - Credentis",
   layout: "minimal",
   auth: {
     unauthenticatedOnly: true,
@@ -570,7 +517,7 @@ const cardStyle = computed(() => ({
     ${parallax.source == "mouse" && (isLeft.value || parallax.tilt == -0.5) ? 0 : parallax.tilt * 60}deg)`,
 }));
 useHead({
-  title: "Login to your wallet - IdenEx",
+  title: "Login to your wallet - Credentis",
 });
 </script>
 

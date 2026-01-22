@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
-import { PlusIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, MagnifyingGlassIcon, CubeIcon, TagIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import { BRAND, formatCurrency } from '@/lib/theme';
 
 interface CatalogItem {
     id: string;
@@ -15,10 +16,18 @@ interface CatalogItem {
     createdAt: string;
 }
 
+const StatusBadge: React.FC<{ inStock: boolean }> = ({ inStock }) => (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${inStock ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+        {inStock ? <CheckCircleIcon className="h-4 w-4" /> : <XCircleIcon className="h-4 w-4" />}
+        {inStock ? 'In Stock' : 'Out of Stock'}
+    </span>
+);
+
 export default function CatalogPage() {
     const [items, setItems] = useState<CatalogItem[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [showCreateModal, setShowCreateModal] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
     const [newItem, setNewItem] = useState({
         merchantId: 'merchant-001',
         name: '',
@@ -30,24 +39,30 @@ export default function CatalogPage() {
         inStock: true
     });
 
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+
     useEffect(() => {
         fetchCatalogItems();
     }, []);
 
     const fetchCatalogItems = async () => {
+        setIsLoading(true);
         try {
-            const res = await fetch('http://localhost:3000/api/catalog/search?query=');
+            const res = await fetch(`${backendUrl}/api/catalog/search?query=`);
             const data = await res.json();
             setItems(data.items || []);
         } catch (error) {
             console.error('Failed to fetch catalog:', error);
+        } finally {
+            setIsLoading(false);
         }
     };
 
     const handleCreateItem = async (e: React.FormEvent) => {
         e.preventDefault();
+        setIsLoading(true);
         try {
-            const res = await fetch('http://localhost:3000/api/catalog/items', {
+            const res = await fetch(`${backendUrl}/api/catalog/items`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newItem)
@@ -59,6 +74,8 @@ export default function CatalogPage() {
             }
         } catch (error) {
             console.error('Failed to create item:', error);
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -67,20 +84,27 @@ export default function CatalogPage() {
         item.sku.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
+    const stats = [
+        { label: 'Total Items', value: items.length, icon: <CubeIcon className="h-6 w-6" /> },
+        { label: 'In Stock', value: items.filter(i => i.inStock).length, icon: <CheckCircleIcon className="h-6 w-6" /> },
+        { label: 'Out of Stock', value: items.filter(i => !i.inStock).length, icon: <XCircleIcon className="h-6 w-6" /> },
+        { label: 'Categories', value: new Set(items.map(i => i.category).filter(Boolean)).size, icon: <TagIcon className="h-6 w-6" /> },
+    ];
+
     return (
         <Layout title="Catalog Management">
-            <div className="px-4 sm:px-6 lg:px-8">
-                <div className="sm:flex sm:items-center">
-                    <div className="sm:flex-auto">
-                        <h1 className="text-2xl font-semibold text-gray-900">Catalog Items</h1>
-                        <p className="mt-2 text-sm text-gray-700">
-                            Manage your product catalog for e-commerce transactions
-                        </p>
+            <div className="px-4 sm:px-6 lg:px-8 py-6">
+                {/* Header */}
+                <div className="sm:flex sm:items-center sm:justify-between mb-8">
+                    <div>
+                        <h1 className="text-3xl font-bold" style={{ color: BRAND.dark }}>Catalog Management</h1>
+                        <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>Manage your product catalog for e-commerce transactions</p>
                     </div>
-                    <div className="mt-4 sm:mt-0 sm:ml-16 sm:flex-none">
+                    <div className="mt-4 sm:mt-0">
                         <button
                             onClick={() => setShowCreateModal(true)}
-                            className="inline-flex items-center justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
+                            className="inline-flex items-center rounded-lg px-4 py-2 text-sm font-medium text-white transition-all hover:shadow-md"
+                            style={{ backgroundColor: BRAND.curious }}
                         >
                             <PlusIcon className="h-5 w-5 mr-2" />
                             Add Item
@@ -88,84 +112,124 @@ export default function CatalogPage() {
                     </div>
                 </div>
 
-                <div className="mt-6">
-                    <div className="relative">
+                {/* Stats */}
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+                    {stats.map((stat, idx) => (
+                        <div key={idx} className="relative overflow-hidden rounded-xl p-6 shadow-sm hover:shadow-md transition-all" style={{ backgroundColor: BRAND.linkWater }}>
+                            <dt>
+                                <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}>
+                                    <span className="text-white">{stat.icon}</span>
+                                </div>
+                                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.dark }}>{stat.label}</p>
+                            </dt>
+                            <dd className="ml-16 flex items-baseline">
+                                <p className="text-2xl font-semibold" style={{ color: BRAND.dark }}>{stat.value}</p>
+                            </dd>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Search */}
+                <div className="mb-6">
+                    <div className="relative max-w-md">
                         <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                            <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
+                            <MagnifyingGlassIcon className="h-5 w-5" style={{ color: BRAND.viking }} />
                         </div>
                         <input
                             type="text"
-                            placeholder="Search items..."
+                            placeholder="Search by name or SKU..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="block w-full rounded-md border-gray-300 pl-10 focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                            className="block w-full rounded-lg border-2 pl-10 py-2 transition-all focus:ring-2 focus:ring-opacity-50"
+                            style={{ borderColor: BRAND.viking, outline: 'none' }}
                         />
                     </div>
                 </div>
 
-                <div className="mt-8 flex flex-col">
-                    <div className="-my-2 -mx-4 overflow-x-auto sm:-mx-6 lg:-mx-8">
-                        <div className="inline-block min-w-full py-2 align-middle md:px-6 lg:px-8">
-                            <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
-                                <table className="min-w-full divide-y divide-gray-300">
-                                    <thead className="bg-gray-50">
-                                        <tr>
-                                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">SKU</th>
-                                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Name</th>
-                                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Category</th>
-                                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Price</th>
-                                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Stock</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-200 bg-white">
-                                        {filteredItems.map((item) => (
-                                            <tr key={item.id}>
-                                                <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-900">{item.sku}</td>
-                                                <td className="px-3 py-4 text-sm text-gray-900">{item.name}</td>
-                                                <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{item.category || '-'}</td>
-                                                <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">${item.price}</td>
-                                                <td className="whitespace-nowrap px-3 py-4 text-sm">
-                                                    <span className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${item.inStock ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                                        {item.inStock ? 'In Stock' : 'Out of Stock'}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
+                {/* Table */}
+                <div className="overflow-hidden rounded-xl shadow ring-1 ring-black ring-opacity-5">
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead style={{ backgroundColor: BRAND.linkWater }}>
+                            <tr>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>SKU</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Name</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Category</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Price</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Stock</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200 bg-white">
+                            {filteredItems.length === 0 ? (
+                                <tr>
+                                    <td colSpan={5} className="px-6 py-12 text-center text-sm text-gray-500">
+                                        {isLoading ? 'Loading...' : 'No catalog items yet. Click "Add Item" to create one.'}
+                                    </td>
+                                </tr>
+                            ) : filteredItems.map((item) => (
+                                <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-6 py-4 text-sm font-mono" style={{ color: BRAND.dark }}>{item.sku}</td>
+                                    <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.dark }}>{item.name}</td>
+                                    <td className="px-6 py-4 text-sm text-gray-500">{item.category || '—'}</td>
+                                    <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.curious }}>{formatCurrency(item.price, item.currency)}</td>
+                                    <td className="px-6 py-4 text-sm"><StatusBadge inStock={item.inStock} /></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
 
+                {/* Create Modal */}
                 {showCreateModal && (
-                    <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-                        <div className="bg-white rounded-lg p-6 max-w-md w-full">
-                            <h3 className="text-lg font-medium text-gray-900 mb-4">Add Catalog Item</h3>
+                    <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-[100]">
+                        <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="p-2 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
+                                    <CubeIcon className="h-6 w-6" style={{ color: BRAND.curious }} />
+                                </div>
+                                <h3 className="text-xl font-semibold" style={{ color: BRAND.dark }}>Add Catalog Item</h3>
+                            </div>
                             <form onSubmit={handleCreateItem} className="space-y-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Name</label>
-                                    <input type="text" required value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" />
+                                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Name</label>
+                                    <input type="text" required value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm focus:ring-2 focus:border-transparent" />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>SKU</label>
+                                        <input type="text" required value={newItem.sku} onChange={e => setNewItem({...newItem, sku: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Category</label>
+                                        <input type="text" value={newItem.category} onChange={e => setNewItem({...newItem, category: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Price</label>
+                                        <input type="number" step="0.01" required value={newItem.price} onChange={e => setNewItem({...newItem, price: parseFloat(e.target.value)})} className="w-full rounded-lg border-gray-300 shadow-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Currency</label>
+                                        <select value={newItem.currency} onChange={e => setNewItem({...newItem, currency: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm">
+                                            <option value="USD">USD</option>
+                                            <option value="ZWL">ZWL</option>
+                                            <option value="ZAR">ZAR</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">SKU</label>
-                                    <input type="text" required value={newItem.sku} onChange={e => setNewItem({...newItem, sku: e.target.value})} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" />
+                                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Description</label>
+                                    <textarea value={newItem.description} onChange={e => setNewItem({...newItem, description: e.target.value})} rows={3} className="w-full rounded-lg border-gray-300 shadow-sm" />
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700">Price (USD)</label>
-                                    <input type="number" step="0.01" required value={newItem.price} onChange={e => setNewItem({...newItem, price: parseFloat(e.target.value)})} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" />
+                                <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
+                                    <label className="flex items-center gap-2 text-sm" style={{ color: BRAND.dark }}>
+                                        <input type="checkbox" checked={newItem.inStock} onChange={e => setNewItem({...newItem, inStock: e.target.checked})} className="rounded" />
+                                        <span className="font-medium">Item is in stock</span>
+                                    </label>
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700">Description</label>
-                                    <textarea value={newItem.description} onChange={e => setNewItem({...newItem, description: e.target.value})} rows={3} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" />
-                                </div>
-                                <div className="flex justify-end space-x-3">
-                                    <button type="button" onClick={() => setShowCreateModal(false)} className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                                        Cancel
-                                    </button>
-                                    <button type="submit" className="rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700">
-                                        Create
-                                    </button>
+                                <div className="flex justify-end gap-3 pt-4">
+                                    <button type="button" onClick={() => setShowCreateModal(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+                                    <button type="submit" disabled={isLoading} className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50" style={{ backgroundColor: BRAND.curious }}>{isLoading ? 'Creating...' : 'Create Item'}</button>
                                 </div>
                             </form>
                         </div>

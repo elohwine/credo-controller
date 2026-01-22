@@ -15,12 +15,15 @@ import { container } from 'tsyringe'
 
 import { credentialDefinitionStore } from '../../utils/credentialDefinitionStore'
 import { getTenantById } from '../../persistence/TenantRepository'
+import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
 import type { TenantAgent } from '@credo-ts/tenants/build/TenantAgent'
 import type { RestAgentModules, RestMultiTenantAgentModules } from '../../cliAgent'
 
 // Use request-scoped Pino logger attached by middleware
 
 // Types are imported from ../../types/api
+
+const issuedCredentialRepository = new IssuedCredentialRepository()
 
 /**
  * OIDC4VC Issuer (Pre-Authorized Code Flow)
@@ -185,7 +188,9 @@ export class OidcIssuerController extends Controller {
       },
       // Pass claims to issuance session so credentialRequestToCredentialMapper can access them
       issuanceMetadata: {
-        claims: claims
+        claims: claims,
+        tenantId: tenantId,
+        credentialDefinitionId: body.credentials[0]?.credentialDefinitionId || credentialConfigurations[0]
       },
       grants: {
         authorization_code: {
@@ -267,15 +272,41 @@ export class OidcIssuerController extends Controller {
    */
   @Post('issuer/credentials/{id}/revoke')
   @Security('jwt', ['tenant'])
-  public async revokeCredential(@Request() request: ExRequest, @Path() id: string): Promise<any> {
+  public async revokeCredential(
+    @Request() request: ExRequest,
+    @Path() id: string,
+    @Body() body?: { reason?: string }
+  ): Promise<any> {
     try {
       // Credo generic credentials module does not support 'revocation' (ledger/status list) directly via this API yet.
       // We will perform a local delete to prevent further usage from this agent's perspective.
+      const reason = body?.reason
+      issuedCredentialRepository.revoke(id, reason)
       await request.agent.credentials.deleteById(id)
-      return { id, revoked: true, status: 'deleted_locally' }
+      return { id, revoked: true, status: 'deleted_locally', reason }
     } catch (e: any) {
       this.setStatus(500)
       throw new Error(`Failed to revoke/delete: ${e.message}`)
+    }
+  }
+
+  /**
+   * Get credential revocation status (Admin)
+   */
+  @Get('issuer/credentials/{id}/status')
+  @Security('jwt', ['tenant'])
+  public async getCredentialStatus(@Path() id: string): Promise<any> {
+    const record = issuedCredentialRepository.findByCredentialId(id) || issuedCredentialRepository.findById(id)
+    if (!record) {
+      this.setStatus(404)
+      throw new Error('credential not found')
+    }
+
+    return {
+      id,
+      revoked: record.revoked,
+      revokedAt: record.revokedAt ? record.revokedAt.toISOString() : undefined,
+      reason: record.revocationReason,
     }
   }
 

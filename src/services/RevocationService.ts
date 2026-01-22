@@ -1,3 +1,15 @@
+/**
+ * IdenEx Credentis - Revocation Service
+ * 
+ * Verifiable Trust Infrastructure for Africa's Digital Economy
+ * 
+ * Provides minimal status-list style revocation utilities for MVP.
+ * Persistent revocation is recorded in issued_credentials; status lists
+ * are maintained in-memory and returned for publishing.
+ * 
+ * @module services/RevocationService
+ * @copyright 2024-2026 IdenEx Credentis
+ */
 
 import { injectable, container } from 'tsyringe'
 import { CredentialIssuanceService } from './CredentialIssuanceService'

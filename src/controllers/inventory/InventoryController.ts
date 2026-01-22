@@ -102,7 +102,7 @@ export class InventoryController extends Controller {
      * Create an inventory location (warehouse, shop, etc.)
      */
     @Post('locations')
-    @Security('jwt', [SCOPES.TENANT_AGENT])
+    @Security('apiKey')
     public async createLocation(
         @Body() body: CreateLocationRequest,
         @Request() request: ExRequest
@@ -117,7 +117,7 @@ export class InventoryController extends Controller {
      * List all active locations for tenant
      */
     @Get('locations')
-    @Security('jwt', [SCOPES.TENANT_AGENT])
+    @Security('apiKey')
     public async getLocations(
         @Request() request: ExRequest
     ): Promise<InventoryLocation[]> {
@@ -135,7 +135,7 @@ export class InventoryController extends Controller {
      * Optionally issues a GoodsReceivedVC for cryptographic verification.
      */
     @Post('receive')
-    @Security('jwt', [SCOPES.TENANT_AGENT])
+    @Security('apiKey')
     public async receiveGoods(
         @Body() body: ReceiveGoodsBody,
         @Request() request: ExRequest
@@ -173,7 +173,7 @@ export class InventoryController extends Controller {
      * Uses FIFO allocation and creates RESERVE events.
      */
     @Post('reserve')
-    @Security('jwt', [SCOPES.TENANT_AGENT])
+    @Security('apiKey')
     public async reserveStock(
         @Body() body: ReserveStockBody,
         @Request() request: ExRequest
@@ -214,7 +214,7 @@ export class InventoryController extends Controller {
      * Get a specific lot by ID
      */
     @Get('lots/{lotId}')
-    @Security('jwt', [SCOPES.TENANT_AGENT])
+    @Security('apiKey')
     public async getLot(
         @Path() lotId: string
     ): Promise<InventoryLot | null> {
@@ -231,7 +231,7 @@ export class InventoryController extends Controller {
      * Works with lot barcodes or catalog SKUs.
      */
     @Get('scan/{barcode}')
-    @Security('jwt', [SCOPES.TENANT_AGENT])
+    @Security('apiKey')
     public async scanBarcode(
         @Path() barcode: string,
         @Request() request: ExRequest,
@@ -250,7 +250,7 @@ export class InventoryController extends Controller {
      * Returns the hash-chained event log.
      */
     @Get('events')
-    @Security('jwt', [SCOPES.TENANT_AGENT])
+    @Security('apiKey')
     public async getEvents(
         @Request() request: ExRequest,
         @Query() catalogItemId: string,
@@ -266,7 +266,7 @@ export class InventoryController extends Controller {
      * Checks that all hashes are correct and chain links are valid.
      */
     @Get('verify-chain')
-    @Security('jwt', [SCOPES.TENANT_AGENT])
+    @Security('apiKey')
     public async verifyChain(
         @Request() request: ExRequest,
         @Query() catalogItemId: string,

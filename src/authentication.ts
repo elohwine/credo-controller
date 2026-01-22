@@ -13,7 +13,7 @@ import { TsLogger } from './utils/logger'
 
 // export type AgentType = Agent<RestAgentModules> | Agent<RestMultiTenantAgentModules> | TenantAgent<RestAgentModules>
 
-let dynamicApiKey: string = uuid() // Initialize with a default value
+let dynamicApiKey: string = process.env.STATIC_API_KEY || 'test-api-key-12345' // Use env var or known default
 
 // Cache for jwt token key
 const cache = new Map<string, string>()

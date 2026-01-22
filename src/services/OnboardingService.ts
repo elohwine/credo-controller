@@ -189,15 +189,43 @@ export class OnboardingService {
             })
             credentialOffer = offer
             logger.info({ offerId: offer.offerId, employeeId: employee.id }, 'Employment contract VC issued')
+            
+            // Store offer URI for reoffer functionality
+            const db = DatabaseManager.getDatabase()
+            db.prepare('UPDATE onboarding_requests SET status = ?, employee_id = ?, contract_vc_offer_uri = ? WHERE id = ?')
+                .run('completed', employee.id, offer.credential_offer_deeplink, id)
         } catch (e: any) {
             logger.warn({ error: e.message }, 'Failed to issue contract VC during approval (non-blocking)')
+            const db = DatabaseManager.getDatabase()
+            db.prepare('UPDATE onboarding_requests SET status = ?, employee_id = ? WHERE id = ?')
+                .run('completed', employee.id, id)
         }
 
-        const db = DatabaseManager.getDatabase()
-        db.prepare('UPDATE onboarding_requests SET status = ?, employee_id = ? WHERE id = ?')
-            .run('completed', employee.id, id)
-
         return { employeeId: employee.id, credentialOffer }
+    }
+
+    /**
+     * Get employment contract VC offer for reoffer
+     */
+    async getContractVCOffer(id: string): Promise<{ credential_offer_uri: string, credential_offer_deeplink: string }> {
+        const db = DatabaseManager.getDatabase()
+        const row = db.prepare('SELECT contract_vc_offer_uri FROM onboarding_requests WHERE id = ?').get(id) as any
+        if (!row || !row.contract_vc_offer_uri) {
+            throw new Error(`No EmploymentContractVC credential offer found for onboarding request ${id}`)
+        }
+
+        const deeplink = row.contract_vc_offer_uri
+        // Extract HTTP URI from deeplink
+        let uri = deeplink
+        if (deeplink.includes('credential_offer_uri=')) {
+            const encodedUri = deeplink.split('credential_offer_uri=')[1]
+            uri = decodeURIComponent(encodedUri)
+        }
+
+        return {
+            credential_offer_uri: uri,
+            credential_offer_deeplink: deeplink
+        }
     }
 }
 

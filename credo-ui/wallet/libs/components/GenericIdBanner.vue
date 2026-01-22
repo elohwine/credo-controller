@@ -1,12 +1,13 @@
 <template>
   <div
     v-if="show"
-    class="relative rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 shadow-lg p-6 mb-6"
+    class="relative rounded-2xl border border-white/30 shadow-xl p-6 mb-6"
+    style="background: linear-gradient(145deg, rgba(208,230,243,0.95), rgba(136,196,227,0.85)); backdrop-filter: blur(12px) saturate(180%);"
   >
     <!-- Close button -->
     <button
       @click="dismiss"
-      class="absolute top-3 right-3 text-gray-400 hover:text-gray-600 transition-colors"
+      class="absolute top-3 right-3 text-[#627D98] hover:text-[#0F3F5E] transition-colors"
       aria-label="Dismiss"
     >
       <svg
@@ -27,7 +28,8 @@
     <div class="flex items-start gap-4">
       <!-- Icon -->
       <div
-        class="flex-shrink-0 h-12 w-12 rounded-full bg-gradient-to-br from-[#0573F0] to-[#03449E] flex items-center justify-center shadow-md"
+        class="flex-shrink-0 h-12 w-12 rounded-full flex items-center justify-center shadow-lg"
+        style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
       >
         <svg
           class="h-7 w-7 text-white"
@@ -46,10 +48,10 @@
 
       <!-- Content -->
       <div class="flex-1 pt-1">
-        <h3 class="text-lg font-bold text-gray-900 mb-2">
+        <h3 class="text-lg font-bold text-[#0F3F5E] mb-2">
           🎉 Welcome! Your GenericID Credential is Ready
         </h3>
-        <p class="text-sm text-gray-700 mb-4">
+        <p class="text-sm text-[#4A6580] mb-4">
           We've issued you a GenericID credential during registration. This
           credential contains your verified identity information and can be used
           to prove your identity across the platform.
@@ -58,7 +60,8 @@
         <div class="flex flex-col sm:flex-row gap-3">
           <NuxtLink :to="`/wallet/${walletId}/credentials`">
             <button
-              class="flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-[#0573F0] to-[#03449E] rounded-xl shadow-md hover:shadow-lg hover:scale-105 transform transition-all duration-200"
+              class="flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transform transition-all duration-200"
+              style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
             >
               <svg
                 class="h-4 w-4"
@@ -85,7 +88,7 @@
 
           <button
             @click="dismiss"
-            class="px-5 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-xl shadow-sm hover:bg-gray-50 hover:shadow-md transform transition-all duration-200"
+            class="px-5 py-2.5 text-sm font-medium text-[#0F3F5E] bg-white/70 backdrop-blur-sm border border-white/40 rounded-xl shadow-md hover:bg-white/90 hover:shadow-lg transform transition-all duration-200"
           >
             Dismiss
           </button>

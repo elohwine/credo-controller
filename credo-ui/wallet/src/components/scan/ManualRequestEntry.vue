@@ -5,11 +5,11 @@
                 <label class="sm:hidden text-[#E6F6FF] font-bold" for="comment">URL</label>
                 <div class="mt-2">
                     <input v-if="isMobileView" id="comment" v-model="text" autofocus="autofocus"
-                        class="block w-full rounded-md border-0 px-3 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6"
+                        class="block w-full rounded-md border-0 px-3 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-[#D0E6F3] placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-[#2188CA] sm:text-sm sm:leading-6"
                         name="comment" />
                     <textarea v-else id="comment" v-model="text" autofocus="autofocus" rows="3" cols="50" wrap="soft"
                         spellcheck="true" placeholder="Your offer URL"
-                        class="block w-full rounded-md border-0 px-3 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6"
+                        class="block w-full rounded-md border-0 px-3 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-[#D0E6F3] placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-[#2188CA] sm:text-sm sm:leading-6"
                         name="comment"></textarea>
                 </div>
             </div>
@@ -17,7 +17,8 @@
         <div v-if="text" class="mt-5 flex justify-center">
             <button v-if="status === 'empty' || status === 'ok'" ref="submitBtn"
                 :disabled="status === 'empty' || text.value == ''"
-                class="w-full disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-gray-500 rounded-xl bg-[#002159] px-3 py-2 text-sm text-center font-semibold text-[#E6F6FF] shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                class="w-full disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-gray-500 rounded-xl px-3 py-2 text-sm text-center font-semibold text-white shadow-lg hover:shadow-xl transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2188CA]"
+                style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
                 type="submit">
                 {{ requestTypeName }}
             </button>

@@ -1,3 +1,18 @@
+/**
+ * IdenEx Credentis - Finance Workflow Actions
+ * 
+ * Verifiable Trust Infrastructure for Africa's Digital Economy
+ * 
+ * Workflow actions for financial calculations:
+ * - Invoice totals with tax (VAT/GST) handling
+ * - Discount application (percentage or fixed)
+ * - Line item processing
+ * - Multi-currency support (USD, ZWL, ZiG)
+ * 
+ * @module services/workflow/actions/FinanceActions
+ * @copyright 2024-2026 IdenEx Credentis
+ */
+
 import { WorkflowActionContext } from '../ActionRegistry'
 import { rootLogger } from '../../../utils/pinoLogger'
 

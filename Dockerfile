@@ -87,6 +87,7 @@ COPY --from=builder --chown=credo:credo /app/build ./build
 COPY --from=builder --chown=credo:credo /app/bin ./bin
 COPY --from=builder --chown=credo:credo /app/src/routes ./src/routes
 COPY --from=builder --chown=credo:credo /app/migrations ./migrations
+COPY --from=builder --chown=credo:credo /app/samples ./samples
 COPY --from=builder --chown=credo:credo /app/package.json ./
 
 # Copy production node_modules with native bindings
@@ -96,7 +97,7 @@ COPY --from=builder --chown=credo:credo /app/node_modules ./node_modules
 RUN mkdir -p /app/data && chown -R credo:credo /app/data
 
 # Expose port
-EXPOSE 3000
+EXPOSE 3000 6000 6001
 
 # Use tini as init system (handles signals properly)
 ENTRYPOINT ["/usr/bin/tini", "--"]
@@ -108,8 +109,8 @@ USER credo
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))" || exit 1
 
-# Default command
-CMD ["node", "./bin/afj-rest.js", "--config", "./config.json"]
+# Defaultt command (run issuer + holder servers)
+CMD ["sh", "-c", "node ./samples/startServer.js & node ./samples/startHolderServer.js"]
 
 # ============================================
 # Stage 5: Development image (with hot reload)

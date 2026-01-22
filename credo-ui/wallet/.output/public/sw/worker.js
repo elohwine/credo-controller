@@ -1,4 +1,4 @@
-console.log("walt.id wallet service worker run");
+console.log("Credentis wallet service worker run");
 
 self.addEventListener("install", () => {
     console.log("Service worker installing");
@@ -16,7 +16,7 @@ self.addEventListener("push", function (event) {
         //icon: './images/logo-192x192.png',
         //badge: './images/badge-72x72.png',
         data: {
-            url: "https://docs.walt.id/v/web-wallet/wallet-kit/readme",
+            url: "https://credentis.io",
         },
         actions: [
             {

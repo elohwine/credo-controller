@@ -12,6 +12,7 @@
     "@heroicons/vue": "^2.2.0",
     "@julr/unocss-preset-forms": "^2.0.0",
     "@pinia/nuxt": "^0.11.2",
+    "html2canvas": "^1.4.1",
     "jsonpath-plus": "^10.3.0",
     "pinia": "^3.0.3",
     "qr-scanner": "^1.4.2",
