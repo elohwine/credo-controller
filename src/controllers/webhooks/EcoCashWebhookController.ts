@@ -114,14 +114,51 @@ export class EcoCashWebhookController extends Controller {
 
                     logger.info({ receiptOfferUrl, transactionId: payload.transactionId }, 'ReceiptVC issued')
 
-                    // Update payment record state
+                    // Update or create payment record
                     if (existingPayment) {
+                        // Update existing payment record
                         db.prepare(`
                             UPDATE ack_payments 
                             SET state = 'paid', provider_ref = ?, updated_at = ?
                             WHERE id = ?
                         `).run(payload.transactionId, new Date().toISOString(), existingPayment.id)
+                    } else {
+                        // Create new payment record for idempotency tracking
+                        const newPaymentId = `pay-${Date.now()}`
+                        db.prepare(`
+                            INSERT INTO ack_payments (
+                                id, tenant_id, cart_id, provider_ref, 
+                                amount, currency, state, idempotency_key, 
+                                created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        `).run(
+                            newPaymentId,
+                            'default',
+                            cartId || null,
+                            payload.transactionId,
+                            payload.amount || 0,
+                            payload.currency || 'USD',
+                            'paid',
+                            payload.sourceReference,
+                            new Date().toISOString(),
+                            new Date().toISOString()
+                        )
 
+                        // Store receipt
+                        db.prepare(`
+                            INSERT INTO ack_payment_receipts (id, payment_id, credential_offer_url, credential_type, issued_at)
+                            VALUES (?, ?, ?, ?, ?)
+                        `).run(
+                            `rcp-${Date.now()}`,
+                            newPaymentId,
+                            receiptOfferUrl,
+                            'PaymentReceipt',
+                            new Date().toISOString()
+                        )
+                    }
+
+                    // If we have an existing payment, also store the receipt
+                    if (existingPayment) {
                         // Store receipt in ack_payment_receipts
                         db.prepare(`
                             INSERT INTO ack_payment_receipts (id, payment_id, credential_offer_url, credential_type, issued_at)
@@ -130,7 +167,7 @@ export class EcoCashWebhookController extends Controller {
                             `rcp-${Date.now()}`,
                             existingPayment.id,
                             receiptOfferUrl,
-                            'PaymentReceiptCredential',
+                            'PaymentReceipt',
                             new Date().toISOString()
                         )
                     }
