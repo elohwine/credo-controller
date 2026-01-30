@@ -8,11 +8,12 @@
 ## 🎯 Current Sprint: Sprint 1 — Kickoff & Foundations
 
 ### Sprint 1 Tasks
-- [ ] Kickoff meeting, finalize MVP scope
-- [ ] Verify ReceiptVC JSON-LD schema
-- [ ] Review OpenAPI skeleton
+- [x] Kickoff meeting, finalize MVP scope (docs created)
+- [x] Verify ReceiptVC JSON-LD schema (`modelRegistry.ts:103-119`)
+- [x] Review OpenAPI skeleton (`/docs` endpoint exists)
 - [ ] Provision EcoCash sandbox credentials
 - [ ] Confirm staging domains
+- [x] Create MVP_GAP_ANALYSIS.md
 
 ---
 
