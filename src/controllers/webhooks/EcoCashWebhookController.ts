@@ -39,7 +39,7 @@ export class EcoCashWebhookController extends Controller {
         @Request() request?: ExRequest
     ): Promise<any> {
         const db = DatabaseManager.getDatabase()
-        
+
         try {
             logger.info({ payload }, 'Received EcoCash webhook')
 
@@ -72,6 +72,8 @@ export class EcoCashWebhookController extends Controller {
                 const apiKey = process.env.ISSUER_API_KEY || 'test-api-key-12345'
                 const issuerApiUrl = process.env.ISSUER_API_URL || 'http://localhost:3000'
                 const baseUrl = process.env.NGROK_URL || 'http://localhost:3000'
+                // Use default tenant for issuer metadata refresh
+                const tenantId = existingPayment?.tenant_id || 'default'
 
                 // Get cart if we have a payment record
                 let cartId: string | undefined
@@ -81,33 +83,31 @@ export class EcoCashWebhookController extends Controller {
                     cart = db.prepare('SELECT * FROM carts WHERE id = ?').get(cartId)
                 }
 
-                // Issue PaymentReceiptCredential (ReceiptVC)
+                // Issue PaymentReceipt (ReceiptVC) - uses modelRegistry registered type
                 try {
                     const receiptResponse = await axios.post(
                         `${issuerApiUrl}/custom-oidc/issuer/credential-offers`,
                         {
                             credentials: [{
-                                credentialDefinitionId: 'PaymentReceiptCredential',
+                                // Use PaymentReceipt which is registered in modelRegistry
+                                credentialDefinitionId: 'PaymentReceipt',
                                 format: 'jwt_vc_json',
-                                type: ['VerifiableCredential', 'PaymentReceiptCredential'],
+                                type: ['VerifiableCredential', 'PaymentReceipt'],
                                 claims: {
-                                    receiptId: `RCP-${payload.transactionId || Date.now()}`,
                                     transactionId: payload.transactionId,
-                                    sourceReference: payload.sourceReference,
-                                    amount: payload.amount || existingPayment?.amount,
+                                    amount: String(payload.amount || existingPayment?.amount || '0'),
                                     currency: payload.currency || existingPayment?.currency || 'USD',
-                                    payerPhone: existingPayment?.payer_phone,
-                                    merchantId: existingPayment?.tenant_id,
-                                    cartId: cartId,
-                                    items: cart ? JSON.parse(cart.items || '[]') : [],
-                                    paymentMethod: 'EcoCash',
-                                    status: 'paid',
-                                    timestamp: new Date().toISOString(),
-                                    verificationUrl: `${baseUrl}/verify/receipt/${payload.transactionId}`
+                                    merchant: existingPayment?.tenant_id || 'unknown',
                                 }
                             }]
                         },
-                        { headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' } }
+                        {
+                            headers: {
+                                'x-api-key': apiKey,
+                                'x-tenant-id': tenantId,
+                                'Content-Type': 'application/json'
+                            }
+                        }
                     )
 
                     const receiptOfferUrl = receiptResponse.data?.offerUrl || receiptResponse.data?.credentialOffer

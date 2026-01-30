@@ -304,6 +304,26 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
       'jwt_vc_json'
     )
 
+    // PaymentReceiptCredential - alias for EcoCash webhook compatibility
+    registerDef(
+      'PaymentReceiptCredential',
+      '1.0.0',
+      paymentSchemaId,
+      ['VerifiableCredential', 'PaymentReceiptCredential'],
+      {
+        credentialSubject: {
+          receiptId: 'RCP-SEED-0001',
+          transactionId: 'TX-SEED-0001',
+          amount: '42.00',
+          currency: 'USD',
+          paymentMethod: 'EcoCash',
+          status: 'paid',
+          timestamp: new Date().toISOString(),
+        },
+      },
+      'jwt_vc_json'
+    )
+
     registerDef(
       'GenericIDCredential',
       '1.0.0',
