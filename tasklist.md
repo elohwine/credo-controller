@@ -5,13 +5,24 @@
 
 ---
 
-## 🎯 Current Sprint: Sprint 2 — EcoCash Integration Review
+## 🎯 Current Sprint: Sprint 3 — Portal Consent Prompts
 
-### Sprint 2 Tasks
-- [ ] Test EcoCash webhook endpoint with simulated payload
-- [ ] Verify ReceiptVC issuance on payment success
-- [ ] Test idempotency (duplicate webhook calls)
-- [ ] Create Postman/curl test collection
+### Sprint 3 Tasks
+- [ ] Portal consent UI for QuoteVC acceptance
+- [ ] Portal consent UI for InvoiceVC acceptance
+- [ ] Checkout endpoint creates pending payment
+- [ ] Wallet displays ReceiptVC properly
+
+---
+
+## ✅ Sprint 2 — Completed
+
+- [x] Test EcoCash webhook endpoint with simulated payload
+- [x] Verify ReceiptVC issuance on payment success
+- [x] Test idempotency (duplicate webhook calls)
+- [x] Create curl test script (`scripts/test-ecocash-webhook.sh`)
+- [x] EcoCash API key verified (HTTP 200)
+- [x] **DONE:** Live EcoCash test - USSD prompt received on 774183277
 
 ---
 
@@ -21,7 +32,7 @@
 - [x] Verify ReceiptVC JSON-LD schema
 - [x] Review OpenAPI skeleton
 - [x] Create MVP_GAP_ANALYSIS.md
-- [ ] Provision EcoCash sandbox credentials
+- [x] Provision EcoCash sandbox credentials
 - [ ] Confirm staging domains
 
 ---
@@ -31,8 +42,8 @@
 | Sprint | Focus | Status |
 |--------|-------|--------|
 | 1 | Kickoff & Foundations | ✅ Complete |
-| 2 | EcoCash Integration Review | 🏗 In Progress |
-| 3 | Portal Checkout UI Polish | ⏳ Pending |
+| 2 | EcoCash Integration Review | ✅ Complete |
+| 3 | Portal Checkout UI Polish | 🏗 In Progress |
 | 4 | ReceiptVC Issuance Enhancement | ⏳ Pending |
 | 5 | Embedded Wallet Storage | ⏳ Pending |
 | 6 | Driver Verification Page | ⏳ Pending |
