@@ -5,114 +5,130 @@
 
 ---
 
+## 🔄 Core MVP Flow: Cart → Quote → Invoice → Receipt
+
+**Fastlane Principle:** Each VC is opt-in, seamless, and abstracts wallet/blockchain entirely.
+
+```
+Cart Items
+    ↓ (user consents to save)
+QuoteVC → "Save this quote for reference?" [opt-in]
+    ↓ (user accepts quote, proceeds to pay)
+InvoiceVC → Auto-generated, "Save invoice to wallet?" [opt-in]
+    ↓ (EcoCash payment confirmed)
+ReceiptVC → Auto-issued, "Keep as proof of purchase?" [opt-in]
+    ↓ (at delivery)
+Driver Verification → QR scan → "Confirm delivery" → Escrow released
+```
+
+---
+
 ## ✅ Features ALREADY Implemented
 
-### 1. ReceiptVC Schema & Issuance
+### 1. Quote → Invoice → Receipt Workflow Template
+| Component | File | Status |
+|-----------|------|--------|
+| `QuoteInvoiceReceiptTemplate` | `src/services/workflow/templates.ts:160-259` | ✅ Complete |
+| `issueQuoteVC` endpoint | `src/controllers/whatsapp/WhatsAppPayloadController.ts:498-570` | ✅ Exists |
+| QuoteVC, InvoiceVC, ReceiptVC schemas | `src/services/modelRegistry.ts` | ✅ Registered |
+
+### 2. ReceiptVC Issuance
 | Component | File | Status |
 |-----------|------|--------|
 | ReceiptVC Schema | `src/services/modelRegistry.ts:103-119` | ✅ Complete |
 | EcoCash Webhook | `src/controllers/webhooks/EcoCashWebhookController.ts` | ✅ Complete |
-| VC Issuance Service | `src/services/CredentialIssuanceService.ts` | ✅ Complete |
+| VC Issuance | `src/services/CredentialIssuanceService.ts` | ✅ Complete |
 
-**Schema Fields:**
-- `receiptId`, `invoiceRef`, `paymentRef`, `timestamp`
-
-### 2. Payment Infrastructure
+### 3. Payment Infrastructure
 | Component | File | Status |
 |-----------|------|--------|
 | EcoCash Adapter | `src/ai/payments/adapters/EcoCashAckPayAdapter.ts` | ✅ Complete |
-| Payment Controller | `src/controllers/payments/PaymentController.ts` | ✅ Complete |
 | WhatsApp Commerce | `src/controllers/whatsapp/WhatsAppPayloadController.ts` | ✅ Complete |
 
-### 3. Wallet & Portal UIs
+### 4. Escrow Workflow Template
+| Component | File | Status |
+|-----------|------|--------|
+| `DeliveryEscrowTemplate` | `src/services/workflow/templates.ts:261-341` | ✅ Template exists |
+
+### 5. Wallet & Portal UIs
 | Component | Location | Status |
 |-----------|----------|--------|
-| Wallet UI (Nuxt) | `credo-ui/wallet/` | ✅ Complete |
-| Portal UI (Next.js) | `credo-ui/portal/` | ✅ Complete |
-
-### 4. Verifier Infrastructure
-| Component | File | Status |
-|-----------|------|--------|
-| OIDC Verifier | `src/controllers/oidc/OidcVerifierController.ts` | ✅ Exists |
-| VC Verifier | `src/controllers/regulator/VCVerifierController.ts` | ✅ Exists |
-| Verifier Portal | `src/controllers/trust/VerifierPortalController.ts` | ✅ Exists |
-
-### 5. Escrow Workflow (Template Only)
-| Component | File | Status |
-|-----------|------|--------|
-| Escrow Template | `src/services/workflow/templates.ts:261-337` | ⚠️ Template exists |
+| Wallet UI (Nuxt) | `credo-ui/wallet/` | ✅ Exists |
+| Portal UI (Next.js) | `credo-ui/portal/` | ✅ Exists |
 
 ---
 
 ## 🏗 Gaps Requiring Enhancement
 
-### 1. Driver Verification Mobile Page
-**Current State:** Verifier controllers exist but no mobile-optimized `/verify/{token}` page for drivers.
+### 1. Opt-in Consent Flow in Portal UI
+**Current State:** Backend issues VCs but Portal lacks consent prompts at each stage.
 
-**Required:**
-- [ ] Create `GET /verify/:shortToken` endpoint
-- [ ] Mobile web UI showing: Verified badge, order summary, "Confirm Delivery" button
-- [ ] Shortlink generator with TTL
+**Required (Fastlane UX):**
+- [ ] QuoteVC: "Save this quote for reference?" checkbox on cart review
+- [ ] InvoiceVC: Auto-issue on payment initiation with "Save invoice?" opt-in
+- [ ] ReceiptVC: Auto-issue on payment success with "Keep as proof?" prompt
 
-**Implementation Estimate:** Sprint 6 (1 week)
+**User never sees "wallet" or "VC" — just "save for proof".**
 
----
-
-### 2. Portal Consent Flow
-**Current State:** Portal checkout exists but no "Save verified receipt to wallet?" prompt.
-
-**Required:**
-- [ ] Add consent checkbox in Portal checkout
-- [ ] Issue VC offer on consent
-- [ ] SSE/polling for wallet acceptance notification
-
-**Implementation Estimate:** Sprint 3 (1 week)
+**Implementation Estimate:** Sprint 3 (Portal UI)
 
 ---
 
-### 3. Escrow Release Hook
-**Current State:** `DeliveryEscrowTemplate` exists but `escrow.release` action is not implemented.
+### 2. Driver Verification Mobile Page
+**Current State:** Verifier controllers exist but no mobile-optimized shortlink page.
 
 **Required:**
-- [ ] Implement `POST /escrow/:orderId/release` endpoint (stub)
-- [ ] Wire to delivery confirmation flow
-- [ ] No actual funds handling (signal only)
+- [ ] `GET /verify/:shortToken` → Mobile web UI
+- [ ] Shows: ✅ Verified badge, order summary, "Confirm Delivery" button
+- [ ] One-tap: Confirms delivery → triggers escrow release signal
 
-**Implementation Estimate:** Sprint 6 (2-3 days)
+**Implementation Estimate:** Sprint 6
 
 ---
 
-### 4. ReceiptVC Schema Enhancement
-**Current State:** Basic schema exists. Missing MVP-specific fields.
+### 3. Escrow Release Hook (Signal Only)
+**Current State:** Template exists but `escrow.release` action is stubbed.
 
 **Required:**
-- [ ] Add `merchantName`, `amount`, `currency`, `paymentMethod` fields
-- [ ] Align with `RECEIPTVC_SCHEMA.md` documentation
+- [ ] `POST /escrow/:orderId/release` (stub, no actual funds)
+- [ ] Wire to delivery confirmation from driver verification
 
-**Implementation Estimate:** Sprint 4 (1 day)
+**Fastlane Principle:** Control the release signal, not the money.
+
+**Implementation Estimate:** Sprint 6
+
+---
+
+### 4. Seamless Embedded Wallet (Abstracts Tech)
+**Current State:** Wallet UI exists but may surface too much SSI/VC terminology.
+
+**Required (per Embedded Wallet Philosophy):**
+- [ ] Hide "credentials", "DIDs", "VCs" from user
+- [ ] Show only: "My Receipts", "My Quotes", "My Invoices"
+- [ ] Contextual display (only show receipts during disputes)
+- [ ] Zero-friction acceptance (one-tap, default yes)
+
+**Implementation Estimate:** Sprint 5
 
 ---
 
 ## 📊 Summary Table
 
-| Feature | Status | Sprint |
-|---------|--------|--------|
-| ReceiptVC Issuance | ✅ Complete | - |
-| EcoCash Payment | ✅ Complete | - |
-| Wallet UI | ✅ Complete | - |
-| Portal UI | ✅ Complete | - |
-| WhatsApp Commerce | ✅ Complete | - |
-| **Portal Consent Flow** | 🏗 Gap | Sprint 3 |
-| **Driver Verification Page** | 🏗 Gap | Sprint 6 |
-| **Escrow Release Hook** | 🏗 Gap | Sprint 6 |
-| **ReceiptVC Schema Update** | ⚠️ Minor | Sprint 4 |
+| Flow Stage | Backend | Portal UI | Wallet UI |
+|------------|---------|-----------|-----------|
+| QuoteVC (opt-in) | ✅ `issueQuoteVC` | 🏗 Consent prompt | ✅ Store |
+| InvoiceVC (opt-in) | ✅ Template | 🏗 Consent prompt | ✅ Store |
+| ReceiptVC (auto) | ✅ EcoCash webhook | 🏗 Consent prompt | ✅ Store |
+| Driver Verification | ✅ Verifier exists | - | 🏗 Mobile page |
+| Escrow Release | ⚠️ Stubbed | - | - |
 
 ---
 
 ## 📋 Sprint 1 Verification Checklist
 
-- [x] ReceiptVC schema exists in `modelRegistry.ts`
-- [x] EcoCash webhook handler exists
-- [x] Verifier controllers exist
+- [x] ReceiptVC schema in `modelRegistry.ts`
+- [x] QuoteInvoiceReceiptTemplate in `templates.ts`
+- [x] issueQuoteVC endpoint exists
+- [x] EcoCash webhook issues ReceiptVC
 - [x] Wallet and Portal UIs exist
 - [x] Escrow workflow template exists
