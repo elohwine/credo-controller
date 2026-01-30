@@ -120,7 +120,10 @@ export class DatabaseManager {
       { version: 9, file: '009_create_payroll.sql', name: 'create_payroll' },
       { version: 10, file: '010_create_onboarding.sql', name: 'create_onboarding' },
       { version: 11, file: '011_create_audit_logs.sql', name: 'create_audit_logs' },
-      { version: 12, file: '012_create_operations.sql', name: 'create_operations' }
+      { version: 12, file: '012_create_operations.sql', name: 'create_operations' },
+      { version: 13, file: '013_create_inventory.sql', name: 'create_inventory' },
+      { version: 14, file: '014_add_offer_uri_columns.sql', name: 'add_offer_uri_columns' },
+      { version: 15, file: '015_create_ack_payments.sql', name: 'create_ack_payments' }
     ]
 
     for (const migration of migrationFiles) {
