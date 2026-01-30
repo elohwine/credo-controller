@@ -1,9 +1,9 @@
 # BUILD
 FROM node:20-alpine AS build
-
 WORKDIR /app
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json* ./
+# Mount npm cache for faster recurrent builds
+RUN --mount=type=cache,target=/root/.npm npm ci --legacy-peer-deps
 COPY . .
 RUN npm run build
 
@@ -13,7 +13,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=5000
 
-COPY --from=build /app .
+# Copy only necessary files for standalone mode
+COPY --from=build /app/public ./public
+COPY --from=build /app/.next/static ./.next/static
+COPY --from=build /app/.next/standalone ./
 
 EXPOSE 5000
-CMD ["npm", "run", "start"]
+CMD ["node", "server.js"]

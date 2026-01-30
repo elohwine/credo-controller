@@ -189,7 +189,7 @@ export class OnboardingService {
             })
             credentialOffer = offer
             logger.info({ offerId: offer.offerId, employeeId: employee.id }, 'Employment contract VC issued')
-            
+
             // Store offer URI for reoffer functionality
             const db = DatabaseManager.getDatabase()
             db.prepare('UPDATE onboarding_requests SET status = ?, employee_id = ?, contract_vc_offer_uri = ? WHERE id = ?')
@@ -206,12 +206,52 @@ export class OnboardingService {
 
     /**
      * Get employment contract VC offer for reoffer
+     * Handles self-healing for legacy records missing the offer URI
      */
     async getContractVCOffer(id: string): Promise<{ credential_offer_uri: string, credential_offer_deeplink: string }> {
         const db = DatabaseManager.getDatabase()
-        const row = db.prepare('SELECT contract_vc_offer_uri FROM onboarding_requests WHERE id = ?').get(id) as any
-        if (!row || !row.contract_vc_offer_uri) {
-            throw new Error(`No EmploymentContractVC credential offer found for onboarding request ${id}`)
+        const row = db.prepare('SELECT * FROM onboarding_requests WHERE id = ?').get(id) as any
+
+        if (!row) {
+            throw new Error(`Onboarding request ${id} not found`)
+        }
+
+        // Self-healing: If offer URI is missing (legacy record or failed issuance), regenerate it
+        if (!row.contract_vc_offer_uri) {
+            logger.info({ id }, 'Regenerating missing contract VC offer for reoffer request')
+
+            // If employee_id is missing, we can't issue. But approved requests should have it.
+            if (!row.employee_id) {
+                // Try to find employee by email if link is broken
+                const employee = await payrollService.getEmployeeByEmail(row.candidate_email)
+                if (employee) {
+                    db.prepare('UPDATE onboarding_requests SET employee_id = ? WHERE id = ?').run(employee.id, id)
+                    row.employee_id = employee.id
+                } else {
+                    throw new Error(`Cannot reoffer contract: No employee record linked to onboarding request ${id}`)
+                }
+            }
+
+            // Create new offer
+            const offer = await credentialIssuanceService.createOffer({
+                credentialType: 'EmploymentContractVC',
+                claims: {
+                    employeeId: row.employee_id,
+                    name: row.full_name,
+                    role: 'Employee', // Default role
+                    department: 'General',
+                    startDate: row.created_at,
+                    employer: 'Credentis Corp',
+                    contractType: 'Full-time'
+                },
+                tenantId: row.tenant_id
+            })
+
+            // Save for future use
+            db.prepare('UPDATE onboarding_requests SET contract_vc_offer_uri = ? WHERE id = ?')
+                .run(offer.credential_offer_deeplink, id)
+
+            row.contract_vc_offer_uri = offer.credential_offer_deeplink
         }
 
         const deeplink = row.contract_vc_offer_uri

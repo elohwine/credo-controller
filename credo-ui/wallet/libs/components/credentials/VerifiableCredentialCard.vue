@@ -3,7 +3,10 @@
         <template v-if="!isDetailView">
             <div class="list-card-content">
                 <div class="list-icon">
-                    <CreditCardIcon class="h-5 w-5" aria-hidden="true" />
+                    <img v-if="issuerLogo" :src="issuerLogo" alt="Issuer" class="h-8 w-8 object-contain rounded-full bg-white/10 p-1" />
+                     <div v-else class="h-8 w-8 flex items-center justify-center rounded-full bg-white/10">
+                        <CreditCardIcon class="h-5 w-5 text-white" aria-hidden="true" />
+                     </div>
                 </div>
                 <div class="list-text">
                     <div class="list-title">{{ credentialTitle }}</div>
@@ -363,15 +366,21 @@ const formatValue = (value: any): string => {
 }
 
 .credential-card.list-view {
-    /* Deep glass gradient for list cards (reference design) */
-    backdrop-filter: blur(18px) saturate(180%);
-    -webkit-backdrop-filter: blur(18px) saturate(180%);
-    background: linear-gradient(135deg, #1f5fa8 0%, #6fb4dc 100%);
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    box-shadow: 0 10px 28px rgba(15, 63, 94, 0.22);
-    padding: 14px 18px;
-    min-height: 78px;
+    /* Deep glass gradient for list cards (Credentis Blue) */
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    background: linear-gradient(135deg, #10405f 0%, #2188ca 100%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 10px 25px -5px rgba(15, 63, 94, 0.3);
+    padding: 20px 24px;
+    min-height: 90px;
     color: #ffffff;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.credential-card.list-view:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 30px -5px rgba(15, 63, 94, 0.4);
 }
 
 .credential-card.detail-view {
@@ -393,11 +402,7 @@ const formatValue = (value: any): string => {
 }
 
 .list-icon {
-    width: 40px;
-    height: 40px;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.18);
-    border: 1px solid rgba(255, 255, 255, 0.45);
+    margin-right: 4px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -413,9 +418,9 @@ const formatValue = (value: any): string => {
 }
 
 .list-title {
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.18em;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     color: #ffffff;
     line-height: 1.2;

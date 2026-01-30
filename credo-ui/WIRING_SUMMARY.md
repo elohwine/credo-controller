@@ -35,7 +35,7 @@
 ### 3. **Cleanup Actions**
 Removed unnecessary files and directories:
 - ❌ `waltid-libraries/` - Backend libraries not needed
-- ❌ `docker-compose/` - Walt.id deployment configs
+- ❌ `docker compose/` - Walt.id deployment configs
 - ❌ `.github/` - CI/CD workflows
 - ❌ `gradle/`, `gradlew`, `build.gradle.kts` - Kotlin build files
 - ❌ `waltid-android/` - Mobile app

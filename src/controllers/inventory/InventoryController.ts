@@ -12,6 +12,7 @@
 
 import { Controller, Post, Get, Route, Tags, Body, Path, Query, Security, Request } from 'tsoa'
 import type { Request as ExRequest } from 'express'
+import { randomUUID } from 'crypto'
 import { SCOPES } from '../../enums'
 import {
     inventoryService,
@@ -346,5 +347,51 @@ export class InventoryController extends Controller {
     public async getAging(@Request() request: ExRequest): Promise<any[]> {
         const tenantId = (request as any).user?.tenantId || 'default'
         return await inventoryService.getAging(tenantId)
+    }
+
+    /**
+     * Get profit analytics (revenue potential vs cost)
+     */
+    @Get('analytics/profit')
+    @Security('apiKey')
+    public async getProfitAnalytics(@Request() request: ExRequest): Promise<any> {
+        const tenantId = (request as any).user?.tenantId || 'default'
+        return await inventoryService.getProfitAnalytics(tenantId)
+    }
+
+    /**
+     * Process a direct purchase (Scan to Buy)
+     * Deducts stock using a SELL event and returns a Receipt reference.
+     */
+    @Post('buy')
+    @Security('apiKey')
+    public async buyItem(
+        @Body() body: { lotId: string, quantity: number, priceOverride?: number },
+        @Request() request: ExRequest
+    ): Promise<any> {
+        const tenantId = (request as any).user?.tenantId || 'default'
+        const actorId = (request as any).user?.id
+
+        // This is a simplified direct buy that bypasses the long cart/reservation flow
+        // for immediate "in-store" scanning transactions.
+        const receiptId = `RCPT-${randomUUID().substring(0, 8)}`
+
+        // Use fulfillSale-like logic but for a direct lot purchase
+        // First we "reserve" it for a split second then fulfill
+        const reservation = await inventoryService.reserveStock({
+            tenantId,
+            items: [{ catalogItemId: '', locationId: '', quantity: body.quantity, preferredLotId: body.lotId }],
+            cartId: receiptId,
+            actorId
+        })
+
+        const fulfillment = await inventoryService.fulfillSale({
+            tenantId,
+            cartId: receiptId,
+            receiptId,
+            actorId
+        })
+
+        return { receiptId, ...fulfillment }
     }
 }

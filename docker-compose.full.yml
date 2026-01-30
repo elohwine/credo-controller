@@ -1,0 +1,124 @@
+version: '3.8'
+
+services:
+  # =====================================
+  # Back-end API (Issuer)
+  # =====================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: credo-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000" # Issuer Agent
+    environment:
+      - PORT=3000
+      - WALLET_KEY=development-wallet-key-123
+      - JWT_SECRET=development-jwt-secret-456
+      - LOG_LEVEL=debug
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://host.docker.internal:3000}
+      - WALLET_URL=http://localhost:4000
+      - PERSISTENCE_DB_PATH=/app/data/persistence.db
+      # Only run Issuer
+      - HOLDER_API_PORT=6000 
+    command: ["node", "./samples/startServer.js"]
+    volumes:
+      - ./data:/app/data
+    networks:
+      - credo-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # =====================================
+  # Holder API (Tenant Wallet)
+  # =====================================
+  holder-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: credo-holder
+    restart: unless-stopped
+    ports:
+      - "6000:6000" # Holder Agent
+      - "6001:6001" # Holder Inbound
+    environment:
+      - PORT=6000
+      - HOLDER_API_PORT=6000
+      - HOLDER_INBOUND_PORT=6001
+      - ISSUER_API_URL=http://api:3000
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://host.docker.internal:3000}
+      - WALLET_URL=http://localhost:4000
+      - JWT_SECRET=development-jwt-secret-456
+      - LOG_LEVEL=debug
+    command: ["node", "./samples/startHolderServer.js"]
+    volumes:
+      - ./data:/app/data
+    networks:
+      - credo-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:6000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 15s
+      timeout: 15s
+      retries: 5
+      start_period: 20s
+
+  # =====================================
+  # Wallet UI
+  # =====================================
+  wallet:
+    build:
+      context: ./credo-ui/wallet
+      dockerfile: Dockerfile
+    container_name: credo-wallet
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - PROXY_TARGET_HOST=holder-api
+      - PROXY_TARGET_PORT=6000
+      - NUXT_PUBLIC_WALLET_BACKEND_URL=http://localhost:6000
+      - NUXT_PUBLIC_FINANCE_API_URL=http://localhost:6000
+      - NUXT_PUBLIC_CREDENTIALS_REPOSITORY_URL=http://localhost:3000
+      - NUXT_PUBLIC_ISSUER_CALLBACK_URL=http://localhost:3000
+    depends_on:
+      api:
+        condition: service_healthy
+      holder-api:
+        condition: service_healthy
+    networks:
+      - credo-net
+
+  # =====================================
+  # HR Portal UI
+  # =====================================
+  portal:
+    build:
+      context: ./credo-ui/portal
+      dockerfile: Dockerfile
+    container_name: credo-portal
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:3000
+      - NEXT_PUBLIC_WALLET_URL=http://localhost:4000
+      - VC_REPO_INTERNAL=http://api:3000
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - credo-net
+
+networks:
+  credo-net:
+    driver: bridge
+
+# Using host bind mount for ./data to share persistence between services

@@ -22,30 +22,30 @@ Verify installations:
 
 ```bash
 docker --version
-docker-compose --version
+docker compose --version
 ```
 
 ### 1. Build the Image
 
 ```bash
 # Build production image
-docker-compose build credo-controller
+docker compose build credo-controller
 
 # Or build specific stage
-docker-compose build --target production credo-controller
+docker compose build --target production credo-controller
 ```
 
 ### 2. Start the Service
 
 ```bash
 # Start in detached mode
-docker-compose up -d credo-controller
+docker compose up -d credo-controller
 
 # View logs
-docker-compose logs -f credo-controller
+docker compose logs -f credo-controller
 
 # Check health
-docker-compose ps
+docker compose ps
 ```
 
 ### 3. Test the API
@@ -105,26 +105,26 @@ Askar: 0.2.3
 
 ```bash
 # Start production stack
-docker-compose up -d credo-controller
+docker compose up -d credo-controller
 
 # Scale if needed
-docker-compose up -d --scale credo-controller=3
+docker compose up -d --scale credo-controller=3
 
 # View logs
-docker-compose logs -f credo-controller
+docker compose logs -f credo-controller
 
 # Stop
-docker-compose down
+docker compose down
 ```
 
 ### Development Mode (Hot Reload)
 
 ```bash
 # Start dev environment with profile
-docker-compose --profile dev up credo-dev
+docker compose --profile dev up credo-dev
 
 # Or explicitly
-docker-compose up credo-dev
+docker compose up credo-dev
 
 # Source code changes will trigger auto-reload
 # Edit files in ./src and see changes reflected immediately
@@ -134,14 +134,14 @@ docker-compose up credo-dev
 
 ```bash
 # Run tests in container
-docker-compose --profile test run --rm credo-test
+docker compose --profile test run --rm credo-test
 
 # Run specific test file
-docker-compose --profile test run --rm credo-test \
+docker compose --profile test run --rm credo-test \
   yarn test tests/e2e/tenantIssuance.spec.ts
 
 # Run with coverage
-docker-compose --profile test run --rm credo-test \
+docker compose --profile test run --rm credo-test \
   yarn test --coverage
 ```
 
@@ -173,19 +173,19 @@ Docker Compose profiles allow running different configurations:
 
 ```bash
 # Production (default)
-docker-compose up -d
+docker compose up -d
 
 # Development
-docker-compose --profile dev up -d
+docker compose --profile dev up -d
 
 # Testing
-docker-compose --profile test run --rm credo-test
+docker compose --profile test run --rm credo-test
 
 # With monitoring
-docker-compose --profile monitoring up -d credo-controller otel-collector jaeger
+docker compose --profile monitoring up -d credo-controller otel-collector jaeger
 
 # Multiple profiles
-docker-compose --profile dev --profile monitoring up -d
+docker compose --profile dev --profile monitoring up -d
 ```
 
 ## Production Deployment
@@ -240,17 +240,17 @@ Create `config.json`:
 
 ```bash
 # Pull latest images (if using registry)
-docker-compose pull
+docker compose pull
 
 # Build with cache from registry
-docker-compose build --pull
+docker compose build --pull
 
 # Start services
-docker-compose up -d
+docker compose up -d
 
 # Verify health
-docker-compose ps
-docker-compose logs credo-controller
+docker compose ps
+docker compose logs credo-controller
 ```
 
 ### 4. Enable TLS/SSL (with Nginx)
@@ -295,7 +295,7 @@ http {
 Start with proxy:
 
 ```bash
-docker-compose --profile proxy up -d
+docker compose --profile proxy up -d
 ```
 
 ### 5. Monitoring Setup
@@ -304,7 +304,7 @@ Start observability stack:
 
 ```bash
 # Start with monitoring profile
-docker-compose --profile monitoring up -d
+docker compose --profile monitoring up -d
 
 # Access Jaeger UI
 open http://localhost:16686
@@ -346,7 +346,7 @@ docker volume inspect credo-data
 
 ```bash
 # Container health status
-docker-compose ps
+docker compose ps
 
 # Application health endpoint
 curl http://localhost:3000/health
@@ -359,15 +359,15 @@ docker inspect --format='{{json .State.Health}}' credo-controller | jq
 
 ```bash
 # Follow logs
-docker-compose logs -f credo-controller
+docker compose logs -f credo-controller
 
 # Last 100 lines
-docker-compose logs --tail=100 credo-controller
+docker compose logs --tail=100 credo-controller
 
 # Save logs to file
-docker-compose logs --no-color credo-controller > logs/credo-$(date +%Y%m%d).log
+docker compose logs --no-color credo-controller > logs/credo-$(date +%Y%m%d).log
 
-# Configure log rotation in docker-compose.yml
+# Configure log rotation in docker compose.yml
 # (See logging section below)
 ```
 
@@ -394,7 +394,7 @@ Error: No native build was found
 
 1. Rebuild image from scratch:
    ```bash
-   docker-compose build --no-cache credo-controller
+   docker compose build --no-cache credo-controller
    ```
 
 2. Verify base image has build tools:
@@ -404,7 +404,7 @@ Error: No native build was found
 
 3. Check build logs:
    ```bash
-   docker-compose build credo-controller 2>&1 | tee build.log
+   docker compose build credo-controller 2>&1 | tee build.log
    grep -i "error" build.log
    ```
 
@@ -419,18 +419,18 @@ credo-controller exited with code 1
 
 1. Check logs:
    ```bash
-   docker-compose logs credo-controller
+   docker compose logs credo-controller
    ```
 
 2. Run interactively:
    ```bash
-   docker-compose run --rm credo-controller sh
+   docker compose run --rm credo-controller sh
    # Then manually: node ./bin/afj-rest.js --config ./config.json
    ```
 
 3. Verify config:
    ```bash
-   docker-compose run --rm credo-controller cat /app/config.json
+   docker compose run --rm credo-controller cat /app/config.json
    ```
 
 ### Issue: Database Permission Errors
@@ -444,12 +444,12 @@ EACCES: permission denied, open '/app/data/tenants.db'
 
 1. Check volume permissions:
    ```bash
-   docker-compose exec credo-controller ls -la /app/data
+   docker compose exec credo-controller ls -la /app/data
    ```
 
 2. Fix ownership:
    ```bash
-   docker-compose exec -u root credo-controller chown -R credo:credo /app/data
+   docker compose exec -u root credo-controller chown -R credo:credo /app/data
    ```
 
 3. Or use bind mount with correct permissions:
@@ -475,7 +475,7 @@ Bind for 0.0.0.0:3000 failed: port is already allocated
    PORT=3001
    ```
 
-2. Or in docker-compose.yml:
+2. Or in docker compose.yml:
    ```yaml
    ports:
      - "3001:3000"
@@ -521,7 +521,7 @@ JavaScript heap out of memory
 
 1. Use BuildKit:
    ```bash
-   DOCKER_BUILDKIT=1 docker-compose build
+   DOCKER_BUILDKIT=1 docker compose build
    ```
 
 2. Add to `.env`:
@@ -532,7 +532,7 @@ JavaScript heap out of memory
 
 3. Use build cache from registry:
    ```bash
-   docker-compose build --pull --cache-from credo-controller:latest
+   docker compose build --pull --cache-from credo-controller:latest
    ```
 
 ## Docker Registry
@@ -552,12 +552,12 @@ docker push your-registry.com/credo-controller:v1.0.0
 ### Pull from Registry
 
 ```bash
-# In docker-compose.yml, replace build with image
+# In docker compose.yml, replace build with image
 image: your-registry.com/credo-controller:latest
 
 # Pull and run
-docker-compose pull
-docker-compose up -d
+docker compose pull
+docker compose up -d
 ```
 
 ## CI/CD Integration
@@ -616,10 +616,10 @@ INMEMORY_LRU_CACHE_LIMIT=5000
 
 ```bash
 # Scale horizontally
-docker-compose up -d --scale credo-controller=3
+docker compose up -d --scale credo-controller=3
 
 # With load balancer (nginx)
-docker-compose --profile proxy up -d --scale credo-controller=3
+docker compose --profile proxy up -d --scale credo-controller=3
 ```
 
 ## Security Best Practices

@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import Layout from '@/components/Layout';
 import QRCode from 'react-qr-code';
-import { 
-    PlayIcon, 
-    DocumentTextIcon, 
+import {
+    PlayIcon,
+    DocumentTextIcon,
     CurrencyDollarIcon,
     CheckCircleIcon,
     ClockIcon,
@@ -16,6 +16,7 @@ import {
     ClipboardDocumentIcon
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
+import { EnvContext } from '@/pages/_app';
 
 // Credentis brand colors
 const BRAND = {
@@ -103,15 +104,20 @@ export default function PayrollPage() {
         tin: ''
     });
 
+    const env = useContext(EnvContext);
+    const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+
     useEffect(() => {
-        fetchPayrollRuns();
-        fetchEmployees();
-        fetchTaxCompliance();
-    }, []);
+        if (env.NEXT_PUBLIC_BACKEND_URL) {
+            fetchPayrollRuns();
+            fetchEmployees();
+            fetchTaxCompliance();
+        }
+    }, [env.NEXT_PUBLIC_BACKEND_URL]);
 
     const fetchPayrollRuns = async () => {
         try {
-            const res = await fetch('http://localhost:3000/api/payroll/runs');
+            const res = await fetch(`${backendUrl}/api/payroll/runs`);
             const data = await res.json();
             setRuns(data || []);
         } catch (error) {
@@ -121,7 +127,7 @@ export default function PayrollPage() {
 
     const fetchEmployees = async () => {
         try {
-            const res = await fetch('http://localhost:3000/api/payroll/employees');
+            const res = await fetch(`${backendUrl}/api/payroll/employees`);
             const data = await res.json();
             setEmployees(data || []);
         } catch (error) {
@@ -131,7 +137,7 @@ export default function PayrollPage() {
 
     const fetchTaxCompliance = async () => {
         try {
-            const res = await fetch('http://localhost:3000/api/payroll/tax-compliance');
+            const res = await fetch(`${backendUrl}/api/payroll/tax-compliance`);
             const data = await res.json();
             setTaxRecords(Array.isArray(data) ? data : []);
         } catch (error) {
@@ -144,7 +150,7 @@ export default function PayrollPage() {
         e.preventDefault();
         setIsLoading(true);
         try {
-            const res = await fetch('http://localhost:3000/api/payroll/runs', {
+            const res = await fetch(`${backendUrl}/api/payroll/runs`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newRun)
@@ -163,7 +169,7 @@ export default function PayrollPage() {
     const handleIssuePayslips = async (runId: string) => {
         setIsLoading(true);
         try {
-            const res = await fetch(`http://localhost:3000/api/payroll/runs/${runId}/issue`, {
+            const res = await fetch(`${backendUrl}/api/payroll/runs/${runId}/issue`, {
                 method: 'POST'
             });
             if (res.ok) {
@@ -179,7 +185,7 @@ export default function PayrollPage() {
     const handleIssueTaxCompliance = async (runId: string, taxType: string) => {
         setIsLoading(true);
         try {
-            const res = await fetch(`http://localhost:3000/api/payroll/runs/${runId}/tax-compliance`, {
+            const res = await fetch(`${backendUrl}/api/payroll/runs/${runId}/tax-compliance`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ taxType })
@@ -197,7 +203,7 @@ export default function PayrollPage() {
     const handleReoffer = async (runId: string) => {
         setIsLoading(true);
         try {
-            const res = await fetch(`http://localhost:3000/api/payroll/runs/${runId}/reoffer`, {
+            const res = await fetch(`${backendUrl}/api/payroll/runs/${runId}/reoffer`, {
                 method: 'POST'
             });
             if (!res.ok) {
@@ -220,7 +226,7 @@ export default function PayrollPage() {
         e.preventDefault();
         setIsLoading(true);
         try {
-            const res = await fetch('http://localhost:3000/api/payroll/employees', {
+            const res = await fetch(`${backendUrl}/api/payroll/employees`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newEmployee)
@@ -420,7 +426,7 @@ export default function PayrollPage() {
                             <form onSubmit={handleRunPayroll} className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Pay Period (YYYY-MM)</label>
-                                    <input type="month" required value={newRun.period} onChange={e => setNewRun({...newRun, period: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm focus:ring-2 focus:border-transparent" />
+                                    <input type="month" required value={newRun.period} onChange={e => setNewRun({ ...newRun, period: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm focus:ring-2 focus:border-transparent" />
                                 </div>
                                 <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
                                     <p className="text-sm" style={{ color: BRAND.dark }}><strong>Note:</strong> This will calculate payroll for all active employees, including NSSA (4.5%), PAYE, and AIDS Levy deductions.</p>
@@ -444,17 +450,17 @@ export default function PayrollPage() {
                             </div>
                             <form onSubmit={handleSaveEmployee} className="space-y-4">
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>First Name</label><input type="text" required value={newEmployee.firstName} onChange={e => setNewEmployee({...newEmployee, firstName: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" /></div>
-                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Last Name</label><input type="text" required value={newEmployee.lastName} onChange={e => setNewEmployee({...newEmployee, lastName: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" /></div>
+                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>First Name</label><input type="text" required value={newEmployee.firstName} onChange={e => setNewEmployee({ ...newEmployee, firstName: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" /></div>
+                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Last Name</label><input type="text" required value={newEmployee.lastName} onChange={e => setNewEmployee({ ...newEmployee, lastName: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" /></div>
                                 </div>
-                                <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Email</label><input type="email" value={newEmployee.email} onChange={e => setNewEmployee({...newEmployee, email: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" /></div>
+                                <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Email</label><input type="email" value={newEmployee.email} onChange={e => setNewEmployee({ ...newEmployee, email: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" /></div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Base Salary</label><input type="number" required min="0" step="0.01" value={newEmployee.baseSalary} onChange={e => setNewEmployee({...newEmployee, baseSalary: parseFloat(e.target.value)})} className="w-full rounded-lg border-gray-300 shadow-sm" /></div>
-                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Currency</label><select value={newEmployee.currency} onChange={e => setNewEmployee({...newEmployee, currency: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm"><option value="USD">USD</option><option value="ZWL">ZWL</option><option value="ZAR">ZAR</option></select></div>
+                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Base Salary</label><input type="number" required min="0" step="0.01" value={newEmployee.baseSalary} onChange={e => setNewEmployee({ ...newEmployee, baseSalary: parseFloat(e.target.value) })} className="w-full rounded-lg border-gray-300 shadow-sm" /></div>
+                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Currency</label><select value={newEmployee.currency} onChange={e => setNewEmployee({ ...newEmployee, currency: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm"><option value="USD">USD</option><option value="ZWL">ZWL</option><option value="ZAR">ZAR</option></select></div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>NSSA Number</label><input type="text" value={newEmployee.nssaNumber} onChange={e => setNewEmployee({...newEmployee, nssaNumber: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="Optional" /></div>
-                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>TIN</label><input type="text" value={newEmployee.tin} onChange={e => setNewEmployee({...newEmployee, tin: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="Optional" /></div>
+                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>NSSA Number</label><input type="text" value={newEmployee.nssaNumber} onChange={e => setNewEmployee({ ...newEmployee, nssaNumber: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="Optional" /></div>
+                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>TIN</label><input type="text" value={newEmployee.tin} onChange={e => setNewEmployee({ ...newEmployee, tin: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="Optional" /></div>
                                 </div>
                                 <div className="flex justify-end gap-3 pt-4">
                                     <button type="button" onClick={() => setShowEmployeeModal(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
@@ -481,7 +487,7 @@ export default function PayrollPage() {
                                     <button
                                         onClick={() => {
                                             const deeplink = reofferUri.replace('openid-credential-offer://?credential_offer_uri=', 'credentis://offer?uri=');
-                                            window.location.href = deeplink;
+                                            window.open(deeplink.startsWith('http') ? deeplink : reofferUri, '_blank');
                                         }}
                                         className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-white font-medium"
                                         style={{ backgroundColor: BRAND.curious }}

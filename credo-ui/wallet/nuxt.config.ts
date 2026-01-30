@@ -5,6 +5,7 @@ import path from "path";
 export default defineNuxtConfig({
     devtools: { enabled: true },
     srcDir: "src",
+    serverDir: "server",
 
     // Configure dev server to use port 4000
     devServer: {
@@ -204,11 +205,11 @@ export default defineNuxtConfig({
     runtimeConfig: {
         public: {
             projectId: process.env.ProjectId,
-            issuerCallbackUrl: process.env.NUXT_PUBLIC_ISSUER_CALLBACK_URL || "http://localhost:7100",
-            credentialsRepositoryUrl: process.env.NUXT_PUBLIC_CREDENTIALS_REPOSITORY_URL || "http://localhost:3000",
+            issuerCallbackUrl: process.env.NUXT_PUBLIC_ISSUER_CALLBACK_URL || "https://credentis-api-v2.fly.dev",
+            credentialsRepositoryUrl: process.env.NUXT_PUBLIC_CREDENTIALS_REPOSITORY_URL || "https://credentis-api-v2.fly.dev:3000",
             devWalletUrl: process.env.NUXT_PUBLIC_DEV_WALLET_URL || "https://wallet-dev.IdenEx",
-            walletBackendUrl: process.env.NUXT_PUBLIC_WALLET_BACKEND_URL || "http://localhost:6000",
-            financeApiUrl: process.env.NUXT_PUBLIC_FINANCE_API_URL || "http://localhost:6000",
+            walletBackendUrl: process.env.NUXT_PUBLIC_WALLET_BACKEND_URL || "https://credentis-api-v2.fly.dev:6000",
+            financeApiUrl: process.env.NUXT_PUBLIC_FINANCE_API_URL || "https://credentis-api-v2.fly.dev:6000",
         }
     },
 
@@ -218,13 +219,10 @@ export default defineNuxtConfig({
             brotli: false
         },
         routeRules: {
-            '/wallet-api/**': {
-                proxy: `${process.env.NUXT_PUBLIC_WALLET_BACKEND_URL || 'http://localhost:6000'}/api/wallet/**`
-            },
-            '/api/finance/**': {
-                proxy: `${process.env.NUXT_PUBLIC_FINANCE_API_URL || 'http://localhost:6000'}/api/finance/**`
-            }
+            // Proxy is now handled by server/middleware/proxy.ts
+            // which properly sets Host header for Fly.io compatibility
         },
+
         devProxy: {
             '/wallet-api': {
                 target: 'http://localhost:6000',

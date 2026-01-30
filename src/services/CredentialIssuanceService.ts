@@ -139,13 +139,22 @@ export class CredentialIssuanceService {
                 credentialOfferUri = credentialOfferDeepLink
             }
 
+            // Wrap with Wallet URL if configured (to invoke web wallet)
+            const walletUrl = process.env.WALLET_URL || 'http://localhost:4000'
+            let finalDeeplink = credentialOfferDeepLink
+            if (walletUrl && !credentialOfferDeepLink.startsWith(walletUrl)) {
+                // Format: http://localhost:4000/api/siop/initiateIssuance?credential_offer_uri=...
+                // This ensures the custom Nuxt page handles the resolution.
+                finalDeeplink = `${walletUrl}/api/siop/initiateIssuance?credential_offer_uri=${encodeURIComponent(credentialOfferUri)}`
+            }
+
             logger.info({ offerId: issuanceSession?.id, uri: credentialOfferUri?.slice(0, 100), configId }, 'Credential offer created')
 
             return {
                 offerId: issuanceSession?.id || 'unknown',
                 preAuthorizedCode: issuanceSession?.preAuthorizedCode || '',
                 credential_offer_uri: credentialOfferUri,
-                credential_offer_deeplink: credentialOfferDeepLink,
+                credential_offer_deeplink: finalDeeplink,
                 expiresAt: new Date(Date.now() + (request.expiresInMs || 3600000)).toISOString(),
                 credentialType: ['VerifiableCredential', request.credentialType.replace(/_jwt_vc(_json)?$/, '')],
             }

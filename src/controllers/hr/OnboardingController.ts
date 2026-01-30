@@ -153,7 +153,7 @@ export class OnboardingController extends Controller {
             logger.info({ id }, 'Re-offering employment contract credential')
             const offer = await onboardingService.getContractVCOffer(id)
             return {
-                offerUri: offer.credential_offer_uri,
+                offerUri: offer.credential_offer_deeplink,
                 credential_offer_deeplink: offer.credential_offer_deeplink
             }
         } catch (error: any) {

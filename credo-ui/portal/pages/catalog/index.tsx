@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import Layout from '@/components/Layout';
 import { PlusIcon, MagnifyingGlassIcon, CubeIcon, TagIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
 import { BRAND, formatCurrency } from '@/lib/theme';
+import { EnvContext } from '@/pages/_app';
+
 
 interface CatalogItem {
     id: string;
@@ -39,7 +41,9 @@ export default function CatalogPage() {
         inStock: true
     });
 
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+    const env = useContext(EnvContext);
+    const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+
 
     useEffect(() => {
         fetchCatalogItems();
@@ -79,7 +83,7 @@ export default function CatalogPage() {
         }
     };
 
-    const filteredItems = items.filter(item => 
+    const filteredItems = items.filter(item =>
         item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.sku.toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -191,26 +195,26 @@ export default function CatalogPage() {
                             <form onSubmit={handleCreateItem} className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Name</label>
-                                    <input type="text" required value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm focus:ring-2 focus:border-transparent" />
+                                    <input type="text" required value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm focus:ring-2 focus:border-transparent" />
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>SKU</label>
-                                        <input type="text" required value={newItem.sku} onChange={e => setNewItem({...newItem, sku: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" />
+                                        <input type="text" required value={newItem.sku} onChange={e => setNewItem({ ...newItem, sku: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" />
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Category</label>
-                                        <input type="text" value={newItem.category} onChange={e => setNewItem({...newItem, category: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" />
+                                        <input type="text" value={newItem.category} onChange={e => setNewItem({ ...newItem, category: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" />
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Price</label>
-                                        <input type="number" step="0.01" required value={newItem.price} onChange={e => setNewItem({...newItem, price: parseFloat(e.target.value)})} className="w-full rounded-lg border-gray-300 shadow-sm" />
+                                        <input type="number" step="0.01" required value={newItem.price} onChange={e => setNewItem({ ...newItem, price: parseFloat(e.target.value) })} className="w-full rounded-lg border-gray-300 shadow-sm" />
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Currency</label>
-                                        <select value={newItem.currency} onChange={e => setNewItem({...newItem, currency: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm">
+                                        <select value={newItem.currency} onChange={e => setNewItem({ ...newItem, currency: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm">
                                             <option value="USD">USD</option>
                                             <option value="ZWL">ZWL</option>
                                             <option value="ZAR">ZAR</option>
@@ -219,11 +223,11 @@ export default function CatalogPage() {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Description</label>
-                                    <textarea value={newItem.description} onChange={e => setNewItem({...newItem, description: e.target.value})} rows={3} className="w-full rounded-lg border-gray-300 shadow-sm" />
+                                    <textarea value={newItem.description} onChange={e => setNewItem({ ...newItem, description: e.target.value })} rows={3} className="w-full rounded-lg border-gray-300 shadow-sm" />
                                 </div>
                                 <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
                                     <label className="flex items-center gap-2 text-sm" style={{ color: BRAND.dark }}>
-                                        <input type="checkbox" checked={newItem.inStock} onChange={e => setNewItem({...newItem, inStock: e.target.checked})} className="rounded" />
+                                        <input type="checkbox" checked={newItem.inStock} onChange={e => setNewItem({ ...newItem, inStock: e.target.checked })} className="rounded" />
                                         <span className="font-medium">Item is in stock</span>
                                     </label>
                                 </div>

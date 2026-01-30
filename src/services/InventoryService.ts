@@ -22,7 +22,7 @@ const logger = rootLogger.child({ module: 'InventoryService' })
 // Types
 // ============================================================================
 
-export type InventoryEventType = 
+export type InventoryEventType =
     | 'RECEIVE'      // Goods received from supplier
     | 'TRANSFER_OUT' // Sent to another location
     | 'TRANSFER_IN'  // Received from another location
@@ -669,6 +669,7 @@ export class InventoryService {
         catalogItem?: any
         lots: InventoryLot[]
         stockLevel?: StockLevel
+        provenanceTrial?: InventoryEvent[]
     }> {
         const db = DatabaseManager.getDatabase()
 
@@ -691,10 +692,18 @@ export class InventoryService {
             // Get stock level
             const stockLevels = await this.getStockLevels(tenantId, catalogItemId, locationId)
 
-            return { catalogItem, lots, stockLevel: stockLevels[0] }
+            // Get provenance (events for these specific lots)
+            const lotIds = lots.map(l => l.id)
+            const events = db.prepare(`
+                SELECT * FROM inventory_events 
+                WHERE lot_id IN (${lotIds.map(() => '?').join(',')})
+                ORDER BY created_at DESC
+            `).all(...lotIds) as any[]
+
+            return { catalogItem, lots, stockLevel: stockLevels[0], provenanceTrial: events.map(this.mapEvent) }
         }
 
-        // Check if barcode matches catalog item SKU/barcode field (if you have one)
+        // Check if barcode matches catalog item SKU/barcode field
         const catalogItem = db.prepare('SELECT * FROM catalog_items WHERE merchant_id = ? AND sku = ?')
             .get(tenantId, barcode) as any
 
@@ -850,7 +859,7 @@ export class InventoryService {
         `).all(tenantId) as any[]
 
         const totalValue = lots.reduce((sum, l) => sum + (l.value || 0), 0)
-        
+
         return {
             totalValue,
             currency: lots[0]?.currency || 'USD',
@@ -869,12 +878,47 @@ export class InventoryService {
                     ELSE '90+ days'
                 END as age_bucket,
                 SUM(quantity_on_hand * unit_cost) as value,
+                AVG(julianday('now') - julianday(received_at)) as avg_days,
                 COUNT(*) as lot_count
             FROM inventory_lots
             WHERE tenant_id = ? AND quantity_on_hand > 0
             GROUP BY age_bucket
         `).all(tenantId) as any[]
         return lots
+    }
+
+    async getProfitAnalytics(tenantId: string): Promise<any> {
+        const db = DatabaseManager.getDatabase()
+
+        // Detailed profit analysis by joining lots with catalog items
+        const results = db.prepare(`
+            SELECT 
+                c.title as item_name,
+                c.sku,
+                SUM(l.quantity_on_hand) as total_qty,
+                AVG(l.unit_cost) as avg_cost,
+                c.price as selling_price,
+                SUM(l.quantity_on_hand * (c.price - l.unit_cost)) as projected_profit,
+                AVG(julianday('now') - julianday(l.received_at)) as avg_days_in_stock
+            FROM inventory_lots l
+            JOIN catalog_items c ON l.catalog_item_id = c.id
+            WHERE l.tenant_id = ? AND l.quantity_on_hand > 0
+            GROUP BY c.id
+            ORDER BY projected_profit DESC
+        `).all(tenantId) as any[]
+
+        const totals = results.reduce((acc, r) => ({
+            totalProfit: acc.totalProfit + r.projected_profit,
+            totalItems: acc.totalItems + r.total_qty
+        }), { totalProfit: 0, totalItems: 0 })
+
+        return {
+            items: results,
+            summary: {
+                ...totals,
+                overallMargin: totals.totalProfit > 0 ? (totals.totalProfit / results.reduce((s, r) => s + (r.selling_price * r.total_qty), 0)) * 100 : 0
+            }
+        }
     }
 
     private mapLot(row: any): InventoryLot {

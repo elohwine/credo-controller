@@ -1,8 +1,9 @@
-app = "credentis-api"
+app = "credentis-api-v2"
 primary_region = "jnb"
 
 [build]
   dockerfile = "Dockerfile"
+  target = "production"
 
 [env]
   NODE_ENV = "production"
@@ -16,9 +17,10 @@ primary_region = "jnb"
 [[services]]
   internal_port = 3000
   protocol = "tcp"
-  auto_stop_machines = "stop"
+  auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
+
 
   [[services.ports]]
     handlers = ["http"]
@@ -28,9 +30,33 @@ primary_region = "jnb"
     handlers = ["tls", "http"]
     port = 443
 
+[[services]]
+  internal_port = 6000
+  protocol = "tcp"
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 6000
+
+
   [[services.http_checks]]
     interval = "30s"
     timeout = "10s"
     grace_period = "40s"
     method = "get"
     path = "/health"
+
+# Cost-effective VM configuration
+[vm]
+  size = "shared-cpu-1x"
+  memory = "1gb"  # Increased from 256MB to handle multiple processes
+
+# Persistent storage for SQLite databases
+[[mounts]]
+  source = "credentis_data"
+  destination = "/app/data"
+  initial_size = 1  # 1GB volume

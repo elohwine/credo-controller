@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import Head from 'next/head';
 import Layout from '../../components/Layout';
 import axios from 'axios';
 import { BRAND } from '@/lib/theme';
 import QRCode from 'react-qr-code';
 import { CalendarIcon, CurrencyDollarIcon, ClipboardDocumentListIcon, CheckCircleIcon, XCircleIcon, QrCodeIcon, DevicePhoneMobileIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline';
+import { EnvContext } from '@/pages/_app';
 
 const HrOperations = () => {
   const [activeTab, setActiveTab] = useState<'leave' | 'expenses'>('leave');
@@ -18,7 +19,7 @@ const HrOperations = () => {
   // Form states
   const [showLeaveForm, setShowLeaveForm] = useState(false);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
-  
+
   // New Leave Request
   const [newLeave, setNewLeave] = useState({
     employeeId: 'emp-001', // Mock default
@@ -38,16 +39,19 @@ const HrOperations = () => {
     category: 'meals'
   });
 
+  const env = useContext(EnvContext);
+  const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+
   const fetchLeave = async () => {
     try {
-      const res = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000'}/api/operations/leave`);
+      const res = await axios.get(`${backendUrl}/api/operations/leave`);
       setLeaveRequests(res.data);
     } catch (err) { console.error(err); }
   };
 
   const fetchExpenses = async () => {
     try {
-      const res = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000'}/api/operations/expenses`);
+      const res = await axios.get(`${backendUrl}/api/operations/expenses`);
       setExpenseClaims(res.data);
     } catch (err) { console.error(err); }
   };
@@ -61,7 +65,7 @@ const HrOperations = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000'}/api/operations/leave`, newLeave);
+      await axios.post(`${backendUrl}/api/operations/leave`, newLeave);
       setShowLeaveForm(false);
       fetchLeave();
     } catch (err: any) {
@@ -73,7 +77,7 @@ const HrOperations = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000'}/api/operations/expenses`, newExpense);
+      await axios.post(`${backendUrl}/api/operations/expenses`, newExpense);
       setShowExpenseForm(false);
       fetchExpenses();
     } catch (err: any) {
@@ -83,7 +87,7 @@ const HrOperations = () => {
 
   const updateStatus = async (type: 'leave' | 'expenses', id: string, status: string) => {
     try {
-      await axios.put(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000'}/api/operations/${type}/${id}/status`, {
+      await axios.put(`${backendUrl}/api/operations/${type}/${id}/status`, {
         adminDid: 'did:key:admin', // Mock
         status
       });
@@ -95,7 +99,7 @@ const HrOperations = () => {
   const handleReoffer = async (type: 'leave' | 'expenses', id: string) => {
     setLoading(true);
     try {
-      const res = await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000'}/api/operations/${type}/${id}/reoffer`);
+      const res = await axios.post(`${backendUrl}/api/operations/${type}/${id}/reoffer`);
       if (res.data.offerUri || res.data.credential_offer_deeplink) {
         setReofferUri(res.data.offerUri || res.data.credential_offer_deeplink);
         setShowReofferModal(true);
@@ -154,8 +158,8 @@ const HrOperations = () => {
           <div>
             <div className="flex justify-between mb-4">
               <h2 className="text-xl font-semibold" style={{ color: BRAND.dark }}>Leave Requests</h2>
-              <button 
-                onClick={() => setShowLeaveForm(!showLeaveForm)} 
+              <button
+                onClick={() => setShowLeaveForm(!showLeaveForm)}
                 className="text-white px-4 py-2 rounded transition-colors"
                 style={{ backgroundColor: showLeaveForm ? '#6B7280' : BRAND.curious }}
               >
@@ -166,20 +170,20 @@ const HrOperations = () => {
             {showLeaveForm && (
               <div className="flex justify-center mb-6">
                 <form onSubmit={submitLeave} className="shadow-2xl rounded-xl p-8 bg-white max-w-2xl w-full">
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <input type="text" placeholder="Employee ID" className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newLeave.employeeId} onChange={e => setNewLeave({...newLeave, employeeId: e.target.value})} />
-                  <select className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newLeave.leaveType} onChange={e => setNewLeave({...newLeave, leaveType: e.target.value})}>
-                    <option value="annual">Annual</option>
-                    <option value="sick">Sick</option>
-                    <option value="unpaid">Unpaid</option>
-                    <option value="maternity">Maternity</option>
-                    <option value="study">Study</option>
-                  </select>
-                  <input type="date" className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newLeave.startDate} onChange={e => setNewLeave({...newLeave, startDate: e.target.value})} />
-                  <input type="date" className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newLeave.endDate} onChange={e => setNewLeave({...newLeave, endDate: e.target.value})} />
-                  <input type="number" placeholder="Days" className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newLeave.daysCount} onChange={e => setNewLeave({...newLeave, daysCount: parseInt(e.target.value)})} />
-                  <input type="text" placeholder="Reason" className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newLeave.reason} onChange={e => setNewLeave({...newLeave, reason: e.target.value})} />
-                </div>
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <input type="text" placeholder="Employee ID" className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newLeave.employeeId} onChange={e => setNewLeave({ ...newLeave, employeeId: e.target.value })} />
+                    <select className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newLeave.leaveType} onChange={e => setNewLeave({ ...newLeave, leaveType: e.target.value })}>
+                      <option value="annual">Annual</option>
+                      <option value="sick">Sick</option>
+                      <option value="unpaid">Unpaid</option>
+                      <option value="maternity">Maternity</option>
+                      <option value="study">Study</option>
+                    </select>
+                    <input type="date" className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newLeave.startDate} onChange={e => setNewLeave({ ...newLeave, startDate: e.target.value })} />
+                    <input type="date" className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newLeave.endDate} onChange={e => setNewLeave({ ...newLeave, endDate: e.target.value })} />
+                    <input type="number" placeholder="Days" className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newLeave.daysCount} onChange={e => setNewLeave({ ...newLeave, daysCount: parseInt(e.target.value) })} />
+                    <input type="text" placeholder="Reason" className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newLeave.reason} onChange={e => setNewLeave({ ...newLeave, reason: e.target.value })} />
+                  </div>
                   <button type="submit" disabled={loading} className="text-white px-4 py-2 rounded-lg transition-colors" style={{ backgroundColor: BRAND.curious }}>Submit Request</button>
                 </form>
               </div>
@@ -211,10 +215,9 @@ const HrOperations = () => {
                       )}
                     </div>
                     <div className="flex items-center gap-4">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        req.status === 'approved' ? 'bg-green-100 text-green-800' : 
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${req.status === 'approved' ? 'bg-green-100 text-green-800' :
                         req.status === 'rejected' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
-                      }`}>
+                        }`}>
                         {req.status}
                       </span>
                       {req.status === 'pending' && (
@@ -237,8 +240,8 @@ const HrOperations = () => {
           <div>
             <div className="flex justify-between mb-4">
               <h2 className="text-xl font-semibold" style={{ color: BRAND.dark }}>Expense Claims</h2>
-              <button 
-                onClick={() => setShowExpenseForm(!showExpenseForm)} 
+              <button
+                onClick={() => setShowExpenseForm(!showExpenseForm)}
                 className="text-white px-4 py-2 rounded transition-colors"
                 style={{ backgroundColor: showExpenseForm ? '#6B7280' : BRAND.curious }}
               >
@@ -249,20 +252,20 @@ const HrOperations = () => {
             {showExpenseForm && (
               <div className="flex justify-center mb-6">
                 <form onSubmit={submitExpense} className="shadow-2xl rounded-xl p-8 bg-white max-w-2xl w-full">
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <input type="text" placeholder="Employee ID" className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newExpense.employeeId} onChange={e => setNewExpense({...newExpense, employeeId: e.target.value})} />
-                  <select className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newExpense.category} onChange={e => setNewExpense({...newExpense, category: e.target.value})}>
-                    <option value="meals">Meals</option>
-                    <option value="travel">Travel</option>
-                    <option value="equipment">Equipment</option>
-                    <option value="other">Other</option>
-                  </select>
-                  <input type="text" placeholder="Description" className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newExpense.description} onChange={e => setNewExpense({...newExpense, description: e.target.value})} />
-                  <div className="flex gap-2">
-                    <input type="number" placeholder="Amount" className="p-2.5 border rounded-lg w-2/3 focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newExpense.amount} onChange={e => setNewExpense({...newExpense, amount: parseFloat(e.target.value)})} />
-                    <input type="text" placeholder="USD" className="p-2.5 border rounded-lg w-1/3 bg-gray-100" style={{ borderColor: BRAND.viking }} value={newExpense.currency} readOnly />
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <input type="text" placeholder="Employee ID" className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newExpense.employeeId} onChange={e => setNewExpense({ ...newExpense, employeeId: e.target.value })} />
+                    <select className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newExpense.category} onChange={e => setNewExpense({ ...newExpense, category: e.target.value })}>
+                      <option value="meals">Meals</option>
+                      <option value="travel">Travel</option>
+                      <option value="equipment">Equipment</option>
+                      <option value="other">Other</option>
+                    </select>
+                    <input type="text" placeholder="Description" className="p-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newExpense.description} onChange={e => setNewExpense({ ...newExpense, description: e.target.value })} />
+                    <div className="flex gap-2">
+                      <input type="number" placeholder="Amount" className="p-2.5 border rounded-lg w-2/3 focus:outline-none focus:ring-2 focus:border-transparent" style={{ borderColor: BRAND.viking, '--tw-ring-color': BRAND.curious } as any} value={newExpense.amount} onChange={e => setNewExpense({ ...newExpense, amount: parseFloat(e.target.value) })} />
+                      <input type="text" placeholder="USD" className="p-2.5 border rounded-lg w-1/3 bg-gray-100" style={{ borderColor: BRAND.viking }} value={newExpense.currency} readOnly />
+                    </div>
                   </div>
-                </div>
                   <button type="submit" disabled={loading} className="text-white px-4 py-2 rounded-lg transition-colors" style={{ backgroundColor: BRAND.curious }}>Submit Claim</button>
                 </form>
               </div>
@@ -294,11 +297,10 @@ const HrOperations = () => {
                       )}
                     </div>
                     <div className="flex items-center gap-4">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        claim.status === 'approved' ? 'bg-green-100 text-green-800' : 
-                        claim.status === 'paid' ? 'bg-blue-100 text-blue-800' : 
-                        claim.status === 'rejected' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
-                      }`}>
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${claim.status === 'approved' ? 'bg-green-100 text-green-800' :
+                        claim.status === 'paid' ? 'bg-blue-100 text-blue-800' :
+                          claim.status === 'rejected' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
+                        }`}>
                         {claim.status}
                       </span>
                       {claim.status === 'pending' && (
@@ -308,7 +310,7 @@ const HrOperations = () => {
                         </div>
                       )}
                       {claim.status === 'approved' && (
-                         <button onClick={() => updateStatus('expenses', claim.id, 'paid')} className="text-sm font-medium" style={{ color: BRAND.curious }}>💳 Mark Paid</button>
+                        <button onClick={() => updateStatus('expenses', claim.id, 'paid')} className="text-sm font-medium" style={{ color: BRAND.curious }}>💳 Mark Paid</button>
                       )}
                     </div>
                   </li>
@@ -335,7 +337,7 @@ const HrOperations = () => {
                   <button
                     onClick={() => {
                       const deeplink = reofferUri.replace('openid-credential-offer://?credential_offer_uri=', 'credentis://offer?uri=');
-                      window.location.href = deeplink;
+                      window.open(deeplink.startsWith('http') ? deeplink : reofferUri, '_blank');
                     }}
                     className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-white font-medium"
                     style={{ backgroundColor: BRAND.curious }}

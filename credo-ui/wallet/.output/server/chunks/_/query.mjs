@@ -1,4 +1,4 @@
-import { j as getQuery, k as createError } from '../nitro/nitro.mjs';
+import { n as getQuery, c as createError } from '../nitro/nitro.mjs';
 import 'unified';
 import 'remark-parse';
 import 'remark-rehype';

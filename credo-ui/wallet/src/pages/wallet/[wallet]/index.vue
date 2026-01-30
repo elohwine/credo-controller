@@ -1,150 +1,49 @@
 <template>
-  <div
-    class="flex flex-1 flex-col justify-center px-4 py-12 sm:px-6 lg:flex-none lg:px-20 xl:px-24 lg:bg-white lg:bg-opacity-50 sm:h-full sm:p-6"
-  >
-    <div class="sm:h-full w-full">
-      <!-- Pending Offers Section -->
+  <div class="flex flex-col min-h-screen bg-gray-50/50">
+    <!-- Welcome Header -->
+    <WalletPageHeader />
+
+    <div class="px-4 pb-20 sm:px-6 lg:px-8 max-w-5xl mx-auto w-full">
+      
+      <!-- Pending Offers (if any) -->
       <div v-if="pendingOffers && pendingOffers.length > 0" class="mb-8">
-        <h2 class="text-2xl font-bold text-[#0F3F5E] mb-4">Available Credentials</h2>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <h2 class="text-sm font-semibold text-[#627D98] uppercase tracking-wider mb-4 ml-1">Available Credentials</h2>
+        <div class="grid grid-cols-1 gap-4">
           <div
             v-for="offer in pendingOffers"
             :key="offer.id"
-            class="rounded-2xl p-6 shadow-xl border border-white/30"
-            style="background: linear-gradient(145deg, rgba(208,230,243,0.95), rgba(136,196,227,0.85)); backdrop-filter: blur(12px) saturate(180%);"
+            class="rounded-xl p-4 shadow-md bg-white border border-blue-100"
           >
-            <div class="flex items-start justify-between mb-4">
+            <div class="flex items-center justify-between">
               <div>
-                <h3 class="text-lg font-semibold text-[#0F3F5E]">{{ offer.credentialType }}</h3>
-                <p class="text-sm text-[#627D98] mt-1">{{ offer.issuerName }}</p>
+                <h3 class="text-md font-bold text-[#0F3F5E]">{{ offer.credentialType }}</h3>
+                <p class="text-sm text-[#627D98]">{{ offer.issuerName }}</p>
               </div>
-              <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium text-white" style="background: linear-gradient(135deg, #2188CA, #0F3F5E);">
-                New
-              </span>
+              <button
+                @click="acceptOffer(offer)"
+                :disabled="acceptingOfferId === offer.id"
+                class="px-4 py-2 text-sm text-white font-medium rounded-lg shadow-sm hover:shadow transition-all"
+                style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
+              >
+                {{ acceptingOfferId === offer.id ? '...' : 'Accept' }}
+              </button>
             </div>
-            <button
-              @click="acceptOffer(offer)"
-              :disabled="acceptingOfferId === offer.id"
-              class="w-full mt-4 px-4 py-2 text-white rounded-lg shadow-lg hover:shadow-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2188CA] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
-            >
-              {{ acceptingOfferId === offer.id ? 'Accepting...' : 'Accept Credential' }}
-            </button>
           </div>
         </div>
       </div>
 
-      <!-- GenericID Banner (shows only once for new users) -->
-      <GenericIdBanner
-        :walletId="walletId"
-        :credentialId="genericIdCredential?.id"
-      />
-
-      <!-- Quick Access Workflows -->
-      <div class="mb-10">
-        <h2 class="text-xl font-bold text-[#0F3F5E] mb-4">Quick Access</h2>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <NuxtLink :to="`/wallet/${walletId}/scan`" class="group relative flex items-center space-x-3 rounded-2xl border border-white/40 bg-white/70 backdrop-blur-sm px-6 py-5 shadow-lg focus-within:ring-2 focus-within:ring-[#2188CA] focus-within:ring-offset-2 hover:border-[#6FB4DC] hover:shadow-xl transition-all">
-            <div class="flex-shrink-0">
-              <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#D0E6F3] text-[#2188CA] group-hover:bg-[#2188CA] group-hover:text-white transition-colors">
-                <QrCodeIcon class="h-6 w-6" aria-hidden="true" />
-              </div>
-            </div>
-            <div class="min-w-0 flex-1">
-              <span class="absolute inset-0" aria-hidden="true" />
-              <p class="text-sm font-semibold text-[#0F3F5E]">Scan QR Code</p>
-              <p class="truncate text-xs text-[#627D98]">Receive or present VCs</p>
-            </div>
-          </NuxtLink>
-
-          <NuxtLink :to="`/wallet/${walletId}/settings/issuers`" class="group relative flex items-center space-x-3 rounded-2xl border border-white/40 bg-white/70 backdrop-blur-sm px-6 py-5 shadow-lg focus-within:ring-2 focus-within:ring-[#2188CA] focus-within:ring-offset-2 hover:border-[#6FB4DC] hover:shadow-xl transition-all">
-            <div class="flex-shrink-0">
-              <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#D0E6F3] text-[#2188CA] group-hover:bg-[#2188CA] group-hover:text-white transition-colors">
-                <ArrowDownOnSquareStackIcon class="h-6 w-6" aria-hidden="true" />
-              </div>
-            </div>
-            <div class="min-w-0 flex-1">
-              <span class="absolute inset-0" aria-hidden="true" />
-              <p class="text-sm font-semibold text-[#0F3F5E]">Request VC</p>
-              <p class="truncate text-xs text-[#627D98]">From trusted issuers</p>
-            </div>
-          </NuxtLink>
-
-          <NuxtLink to="/demo/finance-portal" class="group relative flex items-center space-x-3 rounded-2xl border border-white/40 bg-white/70 backdrop-blur-sm px-6 py-5 shadow-lg focus-within:ring-2 focus-within:ring-[#2188CA] focus-within:ring-offset-2 hover:border-[#6FB4DC] hover:shadow-xl transition-all">
-            <div class="flex-shrink-0">
-              <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#D0E6F3] text-[#2188CA] group-hover:bg-[#2188CA] group-hover:text-white transition-colors">
-                <ShoppingCartIcon class="h-6 w-6" aria-hidden="true" />
-              </div>
-            </div>
-            <div class="min-w-0 flex-1">
-              <span class="absolute inset-0" aria-hidden="true" />
-              <p class="text-sm font-semibold text-[#0F3F5E]">Commerce Demo</p>
-              <p class="truncate text-xs text-[#627D98]">Issue demo Cart/Invoice/Receipt VCs</p>
-            </div>
-          </NuxtLink>
+      <!-- Credentials List -->
+      <div v-if="credentials && credentials.length > 0">
+        <div class="flex items-center justify-between mb-4 ml-1">
+            <h2 class="text-sm font-semibold text-[#627D98] uppercase tracking-wider">Credentials</h2>
         </div>
-      </div>
+        
+        <ul role="list" class="space-y-4">
 
-      <div
-        v-if="credentials && credentials.length > 0"
-        class="sm:flex items-center gap-4 mb-5 hidden"
-      >
-        <h1 class="text-3xl font-bold text-[#0F3F5E]">Credentials</h1>
-        <NuxtLink :to="`/wallet/${walletId}/scan`">
-          <button
-            class="rounded-full px-6 py-1.5 text-white shadow-lg hover:shadow-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2188CA] transition-all"
-            style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
-          >
-            Present
-          </button>
-        </NuxtLink>
-        <NuxtLink :to="`/wallet/${walletId}/scan`">
-          <button
-            class="rounded-full px-6 py-1.5 text-white shadow-lg hover:shadow-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2188CA] transition-all"
-            style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
-          >
-            Receive
-          </button>
-        </NuxtLink>
-        <div class="ml-auto flex items-center gap-2 rounded-full bg-white/80 border border-white/60 px-2 py-1 shadow-sm">
-          <button
-            @click="viewMode = 'list'"
-            :class="[
-              'px-3 py-1 rounded-full text-xs font-semibold transition-all',
-              viewMode === 'list'
-                ? 'bg-[#2188CA] text-white'
-                : 'text-[#0F3F5E] hover:bg-white'
-            ]"
-          >
-            List
-          </button>
-          <button
-            @click="viewMode = 'grid'"
-            :class="[
-              'px-3 py-1 rounded-full text-xs font-semibold transition-all',
-              viewMode === 'grid'
-                ? 'bg-[#2188CA] text-white'
-                : 'text-[#0F3F5E] hover:bg-white'
-            ]"
-          >
-            Grid
-          </button>
-        </div>
-      </div>
-      <ul
-        v-if="credentials && credentials.length > 0"
-        :class="[
-          'relative grid gap-y-4',
-          viewMode === 'grid'
-            ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 sm:gap-x-4 sm:gap-y-6'
-            : 'grid-cols-1 sm:px-6 md:px-12'
-        ]"
-        role="list"
-      >
         <li
           v-for="(credential, index) in credentials"
           :key="credential.id"
-          class="col-span-1 transform hover:scale-[1.02] cursor-pointer duration-200"
+          class="transform hover:scale-[1.01] cursor-pointer duration-200"
         >
           <NuxtLink
             :to="
@@ -152,10 +51,11 @@
               encodeURIComponent(credential.id)
             "
           >
-            <VerifiableCredentialCard :credential="credential" :isDetailView="viewMode === 'grid'" />
+            <VerifiableCredentialCard :credential="credential" :isDetailView="false" />
           </NuxtLink>
         </li>
       </ul>
+    </div>
 
       <LoadingIndicator v-else-if="pending"
         >Loading credentials...</LoadingIndicator
@@ -193,6 +93,7 @@
 </template>
 
 <script setup>
+import WalletPageHeader from "@credentis-web-wallet/components/WalletPageHeader.vue";
 import VerifiableCredentialCard from "@credentis-web-wallet/components/credentials/VerifiableCredentialCard.vue";
 import GenericIdBanner from "@credentis-web-wallet/components/GenericIdBanner.vue";
 import scannerSVG from "~/public/svg/scanner.svg";

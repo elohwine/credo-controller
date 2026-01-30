@@ -77,7 +77,7 @@ export class OperationsService {
 
     async updateLeaveStatus(tenantId: string, adminDid: string, leaveId: string, status: 'approved' | 'rejected'): Promise<{ approvalVcId?: string }> {
         const db = DatabaseManager.getDatabase()
-        
+
         // Get leave details
         const leave = db.prepare('SELECT * FROM leave_requests WHERE id = ?').get(leaveId) as any
         if (!leave) throw new Error('Leave request not found')
@@ -128,16 +128,102 @@ export class OperationsService {
 
     /**
      * Get leave approval VC offer for reoffer
+     * Self-healing: Regenerates offer if missing
      */
     async getLeaveApprovalVCOffer(tenantId: string, leaveId: string): Promise<{ credential_offer_uri: string, credential_offer_deeplink: string }> {
         const db = DatabaseManager.getDatabase()
-        const row = db.prepare('SELECT approval_vc_offer_uri FROM leave_requests WHERE id = ? AND tenant_id = ?').get(leaveId, tenantId) as any
-        if (!row || !row.approval_vc_offer_uri) {
-            throw new Error(`No LeaveApprovalVC credential offer found for leave request ${leaveId}`)
+        const row = db.prepare('SELECT * FROM leave_requests WHERE id = ? AND tenant_id = ?').get(leaveId, tenantId) as any
+
+        if (!row) throw new Error(`Leave request ${leaveId} not found`)
+
+        if (!row.approval_vc_offer_uri) {
+            logger.info({ leaveId }, 'Regenerating missing LeaveApprovalVC offer')
+
+            // Only regenerate if status is approved and we have an approver
+            if (row.status !== 'approved' || !row.approver_id) {
+                throw new Error(`Cannot reoffer: Leave request ${leaveId} is not approved or missing approver`)
+            }
+
+            const offer = await credentialIssuanceService.createOffer({
+                credentialType: 'LeaveApprovalVC',
+                claims: {
+                    leaveRequestId: leaveId,
+                    employeeId: row.employee_id,
+                    leaveType: row.leave_type,
+                    startDate: row.start_date,
+                    endDate: row.end_date,
+                    daysCount: row.days_count,
+                    reason: row.reason || '',
+                    approvedBy: row.approver_id,
+                    approvedAt: row.updated_at // Use last update as approval time
+                },
+                tenantId
+            })
+
+            db.prepare('UPDATE leave_requests SET approval_vc_offer_uri = ? WHERE id = ?')
+                .run(offer.credential_offer_deeplink, leaveId)
+
+            row.approval_vc_offer_uri = offer.credential_offer_deeplink
         }
 
         const deeplink = row.approval_vc_offer_uri
-        // Extract HTTP URI from deeplink
+        let uri = deeplink
+        if (deeplink.includes('credential_offer_uri=')) {
+            const encodedUri = deeplink.split('credential_offer_uri=')[1]
+            uri = decodeURIComponent(encodedUri)
+        }
+
+        return {
+            credential_offer_uri: uri,
+            credential_offer_deeplink: deeplink
+        }
+    }
+
+    // ... (listLeaveRequests omitted) ...
+
+    // --- Expense Management ---
+
+    // ... (create/update expense omitted) ...
+
+    /**
+     * Get expense approval VC offer for reoffer
+     * Self-healing: Regenerates offer if missing
+     */
+    async getExpenseApprovalVCOffer(tenantId: string, claimId: string): Promise<{ credential_offer_uri: string, credential_offer_deeplink: string }> {
+        const db = DatabaseManager.getDatabase()
+        const row = db.prepare('SELECT * FROM expense_claims WHERE id = ? AND tenant_id = ?').get(claimId, tenantId) as any
+
+        if (!row) throw new Error(`Expense claim ${claimId} not found`)
+
+        if (!row.approval_vc_offer_uri) {
+            logger.info({ claimId }, 'Regenerating missing ExpenseApprovalVC offer')
+
+            if (row.status !== 'approved' || !row.approved_by) {
+                throw new Error(`Cannot reoffer: Expense claim ${claimId} is not approved or missing approver`)
+            }
+
+            const offer = await credentialIssuanceService.createOffer({
+                credentialType: 'ExpenseApprovalVC',
+                claims: {
+                    expenseClaimId: claimId,
+                    employeeId: row.employee_id,
+                    description: row.description,
+                    amount: row.amount,
+                    currency: row.currency,
+                    category: row.category,
+                    approvedBy: row.approved_by,
+                    approvedAt: row.updated_at
+                },
+                tenantId
+            })
+
+            db.prepare('UPDATE expense_claims SET approval_vc_offer_uri = ? WHERE id = ?')
+                .run(offer.credential_offer_deeplink, claimId)
+
+            row.approval_vc_offer_uri = offer.credential_offer_deeplink
+        }
+
+        const deeplink = row.approval_vc_offer_uri
         let uri = deeplink
         if (deeplink.includes('credential_offer_uri=')) {
             const encodedUri = deeplink.split('credential_offer_uri=')[1]
@@ -217,7 +303,7 @@ export class OperationsService {
 
     async updateExpenseStatus(tenantId: string, adminDid: string, claimId: string, status: 'approved' | 'rejected' | 'paid'): Promise<{ approvalVcId?: string }> {
         const db = DatabaseManager.getDatabase()
-        
+
         // Get expense details
         const expense = db.prepare('SELECT * FROM expense_claims WHERE id = ?').get(claimId) as any
         if (!expense) throw new Error('Expense claim not found')
@@ -275,29 +361,6 @@ export class OperationsService {
         return { approvalVcId }
     }
 
-    /**
-     * Get expense approval VC offer for reoffer
-     */
-    async getExpenseApprovalVCOffer(tenantId: string, claimId: string): Promise<{ credential_offer_uri: string, credential_offer_deeplink: string }> {
-        const db = DatabaseManager.getDatabase()
-        const row = db.prepare('SELECT approval_vc_offer_uri FROM expense_claims WHERE id = ? AND tenant_id = ?').get(claimId, tenantId) as any
-        if (!row || !row.approval_vc_offer_uri) {
-            throw new Error(`No ExpenseApprovalVC credential offer found for claim ${claimId}`)
-        }
-
-        const deeplink = row.approval_vc_offer_uri
-        // Extract HTTP URI from deeplink
-        let uri = deeplink
-        if (deeplink.includes('credential_offer_uri=')) {
-            const encodedUri = deeplink.split('credential_offer_uri=')[1]
-            uri = decodeURIComponent(encodedUri)
-        }
-
-        return {
-            credential_offer_uri: uri,
-            credential_offer_deeplink: deeplink
-        }
-    }
 
     async listExpenseClaims(tenantId: string, employeeId?: string): Promise<ExpenseClaim[]> {
         const db = DatabaseManager.getDatabase()

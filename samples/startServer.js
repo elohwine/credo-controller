@@ -48,8 +48,8 @@ async function run() {
   const agent = new Agent({
     config: {
       walletConfig: {
-        id: 'sample-wallet',
-        key: 'sample-wallet-key',
+        id: 'shared-controller-agent',
+        key: 'shared-controller-key',
       },
       label: 'Multi-Tenant Test Agent',
       endpoints: ['http://127.0.0.1:3001'],
@@ -61,6 +61,9 @@ async function run() {
       askar: new AskarModule({
         ariesAskar,
         multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.ProfilePerWallet,
+        config: {
+          storagePath: '/app/data/askar/shared'
+        }
       }),
       tenants: new TenantsModule({
         sessionAcquireTimeout: maxTimerMs,
@@ -76,7 +79,7 @@ async function run() {
       w3cCredentials: new W3cCredentialsModule(),
       // OpenID4VC modules (Issuer & Verifier)
       openId4VcIssuer: new OpenId4VcIssuerModule({
-        baseUrl: 'http://127.0.0.1:3000/oidc/issuer',
+        baseUrl: `${process.env.PUBLIC_BASE_URL || 'http://api:3000'}/oidc/issuer`,
         router: issuerRouter,
         endpoints: {
           credentialOffer: {},
@@ -154,7 +157,7 @@ async function run() {
         },
       }),
       openId4VcVerifier: new OpenId4VcVerifierModule({
-        baseUrl: 'http://127.0.0.1:3000/oidc/verifier',
+        baseUrl: `${process.env.PUBLIC_BASE_URL || 'http://api:3000'}/oidc/verifier`,
         router: verifierRouter,
       }),
       // OpenID4VC Holder module - for wallets to receive credentials
@@ -201,6 +204,9 @@ async function run() {
       'CartSnapshotVC',
       'InvoiceVC',
       'ReceiptVC',
+      'EmploymentContractVC',
+      'QuoteVC',
+      'ApprovalVC',
       ...allDefinitions.map(d => d.name)
     ]))
 
@@ -275,6 +281,7 @@ async function run() {
       // Create a new issuer only if none exist
       try {
         issuerToUse = await agent.modules.openId4VcIssuer.createIssuer({
+          issuerId: 'default-platform-issuer',
           display,
           credentialsSupported,
           credentialConfigurationsSupported,
@@ -289,7 +296,8 @@ async function run() {
     if (issuerToUse) {
       try {
         const { issuerMetadataCache } = require('../build/utils/issuerMetadataCache')
-        const issuerUrl = `http://127.0.0.1:3000/oidc/issuer/${issuerToUse.issuerId}`
+        const publicBase = process.env.PUBLIC_BASE_URL || 'http://api:3000'
+        const issuerUrl = `${publicBase}/oidc/issuer/${issuerToUse.issuerId}`
         const metadata = {
           credential_issuer: issuerUrl,
           credentials_supported: credentialsSupported,
@@ -315,7 +323,7 @@ async function run() {
         issuers: issuers.map(i => ({
           id: i.issuerId,
           credentialsSupported: i.credentialsSupported,
-          issuerUrl: `http://127.0.0.1:3000/oidc/issuer/${i.issuerId}` // Debug helper
+          issuerUrl: `${process.env.PUBLIC_BASE_URL || 'http://api:3000'}/oidc/issuer/${i.issuerId}` // Debug helper
         }))
       })
     } catch (e) {
@@ -341,7 +349,7 @@ async function run() {
     },
     'test-api-key-12345'
   )
-  server.keepAliveTimeout = 0; // Disable keep-alive to prevent socket hang ups
+  // server.keepAliveTimeout = 0; // Disable keep-alive to prevent socket hang ups
   // server.headersTimeout = 66000; // Not needed if keep-alive is 0
 
   console.log(`🚀 Server running on http://localhost:3000`)

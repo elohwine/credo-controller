@@ -65,7 +65,22 @@ export async function useIssuance(query: any) {
     } catch (err: any) {
         throw createError({ statusCode: 400, statusMessage: `Invalid issuance request: ${err?.message || err}` })
     }
-    const credentialOffer = await resolveCredentialOffer(request);
+    const { data: credentialOffer, error: resolveError } = await useAsyncData(
+        `resolve-offer-${request}`,
+        async () => {
+            const res = await resolveCredentialOffer(request);
+            return res;
+        }
+    );
+
+    if (resolveError.value) {
+        throw createError({
+            statusCode: 500,
+            statusMessage: `Failed to resolve offer: ${resolveError.value.message}`,
+        });
+    }
+
+    resolvedOfferData.value = credentialOffer.value;
     if (credentialOffer == null) {
         throw createError({
             statusCode: 400,
@@ -152,6 +167,8 @@ export async function useIssuance(query: any) {
     );
 
 
+    const resolvedOfferData = ref<any>(null);
+
     async function acceptCredential() {
         const did: string | null = selectedDid.value?.did ?? dids.value[0]?.did ?? null;
         if (did === null) { return; }
@@ -159,7 +176,10 @@ export async function useIssuance(query: any) {
         try {
             await $fetch(`/wallet-api/wallet/${currentWallet.value}/exchange/useOfferRequest?did=${did}`, {
                 method: "POST",
-                body: { request: request },
+                body: {
+                    request: request,
+                    _credoResolved: resolvedOfferData.value?._credoResolved
+                },
             });
             navigateTo(`/wallet/${currentWallet.value}`);
         } catch (e: any) {

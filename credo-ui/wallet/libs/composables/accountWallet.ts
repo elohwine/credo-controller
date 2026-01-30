@@ -1,8 +1,6 @@
-import { navigateTo, useFetch, useRoute, useState, useCookie } from "nuxt/app";
+import { navigateTo, useRoute, useState, useRequestHeaders } from "#imports";
 import { useLocalStorage } from "@vueuse/core";
 import { watchEffect } from "vue";
-// @ts-expect-error - Nuxt auto-imports useAuth from @sidebase/nuxt-auth
-import { useAuth } from "#imports";
 
 export type WalletListing = {
     id: string,
@@ -19,22 +17,13 @@ export type WalletListings = {
 
 export async function listWallets() {
     try {
-        // The server authenticates from the HttpOnly cookie `auth.token`.
-        // Ensure the browser sends cookies by including credentials on the fetch.
-        const { data, refresh, error } = useFetch<WalletListings>("/wallet-api/accounts/wallets", {
-            credentials: 'include'
+        // Use $fetch for synchronous programmatic calls to avoid useFetch/refresh race
+        const data = await $fetch<WalletListings>("/wallet-api/accounts/wallets", {
+            headers: useRequestHeaders(['cookie']) as any
         });
-        await refresh()
-        
-        if (error.value) {
-            console.error('Failed to list wallets:', error.value)
-            // Error notification will be shown by global error handler
-        }
-        
-        return data;
-    } catch (error) {
-        console.error('Exception listing wallets:', error)
-        // Global error handler will show notification
+        return { value: data }; // Return Ref-like object for compatibility with awaited calls
+    } catch (error: any) {
+        console.error('Failed to list wallets:', error)
         throw error
     }
 }

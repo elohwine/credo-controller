@@ -336,6 +336,7 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
     } else {
       // Create new issuer only if none exists
       const openId4VcIssuer = await agent.modules.openId4VcIssuer.createIssuer({
+        issuerId: 'default-platform-issuer',
         display: displayMetadata,
         credentialsSupported,
       })

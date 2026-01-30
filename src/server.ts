@@ -68,7 +68,7 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
 
   initTenantStore()
   initWalletUserStore()
-  
+
   // Initialize trigger service for scheduled workflows
   try {
     await triggerService.initialize()
@@ -77,9 +77,9 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     const msg = e instanceof Error ? e.message : String(e)
     agent?.config?.logger?.warn?.(`TriggerService initialization failed: ${msg}`)
   }
-  
-  await otelSDK.start()
-  agent.config.logger.info('OpenTelemetry SDK started')
+
+  // await otelSDK.start()
+  // agent.config.logger.info('OpenTelemetry SDK started')
 
   if (process.env.DEBUG_AGENT_MODULES === 'true') {
     // DEBUG: Log agent modules before and after registration
@@ -93,7 +93,7 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     console.log('[server.ts] Agent modules after container registration:', Object.keys((agent.modules as any) || {}))
   }
 
-  fs.writeFileSync('config.json', JSON.stringify(config, null, 2))
+  fs.writeFileSync('/app/data/config.json', JSON.stringify(config, null, 2))
 
   const app = config.app ?? express()
   if (config.cors) {
@@ -122,14 +122,32 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
       'http://127.0.0.1:5000',
       'http://127.0.0.1:6000',
       'http://127.0.0.1:6001',
+      // Fly.io production URLs
+      'https://credentis-portal.fly.dev',
+      'https://credentis-wallet.fly.dev',
+      'https://credentis-api.fly.dev',
+      // Docker Internal IPs
+      'http://172.16.0.0:3000', 'http://172.16.0.0:4000', 'http://172.16.0.0:5000', 'http://172.16.0.0:6000',
+      'http://172.17.0.0:3000', 'http://172.17.0.0:4000', 'http://172.17.0.0:5000', 'http://172.17.0.0:6000',
+      'http://172.18.0.0:3000', 'http://172.18.0.0:4000', 'http://172.18.0.0:5000', 'http://172.18.0.0:6000',
+      'http://172.19.0.0:3000', 'http://172.19.0.0:4000', 'http://172.19.0.0:5000', 'http://172.19.0.0:6000',
     ]
+
+    const isDockerOrigin = (origin: string) => {
+      return origin.startsWith('http://172.') ||
+        origin.startsWith('http://api') ||
+        origin.startsWith('http://holder-api') ||
+        origin.startsWith('http://portal') ||
+        origin.startsWith('http://wallet')
+    }
+
 
     app.use(cors({
       origin: (origin, callback) => {
         // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true)
 
-        if (allowedOrigins.indexOf(origin) !== -1) {
+        if (allowedOrigins.indexOf(origin) !== -1 || isDockerOrigin(origin)) {
           callback(null, true)
         } else {
           agent.config.logger.warn(`CORS blocked origin: ${origin}`)

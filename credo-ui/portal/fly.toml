@@ -1,4 +1,4 @@
-app = "credentis-portal"
+app = "credentis-portal-v2"
 primary_region = "jnb"
 
 [build]
@@ -7,9 +7,16 @@ primary_region = "jnb"
 [env]
   NODE_ENV = "production"
   PORT = "5000"
-  NEXT_PUBLIC_ISSUER_API_URL = "http://credentis-api.internal:3000"
-  NEXT_PUBLIC_WALLET_UI_URL = "https://credentis-wallet.fly.dev"
-  NEXT_PUBLIC_VC_REPOSITORY_URL = "http://credentis-api.internal:3000"
+  NEXT_PUBLIC_BACKEND_URL = "https://credentis-api-v2.fly.dev"
+  NEXT_PUBLIC_VC_REPO = "https://credentis-api-v2.fly.dev"
+  NEXT_PUBLIC_ISSUER_API_BASE = "https://credentis-api-v2.fly.dev/oidc/issuer"
+  NEXT_PUBLIC_VERIFIER_API_BASE = "https://credentis-api-v2.fly.dev/oidc/verifier"
+  NEXT_PUBLIC_WALLET = "https://credentis-wallet-v2.fly.dev"
+  NEXT_PUBLIC_CREDO_API_KEY = "test-api-key-12345"
+  NEXT_PUBLIC_WHATSAPP_ENABLED = "true"
+
+
+
 
 [[services]]
   internal_port = 5000
@@ -25,3 +32,7 @@ primary_region = "jnb"
   [[services.ports]]
     handlers = ["tls", "http"]
     port = 443
+
+# Cost-effective VM configuration
+[vm]
+  size = "shared-cpu-1x"  # 1 vCPU, 256MB RAM (~$1.94/month when running)

@@ -114,12 +114,16 @@ export default function App({ Component, pageProps }: AppProps) {
           }
         } catch (err: any) {
           console.error('[App] Failed to initialize portal tenant:', err.message);
-          // If we failed with 401/403, maybe our token is bad. Clear it to retry next time.
-          if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+          // If we failed with 401/403/404, maybe our token is bad or tenant doesn't exist. Clear it to retry next time.
+          if (err.response && (err.response.status === 401 || err.response.status === 403 || err.response.status === 404)) {
+            console.warn('[App] Clearing stale tenant credentials due to', err.response.status);
             localStorage.removeItem('credoTenantId');
             localStorage.removeItem('credoTenantToken');
+            // Reload to re-initialize
+            window.location.reload();
           }
         }
+
       };
 
       initializeTenant();

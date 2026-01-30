@@ -137,6 +137,31 @@ export class PayrollService {
         }
     }
 
+    /**
+     * Get employee by email
+     */
+    async getEmployeeByEmail(email: string): Promise<Employee | null> {
+        const db = DatabaseManager.getDatabase()
+        const emp = db.prepare('SELECT * FROM employees WHERE email = ?').get(email) as any
+        if (!emp) return null
+
+        return {
+            id: emp.id,
+            tenantId: emp.tenant_id,
+            did: emp.did,
+            firstName: emp.first_name,
+            lastName: emp.last_name,
+            email: emp.email,
+            phone: emp.phone,
+            baseSalary: emp.base_salary,
+            currency: emp.currency,
+            nssaNumber: emp.nssa_number,
+            tin: emp.tin,
+            status: emp.status as any,
+            createdAt: emp.created_at
+        }
+    }
+
     async listEmployees(tenantId: string = 'default'): Promise<Employee[]> {
         const db = DatabaseManager.getDatabase()
         const rows = db.prepare('SELECT * FROM employees WHERE tenant_id = ?').all(tenantId) as any[]

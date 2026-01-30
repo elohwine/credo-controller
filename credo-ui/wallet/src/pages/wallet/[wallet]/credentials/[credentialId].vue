@@ -1,179 +1,97 @@
 <template>
-  <div class="min-h-screen" style="background: linear-gradient(135deg, #D0E6F3 0%, #88C4E3 100%);">
+  <div class="min-h-screen bg-gray-50/50">
     <CenterMain>
       <div v-if="pending" class="flex justify-center items-center h-screen">
         <LoadingIndicator>Loading credential...</LoadingIndicator>
       </div>
-      <div v-else class="w-full max-w-3xl mx-auto py-8 px-4">
-        <div class="flex justify-between items-center sm:hidden mb-4">
-          <div
-            class="cursor-pointer bg-white/80 backdrop-blur-sm rounded-full w-8 h-8 flex items-center justify-center text-[#0F3F5E] text-xs font-bold shadow-md hover:bg-white transition-all"
-            @click="goBack">
-            X
-          </div>
-          <div
-            class="cursor-pointer bg-white/80 backdrop-blur-sm rounded-full w-8 h-8 flex items-center justify-center text-[#0F3F5E] text-xs font-bold shadow-md hover:bg-white transition-all"
-            @click="deleteCredential">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-trash"
-              viewBox="0 0 16 16">
-              <path
-                d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z" />
-              <path
-                d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z" />
+      <div v-else class="w-full max-w-4xl mx-auto py-8 px-4">
+        
+        <!-- Navigation Header (Mobile only) -->
+        <div class="flex justify-between items-center sm:hidden mb-6">
+          <button @click="goBack" class="p-2 bg-white rounded-full shadow-sm text-[#0F3F5E]">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-6 h-6">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
             </svg>
-          </div>
-        </div>
-        <div v-if="credential" class="mb-6">
-          <div ref="credentialCardRef">
-            <VerifiableCredentialCard :credential="credential" :isDetailView="true" />
-          </div>
+          </button>
+          <span class="font-bold text-[#0F3F5E]">Credential Details</span>
+          <div class="w-10"></div>
         </div>
 
-        <div
-          v-if="credential"
-          class="flex flex-col gap-3 sm:gap-4 w-full mb-10"
-        >
-        <button
-          @click="goToScan"
-          class="w-full py-3 text-white rounded-xl shadow-lg hover:shadow-xl hover:scale-[1.01] transition-all"
-          style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
-        >
-          Present credential
-        </button>
-        <button
-          @click="exportPdf"
-          class="w-full py-3 bg-white border border-[#E4E7EB] text-[#0F3F5E] rounded-xl shadow-sm hover:bg-[#F8F9FB]"
-        >
-          Export PDF
-        </button>
-        <button
-          @click="exportImage"
-          class="w-full py-3 bg-white border border-[#E4E7EB] text-[#0F3F5E] rounded-xl shadow-sm hover:bg-[#F8F9FB]"
-        >
-          Export Image
-        </button>
-        <button
-          @click="deleteCredential"
-          class="w-full py-3 text-red-600 rounded-xl border border-[#F8D7DA] bg-[#FFF5F5] hover:bg-[#FDECEC]"
-        >
-          Remove credential
-        </button>
-        </div>
-      </div>
-
-      <!-- Desktop view -->
-      <div class="hidden sm:block px-6 py-8 rounded-2xl bg-white border border-[#E4E7EB] shadow-lg">
-        <hr v-if="credentialManifest" class="w-full border-[#E4E7EB] my-2" />
-        <div v-if="credentialManifest" class="text-[#627D98] font-semibold mt-4 mb-2">
-          Subject Info
-        </div>
-        <img v-if="credentialManifest?.image" :src="credentialManifest?.image" alt="User Avatar"
-          class="h-28 mb-4 rounded-md" />
-        <div v-for="(value, key, index) in credentialManifest?.claims" :key="key">
-          <div class="flex mt-3">
-            <div class="text-[#627D98] w-sm">{{ key }}</div>
-            <div class="text-[#0F3F5E] font-semibold w-2xl">{{ value }}</div>
-          </div>
-        </div>
-
-        <div v-if="credential?.format === 'mso_mdoc'">
-          <hr class="w-full border-[#E4E7EB] my-2" />
-          <div class="text-[#627D98] font-semibold mt-4 mb-8">Subject Info</div>
-          <div v-for="elem in jwtJson?.issuerSigned?.nameSpaces[
-            Object.keys(jwtJson?.issuerSigned?.nameSpaces)[0]
-          ]">
-            <div class="flex mt-3">
-              <div class="text-[#627D98] w-sm">{{ elem.elementIdentifier }}</div>
-              <div class="text-[#0F3F5E] font-semibold w-2xl">
-                {{ elem.elementValue }}
-              </div>
+        <!-- Integrated Premium VC Card (Matches Mock Style) -->
+        <div v-if="credential" class="bg-white rounded-[32px] shadow-2xl overflow-hidden mb-8 border border-gray-100 flex flex-col">
+            <!-- Header Section (Inside Card) -->
+            <div class="bg-gradient-to-br from-[#0F3F5E] to-[#2188CA] p-8 sm:p-10 text-white relative">
+                 <div class="flex items-start justify-between">
+                     <div class="flex-1">
+                         <div class="mb-4 w-14 h-14 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/30 shadow-lg">
+                            <img v-if="issuerLogo" :src="issuerLogo" class="w-9 h-9 object-contain" />
+                            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.499 5.24 50.552 50.552 0 01-17.16 2.334z" />
+                            </svg>
+                         </div>
+                         <h1 class="text-xl font-black tracking-widest uppercase mb-1">{{ credentialTitle }}</h1>
+                         <p class="text-blue-100 text-sm opacity-80 font-medium">{{ issuerName || 'Credentis Verified Issuer' }}</p>
+                     </div>
+                     <!-- Verified Badge -->
+                     <div class="flex flex-col items-end gap-2">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold bg-white/20 border border-white/40 uppercase tracking-tighter">
+                            <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+                            Verified
+                        </span>
+                     </div>
+                 </div>
             </div>
-          </div>
-        </div>
 
-        <hr class="w-full border-[#E4E7EB] mb-2 mt-8" v-if="issuerName || issuerDid" />
-        <div class="text-[#627D98] font-semibold mt-4 mb-8" v-if="issuerName || issuerDid">
-          Issuer
-        </div>
-        <div class="flex mt-2" v-if="issuerName">
-          <div class="text-[#627D98] w-sm">Name</div>
-          <div class="text-[#0F3F5E] font-semibold w-2xl">{{ issuerName }}</div>
-        </div>
-        <div class="flex mt-2 mb-8" v-if="issuerDid">
-          <div class="text-[#627D98] w-sm">DID</div>
-          <div class="text-[#0F3F5E] font-semibold w-2xl overflow-scroll">
-            {{ issuerDid }}
-          </div>
-        </div>
-        <hr v-if="disclosures" class="w-full border-[#E4E7EB] mb-2 mt-8" />
-        <div v-if="disclosures" class="text-[#627D98] font-semibold mt-4 mb-8">
-          Selectively disclosable attributes
-        </div>
-        <div v-if="disclosures">
-          <div v-for="disclosure in disclosures">
-            <div class="flex mt-2">
-              <div class="text-[#627D98] w-sm">{{ disclosure[1] }}</div>
-              <div class="text-[#0F3F5E] font-semibold overflow-scroll w-2xl">
-                {{ disclosure[2] }}
-              </div>
+            <!-- Body Section (Inside Card) -->
+            <div class="p-8 sm:p-10 bg-white">
+                <div class="space-y-6">
+                    <div v-for="(field, index) in displayFields" :key="index">
+                        <div class="flex flex-col sm:flex-row sm:justify-between items-start gap-1">
+                            <p class="text-xs font-bold text-[#627D98] uppercase tracking-widest">{{ field.label }}</p>
+                            <p class="text-[17px] font-bold text-[#0F3F5E] break-words">{{ field.value }}</p>
+                        </div>
+                        <hr v-if="index < displayFields.length - 1" class="border-gray-50 mt-4" />
+                    </div>
+                </div>
+
+                <div class="mt-12 pt-6 border-t border-gray-50 flex justify-between items-center text-[10px] text-gray-300 font-mono">
+                    <span>ID: {{ credentialId }}</span>
+                    <button @click="showRaw = !showRaw" class="text-blue-400 hover:underline">RAW DATA</button>
+                </div>
+
+                <div v-if="showRaw" class="mt-4 p-4 bg-gray-50 rounded-xl overflow-auto text-[10px] border border-gray-100 max-h-40">
+                    <pre>{{ jwtJson }}</pre>
+                </div>
             </div>
-          </div>
-        </div>
-        <hr class="w-full border-[#E4E7EB] my-2" />
-        <div class="flex justify-between my-6">
-          <div v-if="expirationDate" class="text-[#627D98]">
-            Valid through {{ issuanceDate?.replace(/-/g, ".") }} -
-            {{ expirationDate.replace(/-/g, ".") }}
-          </div>
-          <div v-else class="text-[#627D98]">No expiration date</div>
-          <div class="text-[#627D98]" v-if="issuanceDate">
-            Issued {{ issuanceDate?.replace(/-/g, ".") }}
-          </div>
-          <div class="text-[#627D98]" v-else>No issuance date</div>
-        </div>
-        <div class="flex justify-between my-16">
-          <div class="text-[#2188CA] cursor-pointer underline" @click="showCredentialJson = !showCredentialJson">
-            {{ showCredentialJson ? "Hide" : "Show" }} Credential JSON
-          </div>
-          <div class="text-red-500 cursor-pointer underline" @click="deleteCredential">
-            Delete Credential
-          </div>
-        </div>
-        <div v-if="showCredentialJson" class="bg-[#F8F9FB] border border-[#E4E7EB] p-4 rounded-xl overflow-auto">
-          <pre class="text-xs">{{ jwtJson }}</pre>
-        </div>
-      </div>
-
-      <!-- Mobile view -->
-      <div class="px-4 py-6 rounded-2xl sm:hidden bg-white border border-[#E4E7EB] shadow-lg"
-        v-if="credentialManifest || credential?.format === 'mso_mdoc'">
-        <div v-if="credentialManifest">
-          <img v-if="credentialManifest?.image" :src="credentialManifest?.image" alt="User Avatar"
-            class="h-28 mb-4 rounded-md" />
-          <div class="text-[#627D98] font-semibold mb-4">Credential Details</div>
-          <div v-for="(value, key, index) in credentialManifest?.claims" :key="key">
-            <div class="text-[#627D98]">{{ key }}</div>
-            <div class="text-[#0F3F5E] font-semibold">{{ value }}</div>
-            <hr v-if="index !== Object.keys(credentialManifest?.claims || {}).length - 1"
-              class="w-full border-[#E4E7EB] my-2" />
-          </div>
         </div>
 
-        <div v-if="credential?.format === 'mso_mdoc'">
-          <div class="text-[#627D98] font-semibold mb-4">Credential Details</div>
-          <div v-for="(elem, index) in jwtJson?.issuerSigned?.nameSpaces[
-            Object.keys(jwtJson?.issuerSigned?.nameSpaces)[0]
-          ]">
-            <div class="text-[#627D98]">{{ elem.elementIdentifier }}</div>
-            <div class="text-[#0F3F5E] font-semibold">{{ elem.elementValue }}</div>
-            <hr v-if="
-              index !==
-              jwtJson?.issuerSigned?.nameSpaces[
-                Object.keys(jwtJson?.issuerSigned?.nameSpaces)[0]
-              ].length -
-              1
-            " class="w-full border-[#E4E7EB] my-2" />
-          </div>
+        <!-- Action Buttons -->
+        <div class="space-y-3 px-2">
+            <button
+              @click="goToScan"
+              class="w-full py-5 text-white font-black rounded-2xl shadow-xl hover:shadow-blue-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-3 text-lg uppercase tracking-wider"
+              style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
+            >
+              Present Credential
+            </button>
+            
+            <div class="grid grid-cols-2 gap-3">
+                <button
+                  @click="exportPdf"
+                  class="py-4 bg-white border border-gray-100 text-[#0F3F5E] font-bold rounded-2xl shadow-sm hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5 text-[#2188CA]">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+                  </svg>
+                  Export PDF
+                </button>
+                <button
+                  @click="deleteCredential"
+                  class="py-4 bg-white text-red-500 font-bold rounded-2xl border border-red-50 hover:bg-red-50 transition-all text-sm uppercase tracking-widest"
+                >
+                  Remove
+                </button>
+            </div>
         </div>
       </div>
     </CenterMain>
@@ -181,92 +99,117 @@
 </template>
 
 <script lang="ts" setup>
-import VerifiableCredentialCard from "@credentis-web-wallet/components/credentials/VerifiableCredentialCard.vue";
-import {useCredential, type WalletCredential} from "@credentis-web-wallet/composables/credential.ts";
-import LoadingIndicator from "@credentis-web-wallet/components/loading/LoadingIndicator.vue";
-import {useCurrentWallet} from "@credentis-web-wallet/composables/accountWallet.ts";
-import CenterMain from "@credentis-web-wallet/components/CenterMain.vue";
-import {JSONPath} from "jsonpath-plus";
-import {ref} from "vue";
-import html2canvas from "html2canvas";
+import { useCredential, type WalletCredential } from "../../../../../libs/composables/credential.ts";
+import LoadingIndicator from "../../../../../libs/components/loading/LoadingIndicator.vue";
+import { useCurrentWallet } from "../../../../../libs/composables/accountWallet.ts";
+import CenterMain from "../../../../../libs/components/CenterMain.vue";
+import { ref, computed } from "vue";
+import { getCredentialTemplate } from "../../../../../libs/credentials/templates.ts";
 
 const route = useRoute();
-const runtimeConfig = useRuntimeConfig();
-
 const walletId = route.params.wallet as string;
 const credentialId = route.params.credentialId as string;
 const currentWallet = useCurrentWallet();
 
-const showCredentialJson = ref(false);
-const credentialCardRef = ref<HTMLElement | null>(null);
+const showRaw = ref(false);
 
 const {
   data: credential,
   pending,
-  refresh,
   error,
 } = await useFetch<WalletCredential>(
   `/wallet-api/wallet/${currentWallet.value}/credentials/${encodeURIComponent(credentialId)}`,
 );
+
 const {
   jwtJson,
-  disclosures,
   issuerName,
-  issuerDid,
-  issuanceDate,
-  expirationDate,
+  issuerLogo,
+  titleTitelized,
 } = useCredential(credential);
 
-const credentialManifest = computedAsync(async () => {
-  if (jwtJson.value) {
-    const typeArr = Array.isArray(jwtJson.value?.type) ? jwtJson.value?.type : [];
-    const typeName = typeArr.length ? typeArr[typeArr.length - 1] : undefined;
-    if (!typeName) return null;
-    const { data } = await useFetch(
-      `${runtimeConfig.public.credentialsRepositoryUrl}/api/manifest/${typeName}`,
-      {
-        transform: (data: { image?: string; claims: { [key: string]: string } }) => {
-          let transformedManifest = JSON.parse(JSON.stringify(data));
-          if (data.image) {
-            transformedManifest = {
-              ...transformedManifest,
-              image: JSONPath({ path: data.image, json: jwtJson.value })[0] ??
-                disclosures.value?.find(
-                  (disclosure) => disclosure[1] === data.image.split(".").pop(),
-                )?.[2],
-            };
-          }
-          if (data.claims) {
-            transformedManifest = {
-              ...transformedManifest,
-              claims: Object.fromEntries(
-                Object.entries(data?.claims).map(([key, value]) => {
-                  return [
-                    key,
-                    JSONPath({ path: value, json: jwtJson.value })[0] ??
-                    disclosures.value?.find(
-                      (disclosure) => disclosure[1] === value.split(".").pop(),
-                    )?.[2],
-                  ];
-                }),
-              ),
-            };
-          }
-          return transformedManifest;
-        },
-      },
-    );
-    return data.value;
-  }
-  return null;
+const template = computed(() => {
+    if (!jwtJson.value) return null;
+    return getCredentialTemplate(jwtJson.value);
+});
+
+const credentialTitle = computed(() => {
+    const kind = template.value?.kind || 'generic';
+    if (kind === 'generic') return titleTitelized.value || 'Credential';
+    return `${kind} Credential`;
+});
+
+const displayFields = computed(() => {
+    const vc = jwtJson.value;
+    if (!vc) return [];
+
+    // 1. Prefer template fields if available
+    if (template.value?.fields && template.value.fields.length > 0) {
+        return template.value.fields;
+    }
+
+    // 2. Multi-path subject extraction (matching VerifiableCredentialCard logic)
+    let subject =
+        vc?.credentialSubject ??
+        vc?._credential?.credentialSubject ??
+        vc?.credential?.credentialSubject ??
+        vc?.vc?.credentialSubject ??
+        vc?.payload?.additionalClaims?.vc?.credentialSubject ??
+        vc?.additionalClaims?.vc?.credentialSubject ??
+        vc?.claims ??
+        {};
+
+    // Merge nested claims if present
+    if (subject?.claims && typeof subject.claims === 'object') {
+        subject = { ...subject, ...subject.claims };
+    }
+
+    // If still empty, check for claim-like properties directly on vc (excluding metadata)
+    const subjectKeys = Object.keys(subject).filter((k) => k !== 'id' && k !== 'claims' && !k.startsWith('@'));
+    if (subjectKeys.length === 0) {
+        const potentialClaims: Record<string, any> = {};
+        const skipKeys = [
+            '@context', 'type', 'id', 'issuer', 'issuanceDate', 'expirationDate',
+            'credentialSubject', 'proof', 'issuerId', 'credentialSubjectIds',
+            '_credential', 'credential', 'vc', 'jwt', 'payload'
+        ];
+        for (const [key, value] of Object.entries(vc)) {
+            if (!skipKeys.includes(key) && value != null && typeof value !== 'object') {
+                potentialClaims[key] = value;
+            }
+        }
+        if (Object.keys(potentialClaims).length > 0) subject = potentialClaims;
+    }
+                    
+     const excludeKeys = ['id', 'claims', 'type', '@context', 'proof', 'photo', 'image', 'credentialSubject'];
+     const fields = [];
+     
+     for (const [key, value] of Object.entries(subject)) {
+        if (excludeKeys.includes(key) || key.startsWith('@')) continue;
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) continue; 
+        
+        const label = key
+            .replace(/([A-Z])/g, ' $1')
+            .replace(/_/g, ' ')
+            .trim()
+            .split(' ')
+            .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' ');
+            
+        fields.push({
+            label: label,
+            value: Array.isArray(value) ? value.join(', ') : String(value)
+        });
+     }
+     
+     return fields;
 });
 
 async function deleteCredential() {
+  if(!confirm('Are you sure you want to delete this credential?')) return;
   await $fetch(
     `/wallet-api/wallet/${currentWallet.value}/credentials/${encodeURIComponent(credentialId)}?permanent=true`,
-    {
-      method: "DELETE",
-    },
+    { method: "DELETE" },
   );
   await navigateTo({ path: `/wallet/${currentWallet.value}` });
 }
@@ -275,23 +218,6 @@ function exportPdf() {
   window.print();
 }
 
-async function exportImage() {
-  if (!credentialCardRef.value) return;
-  const canvas = await html2canvas(credentialCardRef.value, {
-    backgroundColor: null,
-    scale: 2,
-  });
-  const link = document.createElement("a");
-  link.download = `credential-${credentialId}.png`;
-  link.href = canvas.toDataURL("image/png");
-  link.click();
-}
-
-useHead({ title: "View credential - Credentis" });
-definePageMeta({
-  layout: false,
-});
-
 function goBack() {
   navigateTo({ path: `/wallet/${walletId}` });
 }
@@ -299,4 +225,7 @@ function goBack() {
 function goToScan() {
   navigateTo({ path: `/wallet/${walletId}/scan` });
 }
+
+useHead({ title: `${credentialTitle.value} - Credentis` });
+definePageMeta({ layout: "default" });
 </script>

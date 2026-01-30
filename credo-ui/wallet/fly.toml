@@ -1,4 +1,4 @@
-app = "credentis-wallet"
+app = "credentis-wallet-v2"
 primary_region = "jnb"
 
 [build]
@@ -7,11 +7,16 @@ primary_region = "jnb"
 [env]
   NODE_ENV = "production"
   PORT = "4000"
-  NUXT_PUBLIC_WALLET_BACKEND_URL = "http://credentis-api.internal:6000"
-  NUXT_PUBLIC_FINANCE_API_URL = "http://credentis-api.internal:6000"
-  NUXT_PUBLIC_CREDENTIALS_REPOSITORY_URL = "http://credentis-api.internal:3000"
-  NUXT_PUBLIC_ISSUER_CALLBACK_URL = "https://credentis-api.fly.dev"
-  NUXT_PUBLIC_DEV_WALLET_URL = "https://credentis-wallet.fly.dev"
+  NUXT_PUBLIC_WALLET_BACKEND_URL = "https://credentis-api-v2.fly.dev:6000"
+  NUXT_PUBLIC_FINANCE_API_URL = "https://credentis-api-v2.fly.dev:6000"
+  NUXT_PUBLIC_CREDENTIALS_REPOSITORY_URL = "https://credentis-api-v2.fly.dev"
+  NUXT_PUBLIC_ISSUER_CALLBACK_URL = "https://credentis-api-v2.fly.dev"
+  NUXT_PUBLIC_DEV_WALLET_URL = "https://credentis-wallet-v2.fly.dev"
+
+
+
+
+
 
 [[services]]
   internal_port = 4000
@@ -27,3 +32,7 @@ primary_region = "jnb"
   [[services.ports]]
     handlers = ["tls", "http"]
     port = 443
+
+# Cost-effective VM configuration
+[vm]
+  size = "shared-cpu-1x"  # 1 vCPU, 256MB RAM (~$1.94/month when running)

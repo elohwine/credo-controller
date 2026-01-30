@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useContext } from 'react';
 import Head from 'next/head';
 import Layout from '@/components/Layout';
 import { ClipboardDocumentListIcon, FunnelIcon, ArrowPathIcon, ShieldCheckIcon, UserIcon, GlobeAltIcon } from '@heroicons/react/24/outline';
 import { BRAND } from '@/lib/theme';
+import { EnvContext } from '@/pages/_app';
+
 
 interface AuditLog {
   id: string;
@@ -38,8 +40,10 @@ export default function AuditLogsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
-  const apiKey = process.env.NEXT_PUBLIC_CREDO_API_KEY || 'test-api-key-12345';
+  const env = useContext(EnvContext);
+  const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+  const apiKey = env.NEXT_PUBLIC_CREDO_API_KEY || 'test-api-key-12345';
+
 
   const fetchLogs = async () => {
     setLoading(true);

@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import Head from 'next/head';
 import Layout from '../../components/Layout';
 import axios from 'axios';
 import { BRAND, formatCurrency } from '@/lib/theme';
+import { EnvContext } from '@/pages/_app';
 import QRCode from 'react-qr-code';
 import {
   ChartBarIcon,
@@ -29,7 +30,8 @@ const FinanceReports = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+  const env = useContext(EnvContext);
+  const baseUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
 
   const fetchReport = async () => {
     setLoading(true);
@@ -105,7 +107,7 @@ const FinanceReports = () => {
         <p className="text-sm text-gray-500 mb-4">
           Period: {new Date(report.periodStart).toLocaleDateString()} - {new Date(report.periodEnd).toLocaleDateString()}
         </p>
-        
+
         <div className="space-y-4">
           {/* Revenue Section */}
           <div className="p-3 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
@@ -170,12 +172,12 @@ const FinanceReports = () => {
       </div>
       <div className="p-6">
         <p className="text-sm text-gray-500 mb-4">As of: {new Date(report.asOfDate).toLocaleDateString()}</p>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Assets */}
           <div>
             <h3 className="font-bold text-lg mb-3 pb-2 border-b" style={{ color: BRAND.dark, borderColor: BRAND.viking }}>ASSETS</h3>
-            
+
             <div className="mb-4">
               <h4 className="font-medium text-gray-600 mb-2">Current Assets</h4>
               <div className="pl-4 space-y-1 text-sm">
@@ -211,7 +213,7 @@ const FinanceReports = () => {
           {/* Liabilities & Equity */}
           <div>
             <h3 className="font-bold text-lg mb-3 pb-2 border-b" style={{ color: BRAND.dark, borderColor: BRAND.viking }}>LIABILITIES & EQUITY</h3>
-            
+
             <div className="mb-4">
               <h4 className="font-medium text-gray-600 mb-2">Current Liabilities</h4>
               <div className="pl-4 space-y-1 text-sm">
@@ -272,7 +274,7 @@ const FinanceReports = () => {
         <p className="text-sm text-gray-500 mb-4">
           Period: {new Date(report.periodStart).toLocaleDateString()} - {new Date(report.periodEnd).toLocaleDateString()}
         </p>
-        
+
         <div className="space-y-6">
           {/* Operating Activities */}
           <div>
@@ -409,9 +411,9 @@ const FinanceReports = () => {
                 <>
                   <div>
                     <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Start Date</label>
-                    <input 
-                      type="date" 
-                      value={startDate} 
+                    <input
+                      type="date"
+                      value={startDate}
                       onChange={(e) => setStartDate(e.target.value)}
                       className="rounded-lg border-gray-300 shadow-sm focus:ring-2"
                       style={{ borderColor: BRAND.viking }}
@@ -419,9 +421,9 @@ const FinanceReports = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>End Date</label>
-                    <input 
-                      type="date" 
-                      value={endDate} 
+                    <input
+                      type="date"
+                      value={endDate}
                       onChange={(e) => setEndDate(e.target.value)}
                       className="rounded-lg border-gray-300 shadow-sm focus:ring-2"
                       style={{ borderColor: BRAND.viking }}
@@ -432,16 +434,16 @@ const FinanceReports = () => {
               {activeTab === 'balance' && (
                 <div>
                   <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>As of Date</label>
-                  <input 
-                    type="date" 
-                    value={asOfDate} 
+                  <input
+                    type="date"
+                    value={asOfDate}
                     onChange={(e) => setAsOfDate(e.target.value)}
                     className="rounded-lg border-gray-300 shadow-sm focus:ring-2"
                     style={{ borderColor: BRAND.viking }}
                   />
                 </div>
               )}
-              <button 
+              <button
                 onClick={fetchReport}
                 disabled={loading}
                 className="inline-flex items-center gap-2 rounded-lg px-6 py-2 text-sm font-medium text-white transition-all hover:shadow-md disabled:opacity-50"
@@ -472,7 +474,7 @@ const FinanceReports = () => {
               </div>
               <div className="p-6">
                 {!offerUri ? (
-                  <button 
+                  <button
                     onClick={issueCredential}
                     disabled={loading}
                     className="inline-flex items-center gap-2 rounded-lg px-6 py-3 text-sm font-medium text-white transition-all hover:shadow-md disabled:opacity-50"

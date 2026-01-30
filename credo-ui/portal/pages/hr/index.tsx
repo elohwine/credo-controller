@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useContext } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { UserGroupIcon, ClockIcon, CurrencyDollarIcon, BriefcaseIcon, DocumentTextIcon, UserPlusIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { BRAND, formatCurrency } from '@/lib/theme';
+import { EnvContext } from '@/pages/_app';
+
 
 interface Employee {
   id: string;
@@ -43,7 +45,9 @@ interface OnboardingCase {
 }
 
 export default function HRHub() {
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+  const env = useContext(EnvContext);
+  const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [expenseClaims, setExpenseClaims] = useState<ExpenseClaim[]>([]);

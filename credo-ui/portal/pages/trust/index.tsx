@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import Layout from '@/components/Layout';
 import { ShieldCheckIcon, ExclamationTriangleIcon, StarIcon, ChartBarIcon } from '@heroicons/react/24/outline';
 import { BRAND } from '@/lib/theme';
+import { EnvContext } from '@/pages/_app';
+
 
 interface TrustScore {
     merchantId: string;
@@ -50,7 +52,9 @@ export default function TrustPage() {
         description: ''
     });
 
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+    const env = useContext(EnvContext);
+    const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+
 
     useEffect(() => {
         if (merchantId) {
@@ -260,11 +264,11 @@ export default function TrustPage() {
                             <form onSubmit={handleCreateEscalation} className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Merchant ID</label>
-                                    <input type="text" required value={newEscalation.merchantId} onChange={e => setNewEscalation({...newEscalation, merchantId: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" />
+                                    <input type="text" required value={newEscalation.merchantId} onChange={e => setNewEscalation({ ...newEscalation, merchantId: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Reason</label>
-                                    <select value={newEscalation.reason} onChange={e => setNewEscalation({...newEscalation, reason: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm">
+                                    <select value={newEscalation.reason} onChange={e => setNewEscalation({ ...newEscalation, reason: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm">
                                         <option value="fraud">Fraud</option>
                                         <option value="non_delivery">Non-Delivery</option>
                                         <option value="counterfeit">Counterfeit</option>
@@ -273,7 +277,7 @@ export default function TrustPage() {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Description</label>
-                                    <textarea required value={newEscalation.description} onChange={e => setNewEscalation({...newEscalation, description: e.target.value})} rows={4} className="w-full rounded-lg border-gray-300 shadow-sm" />
+                                    <textarea required value={newEscalation.description} onChange={e => setNewEscalation({ ...newEscalation, description: e.target.value })} rows={4} className="w-full rounded-lg border-gray-300 shadow-sm" />
                                 </div>
                                 <div className="p-4 rounded-lg bg-red-50">
                                     <p className="text-sm text-red-800"><strong>Note:</strong> Escalations are reviewed by the compliance team and may impact merchant trust scores.</p>

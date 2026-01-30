@@ -140,7 +140,49 @@ export class WalletCredentialsController extends Controller {
             console.log('[acceptOffer] Tenant:', tenantId, 'Offer URI:', body.offerUri?.slice(0, 100))
 
             // Use BASE agent for OID4VC holder operations (module not available on tenant agents)
-            const resolvedOffer = await (baseAgent.modules as any).openId4VcHolder.resolveCredentialOffer(body.offerUri)
+
+            // Helper: attempt to extract inner HTTP URL from an openid-credential-offer wrapper
+            const extractInner = (wrapper?: string) => {
+                if (!wrapper) return null
+                try {
+                    if (wrapper.startsWith('openid-credential-offer://') || wrapper.startsWith('openid-initiate-issuance://')) {
+                        const q = wrapper.split('?')[1] || ''
+                        const params = new URLSearchParams(q)
+                        return params.get('credential_offer_uri') || params.get('credential_offer_url') || params.get('request') || null
+                    }
+                    // plain http(s)
+                    if (wrapper.startsWith('http://') || wrapper.startsWith('https://')) return wrapper
+                    // try decode once
+                    try {
+                        const decoded = decodeURIComponent(wrapper)
+                        if (decoded.startsWith('http://') || decoded.startsWith('https://')) return decoded
+                    } catch (e) {
+                        /* ignore */
+                    }
+                } catch (e) {
+                    /* ignore */
+                }
+                return null
+            }
+
+            let resolvedOffer: any
+            try {
+                resolvedOffer = await (baseAgent.modules as any).openId4VcHolder.resolveCredentialOffer(body.offerUri)
+            } catch (err: any) {
+                // If the wrapper fetch fails, try resolving the inner HTTP URL directly (common fallback)
+                const inner = extractInner(body.offerUri)
+                if (inner) {
+                    try {
+                        resolvedOffer = await (baseAgent.modules as any).openId4VcHolder.resolveCredentialOffer(inner)
+                    } catch (err2: any) {
+                        // rethrow original for handling below
+                        err = err2
+                        throw err
+                    }
+                } else {
+                    throw err
+                }
+            }
             console.log('[acceptOffer] Offer resolved:', {
                 issuer: resolvedOffer.metadata?.credentialIssuer?.credential_issuer,
                 offeredCredentials: resolvedOffer.offeredCredentials?.length
@@ -209,10 +251,19 @@ export class WalletCredentialsController extends Controller {
             }
         } catch (error: any) {
             console.error('[acceptOffer] === FAILED ===')
-            console.error('[acceptOffer] Error:', error.message)
-            request.logger?.error({ err: error.message, stack: error.stack }, 'Failed to accept offer')
+            console.error('[acceptOffer] Error:', error?.message || error)
+            request.logger?.error({ err: error?.message || error, stack: error?.stack }, 'Failed to accept offer')
+
+            // Handle known invalid-state from issuer (single-use or consumed offer)
+            const msg = (error && (error.message || JSON.stringify(error))) || String(error)
+            if (msg.includes('Invalid state for credential offer') || msg.includes('invalid_request') && msg.includes('Invalid state')) {
+                this.setStatus(409)
+                throw new Error('Credential offer is no longer valid or has an invalid state. Request a fresh credential offer from the issuer and try again.')
+            }
+
+            // Generic failure
             this.setStatus(400)
-            throw new Error(`Failed to accept offer: ${error.message}`)
+            throw new Error(`Failed to accept offer: ${msg}`)
         }
     }
 }

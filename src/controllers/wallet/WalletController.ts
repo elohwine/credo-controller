@@ -4,7 +4,7 @@ import type { Request as ExRequest } from 'express'
 import { injectable } from 'tsyringe'
 import { getTenantById } from '../../persistence/TenantRepository'
 import { getWalletCredentialsByWalletId, getWalletCredentialById, saveWalletCredential } from '../../persistence/WalletCredentialRepository'
-import { Agent, W3cCredentialService, DifPresentationExchangeService, ClaimFormat } from '@credo-ts/core'
+import { Agent, W3cCredentialService, DifPresentationExchangeService, ClaimFormat, JsonTransformer } from '@credo-ts/core'
 import { container } from 'tsyringe'
 import { getWalletUserByWalletId } from '../../persistence/UserRepository'
 import { UnauthorizedError } from '../../errors/errors'
@@ -128,7 +128,7 @@ function extractAndNormalizeInnerOfferUrl(wrapperOrUrl: string | undefined, maxD
 
   try {
     const u = new URL(s)
-    if (u.hostname === 'localhost') u.hostname = '127.0.0.1'
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') u.hostname = 'api'
     return u.toString()
   } catch (e) {
     return null
@@ -251,7 +251,7 @@ export class WalletController extends Controller {
 
         // Get the credential object - Credo stores it in record.credential
         const cred = record.credential
-        
+
         if (cred) {
           const types = cred.type || []
           credentialType = types.find((t: string) => t !== 'VerifiableCredential') || types[0] || 'VerifiableCredential'
@@ -437,9 +437,8 @@ export class WalletController extends Controller {
 
     // Fallback for direct HTTP
     if (!toResolve && offerUri && (offerUri.startsWith('http://') || offerUri.startsWith('https://'))) {
-      const hasLocalhost = offerUri.includes('localhost')
-      toResolve = offerUri.replace(/localhost/g, '127.0.0.1')
-      console.log('[resolveCredentialOffer] fallback http used (localhost replaced: ' + hasLocalhost + '):', toResolve)
+      toResolve = offerUri
+      console.log('[resolveCredentialOffer] fallback http used:', toResolve)
     }
 
     if (!toResolve) {
@@ -468,63 +467,29 @@ export class WalletController extends Controller {
     let issuerMetadata: any = undefined
     let valueBasedDeepLink: string | undefined = undefined
 
-    if (issuerOrigin && (issuerOrigin.includes('127.0.0.1') || issuerOrigin.includes('localhost'))) {
-      // Use in-memory cache instead of genericRecords (avoids query issues and HTTP loopback)
-      const cached = issuerMetadataCache.get(issuerOrigin) || issuerMetadataCache.getLocalIssuer()
-      if (cached?.metadata) {
-        issuerMetadata = cached.metadata
-        console.log('[resolveCredentialOffer] Using cached issuer metadata for', issuerOrigin)
-      } else {
-        console.warn('[resolveCredentialOffer] No cached issuer metadata for local origin', issuerOrigin)
-      }
-
-      // BYPASS LOOPBACK FOR OFFER FETCH:
-      // Try to find the offer payload LOCALLY in the Issuer's DB to avoid HTTP fetch failure.
-      const offerIdMatch = toResolve.match(/\/offers\/([a-fA-F0-9-]+)/)
-      if (offerIdMatch) {
-        const offerId = offerIdMatch[1]
-        console.log('[resolveCredentialOffer] Detected local offer ID:', offerId)
-        try {
-          // Access the Base Agent (where Issuer Module lives)
-          const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
-
-          // Resolve the Issuer Service
-          const issuerService = baseAgent.dependencyManager.resolve(OpenId4VcIssuerService)
-
-          // Fetch session
-          const session = await issuerService.getIssuanceSessionById(baseAgent.context, offerId)
-          if (session && session.credentialOfferPayload) {
-            console.log('[resolveCredentialOffer] FOUND local offer payload! Constructing Value-Based Deep Link.')
-            valueBasedDeepLink = `openid-credential-offer://?credential_offer=${encodeURIComponent(JSON.stringify(session.credentialOfferPayload))}`
-          }
-        } catch (localLookupError: any) {
-          console.warn('[resolveCredentialOffer] Local offer lookup failed:', localLookupError.message)
-        }
-      }
-    }
-
     try {
       let resolved: any
       // If we have local issuer metadata and issuerOrigin, use a scoped fetch override
       if (issuerOrigin && issuerMetadata) {
         resolved = await withScopedIssuerFetch(issuerOrigin, issuerMetadata, async () => {
           // Use Value-Based Link if available (Zero-Fetch), otherwise fallback to HTTP URI
-          const input = valueBasedDeepLink || toResolve
-          console.log('[resolveCredentialOffer] resolving:', input.slice(0, 100) + '...')
+          const input = valueBasedDeepLink || credoOfferUri
+          console.log('[resolveCredentialOffer] resolving (scoped):', input.slice(0, 100) + '...')
           return await (agent.modules as any).openId4VcHolder.resolveCredentialOffer(input)
         })
       } else {
         // Default path: let holder fetch metadata as usual
+        // STRATEGY: Try the FULL WRAPPER first (usually works best with Credo), 
+        // then fallback to the inner HTTP URL.
         try {
-          resolved = await (agent.modules as any).openId4VcHolder.resolveCredentialOffer(toResolve)
+          console.log('[resolveCredentialOffer] Attempt 1 (Full Wrapper):', credoOfferUri.slice(0, 100) + '...')
+          resolved = await (agent.modules as any).openId4VcHolder.resolveCredentialOffer(credoOfferUri)
         } catch (e: any) {
-          console.warn('[resolveCredentialOffer] Failed resolving inner URL, error:', e?.message?.slice?.(0, 200))
-          // Retry fallback to original wrapper form
+          console.warn('[resolveCredentialOffer] Full Wrapper failed, trying direct HTTP URL...')
           try {
-            console.log('[resolveCredentialOffer] Retrying resolve with original wrapper offerUri:', offerUri)
-            resolved = await (agent.modules as any).openId4VcHolder.resolveCredentialOffer(offerUri)
+            resolved = await (agent.modules as any).openId4VcHolder.resolveCredentialOffer(toResolve)
           } catch (e2: any) {
-            console.error('[resolveCredentialOffer] Retry also failed:', (e2 as any)?.message)
+            console.error('[resolveCredentialOffer] Both attempts failed:', (e2 as any)?.message)
             throw e2
           }
         }
@@ -547,7 +512,7 @@ export class WalletController extends Controller {
         credential_configuration_ids: resolved.offeredCredentialConfigurations ? Object.keys(resolved.offeredCredentialConfigurations) : [],
         credentials: resolved.offeredCredentials,
         grants: resolved.credentialOfferPayload?.grants,
-        _credoResolved: resolved
+        _credoResolved: JsonTransformer.toJSON(resolved)
       }
 
       console.log('[resolveCredentialOffer] === SUCCESS (Credo) ===')
@@ -571,8 +536,8 @@ export class WalletController extends Controller {
       throw new Error('Missing required "issuer" query parameter')
     }
 
-    // Normalize localhost to 127.0.0.1
-    let normalizedIssuer = issuer.replace(/localhost/g, '127.0.0.1').replace(/\/+$/, '')
+    // Normalize localhost and 127.0.0.1 to api (internal container hostname)
+    let normalizedIssuer = issuer.replace(/localhost/g, 'api').replace(/127.0.0.1/g, 'api').replace(/\/+$/, '')
 
     // Ensure it's an absolute URL
     if (!normalizedIssuer.startsWith('http://') && !normalizedIssuer.startsWith('https://')) {
@@ -625,7 +590,7 @@ export class WalletController extends Controller {
 
     console.log('[useOfferRequest] Parsed offerUri:', (offerUri || '').slice(0, 200))
 
-    const toResolve2 = extractAndNormalizeInnerOfferUrl(offerUri) || ((offerUri && (offerUri.startsWith('http://') || offerUri.startsWith('https://'))) ? offerUri.replace(/localhost/g, '127.0.0.1') : null)
+    const toResolve2 = extractAndNormalizeInnerOfferUrl(offerUri) || ((offerUri && (offerUri.startsWith('http://') || offerUri.startsWith('https://'))) ? offerUri : null)
 
     if (!toResolve2) {
       this.setStatus(400)
@@ -643,29 +608,15 @@ export class WalletController extends Controller {
     console.log('[useOfferRequest] about to call holder.resolveCredentialOffer with toResolve2:', toResolve2)
     console.log('[useOfferRequest] original wrapper offerUri:', offerUri)
 
-    const issuerOrigin2 = (() => { try { return new URL(toResolve2).origin } catch { return null } })()
-    let issuerMetadata2: any = undefined
-    if (issuerOrigin2 && (issuerOrigin2.includes('127.0.0.1') || issuerOrigin2.includes('localhost'))) {
-      try {
-        const issuerRecords = await agent.genericRecords.findAllByQuery({ tenantId: walletId, type: 'issuer' })
-        if (issuerRecords && issuerRecords.length > 0) {
-          const issuerRec = (issuerRecords[0] as any).content || {}
-          issuerMetadata2 = issuerRec.metadata || issuerRec?.metadata?.issuer || issuerRec
-          if (issuerMetadata2) {
-            console.log('[useOfferRequest] Local issuer metadata available for', issuerOrigin2)
-          }
-        }
-      } catch (e) {
-        console.warn('[useOfferRequest] Could not load local issuer metadata:', (e as any)?.message)
-      }
-    }
-
     try {
       let resolved: any
-      if (issuerOrigin2 && issuerMetadata2) {
-        resolved = await withScopedIssuerFetch(issuerOrigin2, issuerMetadata2, async () => {
-          return await (agent.modules as any).openId4VcHolder.resolveCredentialOffer(toResolve2)
-        })
+
+      // OPTIMIZATION: If the client already resolved the offer (e.g. to show a review screen),
+      // they can pass the raw resolved object back to avoid a second network fetch to the Issuer.
+      // Most Issuer OID4VCI implementations only allow the offer sequence to be fetched once.
+      if (body?._credoResolved) {
+        console.log('[useOfferRequest] Using pre-resolved offer content from request body')
+        resolved = body._credoResolved
       } else {
         try {
           resolved = await (agent.modules as any).openId4VcHolder.resolveCredentialOffer(toResolve2)

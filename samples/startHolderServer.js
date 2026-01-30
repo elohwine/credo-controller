@@ -21,7 +21,7 @@ const { TsLogger } = require('../build/utils/logger')
 process.env.ISSUER_API_URL = process.env.ISSUER_API_URL || 'http://localhost:3000'
 process.env.ISSUER_API_KEY = process.env.ISSUER_API_KEY || 'test-api-key-12345'
 // Separate DB for Holder to avoid SQLite locking with Issuer
-process.env.PERSISTENCE_DB_PATH = process.env.PERSISTENCE_DB_PATH || './data/holder.db'
+process.env.PERSISTENCE_DB_PATH = process.env.PERSISTENCE_DB_PATH || './data/persistence.db'
 
 const HOLDER_API_PORT = Number(process.env.HOLDER_API_PORT || 6000)
 const HOLDER_INBOUND_PORT = Number(process.env.HOLDER_INBOUND_PORT || 6001)
@@ -44,8 +44,8 @@ async function run() {
     const agent = new Agent({
         config: {
             walletConfig: {
-                id: HOLDER_WALLET_ID,
-                key: 'holder-wallet-key',
+                id: 'shared-controller-agent',
+                key: 'shared-controller-key',
             },
             label: 'Holder Agent (User Wallets)',
             endpoints: [`http://127.0.0.1:${HOLDER_INBOUND_PORT}`],
@@ -57,6 +57,9 @@ async function run() {
             askar: new AskarModule({
                 ariesAskar,
                 multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.ProfilePerWallet,
+                config: {
+                    storagePath: '/app/data/askar/shared'
+                }
             }),
             tenants: new TenantsModule({
                 sessionAcquireTimeout: maxTimerMs,

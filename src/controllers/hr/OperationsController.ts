@@ -111,7 +111,7 @@ export class OperationsController extends Controller {
     ): Promise<{ offerUri: string, credential_offer_deeplink: string }> {
         const offer = await operationsService.getLeaveApprovalVCOffer('default', leaveId)
         return {
-            offerUri: offer.credential_offer_uri,
+            offerUri: offer.credential_offer_deeplink,
             credential_offer_deeplink: offer.credential_offer_deeplink
         }
     }
@@ -126,7 +126,7 @@ export class OperationsController extends Controller {
     ): Promise<{ offerUri: string, credential_offer_deeplink: string }> {
         const offer = await operationsService.getExpenseApprovalVCOffer('default', claimId)
         return {
-            offerUri: offer.credential_offer_uri,
+            offerUri: offer.credential_offer_deeplink,
             credential_offer_deeplink: offer.credential_offer_deeplink
         }
     }

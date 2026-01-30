@@ -1,8 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import Layout from '@/components/Layout';
 import { UserPlusIcon, CheckCircleIcon, ClockIcon, CheckIcon, XMarkIcon, DocumentCheckIcon, UserGroupIcon, BriefcaseIcon, DevicePhoneMobileIcon, ClipboardDocumentIcon, QrCodeIcon } from '@heroicons/react/24/outline';
 import QRCode from 'react-qr-code';
 import { BRAND } from '@/lib/theme';
+import { EnvContext } from '@/pages/_app';
+import { notifications } from '@mantine/notifications';
+
+
 
 interface OnboardingCase {
     id: string;
@@ -52,13 +56,19 @@ export default function OnboardingPage() {
         role: ''
     });
 
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+    const env = useContext(EnvContext);
+    const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+
 
     useEffect(() => {
-        fetchOnboardingCases();
-    }, []);
+        // Only fetch when env is populated with production URL
+        if (env.NEXT_PUBLIC_BACKEND_URL) {
+            fetchOnboardingCases();
+        }
+    }, [env.NEXT_PUBLIC_BACKEND_URL]);
 
     const fetchOnboardingCases = async () => {
+        if (!env.NEXT_PUBLIC_BACKEND_URL) return;
         setIsLoading(true);
         try {
             const res = await fetch(`${backendUrl}/api/onboarding/cases`);
@@ -66,13 +76,27 @@ export default function OnboardingPage() {
             setCases(data.cases || []);
         } catch (error) {
             console.error('Failed to fetch cases:', error);
+            notifications.show({
+                title: 'Error',
+                message: 'Failed to load onboarding cases',
+                color: 'red',
+            });
         } finally {
             setIsLoading(false);
         }
     };
 
+
     const handleCreateCase = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!env.NEXT_PUBLIC_BACKEND_URL) {
+            notifications.show({
+                title: 'Error',
+                message: 'Backend not configured. Please refresh the page.',
+                color: 'red',
+            });
+            return;
+        }
         setIsLoading(true);
         try {
             const res = await fetch(`${backendUrl}/api/onboarding/cases`, {
@@ -82,15 +106,29 @@ export default function OnboardingPage() {
             });
             if (res.ok) {
                 setShowCreateModal(false);
+                notifications.show({
+                    title: 'Success',
+                    message: 'Onboarding case created successfully!',
+                    color: 'green',
+                });
                 fetchOnboardingCases();
                 setNewCase({ employeeName: '', email: '', startDate: new Date().toISOString().split('T')[0], department: '', role: '' });
+            } else {
+                const errorData = await res.json().catch(() => ({}));
+                throw new Error(errorData.message || `Server error: ${res.status}`);
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Failed to create case:', error);
+            notifications.show({
+                title: 'Error',
+                message: error.message || 'Failed to create onboarding case',
+                color: 'red',
+            });
         } finally {
             setIsLoading(false);
         }
     };
+
 
     const handleApprove = async (caseId: string) => {
         setApproving(caseId);
@@ -255,25 +293,25 @@ export default function OnboardingPage() {
                             <form onSubmit={handleCreateCase} className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Employee Name</label>
-                                    <input type="text" required value={newCase.employeeName} onChange={e => setNewCase({...newCase, employeeName: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" />
+                                    <input type="text" required value={newCase.employeeName} onChange={e => setNewCase({ ...newCase, employeeName: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Email</label>
-                                    <input type="email" required value={newCase.email} onChange={e => setNewCase({...newCase, email: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" />
+                                    <input type="email" required value={newCase.email} onChange={e => setNewCase({ ...newCase, email: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" />
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Department</label>
-                                        <input type="text" value={newCase.department} onChange={e => setNewCase({...newCase, department: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" />
+                                        <input type="text" value={newCase.department} onChange={e => setNewCase({ ...newCase, department: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" />
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Role</label>
-                                        <input type="text" value={newCase.role} onChange={e => setNewCase({...newCase, role: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" />
+                                        <input type="text" value={newCase.role} onChange={e => setNewCase({ ...newCase, role: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" />
                                     </div>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Start Date</label>
-                                    <input type="date" required value={newCase.startDate} onChange={e => setNewCase({...newCase, startDate: e.target.value})} className="w-full rounded-lg border-gray-300 shadow-sm" />
+                                    <input type="date" required value={newCase.startDate} onChange={e => setNewCase({ ...newCase, startDate: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" />
                                 </div>
                                 <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
                                     <p className="text-sm" style={{ color: BRAND.dark }}><strong>Note:</strong> Upon approval, an EmploymentContractVC will be issued to the employee's wallet.</p>
@@ -298,15 +336,17 @@ export default function OnboardingPage() {
                                 Scan the QR code or open in your wallet
                             </p>
                             <div className="flex justify-center mb-6">
-                                <QRCode 
+                                <QRCode
                                     className="h-full max-h-[200px]"
-                                    value={credentialOffer.credential_offer_deeplink || credentialOffer.credential_offer_uri} 
+                                    value={credentialOffer.credential_offer_deeplink || credentialOffer.credential_offer_uri}
                                     viewBox="0 0 256 256"
                                 />
                             </div>
                             <div className="flex flex-col gap-3 mb-6">
                                 <a
                                     href={credentialOffer.credential_offer_deeplink || credentialOffer.credential_offer_uri}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
                                     className="inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-medium text-white transition-all hover:shadow-md"
                                     style={{ backgroundColor: BRAND.curious }}
                                 >
@@ -357,7 +397,8 @@ export default function OnboardingPage() {
                                     <button
                                         onClick={() => {
                                             const deeplink = reofferUri.replace('openid-credential-offer://?credential_offer_uri=', 'credentis://offer?uri=');
-                                            window.location.href = deeplink;
+                                            // Prefer opening in new window/tab for better UX
+                                            window.open(deeplink.startsWith('http') ? deeplink : reofferUri, '_blank');
                                         }}
                                         className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-white font-medium"
                                         style={{ backgroundColor: BRAND.curious }}

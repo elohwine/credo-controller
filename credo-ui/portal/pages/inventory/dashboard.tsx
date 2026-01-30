@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import Head from 'next/head';
 import Layout from '../../components/Layout';
 import axios from 'axios';
 import { BRAND, formatCurrency } from '@/lib/theme';
-import { 
-  CubeIcon, 
-  MapPinIcon, 
-  QrCodeIcon, 
-  ClipboardDocumentListIcon, 
+import {
+  CubeIcon,
+  MapPinIcon,
+  QrCodeIcon,
+  ClipboardDocumentListIcon,
   DocumentMagnifyingGlassIcon,
   CurrencyDollarIcon,
   ClockIcon,
@@ -17,6 +17,7 @@ import {
   ArrowPathIcon,
   ShieldCheckIcon
 } from '@heroicons/react/24/outline';
+import { EnvContext } from '@/pages/_app';
 
 const InventoryDashboard = () => {
   const [stockLevels, setStockLevels] = useState<any[]>([]);
@@ -29,7 +30,8 @@ const InventoryDashboard = () => {
   const [verifyChainResult, setVerifyChainResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'stock' | 'manage' | 'scan' | 'events' | 'trace' | 'valuation' | 'aging'>('stock');
+  const [activeTab, setActiveTab] = useState<'stock' | 'manage' | 'scan' | 'events' | 'trace' | 'valuation' | 'aging' | 'profit'>('stock');
+  const [profitData, setProfitData] = useState<any>(null);
 
   const [createLocation, setCreateLocation] = useState({ name: '', type: 'warehouse', address: '' });
   const [receiveGoods, setReceiveGoods] = useState({
@@ -51,7 +53,8 @@ const InventoryDashboard = () => {
   const [eventsQuery, setEventsQuery] = useState({ catalogItemId: '', locationId: '', limit: 50 });
   const [traceReceiptId, setTraceReceiptId] = useState('');
 
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+  const env = useContext(EnvContext);
+  const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
   const apiKey = process.env.NEXT_PUBLIC_CREDO_API_KEY || 'test-api-key-12345';
 
   const apiHeaders = { 'x-api-key': apiKey };
@@ -159,6 +162,29 @@ const InventoryDashboard = () => {
     } finally { setLoading(false); }
   };
 
+  const fetchProfitAnalytics = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${backendUrl}/api/inventory/analytics/profit`, { headers: apiHeaders });
+      setProfitData(res.data);
+    } catch (err: any) {
+      setError(err.message);
+    } finally { setLoading(false); }
+  };
+
+  const handleBuyNow = async (lotId: string) => {
+    if (!confirm('Confirm purchase and remove item from inventory?')) return;
+    setLoading(true);
+    try {
+      const res = await axios.post(`${backendUrl}/api/inventory/buy`, { lotId, quantity: 1 }, { headers: apiHeaders });
+      alert(`Success! Receipt ID: ${res.data.receiptId}`);
+      handleScan(); // Refresh scan view
+      fetchStockLevels();
+    } catch (err: any) {
+      setError(err.message || 'Failed to process purchase');
+    } finally { setLoading(false); }
+  };
+
   useEffect(() => {
     fetchStockLevels();
     fetchLocations();
@@ -168,6 +194,7 @@ const InventoryDashboard = () => {
     if (activeTab === 'stock') fetchStockLevels();
     else if (activeTab === 'valuation') fetchValuation();
     else if (activeTab === 'aging') fetchAging();
+    else if (activeTab === 'profit') fetchProfitAnalytics();
   }, [activeTab]);
 
   return (
@@ -226,6 +253,7 @@ const InventoryDashboard = () => {
               { key: 'events', label: 'Event Chain', icon: <ClipboardDocumentListIcon className="h-5 w-5" /> },
               { key: 'trace', label: 'Trace Receipt', icon: <DocumentMagnifyingGlassIcon className="h-5 w-5" /> },
               { key: 'valuation', label: 'Valuation', icon: <CurrencyDollarIcon className="h-5 w-5" /> },
+              { key: 'profit', label: 'Profit Focus', icon: <ShieldCheckIcon className="h-5 w-5" /> },
               { key: 'aging', label: 'Aging', icon: <ClockIcon className="h-5 w-5" /> },
             ].map((tab) => (
               <button
@@ -406,19 +434,77 @@ const InventoryDashboard = () => {
                 <div className="space-y-4">
                   <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
                     <p className="text-sm font-medium mb-2" style={{ color: BRAND.dark }}>Catalog Item</p>
-                    <pre className="text-xs whitespace-pre-wrap bg-white p-3 rounded">{JSON.stringify(scanResult.catalogItem || {}, null, 2)}</pre>
+                    <div className="grid grid-cols-2 gap-4 bg-white p-4 rounded-xl shadow-sm border border-blue-50">
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase font-black">Title</p>
+                        <p className="font-bold text-[#0F3F5E]">{scanResult.catalogItem?.title}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase font-black">Price</p>
+                        <p className="font-bold text-green-600">{formatCurrency(scanResult.catalogItem?.price)}</p>
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Digital Twin / Provenance Section */}
+                  <div className="rounded-xl overflow-hidden border border-blue-100 shadow-sm">
+                    <div className="px-4 py-3 font-bold text-sm bg-blue-50 text-[#0F3F5E] flex justify-between">
+                      <span>Digital Twin Provenance</span>
+                      <span className="text-[10px] bg-[#2188CA] text-white px-2 py-0.5 rounded-full uppercase">Verified</span>
+                    </div>
+                    <div className="p-4 bg-white">
+                      <div className="flow-root">
+                        <ul role="list" className="-mb-8">
+                          {scanResult.provenanceTrial?.map((event: any, idx: number) => (
+                            <li key={event.id}>
+                              <div className="relative pb-8">
+                                {idx !== scanResult.provenanceTrial.length - 1 && <span className="absolute left-4 top-4 -ml-px h-full w-0.5 bg-gray-200" aria-hidden="true" />}
+                                <div className="relative flex space-x-3">
+                                  <div>
+                                    <span className={`h-8 w-8 rounded-full flex items-center justify-center ring-8 ring-white ${event.eventType === 'RECEIVE' ? 'bg-green-500' : 'bg-blue-500'}`}>
+                                      <CheckCircleIcon className="h-5 w-5 text-white" />
+                                    </span>
+                                  </div>
+                                  <div className="flex min-w-0 flex-1 justify-between space-x-4 pt-1.5">
+                                    <div>
+                                      <p className="text-sm text-gray-500">
+                                        <span className="font-bold text-gray-900">{event.eventType}</span> · Qty {event.quantity}
+                                      </p>
+                                    </div>
+                                    <div className="whitespace-nowrap text-right text-xs text-gray-500">
+                                      {event.createdAt.slice(0, 10)}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="rounded-xl overflow-hidden border" style={{ borderColor: BRAND.viking }}>
-                    <div className="px-4 py-3 font-medium text-sm" style={{ backgroundColor: BRAND.linkWater, color: BRAND.dark }}>Lots</div>
+                    <div className="px-4 py-3 font-medium text-sm" style={{ backgroundColor: BRAND.linkWater, color: BRAND.dark }}>Available Lots</div>
                     <ul className="divide-y">
                       {scanResult.lots?.map((lot: any) => (
-                        <li key={lot.id} className="p-4 text-sm flex justify-between items-center">
-                          <span style={{ color: BRAND.dark }}>{lot.lotNumber || lot.serialNumber || lot.id}</span>
-                          <span className="text-gray-500">On Hand: {lot.quantityOnHand}</span>
-                          {lot.grnVcId && <span className="inline-flex items-center gap-1 text-green-600 text-xs"><CheckCircleIcon className="h-4 w-4" />VC</span>}
+                        <li key={lot.id} className="p-4 text-sm flex justify-between items-center group">
+                          <div>
+                            <span className="font-bold text-[#0F3F5E]">{lot.lotNumber || lot.serialNumber || lot.id}</span>
+                            <p className="text-xs text-gray-400">On Hand: {lot.quantityOnHand}</p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            {lot.grnVcId && <span className="inline-flex items-center gap-1 text-green-600 text-xs font-bold uppercase"><CheckCircleIcon className="h-4 w-4" />VC Proof</span>}
+                            <button
+                              onClick={() => handleBuyNow(lot.id)}
+                              disabled={lot.quantityOnHand <= 0}
+                              className="px-3 py-1.5 bg-[#2188CA] text-white rounded-lg text-xs font-bold shadow-md hover:bg-[#0F3F5E] transition-all disabled:opacity-50"
+                            >
+                              BUY NOW
+                            </button>
+                          </div>
                         </li>
                       ))}
-                      {(!scanResult.lots || scanResult.lots.length === 0) && <li className="p-4 text-sm text-gray-500">No lots found</li>}
                     </ul>
                   </div>
                 </div>
@@ -584,6 +670,68 @@ const InventoryDashboard = () => {
                 )}
               </tbody>
             </table>
+          </div>
+        )}
+        {activeTab === 'profit' && (
+          <div className="flex flex-col gap-8">
+            {/* Profit Summary Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-3xl shadow-xl border border-blue-50">
+                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Forecasted Profit</p>
+                <h2 className="text-3xl font-black text-green-600">{formatCurrency(profitData?.summary?.totalProfit)}</h2>
+              </div>
+              <div className="bg-white p-6 rounded-3xl shadow-xl border border-blue-50">
+                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Overall Margin</p>
+                <h2 className="text-3xl font-black text-[#2188CA]">{profitData?.summary?.overallMargin?.toFixed(1)}%</h2>
+              </div>
+              <div className="bg-white p-6 rounded-3xl shadow-xl border border-blue-50">
+                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Active Stock Items</p>
+                <h2 className="text-3xl font-black text-[#0F3F5E]">{profitData?.summary?.totalItems}</h2>
+              </div>
+            </div>
+
+            {/* Profit per Item Table */}
+            <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100">
+              <div className="px-8 py-5 border-b bg-gray-50/50 flex justify-between items-center">
+                <h3 className="font-black text-[#0F3F5E] uppercase text-sm tracking-tighter">Profit Focused Inventory Items</h3>
+                <span className="text-[10px] font-bold text-[#627D98] uppercase tracking-widest">Revenue vs Cost Analysis</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-100">
+                  <thead>
+                    <tr className="text-[10px] text-gray-400 font-black uppercase tracking-widest">
+                      <th className="px-8 py-4 text-left">Item Name</th>
+                      <th className="px-6 py-4 text-right">Qty</th>
+                      <th className="px-6 py-4 text-right">Avg Cost</th>
+                      <th className="px-6 py-4 text-right">Price</th>
+                      <th className="px-6 py-4 text-right">Unit Profit</th>
+                      <th className="px-6 py-4 text-right text-green-600">Total Profit</th>
+                      <th className="px-8 py-4 text-right">Avg Days In Stock</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {profitData?.items?.map((item: any, idx: number) => (
+                      <tr key={idx} className="hover:bg-blue-50/30 transition-colors">
+                        <td className="px-8 py-5">
+                          <div className="text-sm font-bold text-[#0F3F5E]">{item.item_name}</div>
+                          <div className="text-[10px] text-gray-400 font-mono">{item.sku}</div>
+                        </td>
+                        <td className="px-6 py-5 text-sm text-right text-gray-500">{item.total_qty}</td>
+                        <td className="px-6 py-5 text-sm text-right text-gray-500">{formatCurrency(item.avg_cost)}</td>
+                        <td className="px-6 py-5 text-sm text-right text-[#0F3F5E] font-medium">{formatCurrency(item.selling_price)}</td>
+                        <td className="px-6 py-5 text-sm text-right text-blue-600 font-bold">{formatCurrency(item.selling_price - item.avg_cost)}</td>
+                        <td className="px-6 py-5 text-sm text-right text-green-600 font-black">{formatCurrency(item.projected_profit)}</td>
+                        <td className="px-8 py-5 text-right">
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${item.avg_days_in_stock > 30 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+                            {Math.round(item.avg_days_in_stock)} Days
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         )}
 

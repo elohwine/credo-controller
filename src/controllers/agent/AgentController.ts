@@ -91,19 +91,26 @@ export class AgentController extends Controller {
   @Post('/token')
   @Security('apiKey')
   public async getAgentToken(@Request() request: Req): Promise<AgentToken> {
+    console.log('[AgentController] getAgentToken called. Agent initialized:', request.agent?.isInitialized)
     let token
-    const genericRecords = await request.agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
-    const secretKey = genericRecords[0]?.content.secretKey as string
-    if (!secretKey) {
-      throw new Error('SecretKey not found')
-    }
-    if (!('tenants' in request.agent.modules)) {
-      token = jwt.sign({ role: AgentRole.RestRootAgent }, secretKey)
-    } else {
-      token = jwt.sign({ role: AgentRole.RestRootAgentWithTenants }, secretKey)
-    }
-    return {
-      token: token,
+    try {
+      const genericRecords = await request.agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
+      console.log('[AgentController] found generic records:', genericRecords.length)
+      const secretKey = genericRecords[0]?.content.secretKey as string
+      if (!secretKey) {
+        throw new Error('SecretKey not found')
+      }
+      if (!('tenants' in request.agent.modules)) {
+        token = jwt.sign({ role: AgentRole.RestRootAgent }, secretKey)
+      } else {
+        token = jwt.sign({ role: AgentRole.RestRootAgentWithTenants }, secretKey)
+      }
+      return {
+        token: token,
+      }
+    } catch (error) {
+      console.error('[AgentController] Error retrieving agent token:', error)
+      throw ErrorHandlingService.handle(error)
     }
   }
 
