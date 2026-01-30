@@ -5,15 +5,24 @@
 
 ---
 
-## 🎯 Current Sprint: Sprint 1 — Kickoff & Foundations
+## 🎯 Current Sprint: Sprint 2 — EcoCash Integration Review
 
-### Sprint 1 Tasks
-- [x] Kickoff meeting, finalize MVP scope (docs created)
-- [x] Verify ReceiptVC JSON-LD schema (`modelRegistry.ts:103-119`)
-- [x] Review OpenAPI skeleton (`/docs` endpoint exists)
+### Sprint 2 Tasks
+- [ ] Test EcoCash webhook endpoint with simulated payload
+- [ ] Verify ReceiptVC issuance on payment success
+- [ ] Test idempotency (duplicate webhook calls)
+- [ ] Create Postman/curl test collection
+
+---
+
+## ✅ Sprint 1 — Completed
+
+- [x] Kickoff meeting, finalize MVP scope
+- [x] Verify ReceiptVC JSON-LD schema
+- [x] Review OpenAPI skeleton
+- [x] Create MVP_GAP_ANALYSIS.md
 - [ ] Provision EcoCash sandbox credentials
 - [ ] Confirm staging domains
-- [x] Create MVP_GAP_ANALYSIS.md
 
 ---
 
@@ -21,11 +30,11 @@
 
 | Sprint | Focus | Status |
 |--------|-------|--------|
-| 1 | Kickoff & Foundations | 🏗 In Progress |
-| 2 | EcoCash Integration Review | ⏳ Pending |
-| 3 | Checkout UI Polish | ⏳ Pending |
+| 1 | Kickoff & Foundations | ✅ Complete |
+| 2 | EcoCash Integration Review | 🏗 In Progress |
+| 3 | Portal Checkout UI Polish | ⏳ Pending |
 | 4 | ReceiptVC Issuance Enhancement | ⏳ Pending |
-| 5 | Embedded Wallet Save Flow | ⏳ Pending |
+| 5 | Embedded Wallet Storage | ⏳ Pending |
 | 6 | Driver Verification Page | ⏳ Pending |
 | 7 | QA & Hardening | ⏳ Pending |
 | 8 | Pilot Onboarding | ⏳ Pending |
