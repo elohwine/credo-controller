@@ -5,13 +5,13 @@
 
 ---
 
-## 🎯 Current Sprint: Sprint 3 — Portal Consent Prompts
+## ✅ Sprint 3 — Completed
 
 ### Sprint 3 Tasks
-- [ ] Portal consent UI for QuoteVC acceptance
-- [ ] Portal consent UI for InvoiceVC acceptance
-- [ ] Checkout endpoint creates pending payment
-- [ ] Wallet displays ReceiptVC properly
+- [x] Portal consent UI for QuoteVC acceptance
+- [x] Portal consent UI for InvoiceVC acceptance
+- [x] Checkout endpoint creates pending payment (WhatsAppPayloadController)
+- [x] Wallet displays ReceiptVC properly (templates.ts has PaymentReceipt)
 
 ---
 
