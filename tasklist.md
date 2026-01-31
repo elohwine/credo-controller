@@ -67,7 +67,7 @@
 - [x] Create separate `/shop` page with Cart & Checkout flow
 - [x] Backend: Return `invoiceOfferId` in checkout for embedded acceptance
 - [x] Frontend: Implement **Embedded Wallet** consent flow (Inline "Save Invoice")
-- [ ] Verify full end-to-end flow (Shop -> Save -> Pay -> Receipt)
+- [ ] Verify full end-to-end flow (Shop -> Save -> Pay -> Receipt) - *Requires Server Restart*
 - [ ] Add "Save Receipt" prompt in Shop after payment success
 | 7 | QA & Hardening | ⏳ Pending |
 | 8 | Pilot Onboarding | ⏳ Pending |

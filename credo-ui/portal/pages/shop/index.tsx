@@ -174,11 +174,13 @@ export default function ShopPage() {
     };
 
     const handleSaveInvoice = async () => {
-        if (!invoiceOfferId) return;
+        if (!invoiceUrl) return;
         setSavingInvoice(true);
         try {
             const { tenantToken } = await ensurePortalTenant(backendUrl);
-            await axios.post(`${backendUrl}/custom-oidc/issuer/offers/${invoiceOfferId}/accept`, {}, {
+            await axios.post(`${backendUrl}/api/wallet/credentials/accept-offer`, {
+                offerUri: invoiceUrl
+            }, {
                 headers: { Authorization: `Bearer ${tenantToken}` }
             });
             setInvoiceSaved(true);
