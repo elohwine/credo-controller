@@ -123,7 +123,8 @@ export class DatabaseManager {
       { version: 12, file: '012_create_operations.sql', name: 'create_operations' },
       { version: 13, file: '013_create_inventory.sql', name: 'create_inventory' },
       { version: 14, file: '014_add_offer_uri_columns.sql', name: 'add_offer_uri_columns' },
-      { version: 15, file: '015_create_ack_payments.sql', name: 'create_ack_payments' }
+      { version: 15, file: '015_create_ack_payments.sql', name: 'create_ack_payments' },
+      { version: 16, file: '016_add_catalog_category.sql', name: 'add_catalog_category' }
     ]
 
     for (const migration of migrationFiles) {

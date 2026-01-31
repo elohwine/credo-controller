@@ -185,6 +185,20 @@ export class EcoCashWebhookController extends Controller {
                         )
                     }
 
+                    // Update cart status to 'paid' if associated
+                    if (cartId) {
+                        try {
+                            db.prepare(`
+                                 UPDATE carts 
+                                 SET status = 'paid', updated_at = ?
+                                 WHERE id = ?
+                             `).run(new Date().toISOString(), cartId)
+                            logger.info({ cartId }, 'Cart status updated to paid')
+                        } catch (e) {
+                            logger.warn({ error: e instanceof Error ? e.message : String(e) }, 'Failed to update cart status')
+                        }
+                    }
+
                     // Send receipt to WhatsApp if we have a cart with buyer phone
                     if (cartId && receiptOfferUrl) {
                         try {

@@ -1,0 +1,353 @@
+import React, { useState, useEffect, useContext } from 'react';
+import Layout from '@/components/Layout';
+import {
+    ShoppingBagIcon,
+    PlusIcon,
+    MinusIcon,
+    TrashIcon,
+    XMarkIcon,
+    CheckCircleIcon,
+    CubeIcon
+} from '@heroicons/react/24/outline';
+import { BRAND, formatCurrency } from '@/lib/theme';
+import { EnvContext } from '@/pages/_app';
+import { Loader, Modal, Button, TextInput, NumberInput } from '@mantine/core';
+import { useCartPolling } from '../utils/useCartPolling';
+import { useRouter } from 'next/router';
+
+// Reusing types locally for speed
+interface CatalogItem {
+    id: string;
+    merchantId: string;
+    title: string;
+    description?: string;
+    sku?: string;
+    price: number;
+    currency: string;
+    category?: string;
+    images: string[];
+}
+
+interface CartItem {
+    itemId: string;
+    title: string;
+    quantity: number;
+    price: number;
+}
+
+interface Cart {
+    id: string;
+    total: number;
+    currency: string;
+    items: CartItem[];
+    status: string;
+}
+
+export default function ShopPage() {
+    const [items, setItems] = useState<CatalogItem[]>([]);
+    const [cart, setCart] = useState<Cart | null>(null);
+    const [isCartOpen, setIsCartOpen] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+    const [checkingOut, setCheckingOut] = useState(false);
+    const [buyerPhone, setBuyerPhone] = useState('');
+    const [checkoutStep, setCheckoutStep] = useState<'cart' | 'phone' | 'invoice' | 'receipt'>('cart');
+    const [invoiceUrl, setInvoiceUrl] = useState('');
+
+    const env = useContext(EnvContext);
+    const router = useRouter();
+    const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+
+    // Poll for receipt when we are in 'invoice' step
+    const { cart: pollingCart } = useCartPolling(
+        checkoutStep === 'invoice' && cart?.id ? cart.id : null,
+        (updatedCart) => {
+            if (updatedCart.status === 'paid') {
+                setCheckoutStep('receipt');
+            }
+        }
+    );
+
+    useEffect(() => {
+        fetchCatalogItems();
+        // Restore cart from local storage if exists?
+        const savedCartId = localStorage.getItem('credo_cart_id');
+        if (savedCartId) fetchCart(savedCartId);
+    }, []);
+
+    const fetchCatalogItems = async () => {
+        setIsLoading(true);
+        try {
+            const res = await fetch(`${backendUrl}/api/catalog/search?q=`);
+            const data = await res.json();
+            setItems(data || []);
+        } catch (error) {
+            console.error('Failed to fetch catalog:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const fetchCart = async (cartId: string) => {
+        try {
+            const res = await fetch(`${backendUrl}/api/wa/cart/${cartId}`);
+            if (res.ok) {
+                const data = await res.json();
+                setCart(data);
+            } else {
+                localStorage.removeItem('credo_cart_id');
+            }
+        } catch (e) {
+            console.error("Failed to fetch cart", e);
+        }
+    };
+
+    const addToCart = async (item: CatalogItem) => {
+        setIsLoading(true);
+        try {
+            if (!cart) {
+                // Create new cart
+                const payload = {
+                    merchantId: item.merchantId,
+                    itemId: item.id,
+                    qty: 1
+                };
+                const res = await fetch(`${backendUrl}/api/wa/cart/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        payload: JSON.stringify(payload),
+                        buyerPhone: '' // We ask for phone later? Or should we ask now? 
+                        // Backend createCart stores buyerPhone. 
+                    })
+                });
+                const newCart = await res.json();
+                setCart(newCart);
+                localStorage.setItem('credo_cart_id', newCart.id);
+                setIsCartOpen(true);
+            } else {
+                // Add item to existing cart
+                const res = await fetch(`${backendUrl}/api/wa/cart/${cart.id}/items`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        itemId: item.id,
+                        quantity: 1
+                    })
+                });
+                const updatedCart = await res.json();
+                setCart(updatedCart);
+                setIsCartOpen(true);
+            }
+        } catch (error) {
+            console.error('Failed to add to cart:', error);
+            alert('Failed to add item to cart');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleCheckout = async () => {
+        if (!cart) return;
+        setCheckingOut(true);
+        try {
+            const res = await fetch(`${backendUrl}/api/wa/cart/${cart.id}/checkout`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ paymentMethod: 'ecocash' })
+            });
+            const data = await res.json();
+            setInvoiceUrl(data.invoiceOfferUrl);
+            setCheckoutStep('invoice');
+        } catch (error) {
+            console.error('Checkout failed:', error);
+            alert('Checkout failed');
+        } finally {
+            setCheckingOut(false);
+        }
+    };
+
+    // Grouping
+    const categories = Array.from(new Set(items.map(i => i.category || 'Uncategorized'))).sort();
+    const groupedItems: Record<string, CatalogItem[]> = {};
+    categories.forEach(cat => {
+        groupedItems[cat] = items.filter(i => (i.category || 'Uncategorized') === cat);
+    });
+
+    return (
+        <Layout title="Shop">
+            <div className="px-4 sm:px-6 lg:px-8 py-8">
+                {/* Header */}
+                <div className="flex justify-between items-center mb-8 sticky top-0 z-20 bg-white/80 backdrop-blur py-4 -mx-4 px-4 border-b border-gray-100">
+                    <div>
+                        <h1 className="text-2xl font-bold" style={{ color: BRAND.dark }}>Credentis Shop</h1>
+                        <p className="text-sm text-gray-500">Verified Merchant Store</p>
+                    </div>
+                    <button
+                        onClick={() => setIsCartOpen(true)}
+                        className="relative p-2 rounded-full hover:bg-gray-100 transition-colors"
+                    >
+                        <ShoppingBagIcon className="h-7 w-7" style={{ color: BRAND.curious }} />
+                        {cart && cart.items.length > 0 && (
+                            <span className="absolute top-0 right-0 -mt-1 -mr-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                                {cart.items.reduce((acc, i) => acc + i.quantity, 0)}
+                            </span>
+                        )}
+                    </button>
+                </div>
+
+                {/* Items Grid */}
+                {isLoading && !cart ? (
+                    <div className="flex justify-center py-20"><Loader /></div>
+                ) : (
+                    <div className="space-y-12">
+                        {categories.map(category => (
+                            <div key={category}>
+                                <h2 className="text-xl font-bold mb-6 flex items-center gap-2" style={{ color: BRAND.dark }}>
+                                    {category}
+                                </h2>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                                    {groupedItems[category].map(item => (
+                                        <div key={item.id} className="bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 overflow-hidden flex flex-col h-full">
+                                            <div className="aspect-[4/3] bg-gray-100 relative group">
+                                                {item.images?.[0] ? (
+                                                    <img src={item.images[0]} alt={item.title} className="w-full h-full object-cover" />
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center text-gray-300"><CubeIcon className="w-12 h-12" /></div>
+                                                )}
+                                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                                                <button
+                                                    onClick={() => addToCart(item)}
+                                                    className="absolute bottom-3 right-3 bg-white p-2 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 transition-all duration-300"
+                                                >
+                                                    <PlusIcon className="h-5 w-5 text-blue-600" />
+                                                </button>
+                                            </div>
+                                            <div className="p-4 flex-1 flex flex-col">
+                                                <h3 className="font-semibold text-gray-900 mb-1">{item.title}</h3>
+                                                <p className="text-gray-500 text-sm line-clamp-2 mb-3 flex-1">{item.description}</p>
+                                                <div className="flex justify-between items-center mt-auto">
+                                                    <span className="font-bold text-lg" style={{ color: BRAND.curious }}>
+                                                        {formatCurrency(item.price, item.currency)}
+                                                    </span>
+                                                    <button
+                                                        onClick={() => addToCart(item)}
+                                                        className="text-sm font-medium text-blue-600 hover:text-blue-800"
+                                                    >
+                                                        Add
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* Cart Modal / Drawer */}
+                <Modal
+                    opened={isCartOpen}
+                    onClose={() => setIsCartOpen(false)}
+                    title={<span className="font-bold text-lg">Shopping Cart</span>}
+                    size="lg"
+                >
+                    {checkoutStep === 'cart' && (
+                        <>
+                            {!cart || cart.items.length === 0 ? (
+                                <div className="text-center py-10">
+                                    <ShoppingBagIcon className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+                                    <p className="text-gray-500">Your cart is empty</p>
+                                    <Button variant="light" onClick={() => setIsCartOpen(false)} mt="md">Continue Shopping</Button>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {cart.items.map((item, idx) => (
+                                        <div key={idx} className="flex gap-4 py-3 border-b last:border-0">
+                                            <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center shrink-0">
+                                                <CubeIcon className="w-8 h-8 text-gray-400" />
+                                            </div>
+                                            <div className="flex-1">
+                                                <h4 className="font-medium">{item.title}</h4>
+                                                <div className="text-sm text-gray-500">{formatCurrency(item.price, cart.currency)} x {item.quantity}</div>
+                                            </div>
+                                            <div className="font-bold">
+                                                {formatCurrency(item.price * item.quantity, cart.currency)}
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    <div className="mt-6 pt-4 border-t border-gray-200">
+                                        <div className="flex justify-between text-lg font-bold mb-6">
+                                            <span>Total</span>
+                                            <span>{formatCurrency(cart.total, cart.currency)}</span>
+                                        </div>
+                                        <Button
+                                            fullWidth
+                                            size="lg"
+                                            color="blue"
+                                            onClick={handleCheckout}
+                                            loading={checkingOut}
+                                        >
+                                            Checkout
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {checkoutStep === 'invoice' && (
+                        <div className="text-center py-6">
+                            <CheckCircleIcon className="w-16 h-16 mx-auto text-green-500 mb-4" />
+                            <h3 className="text-xl font-bold mb-2">Order Quoted!</h3>
+                            <p className="text-gray-600 mb-6">Please accept the invoice credential to verify details and proceed to payment.</p>
+
+                            {/* In a real app we would show a QRCode for the Invoice Offer here */}
+                            {invoiceUrl && (
+                                <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-200 break-all text-xs font-mono">
+                                    {/* QR Code would be here */}
+                                    <div className="w-48 h-48 bg-white mx-auto mb-2 flex items-center justify-center border">
+                                        [QR CODE]
+                                    </div>
+                                    <a href={invoiceUrl} className="text-blue-600 hover:underline" target="_blank">Open Invoice Offer</a>
+                                </div>
+                            )}
+
+                            <div className="animate-pulse flex items-center justify-center gap-2 text-sm text-blue-600 font-medium bg-blue-50 py-2 rounded-lg">
+                                <Loader size="xs" />
+                                Waiting for Payment...
+                            </div>
+
+                            <p className="text-xs text-gray-400 mt-4">Simulate payment via EcoCash webhook in terminal</p>
+                        </div>
+                    )}
+
+                    {checkoutStep === 'receipt' && (
+                        <div className="text-center py-6">
+                            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <CheckCircleIcon className="w-12 h-12 text-green-600" />
+                            </div>
+                            <h3 className="text-2xl font-bold mb-2">Payment Successful!</h3>
+                            <p className="text-gray-600 mb-8">Your receipt has been issued and stored in your wallet.</p>
+
+                            <Button
+                                fullWidth
+                                size="lg"
+                                variant="outline"
+                                onClick={() => {
+                                    setIsCartOpen(false);
+                                    setCheckoutStep('cart');
+                                    setCart(null);
+                                    localStorage.removeItem('credo_cart_id');
+                                }}
+                            >
+                                Continue Shopping
+                            </Button>
+                        </div>
+                    )}
+                </Modal>
+            </div>
+        </Layout>
+    );
+}

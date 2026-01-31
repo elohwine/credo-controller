@@ -88,6 +88,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
             label: 'Business',
             items: [
                 { label: 'Catalog', href: '/catalog', icon: <IconBuildingStore size={16} />, description: 'Products & services catalog' },
+                { label: 'Live Shop', href: '/shop', icon: <IconBuildingStore size={16} />, description: 'Customer shopfront demo' },
                 { label: 'Finance', href: '/finance', icon: <IconCoin size={16} />, description: 'Financial reports & statements' },
                 { label: 'Inventory', href: '/inventory/dashboard', icon: <IconPackage size={16} />, description: 'Stock & inventory management' },
                 { label: 'Metrics', href: '/metrics', icon: <IconChartBar size={16} />, description: 'Analytics & dashboards' },
@@ -166,91 +167,91 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                         {/* Navigation - horizontal scrollable on mobile */}
                         <Box style={{ overflow: 'auto', maxWidth: '100%' }}>
                             <Group gap={4} wrap="nowrap">
-                            {/* Primary nav items */}
-                            {primaryNav.map((item) => {
-                                const active = isActive(item.href);
-                                return (
-                                    <Anchor
-                                        key={item.href}
-                                        component={Link}
-                                        href={item.href}
-                                        underline="never"
-                                        style={navLinkStyle(active)}
-                                    >
-                                        {item.icon}
-                                        {item.label}
-                                    </Anchor>
-                                );
-                            })}
-
-                            {/* Category dropdowns */}
-                            {categories.map((category) => (
-                                <Menu
-                                    key={category.label}
-                                    trigger="hover"
-                                    openDelay={100}
-                                    closeDelay={200}
-                                    withinPortal
-                                    position="bottom-start"
-                                    shadow="lg"
-                                    radius="md"
-                                    width={280}
-                                >
-                                    <Menu.Target>
-                                        <UnstyledButton
-                                            style={{
-                                                ...navLinkStyle(false),
-                                                cursor: 'pointer',
-                                            }}
+                                {/* Primary nav items */}
+                                {primaryNav.map((item) => {
+                                    const active = isActive(item.href);
+                                    return (
+                                        <Anchor
+                                            key={item.href}
+                                            component={Link}
+                                            href={item.href}
+                                            underline="never"
+                                            style={navLinkStyle(active)}
                                         >
-                                            {category.label}
-                                            <IconChevronDown size={14} style={{ marginLeft: 2 }} />
-                                        </UnstyledButton>
-                                    </Menu.Target>
+                                            {item.icon}
+                                            {item.label}
+                                        </Anchor>
+                                    );
+                                })}
 
-                                    <Menu.Dropdown style={{ padding: 8 }}>
-                                        <Text size="xs" fw={600} c="dimmed" px={12} py={6} tt="uppercase">
-                                            {category.label}
-                                        </Text>
-                                        {category.items.map((item) => (
-                                            <Menu.Item
-                                                key={item.href}
-                                                onClick={() => router.push(item.href)}
-                                                leftSection={
-                                                    <Box
-                                                        style={{
-                                                            width: 32,
-                                                            height: 32,
-                                                            borderRadius: 8,
-                                                            backgroundColor: BRAND.linkWater,
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            color: BRAND.curious,
-                                                        }}
-                                                    >
-                                                        {item.icon}
-                                                    </Box>
-                                                }
+                                {/* Category dropdowns */}
+                                {categories.map((category) => (
+                                    <Menu
+                                        key={category.label}
+                                        trigger="hover"
+                                        openDelay={100}
+                                        closeDelay={200}
+                                        withinPortal
+                                        position="bottom-start"
+                                        shadow="lg"
+                                        radius="md"
+                                        width={280}
+                                    >
+                                        <Menu.Target>
+                                            <UnstyledButton
                                                 style={{
-                                                    borderRadius: 8,
-                                                    padding: '10px 12px',
+                                                    ...navLinkStyle(false),
                                                     cursor: 'pointer',
                                                 }}
                                             >
-                                                <Text size="sm" fw={500}>
-                                                    {item.label}
-                                                </Text>
-                                                {item.description && (
-                                                    <Text size="xs" c="dimmed" mt={2}>
-                                                        {item.description}
+                                                {category.label}
+                                                <IconChevronDown size={14} style={{ marginLeft: 2 }} />
+                                            </UnstyledButton>
+                                        </Menu.Target>
+
+                                        <Menu.Dropdown style={{ padding: 8 }}>
+                                            <Text size="xs" fw={600} c="dimmed" px={12} py={6} tt="uppercase">
+                                                {category.label}
+                                            </Text>
+                                            {category.items.map((item) => (
+                                                <Menu.Item
+                                                    key={item.href}
+                                                    onClick={() => router.push(item.href)}
+                                                    leftSection={
+                                                        <Box
+                                                            style={{
+                                                                width: 32,
+                                                                height: 32,
+                                                                borderRadius: 8,
+                                                                backgroundColor: BRAND.linkWater,
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                color: BRAND.curious,
+                                                            }}
+                                                        >
+                                                            {item.icon}
+                                                        </Box>
+                                                    }
+                                                    style={{
+                                                        borderRadius: 8,
+                                                        padding: '10px 12px',
+                                                        cursor: 'pointer',
+                                                    }}
+                                                >
+                                                    <Text size="sm" fw={500}>
+                                                        {item.label}
                                                     </Text>
-                                                )}
-                                            </Menu.Item>
-                                        ))}
-                                    </Menu.Dropdown>
-                                </Menu>
-                            ))}
+                                                    {item.description && (
+                                                        <Text size="xs" c="dimmed" mt={2}>
+                                                            {item.description}
+                                                        </Text>
+                                                    )}
+                                                </Menu.Item>
+                                            ))}
+                                        </Menu.Dropdown>
+                                    </Menu>
+                                ))}
                             </Group>
                         </Box>
                     </Group>

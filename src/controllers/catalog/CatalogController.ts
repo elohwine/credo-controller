@@ -12,6 +12,7 @@ export interface CreateCatalogItemRequest {
     price: number
     currency?: string
     sku?: string
+    category?: string
 }
 
 export interface CatalogItem {
@@ -23,6 +24,7 @@ export interface CatalogItem {
     price: number
     currency: string
     sku?: string
+    category?: string
     createdAt: string
     catalogItemVcOffer?: {
         offerId: string
@@ -60,13 +62,14 @@ export class CatalogController extends Controller {
             price: body.price,
             currency: body.currency || 'USD',
             sku: body.sku,
+            category: body.category,
             createdAt: timestamp
         }
 
         try {
             db.prepare(`
-                INSERT INTO catalog_items (id, merchant_id, title, description, images, price, currency, sku, created_at, updated_at)
-                VALUES (@id, @merchantId, @title, @description, @images, @price, @currency, @sku, @createdAt, @createdAt)
+                INSERT INTO catalog_items (id, merchant_id, title, description, images, price, currency, sku, category, created_at, updated_at)
+                VALUES (@id, @merchantId, @title, @description, @images, @price, @currency, @sku, @category, @createdAt, @createdAt)
             `).run({
                 ...item,
                 images: JSON.stringify(item.images)
@@ -86,6 +89,7 @@ export class CatalogController extends Controller {
                         price: item.price,
                         currency: item.currency,
                         sku: item.sku,
+                        category: item.category,
                         merchantId: item.merchantId,
                         createdAt: item.createdAt
                     }
@@ -99,6 +103,49 @@ export class CatalogController extends Controller {
         } catch (error: any) {
             this.setStatus(500)
             throw new Error(`Failed to create item: ${error.message}`)
+        }
+    }
+
+
+    /**
+     * Import multiple items to the merchant's catalog.
+     */
+    @Post('merchant/{merchantId}/import')
+    public async importItems(
+        @Path() merchantId: string,
+        @Body() items: CreateCatalogItemRequest[]
+    ): Promise<{ imported: number }> {
+        const db = DatabaseManager.getDatabase()
+        const timestamp = new Date().toISOString()
+
+        const insertStmt = db.prepare(`
+            INSERT INTO catalog_items (id, merchant_id, title, description, images, price, currency, sku, category, created_at, updated_at)
+            VALUES (@id, @merchantId, @title, @description, @images, @price, @currency, @sku, @category, @createdAt, @createdAt)
+        `)
+
+        const importTx = db.transaction((itemList: CreateCatalogItemRequest[]) => {
+            for (const item of itemList) {
+                insertStmt.run({
+                    id: `ITM-${randomUUID()}`,
+                    merchantId,
+                    title: item.title,
+                    description: item.description,
+                    images: JSON.stringify(item.images || []),
+                    price: item.price,
+                    currency: item.currency || 'USD',
+                    sku: item.sku,
+                    category: item.category,
+                    createdAt: timestamp
+                })
+            }
+        })
+
+        try {
+            importTx(items)
+            return { imported: items.length }
+        } catch (error: any) {
+            this.setStatus(500)
+            throw new Error(`Failed to import items: ${error.message}`)
         }
     }
 
@@ -129,6 +176,7 @@ export class CatalogController extends Controller {
                 price: row.price,
                 currency: row.currency,
                 sku: row.sku,
+                category: row.category,
                 createdAt: row.created_at
             }))
         } catch (error: any) {
