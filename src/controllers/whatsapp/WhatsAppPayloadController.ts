@@ -603,7 +603,7 @@ export class WhatsAppPayloadController extends Controller {
     @Post('cart/{cartId}/checkout')
     public async checkout(
         @Path() cartId: string,
-        @Body() body: { 
+        @Body() body: {
             customerMsisdn: string  // EcoCash phone number (e.g., 263774222475)
             skipQuote?: boolean     // If true, skip quote step
             sendToWhatsApp?: boolean
@@ -627,7 +627,7 @@ export class WhatsAppPayloadController extends Controller {
         const issuerApiUrl = process.env.ISSUER_API_URL || 'http://localhost:3000'
         const ecocashApiKey = process.env.ECOCASH_API_KEY || '405mvFAY3Tz6o3V48JX6NDeSWGneVLaB'
         const ecocashBaseUrl = process.env.ECOCASH_BASE_URL || 'https://developers.ecocash.co.zw/api/ecocash_pay/api/v2'
-        const webhookUrl = process.env.NGROK_URL 
+        const webhookUrl = process.env.NGROK_URL
             ? `${process.env.NGROK_URL}/webhooks/ecocash`
             : 'http://localhost:3000/webhooks/ecocash'
 
@@ -637,7 +637,7 @@ export class WhatsAppPayloadController extends Controller {
         try {
             // Step 1: Initiate EcoCash C2B payment
             logger.info({ cartId, msisdn: body.customerMsisdn, amount: cart.total }, 'Initiating EcoCash payment')
-            
+
             let ecocashRef = `SIM-${sourceRef}` // Simulated ref for sandbox
             let paymentInstructions = `Dial *151*2*1# and enter reference: ${sourceRef}`
 
@@ -809,9 +809,11 @@ export class WhatsAppPayloadController extends Controller {
     @Post('cart/{cartId}/send-receipt')
     public async sendReceiptToWhatsApp(
         @Path() cartId: string,
-        @Body() body: { 
+        @Body() body: {
             receiptOfferUrl: string
             transactionId: string
+            verificationUrl?: string
+            verificationCode?: string
         }
     ): Promise<{ success: boolean, message: string }> {
         const db = DatabaseManager.getDatabase()
@@ -845,6 +847,17 @@ export class WhatsAppPayloadController extends Controller {
                 'Save Receipt',
                 body.receiptOfferUrl
             )
+
+            // Send verification code (for drivers)
+            if (body.verificationUrl && body.verificationCode) {
+                await waMessageService.sendCtaUrlButton(
+                    cart.buyer_phone,
+                    '🚚 Delivery Verification',
+                    `Show this code to your driver for verification:\n\n*${body.verificationCode}*`,
+                    'Show QR Code',
+                    body.verificationUrl
+                )
+            }
 
             // Update cart status
             db.prepare(`

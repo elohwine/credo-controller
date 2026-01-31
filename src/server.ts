@@ -37,6 +37,7 @@ import { runWithContext } from './utils/requestContext'
 import { DatabaseManager } from './persistence/DatabaseManager'
 import { auditMiddleware } from './middleware/auditMiddleware'
 import { triggerService } from './services/TriggerService'
+import { ShortlinkService } from './services/ShortlinkService'
 
 import { startNgrokTunnel, getNgrokUrl } from './utils/ngrokTunnel'
 
@@ -68,6 +69,15 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
 
   initTenantStore()
   initWalletUserStore()
+
+  // Initialize shortlink service for verification QRs
+  try {
+    ShortlinkService.initialize()
+    agent?.config?.logger?.info?.('ShortlinkService initialized')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    agent?.config?.logger?.warn?.(`ShortlinkService initialization failed: ${msg}`)
+  }
 
   // Initialize trigger service for scheduled workflows
   try {
@@ -247,6 +257,26 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
       return
     }
     next()
+  })
+
+  // Shortlink redirect: /v/{code} -> verification page
+  app.get('/v/:code', (req: ExRequest, res: ExResponse) => {
+    const { code } = req.params
+    const result = ShortlinkService.resolve(code)
+
+    if (!result) {
+      return res.status(404).json({ error: 'Link expired or not found' })
+    }
+
+    // Redirect to appropriate verification page based on type
+    const baseUrl = process.env.PORTAL_URL || 'http://localhost:5000'
+    if (result.type === 'receipt') {
+      return res.redirect(`${baseUrl}/verify/receipt/${result.targetId}`)
+    } else if (result.type === 'credential') {
+      return res.redirect(`${baseUrl}/verify/${result.targetId}`)
+    } else {
+      return res.redirect(`${baseUrl}/verify?id=${result.targetId}`)
+    }
   })
 
   app.use(async (req: ExRequest, res: ExResponse, next: NextFunction) => {

@@ -4,6 +4,7 @@ import { workflowService } from '../../services/WorkflowService'
 import { triggerService } from '../../services/TriggerService'
 import { rootLogger } from '../../utils/pinoLogger'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
+import { ShortlinkService } from '../../services/ShortlinkService'
 import axios from 'axios'
 
 const logger = rootLogger.child({ module: 'EcoCashWebhookController' })
@@ -110,9 +111,21 @@ export class EcoCashWebhookController extends Controller {
                         }
                     )
 
-                    const receiptOfferUrl = receiptResponse.data?.offerUrl || receiptResponse.data?.credentialOffer
 
+
+                    const receiptOfferUrl = receiptResponse.data?.offerUrl || receiptResponse.data?.credentialOffer
                     logger.info({ receiptOfferUrl, transactionId: payload.transactionId }, 'ReceiptVC issued')
+
+                    // Generate verification shortlink (QR)
+                    const { url: verificationUrl, code: verificationCode } = ShortlinkService.createReceiptLink(
+                        payload.transactionId || 'unknown',
+                        {
+                            amount: String(payload.amount || existingPayment?.amount || '0'),
+                            currency: payload.currency || existingPayment?.currency || 'USD',
+                            merchant: existingPayment?.tenant_id || 'unknown'
+                        }
+                    )
+                    logger.info({ verificationUrl, verificationCode }, 'Generated verification shortlink')
 
                     // Update or create payment record
                     if (existingPayment) {
@@ -179,7 +192,9 @@ export class EcoCashWebhookController extends Controller {
                                 `${baseUrl}/api/wa/cart/${cartId}/send-receipt`,
                                 {
                                     receiptOfferUrl,
-                                    transactionId: payload.transactionId
+                                    transactionId: payload.transactionId,
+                                    verificationUrl,
+                                    verificationCode
                                 },
                                 { headers: { 'Content-Type': 'application/json' }, timeout: 10000 }
                             )

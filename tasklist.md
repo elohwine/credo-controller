@@ -5,6 +5,16 @@
 
 ---
 
+## ✅ Sprint 4 — Completed
+
+### Sprint 4 Tasks
+- [x] Verify VC signing with tenant DID (cliAgent.ts uses didsApi.getCreatedDids)
+- [x] Test credential_offer_uri generation (confirmed working)
+- [x] Implement shortlink generator for verifier QR (ShortlinkService + Webhook integration)
+- [x] Add SSE/polling for frontend VC notification (useCartPolling hook created)
+
+---
+
 ## ✅ Sprint 3 — Completed
 
 ### Sprint 3 Tasks
