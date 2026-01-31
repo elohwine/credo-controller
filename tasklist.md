@@ -53,10 +53,22 @@
 |--------|-------|--------|
 | 1 | Kickoff & Foundations | ✅ Complete |
 | 2 | EcoCash Integration Review | ✅ Complete |
-| 3 | Portal Checkout UI Polish | 🏗 In Progress |
-| 4 | ReceiptVC Issuance Enhancement | ⏳ Pending |
-| 5 | Embedded Wallet Storage | ⏳ Pending |
+| 3 | Portal Checkout UI Polish | ✅ Complete |
+| 4 | ReceiptVC Issuance Enhancement | ✅ Complete |
+| 5 | Embedded Wallet Storage | 🏗 In Progress |
 | 6 | Driver Verification Page | ⏳ Pending |
+
+---
+
+## 🏗 Sprint 5 — In Progress
+
+### Sprint 5 Tasks (Embedded Wallet & Shopfront)
+- [x] Separate **Admin Catalog** (onboarding) from **Shopfront** (customer view) `feat(shop)`
+- [x] Create separate `/shop` page with Cart & Checkout flow
+- [x] Backend: Return `invoiceOfferId` in checkout for embedded acceptance
+- [x] Frontend: Implement **Embedded Wallet** consent flow (Inline "Save Invoice")
+- [ ] Verify full end-to-end flow (Shop -> Save -> Pay -> Receipt)
+- [ ] Add "Save Receipt" prompt in Shop after payment success
 | 7 | QA & Hardening | ⏳ Pending |
 | 8 | Pilot Onboarding | ⏳ Pending |
 | 9 | Pilot Soft Launch | ⏳ Pending |

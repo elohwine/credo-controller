@@ -51,6 +51,7 @@ export interface CheckoutResponse {
     status: string
     quoteOfferUrl?: string
     invoiceOfferUrl?: string
+    invoiceOfferId?: string
     ecocashRef?: string
     paymentInstructions?: string
     message: string
@@ -751,6 +752,7 @@ export class WhatsAppPayloadController extends Controller {
                 cartId,
                 status: 'invoiced',
                 invoiceOfferUrl,
+                invoiceOfferId: invoiceResponse.data?.id || invoiceResponse.data?.offerId,
                 ecocashRef,
                 paymentInstructions,
                 message: `Payment initiated. Reference: ${sourceRef}. Waiting for EcoCash confirmation.`

@@ -11,9 +11,12 @@ import {
 } from '@heroicons/react/24/outline';
 import { BRAND, formatCurrency } from '@/lib/theme';
 import { EnvContext } from '@/pages/_app';
-import { Loader, Modal, Button, TextInput, NumberInput } from '@mantine/core';
-import { useCartPolling } from '../utils/useCartPolling';
+import { Loader, Modal, Button, TextInput, NumberInput, Alert } from '@mantine/core';
+import { useCartPolling } from '@/utils/useCartPolling';
 import { useRouter } from 'next/router';
+import axios from 'axios';
+import { ensurePortalTenant } from '@/utils/portalTenant';
+import { IconWallet } from '@tabler/icons-react';
 
 // Reusing types locally for speed
 interface CatalogItem {
@@ -52,6 +55,9 @@ export default function ShopPage() {
     const [buyerPhone, setBuyerPhone] = useState('');
     const [checkoutStep, setCheckoutStep] = useState<'cart' | 'phone' | 'invoice' | 'receipt'>('cart');
     const [invoiceUrl, setInvoiceUrl] = useState('');
+    const [invoiceOfferId, setInvoiceOfferId] = useState('');
+    const [savingInvoice, setSavingInvoice] = useState(false);
+    const [invoiceSaved, setInvoiceSaved] = useState(false);
 
     const env = useContext(EnvContext);
     const router = useRouter();
@@ -60,7 +66,7 @@ export default function ShopPage() {
     // Poll for receipt when we are in 'invoice' step
     const { cart: pollingCart } = useCartPolling(
         checkoutStep === 'invoice' && cart?.id ? cart.id : null,
-        (updatedCart) => {
+        (updatedCart: any) => {
             if (updatedCart.status === 'paid') {
                 setCheckoutStep('receipt');
             }
@@ -157,12 +163,30 @@ export default function ShopPage() {
             });
             const data = await res.json();
             setInvoiceUrl(data.invoiceOfferUrl);
+            setInvoiceOfferId(data.invoiceOfferId);
             setCheckoutStep('invoice');
         } catch (error) {
             console.error('Checkout failed:', error);
             alert('Checkout failed');
         } finally {
             setCheckingOut(false);
+        }
+    };
+
+    const handleSaveInvoice = async () => {
+        if (!invoiceOfferId) return;
+        setSavingInvoice(true);
+        try {
+            const { tenantToken } = await ensurePortalTenant(backendUrl);
+            await axios.post(`${backendUrl}/custom-oidc/issuer/offers/${invoiceOfferId}/accept`, {}, {
+                headers: { Authorization: `Bearer ${tenantToken}` }
+            });
+            setInvoiceSaved(true);
+        } catch (e) {
+            console.error(e);
+            alert('Failed to save invoice to wallet');
+        } finally {
+            setSavingInvoice(false);
         }
     };
 
@@ -301,25 +325,40 @@ export default function ShopPage() {
                         <div className="text-center py-6">
                             <CheckCircleIcon className="w-16 h-16 mx-auto text-green-500 mb-4" />
                             <h3 className="text-xl font-bold mb-2">Order Quoted!</h3>
-                            <p className="text-gray-600 mb-6">Please accept the invoice credential to verify details and proceed to payment.</p>
+                            <p className="text-gray-600 mb-6">Verify invoice details and save to your wallet before payment.</p>
 
-                            {/* In a real app we would show a QRCode for the Invoice Offer here */}
-                            {invoiceUrl && (
-                                <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-200 break-all text-xs font-mono">
-                                    {/* QR Code would be here */}
-                                    <div className="w-48 h-48 bg-white mx-auto mb-2 flex items-center justify-center border">
-                                        [QR CODE]
-                                    </div>
-                                    <a href={invoiceUrl} className="text-blue-600 hover:underline" target="_blank">Open Invoice Offer</a>
+                            {!invoiceSaved ? (
+                                <div className="mb-8 p-6 bg-blue-50 rounded-xl border border-blue-100">
+                                    <h4 className="font-bold text-blue-900 mb-2 flex items-center justify-center gap-2">
+                                        <IconWallet size={20} /> Authenticate & Save
+                                    </h4>
+                                    <p className="text-sm text-blue-700 mb-4">Store this Invoice VC in your Credentis Wallet.</p>
+                                    <Button
+                                        onClick={handleSaveInvoice}
+                                        loading={savingInvoice}
+                                        fullWidth
+                                        color="blue"
+                                        size="md"
+                                        leftSection={<IconWallet size={18} />}
+                                    >
+                                        Save Invoice to Wallet
+                                    </Button>
                                 </div>
+                            ) : (
+                                <Alert color="green" title="Invoice Saved" icon={<CheckCircleIcon className="h-5 w-5" />} mb="lg" className="text-left">
+                                    Invoice credential has been secured in your wallet.
+                                </Alert>
                             )}
 
-                            <div className="animate-pulse flex items-center justify-center gap-2 text-sm text-blue-600 font-medium bg-blue-50 py-2 rounded-lg">
-                                <Loader size="xs" />
-                                Waiting for Payment...
-                            </div>
-
-                            <p className="text-xs text-gray-400 mt-4">Simulate payment via EcoCash webhook in terminal</p>
+                            {invoiceSaved && (
+                                <>
+                                    <div className="animate-pulse flex items-center justify-center gap-2 text-sm text-blue-600 font-medium bg-blue-50 py-2 rounded-lg mb-4">
+                                        <Loader size="xs" />
+                                        Waiting for Payment...
+                                    </div>
+                                    <p className="text-xs text-gray-400">Simulate payment via EcoCash webhook</p>
+                                </>
+                            )}
                         </div>
                     )}
 
