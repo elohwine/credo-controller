@@ -353,6 +353,14 @@ export class WhatsAppPayloadController extends Controller {
             throw new Error(`Cart ${cartId} not found`)
         }
 
+        // Fetch receipt offer URL if exists
+        const receipt = db.prepare(`
+            SELECT r.credential_offer_url 
+            FROM ack_payment_receipts r
+            JOIN ack_payments p ON r.payment_id = p.id
+            WHERE p.cart_id = ?
+        `).get(cartId) as any
+
         return {
             id: row.id,
             merchantId: row.merchant_id,
@@ -361,7 +369,8 @@ export class WhatsAppPayloadController extends Controller {
             total: row.total,
             currency: row.currency,
             status: row.status,
-            createdAt: row.created_at
+            createdAt: row.created_at,
+            receiptOfferUrl: receipt?.credential_offer_url
         }
     }
 
@@ -696,7 +705,7 @@ export class WhatsAppPayloadController extends Controller {
                 { headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' } }
             )
 
-            const invoiceOfferUrl = invoiceResponse.data?.offerUrl || invoiceResponse.data?.credentialOffer
+            const invoiceOfferUrl = invoiceResponse.data?.offerUrl || invoiceResponse.data?.credentialOffer || invoiceResponse.data?.credential_offer_url || invoiceResponse.data?.credential_offer_uri
 
             // Step 3: Update cart status
             db.prepare(`

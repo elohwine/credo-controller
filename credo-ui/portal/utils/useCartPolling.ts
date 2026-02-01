@@ -24,21 +24,12 @@ export function useCartPolling(cartId: string | null, onPaid?: (cart: Cart) => v
 
         const pollCart = async () => {
             try {
-                // Use tenant token if available, though endpoint might be public
+                // Endpoint is public, no auth needed for polling
                 const credoBackend = env.NEXT_PUBLIC_VC_REPO;
-                let headers = {};
-                try {
-                    const { tenantToken } = await ensurePortalTenant(credoBackend);
-                    if (tenantToken) headers = { Authorization: `Bearer ${tenantToken}` };
-                } catch (e) {
-                    // Ignore tenant token error for public polling
-                }
 
                 const response = await axios.get(
-                    `${credoBackend}/api/wa/cart/${cartId}`,
-                    { headers }
+                    `${credoBackend}/api/wa/cart/${cartId}`
                 );
-
                 const data = response.data;
                 setCart(data);
 

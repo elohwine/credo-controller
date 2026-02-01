@@ -260,22 +260,27 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   })
 
   // Shortlink redirect: /v/{code} -> verification page
-  app.get('/v/:code', (req: ExRequest, res: ExResponse) => {
+  // Shortlink redirect: /v/:code -> verification page
+  app.get('/v/:code', (req, res) => {
     const { code } = req.params
     const result = ShortlinkService.resolve(code)
 
     if (!result) {
-      return res.status(404).json({ error: 'Link expired or not found' })
+      res.status(404).json({ error: 'Link expired or not found' })
+      return
     }
 
     // Redirect to appropriate verification page based on type
     const baseUrl = process.env.PORTAL_URL || 'http://localhost:5000'
     if (result.type === 'receipt') {
-      return res.redirect(`${baseUrl}/verify/receipt/${result.targetId}`)
+      res.redirect(`${baseUrl}/verify/receipt/${result.targetId}`)
+      return
     } else if (result.type === 'credential') {
-      return res.redirect(`${baseUrl}/verify/${result.targetId}`)
+      res.redirect(`${baseUrl}/verify/${result.targetId}`)
+      return
     } else {
-      return res.redirect(`${baseUrl}/verify?id=${result.targetId}`)
+      res.redirect(`${baseUrl}/verify?id=${result.targetId}`)
+      return
     }
   })
 

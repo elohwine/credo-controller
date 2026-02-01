@@ -17,7 +17,7 @@ async function run() {
 
   // Initialize persistence before loading dynamic definitions
   const { DatabaseManager } = require('../build/persistence/DatabaseManager')
-  DatabaseManager.initialize({ path: './data/persistence.db' })
+  DatabaseManager.initialize({ path: process.env.PERSISTENCE_DB_PATH || './data/persistence.db' })
   console.log('✅ Persistence initialized')
 
   // Use a single Express app instance that is shared
@@ -62,7 +62,7 @@ async function run() {
         ariesAskar,
         multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.ProfilePerWallet,
         config: {
-          storagePath: '/app/data/askar/shared'
+          storagePath: process.env.ASKAR_STORAGE_PATH || './data/askar-issuer'
         }
       }),
       tenants: new TenantsModule({
@@ -190,7 +190,7 @@ async function run() {
     // NOTE: Credo will try to convert *all* configured credential configurations between draft versions
     // during offer creation. Some formats require extra metadata fields (e.g., sd-jwt needs `vct`).
     // To keep the sample stable, advertise jwt_vc_json (most compatible) AND jwt_vc (internal default).
-    const supportedFormats = ['jwt_vc_json', 'jwt_vc']
+    const supportedFormats = ['jwt_vc_json']
 
     const credentialsSupported = []
     const credentialConfigurationsSupported = {}

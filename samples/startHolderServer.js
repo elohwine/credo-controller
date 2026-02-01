@@ -58,7 +58,7 @@ async function run() {
                 ariesAskar,
                 multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.ProfilePerWallet,
                 config: {
-                    storagePath: '/app/data/askar/shared'
+                    storagePath: process.env.ASKAR_STORAGE_PATH || './data/askar-holder'
                 }
             }),
             tenants: new TenantsModule({
@@ -109,7 +109,7 @@ async function run() {
     // this handler takes precedence over generated TSOA/controller routes.
     app.get('/.well-known/openid-credential-issuer', (_req, res) => {
         const base = HOLDER_BASE_URL
-        const supportedFormats = ['jwt_vc_json', 'jwt_vc']
+        const supportedFormats = ['jwt_vc_json']
 
         const credential_configurations_supported = {}
         supportedFormats.forEach((fmt) => {
@@ -153,7 +153,7 @@ async function run() {
     // sample holder; in production you'd derive this from agent capabilities.
     app.get('/.well-known/openid-credential-issuer', (_req, res) => {
         const base = HOLDER_BASE_URL
-        const supportedFormats = ['jwt_vc_json', 'jwt_vc']
+        const supportedFormats = ['jwt_vc_json']
 
         const credential_configurations_supported = {}
         supportedFormats.forEach((fmt) => {

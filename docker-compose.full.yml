@@ -18,11 +18,16 @@ services:
       - WALLET_KEY=development-wallet-key-123
       - JWT_SECRET=development-jwt-secret-456
       - LOG_LEVEL=debug
-      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://host.docker.internal:3000}
+      - PUBLIC_BASE_URL=http://api:3000
       - WALLET_URL=http://localhost:4000
       - PERSISTENCE_DB_PATH=/app/data/persistence.db
       # Only run Issuer
-      - HOLDER_API_PORT=6000 
+      - HOLDER_API_PORT=6000
+      # Event-Based Offer Push Config (Docker Internal Network)
+      - OFFER_PUSH_URL=http://holder-api:6000/api/wallet/wallet/holder-wallet/exchange/useOfferRequest
+      - OFFER_PUSH_API_KEY=holder-api-key-12345 
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: ["node", "./samples/startServer.js"]
     volumes:
       - ./data:/app/data

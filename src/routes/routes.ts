@@ -97,6 +97,8 @@ import { TriggerController } from './../controllers/workflow/TriggerController';
 import { AuditController } from './../controllers/admin/AuditController';
 // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
 import { PortalController } from './../controllers/PortalController';
+// WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+import { ShortlinkController } from './../controllers/shortlink/ShortlinkController';
 import { expressAuthentication } from './../authentication';
 // @ts-ignore - no great way to install types from subpackage
 import { iocContainer } from './../utils/tsyringeTsoaIocContainer';
@@ -1599,6 +1601,7 @@ const models: TsoaRoute.Models = {
             "price": {"dataType":"double","required":true},
             "currency": {"dataType":"string","required":true},
             "sku": {"dataType":"string"},
+            "category": {"dataType":"string"},
             "createdAt": {"dataType":"string","required":true},
             "catalogItemVcOffer": {"dataType":"nestedObjectLiteral","nestedProperties":{"credentialType":{"dataType":"array","array":{"dataType":"string"},"required":true},"expiresAt":{"dataType":"string","required":true},"credential_offer_deeplink":{"dataType":"string","required":true},"credential_offer_uri":{"dataType":"string","required":true},"offerId":{"dataType":"string","required":true}}},
         },
@@ -1614,6 +1617,7 @@ const models: TsoaRoute.Models = {
             "price": {"dataType":"double","required":true},
             "currency": {"dataType":"string"},
             "sku": {"dataType":"string"},
+            "category": {"dataType":"string"},
         },
         "additionalProperties": false,
     },
@@ -1663,6 +1667,7 @@ const models: TsoaRoute.Models = {
             "status": {"dataType":"string","required":true},
             "quoteOfferUrl": {"dataType":"string"},
             "invoiceOfferUrl": {"dataType":"string"},
+            "invoiceOfferId": {"dataType":"string"},
             "ecocashRef": {"dataType":"string"},
             "paymentInstructions": {"dataType":"string"},
             "message": {"dataType":"string","required":true},
@@ -2604,6 +2609,40 @@ const models: TsoaRoute.Models = {
             "ipAddress": {"dataType":"string"},
             "userAgent": {"dataType":"string"},
             "createdAt": {"dataType":"string","required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "ShortlinkResponse": {
+        "dataType": "refObject",
+        "properties": {
+            "code": {"dataType":"string","required":true},
+            "url": {"dataType":"string","required":true},
+            "expiresAt": {"dataType":"string","required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "CreateShortlinkRequest": {
+        "dataType": "refObject",
+        "properties": {
+            "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["credential"]},{"dataType":"enum","enums":["receipt"]},{"dataType":"enum","enums":["verification"]}],"required":true},
+            "targetId": {"dataType":"string","required":true},
+            "metadata": {"ref":"Record_string.any_"},
+            "ttlHours": {"dataType":"double"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "ResolveResponse": {
+        "dataType": "refObject",
+        "properties": {
+            "valid": {"dataType":"boolean","required":true},
+            "type": {"dataType":"string"},
+            "targetId": {"dataType":"string"},
+            "metadata": {"dataType":"union","subSchemas":[{"ref":"Record_string.any_"},{"dataType":"enum","enums":[null]}]},
+            "expiresAt": {"dataType":"string"},
+            "verificationUrl": {"dataType":"string"},
         },
         "additionalProperties": false,
     },
@@ -7428,6 +7467,42 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsCatalogController_importItems: Record<string, TsoaRoute.ParameterSchema> = {
+                merchantId: {"in":"path","name":"merchantId","required":true,"dataType":"string"},
+                items: {"in":"body","name":"items","required":true,"dataType":"array","array":{"dataType":"refObject","ref":"CreateCatalogItemRequest"}},
+        };
+        app.post('/api/catalog/merchant/:merchantId/import',
+            ...(fetchMiddlewares<RequestHandler>(CatalogController)),
+            ...(fetchMiddlewares<RequestHandler>(CatalogController.prototype.importItems)),
+
+            async function CatalogController_importItems(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsCatalogController_importItems, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<CatalogController>(CatalogController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'importItems',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsCatalogController_searchItems: Record<string, TsoaRoute.ParameterSchema> = {
                 q: {"in":"query","name":"q","dataType":"string"},
         };
@@ -7751,7 +7826,7 @@ export function RegisterRoutes(app: Router) {
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsWhatsAppPayloadController_sendReceiptToWhatsApp: Record<string, TsoaRoute.ParameterSchema> = {
                 cartId: {"in":"path","name":"cartId","required":true,"dataType":"string"},
-                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"transactionId":{"dataType":"string","required":true},"receiptOfferUrl":{"dataType":"string","required":true}}},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"verificationCode":{"dataType":"string"},"verificationUrl":{"dataType":"string"},"transactionId":{"dataType":"string","required":true},"receiptOfferUrl":{"dataType":"string","required":true}}},
         };
         app.post('/api/wa/cart/:cartId/send-receipt',
             ...(fetchMiddlewares<RequestHandler>(WhatsAppPayloadController)),
@@ -9997,6 +10072,79 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsInventoryController_getProfitAnalytics: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.get('/api/inventory/analytics/profit',
+            authenticateMiddleware([{"apiKey":[]}]),
+            ...(fetchMiddlewares<RequestHandler>(InventoryController)),
+            ...(fetchMiddlewares<RequestHandler>(InventoryController.prototype.getProfitAnalytics)),
+
+            async function InventoryController_getProfitAnalytics(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsInventoryController_getProfitAnalytics, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<InventoryController>(InventoryController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'getProfitAnalytics',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsInventoryController_buyItem: Record<string, TsoaRoute.ParameterSchema> = {
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"priceOverride":{"dataType":"double"},"quantity":{"dataType":"double","required":true},"lotId":{"dataType":"string","required":true}}},
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.post('/api/inventory/buy',
+            authenticateMiddleware([{"apiKey":[]}]),
+            ...(fetchMiddlewares<RequestHandler>(InventoryController)),
+            ...(fetchMiddlewares<RequestHandler>(InventoryController.prototype.buyItem)),
+
+            async function InventoryController_buyItem(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsInventoryController_buyItem, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<InventoryController>(InventoryController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'buyItem',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsMetricsController_healthCheck: Record<string, TsoaRoute.ParameterSchema> = {
         };
         app.get('/health',
@@ -11428,6 +11576,145 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'getCredentialOffer',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsShortlinkController_createShortlink: Record<string, TsoaRoute.ParameterSchema> = {
+                body: {"in":"body","name":"body","required":true,"ref":"CreateShortlinkRequest"},
+        };
+        app.post('/api/shortlinks',
+            ...(fetchMiddlewares<RequestHandler>(ShortlinkController)),
+            ...(fetchMiddlewares<RequestHandler>(ShortlinkController.prototype.createShortlink)),
+
+            async function ShortlinkController_createShortlink(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsShortlinkController_createShortlink, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<ShortlinkController>(ShortlinkController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'createShortlink',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsShortlinkController_resolveShortlink: Record<string, TsoaRoute.ParameterSchema> = {
+                code: {"in":"path","name":"code","required":true,"dataType":"string"},
+        };
+        app.get('/api/shortlinks/:code',
+            ...(fetchMiddlewares<RequestHandler>(ShortlinkController)),
+            ...(fetchMiddlewares<RequestHandler>(ShortlinkController.prototype.resolveShortlink)),
+
+            async function ShortlinkController_resolveShortlink(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsShortlinkController_resolveShortlink, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<ShortlinkController>(ShortlinkController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'resolveShortlink',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsShortlinkController_createReceiptShortlink: Record<string, TsoaRoute.ParameterSchema> = {
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"merchant":{"dataType":"string"},"currency":{"dataType":"string"},"amount":{"dataType":"string"},"transactionId":{"dataType":"string","required":true}}},
+        };
+        app.post('/api/shortlinks/receipt',
+            ...(fetchMiddlewares<RequestHandler>(ShortlinkController)),
+            ...(fetchMiddlewares<RequestHandler>(ShortlinkController.prototype.createReceiptShortlink)),
+
+            async function ShortlinkController_createReceiptShortlink(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsShortlinkController_createReceiptShortlink, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<ShortlinkController>(ShortlinkController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'createReceiptShortlink',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsShortlinkController_cleanupExpired: Record<string, TsoaRoute.ParameterSchema> = {
+        };
+        app.post('/api/shortlinks/cleanup',
+            ...(fetchMiddlewares<RequestHandler>(ShortlinkController)),
+            ...(fetchMiddlewares<RequestHandler>(ShortlinkController.prototype.cleanupExpired)),
+
+            async function ShortlinkController_cleanupExpired(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsShortlinkController_cleanupExpired, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<ShortlinkController>(ShortlinkController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'cleanupExpired',
                 controller,
                 response,
                 next,

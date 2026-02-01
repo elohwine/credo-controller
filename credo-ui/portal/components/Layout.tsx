@@ -89,23 +89,23 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
             items: [
                 { label: 'Catalog', href: '/catalog', icon: <IconBuildingStore size={16} />, description: 'Products & services catalog' },
                 { label: 'Live Shop', href: '/shop', icon: <IconBuildingStore size={16} />, description: 'Customer shopfront demo' },
-                { label: 'Finance', href: '/finance', icon: <IconCoin size={16} />, description: 'Financial reports & statements' },
-                { label: 'Inventory', href: '/inventory/dashboard', icon: <IconPackage size={16} />, description: 'Stock & inventory management' },
-                { label: 'Metrics', href: '/metrics', icon: <IconChartBar size={16} />, description: 'Analytics & dashboards' },
+                // { label: 'Finance', href: '/finance', icon: <IconCoin size={16} />, description: 'Financial reports & statements' },
+                // { label: 'Inventory', href: '/inventory/dashboard', icon: <IconPackage size={16} />, description: 'Stock & inventory management' },
+                // { label: 'Metrics', href: '/metrics', icon: <IconChartBar size={16} />, description: 'Analytics & dashboards' },
             ],
         },
-        {
-            label: 'People',
-            items: [
-                { label: 'HR & Payroll', href: '/hr', icon: <IconUsers size={16} />, description: 'Employees, payroll & HR operations' },
-            ],
-        },
+        // {
+        //     label: 'People',
+        //     items: [
+        //         { label: 'HR & Payroll', href: '/hr', icon: <IconUsers size={16} />, description: 'Employees, payroll & HR operations' },
+        //     ],
+        // },
         {
             label: 'Trust & Security',
             items: [
-                { label: 'Trust Scores', href: '/trust', icon: <IconStars size={16} />, description: 'Trust scores & attestations' },
+                // { label: 'Trust Scores', href: '/trust', icon: <IconStars size={16} />, description: 'Trust scores & attestations' },
                 { label: 'Revocation', href: '/revocation', icon: <IconShieldOff size={16} />, description: 'Credential revocation' },
-                { label: 'Audit Logs', href: '/audit', icon: <IconFileCheck size={16} />, description: 'Platform audit trail' },
+                // { label: 'Audit Logs', href: '/audit', icon: <IconFileCheck size={16} />, description: 'Platform audit trail' },
                 { label: 'WhatsApp', href: '/whatsapp', icon: <IconBrandWhatsapp size={16} />, description: 'WhatsApp commerce' },
             ],
         },

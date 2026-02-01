@@ -194,7 +194,10 @@ export class WalletCredentialsController extends Controller {
 
             if (baseAgentDids.length === 0) {
                 console.log('[acceptOffer] No DID in base agent, creating one...')
-                const createdDid = await baseAgent.dids.create({ method: 'key' })
+                const createdDid = await baseAgent.dids.create({
+                    method: 'key',
+                    options: { keyType: 'ed25519' }
+                })
                 holderDid = createdDid.didState.did as string
                 console.log('[acceptOffer] Created DID in base agent:', holderDid)
             } else {

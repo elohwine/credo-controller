@@ -58,17 +58,25 @@ export default function ShopPage() {
     const [invoiceOfferId, setInvoiceOfferId] = useState('');
     const [savingInvoice, setSavingInvoice] = useState(false);
     const [invoiceSaved, setInvoiceSaved] = useState(false);
+    const [receiptUrl, setReceiptUrl] = useState('');
+    const [savingReceipt, setSavingReceipt] = useState(false);
+    const [receiptSaved, setReceiptSaved] = useState(false);
 
     const env = useContext(EnvContext);
     const router = useRouter();
     const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+    // Use Holder URL (Port 6000) for wallet operations. Fallback to existing logic if not set.
+    const holderUrl = env.NEXT_PUBLIC_HOLDER_URL || backendUrl;
 
     // Poll for receipt when we are in 'invoice' step
     const { cart: pollingCart } = useCartPolling(
-        checkoutStep === 'invoice' && cart?.id ? cart.id : null,
+        (checkoutStep === 'invoice' || checkoutStep === 'receipt') && cart?.id ? cart.id : null,
         (updatedCart: any) => {
-            if (updatedCart.status === 'paid') {
+            if (updatedCart.status === 'paid' && checkoutStep !== 'receipt') {
                 setCheckoutStep('receipt');
+            }
+            if (updatedCart.receiptOfferUrl) {
+                setReceiptUrl(updatedCart.receiptOfferUrl);
             }
         }
     );
@@ -99,6 +107,22 @@ export default function ShopPage() {
             if (res.ok) {
                 const data = await res.json();
                 setCart(data);
+
+                // Auto-navigate to correct step based on cart status
+                if (data.status === 'paid') {
+                    setCheckoutStep('receipt');
+                    if (data.receiptOfferUrl) {
+                        setReceiptUrl(data.receiptOfferUrl);
+                    }
+                    setIsCartOpen(true);
+                } else if (data.status === 'invoiced') {
+                    // Cart was already checked out, skip to invoice step
+                    // Note: invoiceOfferUrl might not be stored, user may need to re-checkout
+                    // For now, clear the stale cart and let user start fresh
+                    console.log('[Shop] Cart is invoiced but no offer URL, clearing stale cart');
+                    localStorage.removeItem('credo_cart_id');
+                    setCart(null);
+                }
             } else {
                 localStorage.removeItem('credo_cart_id');
             }
@@ -152,22 +176,35 @@ export default function ShopPage() {
         }
     };
 
-    const handleCheckout = async () => {
+    const handleCheckout = () => {
+        if (!cart) return;
+        setCheckoutStep('phone');
+    };
+
+    const submitCheckout = async () => {
         if (!cart) return;
         setCheckingOut(true);
         try {
             const res = await fetch(`${backendUrl}/api/wa/cart/${cart.id}/checkout`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ paymentMethod: 'ecocash' })
+                body: JSON.stringify({
+                    customerMsisdn: buyerPhone,
+                    skipQuote: true
+                })
             });
             const data = await res.json();
+
+            if (res.status >= 400) {
+                throw new Error(data.message || 'Checkout failed');
+            }
+
             setInvoiceUrl(data.invoiceOfferUrl);
             setInvoiceOfferId(data.invoiceOfferId);
             setCheckoutStep('invoice');
-        } catch (error) {
+        } catch (error: any) {
             console.error('Checkout failed:', error);
-            alert('Checkout failed');
+            alert(`Checkout failed: ${error.message}`);
         } finally {
             setCheckingOut(false);
         }
@@ -177,8 +214,9 @@ export default function ShopPage() {
         if (!invoiceUrl) return;
         setSavingInvoice(true);
         try {
-            const { tenantToken } = await ensurePortalTenant(backendUrl);
-            await axios.post(`${backendUrl}/api/wallet/credentials/accept-offer`, {
+            // Use holderUrl for tenant auth AND wallet operations
+            const { tenantToken } = await ensurePortalTenant(holderUrl);
+            await axios.post(`${holderUrl}/api/wallet/credentials/accept-offer`, {
                 offerUri: invoiceUrl
             }, {
                 headers: { Authorization: `Bearer ${tenantToken}` }
@@ -189,6 +227,26 @@ export default function ShopPage() {
             alert('Failed to save invoice to wallet');
         } finally {
             setSavingInvoice(false);
+        }
+    };
+
+    const handleSaveReceipt = async () => {
+        if (!receiptUrl) return;
+        setSavingReceipt(true);
+        try {
+            // Use holderUrl for tenant auth AND wallet operations
+            const { tenantToken } = await ensurePortalTenant(holderUrl);
+            await axios.post(`${holderUrl}/api/wallet/credentials/accept-offer`, {
+                offerUri: receiptUrl
+            }, {
+                headers: { Authorization: `Bearer ${tenantToken}` }
+            });
+            setReceiptSaved(true);
+        } catch (e) {
+            console.error(e);
+            alert('Failed to save receipt to wallet. Try again later.');
+        } finally {
+            setSavingReceipt(false);
         }
     };
 
@@ -313,7 +371,6 @@ export default function ShopPage() {
                                             size="lg"
                                             color="blue"
                                             onClick={handleCheckout}
-                                            loading={checkingOut}
                                         >
                                             Checkout
                                         </Button>
@@ -323,10 +380,67 @@ export default function ShopPage() {
                         </>
                     )}
 
+                    {checkoutStep === 'phone' && (
+                        <div className="py-6">
+                            <h3 className="text-xl font-bold mb-4">Contact Details</h3>
+                            <p className="text-gray-500 mb-6 text-sm">Please enter your phone number for payment notifications.</p>
+
+                            <TextInput
+                                label="Phone Number (with country code)"
+                                placeholder="26377xxxxxxx"
+                                value={buyerPhone}
+                                onChange={(e) => setBuyerPhone(e.target.value)}
+                                className="mb-6"
+                                size="md"
+                            />
+
+                            <Button
+                                fullWidth
+                                size="lg"
+                                color="green"
+                                onClick={submitCheckout}
+                                loading={checkingOut}
+                                disabled={!buyerPhone}
+                            >
+                                Proceed to Payment
+                            </Button>
+
+                            <Button
+                                fullWidth
+                                variant="subtle"
+                                color="gray"
+                                className="mt-2"
+                                onClick={() => setCheckoutStep('cart')}
+                            >
+                                Back to Cart
+                            </Button>
+                        </div>
+                    )}
+
                     {checkoutStep === 'invoice' && (
                         <div className="text-center py-6">
                             <CheckCircleIcon className="w-16 h-16 mx-auto text-green-500 mb-4" />
                             <h3 className="text-xl font-bold mb-2">Order Quoted!</h3>
+
+                            {/* CAET TEMS RESTORED */}
+                            {cart && (
+                                <div className="bg-gray-50 rounded-lg p-4 mb-6 text-left">
+                                    <h4 className="font-bold text-sm text-gray-700 mb-2 border-b pb-1">Order Summary</h4>
+                                    <ul className="space-y-2 mb-3">
+                                        {cart.items.map((item, i) => (
+                                            <li key={i} className="flex justify-between text-sm">
+                                                <span>{item.quantity}x {item.title}</span>
+                                                <span className="font-medium">{formatCurrency(item.price * item.quantity, cart.currency)}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    <div className="flex justify-between font-bold border-t pt-2">
+                                        <span>Total</span>
+                                        <span>{formatCurrency(cart.total, cart.currency)}</span>
+                                    </div>
+                                </div>
+                            )}
+
                             <p className="text-gray-600 mb-6">Verify invoice details and save to your wallet before payment.</p>
 
                             {!invoiceSaved ? (
@@ -370,7 +484,52 @@ export default function ShopPage() {
                                 <CheckCircleIcon className="w-12 h-12 text-green-600" />
                             </div>
                             <h3 className="text-2xl font-bold mb-2">Payment Successful!</h3>
-                            <p className="text-gray-600 mb-8">Your receipt has been issued and stored in your wallet.</p>
+
+                            {/* CAET TEMS RESTORED */}
+                            {cart && (
+                                <div className="bg-green-50 rounded-lg p-4 mb-6 text-left mx-auto max-w-sm border border-green-100">
+                                    <h4 className="font-bold text-sm text-green-800 mb-2 border-b border-green-200 pb-1">Paid Items</h4>
+                                    <ul className="space-y-2 mb-3">
+                                        {cart.items.map((item, i) => (
+                                            <li key={i} className="flex justify-between text-sm text-green-900">
+                                                <span>{item.quantity}x {item.title}</span>
+                                                <span className="font-medium">{formatCurrency(item.price * item.quantity, cart.currency)}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    <div className="flex justify-between font-bold border-t border-green-200 pt-2 text-green-900">
+                                        <span>Total Paid</span>
+                                        <span>{formatCurrency(cart.total, cart.currency)}</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            <p className="text-gray-600 mb-8">Your receipt has been issued.</p>
+
+                            {receiptUrl && !receiptSaved && (
+                                <div className="mb-8 p-6 bg-green-50 rounded-xl border border-green-100">
+                                    <h4 className="font-bold text-green-900 mb-2 flex items-center justify-center gap-2">
+                                        <IconWallet size={20} /> Digital Receipt
+                                    </h4>
+                                    <p className="text-sm text-green-700 mb-4">Secure this Payment Receipt in your wallet for future verification.</p>
+                                    <Button
+                                        onClick={handleSaveReceipt}
+                                        loading={savingReceipt}
+                                        fullWidth
+                                        color="green"
+                                        size="md"
+                                        leftSection={<IconWallet size={18} />}
+                                    >
+                                        Save Receipt to Wallet
+                                    </Button>
+                                </div>
+                            )}
+
+                            {receiptSaved && (
+                                <Alert color="green" title="Receipt Saved" icon={<CheckCircleIcon className="h-5 w-5" />} mb="lg" className="text-left">
+                                    Receipt has been secured in your wallet.
+                                </Alert>
+                            )}
 
                             <Button
                                 fullWidth
