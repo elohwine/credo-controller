@@ -335,7 +335,7 @@ async function run() {
   process.env.ISSUER_API_KEY = process.env.ISSUER_API_KEY || 'test-api-key-12345'
   // NOTE: Push URL is disabled by default - offers should be manually accepted by users
   // Set OFFER_PUSH_URL env var to enable auto-accept (e.g., for testing)
-  // process.env.OFFER_PUSH_URL = process.env.OFFER_PUSH_URL || 'http://localhost:6000/api/wallet/wallet/holder-wallet/exchange/useOfferRequest'
+  // process.env.OFFER_PUSH_URL = process.env.OFFER_PUSH_URL || 'http://localhost:6000/api/wallet/holder-wallet/exchange/useOfferRequest'
   process.env.OFFER_PUSH_API_KEY = process.env.OFFER_PUSH_API_KEY || 'holder-api-key-12345'
 
 

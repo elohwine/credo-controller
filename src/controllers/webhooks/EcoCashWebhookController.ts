@@ -6,6 +6,7 @@ import { rootLogger } from '../../utils/pinoLogger'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { ShortlinkService } from '../../services/ShortlinkService'
 import axios from 'axios'
+import { createHash } from 'crypto'
 
 const logger = rootLogger.child({ module: 'EcoCashWebhookController' })
 
@@ -16,6 +17,8 @@ interface EcoCashWebhookPayload {
     amount?: number
     currency?: string
     sourceReference?: string
+    customerMsisdn?: string
+    timestamp?: string
     metadata?: any
 }
 
@@ -86,19 +89,29 @@ export class EcoCashWebhookController extends Controller {
 
                 // Issue PaymentReceipt (ReceiptVC) - uses modelRegistry registered type
                 try {
+                    // Audit Trail: Link to InvoiceVC
+                    const invoiceId = existingPayment?.invoice_id
+                    const invoiceHash = existingPayment?.invoice_hash
+                    const previousRecordHash = invoiceHash // Chain link
+
                     const receiptResponse = await axios.post(
                         `${issuerApiUrl}/custom-oidc/issuer/credential-offers`,
                         {
                             credentials: [{
-                                // Use PaymentReceipt which is registered in modelRegistry
-                                credentialDefinitionId: 'PaymentReceipt',
+                                // Use ReceiptVC which is configured in issuer metadata
+                                credentialDefinitionId: 'ReceiptVC',
                                 format: 'jwt_vc_json',
-                                type: ['VerifiableCredential', 'PaymentReceipt'],
+                                type: ['VerifiableCredential', 'ReceiptVC'],
                                 claims: {
                                     transactionId: payload.transactionId,
                                     amount: String(payload.amount || existingPayment?.amount || '0'),
                                     currency: payload.currency || existingPayment?.currency || 'USD',
                                     merchant: existingPayment?.tenant_id || 'unknown',
+                                    cartId: cartId,
+                                    invoiceId: invoiceId,
+                                    invoiceHash: invoiceHash,
+                                    previousRecordHash: previousRecordHash,
+                                    timestamp: new Date().toISOString()
                                 }
                             }]
                         },
@@ -111,9 +124,11 @@ export class EcoCashWebhookController extends Controller {
                         }
                     )
 
-
-
-                    const receiptOfferUrl = receiptResponse.data?.offerUrl || receiptResponse.data?.credentialOffer
+                    // Extract offer URL from various possible field names
+                    const receiptOfferUrl = receiptResponse.data?.credential_offer_url 
+                        || receiptResponse.data?.credential_offer_uri 
+                        || receiptResponse.data?.offerUrl 
+                        || receiptResponse.data?.credentialOffer
                     logger.info({ receiptOfferUrl, transactionId: payload.transactionId }, 'ReceiptVC issued')
 
                     // Generate verification shortlink (QR)

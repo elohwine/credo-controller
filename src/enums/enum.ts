@@ -13,7 +13,6 @@ export enum Role {
 export enum DidMethod {
   Key = 'key',
   Web = 'web',
-  Polygon = 'polygon',
   Peer = 'peer',
 }
 

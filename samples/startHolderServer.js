@@ -11,7 +11,7 @@ const { Router } = require('express')
 const { Agent, AutoAcceptCredential, AutoAcceptProof, ConnectionsModule, CredentialsModule, DidsModule, HttpOutboundTransport, KeyDidRegistrar, KeyDidResolver, LogLevel, ProofsModule, WebDidResolver, W3cCredentialsModule } = require('@credo-ts/core')
 const { AskarModule, AskarMultiWalletDatabaseScheme } = require('@credo-ts/askar')
 const { TenantsModule } = require('@credo-ts/tenants')
-const { OpenId4VcVerifierModule, OpenId4VcHolderModule } = require('@credo-ts/openid4vc')
+const { OpenId4VcVerifierModule, OpenId4VcHolderModule, OpenId4VcIssuerModule } = require('@credo-ts/openid4vc')
 const { agentDependencies, HttpInboundTransport } = require('@credo-ts/node')
 const { ariesAskar } = require('@hyperledger/aries-askar-nodejs')
 const { TsLogger } = require('../build/utils/logger')
@@ -23,8 +23,8 @@ process.env.ISSUER_API_KEY = process.env.ISSUER_API_KEY || 'test-api-key-12345'
 // Separate DB for Holder to avoid SQLite locking with Issuer
 process.env.PERSISTENCE_DB_PATH = process.env.PERSISTENCE_DB_PATH || './data/persistence.db'
 
-const HOLDER_API_PORT = Number(process.env.HOLDER_API_PORT || 6000)
-const HOLDER_INBOUND_PORT = Number(process.env.HOLDER_INBOUND_PORT || 6001)
+const HOLDER_API_PORT = Number(process.env.HOLDER_API_PORT || 7000)
+const HOLDER_INBOUND_PORT = Number(process.env.HOLDER_INBOUND_PORT || 7001)
 const HOLDER_WALLET_ID = process.env.HOLDER_WALLET_ID || 'holder-wallet'
 const HOLDER_BASE_URL = process.env.HOLDER_BASE_URL || `http://localhost:${HOLDER_API_PORT}`
 
@@ -32,6 +32,12 @@ async function run() {
     const logger = new TsLogger(LogLevel.info)
 
     const maxTimerMs = 2147483647
+
+    // Initialize persistence before loading dynamic definitions
+    // Crucial: Must share the same DB as the main agent for user lookups
+    const { DatabaseManager } = require('../build/persistence/DatabaseManager')
+    DatabaseManager.initialize({ path: process.env.PERSISTENCE_DB_PATH || './data/persistence.db' })
+    console.log('✅ Persistence initialized (Holder)')
 
     const app = express()
     const issuerRouter = Router()
@@ -44,8 +50,8 @@ async function run() {
     const agent = new Agent({
         config: {
             walletConfig: {
-                id: 'shared-controller-agent',
-                key: 'shared-controller-key',
+                id: 'holder-agent-wallet',
+                key: 'holder-agent-key',
             },
             label: 'Holder Agent (User Wallets)',
             endpoints: [`http://127.0.0.1:${HOLDER_INBOUND_PORT}`],
@@ -58,7 +64,9 @@ async function run() {
                 ariesAskar,
                 multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.ProfilePerWallet,
                 config: {
-                    storagePath: process.env.ASKAR_STORAGE_PATH || './data/askar-holder'
+                    // Fix: Use the same storage path as the Issuer to allow Tenant sharing
+                    // This creates a "Clustered" setup where both ports access the same wallets
+                    storagePath: process.env.ASKAR_STORAGE_PATH || './data/askar-issuer'
                 }
             }),
             tenants: new TenantsModule({
@@ -79,6 +87,16 @@ async function run() {
                 router: verifierRouter,
             }),
             openId4VcHolder: new OpenId4VcHolderModule(),
+            // Added Issuer for Self-Sovereign Identity VC issuance during registration
+            openId4VcIssuer: new OpenId4VcIssuerModule({
+                baseUrl: `${HOLDER_BASE_URL}/oidc/issuer`,
+                router: issuerRouter,
+                endpoints: {
+                    credentialOffer: {},
+                    accessToken: {},
+                    credential: {}
+                }
+            }),
         },
         dependencies: agentDependencies,
     })

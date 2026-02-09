@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import Layout from '@/components/Layout'
+import { BRAND } from '@/lib/theme'
 import { 
   IconReceipt, 
   IconSearch,
@@ -45,11 +46,14 @@ export default function ReceiptVerificationIndex() {
         
         {/* Hero */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl mb-4 shadow-lg">
+          <div 
+            className="inline-flex items-center justify-center w-20 h-20 rounded-2xl mb-4 shadow-lg"
+            style={{ background: `linear-gradient(135deg, ${BRAND.dark} 0%, ${BRAND.curious} 100%)` }}
+          >
             <IconTruck size={40} className="text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">Delivery Verification</h1>
-          <p className="text-gray-600 mt-2">Verify payment before releasing goods</p>
+          <h1 className="text-3xl font-bold" style={{ color: BRAND.dark }}>Delivery Verification</h1>
+          <p className="mt-2" style={{ color: BRAND.viking }}>Verify payment before releasing goods</p>
         </div>
 
         {/* Main Search */}
@@ -63,21 +67,26 @@ export default function ReceiptVerificationIndex() {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value.toUpperCase())}
               placeholder="INV-XXXXXXXX"
-              className="w-full px-4 py-4 text-xl font-mono text-center border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+              className="w-full px-4 py-4 text-xl font-mono text-center border-2 rounded-xl transition-all"
+              style={{ borderColor: BRAND.linkWater }}
+              onFocus={(e) => e.target.style.borderColor = BRAND.curious}
+              onBlur={(e) => e.target.style.borderColor = BRAND.linkWater}
               onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
               autoFocus
             />
             <button
               onClick={handleSearch}
               disabled={!searchInput.trim()}
-              className="w-full mt-4 py-4 bg-green-600 text-white rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:bg-green-700 active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
+              className="w-full mt-4 py-4 text-white rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:opacity-90 active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
+              style={{ backgroundColor: BRAND.curious }}
             >
               <IconSearch size={24} />
               VERIFY PAYMENT
             </button>
           </div>
 
-          {/* QR Scan Option */}
+          {/* QR Scan Option - Coming Soon */}
+          {/* 
           <button
             onClick={() => router.push('/verify/scan')}
             className="w-full py-4 bg-white border-2 border-gray-200 text-gray-700 rounded-xl font-medium flex items-center justify-center gap-2 hover:border-primary hover:bg-primary/5 transition-all mb-6"
@@ -85,6 +94,7 @@ export default function ReceiptVerificationIndex() {
             <IconCamera size={24} />
             Scan QR Code Instead
           </button>
+           */}
 
           {/* Recent Verifications */}
           {recentVerifications.length > 0 && (
@@ -106,9 +116,9 @@ export default function ReceiptVerificationIndex() {
         </div>
 
         {/* Trust Badge */}
-        <div className="mt-10 flex items-center gap-2 text-sm text-gray-400">
-          <IconShieldCheck size={18} />
-          <span>Secured by Credentis</span>
+        <div className="mt-10 flex items-center gap-2 text-sm" style={{ color: BRAND.viking }}>
+          <IconShieldCheck size={18} style={{ color: BRAND.curious }} />
+          <span>Secured by <span className="font-semibold" style={{ color: BRAND.curious }}>Credentis</span></span>
         </div>
       </div>
     </Layout>

@@ -24,8 +24,8 @@ export class OidcMetadataController extends Controller {
     const metadata: Record<string, unknown> = {
       issuer: baseUrl,
       credential_issuer: baseUrl,
-      token_endpoint: `${baseUrl}/oidc/token`,
-      credential_endpoint: `${baseUrl}/oidc/credential-offers`,
+      token_endpoint: `${baseUrl}/oidc/issuer/default-platform-issuer/token`,
+      credential_endpoint: `${baseUrl}/oidc/issuer/default-platform-issuer/credential`,
       // Indicate support for pre-authorized_code grant
       grants: ['urn:ietf:params:oauth:grant-type:pre-authorized_code'],
     }
@@ -77,6 +77,46 @@ export class OidcMetadataController extends Controller {
 
     request.logger?.info({ module: 'oidc-metadata', operation: 'getPlatformIssuerMetadata', baseUrl }, 'Served platform issuer metadata')
     return metadata
+  }
+
+  /**
+   * OAuth Authorization Server metadata for issuer-specific OID4VCI flows
+   * This is required by some wallets to validate token endpoint URLs
+   */
+  @Get('oidc/issuer/{issuerId}/.well-known/oauth-authorization-server')
+  public async getIssuerAuthorizationServerMetadata(
+    @Request() request: ExRequest,
+    @Path() issuerId: string,
+  ): Promise<Record<string, unknown>> {
+    const baseUrl = process.env.PUBLIC_BASE_URL || `${request.protocol}://${request.get('host')}`
+    const issuerBase = `${baseUrl}/oidc/issuer/${issuerId}`
+
+    return {
+      issuer: issuerBase,
+      authorization_server: issuerBase,
+      token_endpoint: `${issuerBase}/token`,
+      grant_types_supported: ['urn:ietf:params:oauth:grant-type:pre-authorized_code'],
+      token_endpoint_auth_methods_supported: ['none'],
+    }
+  }
+
+  /**
+   * Platform-level OAuth Authorization Server metadata
+   */
+  @Get('.well-known/oauth-authorization-server')
+  public async getPlatformAuthorizationServerMetadata(
+    @Request() request: ExRequest,
+  ): Promise<Record<string, unknown>> {
+    const baseUrl = process.env.PUBLIC_BASE_URL || `${request.protocol}://${request.get('host')}`
+    const issuerBase = `${baseUrl}/oidc/issuer/default-platform-issuer`
+
+    return {
+      issuer: issuerBase,
+      authorization_server: issuerBase,
+      token_endpoint: `${issuerBase}/token`,
+      grant_types_supported: ['urn:ietf:params:oauth:grant-type:pre-authorized_code'],
+      token_endpoint_auth_methods_supported: ['none'],
+    }
   }
   /**
    * Get OpenID Credential Issuer metadata (public endpoint)

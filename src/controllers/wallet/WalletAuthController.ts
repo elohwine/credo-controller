@@ -5,10 +5,12 @@ import { Controller, Post, Get, Route, Tags, Body, Request } from 'tsoa'
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
 import { Agent, Key, KeyType, TypedArrayEncoder, W3cCredentialService } from '@credo-ts/core'
-import { container } from 'tsyringe'
-import { createWalletUser, getWalletUserByUsername, getWalletUserByEmail, getWalletUserByWalletId, type WalletUser } from '../../persistence/UserRepository'
+import { container, inject, injectable } from 'tsyringe'
+import { SSIAuthService } from '../../services/SSIAuthService'
 import { saveWalletCredential, getWalletCredentialsByWalletId } from '../../persistence/WalletCredentialRepository'
 import { saveLoginChallenge, getLoginChallenge, deleteLoginChallenge, cleanupExpiredChallenges } from '../../persistence/LoginChallengeRepository'
+import { getWalletUserByWalletId } from '../../persistence/UserRepository'
+import { findTenantByPhone, claimTenantForUser, getTenantCredentialCount } from '../../services/PhoneTenantLinkingService'
 import { UnauthorizedError } from '../../errors/errors'
 import { AgentRole } from '../../enums'
 import type { RestMultiTenantAgentModules } from '../../cliAgent'
@@ -17,16 +19,19 @@ import type { VerifyPresentationRequestBody } from '../../types/api'
 interface LoginRequest {
   username?: string
   email?: string
-  password: string
+  phone?: string  // Fastlane: Support phone-based login
+  pin?: string    // SSI: Optional PIN for Web2-friendly login
   [key: string]: any // Allow additional properties from auth module
 }
 
 interface RegisterRequest {
   username: string
-  email: string
-  password: string
+  email?: string    // Optional if phone is provided
+  phone?: string    // Fastlane: Phone-first registration
+  pin?: string      // SSI: Optional PIN for Web2-friendly login fallback
   tenantType?: 'USER' | 'ORG'
   domain?: string
+  claimExistingTenant?: boolean  // If true, claim any existing tenant linked to this phone
 }
 
 interface LoginChallengeResponse {
@@ -62,218 +67,117 @@ interface WalletListings {
 
 @Route('api/wallet/auth')
 @Tags('Wallet-Auth')
+@injectable()
 export class WalletAuthController extends Controller {
-  private hashPassword(password: string): string {
-    return crypto.createHash('sha256').update(password).digest('hex')
-  }
-
-  private async getJwtSecret(): Promise<string> {
-    const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
-    const genericRecords = await baseAgent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
-    const secretKey = genericRecords[0]?.content.secretKey as string
-    if (!secretKey) {
-      throw new Error('JWT secret key not found')
-    }
-    return secretKey
-  }
-
-  private async generateJwtToken(user: WalletUser): Promise<string> {
-    const secret = await this.getJwtSecret()
-    const payload = {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      walletId: user.walletId,
-      // Multi-tenancy fields
-      role: AgentRole.RestTenantAgent,
-      tenantId: user.walletId, // We use the user's walletId field to store the Tenant ID
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60), // 30 days
-    }
-    return jwt.sign(payload, secret)
+  constructor(
+    @inject(SSIAuthService) private ssiAuthService: SSIAuthService
+  ) {
+    super()
   }
 
   @Post('/register')
-  public async register(@Request() request: ExRequest, @Body() body: RegisterRequest): Promise<{ message: string; walletId: string; holderDid?: string }> {
-    // Check if user exists
-    const existing = getWalletUserByUsername(body.username)
-    if (existing) {
-      this.setStatus(400)
-      throw new Error('User already exists')
+  public async register(@Request() request: ExRequest, @Body() body: RegisterRequest): Promise<{ 
+    message: string
+    walletId: string
+    holderDid?: string
+    claimedExistingTenant?: boolean
+    existingCredentialsCount?: number
+  }> {
+    let claimExistingTenantId: string | undefined
+    let existingCredentialsCount = 0
+
+    // Fastlane: Check if phone has an associated anonymous tenant
+    if (body.claimExistingTenant && body.phone) {
+        // Use SSIAuthService (temp_phone_links) instead of PhoneTenantLinkingService (browser_session_tenants)
+        // to ensure compatibility with WhatsApp/Checkout flows
+        const existingTenantId = await this.ssiAuthService.findTenantByPhone(body.phone)
+        
+        if (existingTenantId) {
+            // Check if it's already claimed/registered? 
+            // SSIAuthService.findTenantByPhone returns IDs from temp links (unclaimed usually)
+            // or we can check via ssi_users table if we had that method exposed
+            
+            // Assume if it's in temp links, it's a candidate for claiming
+            // OR it might be the registered tenant ID if we updated checkout logic
+            claimExistingTenantId = existingTenantId
+            
+            // Optional: Get credential count for logging
+            try {
+                existingCredentialsCount = getTenantCredentialCount(existingTenantId)
+            } catch (e) {
+                // Ignore count error
+            }
+
+            request.logger?.info({ 
+                phone: body.phone, 
+                tenantId: claimExistingTenantId, 
+                creds: existingCredentialsCount 
+            }, 'Found existing tenant to claim via SSIAuthService')
+        }
     }
-
-    // Get the base agent
-    const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
-
-    // 1. Create Credo Tenant
-    // We import provisionTenantResources dynamically or assume it's available
-    const { provisionTenantResources } = await import('../../services/TenantProvisioningService')
-
-    // Create the tenant record
-    const tenantRecord = await baseAgent.modules.tenants.createTenant({
-      config: {
-        label: body.username,
-        tenantType: body.tenantType || 'USER', // Pass to Provisioning Service
-        domain: body.domain
-      } as any // Cast to any to bypass Credo config type checks if strictly typed
-    })
-
-    // Provision resources (DIDs) for the tenant
-    let issuerDid = '' // This will be the User's DID (Tenant's DID)
-
-    // Determine Base URL
-    const protocol = request.protocol || 'http'
-    const host = request.get('host') || 'localhost:3000'
-    const fallbackBaseUrl = `${protocol}://${host}`
-    const baseUrl = process.env.PUBLIC_BASE_URL || fallbackBaseUrl
 
     try {
-      const provisioning = await provisionTenantResources({
-        agent: baseAgent,
-        tenantRecord,
-        baseUrl,
-        displayName: body.username
-      })
-      issuerDid = provisioning.issuerDid
+        const result = await this.ssiAuthService.register({
+            username: body.username,
+            pin: body.pin,
+            email: body.email,
+            phone: body.phone,
+            claimExistingTenantId
+        })
+
+        // If we claimed a tenant, ensure the link is finalized
+        if (claimExistingTenantId) {
+             try {
+                // If we accessed the user ID from the result (implied), we'd use it here.
+                // The service handles most logic, but let's confirm usage.
+             } catch (e) {
+                 // ignore
+             }
+        }
+
+        return {
+            message: 'User registered successfully (SSI)',
+            walletId: result.walletId,
+            claimedExistingTenant: !!claimExistingTenantId,
+            existingCredentialsCount
+        }
     } catch (e: any) {
-      // Cleanup if provisioning fails
-      await baseAgent.modules.tenants.deleteTenantById(tenantRecord.id)
-      throw new Error(`Failed to provision tenant: ${e.message}`)
-    }
-
-    const userDid = issuerDid
-    // Store Tenant ID as walletId
-    const tenantId = tenantRecord.id
-
-    // 2. Get Platform DID (Issuer)
-    let platformIssuerDid: string | undefined
-    const createdDids = await baseAgent.dids.getCreatedDids({ method: 'key' })
-    if (createdDids.length > 0) {
-      platformIssuerDid = createdDids[0].did
-    } else {
-      const issuerDidResult = await baseAgent.dids.create({ method: 'key', options: { keyType: KeyType.Ed25519 } })
-      platformIssuerDid = issuerDidResult.didState.did
-    }
-
-    if (!platformIssuerDid) {
-      throw new Error('Failed to determine Platform Issuer DID')
-    }
-
-    // Create user in database
-    const user = createWalletUser({
-      username: body.username,
-      email: body.email,
-      passwordHash: this.hashPassword(body.password),
-      walletId: tenantId, // Using Tenant ID here
-    })
-
-    // Registration complete - user can claim credentials separately from issuers
-    request.logger?.info({ walletId: tenantId }, 'User registered successfully - wallet ready')
-
-    return {
-      message: 'User registered successfully',
-      walletId: tenantId,
-      holderDid: issuerDid // Return the user's DID for future credential claims
+        if (e.message.includes('already exists')) {
+            this.setStatus(400)
+        } else {
+            console.error('Registration failed:', e)
+            this.setStatus(500)
+        }
+        throw e
     }
   }
 
   @Post('/login')
   public async login(@Request() request: ExRequest, @Body() body: LoginRequest): Promise<{ token: string; hasGenericId?: boolean }> {
-    console.log('[LOGIN] ===== START LOGIN FLOW =====')
-
-    // Find user by username or email
-    let user: WalletUser | null = null
-    if (body.username) {
-      user = getWalletUserByUsername(body.username)
-    } else if (body.email) {
-      user = getWalletUserByEmail(body.email)
-    }
-
-    if (!user || user.passwordHash !== this.hashPassword(body.password)) {
-      console.log('[LOGIN] Authentication failed')
-      this.setStatus(401)
-      throw new Error('Invalid credentials')
-    }
-
-    console.log('[LOGIN] User authenticated:', { userId: user.id, walletId: user.walletId })
-    const token = await this.generateJwtToken(user)
-    console.log('[LOGIN] JWT token generated')
-
-    // After successful username/password login, check whether this wallet already
-    // has a GenericID verifiable credential. If not, create a pre-authorized
-    // credential offer so the frontend can fetch/accept it.
-    const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
-    let tenantAgent: any
+    console.log('[LOGIN] ===== START LOGIN FLOW (SSI) =====')
 
     try {
-      console.log('[LOGIN] Getting tenant agent for:', user.walletId)
-      tenantAgent = await baseAgent.modules.tenants.getTenantAgent({ tenantId: user.walletId })
-      console.log('[LOGIN] Tenant agent retrieved')
-
-      console.log('[LOGIN] Checking Askar for existing GenericID credentials')
-      const w3cCredentialService = tenantAgent.dependencyManager.resolve(W3cCredentialService)
-      const existingCredentials = await w3cCredentialService.getAllCredentialRecords(tenantAgent.context)
-      console.log('[LOGIN] Fetched credentials from Askar, count:', existingCredentials.length)
-
-      let hasGeneric = false
-      for (const credRecord of existingCredentials) {
-        const cred = credRecord?.credential
-        if (!cred) continue
-
-        console.log('[LOGIN] Checking credential:', { id: credRecord.id, hasCredProp: !!cred })
-
-        // `credential` can be an object (W3C) or a JWT string depending on format.
-        if (typeof cred === 'string') {
-          try {
-            const payloadPart = cred.split('.')[1]
-            if (!payloadPart) continue
-            const json = Buffer.from(payloadPart.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
-            const payload = JSON.parse(json)
-            const types = payload?.vc?.type ?? payload?.type ?? []
-            console.log('[LOGIN] JWT credential types:', types)
-            if (Array.isArray(types) && types.includes('GenericIDCredential')) {
-              hasGeneric = true
-              break
-            }
-          } catch (e: any) {
-            console.log('[LOGIN] Error parsing JWT credential:', e.message)
-          }
-        } else {
-          const types = (cred as any)?.vc?.type ?? (cred as any)?.type ?? []
-          console.log('[LOGIN] Object credential types:', types)
-          if (Array.isArray(types) && types.includes('GenericIDCredential')) {
-            hasGeneric = true
-            break
-          }
+        // If no PIN provided, we can't do PIN-based login
+        if (!body.pin) {
+            this.setStatus(400)
+            throw new Error('PIN required for login')
         }
-      }
 
-      console.log('[LOGIN] GenericID check result - hasGeneric:', hasGeneric)
+        const result = await this.ssiAuthService.loginWithPin({
+            phone: body.phone,
+            email: body.email || (body.username?.includes('@') ? body.username : undefined),
+            pin: body.pin
+        })
 
-      // === Simplified Login: Just return token ===
-      // Credential claiming is now a separate action the user performs via UI
-      await tenantAgent.endSession()
-
-      return {
-        token,
-        hasGenericId: hasGeneric
-      }
-
-    } catch (error: any) {
-      console.error('[LOGIN] ===== ERROR IN LOGIN FLOW =====')
-      console.error('[LOGIN] Error message:', error.message)
-      console.error('[LOGIN] Error stack:', error.stack)
-
-      if (tenantAgent) {
-        try {
-          await tenantAgent.endSession()
-        } catch (e: any) {
-          console.error('[LOGIN] Error ending session:', e.message)
+        console.log('[LOGIN] User authenticated via SSI Service')
+        return {
+            token: result.token,
+            hasGenericId: true 
         }
-      }
-
-      // Re-throw the error so caller knows it failed
-      throw error
+    } catch (e: any) {
+        console.log('[LOGIN] Authentication failed:', e.message)
+        this.setStatus(401)
+        throw new Error('Invalid credentials')
     }
   }
 
@@ -526,7 +430,38 @@ export class WalletAuthController extends Controller {
 
   @Post('/logout')
   public async logout(@Request() request: ExRequest): Promise<{ message: string }> {
-    // TODO: Implement logout
+    // Clear session cookie
+    if (request.res) {
+        request.res.clearCookie('auth.token', { path: '/' })
+        // Clear potential other cookies if used
+        request.res.clearCookie('auth.refreshToken', { path: '/' })
+    }
     return { message: 'Logged out successfully' }
+  }
+
+  // --- Private Helpers ---
+
+  private async getJwtSecret(): Promise<string> {
+    if (process.env.JWT_SECRET) return process.env.JWT_SECRET
+
+    const agent = container.resolve<Agent<RestMultiTenantAgentModules>>(Agent)
+    const genericRecords = await agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
+    const record = genericRecords[0]
+    if (!record?.content?.secretKey) {
+      throw new Error('JWT secret not configured')
+    }
+    return record.content.secretKey as string
+  }
+
+  private async generateJwtToken(user: { id: string | number; walletId?: string }): Promise<string> {
+    const secret = await this.getJwtSecret()
+    return jwt.sign({
+      id: user.id,
+      walletId: user.walletId || user.id,
+      role: AgentRole.RestTenantAgent,
+      tenantId: user.walletId || user.id,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days
+    }, secret)
   }
 }

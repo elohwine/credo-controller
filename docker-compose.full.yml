@@ -18,21 +18,27 @@ services:
       - WALLET_KEY=development-wallet-key-123
       - JWT_SECRET=development-jwt-secret-456
       - LOG_LEVEL=debug
-      - PUBLIC_BASE_URL=http://api:3000
+      - PUBLIC_BASE_URL=http://172.19.0.10:3000
       - WALLET_URL=http://localhost:4000
       - PERSISTENCE_DB_PATH=/app/data/persistence.db
+      - ASKAR_STORAGE_PATH=/app/data/askar-issuer
       # Only run Issuer
-      - HOLDER_API_PORT=6000
+      - HOLDER_API_PORT=7000
+      # EcoCash Payment Mode: 'true' = simulated (auto-webhook), 'false' = live (USSD PIN push)
+      - ECOCASH_SANDBOX=true
+      - ECOCASH_WEBHOOK_SECRET=test-webhook-secret
       # Event-Based Offer Push Config (Docker Internal Network)
-      - OFFER_PUSH_URL=http://holder-api:6000/api/wallet/wallet/holder-wallet/exchange/useOfferRequest
-      - OFFER_PUSH_API_KEY=holder-api-key-12345 
+      # Disabled for manual acceptance flow (MVP Fastlane)
+      # - OFFER_PUSH_URL=http://172.19.0.11:7000/api/wallet/holder-wallet/exchange/useOfferRequest
+      # - OFFER_PUSH_API_KEY=holder-api-key-12345 
     extra_hosts:
       - "host.docker.internal:host-gateway"
     command: ["node", "./samples/startServer.js"]
     volumes:
       - ./data:/app/data
     networks:
-      - credo-net
+      credo-net:
+        ipv4_address: 172.19.0.10
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
       interval: 10s
@@ -50,24 +56,26 @@ services:
     container_name: credo-holder
     restart: unless-stopped
     ports:
-      - "6000:6000" # Holder Agent
-      - "6001:6001" # Holder Inbound
+      - "7000:7000" # Holder Agent
+      - "7001:7001" # Holder Inbound
     environment:
-      - PORT=6000
-      - HOLDER_API_PORT=6000
-      - HOLDER_INBOUND_PORT=6001
-      - ISSUER_API_URL=http://api:3000
-      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://host.docker.internal:3000}
+      - PORT=7000
+      - HOLDER_API_PORT=7000
+      - HOLDER_INBOUND_PORT=7001
+      - ISSUER_API_URL=http://172.19.0.10:3000
+      - PUBLIC_BASE_URL=http://172.19.0.10:3000
       - WALLET_URL=http://localhost:4000
       - JWT_SECRET=development-jwt-secret-456
       - LOG_LEVEL=debug
+      - ASKAR_STORAGE_PATH=/app/data/askar-holder
     command: ["node", "./samples/startHolderServer.js"]
     volumes:
       - ./data:/app/data
     networks:
-      - credo-net
+      credo-net:
+        ipv4_address: 172.19.0.11
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:6000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:7000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
       interval: 15s
       timeout: 15s
       retries: 5
@@ -86,10 +94,10 @@ services:
       - "4000:4000"
     environment:
       - PORT=4000
-      - PROXY_TARGET_HOST=holder-api
-      - PROXY_TARGET_PORT=6000
-      - NUXT_PUBLIC_WALLET_BACKEND_URL=http://localhost:6000
-      - NUXT_PUBLIC_FINANCE_API_URL=http://localhost:6000
+      - PROXY_TARGET_HOST=172.19.0.11
+      - PROXY_TARGET_PORT=7000
+      - NUXT_PUBLIC_WALLET_BACKEND_URL=http://localhost:7000
+      - NUXT_PUBLIC_FINANCE_API_URL=http://localhost:7000
       - NUXT_PUBLIC_CREDENTIALS_REPOSITORY_URL=http://localhost:3000
       - NUXT_PUBLIC_ISSUER_CALLBACK_URL=http://localhost:3000
     depends_on:
@@ -98,7 +106,8 @@ services:
       holder-api:
         condition: service_healthy
     networks:
-      - credo-net
+      credo-net:
+        ipv4_address: 172.19.0.12
 
   # =====================================
   # HR Portal UI
@@ -113,17 +122,32 @@ services:
       - "5000:5000"
     environment:
       - PORT=5000
+      # Client-side (browser) URLs - must use localhost or public URLs
+      - NEXT_PUBLIC_VC_REPO=http://localhost:3000
       - NEXT_PUBLIC_BACKEND_URL=http://localhost:3000
+      - NEXT_PUBLIC_HOLDER_URL=http://localhost:7000
       - NEXT_PUBLIC_WALLET_URL=http://localhost:4000
-      - VC_REPO_INTERNAL=http://api:3000
+      # API Keys - DIFFERENT keys for different backends!
+      - NEXT_PUBLIC_CREDO_API_KEY=test-api-key-12345
+      - NEXT_PUBLIC_HOLDER_API_KEY=holder-api-key-12345
+      # Server-side (SSR/API routes) URLs - use Docker bridge IPs
+      - BACKEND_URL=http://172.19.0.10:3000
+      - VC_REPO_INTERNAL=http://172.19.0.10:3000
     depends_on:
       api:
         condition: service_healthy
+      holder-api:
+        condition: service_healthy
     networks:
-      - credo-net
+      credo-net:
+        ipv4_address: 172.19.0.13
 
 networks:
   credo-net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.19.0.0/24
+          gateway: 172.19.0.1
 
 # Using host bind mount for ./data to share persistence between services

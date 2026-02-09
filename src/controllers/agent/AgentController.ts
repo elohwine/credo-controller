@@ -94,9 +94,13 @@ export class AgentController extends Controller {
     console.log('[AgentController] getAgentToken called. Agent initialized:', request.agent?.isInitialized)
     let token
     try {
-      const genericRecords = await request.agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
-      console.log('[AgentController] found generic records:', genericRecords.length)
-      const secretKey = genericRecords[0]?.content.secretKey as string
+      let secretKey = process.env.JWT_SECRET
+      if (!secretKey) {
+          const genericRecords = await request.agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
+          console.log('[AgentController] found generic records:', genericRecords.length)
+          secretKey = genericRecords[0]?.content.secretKey as string
+      }
+
       if (!secretKey) {
         throw new Error('SecretKey not found')
       }

@@ -97,6 +97,28 @@ export function getWalletUserByWalletId(walletId: string): WalletUser | null {
   return mapWalletUserRow(row)
 }
 
+/**
+ * Get wallet user by phone number (Fastlane phone-first auth)
+ */
+export function getWalletUserByPhone(phone: string): WalletUser | null {
+  const database = ensureDb()
+  // Normalize phone - remove non-digits and ensure country code
+  let normalizedPhone = phone.replace(/\D/g, '')
+  if (normalizedPhone.startsWith('0') && normalizedPhone.length === 10) {
+    normalizedPhone = '263' + normalizedPhone.slice(1)
+  }
+  
+  // Check if phone column exists
+  try {
+    const row = database.prepare('SELECT * FROM wallet_users WHERE phone = ?').get(normalizedPhone)
+    if (!isWalletUserRow(row)) return null
+    return mapWalletUserRow(row)
+  } catch {
+    // Phone column may not exist yet
+    return null
+  }
+}
+
 export function updateWalletUser(id: string, updates: Partial<Pick<WalletUser, 'username' | 'email' | 'passwordHash' | 'walletId'>>): WalletUser | null {
   const database = ensureDb()
   const now = new Date().toISOString()

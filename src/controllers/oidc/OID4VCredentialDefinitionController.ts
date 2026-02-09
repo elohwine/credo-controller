@@ -19,7 +19,6 @@ interface RegisterCredentialDefinitionBody {
 
 @Route('oidc/credential-definitions')
 @Tags('OIDC4VC Credential Definitions')
-@Security('jwt', ['tenant'])
 export class OID4VCredentialDefinitionController extends Controller {
   @Get('/')
   public async listCredentialDefinitions(@Request() request: ExRequest) {
@@ -49,6 +48,7 @@ export class OID4VCredentialDefinitionController extends Controller {
   }
 
   @Post('/')
+  @Security('jwt', ['tenant'])
   public async registerCredentialDefinition(
     @Request() request: ExRequest,
     @Body() body: RegisterCredentialDefinitionBody,

@@ -1,7 +1,9 @@
 import { Controller, Post, Get, Route, Tags, Body, Path, Query } from 'tsoa'
-import { randomUUID } from 'crypto'
+import { randomUUID, createHash } from 'crypto'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { inventoryService } from '../../services/InventoryService'
+import { container } from 'tsyringe'
+import { SSIAuthService } from '../../services/SSIAuthService'
 import axios from 'axios'
 import { rootLogger } from '../../utils/pinoLogger'
 
@@ -54,6 +56,7 @@ export interface CheckoutResponse {
     invoiceOfferId?: string
     ecocashRef?: string
     paymentInstructions?: string
+    sandbox?: boolean
     message: string
 }
 
@@ -531,6 +534,29 @@ export class WhatsAppPayloadController extends Controller {
         const apiKey = process.env.ISSUER_API_KEY || 'test-api-key-12345'
         const issuerApiUrl = process.env.ISSUER_API_URL || 'http://localhost:3000'
 
+        // 1. Calculate Cart Hash (Audit Trail)
+        const cartHash = createHash('sha256').update(JSON.stringify(items)).digest('hex')
+        const quoteId = `QUOTE-${randomUUID().substring(0, 8)}`
+
+        const quoteClaims = {
+            quoteId: quoteId,
+            cartId: cartId,
+            cartHash: cartHash, // Link to Cart
+            previousRecordHash: cartHash, // Generic chain link
+            merchantId: cart.merchant_id,
+            items: items,
+            subtotal: cart.total,
+            taxAmount: 0,
+            discountAmount: 0,
+            grandTotal: cart.total,
+            currency: cart.currency,
+            validUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
+            timestamp: new Date().toISOString()
+        }
+
+        // 2. Calculate Quote Hash
+        const quoteHash = createHash('sha256').update(JSON.stringify(quoteClaims)).digest('hex')
+
         try {
             // Issue QuoteVC via credential offer
             const quoteResponse = await axios.post(
@@ -540,19 +566,7 @@ export class WhatsAppPayloadController extends Controller {
                         credentialDefinitionId: 'QuoteVC',
                         format: 'jwt_vc_json',
                         type: ['VerifiableCredential', 'QuoteVC'],
-                        claims: {
-                            quoteId: `QUOTE-${randomUUID().substring(0, 8)}`,
-                            cartId: cartId,
-                            merchantId: cart.merchant_id,
-                            items: items,
-                            subtotal: cart.total,
-                            taxAmount: 0,
-                            discountAmount: 0,
-                            grandTotal: cart.total,
-                            currency: cart.currency,
-                            validUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
-                            timestamp: new Date().toISOString()
-                        }
+                        claims: quoteClaims
                     }]
                 },
                 { headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' } }
@@ -561,9 +575,10 @@ export class WhatsAppPayloadController extends Controller {
             const quoteOfferUrl = quoteResponse.data?.offerUrl || quoteResponse.data?.credentialOffer
 
             // Mark quote was issued (but don't block payment)
+            // Updated to store quoteId and quoteHash for audit trail
             db.prepare(`
-                UPDATE carts SET quote_offer_url = ?, updated_at = ? WHERE id = ?
-            `).run(quoteOfferUrl, new Date().toISOString(), cartId)
+                UPDATE carts SET quote_offer_url = ?, quote_id = ?, quote_hash = ?, updated_at = ? WHERE id = ?
+            `).run(quoteOfferUrl, quoteId, quoteHash, new Date().toISOString(), cartId)
 
             // Send WhatsApp message with quote credential
             if (body.sendToWhatsApp && cart.buyer_phone) {
@@ -617,6 +632,7 @@ export class WhatsAppPayloadController extends Controller {
             customerMsisdn: string  // EcoCash phone number (e.g., 263774222475)
             skipQuote?: boolean     // If true, skip quote step
             sendToWhatsApp?: boolean
+            tenantId?: string       // Optional: browser tenant ID for phone linking
         }
     ): Promise<CheckoutResponse> {
         const db = DatabaseManager.getDatabase()
@@ -632,6 +648,33 @@ export class WhatsAppPayloadController extends Controller {
             throw new Error(`Cart is ${cart.status}, cannot checkout`)
         }
 
+        if (body.tenantId && body.customerMsisdn) {
+            try {
+                const ssiAuthService = container.resolve(SSIAuthService)
+                // 1. Check if this phone number is ALREADY REGISTERED to a main account
+                // If so, we should use THAT tenant instead of the temp/guest one
+                const registeredTenantId = await ssiAuthService.findRegisteredTenantByPhone(body.customerMsisdn)
+                
+                if (registeredTenantId) {
+                   logger.info({ registeredTenantId, guestTenantId: body.tenantId }, 'Redirecting guest checkout to existing registered tenant')
+                   
+                   // CRITICAL: We MUST still link the phone to the current guest tenant temporarily.
+                   // Why? Because if the user later goes to "View Receipts" and enters this phone,
+                   // the system needs to find this *Guest Tenant* to migrate its VCs to the Registered Tenant.
+                   // See SSIAuthService.register() migration logic.
+                   await ssiAuthService.linkPhoneTemporarily(body.tenantId, body.customerMsisdn)
+
+                } else {
+                   // 2. Only create temp link if NOT registered (new user flow)
+                   await ssiAuthService.linkPhoneTemporarily(body.tenantId, body.customerMsisdn)
+                   logger.info({ tenantId: body.tenantId }, 'Phone linked (encrypted) for Fastlane SSI flow')
+                }
+            } catch (linkErr: any) {
+                // Non-blocking - log but continue checkout
+                logger.warn({ error: linkErr.message, tenantId: body.tenantId }, 'Failed to link phone to tenant')
+            }
+        }
+
         const items = JSON.parse(cart.items || '[]')
         const apiKey = process.env.ISSUER_API_KEY || 'test-api-key-12345'
         const issuerApiUrl = process.env.ISSUER_API_URL || 'http://localhost:3000'
@@ -644,18 +687,23 @@ export class WhatsAppPayloadController extends Controller {
         // Generate unique source reference for idempotency
         const sourceRef = `INV-${randomUUID().substring(0, 8).toUpperCase()}`
 
+        // Check sandbox mode - default to sandbox for safety
+        const isSandbox = process.env.ECOCASH_SANDBOX !== 'false'
+
         try {
             // Step 1: Initiate EcoCash C2B payment
-            logger.info({ cartId, msisdn: body.customerMsisdn, amount: cart.total }, 'Initiating EcoCash payment')
+            logger.info({ cartId, msisdn: body.customerMsisdn, amount: cart.total, sandbox: isSandbox }, 'Initiating EcoCash payment')
 
             let ecocashRef = `SIM-${sourceRef}` // Simulated ref for sandbox
-            let paymentInstructions = `Dial *151*2*1# and enter reference: ${sourceRef}`
+            let paymentInstructions = isSandbox
+                ? `🧪 SANDBOX MODE: Payment will auto-complete in 3 seconds`
+                : `Dial *151*2*1# and enter reference: ${sourceRef}`
 
-            // Call actual EcoCash API in production
-            if (process.env.ECOCASH_SANDBOX !== 'true') {
+            // Call actual EcoCash API in LIVE mode (ECOCASH_SANDBOX=false)
+            if (!isSandbox) {
                 try {
                     const ecocashResponse = await axios.post(
-                        `${ecocashBaseUrl}/payment/instant/c2b/sandbox`,
+                        `${ecocashBaseUrl}/payment/instant/c2b`,
                         {
                             merchantNumber: process.env.ECOCASH_MERCHANT_NUMBER || '0771234567',
                             amount: cart.total,
@@ -673,11 +721,38 @@ export class WhatsAppPayloadController extends Controller {
                         }
                     )
                     ecocashRef = ecocashResponse.data?.transactionId || ecocashRef
-                    logger.info({ ecocashRef, cartId }, 'EcoCash payment initiated')
+                    paymentInstructions = `A PIN prompt has been sent to ${body.customerMsisdn}. Enter your EcoCash PIN to complete payment.`
+                    logger.info({ ecocashRef, cartId }, 'EcoCash LIVE payment initiated - USSD PIN push sent')
                 } catch (ecoErr: any) {
-                    logger.warn({ error: ecoErr.response?.data || ecoErr.message }, 'EcoCash API call failed, using simulation')
+                    logger.error({ error: ecoErr.response?.data || ecoErr.message }, 'EcoCash API call failed')
+                    throw new Error(`EcoCash payment failed: ${ecoErr.response?.data?.message || ecoErr.message}`)
                 }
             }
+
+            // 3. Prepare Audit Trail (Invoice Hash)
+            const quoteId = cart.quote_id
+            const quoteHash = cart.quote_hash
+            const cartHash = createHash('sha256').update(JSON.stringify(items)).digest('hex')
+            const previousHash = quoteHash || cartHash
+
+            const invoiceClaims = {
+                invoiceId: sourceRef,
+                cartId: cartId,
+                quoteId: quoteId, // Link to Quote (nullable)
+                quoteHash: quoteHash, // Link to Quote Hash
+                previousRecordHash: previousHash, // Chain link
+                items: items,
+                amount: cart.total,
+                currency: cart.currency,
+                customerMsisdn: body.customerMsisdn,
+                ecocashRef: ecocashRef,
+                paymentInstructions: paymentInstructions,
+                status: 'pending',
+                dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                timestamp: new Date().toISOString()
+            }
+
+            const invoiceHash = createHash('sha256').update(JSON.stringify(invoiceClaims)).digest('hex')
 
             // Step 2: Issue InvoiceVC
             const invoiceResponse = await axios.post(
@@ -687,19 +762,7 @@ export class WhatsAppPayloadController extends Controller {
                         credentialDefinitionId: 'InvoiceVC',
                         format: 'jwt_vc_json',
                         type: ['VerifiableCredential', 'InvoiceVC'],
-                        claims: {
-                            invoiceId: sourceRef,
-                            cartId: cartId,
-                            items: items,
-                            amount: cart.total,
-                            currency: cart.currency,
-                            customerMsisdn: body.customerMsisdn,
-                            ecocashRef: ecocashRef,
-                            paymentInstructions: paymentInstructions,
-                            status: 'pending',
-                            dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-                            timestamp: new Date().toISOString()
-                        }
+                        claims: invoiceClaims
                     }]
                 },
                 { headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' } }
@@ -707,15 +770,20 @@ export class WhatsAppPayloadController extends Controller {
 
             const invoiceOfferUrl = invoiceResponse.data?.offerUrl || invoiceResponse.data?.credentialOffer || invoiceResponse.data?.credential_offer_url || invoiceResponse.data?.credential_offer_uri
 
-            // Step 3: Update cart status
+            // Step 3: Update cart status and buyer phone
             db.prepare(`
-                UPDATE carts SET status = 'invoiced', updated_at = ? WHERE id = ?
-            `).run(new Date().toISOString(), cartId)
+                UPDATE carts SET status = 'invoiced', buyer_phone = ?, updated_at = ? WHERE id = ?
+            `).run(body.customerMsisdn, new Date().toISOString(), cartId)
 
             // Step 4: Store pending payment for webhook correlation
+            // Added invoice_id and invoice_hash for audit trail
             db.prepare(`
-                INSERT OR REPLACE INTO ack_payments (id, tenant_id, cart_id, payment_request_token, provider_ref, payer_phone, amount, currency, state, idempotency_key, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO ack_payments (
+                    id, tenant_id, cart_id, payment_request_token, provider_ref, payer_phone, 
+                    amount, currency, state, idempotency_key, created_at, updated_at,
+                    invoice_id, invoice_hash
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(
                 randomUUID(),
                 cart.merchant_id,
@@ -728,14 +796,17 @@ export class WhatsAppPayloadController extends Controller {
                 'pending',
                 sourceRef,
                 new Date().toISOString(),
-                new Date().toISOString()
+                new Date().toISOString(),
+                sourceRef,
+                invoiceHash
             )
 
             // Step 5: Send WhatsApp messages
-            if (body.sendToWhatsApp && cart.buyer_phone) {
+            const targetPhone = body.customerMsisdn || cart.buyer_phone;
+            if (body.sendToWhatsApp && targetPhone) {
                 // Send payment instructions
                 await waMessageService.sendTextMessage(
-                    cart.buyer_phone,
+                    targetPhone,
                     `💳 *Payment Required*\n\n` +
                     `Order: ${cartId}\n` +
                     `Amount: ${cart.currency} ${cart.total.toFixed(2)}\n\n` +
@@ -748,13 +819,43 @@ export class WhatsAppPayloadController extends Controller {
                 // Send invoice credential offer
                 if (invoiceOfferUrl) {
                     await waMessageService.sendCtaUrlButton(
-                        cart.buyer_phone,
+                        targetPhone,
                         '🧾 Your Invoice',
                         'Tap below to save your invoice credential to your wallet.',
                         'Save Invoice',
                         invoiceOfferUrl
                     )
                 }
+            }
+
+            // SANDBOX MODE: Auto-trigger success webhook after 3 seconds
+            if (isSandbox) {
+                setTimeout(async () => {
+                    try {
+                        const webhookPayload = {
+                            paymentRequestId: sourceRef,
+                            status: 'SUCCESS',
+                            transactionId: ecocashRef,
+                            amount: cart.total,
+                            currency: cart.currency,
+                            sourceReference: sourceRef,
+                            customerMsisdn: body.customerMsisdn,
+                            timestamp: new Date().toISOString()
+                        }
+                        logger.info({ cartId, sourceRef }, '🧪 SANDBOX: Auto-triggering EcoCash success webhook')
+                        
+                        const internalWebhookUrl = `http://localhost:${process.env.PORT || 3000}/webhooks/ecocash`
+                        await axios.post(internalWebhookUrl, webhookPayload, {
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-API-KEY': process.env.ECOCASH_WEBHOOK_SECRET || 'test-webhook-secret'
+                            }
+                        })
+                        logger.info({ cartId, sourceRef }, '🧪 SANDBOX: Payment auto-completed, receipt VC issued')
+                    } catch (simErr: any) {
+                        logger.error({ error: simErr.message, cartId }, '🧪 SANDBOX: Auto-webhook failed')
+                    }
+                }, 3000)
             }
 
             return {
@@ -764,7 +865,10 @@ export class WhatsAppPayloadController extends Controller {
                 invoiceOfferId: invoiceResponse.data?.id || invoiceResponse.data?.offerId,
                 ecocashRef,
                 paymentInstructions,
-                message: `Payment initiated. Reference: ${sourceRef}. Waiting for EcoCash confirmation.`
+                sandbox: isSandbox,
+                message: isSandbox
+                    ? `🧪 SANDBOX: Payment will auto-complete in 3 seconds. Reference: ${sourceRef}`
+                    : `Payment initiated. PIN push sent to ${body.customerMsisdn}. Reference: ${sourceRef}`
             }
         } catch (error: any) {
             logger.error({ error: error.message, cartId }, 'Checkout failed')

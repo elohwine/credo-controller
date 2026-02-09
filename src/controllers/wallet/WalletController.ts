@@ -4,7 +4,7 @@ import type { Request as ExRequest } from 'express'
 import { injectable } from 'tsyringe'
 import { getTenantById } from '../../persistence/TenantRepository'
 import { getWalletCredentialsByWalletId, getWalletCredentialById, saveWalletCredential } from '../../persistence/WalletCredentialRepository'
-import { Agent, W3cCredentialService, DifPresentationExchangeService, ClaimFormat, JsonTransformer } from '@credo-ts/core'
+import { Agent, W3cCredentialService, DifPresentationExchangeService, ClaimFormat, JsonTransformer, KeyType } from '@credo-ts/core'
 import { container } from 'tsyringe'
 import { getWalletUserByWalletId } from '../../persistence/UserRepository'
 import { UnauthorizedError } from '../../errors/errors'
@@ -230,7 +230,7 @@ export class WalletController extends Controller {
     }
   }
 
-  @Get('wallet/{walletId}/credentials')
+  @Get('{walletId}/credentials')
   @Security('apiKey')
   @Security('jwt', [SCOPES.TENANT_AGENT])
   public async listCredentials(
@@ -303,7 +303,7 @@ export class WalletController extends Controller {
   /**
    * Check if holder already has a specific credential type
    */
-  @Get('wallet/{walletId}/credentials/exists/{credentialType}')
+  @Get('{walletId}/credentials/exists/{credentialType}')
   public async hasCredentialOfType(
     @Request() request: ExRequest,
     @Path() walletId: string,
@@ -338,7 +338,7 @@ export class WalletController extends Controller {
     }
   }
 
-  @Get('wallet/{walletId}/dids')
+  @Get('{walletId}/dids')
   public async getDids(
     @Request() request: ExRequest,
     @Path() walletId: string
@@ -353,7 +353,7 @@ export class WalletController extends Controller {
     }
   }
 
-  @Get('wallet/{walletId}/credentials/{credentialId}')
+  @Get('{walletId}/credentials/{credentialId}')
   public async getCredential(
     @Request() request: ExRequest,
     @Path() walletId: string,
@@ -387,7 +387,7 @@ export class WalletController extends Controller {
     }
   }
 
-  @Post('wallet/{walletId}/exchange/resolveCredentialOffer')
+  @Post('{walletId}/exchange/resolveCredentialOffer')
   public async resolveCredentialOffer(
     @Request() request: ExRequest,
     @Path() walletId: string,
@@ -525,7 +525,7 @@ export class WalletController extends Controller {
     }
   }
 
-  @Get('wallet/{walletId}/exchange/resolveIssuerOpenIDMetadata')
+  @Get('{walletId}/exchange/resolveIssuerOpenIDMetadata')
   public async resolveIssuerOpenIDMetadata(
     @Path() walletId: string,
     @Query() issuer: string
@@ -562,7 +562,7 @@ export class WalletController extends Controller {
     }
   }
 
-  @Post('wallet/{walletId}/exchange/useOfferRequest')
+  @Post('{walletId}/exchange/useOfferRequest')
   @Security('apiKey')
   @Security('jwt', [SCOPES.TENANT_AGENT])
   public async useOfferRequest(
@@ -632,6 +632,20 @@ export class WalletController extends Controller {
         }
       }
 
+      const resolvedIssuer = (resolved as any)?.credentialIssuerMetadata
+      const resolvedAuthServer = (resolved as any)?.authorizationServerMetadata
+      if (resolvedIssuer || resolvedAuthServer) {
+        console.log('[useOfferRequest] Resolved issuer metadata endpoints:', {
+          credential_issuer: resolvedIssuer?.credential_issuer,
+          token_endpoint: resolvedIssuer?.token_endpoint,
+          credential_endpoint: resolvedIssuer?.credential_endpoint,
+        })
+        console.log('[useOfferRequest] Resolved auth server endpoints:', {
+          issuer: resolvedAuthServer?.issuer,
+          token_endpoint: resolvedAuthServer?.token_endpoint,
+        })
+      }
+
       console.log('[useOfferRequest] Offer resolved, accepting using pre-authorized code flow...')
 
       // Important: The openId4VcHolder module is on the BASE agent, so we must use
@@ -642,9 +656,15 @@ export class WalletController extends Controller {
 
       if (baseAgentDids.length === 0) {
         console.log('[useOfferRequest] No DID in base agent, creating one...')
-        const createdDid = await agent.dids.create({ method: 'key' })
-        holderDid = createdDid.didState.did as string
-        console.log('[useOfferRequest] Created DID in base agent:', holderDid)
+        try {
+          const createdDid = await agent.dids.create({ method: 'key', options: { keyType: KeyType.Ed25519 } })
+          holderDid = createdDid.didState.did as string
+          console.log('[useOfferRequest] Created DID in base agent:', holderDid)
+        } catch (didError: any) {
+          console.error('[useOfferRequest] DID creation error:', didError.message)
+          console.error('[useOfferRequest] DID creation stack:', didError.stack)
+          throw didError
+        }
       } else {
         holderDid = baseAgentDids[0].did
         console.log('[useOfferRequest] Using existing DID from base agent:', holderDid)
@@ -664,8 +684,10 @@ export class WalletController extends Controller {
       const acceptResult = await (agent.modules as any).openId4VcHolder.acceptCredentialOfferUsingPreAuthorizedCode(
         resolved,
         {
-          credentialBindingResolver: async ({ credentialFormat, supportedDidMethods, keyType }: any) => {
-            console.log('[useOfferRequest] Credential binding resolver called:', { credentialFormat, supportedDidMethods, keyType })
+          credentialBindingResolver: async (options: any) => {
+            console.log('[useOfferRequest] Credential binding resolver called with options:', JSON.stringify(options, null, 2))
+            const { credentialFormat, supportedDidMethods, keyType, supportsAllDidMethods, supportsJwk, supportedVerificationMethods } = options || {}
+            console.log('[useOfferRequest] Binding params:', { credentialFormat, supportedDidMethods, keyType, supportsAllDidMethods, supportsJwk })
             return { method: 'did', didUrl: holderDidUrl }
           }
         }
@@ -797,7 +819,7 @@ export class WalletController extends Controller {
     }
   }
 
-  @Post('wallet/{walletId}/exchange/resolvePresentationRequest')
+  @Post('{walletId}/exchange/resolvePresentationRequest')
   public async resolvePresentationRequest(
     @Request() request: ExRequest,
     @Path() walletId: string,
@@ -840,7 +862,7 @@ export class WalletController extends Controller {
     }
   }
 
-  @Post('wallet/{walletId}/exchange/matchCredentialsForPresentationDefinition')
+  @Post('{walletId}/exchange/matchCredentialsForPresentationDefinition')
   public async matchCredentialsForPresentationDefinition(
     @Request() request: ExRequest,
     @Path() walletId: string,
@@ -893,7 +915,7 @@ export class WalletController extends Controller {
     }
   }
 
-  @Post('wallet/{walletId}/exchange/usePresentationRequest')
+  @Post('{walletId}/exchange/usePresentationRequest')
   public async usePresentationRequest(
     @Request() request: ExRequest,
     @Path() walletId: string,

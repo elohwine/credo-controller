@@ -5,7 +5,6 @@ import type { TenantsModule } from '@credo-ts/tenants'
 
 import { OpenId4VcHolderModule, OpenId4VcVerifierModule, OpenId4VcIssuerModule } from '@credo-ts/openid4vc'
 
-import { PolygonDidRegistrar, PolygonDidResolver, PolygonModule } from '@ayanworks/credo-polygon-w3c-module'
 import { AskarModule, AskarMultiWalletDatabaseScheme } from '@credo-ts/askar'
 import {
   Agent,
@@ -86,8 +85,8 @@ export const buildModules = (cfg: {
       multiWalletDatabaseScheme: cfg.walletScheme || AskarMultiWalletDatabaseScheme.ProfilePerWallet,
     }),
     dids: new DidsModule({
-      registrars: [new KeyDidRegistrar(), new PolygonDidRegistrar()],
-      resolvers: [new KeyDidResolver(), new WebDidResolver(), new PolygonDidResolver()],
+      registrars: [new KeyDidRegistrar()],
+      resolvers: [new KeyDidResolver(), new WebDidResolver()],
     }),
     connections: new ConnectionsModule({ autoAcceptConnections: cfg.autoAcceptConnections ?? true }),
     proofs: new ProofsModule({
@@ -102,14 +101,6 @@ export const buildModules = (cfg: {
       cache: new InMemoryLruCache({ limit: Number(process.env.INMEMORY_LRU_CACHE_LIMIT) || Infinity }),
     }),
     questionAnswer: new QuestionAnswerModule(),
-    polygon: new PolygonModule({
-      didContractAddress: cfg.didRegistryContractAddress || (process.env.DID_CONTRACT_ADDRESS as string),
-      schemaManagerContractAddress:
-        cfg.schemaManagerContractAddress || (process.env.SCHEMA_MANAGER_CONTRACT_ADDRESS as string),
-      fileServerToken: cfg.fileServerToken || (process.env.FILE_SERVER_TOKEN as string),
-      rpcUrl: cfg.rpcUrl || (process.env.RPC_URL as string),
-      serverUrl: cfg.fileServerUrl || (process.env.SERVER_URL as string),
-    }),
     // OpenID4VC Issuer module - for issuing credentials via OIDC4VCI
     openId4VcIssuer: new OpenId4VcIssuerModule({
       baseUrl: oidcIssuerBaseUrl,
@@ -345,6 +336,25 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
   } catch (e: any) {
     agent.config.logger.error(`Failed to initialize/update OpenID4VC Issuer: ${e.message}`)
     agent.config.logger.error(e.stack)
+  }
+
+  // Seed platform-level credential definitions (PlatformIdentityVC for SSI auth)
+  try {
+    const { seedPlatformCredentialDefinitions } = await import('./services/modelRegistry')
+    const rootDids = await agent.dids.getCreatedDids({ method: 'key' })
+    let rootIssuerDid = rootDids[0]?.did
+
+    // Create a root DID if none exists
+    if (!rootIssuerDid) {
+      agent.config.logger.info('No root DID found, creating one for platform credentials...')
+      const didResult = await agent.dids.create({ method: 'key', options: { keyType: 'ed25519' } })
+      rootIssuerDid = didResult.didState.did!
+    }
+
+    await seedPlatformCredentialDefinitions(rootIssuerDid)
+    agent.config.logger.info(`Platform credentials seeded with root DID: ${rootIssuerDid}`)
+  } catch (e: any) {
+    agent.config.logger.warn(`Failed to seed platform credentials: ${e.message}`)
   }
 
   const genericRecord = await agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })

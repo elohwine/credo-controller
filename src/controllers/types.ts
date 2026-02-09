@@ -298,13 +298,10 @@ export interface DidCreate {
   seed?: string
   domain?: string
   method: string
-  network?: string
   did?: string
   role?: string
   endorserDid?: string
   didDocument?: DidDocument
-  privatekey?: string
-  endpoint?: string
 }
 
 // export type WithTenantAgentCallback<AgentModules extends ModulesMap> = (

@@ -11,11 +11,53 @@ function normalizeStored(value: string | null | undefined) {
   return value
 }
 
-export async function ensurePortalTenant(credoBackend: string): Promise<PortalTenantAuth> {
+/**
+ * Try to decode JWT and extract tenantId
+ * Works with both logged-in user tokens and anonymous tenant tokens
+ */
+function extractTenantFromJwt(token: string): string | undefined {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return undefined
+    const payload = JSON.parse(atob(parts[1]))
+    return payload.tenantId
+  } catch {
+    return undefined
+  }
+}
+
+export async function ensurePortalTenant(
+  credoBackend: string,
+  options?: { forceRefresh?: boolean; holderBackend?: string; holderApiKey?: string }
+): Promise<PortalTenantAuth> {
   if (typeof window === 'undefined') {
     throw new Error('ensurePortalTenant must be called in the browser')
   }
 
+  const holderBackend = options?.holderBackend || credoBackend
+
+  // PRIORITY 1: Check if user is logged in (SSI auth token contains their registered tenant)
+  const authToken = normalizeStored(window.localStorage.getItem('authToken')) ||
+                    normalizeStored(window.localStorage.getItem('auth.token')) ||
+                    normalizeStored(window.localStorage.getItem('walletToken')) ||
+                    normalizeStored(window.localStorage.getItem('credoTenantToken'))
+  
+  if (authToken) {
+    const loggedInTenantId = extractTenantFromJwt(authToken)
+    if (loggedInTenantId) {
+      // User is logged in - use their registered tenant, not anonymous one
+      console.log('[ensurePortalTenant] Using logged-in user tenant:', loggedInTenantId)
+      
+      // Persist to match expected localStorage keys
+      window.localStorage.setItem('credoTenantId', loggedInTenantId)
+      window.localStorage.setItem('tenantId', loggedInTenantId)
+      window.localStorage.setItem('tenantToken', authToken)
+      
+      return { tenantId: loggedInTenantId, tenantToken: authToken }
+    }
+  }
+
+  // PRIORITY 2: Check cached anonymous tenant
   let tenantToken: string | undefined = normalizeStored(window.localStorage.getItem('tenantToken'))
   let tenantId: string | undefined =
     normalizeStored(window.localStorage.getItem('credoTenantId')) ||
@@ -28,15 +70,17 @@ export async function ensurePortalTenant(credoBackend: string): Promise<PortalTe
     window.localStorage.setItem('tenantToken', token)
   }
 
-  // Optimize: Return cached token if available
+  if (options?.forceRefresh) {
+    tenantToken = undefined
+  }
+
+  // Return cached anonymous token if available
   if (tenantId && tenantToken) {
     return { tenantId, tenantToken }
   }
 
-  // Use Holder URL (Port 6000) for tenant operations if available, otherwise fallback to provided backend
-  const holderBackend = process.env.NEXT_PUBLIC_HOLDER_URL || credoBackend
-
-  const apiKey = process.env.NEXT_PUBLIC_CREDO_API_KEY || 'test-api-key-12345'
+  // PRIORITY 3: Create new anonymous tenant for guest user
+  const apiKey = options?.holderApiKey || 'holder-api-key-12345'
   const rootTokenRes = await axios.post(`${holderBackend}/agent/token`, {}, { headers: { Authorization: apiKey } })
   const rootToken: string | undefined = rootTokenRes?.data?.token
   if (!rootToken) {
@@ -46,7 +90,7 @@ export async function ensurePortalTenant(credoBackend: string): Promise<PortalTe
   if (!tenantId) {
     const createRes = await axios.post(
       `${holderBackend}/multi-tenancy/create-tenant`,
-      { config: { label: 'Portal Tenant', tenantType: 'USER' }, baseUrl: holderBackend },
+      { config: { label: 'Portal Tenant', tenantType: 'USER' }, baseUrl: credoBackend },
       { headers: { Authorization: `Bearer ${rootToken}` } }
     )
 
@@ -63,7 +107,7 @@ export async function ensurePortalTenant(credoBackend: string): Promise<PortalTe
     } catch {
       const createRes = await axios.post(
         `${holderBackend}/multi-tenancy/create-tenant`,
-        { config: { label: 'Portal Tenant', tenantType: 'USER' }, baseUrl: holderBackend },
+        { config: { label: 'Portal Tenant', tenantType: 'USER' }, baseUrl: credoBackend },
         { headers: { Authorization: `Bearer ${rootToken}` } }
       )
       tenantId = createRes?.data?.tenantId

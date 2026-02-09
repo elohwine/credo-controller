@@ -120,6 +120,8 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
       'http://localhost:5000',
       'http://localhost:6000',
       'http://localhost:6001',
+      'http://localhost:7000',
+      'http://localhost:7001',
       'http://127.0.0.1:3000',
       'http://127.0.0.1:3001',
       'http://127.0.0.1:3002',
@@ -132,6 +134,8 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
       'http://127.0.0.1:5000',
       'http://127.0.0.1:6000',
       'http://127.0.0.1:6001',
+      'http://127.0.0.1:7000',
+      'http://127.0.0.1:7001',
       // Fly.io production URLs
       'https://credentis-portal.fly.dev',
       'https://credentis-wallet.fly.dev',

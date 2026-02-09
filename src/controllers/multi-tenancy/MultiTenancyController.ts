@@ -15,6 +15,7 @@ import { getTenantById } from '../../persistence/TenantRepository'
 import { listTenants as listPersistenceTenants } from '../../persistence/TenantRepository'
 
 @Tags('MultiTenancy')
+@Security('apiKey')
 @Security('jwt', [SCOPES.MULTITENANT_BASE_AGENT])
 @Route('/multi-tenancy')
 @injectable()
@@ -229,8 +230,13 @@ export class MultiTenancyController extends Controller {
       // })
 
       // Option2: logic to store generate token for tenant using BW's secertKey
-      const genericRecord = await agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
-      key = genericRecord[0].content.secretKey as string
+      // Uses env var JWT_SECRET if available (simplifies dev/testing)
+      if (process.env.JWT_SECRET) {
+        key = process.env.JWT_SECRET
+      } else {
+        const genericRecord = await agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
+        key = genericRecord[0].content.secretKey as string
+      }
 
       if (!key) {
         throw new Error('SecretKey does not exist for basewallet')

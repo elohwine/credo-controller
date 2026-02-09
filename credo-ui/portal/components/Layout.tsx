@@ -16,17 +16,8 @@ import {
     IconHome,
     IconCertificate,
     IconFileCheck,
-    IconGitBranch,
     IconBuildingStore,
-    IconCoin,
-    IconUsers,
-    IconPackage,
-    IconChartBar,
-    IconUserPlus,
-    IconCash,
-    IconShieldOff,
-    IconStars,
-    IconBrandWhatsapp,
+    IconReceipt,
 } from '@tabler/icons-react';
 
 const LayoutNestingContext = React.createContext(false);
@@ -74,41 +65,51 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
         );
     }
 
-    // Primary nav items (always visible)
+    // Primary nav items (MVP Fastlane only)
     const primaryNav: NavItem[] = [
         { label: 'Home', href: '/', icon: <IconHome size={16} /> },
-        { label: 'Credentials', href: '/credential-models', icon: <IconCertificate size={16} /> },
-        { label: 'Issue / Verify', href: '/select-credentials', icon: <IconFileCheck size={16} /> },
-        { label: 'Workflows', href: '/workflows', icon: <IconGitBranch size={16} /> },
+        { label: 'Shop', href: '/shop', icon: <IconBuildingStore size={16} /> },
+        { label: 'My Receipts', href: '/wallet', icon: <IconReceipt size={16} /> },
+        { label: 'Verify', href: '/verify', icon: <IconFileCheck size={16} /> },
     ];
 
-    // Categorized dropdown menus
+    // MVP Fastlane - Categorized menus
     const categories: NavCategory[] = [
         {
-            label: 'Business',
+            label: 'Admin',
             items: [
-                { label: 'Catalog', href: '/catalog', icon: <IconBuildingStore size={16} />, description: 'Products & services catalog' },
-                { label: 'Live Shop', href: '/shop', icon: <IconBuildingStore size={16} />, description: 'Customer shopfront demo' },
-                // { label: 'Finance', href: '/finance', icon: <IconCoin size={16} />, description: 'Financial reports & statements' },
-                // { label: 'Inventory', href: '/inventory/dashboard', icon: <IconPackage size={16} />, description: 'Stock & inventory management' },
-                // { label: 'Metrics', href: '/metrics', icon: <IconChartBar size={16} />, description: 'Analytics & dashboards' },
+                { label: 'Credentials', href: '/credential-models', icon: <IconCertificate size={16} />, description: 'Credential definitions' },
+                { label: 'Issue / Verify', href: '/select-credentials', icon: <IconFileCheck size={16} />, description: 'Manual credential ops' },
             ],
         },
-        // {
-        //     label: 'People',
-        //     items: [
-        //         { label: 'HR & Payroll', href: '/hr', icon: <IconUsers size={16} />, description: 'Employees, payroll & HR operations' },
-        //     ],
-        // },
+        
+        /* PHASE 2+ - DEFERRED
+        {
+            label: 'Commerce',
+            items: [
+                { label: 'Catalog', href: '/catalog', icon: <IconBuildingStore size={16} />, description: 'Product catalog admin' },
+                { label: 'Finance', href: '/finance', icon: <IconCoin size={16} />, description: 'Financial reports' },
+                { label: 'Inventory', href: '/inventory/dashboard', icon: <IconPackage size={16} />, description: 'Stock management' },
+                { label: 'Metrics', href: '/metrics', icon: <IconChartBar size={16} />, description: 'Analytics' },
+            ],
+        },
+        {
+            label: 'HR & Payroll',
+            items: [
+                { label: 'HR Operations', href: '/hr/operations', icon: <IconUsers size={16} />, description: 'Staff management' },
+                { label: 'Onboarding', href: '/onboarding', icon: <IconUserPlus size={16} />, description: 'New employees' },
+                { label: 'Payroll', href: '/payroll', icon: <IconCash size={16} />, description: 'Compensation' },
+            ],
+        },
         {
             label: 'Trust & Security',
             items: [
-                // { label: 'Trust Scores', href: '/trust', icon: <IconStars size={16} />, description: 'Trust scores & attestations' },
-                { label: 'Revocation', href: '/revocation', icon: <IconShieldOff size={16} />, description: 'Credential revocation' },
-                // { label: 'Audit Logs', href: '/audit', icon: <IconFileCheck size={16} />, description: 'Platform audit trail' },
+                { label: 'Trust Scores', href: '/trust', icon: <IconStars size={16} />, description: 'Reputation' },
                 { label: 'WhatsApp', href: '/whatsapp', icon: <IconBrandWhatsapp size={16} />, description: 'WhatsApp commerce' },
+                { label: 'Workflows', href: '/workflows', icon: <IconGitBranch size={16} />, description: 'Automation' },
             ],
         },
+        */
     ];
 
     const isActive = (href: string) => {

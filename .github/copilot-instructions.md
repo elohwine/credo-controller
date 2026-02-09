@@ -1,6 +1,6 @@
 ### Copilot / AI agent instructions for IdenEx Credentis (credo-controller)
 
-**Mission:** Build a Verifiable Commerce Platform for Zimbabwe (+ Africa) using OID4VC, anchored in EcoCash/mobile money payments. Transform SME trust via verifiable credentials: Cart → Pay → ReceiptVC, merchant attestations, trust scores, delegated agents (ACK pattern), and Gen-UI interfaces.
+**Mission:** Use the MVP_GOALS.md, Build a  Fastlane Verifiable Commerce Platform for Zimbabwe (+ Africa) using OID4VC, anchored in EcoCash/mobile money payments. Transform SME trust via verifiable credentials: Cart → Pay → ReceiptVC, merchant attestations, trust scores, delegated agents (ACK pattern), and Gen-UI interfaces.
 
 ---
 

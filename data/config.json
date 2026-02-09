@@ -1,0 +1,27 @@
+{
+  "port": 3000,
+  "cors": true,
+  "socketServer": {
+    "_events": {},
+    "_eventsCount": 0,
+    "clients": {},
+    "_shouldEmitClose": false,
+    "options": {
+      "allowSynchronousEvents": true,
+      "autoPong": true,
+      "maxPayload": 104857600,
+      "skipUTF8Validation": false,
+      "perMessageDeflate": false,
+      "handleProtocols": null,
+      "clientTracking": true,
+      "verifyClient": null,
+      "noServer": true,
+      "backlog": null,
+      "server": null,
+      "host": null,
+      "path": null,
+      "port": null
+    },
+    "_state": 0
+  }
+}

@@ -16,7 +16,7 @@ import { useCartPolling } from '@/utils/useCartPolling';
 import { useRouter } from 'next/router';
 import axios from 'axios';
 import { ensurePortalTenant } from '@/utils/portalTenant';
-import { IconWallet } from '@tabler/icons-react';
+import { IconWallet, IconReceipt, IconBrandWhatsapp } from '@tabler/icons-react';
 
 // Reusing types locally for speed
 interface CatalogItem {
@@ -65,12 +65,12 @@ export default function ShopPage() {
     const env = useContext(EnvContext);
     const router = useRouter();
     const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
-    // Use Holder URL (Port 6000) for wallet operations. Fallback to existing logic if not set.
-    const holderUrl = env.NEXT_PUBLIC_HOLDER_URL || backendUrl;
+    const holderBackend = env.NEXT_PUBLIC_HOLDER_URL || 'http://localhost:7000';
 
-    // Poll for receipt when we are in 'invoice' step
+    // Poll for receipt ONLY when invoice is saved (user has accepted offer)
+    // Stop polling once paid/receipt is obtained to reduce server load
     const { cart: pollingCart } = useCartPolling(
-        (checkoutStep === 'invoice' || checkoutStep === 'receipt') && cart?.id ? cart.id : null,
+        invoiceSaved && checkoutStep === 'invoice' && cart?.id ? cart.id : null,
         (updatedCart: any) => {
             if (updatedCart.status === 'paid' && checkoutStep !== 'receipt') {
                 setCheckoutStep('receipt');
@@ -78,6 +78,10 @@ export default function ShopPage() {
             if (updatedCart.receiptOfferUrl) {
                 setReceiptUrl(updatedCart.receiptOfferUrl);
             }
+        },
+        {
+            enabled: invoiceSaved && checkoutStep === 'invoice' && !receiptSaved,
+            stopOnStatus: ['paid']
         }
     );
 
@@ -185,12 +189,31 @@ export default function ShopPage() {
         if (!cart) return;
         setCheckingOut(true);
         try {
+            // Get tenantId logic to link phone number (Fastlane flow)
+            let tenantId = typeof window !== 'undefined' 
+                ? window.localStorage.getItem('credoTenantId') || window.localStorage.getItem('tenantId')
+                : undefined;
+
+            // If no tenant exists (Guest Checkout), create one NOW so we can link the phone number
+            // This ensures that when they Register later, we can claim this tenant + VCs
+            if (!tenantId) {
+                try {
+                   console.log('[Shop] Creating anonymous tenant for Fastlane phone linking...');
+                   const auth = await ensurePortalTenant(holderBackend, { holderBackend });
+                   tenantId = auth.tenantId;
+                } catch (err) {
+                   console.error('[Shop] Failed to pre-create tenant:', err);
+                   // Proceed anyway, but linking will fail
+                }
+            }
+
             const res = await fetch(`${backendUrl}/api/wa/cart/${cart.id}/checkout`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     customerMsisdn: buyerPhone,
-                    skipQuote: true
+                    skipQuote: true,
+                    tenantId // Link phone to browser tenant for later registration
                 })
             });
             const data = await res.json();
@@ -214,17 +237,41 @@ export default function ShopPage() {
         if (!invoiceUrl) return;
         setSavingInvoice(true);
         try {
-            // Use holderUrl for tenant auth AND wallet operations
-            const { tenantToken } = await ensurePortalTenant(holderUrl);
-            await axios.post(`${holderUrl}/api/wallet/credentials/accept-offer`, {
+            // Use MAIN backend API for accept-offer (has proper tenant security context)
+            const { tenantToken } = await ensurePortalTenant(holderBackend, { holderBackend });
+            console.log('[Shop] Saving invoice to wallet with offer:', invoiceUrl.slice(0, 80));
+            const response = await axios.post(`${holderBackend}/api/wallet/credentials/accept-offer`, {
                 offerUri: invoiceUrl
             }, {
-                headers: { Authorization: `Bearer ${tenantToken}` }
+                headers: { 
+                    Authorization: `Bearer ${tenantToken}`,
+                    'Content-Type': 'application/json'
+                }
             });
+            console.log('[Shop] Invoice saved successfully:', response.data);
             setInvoiceSaved(true);
-        } catch (e) {
-            console.error(e);
-            alert('Failed to save invoice to wallet');
+        } catch (e: any) {
+            const status = e?.response?.status;
+            if (status === 401) {
+                try {
+                    const { tenantToken } = await ensurePortalTenant(holderBackend, { forceRefresh: true, holderBackend });
+                    const retry = await axios.post(`${holderBackend}/api/wallet/credentials/accept-offer`, {
+                        offerUri: invoiceUrl
+                    }, {
+                        headers: { 
+                            Authorization: `Bearer ${tenantToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    console.log('[Shop] Invoice saved successfully after refresh:', retry.data);
+                    setInvoiceSaved(true);
+                    return;
+                } catch (retryError: any) {
+                    console.error('[Shop] Retry save invoice failed:', retryError?.response?.data || retryError?.message);
+                }
+            }
+            console.error('[Shop] Failed to save invoice:', e?.response?.data || e?.message);
+            alert(`Failed to save invoice to wallet: ${e?.response?.data?.message || e?.message}`);
         } finally {
             setSavingInvoice(false);
         }
@@ -234,17 +281,41 @@ export default function ShopPage() {
         if (!receiptUrl) return;
         setSavingReceipt(true);
         try {
-            // Use holderUrl for tenant auth AND wallet operations
-            const { tenantToken } = await ensurePortalTenant(holderUrl);
-            await axios.post(`${holderUrl}/api/wallet/credentials/accept-offer`, {
+            // Use MAIN backend API for accept-offer (has proper tenant security context)
+            const { tenantToken } = await ensurePortalTenant(holderBackend, { holderBackend });
+            console.log('[Shop] Saving receipt to wallet with offer:', receiptUrl.slice(0, 80));
+            const response = await axios.post(`${holderBackend}/api/wallet/credentials/accept-offer`, {
                 offerUri: receiptUrl
             }, {
-                headers: { Authorization: `Bearer ${tenantToken}` }
+                headers: { 
+                    Authorization: `Bearer ${tenantToken}`,
+                    'Content-Type': 'application/json'
+                }
             });
+            console.log('[Shop] Receipt saved successfully:', response.data);
             setReceiptSaved(true);
-        } catch (e) {
-            console.error(e);
-            alert('Failed to save receipt to wallet. Try again later.');
+        } catch (e: any) {
+            const status = e?.response?.status;
+            if (status === 401) {
+                try {
+                    const { tenantToken } = await ensurePortalTenant(holderBackend, { forceRefresh: true, holderBackend });
+                    const retry = await axios.post(`${holderBackend}/api/wallet/credentials/accept-offer`, {
+                        offerUri: receiptUrl
+                    }, {
+                        headers: { 
+                            Authorization: `Bearer ${tenantToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    console.log('[Shop] Receipt saved successfully after refresh:', retry.data);
+                    setReceiptSaved(true);
+                    return;
+                } catch (retryError: any) {
+                    console.error('[Shop] Retry save receipt failed:', retryError?.response?.data || retryError?.message);
+                }
+            }
+            console.error('[Shop] Failed to save receipt:', e?.response?.data || e?.message);
+            alert(`Failed to save receipt to wallet: ${e?.response?.data?.message || e?.message}`);
         } finally {
             setSavingReceipt(false);
         }
@@ -446,9 +517,9 @@ export default function ShopPage() {
                             {!invoiceSaved ? (
                                 <div className="mb-8 p-6 bg-blue-50 rounded-xl border border-blue-100">
                                     <h4 className="font-bold text-blue-900 mb-2 flex items-center justify-center gap-2">
-                                        <IconWallet size={20} /> Authenticate & Save
+                                        <IconWallet size={20} /> Keep this Invoice
                                     </h4>
-                                    <p className="text-sm text-blue-700 mb-4">Store this Invoice VC in your Credentis Wallet.</p>
+                                    <p className="text-sm text-blue-700 mb-4">Save your invoice for proof of purchase.</p>
                                     <Button
                                         onClick={handleSaveInvoice}
                                         loading={savingInvoice}
@@ -457,12 +528,12 @@ export default function ShopPage() {
                                         size="md"
                                         leftSection={<IconWallet size={18} />}
                                     >
-                                        Save Invoice to Wallet
+                                        Save Invoice
                                     </Button>
                                 </div>
                             ) : (
                                 <Alert color="green" title="Invoice Saved" icon={<CheckCircleIcon className="h-5 w-5" />} mb="lg" className="text-left">
-                                    Invoice credential has been secured in your wallet.
+                                    Your invoice is saved. You can use it for proof of this order.
                                 </Alert>
                             )}
 
@@ -509,26 +580,47 @@ export default function ShopPage() {
                             {receiptUrl && !receiptSaved && (
                                 <div className="mb-8 p-6 bg-green-50 rounded-xl border border-green-100">
                                     <h4 className="font-bold text-green-900 mb-2 flex items-center justify-center gap-2">
-                                        <IconWallet size={20} /> Digital Receipt
+                                        <IconReceipt size={20} /> Keep Your Receipt
                                     </h4>
-                                    <p className="text-sm text-green-700 mb-4">Secure this Payment Receipt in your wallet for future verification.</p>
+                                    <p className="text-sm text-green-700 mb-4">Save for proof of payment. Use for disputes, returns, or delivery confirmation.</p>
                                     <Button
                                         onClick={handleSaveReceipt}
                                         loading={savingReceipt}
                                         fullWidth
                                         color="green"
                                         size="md"
-                                        leftSection={<IconWallet size={18} />}
+                                        leftSection={<IconReceipt size={18} />}
                                     >
-                                        Save Receipt to Wallet
+                                        Save Receipt
                                     </Button>
                                 </div>
                             )}
 
                             {receiptSaved && (
-                                <Alert color="green" title="Receipt Saved" icon={<CheckCircleIcon className="h-5 w-5" />} mb="lg" className="text-left">
-                                    Receipt has been secured in your wallet.
-                                </Alert>
+                                <>
+                                    <Alert color="green" title="Receipt Saved" icon={<CheckCircleIcon className="h-5 w-5" />} mb="lg" className="text-left">
+                                        Receipt has been secured. You can share it via WhatsApp.
+                                    </Alert>
+                                    <Button
+                                        fullWidth
+                                        color="green"
+                                        size="md"
+                                        mb="md"
+                                        leftSection={<IconBrandWhatsapp size={18} />}
+                                        onClick={() => {
+                                            const msg = encodeURIComponent(
+                                                `🧾 Payment Receipt\n\n` +
+                                                `Order: ${cart?.id || 'N/A'}\n` +
+                                                `Amount: ${cart ? formatCurrency(cart.total, cart.currency) : 'N/A'}\n` +
+                                                `Status: ✅ Paid\n\n` +
+                                                `Save your verifiable receipt:\n${receiptUrl || ''}`
+                                            );
+                                            window.open(`https://wa.me/?text=${msg}`, '_blank');
+                                        }}
+                                    >
+                                        Share to WhatsApp
+                                    </Button>
+                                </>
                             )}
 
                             <Button

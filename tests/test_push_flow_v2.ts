@@ -56,8 +56,8 @@ async function testPushFlow() {
 
         // For the Base Agent (Holder), we can use the x-api-key to access the base wallet directly
         // The base wallet ID is 'holder-wallet' as configured in startHolderServer.js
-        // Correct URL structure verified: /api/wallet/wallet/{walletId}/credentials
-        const credsRes = await axios.get(`${HOLDER_URL}/api/wallet/wallet/holder-wallet/credentials`, {
+        // Correct URL structure: /api/wallet/{walletId}/credentials
+        const credsRes = await axios.get(`${HOLDER_URL}/api/wallet/holder-wallet/credentials`, {
             headers: {
                 'x-api-key': 'holder-api-key-12345'
             }

@@ -137,49 +137,112 @@ export class WalletCredentialsController extends Controller {
 
         try {
             console.log('[acceptOffer] === START (Using Base Agent for OID4VC) ===')
-            console.log('[acceptOffer] Tenant:', tenantId, 'Offer URI:', body.offerUri?.slice(0, 100))
+            let rawOffer = body.offerUri || ''
+            
+            // DOCKER NETWORK FIX: Rewrite localhost URLs to Docker internal IPs
+            // When running in Docker, the holder can't reach localhost:3000 (which maps to itself)
+            // It needs to use the Docker network IP of the issuer service
+            const issuerApiUrl = process.env.ISSUER_API_URL || ''
+            if (issuerApiUrl && issuerApiUrl.includes('172.')) {
+                // Replace localhost:3000 with Docker internal IP
+                rawOffer = rawOffer.replace(/http:\/\/localhost:3000/g, issuerApiUrl)
+                rawOffer = rawOffer.replace(/http%3A%2F%2Flocalhost%3A3000/gi, encodeURIComponent(issuerApiUrl).replace(/%/g, '%'))
+                // Also handle the encoded version more carefully
+                const encodedLocalhost = encodeURIComponent('http://localhost:3000')
+                const encodedIssuer = encodeURIComponent(issuerApiUrl)
+                rawOffer = rawOffer.split(encodedLocalhost).join(encodedIssuer)
+            }
+            
+            console.log('[acceptOffer] Tenant:', tenantId, 'Offer URI len:', rawOffer.length, 'head:', rawOffer.slice(0, 100), 'tail:', rawOffer.slice(-60))
 
             // Use BASE agent for OID4VC holder operations (module not available on tenant agents)
 
-            // Helper: attempt to extract inner HTTP URL from an openid-credential-offer wrapper
-            const extractInner = (wrapper?: string) => {
-                if (!wrapper) return null
+            // Helper: attempt to extract/normalize an inner HTTP URL from an offer wrapper
+            const normalizeOffer = (raw?: string) => {
+                if (!raw) return { wrapper: null as string | null, inner: null as string | null }
+
+                // Decode repeated encodings to get a clean wrapper
+                let wrapper = raw
+                for (let i = 0; i < 3; i++) {
+                    if (wrapper.startsWith('openid-credential-offer://') || wrapper.startsWith('openid-initiate-issuance://')) break
+                    try {
+                        const decoded = decodeURIComponent(wrapper)
+                        if (decoded === wrapper) break
+                        wrapper = decoded
+                    } catch {
+                        break
+                    }
+                }
+
+                // Extract inner URL if wrapper
+                let inner: string | null = null
                 try {
                     if (wrapper.startsWith('openid-credential-offer://') || wrapper.startsWith('openid-initiate-issuance://')) {
                         const q = wrapper.split('?')[1] || ''
                         const params = new URLSearchParams(q)
-                        return params.get('credential_offer_uri') || params.get('credential_offer_url') || params.get('request') || null
+                        inner = params.get('credential_offer_uri') || params.get('credential_offer_url') || params.get('request') || null
+                    } else if (wrapper.startsWith('http://') || wrapper.startsWith('https://')) {
+                        inner = wrapper
                     }
-                    // plain http(s)
-                    if (wrapper.startsWith('http://') || wrapper.startsWith('https://')) return wrapper
-                    // try decode once
-                    try {
-                        const decoded = decodeURIComponent(wrapper)
-                        if (decoded.startsWith('http://') || decoded.startsWith('https://')) return decoded
-                    } catch (e) {
-                        /* ignore */
-                    }
-                } catch (e) {
-                    /* ignore */
+                } catch {
+                    inner = null
                 }
-                return null
+
+                // Decode inner URL if encoded
+                if (inner) {
+                    let candidate = inner
+                    for (let i = 0; i < 3; i++) {
+                        if (candidate.startsWith('http://') || candidate.startsWith('https://')) break
+                        try {
+                            const decoded = decodeURIComponent(candidate)
+                            if (decoded === candidate) break
+                            candidate = decoded
+                        } catch {
+                            break
+                        }
+                    }
+                    inner = candidate.startsWith('http://') || candidate.startsWith('https://') ? candidate : inner
+                }
+
+                return { wrapper, inner }
             }
 
+            const { wrapper, inner } = normalizeOffer(rawOffer)
+            const rebuiltWrapper = inner
+                ? `openid-credential-offer://?credential_offer_uri=${encodeURIComponent(inner)}`
+                : null
+            console.log('[acceptOffer] Normalized offer:', {
+                hasWrapper: !!wrapper,
+                hasInner: !!inner,
+                wrapperHead: wrapper?.slice(0, 80),
+                innerHead: inner?.slice(0, 80),
+                rebuiltHead: rebuiltWrapper?.slice(0, 80)
+            })
             let resolvedOffer: any
             try {
-                resolvedOffer = await (baseAgent.modules as any).openId4VcHolder.resolveCredentialOffer(body.offerUri)
+                if (!wrapper) throw new Error('Missing offer URI')
+                resolvedOffer = await (baseAgent.modules as any).openId4VcHolder.resolveCredentialOffer(wrapper)
             } catch (err: any) {
-                // If the wrapper fetch fails, try resolving the inner HTTP URL directly (common fallback)
-                const inner = extractInner(body.offerUri)
-                if (inner) {
+                // Try rebuilt wrapper (in case of malformed encoding)
+                if (rebuiltWrapper && rebuiltWrapper !== wrapper) {
+                    try {
+                        resolvedOffer = await (baseAgent.modules as any).openId4VcHolder.resolveCredentialOffer(rebuiltWrapper)
+                        console.log('[acceptOffer] Resolved offer using rebuilt wrapper')
+                    } catch (errRebuilt: any) {
+                        err = errRebuilt
+                    }
+                }
+
+                // If wrapper attempts fail, try resolving the inner HTTP URL directly (common fallback)
+                if (!resolvedOffer && inner) {
                     try {
                         resolvedOffer = await (baseAgent.modules as any).openId4VcHolder.resolveCredentialOffer(inner)
+                        console.log('[acceptOffer] Resolved offer using inner URL')
                     } catch (err2: any) {
-                        // rethrow original for handling below
                         err = err2
                         throw err
                     }
-                } else {
+                } else if (!resolvedOffer) {
                     throw err
                 }
             }

@@ -45,9 +45,11 @@ export default function App({ Component, pageProps }: AppProps) {
         setEnv(envRes.data);
 
         const credoBackend = envRes.data.NEXT_PUBLIC_VC_REPO;
-        // Use Holder URL (Port 6000) for tenant operations if available
+        // Use Holder URL (Port 7000) for tenant/wallet operations if available
         const holderBackend = envRes.data.NEXT_PUBLIC_HOLDER_URL || credoBackend;
-        const apiKey = process.env.NEXT_PUBLIC_CREDO_API_KEY || 'test-api-key-12345';
+        // IMPORTANT: Different API keys for different backends!
+        const issuerApiKey = envRes.data.NEXT_PUBLIC_CREDO_API_KEY || 'test-api-key-12345';
+        const holderApiKey = envRes.data.NEXT_PUBLIC_HOLDER_API_KEY || 'holder-api-key-12345';
 
         // 2. Check for cached tenant
         let tenantId = localStorage.getItem('credoTenantId');
@@ -83,10 +85,11 @@ export default function App({ Component, pageProps }: AppProps) {
         if (needsNewTenant) {
           console.log('[App] Initializing new portal tenant...');
 
+          // Use holderApiKey for Holder API (port 7000), not issuerApiKey (port 3000)
           const rootTokenRes = await axios.post(
             `${holderBackend}/agent/token`,
             {},
-            { headers: { Authorization: apiKey } }
+            { headers: { Authorization: holderApiKey } }
           );
           const rootToken = rootTokenRes.data.token;
 

@@ -1,5 +1,4 @@
 import type { DidResolutionResultProps } from '../types'
-import type { PolygonDidCreateOptions } from '@ayanworks/credo-polygon-w3c-module/build/dids'
 import type { DidDocument, KeyDidCreateOptions, PeerDidNumAlgo2CreateOptions } from '@credo-ts/core'
 
 import {
@@ -75,10 +74,6 @@ export class DidController extends Controller {
 
         case DidMethod.Web:
           result = await this.handleWeb(request.agent, createDidOptions)
-          break
-
-        case DidMethod.Polygon:
-          result = await this.handlePolygon(request.agent, createDidOptions)
           break
 
         case DidMethod.Peer:
@@ -232,40 +227,6 @@ export class DidController extends Controller {
       didDocument,
     })
     return { did, didDocument }
-  }
-
-  public async handlePolygon(agent: AgentType, createDidOptions: DidCreate) {
-    // need to discuss try catch logic
-    const { endpoint, network, privatekey } = createDidOptions
-
-    if (!network) {
-      throw new BadRequestError('Network is required for Polygon method')
-    }
-
-    const networkName = network?.split(':')[1]
-
-    if (networkName !== 'mainnet' && networkName !== 'testnet') {
-      throw new BadRequestError('Invalid network type')
-    }
-    if (!privatekey || typeof privatekey !== 'string' || !privatekey.trim() || privatekey.length !== 64) {
-      throw new BadRequestError('Invalid private key or key not supported')
-    }
-
-    const createDidResponse = await agent.dids.create<PolygonDidCreateOptions>({
-      method: DidMethod.Polygon,
-      options: {
-        network: networkName,
-        endpoint,
-      },
-      secret: {
-        privateKey: TypedArrayEncoder.fromHex(`${privatekey}`),
-      },
-    })
-    const didResponse = {
-      did: createDidResponse?.didState?.did,
-      didDocument: createDidResponse?.didState?.didDocument,
-    }
-    return didResponse
   }
 
   @Get('/')

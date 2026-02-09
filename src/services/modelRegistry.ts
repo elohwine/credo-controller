@@ -1,7 +1,76 @@
 import { Agent } from '@credo-ts/core'
 import { container } from 'tsyringe'
+import { 
+  PLATFORM_IDENTITY_VC_TYPE, 
+  PLATFORM_IDENTITY_CREDENTIAL_DEFINITION 
+} from '../config/credentials/PlatformIdentityVC'
 
 interface SeedParams { tenantId: string; issuerDid: string }
+
+/**
+ * Seed platform-level credential definitions for root agent (SSI auth, etc.)
+ * Called once at server startup.
+ */
+export async function seedPlatformCredentialDefinitions(rootIssuerDid: string): Promise<void> {
+  const { credentialDefinitionStore } = require('../utils/credentialDefinitionStore')
+  const { schemaStore } = require('../utils/schemaStore')
+
+  // --- PlatformIdentityVC Schema ---
+  const platformIdentitySchemaId = `PlatformIdentityCredential-schema-1.0.0`
+  const existingSchema = schemaStore.get(platformIdentitySchemaId)
+  if (!existingSchema) {
+    schemaStore.set(platformIdentitySchemaId, {
+      schemaId: platformIdentitySchemaId,
+      name: 'PlatformIdentityCredential',
+      version: '1.0.0',
+      schemaData: {
+        $id: 'PlatformIdentityCredential-1.0.0',
+        type: 'object',
+        required: ['credentialSubject'],
+        properties: {
+          credentialSubject: {
+            type: 'object',
+            required: ['phone', 'registeredAt', 'platformTenantId'],
+            properties: {
+              phone: { type: 'string', description: 'User phone number (E.164 format)' },
+              email: { type: 'string', description: 'Optional email address' },
+              displayName: { type: 'string', description: 'User display name' },
+              registeredAt: { type: 'string', format: 'date-time' },
+              platformTenantId: { type: 'string', description: 'Linked tenant ID on platform' },
+              platformName: { type: 'string', description: 'Platform issuer name' },
+              verificationLevel: { type: 'string', enum: ['unverified', 'phone_verified', 'kyc_verified'] }
+            }
+          }
+        }
+      }
+    })
+  }
+
+  // --- PlatformIdentityVC Credential Definition (global) ---
+  const existingDef = credentialDefinitionStore.get(PLATFORM_IDENTITY_VC_TYPE)
+  if (!existingDef) {
+    credentialDefinitionStore.register({
+      name: PLATFORM_IDENTITY_VC_TYPE,
+      version: '1.0.0',
+      schemaId: platformIdentitySchemaId,
+      issuerDid: rootIssuerDid,
+      credentialType: ['VerifiableCredential', PLATFORM_IDENTITY_VC_TYPE],
+      claimsTemplate: {
+        credentialSubject: {
+          phone: '+263771234567',
+          displayName: 'Platform User',
+          registeredAt: new Date().toISOString(),
+          platformTenantId: 'tenant-id',
+          platformName: 'IdenEx Credentis',
+          verificationLevel: 'phone_verified'
+        }
+      },
+      format: 'jwt_vc_json',
+      // Global - no tenantId means root agent scope
+    })
+    console.log(`[ModelRegistry] Seeded PlatformIdentityCredential definition for root agent`)
+  }
+}
 
 // Simple internal seeding using in-memory stores directly (avoids HTTP roundtrip during provisioning)
 // For production replace with durable persistence or remove automatic seeding.

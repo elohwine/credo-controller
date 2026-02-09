@@ -7,7 +7,7 @@
       
       <!-- Pending Offers (if any) -->
       <div v-if="pendingOffers && pendingOffers.length > 0" class="mb-8">
-        <h2 class="text-sm font-semibold text-[#627D98] uppercase tracking-wider mb-4 ml-1">Available Credentials</h2>
+        <h2 class="text-sm font-semibold text-[#627D98] uppercase tracking-wider mb-4 ml-1">Save to Wallet</h2>
         <div class="grid grid-cols-1 gap-4">
           <div
             v-for="offer in pendingOffers"
@@ -25,7 +25,7 @@
                 class="px-4 py-2 text-sm text-white font-medium rounded-lg shadow-sm hover:shadow transition-all"
                 style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
               >
-                {{ acceptingOfferId === offer.id ? '...' : 'Accept' }}
+                {{ acceptingOfferId === offer.id ? '...' : 'Save' }}
               </button>
             </div>
           </div>
@@ -34,14 +34,31 @@
 
       <!-- Credentials List -->
       <div v-if="credentials && credentials.length > 0">
+        <!-- Category Filter Tabs -->
+        <div class="flex gap-2 mb-4 overflow-x-auto scrollbar-hide">
+          <button 
+            v-for="cat in categories" 
+            :key="cat.id"
+            @click="activeCategory = cat.id"
+            :class="[
+              'px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all',
+              activeCategory === cat.id 
+                ? 'bg-[#0F3F5E] text-white shadow-md' 
+                : 'bg-white text-[#627D98] border border-[#E4E7EB] hover:bg-[#F0F4F8]'
+            ]"
+          >
+            {{ cat.label }} ({{ cat.count }})
+          </button>
+        </div>
+
         <div class="flex items-center justify-between mb-4 ml-1">
-            <h2 class="text-sm font-semibold text-[#627D98] uppercase tracking-wider">Credentials</h2>
+            <h2 class="text-sm font-semibold text-[#627D98] uppercase tracking-wider">{{ activeCategoryLabel }}</h2>
         </div>
         
         <ul role="list" class="space-y-4">
 
         <li
-          v-for="(credential, index) in credentials"
+          v-for="(credential, index) in filteredCredentials"
           :key="credential.id"
           class="transform hover:scale-[1.01] cursor-pointer duration-200"
         >
@@ -58,20 +75,19 @@
     </div>
 
       <LoadingIndicator v-else-if="pending"
-        >Loading credentials...</LoadingIndicator
+        >Loading...</LoadingIndicator
       >
 
       <div v-else class="h-full flex flex-col items-center justify-center">
-        <!-- <h3 class="text-2xl font-bold text-[#01337D]">Wallet is Inactive</h3> -->
         <p class="mt-2 text-md text-[#627D98]">
-          You don't have any credentials yet!
+          No saved items yet
         </p>
         <NuxtLink :to="`/wallet/${walletId}/scan`">
           <button
             class="mt-8 px-5 py-2.5 text-white rounded-xl shadow-lg hover:shadow-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2188CA] transition-all"
             style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
           >
-            Receive Credential
+            Scan QR Code
           </button>
         </NuxtLink>
       </div>
@@ -121,6 +137,60 @@ const {
 );
 
 const viewMode = ref<'list' | 'grid'>('list');
+
+// Fastlane UX: Category filter for receipts, invoices, quotes
+const activeCategory = ref('all');
+
+// Helper to extract credential type
+const getCredentialType = (cred) => {
+  try {
+    const doc = typeof cred.document === 'string' ? JSON.parse(cred.document) : cred.document;
+    const types = doc?.vc?.type || doc?.type || [];
+    const typeArr = Array.isArray(types) ? types : [types];
+    const lastType = typeArr.at(-1) || '';
+    return lastType.toLowerCase().replace(/credential$|vc$/i, '');
+  } catch {
+    return 'generic';
+  }
+};
+
+// Category definitions with counts
+const categories = computed(() => {
+  if (!credentials.value) return [];
+  const counts = { all: 0, receipt: 0, invoice: 0, quote: 0, other: 0 };
+  credentials.value.forEach((cred) => {
+    counts.all++;
+    const type = getCredentialType(cred);
+    if (type.includes('receipt') || type.includes('payment')) counts.receipt++;
+    else if (type.includes('invoice')) counts.invoice++;
+    else if (type.includes('quote')) counts.quote++;
+    else counts.other++;
+  });
+  return [
+    { id: 'all', label: 'All', count: counts.all },
+    { id: 'receipt', label: 'Receipts', count: counts.receipt },
+    { id: 'invoice', label: 'Invoices', count: counts.invoice },
+    { id: 'quote', label: 'Quotes', count: counts.quote },
+  ].filter(c => c.count > 0 || c.id === 'all');
+});
+
+// Filtered credentials based on active category
+const filteredCredentials = computed(() => {
+  if (!credentials.value || activeCategory.value === 'all') return credentials.value;
+  return credentials.value.filter((cred) => {
+    const type = getCredentialType(cred);
+    if (activeCategory.value === 'receipt') return type.includes('receipt') || type.includes('payment');
+    if (activeCategory.value === 'invoice') return type.includes('invoice');
+    if (activeCategory.value === 'quote') return type.includes('quote');
+    return true;
+  });
+});
+
+// Active category label
+const activeCategoryLabel = computed(() => {
+  const cat = categories.value.find(c => c.id === activeCategory.value);
+  return cat?.label || 'My Saved Items';
+});
 
 // Find the GenericID credential (issued during registration)
 const genericIdCredential = computed(() => {

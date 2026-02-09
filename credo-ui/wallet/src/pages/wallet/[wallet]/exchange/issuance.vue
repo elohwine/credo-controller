@@ -149,13 +149,13 @@
           class="w-full sm:w-44 py-3 mt-4 text-white rounded-xl shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all"
           style="background: linear-gradient(135deg, #2188CA, #0F3F5E);"
         >
-          Accept
+          {{ saveButtonText }}
         </button>
         <button
           @click="navigateTo(`/wallet/${walletId}`)"
           class="w-full sm:w-44 py-3 mt-4 bg-white sm:border sm:border-[#CBD2D9] sm:rounded-xl text-[#0F3F5E] hover:bg-[#F0F4F8]"
         >
-          Decline
+          Not Now
         </button>
       </div>
     </div>
@@ -163,7 +163,7 @@
 </template>
 
 <script lang="ts" setup>
-import {ref} from "vue";
+import {ref, computed} from "vue";
 import {useTitle} from "@vueuse/core";
 import CenterMain from "@credentis-web-wallet/components/CenterMain.vue";
 import LoadingIndicator from "@credentis-web-wallet/components/loading/LoadingIndicator.vue";
@@ -188,12 +188,22 @@ const {
   groupedCredentialTypes,
 } = await useIssuance(query);
 
+// Fastlane UX: Dynamic save button based on credential type
+const saveButtonText = computed(() => {
+  if (!credentialTypes.value || credentialTypes.value.length === 0) return 'Save';
+  const type = credentialTypes.value[0]?.toLowerCase() || '';
+  if (type.includes('receipt')) return 'Save Receipt';
+  if (type.includes('invoice')) return 'Save Invoice';
+  if (type.includes('quote')) return 'Save Quote';
+  return 'Save';
+});
+
 if (query.accept) {
   immediateAccept.value = true;
   acceptCredential();
 }
 
-useTitle(`Claim credentials - Credentis`);
+useTitle(`Save to Wallet - Credentis`);
 definePageMeta({
   layout: window.innerWidth > 650 ? "desktop-without-sidebar" : false,
 });

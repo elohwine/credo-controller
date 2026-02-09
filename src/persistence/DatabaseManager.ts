@@ -124,7 +124,11 @@ export class DatabaseManager {
       { version: 13, file: '013_create_inventory.sql', name: 'create_inventory' },
       { version: 14, file: '014_add_offer_uri_columns.sql', name: 'add_offer_uri_columns' },
       { version: 15, file: '015_create_ack_payments.sql', name: 'create_ack_payments' },
-      { version: 16, file: '016_add_catalog_category.sql', name: 'add_catalog_category' }
+      { version: 16, file: '016_add_catalog_category.sql', name: 'add_catalog_category' },
+      { version: 17, file: '017_add_delivered_state.sql', name: 'add_delivered_state' },
+      { version: 18, file: '018_add_phone_to_tenants.sql', name: 'add_phone_to_tenants' },
+      { version: 19, file: '019_ssi_auth_tables.sql', name: 'ssi_auth_tables' },
+      { version: 20, file: '020_add_audit_columns.sql', name: 'add_audit_columns' }
     ]
 
     for (const migration of migrationFiles) {

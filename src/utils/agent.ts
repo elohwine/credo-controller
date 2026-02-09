@@ -1,6 +1,5 @@
 import type { InitConfig } from '@credo-ts/core'
 
-import { PolygonModule } from '@ayanworks/credo-polygon-w3c-module'
 import { AskarModule } from '@credo-ts/askar'
 import {
   AutoAcceptCredential,
@@ -53,13 +52,6 @@ export const setupAgent = async ({ name, endpoints, port }: { name: string; endp
         credentialProtocols: [],
       }),
       tenants: new TenantsModule(),
-      polygon: new PolygonModule({
-        didContractAddress: '',
-        schemaManagerContractAddress: '',
-        fileServerToken: '',
-        rpcUrl: '',
-        serverUrl: '',
-      }),
     },
     dependencies: agentDependencies,
   })

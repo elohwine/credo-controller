@@ -108,6 +108,17 @@ export class ShortlinkService {
     }
 
     /**
+     * Mark a shortlink as used (for delivery confirmation tracking)
+     */
+    static markUsed(code: string): boolean {
+        const db = DatabaseManager.getDatabase()
+        const result = db.prepare(`
+            UPDATE ${this.TABLE} SET used_at = datetime('now') WHERE code = ?
+        `).run(code.toUpperCase())
+        return result.changes > 0
+    }
+
+    /**
      * Delete expired shortlinks (cleanup job)
      */
     static cleanup(): number {

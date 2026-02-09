@@ -1,4 +1,4 @@
-import { Controller, Get, Route, Tags, Query, Path, Security } from 'tsoa'
+import { Controller, Get, Post, Body, Route, Tags, Query, Path, Security } from 'tsoa'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { rootLogger } from '../../utils/pinoLogger'
 
@@ -298,6 +298,73 @@ export class ReceiptController extends Controller {
                 credentialType: r.credential_type,
                 issuedAt: r.issued_at
             }))
+        }
+    }
+
+    /**
+     * Confirm delivery of goods associated with a transaction
+     * Updates payment/order status to 'delivered' to release escrow
+     */
+    @Post('confirm-delivery')
+    public async confirmDelivery(
+        @Body() body: { transactionId: string; allowPending?: boolean }
+    ): Promise<{ success: boolean, message: string, newState: string }> {
+        const db = DatabaseManager.getDatabase()
+        const { transactionId, allowPending } = body
+
+        try {
+            // Find payment record
+            const payment = db.prepare(`
+                SELECT * FROM ack_payments 
+                WHERE provider_ref = ? 
+                   OR payment_request_token = ?
+                   OR idempotency_key = ?
+            `).get(transactionId, transactionId, transactionId) as any
+
+            if (!payment) {
+                this.setStatus(404)
+                return { success: false, message: 'Transaction not found', newState: 'unknown' }
+            }
+
+            if (payment.state !== 'paid' && payment.state !== 'delivered') {
+                if (allowPending && payment.state === 'pending' && payment.provider_ref) {
+                    logger.warn({ transactionId, paymentId: payment.id }, 'Confirming delivery while payment is pending (allowPending=true)')
+                } else {
+                    this.setStatus(400)
+                    return { 
+                        success: false, 
+                        message: `Cannot confirm delivery. Payment state is '${payment.state}' (must be 'paid')`, 
+                        newState: payment.state 
+                    }
+                }
+            }
+
+            if (payment.state === 'delivered') {
+                return { 
+                    success: true, 
+                    message: 'Delivery already confirmed', 
+                    newState: 'delivered' 
+                }
+            }
+
+            // Update state to delivered
+            db.prepare(`
+                UPDATE ack_payments 
+                SET state = 'delivered', updated_at = ? 
+                WHERE id = ?
+            `).run(new Date().toISOString(), payment.id)
+
+            logger.info({ transactionId, paymentId: payment.id }, 'Delivery confirmed')
+
+            return { 
+                success: true, 
+                message: 'Delivery confirmed successfully', 
+                newState: 'delivered' 
+            }
+        } catch (error: any) {
+            logger.error({ error: error.message, transactionId }, 'Delivery confirmation failed')
+            this.setStatus(500)
+            return { success: false, message: error.message, newState: 'error' }
         }
     }
 }

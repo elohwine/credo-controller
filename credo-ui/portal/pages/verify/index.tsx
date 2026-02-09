@@ -47,9 +47,21 @@ export default function Verification() {
       }
 
       // Fetch metadata from Credo backend
-      const tenantId = process.env.NEXT_PUBLIC_TENANT_ID || 'default';
+      // Use actual tenant ID from localStorage (created in _app.tsx), or fall back to platform-level metadata
+      const tenantId = typeof window !== 'undefined' 
+        ? localStorage.getItem('credoTenantId') || process.env.NEXT_PUBLIC_TENANT_ID || 'default'
+        : process.env.NEXT_PUBLIC_TENANT_ID || 'default';
       const credoBackend = (env.NEXT_PUBLIC_ISSUER || nextConfig.publicRuntimeConfig!.NEXT_PUBLIC_ISSUER).replace('/oidc/issuer', '');
-      const issuerMetadata = await axios.get(`${credoBackend}/tenants/${tenantId}/.well-known/openid-credential-issuer`);
+      
+      let issuerMetadata;
+      try {
+        // Try tenant-specific metadata first
+        issuerMetadata = await axios.get(`${credoBackend}/tenants/${tenantId}/.well-known/openid-credential-issuer`);
+      } catch (e: any) {
+        // Fall back to platform-level metadata
+        console.warn(`Failed to fetch tenant ${tenantId} metadata, using platform-level metadata:`, e.message);
+        issuerMetadata = await axios.get(`${credoBackend}/.well-known/openid-credential-issuer`);
+      }
       const request_credentials = credentials.map((credential) => {
         if (mapFormat(format) === 'vc+sd-jwt') {
           let url = issuerMetadata.data[issuerMetadataConfigSelector[standardVersion]][`${credential.offer.type[credential.offer.type.length - 1]}_vc+sd-jwt`].vct;

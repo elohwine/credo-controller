@@ -13,7 +13,8 @@ import { TsLogger } from './utils/logger'
 
 // export type AgentType = Agent<RestAgentModules> | Agent<RestMultiTenantAgentModules> | TenantAgent<RestAgentModules>
 
-let dynamicApiKey: string = process.env.STATIC_API_KEY || 'test-api-key-12345' // Use env var or known default
+// Injected for testability
+let dynamicApiKey: string = process.env.STATIC_API_KEY || 'test-api-key-12345'
 
 // Cache for jwt token key
 const cache = new Map<string, string>()
@@ -137,7 +138,9 @@ export async function expressAuthentication(request: Request, securityName: stri
       }
       if (role === AgentRole.RestTenantAgent) {
         // Logic if the token is of tenant agent
-        if (scopes && !scopes?.includes(SCOPES.TENANT_AGENT)) {
+        // If the route has specific scopes validation (length > 0), ensure 'tenant' scope is allowed
+        // If no scopes are defined (length == 0 or undefined), we assume general access is permitted for valid tenants
+        if (scopes && scopes.length > 0 && !scopes.includes(SCOPES.TENANT_AGENT)) {
           logger.error(`[AUTH-DEBUG] Missing Scope. Required: ${SCOPES.TENANT_AGENT}, Provided Scopes: ${scopes}`)
           return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
         } else {
@@ -202,6 +205,9 @@ async function verifyToken(logger: TsLogger, token: string, secretKey: string): 
 
 // Common function to pass agent object and get secretKey
 async function getSecretKey(agent: Agent | TenantAgent<any>): Promise<string> {
+  // Use env var JWT_SECRET if available (simplifies dev/testing)
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET
+
   let cachedKey: string | undefined
 
   cachedKey = getFromCache('secret')

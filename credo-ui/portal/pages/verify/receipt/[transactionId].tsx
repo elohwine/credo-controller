@@ -4,6 +4,7 @@ import axios from 'axios'
 import { EnvContext } from '@/pages/_app'
 import nextConfig from '@/next.config'
 import Layout from '@/components/Layout'
+import { BRAND } from '@/lib/theme'
 import { 
   IconCheck, 
   IconX, 
@@ -109,8 +110,25 @@ export default function ReceiptVerification() {
   }
 
   const handleConfirmDelivery = async () => {
-    // TODO: Record delivery confirmation in backend
-    setDeliveryConfirmed(true)
+    try {
+      setLoading(true)
+      const txnId = result?.transactionId || transactionId
+      
+      const response = await axios.post(`${backendUrl}/api/receipts/confirm-delivery`, {
+        transactionId: txnId
+      })
+
+      if (response.data.success) {
+        setDeliveryConfirmed(true)
+      } else {
+        alert('Failed to confirm delivery: ' + response.data.message)
+      }
+    } catch (error: any) {
+      console.error('Delivery confirmation error:', error)
+      alert('Error confirming delivery: ' + (error.response?.data?.message || error.message))
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleRefresh = () => {
@@ -128,8 +146,8 @@ export default function ReceiptVerification() {
         {/* Loading State */}
         {loading && (
           <div className="text-center">
-            <div className="animate-spin w-16 h-16 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4"></div>
-            <p className="text-xl text-gray-600">Verifying payment...</p>
+            <div className="animate-spin w-16 h-16 border-4 rounded-full mx-auto mb-4" style={{ borderColor: BRAND.linkWater, borderTopColor: BRAND.curious }}></div>
+            <p className="text-xl" style={{ color: BRAND.dark }}>Verifying payment...</p>
           </div>
         )}
 
@@ -179,7 +197,8 @@ export default function ReceiptVerification() {
             {/* Confirm Delivery Button */}
             <button
               onClick={handleConfirmDelivery}
-              className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:bg-blue-700 active:scale-98 transition-all shadow-lg"
+              className="w-full py-4 text-white rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:opacity-90 active:scale-98 transition-all shadow-lg"
+              style={{ backgroundColor: BRAND.curious }}
             >
               <IconTruck size={24} />
               CONFIRM DELIVERY
@@ -190,16 +209,17 @@ export default function ReceiptVerification() {
         {/* Delivery Confirmed */}
         {!loading && deliveryConfirmed && (
           <div className="w-full max-w-md text-center">
-            <div className="bg-blue-500 rounded-3xl p-8 mb-6 shadow-xl">
+            <div className="rounded-3xl p-8 mb-6 shadow-xl" style={{ backgroundColor: BRAND.curious }}>
               <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mx-auto mb-4">
-                <IconTruck size={48} className="text-blue-500" />
+                <IconTruck size={48} style={{ color: BRAND.curious }} />
               </div>
               <h1 className="text-3xl font-bold text-white mb-2">DELIVERY RECORDED</h1>
-              <p className="text-blue-100">Transaction: {transactionId}</p>
+              <p style={{ color: BRAND.linkWater }}>Transaction: {transactionId}</p>
             </div>
             <button
               onClick={() => router.push('/verify/receipt')}
-              className="text-blue-600 font-medium"
+              className="font-medium"
+              style={{ color: BRAND.curious }}
             >
               ← Verify Another
             </button>
@@ -265,9 +285,12 @@ export default function ReceiptVerification() {
         )}
 
         {/* Footer */}
-        <p className="text-xs text-gray-400 mt-8">
-          Secured by Credentis • {new Date().toLocaleString()}
-        </p>
+        <div className="mt-8 text-center">
+          <p className="text-xs" style={{ color: BRAND.viking }}>
+            Secured by <span className="font-semibold" style={{ color: BRAND.curious }}>Credentis</span>
+          </p>
+          <p className="text-xs text-gray-400 mt-1">{new Date().toLocaleString()}</p>
+        </div>
       </div>
     </Layout>
   )
