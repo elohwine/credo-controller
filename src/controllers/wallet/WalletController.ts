@@ -140,6 +140,13 @@ function extractAndNormalizeInnerOfferUrl(wrapperOrUrl: string | undefined, maxD
 @Security('jwt', [SCOPES.TENANT_AGENT])
 @injectable()
 export class WalletController extends Controller {
+  private ensureWalletAccess(request: ExRequest, walletId: string): void {
+    const tokenTenantId = (request as any).user?.tenantId as string | undefined
+    if (tokenTenantId && tokenTenantId !== walletId) {
+      this.setStatus(403)
+      throw new UnauthorizedError('Wallet access denied')
+    }
+  }
   private getAgent(request: ExRequest): Agent<RestMultiTenantAgentModules> {
     return request.agent as unknown as Agent<RestMultiTenantAgentModules>
   }
@@ -237,6 +244,7 @@ export class WalletController extends Controller {
     @Request() request: ExRequest,
     @Path() walletId: string
   ): Promise<any[]> {
+    this.ensureWalletAccess(request, walletId)
     // Read from TENANT's Credo wallet (Askar) - credentials are stored per-tenant
     const agent = this.getAgent(request)
     try {
@@ -297,6 +305,106 @@ export class WalletController extends Controller {
       console.error('[listCredentials] Error:', error.message)
       this.setStatus(500)
       throw new Error(`Failed to fetch credentials from wallet: ${error.message}`)
+    }
+  }
+
+  /**
+   * Paginated credential listing with filters for embedded wallet.
+   */
+  @Get('{walletId}/credentials/list')
+  public async listCredentialsPaged(
+    @Request() request: ExRequest,
+    @Path() walletId: string,
+    @Query() limit = 20,
+    @Query() cursor?: string,
+    @Query() type?: string
+  ): Promise<{ items: any[]; nextCursor?: string }> {
+    this.ensureWalletAccess(request, walletId)
+    const agent = this.getAgent(request)
+    const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
+    const credentialRecords = await w3cCredentialService.getAllCredentialRecords(agent.context)
+
+    const filtered = type
+      ? credentialRecords.filter((record: any) => (record.credential?.type || []).includes(type))
+      : credentialRecords
+
+    const offset = cursor ? Math.max(parseInt(cursor, 10) || 0, 0) : 0
+    const safeLimit = Math.min(Math.max(limit || 20, 1), 100)
+    const page = filtered.slice(offset, offset + safeLimit)
+    const nextCursor = offset + safeLimit < filtered.length ? String(offset + safeLimit) : undefined
+
+    const items = page.map((record: any) => {
+      const cred = record.credential
+      const credentialSubject = (cred as any)?.credentialSubject || {}
+      const subjectClaims = (credentialSubject as any)?.claims
+      const flatClaims = subjectClaims && typeof subjectClaims === 'object'
+        ? { ...credentialSubject, ...subjectClaims }
+        : credentialSubject
+      const types = cred?.type || []
+      const credentialType = types.find((t: string) => t !== 'VerifiableCredential') || types[0] || 'VerifiableCredential'
+
+      return {
+        vc_id: record.id,
+        vc_type: credentialType,
+        issued_at: cred?.issuanceDate || record.createdAt || new Date().toISOString(),
+        amount: flatClaims.amount,
+        currency: flatClaims.currency,
+        status: flatClaims.status || 'ACTIVE',
+        thumb: flatClaims.transactionId || flatClaims.invoiceId || flatClaims.receiptId || credentialType,
+        parsedDocument: {
+          '@context': (cred as any)?.context || (cred as any)?.['@context'] || ['https://www.w3.org/2018/credentials/v1'],
+          type: cred?.type || ['VerifiableCredential'],
+          credentialSubject: flatClaims,
+          issuer: cred?.issuer,
+          issuanceDate: cred?.issuanceDate,
+          expirationDate: cred?.expirationDate,
+        }
+      }
+    })
+
+    return { items, nextCursor }
+  }
+
+  /**
+   * Return full credential details by ID for the wallet UI.
+   */
+  @Get('{walletId}/credentials/detail/{credentialId}')
+  public async getCredentialDetail(
+    @Request() request: ExRequest,
+    @Path() walletId: string,
+    @Path() credentialId: string
+  ): Promise<any> {
+    this.ensureWalletAccess(request, walletId)
+    const agent = this.getAgent(request)
+    const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
+    const credentialRecords = await w3cCredentialService.getAllCredentialRecords(agent.context)
+    const record = credentialRecords.find((r: any) => r.id === credentialId)
+
+    if (!record) {
+      this.setStatus(404)
+      throw new Error('Credential not found')
+    }
+
+    const cred = record.credential
+    const credentialSubject = (cred as any)?.credentialSubject || {}
+    const subjectClaims = (credentialSubject as any)?.claims
+    const flatClaims = subjectClaims && typeof subjectClaims === 'object'
+      ? { ...credentialSubject, ...subjectClaims }
+      : credentialSubject
+
+    return {
+      vc_id: record.id,
+      vc_type: (cred?.type || []).find((t: string) => t !== 'VerifiableCredential') || 'VerifiableCredential',
+      issued_at: cred?.issuanceDate || record.createdAt || new Date().toISOString(),
+      payload: {
+        '@context': (cred as any)?.context || (cred as any)?.['@context'] || ['https://www.w3.org/2018/credentials/v1'],
+        type: cred?.type || ['VerifiableCredential'],
+        credentialSubject: flatClaims,
+        issuer: cred?.issuer,
+        issuanceDate: cred?.issuanceDate,
+        expirationDate: cred?.expirationDate,
+        proof: (cred as any)?.proof,
+      }
     }
   }
 

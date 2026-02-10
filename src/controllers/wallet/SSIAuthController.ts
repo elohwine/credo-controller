@@ -21,6 +21,7 @@ import { StatusException } from '../../errors'
 import { container } from 'tsyringe'
 import { SSIAuthService } from '../../services/SSIAuthService'
 import type { PlatformIdentityClaims } from '../../config/credentials/PlatformIdentityVC'
+import { SCOPES } from '../../enums'
 
 // Request/Response interfaces
 
@@ -50,6 +51,8 @@ interface SSIRegisterResponse {
   vcOfferUrl?: string
   /** Number of existing credentials in claimed tenant */
   existingCredentialsCount?: number
+  /** Number of past receipts queued for issuance */
+  retroactiveReceiptsQueued?: number
 }
 
 interface SSILoginChallengeResponse {
@@ -93,6 +96,13 @@ interface SessionInfo {
   did: string
   /** Session token valid until */
   expiresAt: string
+}
+
+interface ScopedSessionResponse {
+  /** Short-lived wallet token */
+  token: string
+  /** Token expiry in seconds */
+  expiresIn: number
 }
 
 @Route('api/ssi/auth')
@@ -170,14 +180,21 @@ export class SSIAuthController extends Controller {
       const cookieValue = `auth.token=${result.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`
       this.setHeader('Set-Cookie', cookieValue)
 
+      const retroactiveReceiptsQueued = result.retroactiveReceiptsQueued || 0
+      const totalLinked = Math.max(existingCredentialsCount, retroactiveReceiptsQueued)
+      const message = result.claimedExisting
+        ? (retroactiveReceiptsQueued > existingCredentialsCount
+          ? `Account created! ${totalLinked} saved item(s) queued for linking.`
+          : `Account created! ${totalLinked} saved item(s) linked.`)
+        : 'Account created successfully'
+
       return {
-        message: result.claimedExisting 
-          ? `Account created! ${existingCredentialsCount} saved item(s) linked.`
-          : 'Account created successfully',
+        message,
         walletId: result.walletId,
         token: result.token,
         claimedExisting: result.claimedExisting,
         existingCredentialsCount: result.claimedExisting ? existingCredentialsCount : undefined,
+        retroactiveReceiptsQueued: retroactiveReceiptsQueued > 0 ? retroactiveReceiptsQueued : undefined,
         vcOfferUrl: result.vcOfferUrl
       }
     } catch (error: any) {
@@ -190,6 +207,30 @@ export class SSIAuthController extends Controller {
       }
       throw error
     }
+  }
+
+  /**
+   * Exchange an existing tenant token for a short-lived wallet session token.
+   */
+  @Post('/session')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
+  public async createSession(@Request() request: ExRequest, @Body() body?: { expiresInSeconds?: number }): Promise<ScopedSessionResponse> {
+    const user = (request as any).user as { id?: string; tenantId?: string; did?: string } | undefined
+    if (!user?.id || !user?.tenantId) {
+      this.setStatus(401)
+      throw new Error('Unauthorized')
+    }
+
+    const expiresInSeconds = Math.min(Math.max(body?.expiresInSeconds || 900, 300), 3600)
+    const token = await this.authService.generateScopedSessionToken({
+      userId: user.id,
+      tenantId: user.tenantId,
+      did: user.did,
+      expiresInSeconds,
+      audience: 'holder-wallet'
+    })
+
+    return { token, expiresIn: expiresInSeconds }
   }
 
   /**

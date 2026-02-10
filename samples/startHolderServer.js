@@ -49,9 +49,10 @@ async function run() {
 
     const agent = new Agent({
         config: {
+            // FIX: Use SAME root wallet as startServer.js so this agent can see the same tenants!
             walletConfig: {
-                id: 'holder-agent-wallet',
-                key: 'holder-agent-key',
+                id: 'shared-controller-agent',
+                key: 'shared-controller-key',
             },
             label: 'Holder Agent (User Wallets)',
             endpoints: [`http://127.0.0.1:${HOLDER_INBOUND_PORT}`],

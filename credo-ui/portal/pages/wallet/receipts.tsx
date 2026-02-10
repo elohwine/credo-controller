@@ -86,12 +86,36 @@ export default function MyReceiptsPage() {
                 return;
             }
 
-            const response = await axios.get(`${holderBackend}/api/wallet/${walletId}/credentials`, {
-                headers: { Authorization: `Bearer ${tenantToken}` },
+            let sessionToken = tenantToken;
+            try {
+                const sessionRes = await axios.post(
+                    `${holderBackend}/api/ssi/auth/session`,
+                    { expiresInSeconds: 900 },
+                    { headers: { Authorization: `Bearer ${tenantToken}` } }
+                );
+                if (sessionRes.data?.token) sessionToken = sessionRes.data.token;
+            } catch (e) {
+                // Fallback to long-lived tenant token
+            }
+
+            const response = await axios.get(`${holderBackend}/api/wallet/${walletId}/credentials/list?limit=50`, {
+                headers: { Authorization: `Bearer ${sessionToken}` },
             });
 
-            console.log('[Receipts] Fetched credentials:', response.data);
-            setCredentials(response.data || []);
+            const items = response.data?.items || response.data || [];
+            const normalized = Array.isArray(items)
+                ? items.map((item: any) => ({
+                    id: item.vc_id || item.id,
+                    type: item.vc_type || item.type,
+                    parsedDocument: item.parsedDocument || item.parsed_document,
+                    issuerDid: item.issuerDid,
+                    addedOn: item.issued_at || item.addedOn,
+                    ...item
+                }))
+                : [];
+
+            console.log('[Receipts] Fetched credentials:', normalized);
+            setCredentials(normalized);
         } catch (err: any) {
             console.error('[Receipts] Error:', err);
             if (err.response?.status === 401) {

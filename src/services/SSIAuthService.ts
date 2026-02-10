@@ -62,6 +62,7 @@ export class SSIAuthService {
     walletId: string
     claimedExisting: boolean
     vcOfferUrl?: string
+    retroactiveReceiptsQueued?: number
   }> {
     const db = DatabaseManager.getDatabase()
     
@@ -196,11 +197,15 @@ export class SSIAuthService {
     // 6. Retroactive Issuance: Source-of-Truth Re-Issuance (Fastlane Fix)
     // We check the immutable payment ledger for past transactions and issue fresh receipts
     // This removes dependency on fragile Guest Wallet migration
+    let retroactiveReceiptsQueued = 0
     if (claims.phone) {
+      retroactiveReceiptsQueued = await this.countPastReceipts(claims.phone)
+      if (retroactiveReceiptsQueued > 0) {
         // Run un-awaited to not block the UI response
-        this.reissuePastReceipts(tenantId!, claims.phone).catch(err => 
-            logger.error({ error: err.message, phone: '***' }, 'Retroactive issuance failed')
+        this.reissuePastReceipts(tenantId!, claims.phone, userId).catch(err =>
+          logger.error({ error: err.message, phone: '***' }, 'Retroactive issuance failed')
         )
+      }
     }
 
     // Clean up temp phone link if we claimed it
@@ -216,7 +221,8 @@ export class SSIAuthService {
       walletId: tenantId!,
       token,
       claimedExisting,
-      vcOfferUrl
+      vcOfferUrl,
+      retroactiveReceiptsQueued
     }
   }
 
@@ -459,18 +465,8 @@ export class SSIAuthService {
    * and issue ReceiptVCs to the new tenant.
    * This is the "Source of Truth" recovery strategy.
    */
-  private async reissuePastReceipts(tenantId: string, phone: string): Promise<void> {
-    const db = DatabaseManager.getDatabase()
-    
-    // Normalize phone to match potential DB formats
-    const normalizedPhone = this.normalizePhone(phone)
-    
-    // Find all PAID payments for this phone (check both raw and normalized)
-    const payments = db.prepare(`
-        SELECT * FROM ack_payments 
-        WHERE (payer_phone = ? OR payer_phone = ?) 
-        AND state IN ('paid', 'delivered')
-    `).all(normalizedPhone, phone) as any[]
+  private async reissuePastReceipts(tenantId: string, phone: string, userId?: string): Promise<void> {
+    const payments = await this.getPastPayments(phone)
 
     if (payments.length === 0) return
 
@@ -478,6 +474,9 @@ export class SSIAuthService {
 
     const issuerApiUrl = process.env.ISSUER_API_URL || 'http://localhost:3000'
     const apiKey = process.env.ISSUER_API_KEY || 'test-api-key-12345'
+    const holderApiUrl = process.env.HOLDER_API_URL || process.env.HOLDER_BASE_URL || 'http://localhost:7000'
+    const subjectHash = this.hashData(this.normalizePhone(phone))
+    const sessionToken = userId ? await this.generateSessionToken(userId, tenantId) : undefined
 
     for (const payment of payments) {
         try {
@@ -499,6 +498,8 @@ export class SSIAuthService {
                             transactionId: payment.provider_ref || payment.id,
                             amount: String(payment.amount),
                             currency: payment.currency || 'USD',
+                          payerPhone: payment.payer_phone,
+                            subjectHash,
                             merchant: payment.tenant_id,
                             cartId: payment.cart_id,
                             invoiceId: payment.invoice_id,
@@ -512,6 +513,24 @@ export class SSIAuthService {
 
             if (response.ok) {
                  logger.debug({ paymentId: payment.id, tenantId }, 'Retroactively issued ReceiptVC')
+                 if (sessionToken) {
+                   try {
+                     const offerPayload = await response.json() as any
+                     const offerUri = offerPayload?.credential_offer_uri || offerPayload?.credential_offer_url || offerPayload?.offerUrl || offerPayload?.credentialOffer
+                     if (offerUri) {
+                       await fetch(`${holderApiUrl}/api/wallet/credentials/accept-offer`, {
+                         method: 'POST',
+                         headers: {
+                           'Content-Type': 'application/json',
+                           Authorization: `Bearer ${sessionToken}`
+                         },
+                         body: JSON.stringify({ offerUri })
+                       })
+                     }
+                   } catch (acceptError: any) {
+                     logger.warn({ paymentId: payment.id, error: acceptError.message }, 'Failed to auto-accept retro ReceiptVC')
+                   }
+                 }
             } else {
                  logger.warn({ status: response.status, paymentId: payment.id }, 'Failed to retro-issue receipt')
             }
@@ -519,6 +538,25 @@ export class SSIAuthService {
              logger.error({ error: e.message, paymentId: payment.id }, 'Error retro-issuing receipt')
         }
     }
+  }
+
+  private async countPastReceipts(phone: string): Promise<number> {
+    const payments = await this.getPastPayments(phone)
+    return payments.length
+  }
+
+  private async getPastPayments(phone: string): Promise<any[]> {
+    const db = DatabaseManager.getDatabase()
+
+    // Normalize phone to match potential DB formats
+    const normalizedPhone = this.normalizePhone(phone)
+
+    // Find all PAID payments for this phone (check both raw and normalized)
+    return db.prepare(`
+        SELECT * FROM ack_payments 
+        WHERE (payer_phone = ? OR payer_phone = ?) 
+        AND state IN ('paid', 'delivered')
+    `).all(normalizedPhone, phone) as any[]
   }
 
   private normalizePhone(phone: string): string {
@@ -621,6 +659,30 @@ export class SSIAuthService {
       // NO PII in token - claims come from VC when needed
       iat: Math.floor(Date.now() / 1000),
       exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days
+    }, secret)
+  }
+
+  async generateScopedSessionToken(params: { userId: string; tenantId: string; did?: string; expiresInSeconds: number; audience?: string }): Promise<string> {
+    let secret = process.env.JWT_SECRET
+
+    if (!secret) {
+      const genericRecords = await this.agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
+      secret = genericRecords[0]?.content.secretKey as string
+    }
+
+    if (!secret) {
+      throw new Error('No JWT secret found for signing session token')
+    }
+
+    const now = Math.floor(Date.now() / 1000)
+    return jwt.sign({
+      id: params.userId,
+      tenantId: params.tenantId,
+      did: params.did || 'unknown',
+      role: 'RestTenantAgent',
+      aud: params.audience || 'holder-wallet',
+      iat: now,
+      exp: now + params.expiresInSeconds
     }, secret)
   }
 

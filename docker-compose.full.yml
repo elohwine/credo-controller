@@ -67,7 +67,7 @@ services:
       - WALLET_URL=http://localhost:4000
       - JWT_SECRET=development-jwt-secret-456
       - LOG_LEVEL=debug
-      - ASKAR_STORAGE_PATH=/app/data/askar-holder
+      - ASKAR_STORAGE_PATH=/app/data/askar-issuer
     command: ["node", "./samples/startHolderServer.js"]
     volumes:
       - ./data:/app/data

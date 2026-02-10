@@ -22,6 +22,21 @@ interface EcoCashWebhookPayload {
     metadata?: any
 }
 
+function normalizeMsisdn(msisdn?: string): string | undefined {
+    if (!msisdn) return undefined
+    let clean = msisdn.replace(/\D/g, '')
+    if (clean.startsWith('0') && clean.length === 10) {
+        clean = `263${clean.slice(1)}`
+    }
+    return clean
+}
+
+function hashMsisdn(msisdn?: string): string | undefined {
+    const normalized = normalizeMsisdn(msisdn)
+    if (!normalized) return undefined
+    return createHash('sha256').update(normalized.trim().toLowerCase()).digest('hex')
+}
+
 @Route('webhooks')
 @Tags('Webhooks')
 export class EcoCashWebhookController extends Controller {
@@ -94,6 +109,9 @@ export class EcoCashWebhookController extends Controller {
                     const invoiceHash = existingPayment?.invoice_hash
                     const previousRecordHash = invoiceHash // Chain link
 
+                    const payerPhone = payload.customerMsisdn || existingPayment?.payer_phone
+                    const subjectHash = hashMsisdn(payerPhone)
+
                     const receiptResponse = await axios.post(
                         `${issuerApiUrl}/custom-oidc/issuer/credential-offers`,
                         {
@@ -106,6 +124,8 @@ export class EcoCashWebhookController extends Controller {
                                     transactionId: payload.transactionId,
                                     amount: String(payload.amount || existingPayment?.amount || '0'),
                                     currency: payload.currency || existingPayment?.currency || 'USD',
+                                    payerPhone,
+                                    subjectHash,
                                     merchant: existingPayment?.tenant_id || 'unknown',
                                     cartId: cartId,
                                     invoiceId: invoiceId,

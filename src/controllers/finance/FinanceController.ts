@@ -2,7 +2,7 @@ import { Controller, Post, Get, Route, Tags, Body, Path, Request, Security } fro
 import type { Request as ExRequest } from 'express'
 import { container } from 'tsyringe'
 import { Agent } from '@credo-ts/core'
-import { randomUUID } from 'crypto'
+import { randomUUID, createHash } from 'crypto'
 import { SCOPES } from '../../enums'
 import { inventoryService } from '../../services/InventoryService'
 
@@ -148,9 +148,15 @@ export class FinanceController extends Controller {
     @Post('receipts/issue')
     @Security('jwt', [SCOPES.TENANT_AGENT])
     public async issueReceipt(
-        @Body() body: { invoiceRef: string, cartId?: string, amount: number, currency: string, transactionId: string },
+          @Body() body: { invoiceRef: string, cartId?: string, amount: number, currency: string, transactionId: string, payerPhone?: string },
         @Request() request: ExRequest
     ): Promise<any> {
+                const normalizedPhone = body.payerPhone
+                    ? body.payerPhone.replace(/\D/g, '').replace(/^0(\d{9})$/, '263$1')
+                    : undefined
+                const subjectHash = normalizedPhone
+                    ? createHash('sha256').update(normalizedPhone.trim().toLowerCase()).digest('hex')
+                    : undefined
         const issuerApiUrl = process.env.ISSUER_API_URL || 'http://localhost:3000'
         const tenantId = (request as any).user?.tenantId || 'default'
         const receiptId = `RCP-${randomUUID().substring(0, 8)}`
@@ -201,6 +207,8 @@ export class FinanceController extends Controller {
                                 invoiceRef: body.invoiceRef,
                                 amount: body.amount,
                                 currency: body.currency,
+                                payerPhone: body.payerPhone,
+                                subjectHash,
                                 transactionId: body.transactionId,
                                 timestamp: new Date().toISOString(),
                                 inventoryAllocations: inventoryAllocations.length > 0 ? inventoryAllocations : undefined

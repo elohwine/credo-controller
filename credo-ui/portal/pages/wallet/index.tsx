@@ -225,12 +225,32 @@ export default function WalletPage() {
                 setUserEmail('Guest Session');
             }
 
-            const response = await axios.get(
-                `${holderBackend}/api/wallet/${walletId}/credentials`,
+            const sessionToken = await axios.post(
+                `${holderBackend}/api/ssi/auth/session`,
+                { expiresInSeconds: 900 },
                 { headers: { Authorization: `Bearer ${token}` } }
+            ).then((res) => res.data?.token as string | undefined).catch(() => undefined)
+
+            const authToken = sessionToken || token
+
+            const listResponse = await axios.get(
+                `${holderBackend}/api/wallet/${walletId}/credentials/list?limit=50`,
+                { headers: { Authorization: `Bearer ${authToken}` } }
             );
 
-            setCredentials(response.data || []);
+            const items = listResponse.data?.items || listResponse.data || []
+            const normalized = Array.isArray(items)
+                ? items.map((item: any) => ({
+                    id: item.vc_id || item.id,
+                    type: item.vc_type || item.type,
+                    parsedDocument: item.parsedDocument || item.parsed_document,
+                    issuerDid: item.issuerDid,
+                    addedOn: item.issued_at || item.addedOn,
+                    ...item
+                }))
+                : []
+
+            setCredentials(normalized)
         } catch (err: any) {
             console.error('Failed to fetch credentials:', err);
             if (err.response?.status === 401) {
