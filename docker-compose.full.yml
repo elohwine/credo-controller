@@ -10,18 +10,25 @@ services:
       dockerfile: Dockerfile
       target: production
     container_name: credo-api
+    user: "0:0"
     restart: unless-stopped
     ports:
       - "3000:3000" # Issuer Agent
     environment:
       - PORT=3000
-      - WALLET_KEY=development-wallet-key-123
+      # Canonical root wallet identity (must remain stable across restarts/deploys).
+      - WALLET_ID=${WALLET_ID:-shared-controller-agent}
+      - WALLET_KEY=${WALLET_KEY:-shared-controller-key}
       - JWT_SECRET=development-jwt-secret-456
       - LOG_LEVEL=debug
       - PUBLIC_BASE_URL=http://172.19.0.10:3000
       - WALLET_URL=http://localhost:4000
       - PERSISTENCE_DB_PATH=/app/data/persistence.db
-      - ASKAR_STORAGE_PATH=/app/data/askar-issuer
+      - ASKAR_STORAGE_PATH=/home/credo/.afj
+      # Fail fast if ssi_users tenant mappings don't exist in runtime tenant store.
+      # Keep this false in docker demos to avoid startup regressions after container rebuilds.
+      - ALLOW_TENANT_RECOVERY_ON_LOGIN=true
+      - STRICT_TENANT_INVARIANT=false
       # Only run Issuer
       - HOLDER_API_PORT=7000
       # EcoCash Payment Mode: 'true' = simulated (auto-webhook), 'false' = live (USSD PIN push)
@@ -36,6 +43,7 @@ services:
     command: ["node", "./samples/startServer.js"]
     volumes:
       - ./data:/app/data
+      - ./data/askar-issuer:/home/credo/.afj
     networks:
       credo-net:
         ipv4_address: 172.19.0.10
@@ -44,70 +52,6 @@ services:
       interval: 10s
       timeout: 10s
       retries: 5
-
-  # =====================================
-  # Holder API (Tenant Wallet)
-  # =====================================
-  holder-api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: production
-    container_name: credo-holder
-    restart: unless-stopped
-    ports:
-      - "7000:7000" # Holder Agent
-      - "7001:7001" # Holder Inbound
-    environment:
-      - PORT=7000
-      - HOLDER_API_PORT=7000
-      - HOLDER_INBOUND_PORT=7001
-      - ISSUER_API_URL=http://172.19.0.10:3000
-      - PUBLIC_BASE_URL=http://172.19.0.10:3000
-      - WALLET_URL=http://localhost:4000
-      - JWT_SECRET=development-jwt-secret-456
-      - LOG_LEVEL=debug
-      - ASKAR_STORAGE_PATH=/app/data/askar-issuer
-    command: ["node", "./samples/startHolderServer.js"]
-    volumes:
-      - ./data:/app/data
-    networks:
-      credo-net:
-        ipv4_address: 172.19.0.11
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:7000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
-      interval: 15s
-      timeout: 15s
-      retries: 5
-      start_period: 20s
-
-  # =====================================
-  # Wallet UI
-  # =====================================
-  wallet:
-    build:
-      context: ./credo-ui/wallet
-      dockerfile: Dockerfile
-    container_name: credo-wallet
-    restart: unless-stopped
-    ports:
-      - "4000:4000"
-    environment:
-      - PORT=4000
-      - PROXY_TARGET_HOST=172.19.0.11
-      - PROXY_TARGET_PORT=7000
-      - NUXT_PUBLIC_WALLET_BACKEND_URL=http://localhost:7000
-      - NUXT_PUBLIC_FINANCE_API_URL=http://localhost:7000
-      - NUXT_PUBLIC_CREDENTIALS_REPOSITORY_URL=http://localhost:3000
-      - NUXT_PUBLIC_ISSUER_CALLBACK_URL=http://localhost:3000
-    depends_on:
-      api:
-        condition: service_healthy
-      holder-api:
-        condition: service_healthy
-    networks:
-      credo-net:
-        ipv4_address: 172.19.0.12
 
   # =====================================
   # HR Portal UI
@@ -125,18 +69,16 @@ services:
       # Client-side (browser) URLs - must use localhost or public URLs
       - NEXT_PUBLIC_VC_REPO=http://localhost:3000
       - NEXT_PUBLIC_BACKEND_URL=http://localhost:3000
-      - NEXT_PUBLIC_HOLDER_URL=http://localhost:7000
-      - NEXT_PUBLIC_WALLET_URL=http://localhost:4000
-      # API Keys - DIFFERENT keys for different backends!
+      - NEXT_PUBLIC_HOLDER_URL=http://localhost:3000
+      - NEXT_PUBLIC_WALLET_URL=http://localhost:3000
+      # Single API key for the unified credo-api backend
       - NEXT_PUBLIC_CREDO_API_KEY=test-api-key-12345
-      - NEXT_PUBLIC_HOLDER_API_KEY=holder-api-key-12345
+      - NEXT_PUBLIC_HOLDER_API_KEY=test-api-key-12345
       # Server-side (SSR/API routes) URLs - use Docker bridge IPs
       - BACKEND_URL=http://172.19.0.10:3000
       - VC_REPO_INTERNAL=http://172.19.0.10:3000
     depends_on:
       api:
-        condition: service_healthy
-      holder-api:
         condition: service_healthy
     networks:
       credo-net:

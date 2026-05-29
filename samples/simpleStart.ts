@@ -9,13 +9,18 @@ import { credentialDefinitionStore } from '../src/utils/credentialDefinitionStor
 import { startNgrokTunnel, getNgrokUrl } from '../src/utils/ngrokTunnel'
 
 const run = async () => {
+  const walletId = process.env.WALLET_ID || 'shared-controller-agent'
+  const askarStoragePath = process.env.ASKAR_STORAGE_PATH || './data/askar-issuer'
+  const serverPort = Number(process.env.PORT || 3000)
+  const agentPort = Number(process.env.AGENT_PORT || 3001)
+
   // Start ngrok tunnel for webhook support in dev
   const enableNgrok = process.env.ENABLE_NGROK !== 'false' && process.env.NODE_ENV !== 'production'
   let ngrokUrl: string | null = null
   
   if (enableNgrok) {
     try {
-      ngrokUrl = await startNgrokTunnel({ port: 3000 })
+      ngrokUrl = await startNgrokTunnel({ port: serverPort })
     } catch (error) {
       console.warn('⚠️  Ngrok failed to start - webhooks will only work locally')
       console.warn('   Set ENABLE_NGROK=false to suppress this warning')
@@ -26,10 +31,12 @@ const run = async () => {
   console.log('Initializing persistence layer at:', dbPath)
   DatabaseManager.initialize({ path: dbPath })
   console.log('Persistence layer initialized successfully')
+  console.log('Using canonical wallet id:', walletId)
+  console.log('Using Askar storage path:', askarStoragePath)
 
   const agent = await setupAgent({
-    port: 3001,
-    endpoints: ['http://localhost:3001'],
+    port: agentPort,
+    endpoints: [`http://localhost:${agentPort}`],
     name: 'Credo UI Test Agent',
   })
 
@@ -50,14 +57,14 @@ const run = async () => {
   const apiKey = process.env.API_KEY || 'test-api-key-12345'
 
   const conf: ServerConfig = {
-    port: 3000,
+    port: serverPort,
     cors: true,
   }
 
   console.log('\n===========================================')
-  console.log('Starting Credo backend on port 3000...')
-  console.log('Agent endpoint: http://localhost:3001')
-  console.log('API docs: http://localhost:3000/docs')
+  console.log(`Starting Credo backend on port ${serverPort}...`)
+  console.log(`Agent endpoint: http://localhost:${agentPort}`)
+  console.log(`API docs: http://localhost:${serverPort}/docs`)
   console.log(`API Key: ${apiKey}`)
   if (ngrokUrl) {
     console.log(`Ngrok URL: ${ngrokUrl}`)
@@ -76,8 +83,8 @@ const run = async () => {
   console.log('Credential models seeded successfully')
 
   console.log('\n🚀 Server ready!')
-  console.log(`📡 Agent endpoint: http://localhost:3001`)
-  console.log(`📚 API docs: http://localhost:3000/docs`)
+  console.log(`📡 Agent endpoint: http://localhost:${agentPort}`)
+  console.log(`📚 API docs: http://localhost:${serverPort}/docs`)
   console.log(`🔑 API Key: ${apiKey}`)
   if (ngrokUrl) {
     console.log(`🌐 Public URL: ${ngrokUrl}`)
