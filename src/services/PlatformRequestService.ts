@@ -23,27 +23,34 @@ export interface CreatePlatformRequestInput {
   }>
 }
 
+/**
+ * Generic organizational request layer.
+ *
+ * Identity is resolved from the authenticated tenant + opaque subject reference.
+ * Lifecycle transitions are authorized server-side from organizational authority;
+ * client-provided person/organization identifiers are never trusted as proof.
+ */
 export class PlatformRequestService {
   private resolvePrincipal(tenantId: string, subjectRef: string) {
     const db = DatabaseManager.getDatabase()
     const organization = db.prepare(`
-      SELECT id, tenant_id AS tenantId
+      SELECT id
       FROM organizations
       WHERE tenant_id = ? AND status = 'active'
       ORDER BY created_at ASC
       LIMIT 1
-    `).get(tenantId) as { id?: string; tenantId?: string } | undefined
+    `).get(tenantId) as { id?: string } | undefined
 
     if (!organization?.id) throw new Error('Organization context not found')
 
     const person = db.prepare(`
-      SELECT p.id, p.organization_id AS organizationId
+      SELECT p.id
       FROM people p
       JOIN organization_memberships m ON m.person_id = p.id AND m.organization_id = p.organization_id
       WHERE p.organization_id = ? AND p.subject_ref = ?
         AND p.status = 'active' AND m.membership_status = 'active'
       LIMIT 1
-    `).get(organization.id, subjectRef) as { id?: string; organizationId?: string } | undefined
+    `).get(organization.id, subjectRef) as { id?: string } | undefined
 
     if (!person?.id) throw new Error('Authenticated subject is not an active organization member')
     return { organizationId: organization.id, personId: person.id }
@@ -103,8 +110,7 @@ export class PlatformRequestService {
   }
 
   submit(requestId: string, tenantId: string, subjectRef: string) {
-    const principal = this.resolvePrincipal(tenantId, subjectRef)
-    return this.transition(requestId, tenantId, 'submitted', principal.personId)
+    return this.transitionBySubject(requestId, tenantId, subjectRef, 'submitted')
   }
 
   transitionBySubject(
@@ -127,24 +133,17 @@ export class PlatformRequestService {
   ) {
     const db = DatabaseManager.getDatabase()
     const current = db.prepare(`
-      SELECT r.status, r.organization_id AS organizationId
+      SELECT r.status, r.organization_id AS organizationId, r.requester_person_id AS requesterPersonId
       FROM requests r
       JOIN organizations o ON o.id = r.organization_id
       WHERE r.id = ? AND o.tenant_id = ? AND o.status = 'active'
-    `).get(requestId, tenantId) as { status?: RequestStatus; organizationId?: string } | undefined
+    `).get(requestId, tenantId) as {
+      status?: RequestStatus
+      organizationId?: string
+      requesterPersonId?: string
+    } | undefined
 
-    if (!current?.organizationId) throw new Error('Request not found')
-
-    const actor = db.prepare(`
-      SELECT p.id
-      FROM people p
-      JOIN organization_memberships m ON m.person_id = p.id AND m.organization_id = p.organization_id
-      WHERE p.id = ? AND p.organization_id = ?
-        AND p.status = 'active' AND m.membership_status = 'active'
-      LIMIT 1
-    `).get(actorPersonId, current.organizationId) as { id?: string } | undefined
-
-    if (!actor?.id) throw new Error('Actor is not authorized for this organization')
+    if (!current?.organizationId || !current.requesterPersonId) throw new Error('Request not found')
 
     const allowed: Record<RequestStatus, RequestStatus[]> = {
       draft: ['submitted', 'cancelled'],
@@ -161,6 +160,37 @@ export class PlatformRequestService {
       throw new Error(`Invalid request transition: ${current.status} -> ${toStatus}`)
     }
 
+    const transitionPermission: Record<RequestStatus, string | undefined> = {
+      draft: undefined,
+      submitted: 'request.submit',
+      in_review: 'request.review',
+      approved: 'request.approve',
+      rejected: 'request.reject',
+      in_fulfilment: 'request.fulfil',
+      completed: 'request.complete',
+      cancelled: 'request.cancel',
+    }
+
+    const actorIsRequester = actorPersonId === current.requesterPersonId
+    const permission = transitionPermission[toStatus]
+    const requesterAllowed = actorIsRequester && (toStatus === 'submitted' || toStatus === 'cancelled')
+    const authorityAllowed = permission
+      ? this.hasAuthority(current.organizationId, actorPersonId, permission)
+      : false
+
+    if (!requesterAllowed && !authorityAllowed) {
+      this.recordPolicyDecision({
+        organizationId: current.organizationId,
+        principalPersonId: actorPersonId,
+        action: permission ?? `request.transition.${toStatus}`,
+        resourceType: 'request',
+        resourceId: requestId,
+        decision: 'deny',
+        reasonCode: 'insufficient_authority'
+      })
+      throw new Error('Insufficient authority for request transition')
+    }
+
     const now = new Date().toISOString()
     db.transaction(() => {
       db.prepare(`
@@ -171,10 +201,43 @@ export class PlatformRequestService {
         WHERE id = ?
       `).run(toStatus, toStatus, now, toStatus, now, requestId)
 
-      this.recordEvent(requestId, 'request.status_changed', actor.id, current.status ?? null, toStatus, payload)
+      this.recordEvent(requestId, 'request.status_changed', actorPersonId, current.status ?? null, toStatus, payload)
+      this.recordPolicyDecision({
+        organizationId: current.organizationId as string,
+        principalPersonId: actorPersonId,
+        action: permission ?? `request.transition.${toStatus}`,
+        resourceType: 'request',
+        resourceId: requestId,
+        decision: 'allow',
+        reasonCode: requesterAllowed ? 'requester_action' : 'authority_grant'
+      })
     })()
 
     return this.getForTenant(requestId, tenantId)
+  }
+
+  private hasAuthority(organizationId: string, personId: string, permission: string): boolean {
+    const db = DatabaseManager.getDatabase()
+    const row = db.prepare(`
+      SELECT 1
+      FROM authority_grants a
+      LEFT JOIN roles r ON r.id = a.role_id AND r.organization_id = a.organization_id
+      WHERE a.organization_id = ?
+        AND a.person_id = ?
+        AND a.status = 'active'
+        AND (a.valid_from IS NULL OR a.valid_from <= CURRENT_TIMESTAMP)
+        AND (a.valid_until IS NULL OR a.valid_until >= CURRENT_TIMESTAMP)
+        AND (
+          a.authority_type = ?
+          OR EXISTS (
+            SELECT 1
+            FROM json_each(COALESCE(r.permissions, '[]'))
+            WHERE json_each.value = ?
+          )
+        )
+      LIMIT 1
+    `).get(organizationId, personId, permission, permission)
+    return !!row
   }
 
   getForTenant(requestId: string, tenantId: string) {
@@ -222,6 +285,26 @@ export class PlatformRequestService {
     sql += ' ORDER BY r.created_at DESC LIMIT ?'
     params.push(Math.min(Math.max(limit, 1), 500))
     return db.prepare(sql).all(...params)
+  }
+
+  private recordPolicyDecision(input: {
+    organizationId: string
+    principalPersonId: string
+    action: string
+    resourceType: string
+    resourceId: string
+    decision: 'allow' | 'deny'
+    reasonCode: string
+  }) {
+    DatabaseManager.getDatabase().prepare(`
+      INSERT INTO policy_decisions (
+        id, organization_id, principal_person_id, action,
+        resource_type, resource_id, decision, reason_code, policy_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      randomUUID(), input.organizationId, input.principalPersonId, input.action,
+      input.resourceType, input.resourceId, input.decision, input.reasonCode, 'platform-v1'
+    )
   }
 
   private recordEvent(
