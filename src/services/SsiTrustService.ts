@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from 'crypto'
 import { DatabaseManager } from '../persistence/DatabaseManager'
+import { authorizationService } from './AuthorizationService'
 
 export interface PresentationRequestInput {
   tenantId: string
-  holderSubjectRef?: string
+  requesterSubjectRef: string
   verifierRef: string
   purposeCode: string
   purposeTextRef?: string
@@ -24,6 +25,11 @@ export interface PresentationConsentInput {
   consentVersion: string
 }
 
+/**
+ * Verification results are intentionally an internal integration contract.
+ * Public callers must never be allowed to assert that a presentation was
+ * cryptographically verified; that result must come from the Credo verifier.
+ */
 export interface PresentationVerificationInput {
   requestId: string
   tenantId: string
@@ -82,28 +88,63 @@ export class SsiTrustService {
   }
 
   createPresentationRequest(input: PresentationRequestInput) {
-    const organizationId = this.resolveOrganization(input.tenantId)
-    const requestId = randomUUID()
-    const db = DatabaseManager.getDatabase()
+    const { organizationId, personId } = this.resolvePerson(input.tenantId, input.requesterSubjectRef)
+    const expiresAt = new Date(input.expiresAt)
+    const now = Date.now()
 
+    if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= now) {
+      throw new Error('Presentation request expiry must be a valid future timestamp')
+    }
+
+    const maxExpiry = now + 24 * 60 * 60 * 1000
+    if (expiresAt.getTime() > maxExpiry) {
+      throw new Error('Presentation request lifetime exceeds the platform maximum')
+    }
+
+    const db = DatabaseManager.getDatabase()
+    const verifier = db.prepare(`
+      SELECT id
+      FROM verifier_registrations
+      WHERE organization_id = ?
+        AND verifier_ref = ?
+        AND status = 'active'
+      LIMIT 1
+    `).get(organizationId, input.verifierRef) as { id?: string } | undefined
+
+    if (!verifier?.id) throw new Error('Verifier is not registered for this organization')
+
+    const authorization = authorizationService.decide({
+      tenantId: input.tenantId,
+      personId,
+      action: 'presentation.request',
+      requiredPermission: 'presentation.request',
+      resourceType: 'presentation_request',
+    })
+
+    if (authorization.decision !== 'allow') {
+      throw new Error(`Insufficient authority: ${authorization.reasonCode}`)
+    }
+
+    const requestId = randomUUID()
     db.prepare(`
       INSERT INTO presentation_requests (
-        id, organization_id, verifier_ref, purpose_code, purpose_text_ref,
+        id, organization_id, requester_person_id, verifier_ref, purpose_code, purpose_text_ref,
         query_language, query_ref, transaction_ref, status, expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
     `).run(
       requestId,
       organizationId,
+      personId,
       input.verifierRef,
       input.purposeCode,
       input.purposeTextRef ?? null,
       input.queryLanguage ?? 'dcql',
       input.queryRef,
       input.transactionRef ?? null,
-      input.expiresAt
+      expiresAt.toISOString()
     )
 
-    return { requestId, expiresAt: input.expiresAt }
+    return { requestId, expiresAt: expiresAt.toISOString() }
   }
 
   recordConsent(input: PresentationConsentInput) {
@@ -111,15 +152,30 @@ export class SsiTrustService {
     const db = DatabaseManager.getDatabase()
 
     const request = db.prepare(`
-      SELECT id FROM presentation_requests
+      SELECT id, status, expires_at AS expiresAt
+      FROM presentation_requests
       WHERE id = ? AND organization_id = ?
-    `).get(input.requestId, organizationId) as { id?: string } | undefined
+      LIMIT 1
+    `).get(input.requestId, organizationId) as {
+      id?: string
+      status?: string
+      expiresAt?: string
+    } | undefined
 
     if (!request?.id) throw new Error('Presentation request not found')
+    if (request.status !== 'pending') throw new Error('Presentation request is no longer pending')
+    if (!request.expiresAt || new Date(request.expiresAt).getTime() <= Date.now()) {
+      throw new Error('Presentation request has expired')
+    }
 
+    const requested = new Set(input.requestedCategories)
     const disclosedCategories = input.decision === 'approved'
       ? (input.disclosedCategories ?? input.requestedCategories)
       : []
+
+    if (disclosedCategories.some(category => !requested.has(category))) {
+      throw new Error('Disclosed categories must be a subset of requested categories')
+    }
 
     const consentId = randomUUID()
     db.transaction(() => {
@@ -142,9 +198,9 @@ export class SsiTrustService {
 
       db.prepare(`
         UPDATE presentation_requests
-        SET status = ?, completed_at = CASE WHEN ? IN ('approved','declined') THEN CURRENT_TIMESTAMP ELSE completed_at END
-        WHERE id = ?
-      `).run(input.decision, input.decision, input.requestId)
+        SET status = ?, completed_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'pending'
+      `).run(input.decision, input.requestId)
     })()
 
     return {
@@ -155,16 +211,37 @@ export class SsiTrustService {
     }
   }
 
+  /**
+   * Internal-only method. Call this only after the Credo verifier has produced
+   * the verification result from an actual OpenID4VP presentation response.
+   */
   recordVerification(input: PresentationVerificationInput) {
     const organizationId = this.resolveOrganization(input.tenantId)
     const db = DatabaseManager.getDatabase()
 
     const request = db.prepare(`
-      SELECT id FROM presentation_requests
+      SELECT id, expires_at AS expiresAt
+      FROM presentation_requests
       WHERE id = ? AND organization_id = ?
-    `).get(input.requestId, organizationId) as { id?: string } | undefined
+      LIMIT 1
+    `).get(input.requestId, organizationId) as { id?: string; expiresAt?: string } | undefined
 
     if (!request?.id) throw new Error('Presentation request not found')
+    if (!request.expiresAt || new Date(request.expiresAt).getTime() <= Date.now()) {
+      throw new Error('Presentation request has expired')
+    }
+
+    if (input.verified) {
+      const requiredChecks = [
+        input.holderBindingVerified,
+        input.trustVerified,
+        input.statusVerified,
+        input.schemaVerified,
+      ]
+      if (requiredChecks.some(check => check !== true)) {
+        throw new Error('Verified presentation is missing required verifier checks')
+      }
+    }
 
     const evidenceDigest = input.evidenceDigest || this.createEvidenceDigest(input)
     const resultId = randomUUID()
