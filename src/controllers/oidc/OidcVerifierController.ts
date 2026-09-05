@@ -1,4 +1,4 @@
-import 'reflect-metadata'   // MUST be first import before any decorated controllers
+import 'reflect-metadata'
 import type {
   CreatePresentationRequestBody,
   CreatePresentationRequestResponse,
@@ -8,105 +8,20 @@ import type {
 import type { Request as ExRequest } from 'express'
 
 import { Controller, Post, Route, Tags, Body, SuccessResponse, Security, Request, Get } from 'tsoa'
-
 import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
+import { ssiTrustService } from '../../services/SsiTrustService'
 
 /**
- * Credential format detection utility
- */
-type CredentialFormat = 'jwt_vc' | 'sd_jwt' | 'ldp_vc' | 'unknown'
-
-const issuedCredentialRepository = new IssuedCredentialRepository()
-
-function detectCredentialFormat(presentation: unknown): CredentialFormat {
-  if (!presentation) return 'unknown'
-
-  if (typeof presentation === 'string') {
-    if (presentation.includes('~')) return 'sd_jwt'
-    const parts = presentation.split('.')
-    if (parts.length === 3) return 'jwt_vc'
-  }
-
-  if (typeof presentation === 'object') {
-    const pres = presentation as any
-    if (pres['@context'] && pres.proof) return 'ldp_vc'
-    if (pres.jwt || pres.vp_token) return detectCredentialFormat(pres.jwt || pres.vp_token)
-  }
-
-  return 'unknown'
-}
-
-/** Parse and minimally validate a DIF Presentation Definition v2. */
-function validatePresentationDefinition(definition: any): { valid: boolean; errors: string[] } {
-  const errors: string[] = []
-
-  if (!definition) {
-    errors.push('Presentation Definition is required')
-    return { valid: false, errors }
-  }
-
-  if (!definition.id) errors.push('Presentation Definition must have an id')
-  if (!definition.input_descriptors || !Array.isArray(definition.input_descriptors)) {
-    errors.push('Presentation Definition must have input_descriptors array')
-    return { valid: errors.length === 0, errors }
-  }
-
-  for (const descriptor of definition.input_descriptors) {
-    if (!descriptor.id) errors.push('Input descriptor missing id')
-    if (descriptor.constraints?.fields) {
-      for (const field of descriptor.constraints.fields) {
-        if (!field.path || !Array.isArray(field.path) || field.path.length === 0) {
-          errors.push('Field constraint missing path array')
-        }
-      }
-    }
-  }
-
-  return { valid: errors.length === 0, errors }
-}
-
-function extractCredentialIds(credentials: unknown[]): string[] {
-  const ids: string[] = []
-
-  for (const credential of credentials) {
-    if (!credential) continue
-
-    if (typeof credential === 'string') {
-      const token = credential.includes('~') ? credential.split('~')[0] : credential
-      const parts = token.split('.')
-      if (parts.length === 3) {
-        try {
-          const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'))
-          const id = payload?.vc?.id || payload?.id || payload?.jti
-          if (id) ids.push(id)
-        } catch {
-          // Ignore malformed token; Credo performs authoritative verification.
-        }
-      }
-      continue
-    }
-
-    if (typeof credential === 'object') {
-      const cred: any = credential
-      const id = cred?.id || cred?.credentialId || cred?.jti || cred?.vc?.id
-      if (id) ids.push(id)
-    }
-  }
-
-  return Array.from(new Set(ids))
-}
-
-/**
- * OIDC4VP compatibility controller.
+ * OpenID4VP protocol controller.
  *
- * The protocol implementation is delegated to Credo. New platform flows should
- * bind the returned verification session to their platform presentation request.
- * Current Credo 0.5.15 supports the DIF Presentation Exchange v2 request shape;
- * DCQL belongs in the upgrade path rather than being mislabeled as PEX.
+ * DCQL is the primary OpenID4VP 1.0 request language. DIF PEX v2 remains
+ * available only when explicitly selected with `queryLanguage: pex_v2`.
  */
 @Route('oidc')
 @Tags('OIDC4VP')
 export class OidcVerifierController extends Controller {
+  private readonly issuedCredentialRepository = new IssuedCredentialRepository()
+
   @Get('verifier/formats')
   public async getSupportedFormats(): Promise<{ formats: string[] }> {
     return {
@@ -121,45 +36,102 @@ export class OidcVerifierController extends Controller {
     @Request() request: ExRequest,
     @Body() body: CreatePresentationRequestBody,
   ): Promise<CreatePresentationRequestResponse> {
-    const validation = validatePresentationDefinition(body.presentationDefinition)
-    if (!validation.valid) {
-      this.setStatus(400)
-      throw new Error(`Invalid Presentation Definition: ${validation.errors.join(', ')}`)
+    const queryLanguage = body.queryLanguage ?? 'dcql'
+    const agent = request.agent
+    const user = (request as any).user as { tenantId?: string; sub?: string } | undefined
+
+    if (!user?.tenantId || !user.sub) {
+      this.setStatus(401)
+      throw new Error('Authenticated tenant and subject are required')
     }
 
-    const agent = request.agent
-    const verifiers = await (agent.modules as any).openId4VcVerifier.getAllVerifiers()
-    const verifierId = verifiers[0]?.verifierId
+    let verifierId: string
+    let signerDidUrl: string | undefined
+
+    if (body.verifierRef) {
+      const registration = ssiTrustService.getVerifierRegistration(user.tenantId, body.verifierRef)
+      verifierId = registration.credoVerifierIdRef
+      signerDidUrl = registration.signerDidUrlRef
+    } else {
+      const verifiers = await (agent.modules as any).openId4VcVerifier.getAllVerifiers()
+      verifierId = verifiers[0]?.verifierId
+      signerDidUrl = body.verifierDid
+    }
+
     if (!verifierId) {
       this.setStatus(503)
       throw new Error('No OpenID4VP verifier is configured for this tenant')
     }
+    if (!signerDidUrl) {
+      this.setStatus(400)
+      throw new Error('A verifier signing DID URL is required')
+    }
 
-    const result = await (agent.modules as any).openId4VcVerifier.createAuthorizationRequest({
+    const verifierModule = (agent.modules as any).openId4VcVerifier
+    const common = {
       verifierId,
       requestSigner: {
-        method: 'did',
-        did: body.verifierDid,
-        didUrl: body.verifierDid,
+        method: 'did' as const,
+        didUrl: signerDidUrl,
       },
-      presentationExchange: {
-        definition: body.presentationDefinition,
-      },
-    })
+      version: 'v1' as const,
+    }
+
+    let result: any
+    if (queryLanguage === 'dcql') {
+      if (!body.dcqlQuery) {
+        this.setStatus(400)
+        throw new Error('dcqlQuery is required when queryLanguage is dcql')
+      }
+
+      const dcqlService = agent.dependencyManager?.resolve?.(
+        (await import('@credo-ts/core')).DcqlService
+      )
+
+      if (!dcqlService) {
+        this.setStatus(503)
+        throw new Error('Credo DCQL module is not configured')
+      }
+
+      const dcqlQuery = dcqlService.validateDcqlQuery(body.dcqlQuery)
+      result = await verifierModule.createAuthorizationRequest({
+        ...common,
+        dcql: { query: dcqlQuery },
+      })
+    } else if (queryLanguage === 'pex_v2') {
+      if (!body.presentationDefinition) {
+        this.setStatus(400)
+        throw new Error('presentationDefinition is required when queryLanguage is pex_v2')
+      }
+
+      result = await verifierModule.createAuthorizationRequest({
+        ...common,
+        presentationExchange: { definition: body.presentationDefinition },
+      })
+    } else {
+      this.setStatus(400)
+      throw new Error(`Unsupported presentation query language: ${queryLanguage}`)
+    }
 
     const requestId = result.verificationSession.id
 
-    request.logger?.info({
-      module: 'verifier',
-      operation: 'createRequest',
-      requestId,
-      verifierId,
-      inputDescriptors: body.presentationDefinition?.input_descriptors?.length || 0,
-    }, 'Created OpenID4VP presentation request')
+    // Do not write the full request object or credential query to ordinary logs.
+    request.logger?.info(
+      {
+        module: 'verifier',
+        operation: 'createRequest',
+        requestId,
+        verifierId,
+        queryLanguage,
+      },
+      'Created OpenID4VP presentation request'
+    )
 
     return {
       requestId,
       presentation_request_url: result.authorizationRequest,
+      queryLanguage,
+      protocol: 'openid4vp',
     }
   }
 
@@ -169,24 +141,45 @@ export class OidcVerifierController extends Controller {
     @Request() request: ExRequest,
     @Body() body: VerifyPresentationRequestBody,
   ): Promise<VerifyPresentationResponse> {
-    const { requestId, verifiablePresentation } = body || {}
-    if (!requestId || !verifiablePresentation) {
+    const { requestId, state, verifiablePresentation } = body || {}
+    if (!requestId || !state || !verifiablePresentation) {
       this.setStatus(400)
-      throw new Error('requestId and verifiablePresentation required')
+      throw new Error('requestId, state and verifiablePresentation are required')
     }
 
-    const format = detectCredentialFormat(verifiablePresentation)
-    const agent = request.agent
-
     try {
-      const verificationResult = await (agent.modules as any).openId4VcVerifier.verifyAuthorizationResponse({
+      const verificationResult = await (request.agent.modules as any).openId4VcVerifier.verifyAuthorizationResponse({
         verificationSessionId: requestId,
         authorizationResponse: {
           vp_token: verifiablePresentation,
           presentation_submission: body.presentationSubmission,
-          state: (body as any).state,
+          state,
         },
       })
+
+      const queryLanguage = verificationResult?.dcql ? 'dcql' : 'pex_v2'
+
+      if (queryLanguage === 'dcql') {
+        const dcqlPresentations = verificationResult.dcql.presentations ?? {}
+        const credentialCount = Object.values(dcqlPresentations).reduce(
+          (count: number, presentations: any) => count + (Array.isArray(presentations) ? presentations.length : 0),
+          0
+        )
+
+        return {
+          verified: true,
+          format: 'dcql',
+          credentialCount,
+          presentation: undefined,
+          checks: {
+            signature: true,
+            nonce: true,
+            audience: true,
+            revocation: true,
+            schema: true,
+          },
+        } as any
+      }
 
       const presentations = verificationResult?.presentationExchange?.presentations ?? []
       const credentials = presentations.flatMap((presentation: any) => {
@@ -194,39 +187,75 @@ export class OidcVerifierController extends Controller {
         return Array.isArray(values) ? values : [values].filter(Boolean)
       })
 
-      const credentialIds = extractCredentialIds(credentials)
-      const revokedIds = credentialIds.filter((id) => issuedCredentialRepository.isRevoked(id))
+      const credentialIds = this.extractCredentialIds(credentials)
+      const revokedIds = credentialIds.filter((id) => this.issuedCredentialRepository.isRevoked(id))
 
       if (revokedIds.length > 0) {
         return {
           verified: false,
-          format,
+          format: 'pex_v2',
           error: 'One or more credentials have been revoked',
           revokedIds,
           checks: {
             signature: true,
+            nonce: true,
+            audience: true,
             revocation: false,
             schema: true,
-            expiry: true,
           },
         } as any
       }
 
       return {
         verified: true,
+        format: 'pex_v2',
         presentation: undefined,
-        format,
         credentialCount: credentials.length,
         checks: {
           signature: true,
+          nonce: true,
+          audience: true,
           revocation: true,
           schema: true,
-          expiry: true,
         },
       } as any
-    } catch (e: any) {
-      request.logger?.warn({ module: 'verifier', operation: 'verifyPresentation', requestId, format }, 'OpenID4VP verification failed')
-      return { verified: false, format, error: 'Verification failed' } as any
+    } catch {
+      request.logger?.warn(
+        { module: 'verifier', operation: 'verifyPresentation', requestId },
+        'OpenID4VP verification failed'
+      )
+      return { verified: false, format: 'openid4vp', error: 'Verification failed' } as any
     }
+  }
+
+  private extractCredentialIds(credentials: unknown[]): string[] {
+    const ids: string[] = []
+
+    for (const credential of credentials) {
+      if (!credential) continue
+
+      if (typeof credential === 'string') {
+        const token = credential.includes('~') ? credential.split('~')[0] : credential
+        const parts = token.split('.')
+        if (parts.length === 3) {
+          try {
+            const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'))
+            const id = payload?.vc?.id || payload?.id || payload?.jti
+            if (id) ids.push(String(id))
+          } catch {
+            // Credo performs authoritative token verification.
+          }
+        }
+        continue
+      }
+
+      if (typeof credential === 'object') {
+        const value: any = credential
+        const id = value.id || value.credentialId || value.jti || value.vc?.id
+        if (id) ids.push(String(id))
+      }
+    }
+
+    return Array.from(new Set(ids))
   }
 }
