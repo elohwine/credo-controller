@@ -7,11 +7,8 @@ import type {
 } from '../../types/api'
 import type { Request as ExRequest } from 'express'
 
-import { Key, KeyType, TypedArrayEncoder } from '@credo-ts/core'
-import { randomUUID } from 'crypto'
 import { Controller, Post, Route, Tags, Body, SuccessResponse, Security, Request, Get } from 'tsoa'
 
-import { schemaStore } from '../../utils/schemaStore'
 import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
 
 /**
@@ -24,38 +21,22 @@ const issuedCredentialRepository = new IssuedCredentialRepository()
 function detectCredentialFormat(presentation: unknown): CredentialFormat {
   if (!presentation) return 'unknown'
 
-  // String-based detection for JWT formats
   if (typeof presentation === 'string') {
-    // SD-JWT has multiple parts separated by ~
-    if (presentation.includes('~')) {
-      return 'sd_jwt'
-    }
-    // Regular JWT has 3 parts separated by .
+    if (presentation.includes('~')) return 'sd_jwt'
     const parts = presentation.split('.')
-    if (parts.length === 3) {
-      return 'jwt_vc'
-    }
+    if (parts.length === 3) return 'jwt_vc'
   }
 
-  // Object-based detection for JSON-LD
   if (typeof presentation === 'object') {
     const pres = presentation as any
-    // JSON-LD VCs have @context and proof
-    if (pres['@context'] && pres.proof) {
-      return 'ldp_vc'
-    }
-    // Might be a wrapped JWT
-    if (pres.jwt || pres.vp_token) {
-      return detectCredentialFormat(pres.jwt || pres.vp_token)
-    }
+    if (pres['@context'] && pres.proof) return 'ldp_vc'
+    if (pres.jwt || pres.vp_token) return detectCredentialFormat(pres.jwt || pres.vp_token)
   }
 
   return 'unknown'
 }
 
-/**
- * Parse and validate Presentation Definition per DIF Presentation Exchange spec
- */
+/** Parse and minimally validate a DIF Presentation Definition v2. */
 function validatePresentationDefinition(definition: any): { valid: boolean; errors: string[] } {
   const errors: string[] = []
 
@@ -64,25 +45,18 @@ function validatePresentationDefinition(definition: any): { valid: boolean; erro
     return { valid: false, errors }
   }
 
-  if (!definition.id) {
-    errors.push('Presentation Definition must have an id')
-  }
-
+  if (!definition.id) errors.push('Presentation Definition must have an id')
   if (!definition.input_descriptors || !Array.isArray(definition.input_descriptors)) {
     errors.push('Presentation Definition must have input_descriptors array')
     return { valid: errors.length === 0, errors }
   }
 
   for (const descriptor of definition.input_descriptors) {
-    if (!descriptor.id) {
-      errors.push(`Input descriptor missing id`)
-    }
-    if (!descriptor.constraints) {
-      // Constraints are optional but recommended
-    } else if (descriptor.constraints.fields) {
+    if (!descriptor.id) errors.push('Input descriptor missing id')
+    if (descriptor.constraints?.fields) {
       for (const field of descriptor.constraints.fields) {
         if (!field.path || !Array.isArray(field.path) || field.path.length === 0) {
-          errors.push(`Field constraint missing path array`)
+          errors.push('Field constraint missing path array')
         }
       }
     }
@@ -106,7 +80,7 @@ function extractCredentialIds(credentials: unknown[]): string[] {
           const id = payload?.vc?.id || payload?.id || payload?.jti
           if (id) ids.push(id)
         } catch {
-          // Ignore malformed token
+          // Ignore malformed token; Credo performs authoritative verification.
         }
       }
       continue
@@ -116,7 +90,6 @@ function extractCredentialIds(credentials: unknown[]): string[] {
       const cred: any = credential
       const id = cred?.id || cred?.credentialId || cred?.jti || cred?.vc?.id
       if (id) ids.push(id)
-      continue
     }
   }
 
@@ -124,33 +97,23 @@ function extractCredentialIds(credentials: unknown[]): string[] {
 }
 
 /**
- * OIDC4VP Verifier Controller
+ * OIDC4VP compatibility controller.
  *
- * Implements:
- *  - Create presentation request with Credo's OpenId4VcVerifier
- *  - Verify VP with multi-format support (JWT-VC, SD-JWT, LDP-VC)
- *  - Presentation Definition validation
- *
- * Reference: https://openid.net/specs/openid-4-verifiable-presentations-1_0.html
+ * The protocol implementation is delegated to Credo. New platform flows should
+ * bind the returned verification session to their platform presentation request.
+ * Current Credo 0.5.15 supports the DIF Presentation Exchange v2 request shape;
+ * DCQL belongs in the upgrade path rather than being mislabeled as PEX.
  */
 @Route('oidc')
 @Tags('OIDC4VP')
 export class OidcVerifierController extends Controller {
-
-  /**
-   * Get supported credential formats for verification
-   */
   @Get('verifier/formats')
   public async getSupportedFormats(): Promise<{ formats: string[] }> {
     return {
-      formats: ['jwt_vc', 'jwt_vc', 'sd_jwt', 'vc+sd-jwt', 'ldp_vc']
+      formats: ['jwt_vc', 'sd_jwt', 'vc+sd-jwt', 'ldp_vc', 'ldp_vp', 'mso_mdoc'],
     }
   }
 
-  /**
-   * Create a presentation request returning a request URL with nonce and verifier DID.
-   * Validates Presentation Definition before creating request.
-   */
   @Post('verifier/presentation-requests')
   @SuccessResponse('201', 'Created')
   @Security('jwt', ['tenant'])
@@ -158,53 +121,48 @@ export class OidcVerifierController extends Controller {
     @Request() request: ExRequest,
     @Body() body: CreatePresentationRequestBody,
   ): Promise<CreatePresentationRequestResponse> {
-
-    // Validate Presentation Definition
     const validation = validatePresentationDefinition(body.presentationDefinition)
     if (!validation.valid) {
       this.setStatus(400)
       throw new Error(`Invalid Presentation Definition: ${validation.errors.join(', ')}`)
     }
 
-    // Get tenant agent from request
     const agent = request.agent
     const verifiers = await (agent.modules as any).openId4VcVerifier.getAllVerifiers()
-    request.logger?.info({ body, agentId: agent.config.label, verifierCount: verifiers.length }, 'createPresentationRequest: incoming body and agent')
+    const verifierId = verifiers[0]?.verifierId
+    if (!verifierId) {
+      this.setStatus(503)
+      throw new Error('No OpenID4VP verifier is configured for this tenant')
+    }
 
-    // Use Credo's OpenId4VcVerifier module to create the request
-    // Use Credo's OpenId4VcVerifier module to create the request
     const result = await (agent.modules as any).openId4VcVerifier.createAuthorizationRequest({
-      verifierId: verifiers[0]?.verifierId,
+      verifierId,
       requestSigner: {
         method: 'did',
         did: body.verifierDid,
-        didUrl: body.verifierDid, // Required by openIdTokenIssuerToJwtIssuer
+        didUrl: body.verifierDid,
       },
       presentationExchange: {
-        definition: body.presentationDefinition
-      }
+        definition: body.presentationDefinition,
+      },
     })
 
-    const presentation_request_url = result.authorizationRequest
-    const requestId = result.authorizationRequest.split('request_uri=')[1] || randomUUID()
+    const requestId = result.verificationSession.id
 
     request.logger?.info({
       module: 'verifier',
       operation: 'createRequest',
       requestId,
-      inputDescriptors: body.presentationDefinition?.input_descriptors?.length || 0
-    }, 'Created presentation request')
+      verifierId,
+      inputDescriptors: body.presentationDefinition?.input_descriptors?.length || 0,
+    }, 'Created OpenID4VP presentation request')
 
     return {
       requestId,
-      presentation_request_url
+      presentation_request_url: result.authorizationRequest,
     }
   }
 
-  /**
-   * Verify a verifiable presentation with multi-format support.
-   * Supports: JWT-VC, SD-JWT, LDP-VC
-   */
   @Post('verifier/verify')
   @Security('jwt', ['tenant'])
   public async verifyPresentation(
@@ -217,82 +175,58 @@ export class OidcVerifierController extends Controller {
       throw new Error('requestId and verifiablePresentation required')
     }
 
-    // Detect credential format
     const format = detectCredentialFormat(verifiablePresentation)
-    request.logger?.info({ requestId, format }, 'Detected presentation format')
-
-    // Get tenant agent from request
     const agent = request.agent
 
     try {
-      request.logger?.info({ requestId, format }, 'Verifying presentation with Credo OpenId4VcVerifier')
-
-      // Credo's verifyAuthorizationResponse handles both JWT and SD-JWT formats
       const verificationResult = await (agent.modules as any).openId4VcVerifier.verifyAuthorizationResponse({
+        verificationSessionId: requestId,
         authorizationResponse: {
           vp_token: verifiablePresentation,
           presentation_submission: body.presentationSubmission,
-          state: requestId,
+          state: (body as any).state,
         },
       })
 
-      if (verificationResult.isVerified) {
-        request.logger?.info({ requestId, format }, 'Presentation verified successfully')
+      const presentations = verificationResult?.presentationExchange?.presentations ?? []
+      const credentials = presentations.flatMap((presentation: any) => {
+        const values = presentation?.verifiableCredential
+        return Array.isArray(values) ? values : [values].filter(Boolean)
+      })
 
-        // Extract claims for response
-        const presentation = verificationResult.presentation
-        const credentials = Array.isArray(presentation?.verifiableCredential)
-          ? presentation.verifiableCredential
-          : [presentation?.verifiableCredential].filter(Boolean)
+      const credentialIds = extractCredentialIds(credentials)
+      const revokedIds = credentialIds.filter((id) => issuedCredentialRepository.isRevoked(id))
 
-        // Revocation check against issued_credentials registry (best-effort)
-        const credentialIds = extractCredentialIds(credentials)
-        const revokedIds = credentialIds.filter((id) => issuedCredentialRepository.isRevoked(id))
-
-        if (revokedIds.length > 0) {
-          request.logger?.warn({ requestId, revokedIds }, 'Revocation check failed')
-          return {
-            verified: false,
-            format,
-            error: 'One or more credentials have been revoked',
-            revokedIds,
-            checks: {
-              signature: true,
-              revocation: false,
-              schema: true,
-              expiry: true
-            }
-          } as any
-        }
-
-        return {
-          verified: true,
-          presentation: verificationResult.presentation,
-          format,
-          credentialCount: credentials.length,
-          checks: {
-            signature: true,
-            revocation: true,
-            schema: true,
-            expiry: true
-          }
-        } as any
-      } else {
-        request.logger?.warn({ requestId, error: verificationResult.error, format }, 'Verification failed')
+      if (revokedIds.length > 0) {
         return {
           verified: false,
           format,
-          error: verificationResult.error?.message || 'Verification failed'
+          error: 'One or more credentials have been revoked',
+          revokedIds,
+          checks: {
+            signature: true,
+            revocation: false,
+            schema: true,
+            expiry: true,
+          },
         } as any
       }
 
+      return {
+        verified: true,
+        presentation: undefined,
+        format,
+        credentialCount: credentials.length,
+        checks: {
+          signature: true,
+          revocation: true,
+          schema: true,
+          expiry: true,
+        },
+      } as any
     } catch (e: any) {
-      request.logger?.error(
-        { module: 'verifier', operation: 'verifyPresentation', error: e.message, stack: e.stack, format },
-        'Verification failed with exception',
-      )
-      return { verified: false, format, error: 'Verification failed: ' + e.message } as any
+      request.logger?.warn({ module: 'verifier', operation: 'verifyPresentation', requestId, format }, 'OpenID4VP verification failed')
+      return { verified: false, format, error: 'Verification failed' } as any
     }
   }
 }
-
