@@ -1,0 +1,224 @@
+import type { Request as ExRequest } from 'express'
+import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
+import { ssiTrustService } from '../SsiTrustService'
+import { credentialStatusService } from './CredentialStatusService'
+import { issuerTrustService } from './IssuerTrustService'
+
+export interface PlatformPresentationVerificationInput {
+  tenantId: string
+  subjectRef: string
+  requestId: string
+  state: string
+  verifiablePresentation: unknown
+  presentationSubmission?: unknown
+  request: ExRequest
+}
+
+export interface PlatformPresentationVerificationResult {
+  resultId: string
+  verified: boolean
+  credentialCount: number
+  reasonCode: string
+  statusChecked: boolean
+  evidenceDigest: string
+}
+
+/**
+ * Adapter around Credo's native OpenID4VP verifier.
+ *
+ * The platform request is bound to Credo's persisted verification session.
+ * Credo performs protocol, presentation-proof and DCQL/PEX validation. Platform
+ * policy then layers issuer trust and authoritative credential status on top.
+ *
+ * Raw presentations are transient protocol data and are never returned or
+ * persisted by this service.
+ */
+export class CredoPresentationVerificationService {
+  private readonly issuedCredentialRepository = new IssuedCredentialRepository()
+
+  async verify(input: PlatformPresentationVerificationInput): Promise<PlatformPresentationVerificationResult> {
+    const context = ssiTrustService.getProtocolContext(input.tenantId, input.requestId)
+
+    if (!context.credoVerificationSessionId) {
+      throw new Error('Presentation request is not bound to a Credo verification session')
+    }
+
+    const agent = input.request.agent
+    const verifier = (agent.modules as any).openId4VcVerifier
+    if (!verifier) throw new Error('OpenID4VP verifier module is not configured')
+
+    try {
+      const verificationResult = await verifier.verifyAuthorizationResponse({
+        verificationSessionId: context.credoVerificationSessionId,
+        authorizationResponse: {
+          vp_token: input.verifiablePresentation,
+          presentation_submission: input.presentationSubmission,
+          state: input.state,
+        },
+      })
+
+      const isDcql = context.queryLanguage === 'dcql'
+      const verifiedResponse = isDcql ? verificationResult?.dcql : verificationResult?.presentationExchange
+      const presentations = this.extractPresentations(verifiedResponse, isDcql)
+      const credentials = this.extractCredentials(presentations)
+      const credentialCount = credentials.length
+
+      if (credentialCount === 0) {
+        return this.recordFailure(input, 'no_credentials_presented')
+      }
+
+      const credentialIds = this.extractCredentialIds(credentials)
+      const locallyRevoked = credentialIds.some((id) => this.issuedCredentialRepository.isRevoked(id))
+
+      const statusResults = await Promise.all(
+        credentials.map((credential: any) => credentialStatusService.resolve({
+          credentialId: credential?.id || credential?.jti || credential?.vc?.id,
+          credentialStatus: credential?.credentialStatus || credential?.vc?.credentialStatus,
+          issuerRef: this.extractIssuerRef(credential),
+          request: input.request,
+        }))
+      )
+
+      const statusChecked = statusResults.length > 0 && statusResults.every((result) => result.checked)
+      const statusInvalid = locallyRevoked || statusResults.some((result) => result.status === 'revoked' || result.status === 'suspended')
+
+      const issuerRefs = this.extractIssuerRefs(credentials)
+      const trust = issuerTrustService.evaluate(input.tenantId, issuerRefs)
+      const trustVerified = trust.decision === 'trusted'
+
+      // Credo returns a successful response only after request/session protocol
+      // checks and presentation verification have completed. DCQL is additionally
+      // evaluated by Credo's DcqlService before the response is returned.
+      const holderBindingVerified = true
+      const audienceVerified = true
+      const nonceVerified = true
+      const schemaVerified = isDcql
+        ? Boolean(verificationResult?.dcql?.presentationResult)
+        : Boolean(verificationResult?.presentationExchange?.definition && verificationResult?.presentationExchange?.submission)
+
+      const verified =
+        !statusInvalid &&
+        holderBindingVerified &&
+        audienceVerified &&
+        nonceVerified &&
+        schemaVerified &&
+        trustVerified &&
+        statusChecked
+
+      const reasonCode = verified
+        ? 'verified'
+        : statusInvalid
+          ? 'credential_status_invalid'
+          : trust.decision !== 'trusted'
+            ? 'issuer_untrusted'
+            : !statusChecked
+              ? 'credential_status_unverified'
+              : 'verification_failed'
+
+      const recorded = ssiTrustService.recordVerification({
+        requestId: input.requestId,
+        tenantId: input.tenantId,
+        verified,
+        credentialTypeRefs: this.extractCredentialTypes(credentials),
+        issuerRefs,
+        holderBindingVerified,
+        trustVerified,
+        statusVerified: statusChecked,
+        schemaVerified,
+        audienceVerified,
+        nonceVerified,
+        resultCode: reasonCode,
+      })
+
+      return {
+        resultId: recorded.resultId,
+        verified,
+        credentialCount,
+        reasonCode,
+        statusChecked,
+        evidenceDigest: recorded.evidenceDigest,
+      }
+    } catch {
+      return this.recordFailure(input, 'verification_failed')
+    }
+  }
+
+  private recordFailure(input: PlatformPresentationVerificationInput, reasonCode: string) {
+    const recorded = ssiTrustService.recordVerification({
+      requestId: input.requestId,
+      tenantId: input.tenantId,
+      verified: false,
+      resultCode: reasonCode,
+    })
+
+    return {
+      resultId: recorded.resultId,
+      verified: false,
+      credentialCount: 0,
+      reasonCode,
+      statusChecked: false,
+      evidenceDigest: recorded.evidenceDigest,
+    }
+  }
+
+  private extractPresentations(verifiedResponse: any, isDcql: boolean): any[] {
+    if (!verifiedResponse) return []
+
+    if (!isDcql) {
+      return Array.isArray(verifiedResponse.presentations) ? verifiedResponse.presentations : []
+    }
+
+    return Object.values(verifiedResponse.presentations ?? {}).flatMap((entries: any) =>
+      Array.isArray(entries) ? entries : [entries]
+    )
+  }
+
+  private extractCredentials(presentations: any[]): any[] {
+    return presentations.flatMap((presentation) => {
+      const values = presentation?.verifiableCredential
+      if (Array.isArray(values)) return values
+      return values ? [values] : []
+    })
+  }
+
+  private extractCredentialIds(credentials: unknown[]): string[] {
+    const ids: string[] = []
+    for (const credential of credentials) {
+      if (typeof credential !== 'string' && credential && typeof credential === 'object') {
+        const value = credential as any
+        const id = value.id || value.jti || value.vc?.id
+        if (id) ids.push(String(id))
+      }
+    }
+    return Array.from(new Set(ids))
+  }
+
+  private extractCredentialTypes(credentials: unknown[]): string[] {
+    const values = new Set<string>()
+    for (const credential of credentials) {
+      if (credential && typeof credential === 'object') {
+        const type = (credential as any).type || (credential as any).vc?.type
+        if (Array.isArray(type)) type.forEach((value) => values.add(String(value)))
+        else if (type) values.add(String(type))
+      }
+    }
+    return Array.from(values)
+  }
+
+  private extractIssuerRef(credential: any): string | undefined {
+    const issuer = credential?.issuer || credential?.vc?.issuer
+    if (typeof issuer === 'string') return issuer
+    return issuer?.id ? String(issuer.id) : undefined
+  }
+
+  private extractIssuerRefs(credentials: unknown[]): string[] {
+    const values = new Set<string>()
+    for (const credential of credentials) {
+      const issuer = this.extractIssuerRef(credential)
+      if (issuer) values.add(issuer)
+    }
+    return Array.from(values)
+  }
+}
+
+export const credoPresentationVerificationService = new CredoPresentationVerificationService()
