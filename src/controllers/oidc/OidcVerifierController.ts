@@ -7,6 +7,7 @@ import type {
 } from '../../types/api'
 import type { Request as ExRequest } from 'express'
 
+import { DcqlService } from '@credo-ts/core'
 import { Controller, Post, Route, Tags, Body, SuccessResponse, Security, Request, Get } from 'tsoa'
 import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
 import { ssiTrustService } from '../../services/SsiTrustService'
@@ -84,16 +85,9 @@ export class OidcVerifierController extends Controller {
         throw new Error('dcqlQuery is required when queryLanguage is dcql')
       }
 
-      const dcqlService = agent.dependencyManager?.resolve?.(
-        (await import('@credo-ts/core')).DcqlService
-      )
-
-      if (!dcqlService) {
-        this.setStatus(503)
-        throw new Error('Credo DCQL module is not configured')
-      }
-
+      const dcqlService = agent.dependencyManager.resolve(DcqlService)
       const dcqlQuery = dcqlService.validateDcqlQuery(body.dcqlQuery)
+
       result = await verifierModule.createAuthorizationRequest({
         ...common,
         dcql: { query: dcqlQuery },
@@ -107,6 +101,7 @@ export class OidcVerifierController extends Controller {
       result = await verifierModule.createAuthorizationRequest({
         ...common,
         presentationExchange: { definition: body.presentationDefinition },
+        version: 'v1.draft24' as const,
       })
     } else {
       this.setStatus(400)
@@ -115,7 +110,9 @@ export class OidcVerifierController extends Controller {
 
     const requestId = result.verificationSession.id
 
-    // Do not write the full request object or credential query to ordinary logs.
+    // Persist the actual Credo protocol session against the platform request when
+    // the caller is using the platform SSI API. The legacy OIDC endpoint can still
+    // operate standalone with the Credo session id as requestId.
     request.logger?.info(
       {
         module: 'verifier',
@@ -157,9 +154,7 @@ export class OidcVerifierController extends Controller {
         },
       })
 
-      const queryLanguage = verificationResult?.dcql ? 'dcql' : 'pex_v2'
-
-      if (queryLanguage === 'dcql') {
+      if (verificationResult?.dcql) {
         const dcqlPresentations = verificationResult.dcql.presentations ?? {}
         const credentialCount = Object.values(dcqlPresentations).reduce(
           (count: number, presentations: any) => count + (Array.isArray(presentations) ? presentations.length : 0),
