@@ -31,7 +31,11 @@ export class SsiTrustController {
     }
   ) {
     const p = principal(request)
-    return ssiTrustService.createPresentationRequest({ ...body, tenantId: p.tenantId })
+    return ssiTrustService.createPresentationRequest({
+      ...body,
+      tenantId: p.tenantId,
+      requesterSubjectRef: p.subjectRef,
+    })
   }
 
   @Post('presentation-consents')
@@ -47,29 +51,10 @@ export class SsiTrustController {
     }
   ) {
     const p = principal(request)
-    return ssiTrustService.recordConsent({ ...body, tenantId: p.tenantId, holderSubjectRef: p.subjectRef })
-  }
-
-  @Post('presentation-results')
-  public async recordVerification(
-    @Request() request: ExRequest,
-    @Body() body: {
-      requestId: string
-      verified: boolean
-      issuerRefs?: string[]
-      credentialTypeRefs?: string[]
-      claimCategories?: string[]
-      holderBindingVerified?: boolean
-      trustVerified?: boolean
-      statusVerified?: boolean
-      schemaVerified?: boolean
-      audienceVerified?: boolean
-      nonceVerified?: boolean
-      resultCode?: string
-      evidenceDigest?: string
-    }
-  ) {
-    const p = principal(request)
-    return ssiTrustService.recordVerification({ ...body, tenantId: p.tenantId })
+    return ssiTrustService.recordConsent({
+      ...body,
+      tenantId: p.tenantId,
+      holderSubjectRef: p.subjectRef,
+    })
   }
 }
