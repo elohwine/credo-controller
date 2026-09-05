@@ -11,6 +11,7 @@ export class SsiVerificationController {
     @Request() request: ExRequest,
     @Body() body: {
       requestId: string
+      state: string
       verifiablePresentation: string
       presentationSubmission?: unknown
     }
@@ -20,14 +21,15 @@ export class SsiVerificationController {
       throw new Error('Authenticated tenant and subject are required')
     }
 
-    if (!body?.requestId || !body.verifiablePresentation) {
-      throw new Error('requestId and verifiablePresentation are required')
+    if (!body?.requestId || !body.state || !body.verifiablePresentation) {
+      throw new Error('requestId, state and verifiablePresentation are required')
     }
 
     return credoPresentationVerificationService.verify({
       tenantId: user.tenantId,
       subjectRef: user.sub,
       requestId: body.requestId,
+      state: body.state,
       verifiablePresentation: body.verifiablePresentation,
       presentationSubmission: body.presentationSubmission,
       request,
