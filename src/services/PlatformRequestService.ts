@@ -32,7 +32,7 @@ export interface CreatePlatformRequestInput {
  * AuthorizationService; business modules do not implement their own RBAC logic.
  */
 export class PlatformRequestService {
-  private resolvePrincipal(tenantId: string, subjectRef: string) {
+  resolvePrincipal(tenantId: string, subjectRef: string) {
     const db = DatabaseManager.getDatabase()
     const organization = db.prepare(`
       SELECT id
@@ -228,8 +228,6 @@ export class PlatformRequestService {
   }
 
   private getSeparationOfDuties(fromStatus: RequestStatus, toStatus: RequestStatus, requesterPersonId: string): string[] {
-    // Approval/review should not be performed by the requester by default.
-    // Additional module-specific SoD rules are applied by the owning workflow.
     if (fromStatus === 'in_review' && ['approved', 'rejected'].includes(toStatus)) return [requesterPersonId]
     return []
   }
