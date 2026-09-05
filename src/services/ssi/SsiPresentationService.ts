@@ -42,12 +42,28 @@ export class SsiPresentationService {
     }
 
     const registration = ssiTrustService.getVerifierRegistration(input.tenantId, input.verifierRef)
+
+    // Create the business request first. This performs tenant/member/authority
+    // checks before the external wallet protocol session is created.
+    const platformRequest = ssiTrustService.createPresentationRequest({
+      tenantId: input.tenantId,
+      requesterSubjectRef: input.requesterSubjectRef,
+      verifierRef: input.verifierRef,
+      purposeCode: input.purposeCode,
+      purposeTextRef: input.purposeTextRef,
+      queryLanguage,
+      queryRef: queryLanguage === 'dcql'
+        ? JSON.stringify(input.dcqlQuery ?? null)
+        : JSON.stringify(input.presentationDefinition ?? null),
+      transactionRef: input.transactionRef,
+      expiresAt: expiresAt.toISOString(),
+    })
+
     const agent = input.request.agent
     const verifierModule = (agent.modules as any).openId4VcVerifier
-
     if (!verifierModule) throw new Error('OpenID4VP verifier module is not configured')
 
-    const expirationInSeconds = Math.max(1, Math.ceil((expiresAt.getTime() - now) / 1000))
+    const expirationInSeconds = Math.max(1, Math.ceil((expiresAt.getTime() - Date.now()) / 1000))
     let protocolResult: any
 
     if (queryLanguage === 'dcql') {
@@ -86,27 +102,22 @@ export class SsiPresentationService {
     const verificationSessionId = protocolResult.verificationSession?.id
     if (!verificationSessionId) throw new Error('Credo did not return a verification session')
 
-    const request = ssiTrustService.createPresentationRequest({
+    const verifierClientIdRef = protocolResult.verificationSession?.requestPayload?.client_id
+    ssiTrustService.bindCredoVerificationSession({
       tenantId: input.tenantId,
-      requesterSubjectRef: input.requesterSubjectRef,
+      requestId: platformRequest.requestId,
       verifierRef: input.verifierRef,
-      purposeCode: input.purposeCode,
-      purposeTextRef: input.purposeTextRef,
-      queryLanguage,
-      queryRef: queryLanguage === 'dcql' ? JSON.stringify(input.dcqlQuery) : JSON.stringify(input.presentationDefinition),
-      transactionRef: input.transactionRef,
-      expiresAt: expiresAt.toISOString(),
-      credoVerificationSessionId: verificationSessionId,
-      verifierClientIdRef: registration.signerDidUrlRef,
+      verificationSessionId,
+      verifierClientIdRef: typeof verifierClientIdRef === 'string' ? verifierClientIdRef : undefined,
     })
 
     return {
-      requestId: request.requestId,
+      requestId: platformRequest.requestId,
       verificationSessionId,
       presentationRequestUrl: protocolResult.authorizationRequest,
       queryLanguage,
       protocol: 'openid4vp',
-      expiresAt: request.expiresAt,
+      expiresAt: platformRequest.expiresAt,
     }
   }
 }
