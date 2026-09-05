@@ -4,9 +4,8 @@ import { DatabaseManager } from '../persistence/DatabaseManager'
 export type RequestStatus = 'draft' | 'submitted' | 'in_review' | 'approved' | 'rejected' | 'in_fulfilment' | 'completed' | 'cancelled'
 
 export interface CreatePlatformRequestInput {
-  organizationId: string
-  requesterPersonId: string
-  departmentId?: string
+  tenantId: string
+  subjectRef: string
   requestType: string
   title: string
   description?: string
@@ -27,30 +26,55 @@ export interface CreatePlatformRequestInput {
 /**
  * Generic organizational request layer.
  *
- * This deliberately knows nothing about procurement, finance, HR or field ops.
- * Those modules consume a request and provide the domain-specific fulfilment.
+ * Identity is resolved from the authenticated tenant + opaque subject reference.
+ * Clients never select the organization or actor for a request operation.
  */
 export class PlatformRequestService {
+  private resolvePrincipal(tenantId: string, subjectRef: string) {
+    const db = DatabaseManager.getDatabase()
+    const organization = db.prepare(`
+      SELECT id, tenant_id AS tenantId
+      FROM organizations
+      WHERE tenant_id = ? AND status = 'active'
+      ORDER BY created_at ASC
+      LIMIT 1
+    `).get(tenantId) as { id?: string; tenantId?: string } | undefined
+
+    if (!organization?.id) throw new Error('Organization context not found')
+
+    const person = db.prepare(`
+      SELECT p.id, p.organization_id AS organizationId
+      FROM people p
+      JOIN organization_memberships m ON m.person_id = p.id AND m.organization_id = p.organization_id
+      WHERE p.organization_id = ? AND p.subject_ref = ?
+        AND p.status = 'active' AND m.membership_status = 'active'
+      LIMIT 1
+    `).get(organization.id, subjectRef) as { id?: string; organizationId?: string } | undefined
+
+    if (!person?.id) throw new Error('Authenticated subject is not an active organization member')
+    return { organizationId: organization.id, personId: person.id }
+  }
+
   create(input: CreatePlatformRequestInput) {
     const db = DatabaseManager.getDatabase()
+    const principal = this.resolvePrincipal(input.tenantId, input.subjectRef)
     const requestId = randomUUID()
 
     const create = db.transaction(() => {
       db.prepare(`
         INSERT INTO requests (
-          id, organization_id, requester_person_id, department_id,
-          request_type, title, description, amount, currency,
-          priority, status, target_module, context_json
+          id, organization_id, requester_person_id, request_type,
+          title, description, amount, currency, priority,
+          status, target_module, context_json
         ) VALUES (
-          @id, @organizationId, @requesterPersonId, @departmentId,
-          @requestType, @title, @description, @amount, @currency,
-          @priority, 'draft', @targetModule, @contextJson
+          @id, @organizationId, @requesterPersonId, @requestType,
+          @title, @description, @amount, @currency, @priority,
+          'draft', @targetModule, @contextJson
         )
       `).run({
         id: requestId,
-        organizationId: input.organizationId,
-        requesterPersonId: input.requesterPersonId,
-        departmentId: input.departmentId ?? null,
+        organizationId: principal.organizationId,
+        requesterPersonId: principal.personId,
         requestType: input.requestType,
         title: input.title,
         description: input.description ?? null,
@@ -67,8 +91,7 @@ export class PlatformRequestService {
             id, request_id, item_type, description, quantity, unit_price, metadata_json
           ) VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(
-          randomUUID(),
-          requestId,
+          randomUUID(), requestId,
           item.itemType ?? 'line_item',
           item.description,
           item.quantity ?? 1,
@@ -77,23 +100,41 @@ export class PlatformRequestService {
         )
       }
 
-      this.recordEvent(requestId, 'request.created', input.requesterPersonId, null, 'draft', {
+      this.recordEvent(requestId, 'request.created', principal.personId, null, 'draft', {
         requestType: input.requestType
       })
     })
 
     create()
-    return this.get(requestId)
+    return this.getForTenant(requestId, input.tenantId)
   }
 
-  submit(requestId: string, actorPersonId: string) {
-    return this.transition(requestId, 'submitted', actorPersonId)
+  submit(requestId: string, tenantId: string, subjectRef: string) {
+    const principal = this.resolvePrincipal(tenantId, subjectRef)
+    return this.transition(requestId, tenantId, 'submitted', principal.personId)
   }
 
-  transition(requestId: string, toStatus: RequestStatus, actorPersonId?: string, payload: Record<string, unknown> = {}) {
+  transition(requestId: string, tenantId: string, toStatus: RequestStatus, actorPersonId: string, payload: Record<string, unknown> = {}) {
     const db = DatabaseManager.getDatabase()
-    const current = db.prepare('SELECT status FROM requests WHERE id = ?').get(requestId) as { status?: RequestStatus } | undefined
-    if (!current) throw new Error(`Request not found: ${requestId}`)
+    const current = db.prepare(`
+      SELECT r.status, r.organization_id AS organizationId
+      FROM requests r
+      JOIN organizations o ON o.id = r.organization_id
+      WHERE r.id = ? AND o.tenant_id = ? AND o.status = 'active'
+    `).get(requestId, tenantId) as { status?: RequestStatus; organizationId?: string } | undefined
+
+    if (!current?.organizationId) throw new Error('Request not found')
+
+    const actor = db.prepare(`
+      SELECT p.id
+      FROM people p
+      JOIN organization_memberships m ON m.person_id = p.id AND m.organization_id = p.organization_id
+      WHERE p.id = ? AND p.organization_id = ?
+        AND p.status = 'active' AND m.membership_status = 'active'
+      LIMIT 1
+    `).get(actorPersonId, current.organizationId) as { id?: string } | undefined
+
+    if (!actor?.id) throw new Error('Actor is not authorized for this organization')
 
     const allowed: Record<RequestStatus, RequestStatus[]> = {
       draft: ['submitted', 'cancelled'],
@@ -120,15 +161,20 @@ export class PlatformRequestService {
         WHERE id = ?
       `).run(toStatus, toStatus, now, toStatus, now, requestId)
 
-      this.recordEvent(requestId, 'request.status_changed', actorPersonId, current.status ?? null, toStatus, payload)
+      this.recordEvent(requestId, 'request.status_changed', actor.id, current.status ?? null, toStatus, payload)
     })()
 
-    return this.get(requestId)
+    return this.getForTenant(requestId, tenantId)
   }
 
-  get(requestId: string) {
+  getForTenant(requestId: string, tenantId: string) {
     const db = DatabaseManager.getDatabase()
-    const request = db.prepare('SELECT * FROM requests WHERE id = ?').get(requestId) as any
+    const request = db.prepare(`
+      SELECT r.*
+      FROM requests r
+      JOIN organizations o ON o.id = r.organization_id
+      WHERE r.id = ? AND o.tenant_id = ?
+    `).get(requestId, tenantId) as any
     if (!request) return undefined
 
     const items = db.prepare('SELECT * FROM request_items WHERE request_id = ? ORDER BY rowid').all(requestId)
@@ -144,21 +190,26 @@ export class PlatformRequestService {
     }
   }
 
-  list(organizationId: string, status?: RequestStatus, requestType?: string, limit = 100) {
+  list(tenantId: string, status?: RequestStatus, requestType?: string, limit = 100) {
     const db = DatabaseManager.getDatabase()
-    let sql = 'SELECT * FROM requests WHERE organization_id = ?'
-    const params: unknown[] = [organizationId]
+    let sql = `
+      SELECT r.*
+      FROM requests r
+      JOIN organizations o ON o.id = r.organization_id
+      WHERE o.tenant_id = ?
+    `
+    const params: unknown[] = [tenantId]
 
     if (status) {
-      sql += ' AND status = ?'
+      sql += ' AND r.status = ?'
       params.push(status)
     }
     if (requestType) {
-      sql += ' AND request_type = ?'
+      sql += ' AND r.request_type = ?'
       params.push(requestType)
     }
 
-    sql += ' ORDER BY created_at DESC LIMIT ?'
+    sql += ' ORDER BY r.created_at DESC LIMIT ?'
     params.push(Math.min(Math.max(limit, 1), 500))
     return db.prepare(sql).all(...params)
   }
