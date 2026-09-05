@@ -62,8 +62,7 @@ export class AuthorizationService {
 
     for (const authority of authorityRows) {
       const scope = this.parseScope(authority.scopeJson)
-      const decision = this.matchScope(input, permission, scope)
-      if (decision !== 'allow') continue
+      if (!this.matchScope(input, permission, scope)) continue
 
       if (this.violatesSeparationOfDuties(input)) {
         return this.persistDecision(input, {
@@ -89,9 +88,9 @@ export class AuthorizationService {
     }
 
     // Delegation is usable only when an active delegation exists AND the
-    // delegator independently has the same authority. This avoids creating a
-    // privilege-escalation path through a forged or overly broad delegation.
-    const delegated = this.findValidDelegation(actor.organizationId!, input.personId, permission)
+    // delegator independently has matching authority. The delegation itself
+    // must also match the complete constrained scope of the requested action.
+    const delegated = this.findValidDelegation(actor.organizationId, input, permission)
     if (delegated) {
       if (this.violatesSeparationOfDuties(input)) {
         return this.persistDecision(input, {
@@ -135,27 +134,43 @@ export class AuthorizationService {
     }
   }
 
-  private matchScope(input: AuthorityDecisionInput, permission: string, scope: AuthorityScope): 'allow' | 'skip' {
-    if (!Array.isArray(scope.permissions) || !scope.permissions.includes(permission)) return 'skip'
-    if (Array.isArray(scope.resourceTypes) && !scope.resourceTypes.includes(input.resourceType)) return 'skip'
-    if (Array.isArray(scope.departmentIds) && input.departmentId && !scope.departmentIds.includes(input.departmentId)) return 'skip'
-    if (Array.isArray(scope.projectRefs) && input.projectRef && !scope.projectRefs.includes(input.projectRef)) return 'skip'
-    if (Array.isArray(scope.costCentreRefs) && input.costCentreRef && !scope.costCentreRefs.includes(input.costCentreRef)) return 'skip'
-    if (typeof scope.maxAmount === 'number' && typeof input.amount === 'number' && input.amount > scope.maxAmount) return 'skip'
-    if (scope.currency && input.currency && scope.currency !== input.currency) return 'skip'
-    return 'allow'
+  private matchScope(input: AuthorityDecisionInput, permission: string, scope: AuthorityScope): boolean {
+    if (!Array.isArray(scope.permissions) || !scope.permissions.includes(permission)) return false
+    if (Array.isArray(scope.resourceTypes) && !scope.resourceTypes.includes(input.resourceType)) return false
+
+    // A constrained authority cannot be used when the request omits the
+    // constrained attribute; absence is not proof of a match.
+    if (Array.isArray(scope.departmentIds)) {
+      if (!input.departmentId || !scope.departmentIds.includes(input.departmentId)) return false
+    }
+    if (Array.isArray(scope.projectRefs)) {
+      if (!input.projectRef || !scope.projectRefs.includes(input.projectRef)) return false
+    }
+    if (Array.isArray(scope.costCentreRefs)) {
+      if (!input.costCentreRef || !scope.costCentreRefs.includes(input.costCentreRef)) return false
+    }
+    if (scope.currency) {
+      if (!input.currency || scope.currency !== input.currency) return false
+    }
+    if (typeof scope.maxAmount === 'number') {
+      if (typeof input.amount !== 'number' || input.amount > scope.maxAmount) return false
+    }
+
+    return true
   }
 
-  private findValidDelegation(organizationId: string, delegatePersonId: string, permission: string): {
-    authorityRef: string
-    credentialReferences: string[]
-  } | undefined {
+  private findValidDelegation(
+    organizationId: string,
+    input: AuthorityDecisionInput,
+    permission: string
+  ): { authorityRef: string; credentialReferences: string[] } | undefined {
     const db = DatabaseManager.getDatabase()
     const rows = db.prepare(`
       SELECT
-        d.scope_json AS scopeJson,
+        d.scope_json AS delegationScopeJson,
         d.source_credential_ref AS delegationCredentialRef,
         a.id AS authorityRef,
+        a.scope_json AS authorityScopeJson,
         a.source_credential_ref AS authorityCredentialRef
       FROM delegations d
       JOIN authority_grants a
@@ -170,22 +185,26 @@ export class AuthorizationService {
         AND d.valid_from <= CURRENT_TIMESTAMP
         AND (d.valid_until IS NULL OR d.valid_until >= CURRENT_TIMESTAMP)
       ORDER BY d.created_at DESC
-    `).all(organizationId, delegatePersonId) as Array<{
-      scopeJson: string
+    `).all(organizationId, input.personId) as Array<{
+      delegationScopeJson: string
       delegationCredentialRef?: string
       authorityRef: string
+      authorityScopeJson: string
       authorityCredentialRef?: string
     }>
 
     for (const row of rows) {
-      const scope = this.parseScope(row.scopeJson)
-      if (Array.isArray(scope.permissions) && scope.permissions.includes(permission)) {
-        return {
-          authorityRef: row.authorityRef,
-          credentialReferences: [row.authorityCredentialRef, row.delegationCredentialRef].filter(Boolean) as string[],
-        }
+      const delegationScope = this.parseScope(row.delegationScopeJson)
+      const authorityScope = this.parseScope(row.authorityScopeJson)
+      if (!this.matchScope(input, permission, delegationScope)) continue
+      if (!this.matchScope(input, permission, authorityScope)) continue
+
+      return {
+        authorityRef: row.authorityRef,
+        credentialReferences: [row.authorityCredentialRef, row.delegationCredentialRef].filter(Boolean) as string[],
       }
     }
+
     return undefined
   }
 
