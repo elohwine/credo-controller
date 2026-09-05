@@ -18,30 +18,22 @@ export class DatabaseManager {
   private static instance: Database.Database | null = null
   private static logger = rootLogger.child({ module: 'DatabaseManager' })
 
-  /**
-   * Initialize database connection with migration support
-   */
   static initialize(config: DbConfig): Database.Database {
-    if (this.instance) {
-      return this.instance
-    }
+    if (this.instance) return this.instance
 
     const dbPath = config.path || process.env.PERSISTENCE_DB_PATH || './data/persistence.db'
     const dbDir = dirname(dbPath)
 
-    // Ensure data directory exists
     if (!existsSync(dbDir)) {
       mkdirSync(dbDir, { recursive: true })
       this.logger.info(`Created database directory: ${dbDir}`)
     }
 
-    // Create database connection
     this.instance = new Database(dbPath, {
       readonly: config.readonly || false,
       verbose: config.verbose ? ((message?: unknown) => this.logQuery(String(message))) : undefined,
     })
 
-    // Performance optimizations for production
     this.instance.pragma('foreign_keys = ON')
     this.instance.pragma('journal_mode = WAL')
     this.instance.pragma('synchronous = NORMAL')
@@ -51,26 +43,15 @@ export class DatabaseManager {
     this.instance.pragma('busy_timeout = 5000')
 
     this.logger.info(`Database initialized at: ${dbPath}`)
-
-    // Run migrations
     this.runMigrations()
-
     return this.instance
   }
 
-  /**
-   * Get database instance (throws if not initialized)
-   */
   static getDatabase(): Database.Database {
-    if (!this.instance) {
-      throw new Error('Database not initialized. Call DatabaseManager.initialize() first.')
-    }
+    if (!this.instance) throw new Error('Database not initialized. Call DatabaseManager.initialize() first.')
     return this.instance
   }
 
-  /**
-   * Close database connection
-   */
   static close(): void {
     if (this.instance) {
       this.instance.close()
@@ -79,17 +60,10 @@ export class DatabaseManager {
     }
   }
 
-  /**
-   * Run database migrations
-   */
   private static runMigrations(): void {
-    if (!this.instance) {
-      throw new Error('Database not initialized')
-    }
+    if (!this.instance) throw new Error('Database not initialized')
 
     const db = this.instance
-
-    // Create migrations table if it doesn't exist
     db.exec(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version INTEGER PRIMARY KEY,
@@ -98,15 +72,12 @@ export class DatabaseManager {
       )
     `)
 
-    // Get current version
     const currentVersionRow = db.prepare('SELECT MAX(version) as version FROM schema_migrations').get() as {
       version: number | null
     }
     const currentVersion = currentVersionRow?.version || 0
-
     this.logger.info(`Current database version: ${currentVersion}`)
 
-    // Load and apply migrations
     const migrationsDir = join(__dirname, '../../migrations')
     const migrationFiles = [
       { version: 1, file: '001_create_stores.sql', name: 'create_stores' },
@@ -131,53 +102,41 @@ export class DatabaseManager {
       { version: 20, file: '020_add_audit_columns.sql', name: 'add_audit_columns' },
       { version: 21, file: '021_create_platform_workflow_core.sql', name: 'create_platform_workflow_core' },
       { version: 22, file: '022_create_ssi_trust_and_consent.sql', name: 'create_ssi_trust_and_consent' },
+      { version: 23, file: '023_add_dcql_protocol_bindings.sql', name: 'add_dcql_protocol_bindings' },
     ]
 
     for (const migration of migrationFiles) {
-      if (migration.version > currentVersion) {
-        this.logger.info(`Applying migration ${migration.version}: ${migration.name}`)
-        const migrationPath = join(migrationsDir, migration.file)
+      if (migration.version <= currentVersion) continue
 
-        if (!existsSync(migrationPath)) {
-          this.logger.warn(`Migration file not found: ${migrationPath}`)
-          continue
-        }
+      this.logger.info(`Applying migration ${migration.version}: ${migration.name}`)
+      const migrationPath = join(migrationsDir, migration.file)
+      if (!existsSync(migrationPath)) {
+        this.logger.warn(`Migration file not found: ${migrationPath}`)
+        continue
+      }
 
-        const sql = readFileSync(migrationPath, 'utf-8')
+      const sql = readFileSync(migrationPath, 'utf-8')
+      const applyMigration = db.transaction(() => db.exec(sql))
 
-        // Execute migration in transaction. Each migration owns its own
-        // schema_migrations record so legacy migrations remain compatible.
-        const applyMigration = db.transaction(() => {
-          db.exec(sql)
-        })
-
-        try {
-          applyMigration()
-          this.logger.info(`Migration ${migration.version} applied successfully`)
-        } catch (error) {
-          this.logger.error({ error }, `Failed to apply migration ${migration.version}`)
-          throw error
-        }
+      try {
+        applyMigration()
+        this.logger.info(`Migration ${migration.version} applied successfully`)
+      } catch (error) {
+        this.logger.error({ error }, `Failed to apply migration ${migration.version}`)
+        throw error
       }
     }
 
     this.logger.info('All migrations applied successfully')
   }
 
-  /**
-   * Log SQL queries (used when verbose mode is enabled)
-   */
   private static logQuery(sql: string): void {
     this.logger.debug(`SQL: ${sql}`)
   }
 
-  /**
-   * Health check - verify database is accessible
-   */
   static healthCheck(): boolean {
     try {
-      const db = this.getDatabase()
-      const result = db.prepare('SELECT 1 as ok').get() as { ok: number }
+      const result = this.getDatabase().prepare('SELECT 1 as ok').get() as { ok: number }
       return result.ok === 1
     } catch (error) {
       this.logger.error({ error }, 'Database health check failed')
@@ -185,9 +144,6 @@ export class DatabaseManager {
     }
   }
 
-  /**
-   * Get database statistics
-   */
   static getStats(): {
     dids: number
     credentialOffers: number
@@ -196,7 +152,6 @@ export class DatabaseManager {
     credentialDefinitions: number
   } {
     const db = this.getDatabase()
-
     const getCount = (table: string): number => {
       const result = db.prepare(`SELECT COUNT(*) as count FROM ${table}`).get() as { count: number }
       return result.count
