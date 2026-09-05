@@ -23,12 +23,6 @@ export interface CreatePlatformRequestInput {
   }>
 }
 
-/**
- * Generic organizational request layer.
- *
- * Identity is resolved from the authenticated tenant + opaque subject reference.
- * Clients never select the organization or actor for a request operation.
- */
 export class PlatformRequestService {
   private resolvePrincipal(tenantId: string, subjectRef: string) {
     const db = DatabaseManager.getDatabase()
@@ -60,7 +54,7 @@ export class PlatformRequestService {
     const principal = this.resolvePrincipal(input.tenantId, input.subjectRef)
     const requestId = randomUUID()
 
-    const create = db.transaction(() => {
+    db.transaction(() => {
       db.prepare(`
         INSERT INTO requests (
           id, organization_id, requester_person_id, request_type,
@@ -103,9 +97,8 @@ export class PlatformRequestService {
       this.recordEvent(requestId, 'request.created', principal.personId, null, 'draft', {
         requestType: input.requestType
       })
-    })
+    })()
 
-    create()
     return this.getForTenant(requestId, input.tenantId)
   }
 
@@ -114,7 +107,24 @@ export class PlatformRequestService {
     return this.transition(requestId, tenantId, 'submitted', principal.personId)
   }
 
-  transition(requestId: string, tenantId: string, toStatus: RequestStatus, actorPersonId: string, payload: Record<string, unknown> = {}) {
+  transitionBySubject(
+    requestId: string,
+    tenantId: string,
+    subjectRef: string,
+    toStatus: RequestStatus,
+    payload: Record<string, unknown> = {}
+  ) {
+    const principal = this.resolvePrincipal(tenantId, subjectRef)
+    return this.transition(requestId, tenantId, toStatus, principal.personId, payload)
+  }
+
+  transition(
+    requestId: string,
+    tenantId: string,
+    toStatus: RequestStatus,
+    actorPersonId: string,
+    payload: Record<string, unknown> = {}
+  ) {
     const db = DatabaseManager.getDatabase()
     const current = db.prepare(`
       SELECT r.status, r.organization_id AS organizationId
