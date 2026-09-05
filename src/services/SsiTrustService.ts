@@ -2,16 +2,20 @@ import { createHash, randomUUID } from 'crypto'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { authorizationService } from './AuthorizationService'
 
+export type PresentationQueryLanguage = 'dcql' | 'pex_v2'
+
 export interface PresentationRequestInput {
   tenantId: string
   requesterSubjectRef: string
   verifierRef: string
   purposeCode: string
   purposeTextRef?: string
-  queryLanguage?: 'dcql'
+  queryLanguage?: PresentationQueryLanguage
   queryRef: string
   transactionRef?: string
   expiresAt: string
+  credoVerificationSessionId?: string
+  verifierClientIdRef?: string
 }
 
 export interface PresentationConsentInput {
@@ -25,11 +29,7 @@ export interface PresentationConsentInput {
   consentVersion: string
 }
 
-/**
- * Verification results are intentionally an internal integration contract.
- * Public callers must never be allowed to assert that a presentation was
- * cryptographically verified; that result must come from the Credo verifier.
- */
+/** Verification results are internal integration data, never a public assertion input. */
 export interface PresentationVerificationInput {
   requestId: string
   tenantId: string
@@ -47,12 +47,20 @@ export interface PresentationVerificationInput {
   evidenceDigest?: string
 }
 
+export interface PresentationProtocolContext {
+  requestId: string
+  verifierRef: string
+  protocol: string
+  queryLanguage: PresentationQueryLanguage
+  queryRef: string
+  credoVerificationSessionId?: string
+  verifierClientIdRef?: string
+  expiresAt: string
+}
+
 /**
  * Reference-first SSI trust service.
- *
  * Raw VCs, SD-JWTs and VPs stay inside Credo/wallet/protocol processing.
- * This service persists only the minimum metadata required by the business
- * application to explain a trust decision or a holder consent decision.
  */
 export class SsiTrustService {
   private resolveOrganization(tenantId: string): string {
@@ -125,12 +133,15 @@ export class SsiTrustService {
       throw new Error(`Insufficient authority: ${authorization.reasonCode}`)
     }
 
+    const queryLanguage = input.queryLanguage ?? 'pex_v2'
     const requestId = randomUUID()
+
     db.prepare(`
       INSERT INTO presentation_requests (
         id, organization_id, requester_person_id, verifier_ref, purpose_code, purpose_text_ref,
-        query_language, query_ref, transaction_ref, status, expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+        query_language, query_ref, transaction_ref, status, expires_at,
+        credo_verification_session_id, verifier_client_id_ref
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
     `).run(
       requestId,
       organizationId,
@@ -138,13 +149,63 @@ export class SsiTrustService {
       input.verifierRef,
       input.purposeCode,
       input.purposeTextRef ?? null,
-      input.queryLanguage ?? 'dcql',
+      queryLanguage,
       input.queryRef,
       input.transactionRef ?? null,
-      expiresAt.toISOString()
+      expiresAt.toISOString(),
+      input.credoVerificationSessionId ?? null,
+      input.verifierClientIdRef ?? null
     )
 
-    return { requestId, expiresAt: expiresAt.toISOString() }
+    return { requestId, expiresAt: expiresAt.toISOString(), queryLanguage }
+  }
+
+  getProtocolContext(tenantId: string, requestId: string): PresentationProtocolContext {
+    const organizationId = this.resolveOrganization(tenantId)
+    const db = DatabaseManager.getDatabase()
+    const row = db.prepare(`
+      SELECT
+        id AS requestId,
+        verifier_ref AS verifierRef,
+        protocol,
+        query_language AS queryLanguage,
+        query_ref AS queryRef,
+        credo_verification_session_id AS credoVerificationSessionId,
+        verifier_client_id_ref AS verifierClientIdRef,
+        expires_at AS expiresAt
+      FROM presentation_requests
+      WHERE id = ? AND organization_id = ?
+      LIMIT 1
+    `).get(requestId, organizationId) as PresentationProtocolContext | undefined
+
+    if (!row) throw new Error('Presentation request not found')
+    if (new Date(row.expiresAt).getTime() <= Date.now()) throw new Error('Presentation request has expired')
+    return row
+  }
+
+  bindCredoVerificationSession(input: {
+    tenantId: string
+    requestId: string
+    verifierRef: string
+    verificationSessionId: string
+    verifierClientIdRef?: string
+  }) {
+    const organizationId = this.resolveOrganization(input.tenantId)
+    const db = DatabaseManager.getDatabase()
+    const result = db.prepare(`
+      UPDATE presentation_requests
+      SET credo_verification_session_id = ?, verifier_client_id_ref = COALESCE(?, verifier_client_id_ref)
+      WHERE id = ? AND organization_id = ? AND verifier_ref = ?
+    `).run(
+      input.verificationSessionId,
+      input.verifierClientIdRef ?? null,
+      input.requestId,
+      organizationId,
+      input.verifierRef
+    )
+
+    if (result.changes !== 1) throw new Error('Presentation request could not be bound to the verifier session')
+    return this.getProtocolContext(input.tenantId, input.requestId)
   }
 
   recordConsent(input: PresentationConsentInput) {
@@ -178,6 +239,8 @@ export class SsiTrustService {
     }
 
     const consentId = randomUUID()
+    const transition = input.decision === 'approved' ? 'consented' : 'declined'
+
     db.transaction(() => {
       db.prepare(`
         INSERT INTO presentation_consents (
@@ -196,11 +259,13 @@ export class SsiTrustService {
         input.consentVersion
       )
 
-      db.prepare(`
+      const update = db.prepare(`
         UPDATE presentation_requests
         SET status = ?, completed_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND status = 'pending'
-      `).run(input.decision, input.requestId)
+        WHERE id = ? AND organization_id = ? AND status = 'pending'
+      `).run(transition, input.requestId, organizationId)
+
+      if (update.changes !== 1) throw new Error('Presentation request changed state while consent was being recorded')
     })()
 
     return {
@@ -211,10 +276,6 @@ export class SsiTrustService {
     }
   }
 
-  /**
-   * Internal-only method. Call this only after the Credo verifier has produced
-   * the verification result from an actual OpenID4VP presentation response.
-   */
   recordVerification(input: PresentationVerificationInput) {
     const organizationId = this.resolveOrganization(input.tenantId)
     const db = DatabaseManager.getDatabase()
@@ -237,6 +298,8 @@ export class SsiTrustService {
         input.trustVerified,
         input.statusVerified,
         input.schemaVerified,
+        input.audienceVerified,
+        input.nonceVerified,
       ]
       if (requiredChecks.some(check => check !== true)) {
         throw new Error('Verified presentation is missing required verifier checks')
