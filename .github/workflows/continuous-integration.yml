@@ -7,7 +7,6 @@ on:
     branches: [main, develop, platform-remodel]
 
 concurrency:
-  # Cancel previous runs that are not completed yet
   group: credo-controller-${{ github.ref }}-${{ github.repository }}-${{ github.event_name }}
   cancel-in-progress: true
 
@@ -19,10 +18,10 @@ jobs:
       - name: Checkout credo-controller
         uses: actions/checkout@v4
 
-      - name: Setup node v20
+      - name: Setup node v24
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: 'yarn'
 
       - name: Install dependencies
