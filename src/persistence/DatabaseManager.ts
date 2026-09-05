@@ -102,7 +102,8 @@ export class DatabaseManager {
       { version: 20, file: '020_add_audit_columns.sql', name: 'add_audit_columns' },
       { version: 21, file: '021_create_platform_workflow_core.sql', name: 'create_platform_workflow_core' },
       { version: 22, file: '022_create_ssi_trust_and_consent.sql', name: 'create_ssi_trust_and_consent' },
-      { version: 23, file: '023_add_dcql_protocol_bindings.sql', name: 'add_dcql_protocol_bindings' },
+      { version: 23, file: '023_add_oid4vp_verification_session.sql', name: 'add_oid4vp_verification_session' },
+      { version: 24, file: '024_add_verifier_registration_bindings.sql', name: 'add_verifier_registration_bindings' },
     ]
 
     for (const migration of migrationFiles) {
