@@ -1,5 +1,6 @@
 import { Body, Path, Post, Request, Route, Security, Tags } from 'tsoa'
 import type { Request as ExRequest } from 'express'
+import { ssiPresentationService } from '../../services/ssi/SsiPresentationService'
 import { ssiTrustService, type PresentationQueryLanguage } from '../../services/SsiTrustService'
 
 type AuthenticatedClaims = {
@@ -17,6 +18,10 @@ function principal(request: ExRequest) {
 @Tags('Platform SSI')
 @Security('jwt')
 export class SsiTrustController {
+  /**
+   * Create an organization-scoped OpenID4VP request. DCQL is the default for
+   * OpenID4VP 1.0; PEX v2 is accepted only as an explicit compatibility mode.
+   */
   @Post('presentation-requests')
   public async createPresentationRequest(
     @Request() request: ExRequest,
@@ -25,21 +30,25 @@ export class SsiTrustController {
       purposeCode: string
       purposeTextRef?: string
       queryLanguage?: PresentationQueryLanguage
-      queryRef: string
+      dcqlQuery?: unknown
+      presentationDefinition?: unknown
       transactionRef?: string
       expiresAt: string
-      credoVerificationSessionId?: string
-      verifierClientIdRef?: string
     }
   ) {
     const p = principal(request)
-    return ssiTrustService.createPresentationRequest({
+    return ssiPresentationService.createPresentationRequest({
       ...body,
       tenantId: p.tenantId,
       requesterSubjectRef: p.subjectRef,
+      request,
     })
   }
 
+  /**
+   * Compatibility endpoint for callers that already created a Credo verifier
+   * session outside the platform API.
+   */
   @Post('presentation-requests/{requestId}/bind-verifier-session')
   public async bindVerifierSession(
     @Request() request: ExRequest,
