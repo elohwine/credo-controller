@@ -4,7 +4,7 @@
 
 CREATE TABLE IF NOT EXISTS organizations (
   id TEXT PRIMARY KEY,
-  tenant_id TEXT NOT NULL,
+  tenant_id TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   registration_number TEXT,
   status TEXT NOT NULL DEFAULT 'active',
