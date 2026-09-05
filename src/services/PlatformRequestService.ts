@@ -107,7 +107,7 @@ export class PlatformRequestService {
       })
     })()
 
-    return this.getForTenant(requestId, input.tenantId)
+    return this.getForSubject(requestId, input.tenantId, input.subjectRef)
   }
 
   submit(requestId: string, tenantId: string, subjectRef: string) {
@@ -224,7 +224,7 @@ export class PlatformRequestService {
       this.recordEvent(requestId, 'request.status_changed', actorPersonId, current.status ?? null, toStatus, payload)
     })()
 
-    return this.getForTenant(requestId, tenantId)
+    return this.getForSubject(requestId, tenantId, this.getSubjectRefForPerson(tenantId, actorPersonId))
   }
 
   private getSeparationOfDuties(fromStatus: RequestStatus, toStatus: RequestStatus, requesterPersonId: string): string[] {
@@ -243,6 +243,19 @@ export class PlatformRequestService {
     }
   }
 
+  private getSubjectRefForPerson(tenantId: string, personId: string): string {
+    const db = DatabaseManager.getDatabase()
+    const row = db.prepare(`
+      SELECT p.subject_ref AS subjectRef
+      FROM people p
+      JOIN organizations o ON o.id = p.organization_id
+      WHERE p.id = ? AND o.tenant_id = ? AND o.status = 'active'
+      LIMIT 1
+    `).get(personId, tenantId) as { subjectRef?: string } | undefined
+    if (!row?.subjectRef) throw new Error('Authenticated subject not found')
+    return row.subjectRef
+  }
+
   private recordDecisionEvent(
     organizationId: string,
     actorPersonId: string,
@@ -251,8 +264,6 @@ export class PlatformRequestService {
     decision: 'allow' | 'deny',
     reasonCode: string
   ) {
-    // AuthorizationService persists the policy decision. This helper exists
-    // only for requester-owned actions that intentionally bypass authority.
     DatabaseManager.getDatabase().prepare(`
       INSERT INTO policy_decisions (
         id, organization_id, principal_person_id, action,
@@ -264,6 +275,38 @@ export class PlatformRequestService {
     )
   }
 
+  getForSubject(requestId: string, tenantId: string, subjectRef: string) {
+    const db = DatabaseManager.getDatabase()
+    const principal = this.resolvePrincipal(tenantId, subjectRef)
+    const request = db.prepare(`
+      SELECT r.*
+      FROM requests r
+      JOIN organizations o ON o.id = r.organization_id
+      WHERE r.id = ? AND o.tenant_id = ? AND o.status = 'active'
+    `).get(requestId, tenantId) as any
+    if (!request) return undefined
+
+    if (request.requester_person_id !== principal.personId) {
+      const decision = authorizationService.decide({
+        tenantId,
+        personId: principal.personId,
+        action: 'request.read',
+        requiredPermission: 'request.read',
+        resourceType: 'request',
+        resourceId: requestId,
+      })
+      if (decision.decision !== 'allow') {
+        throw new Error(`Insufficient authority: ${decision.reasonCode}`)
+      }
+    }
+
+    return this.hydrateRequest(requestId, request)
+  }
+
+  /**
+   * Compatibility method for internal callers that already operate on a
+   * tenant-scoped request. New HTTP callers should use getForSubject().
+   */
   getForTenant(requestId: string, tenantId: string) {
     const db = DatabaseManager.getDatabase()
     const request = db.prepare(`
@@ -273,31 +316,29 @@ export class PlatformRequestService {
       WHERE r.id = ? AND o.tenant_id = ?
     `).get(requestId, tenantId) as any
     if (!request) return undefined
-
-    const items = db.prepare('SELECT * FROM request_items WHERE request_id = ? ORDER BY rowid').all(requestId)
-    const approvals = db.prepare('SELECT * FROM request_approvals WHERE request_id = ? ORDER BY created_at').all(requestId)
-    const tasks = db.prepare('SELECT * FROM request_tasks WHERE request_id = ? ORDER BY created_at').all(requestId)
-    const events = db.prepare('SELECT * FROM request_events WHERE request_id = ? ORDER BY created_at').all(requestId)
-
-    return {
-      ...request,
-      context: this.parseContext(request.context_json),
-      items,
-      approvals,
-      tasks,
-      events
-    }
+    return this.hydrateRequest(requestId, request)
   }
 
-  list(tenantId: string, status?: RequestStatus, requestType?: string, limit = 100) {
+  list(tenantId: string, subjectRef: string, status?: RequestStatus, requestType?: string, limit = 100) {
     const db = DatabaseManager.getDatabase()
+    const principal = this.resolvePrincipal(tenantId, subjectRef)
+    const readDecision = authorizationService.decide({
+      tenantId,
+      personId: principal.personId,
+      action: 'request.read',
+      requiredPermission: 'request.read',
+      resourceType: 'request',
+    })
+    const canReadAll = readDecision.decision === 'allow'
+
     let sql = `
       SELECT r.*
       FROM requests r
       JOIN organizations o ON o.id = r.organization_id
       WHERE o.tenant_id = ?
+        AND (? = 1 OR r.requester_person_id = ?)
     `
-    const params: unknown[] = [tenantId]
+    const params: unknown[] = [tenantId, canReadAll ? 1 : 0, principal.personId]
 
     if (status) {
       sql += ' AND r.status = ?'
@@ -311,6 +352,23 @@ export class PlatformRequestService {
     sql += ' ORDER BY r.created_at DESC LIMIT ?'
     params.push(Math.min(Math.max(limit, 1), 500))
     return db.prepare(sql).all(...params)
+  }
+
+  private hydrateRequest(requestId: string, request: any) {
+    const db = DatabaseManager.getDatabase()
+    const items = db.prepare('SELECT * FROM request_items WHERE request_id = ? ORDER BY rowid').all(requestId)
+    const approvals = db.prepare('SELECT * FROM request_approvals WHERE request_id = ? ORDER BY created_at').all(requestId)
+    const tasks = db.prepare('SELECT * FROM request_tasks WHERE request_id = ? ORDER BY created_at').all(requestId)
+    const events = db.prepare('SELECT * FROM request_events WHERE request_id = ? ORDER BY created_at').all(requestId)
+
+    return {
+      ...request,
+      context: this.parseContext(request.context_json),
+      items,
+      approvals,
+      tasks,
+      events
+    }
   }
 
   private recordEvent(
