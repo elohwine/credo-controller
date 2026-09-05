@@ -1,29 +1,9 @@
 /**
- * API types for DID, OIDC4VC Issuance/Verification, and Schema registry.
- *
- * Purpose:
- *  - Centralize request/response contracts for controllers so OpenAPI can $ref these shapes.
- *  - Keep payloads Walt.id-compatible (credential_offer_url, preAuthorizedCode, verifiableCredential, etc.).
- *
- * References:
- *  - OpenID4VCI: https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html
- *  - OIDC4VP: https://openid.net/specs/openid-4-verifiable-presentations-1_0.html
- *  - Walt.id Community: https://docs.walt.id/community-stack/home
+ * API types for DID, OIDC4VC Issuance/Verification, Schema registry, and
+ * standards-based OpenID4VP presentation requests.
  */
 
 // ---------- DID ----------
-
-/**
- * Response for DID creation or preparation endpoints.
- *
- * @example
- * {
- *   did: "did:key:z6Mkh...",
- *   didDocument: { "@context": ["https://www.w3.org/ns/did/v1"], id: "did:key:..." },
- *   keyRef: "ed25519-...",
- *   createdAt: "2025-09-11T08:20:00.000Z"
- * }
- */
 export interface DidCreateResponse {
   did: string
   didDocument: any
@@ -31,11 +11,10 @@ export interface DidCreateResponse {
   createdAt: string
 }
 
-/** Request body for did:jwk creation */
 export interface CreateDidJwkRequest {
   keyType: 'P-256' | 'Ed25519'
 }
-/** Request body for did:web preparation */
+
 export interface PrepareDidWebRequest {
   domain: string
   keyMethod?: 'jwk' | 'key'
@@ -43,7 +22,6 @@ export interface PrepareDidWebRequest {
 }
 
 // ---------- Schema ----------
-
 export interface RegisterSchemaRequestBody {
   name: string
   version: string
@@ -51,27 +29,22 @@ export interface RegisterSchemaRequestBody {
 }
 
 // ---------- Issuer (OIDC4VC) ----------
-
-/** Credential template item for offers */
 export interface OfferCredentialTemplate {
   type: string[]
   schemaId?: string
   claimsTemplate?: any
-  // Accept both generic Credo 'jwt_vc' and wallet-specific JSON variants
   format?: 'jwt_vc' | 'sd_jwt' | 'jwt_vc_json' | 'jwt_vc_json-ld'
   credentialDefinitionId?: string
   issuerDid?: string
   claims?: Record<string, any>
 }
 
-/** Create credential offer request */
 export interface CreateCredentialOfferRequest {
   credentials: OfferCredentialTemplate[]
   issuerDid?: string
   expiresIn?: number
 }
 
-/** Create offer response */
 export interface CreateCredentialOfferResponse {
   offerId: string
   credential_offer_url: string
@@ -80,7 +53,6 @@ export interface CreateCredentialOfferResponse {
   expiresAt: string
 }
 
-/** Token exchange request (pre-authorized code) */
 export interface TokenRequestBody {
   grant_type: string
   pre_authorized_code: string
@@ -88,13 +60,11 @@ export interface TokenRequestBody {
   format?: 'jwt_vc' | 'sd_jwt' | 'jwt_vc_json' | 'jwt_vc_json-ld'
 }
 
-/** Token response with issued credential */
 export interface TokenResponseBody {
   verifiableCredential: string
   credentialId: string
 }
 
-/** Issued credential record */
 export interface IssuedCredentialRecord {
   id: string
   jwt: string
@@ -106,28 +76,30 @@ export interface IssuedCredentialRecord {
   schemaId?: string
 }
 
-// ---------- Verifier (OIDC4VP) ----------
+// ---------- Verifier (OpenID4VP) ----------
+export type PresentationQueryLanguage = 'dcql' | 'pex_v2'
 
-/** Presentation request creation */
 export interface CreatePresentationRequestBody {
-  presentationDefinition?: any
+  queryLanguage?: PresentationQueryLanguage
+  dcqlQuery?: Record<string, any>
+  presentationDefinition?: Record<string, any>
   verifierDid?: string
 }
 
-/** Presentation request response */
 export interface CreatePresentationRequestResponse {
   requestId: string
   presentation_request_url: string
+  queryLanguage?: PresentationQueryLanguage
+  protocol?: 'openid4vp'
 }
 
-/** Verify presentation request */
 export interface VerifyPresentationRequestBody {
   requestId: string
+  state: string
   verifiablePresentation: string
   presentationSubmission?: any
 }
 
-/** Verify presentation response */
 export interface VerifyPresentationResponse {
   verified: boolean
   reason?: string
