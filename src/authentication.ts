@@ -1,9 +1,7 @@
-import type { RestAgentModules, RestMultiTenantAgentModules } from './cliAgent'
 import type { TenantAgent } from '@credo-ts/tenants/build/TenantAgent'
 import type { Request } from 'express'
 
 import { Agent, LogLevel } from '@credo-ts/core'
-import { uuid } from '@credo-ts/core/build/utils/uuid'
 import jwt, { decode } from 'jsonwebtoken'
 import { container } from 'tsyringe'
 
@@ -86,7 +84,7 @@ export async function expressAuthentication(request: Request, securityName: stri
     try {
       decodedToken = decode(token) as jwt.JwtPayload
       if (!decodedToken || !decodedToken.role) throw new Error('Token not decoded')
-    } catch (err) {
+    } catch {
       agent.config.logger.error('Error decoding authentication token')
       return Promise.reject(new StatusException(`${ErrorMessages.Unauthorized}: Invalid token`, 401))
     }
