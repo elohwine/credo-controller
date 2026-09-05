@@ -109,3 +109,6 @@ CREATE TABLE IF NOT EXISTS authority_policies (
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_platform_authority_policy_version
   ON authority_policies(organization_id, name, version);
+
+INSERT INTO schema_migrations (version, name)
+VALUES (22, 'create_ssi_trust_and_consent');
