@@ -29,7 +29,6 @@ export interface PresentationConsentInput {
   consentVersion: string
 }
 
-/** Verification results are internal integration data, never a public assertion input. */
 export interface PresentationVerificationInput {
   requestId: string
   tenantId: string
@@ -58,9 +57,16 @@ export interface PresentationProtocolContext {
   expiresAt: string
 }
 
+export interface VerifierRegistrationContext {
+  verifierRef: string
+  signerDidUrlRef: string
+  credoVerifierIdRef: string
+}
+
 /**
  * Reference-first SSI trust service.
- * Raw VCs, SD-JWTs and VPs stay inside Credo/wallet/protocol processing.
+ * Raw VCs, SD-JWTs, mdocs and VPs remain protocol data and are not persisted
+ * in business records.
  */
 export class SsiTrustService {
   private resolveOrganization(tenantId: string): string {
@@ -93,6 +99,36 @@ export class SsiTrustService {
 
     if (!row?.id) throw new Error('Authenticated subject is not an active organization member')
     return { organizationId, personId: row.id }
+  }
+
+  getVerifierRegistration(tenantId: string, verifierRef: string): VerifierRegistrationContext {
+    const organizationId = this.resolveOrganization(tenantId)
+    const db = DatabaseManager.getDatabase()
+    const row = db.prepare(`
+      SELECT
+        verifier_ref AS verifierRef,
+        signer_did_url_ref AS signerDidUrlRef,
+        credo_verifier_id_ref AS credoVerifierIdRef
+      FROM verifier_registrations
+      WHERE organization_id = ?
+        AND verifier_ref = ?
+        AND status = 'active'
+      LIMIT 1
+    `).get(organizationId, verifierRef) as {
+      verifierRef?: string
+      signerDidUrlRef?: string
+      credoVerifierIdRef?: string
+    } | undefined
+
+    if (!row?.verifierRef) throw new Error('Verifier is not registered for this organization')
+    if (!row.signerDidUrlRef) throw new Error('Verifier signing DID URL is not configured')
+    if (!row.credoVerifierIdRef) throw new Error('Credo verifier id is not configured')
+
+    return {
+      verifierRef: row.verifierRef,
+      signerDidUrlRef: row.signerDidUrlRef,
+      credoVerifierIdRef: row.credoVerifierIdRef,
+    }
   }
 
   createPresentationRequest(input: PresentationRequestInput) {
@@ -133,15 +169,16 @@ export class SsiTrustService {
       throw new Error(`Insufficient authority: ${authorization.reasonCode}`)
     }
 
-    const queryLanguage = input.queryLanguage ?? 'pex_v2'
+    const queryLanguage = input.queryLanguage ?? 'dcql'
+    const protocol = queryLanguage === 'dcql' ? 'openid4vp' : 'openid4vp_pex_v2'
     const requestId = randomUUID()
 
     db.prepare(`
       INSERT INTO presentation_requests (
         id, organization_id, requester_person_id, verifier_ref, purpose_code, purpose_text_ref,
         query_language, query_ref, transaction_ref, status, expires_at,
-        credo_verification_session_id, verifier_client_id_ref
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+        credo_verification_session_id, verifier_client_id_ref, protocol
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
     `).run(
       requestId,
       organizationId,
@@ -154,10 +191,11 @@ export class SsiTrustService {
       input.transactionRef ?? null,
       expiresAt.toISOString(),
       input.credoVerificationSessionId ?? null,
-      input.verifierClientIdRef ?? null
+      input.verifierClientIdRef ?? null,
+      protocol
     )
 
-    return { requestId, expiresAt: expiresAt.toISOString(), queryLanguage }
+    return { requestId, expiresAt: expiresAt.toISOString(), queryLanguage, protocol }
   }
 
   getProtocolContext(tenantId: string, requestId: string): PresentationProtocolContext {
@@ -211,17 +249,12 @@ export class SsiTrustService {
   recordConsent(input: PresentationConsentInput) {
     const { organizationId, personId } = this.resolvePerson(input.tenantId, input.holderSubjectRef)
     const db = DatabaseManager.getDatabase()
-
     const request = db.prepare(`
       SELECT id, status, expires_at AS expiresAt
       FROM presentation_requests
       WHERE id = ? AND organization_id = ?
       LIMIT 1
-    `).get(input.requestId, organizationId) as {
-      id?: string
-      status?: string
-      expiresAt?: string
-    } | undefined
+    `).get(input.requestId, organizationId) as { id?: string; status?: string; expiresAt?: string } | undefined
 
     if (!request?.id) throw new Error('Presentation request not found')
     if (request.status !== 'pending') throw new Error('Presentation request is no longer pending')
@@ -268,18 +301,12 @@ export class SsiTrustService {
       if (update.changes !== 1) throw new Error('Presentation request changed state while consent was being recorded')
     })()
 
-    return {
-      consentId,
-      requestId: input.requestId,
-      decision: input.decision,
-      disclosedCategories
-    }
+    return { consentId, requestId: input.requestId, decision: input.decision, disclosedCategories }
   }
 
   recordVerification(input: PresentationVerificationInput) {
     const organizationId = this.resolveOrganization(input.tenantId)
     const db = DatabaseManager.getDatabase()
-
     const request = db.prepare(`
       SELECT id, expires_at AS expiresAt
       FROM presentation_requests
@@ -308,7 +335,6 @@ export class SsiTrustService {
 
     const evidenceDigest = input.evidenceDigest || this.createEvidenceDigest(input)
     const resultId = randomUUID()
-
     db.prepare(`
       INSERT INTO presentation_results (
         id, presentation_request_id, verified,
@@ -350,7 +376,7 @@ export class SsiTrustService {
       schemaVerified: input.schemaVerified ?? null,
       audienceVerified: input.audienceVerified ?? null,
       nonceVerified: input.nonceVerified ?? null,
-      resultCode: input.resultCode ?? null
+      resultCode: input.resultCode ?? null,
     })
     return createHash('sha256').update(canonical).digest('hex')
   }
