@@ -1,6 +1,6 @@
 -- Platform remodeling foundation.
--- These tables sit above existing commerce/finance workflows and are intentionally
--- tenant-scoped without coupling to a particular industry module.
+-- Data-minimised organizational workflow model. Identity/credential payloads stay
+-- outside operational records; this layer stores opaque references and outcomes.
 
 CREATE TABLE IF NOT EXISTS organizations (
   id TEXT PRIMARY KEY,
@@ -33,27 +33,22 @@ CREATE INDEX IF NOT EXISTS idx_platform_departments_org
 CREATE TABLE IF NOT EXISTS people (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL,
-  subject_id TEXT,
-  display_name TEXT NOT NULL,
-  email TEXT,
-  phone TEXT,
+  subject_ref TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_platform_people_org
-  ON people(organization_id);
-CREATE INDEX IF NOT EXISTS idx_platform_people_subject
-  ON people(subject_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_platform_people_subject
+  ON people(organization_id, subject_ref);
 
 CREATE TABLE IF NOT EXISTS organization_memberships (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL,
   person_id TEXT NOT NULL,
   department_id TEXT,
-  title TEXT,
+  title_ref TEXT,
   membership_status TEXT NOT NULL DEFAULT 'active',
   joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   left_at DATETIME,
@@ -69,7 +64,7 @@ CREATE TABLE IF NOT EXISTS roles (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL,
   name TEXT NOT NULL,
-  description TEXT,
+  description_ref TEXT,
   permissions TEXT NOT NULL DEFAULT '[]',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
@@ -85,7 +80,7 @@ CREATE TABLE IF NOT EXISTS authority_grants (
   role_id TEXT,
   authority_type TEXT NOT NULL,
   scope_json TEXT NOT NULL DEFAULT '{}',
-  source_credential_id TEXT,
+  source_credential_ref TEXT,
   valid_from DATETIME,
   valid_until DATETIME,
   status TEXT NOT NULL DEFAULT 'active',
@@ -104,7 +99,7 @@ CREATE TABLE IF NOT EXISTS delegations (
   delegator_person_id TEXT NOT NULL,
   delegate_person_id TEXT NOT NULL,
   scope_json TEXT NOT NULL DEFAULT '{}',
-  source_credential_id TEXT,
+  source_credential_ref TEXT,
   valid_from DATETIME NOT NULL,
   valid_until DATETIME,
   status TEXT NOT NULL DEFAULT 'active',
@@ -169,7 +164,8 @@ CREATE TABLE IF NOT EXISTS request_approvals (
   approval_type TEXT NOT NULL DEFAULT 'standard',
   decision TEXT NOT NULL DEFAULT 'pending',
   comment TEXT,
-  evidence_json TEXT NOT NULL DEFAULT '{}',
+  evidence_ref TEXT,
+  policy_decision_id TEXT,
   decided_at DATETIME,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE,
@@ -179,6 +175,86 @@ CREATE TABLE IF NOT EXISTS request_approvals (
 
 CREATE INDEX IF NOT EXISTS idx_platform_request_approvals_request
   ON request_approvals(request_id, decision);
+
+CREATE TABLE IF NOT EXISTS policy_decisions (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  principal_person_id TEXT,
+  action TEXT NOT NULL,
+  resource_type TEXT NOT NULL,
+  resource_id TEXT,
+  decision TEXT NOT NULL,
+  reason_code TEXT,
+  authority_ref TEXT,
+  credential_refs_json TEXT NOT NULL DEFAULT '[]',
+  policy_version TEXT,
+  decided_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  FOREIGN KEY (principal_person_id) REFERENCES people(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_platform_policy_decisions_resource
+  ON policy_decisions(organization_id, resource_type, resource_id, decided_at);
+
+CREATE TABLE IF NOT EXISTS credential_references (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  subject_ref TEXT,
+  credential_type TEXT NOT NULL,
+  issuer_ref TEXT,
+  format TEXT,
+  external_ref TEXT,
+  status TEXT NOT NULL DEFAULT 'unknown',
+  issued_at DATETIME,
+  expires_at DATETIME,
+  last_verified_at DATETIME,
+  digest TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_platform_credential_refs_subject
+  ON credential_references(organization_id, subject_ref, credential_type);
+
+CREATE TABLE IF NOT EXISTS evidence_references (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  request_id TEXT,
+  evidence_type TEXT NOT NULL,
+  storage_ref TEXT NOT NULL,
+  digest TEXT,
+  media_type TEXT,
+  retention_class TEXT,
+  created_by_person_id TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME,
+  FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE SET NULL,
+  FOREIGN KEY (created_by_person_id) REFERENCES people(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_platform_evidence_request
+  ON evidence_references(organization_id, request_id, created_at);
+
+CREATE TABLE IF NOT EXISTS request_tasks (
+  id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  task_type TEXT NOT NULL,
+  assignee_person_id TEXT,
+  delegation_allowed INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending',
+  due_at DATETIME,
+  completed_at DATETIME,
+  outcome_ref TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE,
+  FOREIGN KEY (assignee_person_id) REFERENCES people(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_platform_tasks_assignee
+  ON request_tasks(assignee_person_id, status, due_at);
+CREATE INDEX IF NOT EXISTS idx_platform_tasks_request
+  ON request_tasks(request_id, status);
 
 CREATE TABLE IF NOT EXISTS request_events (
   id TEXT PRIMARY KEY,
@@ -201,13 +277,13 @@ CREATE TABLE IF NOT EXISTS field_assignments (
   organization_id TEXT NOT NULL,
   request_id TEXT,
   assignee_person_id TEXT NOT NULL,
-  location_json TEXT NOT NULL DEFAULT '{}',
+  location_ref TEXT,
   status TEXT NOT NULL DEFAULT 'assigned',
   scheduled_start DATETIME,
   scheduled_end DATETIME,
   started_at DATETIME,
   completed_at DATETIME,
-  evidence_json TEXT NOT NULL DEFAULT '{}',
+  evidence_ref TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
   FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE SET NULL,
