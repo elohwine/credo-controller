@@ -185,8 +185,6 @@ export class PlatformRequestService {
     const actorIsRequester = actorPersonId === current.requesterPersonId
 
     if (actorIsRequester && (toStatus === 'submitted' || toStatus === 'cancelled')) {
-      // Requester may submit/cancel their own request. No additional authority
-      // is required for these user-owned lifecycle actions.
       this.recordDecisionEvent(current.organizationId, actorPersonId, requestId, `request.${toStatus}`, 'allow', 'requester_action')
     } else {
       const context = this.parseContext(current.contextJson)
@@ -224,7 +222,9 @@ export class PlatformRequestService {
       this.recordEvent(requestId, 'request.status_changed', actorPersonId, current.status ?? null, toStatus, payload)
     })()
 
-    return this.getForSubject(requestId, tenantId, this.getSubjectRefForPerson(tenantId, actorPersonId))
+    // The transition has already passed authorization and committed atomically;
+    // do not require a separate read permission merely to return its new state.
+    return this.getForTenant(requestId, tenantId)
   }
 
   private getSeparationOfDuties(fromStatus: RequestStatus, toStatus: RequestStatus, requesterPersonId: string): string[] {
@@ -241,19 +241,6 @@ export class PlatformRequestService {
     } catch {
       return {}
     }
-  }
-
-  private getSubjectRefForPerson(tenantId: string, personId: string): string {
-    const db = DatabaseManager.getDatabase()
-    const row = db.prepare(`
-      SELECT p.subject_ref AS subjectRef
-      FROM people p
-      JOIN organizations o ON o.id = p.organization_id
-      WHERE p.id = ? AND o.tenant_id = ? AND o.status = 'active'
-      LIMIT 1
-    `).get(personId, tenantId) as { subjectRef?: string } | undefined
-    if (!row?.subjectRef) throw new Error('Authenticated subject not found')
-    return row.subjectRef
   }
 
   private recordDecisionEvent(
