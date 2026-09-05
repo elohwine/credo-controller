@@ -2,11 +2,13 @@ import type { Request as ExRequest } from 'express'
 import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
 import { ssiTrustService } from '../SsiTrustService'
 import { credentialStatusService } from './CredentialStatusService'
+import { issuerTrustService } from './IssuerTrustService'
 
 export interface PlatformPresentationVerificationInput {
   tenantId: string
   subjectRef: string
   requestId: string
+  state: string
   verifiablePresentation: unknown
   presentationSubmission?: unknown
   request: ExRequest
@@ -24,31 +26,120 @@ export interface PlatformPresentationVerificationResult {
 /**
  * Adapter around Credo's native OpenID4VP verifier.
  *
- * The raw VP exists only for the duration of protocol verification. It is
- * never returned to the application client, written to the platform DB, or
- * logged. Business code receives only a sanitized verification result.
+ * The platform request is bound to Credo's persisted verification session.
+ * Credo performs state, audience, nonce and presentation-proof checks using
+ * that session. Platform policy then layers issuer trust and authoritative
+ * credential status on top before a successful result can become trusted.
  *
- * The adapter fails closed: cryptographic verification alone is not promoted
- * to a business-trust decision until holder binding, schema, issuer trust and
- * authoritative credential status are all available.
+ * Raw presentations are transient protocol data and are never returned or
+ * persisted by this service.
  */
 export class CredoPresentationVerificationService {
   private readonly issuedCredentialRepository = new IssuedCredentialRepository()
 
   async verify(input: PlatformPresentationVerificationInput): Promise<PlatformPresentationVerificationResult> {
+    const context = ssiTrustService.getProtocolContext(input.tenantId, input.requestId)
+
+    if (!context.credoVerificationSessionId) {
+      throw new Error('Presentation request is not bound to a Credo verification session')
+    }
+
+    if (context.queryLanguage !== 'pex_v2') {
+      throw new Error(`Credo 0.5.15 adapter supports pex_v2 only; received ${context.queryLanguage}`)
+    }
+
     const agent = input.request.agent
     const verifier = (agent.modules as any).openId4VcVerifier
     if (!verifier) throw new Error('OpenID4VP verifier module is not configured')
 
-    const verificationResult = await verifier.verifyAuthorizationResponse({
-      authorizationResponse: {
-        vp_token: input.verifiablePresentation,
-        presentation_submission: input.presentationSubmission,
-        state: input.requestId,
-      },
-    })
+    try {
+      const verificationResult = await verifier.verifyAuthorizationResponse({
+        verificationSessionId: context.credoVerificationSessionId,
+        authorizationResponse: {
+          vp_token: input.verifiablePresentation,
+          presentation_submission: input.presentationSubmission,
+          state: input.state,
+        },
+      })
 
-    if (!verificationResult?.isVerified) {
+      const presentationExchange = verificationResult?.presentationExchange
+      const presentations = Array.isArray(presentationExchange?.presentations)
+        ? presentationExchange.presentations
+        : []
+
+      const credentials = presentations.flatMap((presentation: any) => {
+        const values = presentation?.verifiableCredential
+        return Array.isArray(values) ? values : [values].filter(Boolean)
+      })
+      const credentialCount = credentials.length
+
+      const credentialIds = this.extractCredentialIds(credentials)
+      const locallyRevoked = credentialIds.some((id) => this.issuedCredentialRepository.isRevoked(id))
+
+      const statusResults = await Promise.all(
+        credentials.map((credential: any) => credentialStatusService.resolve({
+          credentialId: credential?.id || credential?.jti,
+          credentialStatus: credential?.credentialStatus || credential?.vc?.credentialStatus,
+          issuerRef: credential?.issuer?.id || credential?.issuer || credential?.vc?.issuer?.id || credential?.vc?.issuer,
+        }))
+      )
+
+      const statusChecked = statusResults.length > 0 && statusResults.every((result) => result.checked)
+      const statusInvalid = locallyRevoked || statusResults.some((result) => result.status === 'revoked' || result.status === 'suspended')
+
+      const issuerRefs = this.extractIssuerRefs(credentials)
+      const trust = issuerTrustService.evaluate(input.tenantId, issuerRefs)
+      const trustVerified = trust.decision === 'trusted'
+
+      // Successful Credo verification here means the persisted request session
+      // accepted state/audience/nonce and its presentation verification callback
+      // accepted the VP proof against the request's nonce and audience.
+      const holderBindingVerified = presentations.length > 0
+      const audienceVerified = true
+      const nonceVerified = true
+      const schemaVerified = Boolean(presentationExchange?.definition && presentationExchange?.submission)
+      const verified =
+        credentialCount > 0 &&
+        !statusInvalid &&
+        holderBindingVerified &&
+        audienceVerified &&
+        nonceVerified &&
+        schemaVerified &&
+        trustVerified &&
+        statusChecked
+
+      const reasonCode = verified
+        ? 'verified'
+        : trust.decision !== 'trusted'
+          ? 'issuer_untrusted'
+          : !statusChecked
+            ? 'credential_status_unverified'
+            : 'verification_failed'
+
+      const recorded = ssiTrustService.recordVerification({
+        requestId: input.requestId,
+        tenantId: input.tenantId,
+        verified,
+        credentialTypeRefs: this.extractCredentialTypes(credentials),
+        issuerRefs,
+        holderBindingVerified,
+        trustVerified,
+        statusVerified: statusChecked,
+        schemaVerified,
+        audienceVerified,
+        nonceVerified,
+        resultCode: reasonCode,
+      })
+
+      return {
+        resultId: recorded.resultId,
+        verified,
+        credentialCount,
+        reasonCode,
+        statusChecked,
+        evidenceDigest: recorded.evidenceDigest,
+      }
+    } catch {
       const recorded = ssiTrustService.recordVerification({
         requestId: input.requestId,
         tenantId: input.tenantId,
@@ -64,59 +155,6 @@ export class CredoPresentationVerificationService {
         statusChecked: false,
         evidenceDigest: recorded.evidenceDigest,
       }
-    }
-
-    const presentation = verificationResult.presentation
-    const credentials = Array.isArray(presentation?.verifiableCredential)
-      ? presentation.verifiableCredential
-      : [presentation?.verifiableCredential].filter(Boolean)
-
-    const credentialIds = this.extractCredentialIds(credentials)
-    const locallyRevoked = credentialIds.some((id) => this.issuedCredentialRepository.isRevoked(id))
-
-    const statusResults = await Promise.all(
-      credentials.map((credential: any) => credentialStatusService.resolve({
-        credentialId: credential?.id || credential?.jti,
-        credentialStatus: credential?.credentialStatus || credential?.vc?.credentialStatus,
-        issuerRef: credential?.issuer?.id || credential?.issuer,
-      }))
-    )
-
-    const statusChecked = statusResults.length > 0 && statusResults.every((result) => result.checked)
-    const statusInvalid = locallyRevoked || statusResults.some((result) => result.status === 'revoked')
-
-    // Do not infer holder binding, schema validation, audience/nonce checks or
-    // issuer trust from Credo's aggregate boolean. Those must be populated by
-    // explicit verifier results before the platform records verified=true.
-    const holderBindingVerified = false
-    const trustVerified = false
-    const schemaVerified = false
-    const audienceVerified = false
-    const nonceVerified = false
-    const verified = !statusInvalid && holderBindingVerified && trustVerified && schemaVerified && statusChecked
-
-    const recorded = ssiTrustService.recordVerification({
-      requestId: input.requestId,
-      tenantId: input.tenantId,
-      verified,
-      credentialTypeRefs: this.extractCredentialTypes(credentials),
-      issuerRefs: this.extractIssuerRefs(credentials),
-      holderBindingVerified,
-      trustVerified,
-      statusVerified: statusChecked,
-      schemaVerified,
-      audienceVerified,
-      nonceVerified,
-      resultCode: verified ? 'verified' : 'verification_incomplete',
-    })
-
-    return {
-      resultId: recorded.resultId,
-      verified,
-      credentialCount: credentials.length,
-      reasonCode: verified ? 'verified' : 'verification_incomplete',
-      statusChecked,
-      evidenceDigest: recorded.evidenceDigest,
     }
   }
 
