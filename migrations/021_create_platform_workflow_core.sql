@@ -292,3 +292,6 @@ CREATE TABLE IF NOT EXISTS field_assignments (
 
 CREATE INDEX IF NOT EXISTS idx_platform_field_assignments_request
   ON field_assignments(request_id, status);
+
+INSERT INTO schema_migrations (version, name)
+VALUES (21, 'create_platform_workflow_core');
