@@ -51,10 +51,9 @@ type BitstringStatusListCredential = {
 /**
  * W3C Bitstring Status List v1.0 resolver.
  *
- * This service deliberately returns `unknown` when an authoritative status
- * mechanism cannot be completely validated. Business policy must not treat
- * network failure, malformed status lists, or unverified status credentials as
- * equivalent to an active credential.
+ * Business policy must treat `unknown` as unverified. Network failure,
+ * malformed entries, invalid status-list credentials and unsupported encodings
+ * are never promoted to an active credential state.
  */
 export class CredentialStatusService implements CredentialStatusResolver {
   async resolve(input: {
@@ -64,13 +63,7 @@ export class CredentialStatusService implements CredentialStatusResolver {
     request?: ExRequest
   }): Promise<CredentialStatusResult> {
     const entry = this.normalizeStatusEntry(input.credentialStatus)
-    if (!entry) {
-      return this.result('unknown', false, 'credential_status_not_present')
-    }
-
-    if (entry.type !== 'BitstringStatusListEntry') {
-      return this.result('unknown', false, 'unsupported_credential_status_type')
-    }
+    if (!entry) return this.result('unknown', false, 'credential_status_not_present')
 
     const statusSize = entry.statusSize ?? 1
     if (!Number.isInteger(statusSize) || statusSize <= 0 || statusSize > 8) {
@@ -86,12 +79,16 @@ export class CredentialStatusService implements CredentialStatusResolver {
       return this.result('unknown', false, 'invalid_status_messages', entry)
     }
 
-    if (!this.isHttpUrl(entry.statusListCredential)) {
+    if (!this.isHttpsUrl(entry.statusListCredential)) {
       return this.result('unknown', false, 'invalid_status_list_credential_url', entry)
     }
 
     try {
       const statusCredential = await this.fetchStatusListCredential(entry.statusListCredential)
+      if (!this.isConformingStatusListCredential(statusCredential)) {
+        return this.result('unknown', false, 'invalid_status_list_credential', entry)
+      }
+
       const verified = await this.verifyStatusListCredential(statusCredential, input.request)
       if (!verified) {
         return this.result('unknown', false, 'status_list_credential_unverified', entry)
@@ -100,10 +97,6 @@ export class CredentialStatusService implements CredentialStatusResolver {
       const statusList = this.extractStatusList(statusCredential)
       if (!statusList) {
         return this.result('unknown', false, 'invalid_status_list_credential', entry)
-      }
-
-      if (!this.hasExpectedType(statusCredential.type, 'BitstringStatusListCredential')) {
-        return this.result('unknown', false, 'invalid_status_list_credential_type', entry)
       }
 
       if (!this.matchesStatusPurpose(statusList.statusPurpose, entry.statusPurpose)) {
@@ -168,6 +161,7 @@ export class CredentialStatusService implements CredentialStatusResolver {
 
     const candidate = value as Record<string, unknown>
     if (
+      candidate.type !== 'BitstringStatusListEntry' ||
       typeof candidate.statusPurpose !== 'string' ||
       typeof candidate.statusListIndex !== 'string' ||
       typeof candidate.statusListCredential !== 'string'
@@ -176,12 +170,14 @@ export class CredentialStatusService implements CredentialStatusResolver {
     }
 
     return {
-      type: typeof candidate.type === 'string' ? (candidate.type as BitstringStatusListEntry['type']) : 'BitstringStatusListEntry',
+      type: 'BitstringStatusListEntry',
       statusPurpose: candidate.statusPurpose,
       statusListIndex: candidate.statusListIndex,
       statusListCredential: candidate.statusListCredential,
       statusSize: candidate.statusSize as number | undefined,
-      statusMessage: Array.isArray(candidate.statusMessage) ? (candidate.statusMessage as BitstringStatusListEntry['statusMessage']) : undefined,
+      statusMessage: Array.isArray(candidate.statusMessage)
+        ? (candidate.statusMessage as BitstringStatusListEntry['statusMessage'])
+        : undefined,
     }
   }
 
@@ -192,10 +188,9 @@ export class CredentialStatusService implements CredentialStatusResolver {
     return Number(asBigInt)
   }
 
-  private isHttpUrl(value: string): boolean {
+  private isHttpsUrl(value: string): boolean {
     try {
-      const url = new URL(value)
-      return url.protocol === 'https:' || url.protocol === 'http:'
+      return new URL(value).protocol === 'https:'
     } catch {
       return false
     }
@@ -207,6 +202,7 @@ export class CredentialStatusService implements CredentialStatusResolver {
         Accept: 'application/vc+jwt, application/vc+ld+json, application/json, application/ld+json',
       },
       redirect: 'error',
+      signal: AbortSignal.timeout(8_000),
     })
 
     if (!response.ok) throw new Error(`Status list HTTP ${response.status}`)
@@ -241,6 +237,22 @@ export class CredentialStatusService implements CredentialStatusResolver {
     return result.isValid === true
   }
 
+  private isConformingStatusListCredential(credential: BitstringStatusListCredential | string): boolean {
+    if (typeof credential === 'string') {
+      const parts = credential.split('.')
+      if (parts.length !== 3) return false
+      try {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as Record<string, any>
+        const type = payload.type || payload.vc?.type
+        return this.hasExpectedType(type, 'BitstringStatusListCredential')
+      } catch {
+        return false
+      }
+    }
+
+    return this.hasExpectedType(credential.type, 'BitstringStatusListCredential')
+  }
+
   private extractStatusList(
     credential: BitstringStatusListCredential | string
   ): { statusPurpose?: string | string[]; encodedList?: string } | undefined {
@@ -269,7 +281,7 @@ export class CredentialStatusService implements CredentialStatusResolver {
   private decodeBitstring(encodedList: string): Buffer {
     if (!encodedList.startsWith('u')) throw new Error('Unsupported status list multibase encoding')
     const compressed = Buffer.from(encodedList.slice(1), 'base64url')
-    return gunzipSync(compressed, { finishFlush: 2 })
+    return gunzipSync(compressed)
   }
 
   private readBitsMostSignificantFirst(bytes: Buffer, bitOffset: number, bitLength: number): number {
