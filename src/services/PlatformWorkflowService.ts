@@ -108,21 +108,6 @@ export class PlatformWorkflowService {
     if (!request) throw new Error('Request not found')
     if (!request.workflow_run_id) return undefined
 
-    const principal = platformRequestService.resolvePrincipal(tenantId, subjectRef)
-    const decision = authorizationService.decide({
-      tenantId,
-      personId: principal.personId,
-      action: 'request.read',
-      requiredPermission: 'request.read',
-      resourceType: 'request',
-      resourceId: requestId,
-    })
-
-    // getForSubject already authorizes request ownership or request.read.
-    if (decision.decision !== 'allow' && request.requester_person_id !== principal.personId) {
-      throw new Error(`Insufficient authority: ${decision.reasonCode}`)
-    }
-
     return this.workflowService.getRunStatus(request.workflow_run_id)
   }
 }
