@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { DatabaseManager } from '../persistence/DatabaseManager'
-import type { AuthorityDecision, AuthorityDecisionInput } from './ssi/SsiTypes'
+import type { AuthorityDecision, AuthorityDecisionInput, AuthorityScope } from './ssi/SsiTypes'
 
 /**
  * Authorization is intentionally separate from credential verification.
@@ -61,25 +61,11 @@ export class AuthorizationService {
     }>
 
     for (const authority of authorityRows) {
-      let scope: any = {}
-      try { scope = JSON.parse(authority.scopeJson || '{}') } catch { scope = {} }
+      const scope = this.parseScope(authority.scopeJson)
+      const decision = this.matchScope(input, permission, scope)
+      if (decision !== 'allow') continue
 
-      const permissions = new Set<string>([
-        ...(Array.isArray(scope.permissions) ? scope.permissions : []),
-        authority.authorityType,
-      ])
-      if (!permissions.has(permission)) continue
-
-      if (Array.isArray(scope.resourceTypes) && input.resourceType && !scope.resourceTypes.includes(input.resourceType)) continue
-      if (Array.isArray(scope.departmentIds) && input.departmentId && !scope.departmentIds.includes(input.departmentId)) continue
-      if (Array.isArray(scope.projectRefs) && input.projectRef && !scope.projectRefs.includes(input.projectRef)) continue
-      if (Array.isArray(scope.costCentreRefs) && input.costCentreRef && !scope.costCentreRefs.includes(input.costCentreRef)) continue
-
-      if (typeof scope.maxAmount === 'number' && typeof input.amount === 'number' && input.amount > scope.maxAmount) continue
-      if (scope.currency && input.currency && scope.currency !== input.currency) continue
-
-      const separated = new Set(input.separationOfDutiesPersonIds || [])
-      if (separated.has(input.personId)) {
+      if (this.violatesSeparationOfDuties(input)) {
         return this.persistDecision(input, {
           decisionId,
           decision: 'deny',
@@ -102,6 +88,34 @@ export class AuthorizationService {
       })
     }
 
+    // Delegation is usable only when an active delegation exists AND the
+    // delegator independently has the same authority. This avoids creating a
+    // privilege-escalation path through a forged or overly broad delegation.
+    const delegated = this.findValidDelegation(actor.organizationId!, input.personId, permission)
+    if (delegated) {
+      if (this.violatesSeparationOfDuties(input)) {
+        return this.persistDecision(input, {
+          decisionId,
+          decision: 'deny',
+          reasonCode: 'separation_of_duties_violation',
+          authorityRef: delegated.authorityRef,
+          credentialReferences: delegated.credentialReferences,
+          policyVersion: 'platform-v1',
+          evaluatedAt,
+        })
+      }
+
+      return this.persistDecision(input, {
+        decisionId,
+        decision: 'allow',
+        reasonCode: 'active_delegation_scope_match',
+        authorityRef: delegated.authorityRef,
+        credentialReferences: delegated.credentialReferences,
+        policyVersion: 'platform-v1',
+        evaluatedAt,
+      })
+    }
+
     return this.persistDecision(input, {
       decisionId,
       decision: 'deny',
@@ -110,6 +124,74 @@ export class AuthorizationService {
       policyVersion: 'platform-v1',
       evaluatedAt,
     })
+  }
+
+  private parseScope(value: string): AuthorityScope {
+    try {
+      const parsed = JSON.parse(value || '{}')
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  private matchScope(input: AuthorityDecisionInput, permission: string, scope: AuthorityScope): 'allow' | 'skip' {
+    if (!Array.isArray(scope.permissions) || !scope.permissions.includes(permission)) return 'skip'
+    if (Array.isArray(scope.resourceTypes) && !scope.resourceTypes.includes(input.resourceType)) return 'skip'
+    if (Array.isArray(scope.departmentIds) && input.departmentId && !scope.departmentIds.includes(input.departmentId)) return 'skip'
+    if (Array.isArray(scope.projectRefs) && input.projectRef && !scope.projectRefs.includes(input.projectRef)) return 'skip'
+    if (Array.isArray(scope.costCentreRefs) && input.costCentreRef && !scope.costCentreRefs.includes(input.costCentreRef)) return 'skip'
+    if (typeof scope.maxAmount === 'number' && typeof input.amount === 'number' && input.amount > scope.maxAmount) return 'skip'
+    if (scope.currency && input.currency && scope.currency !== input.currency) return 'skip'
+    return 'allow'
+  }
+
+  private findValidDelegation(organizationId: string, delegatePersonId: string, permission: string): {
+    authorityRef: string
+    credentialReferences: string[]
+  } | undefined {
+    const db = DatabaseManager.getDatabase()
+    const rows = db.prepare(`
+      SELECT
+        d.scope_json AS scopeJson,
+        d.source_credential_ref AS delegationCredentialRef,
+        a.id AS authorityRef,
+        a.source_credential_ref AS authorityCredentialRef
+      FROM delegations d
+      JOIN authority_grants a
+        ON a.organization_id = d.organization_id
+       AND a.person_id = d.delegator_person_id
+       AND a.status = 'active'
+       AND (a.valid_from IS NULL OR a.valid_from <= CURRENT_TIMESTAMP)
+       AND (a.valid_until IS NULL OR a.valid_until >= CURRENT_TIMESTAMP)
+      WHERE d.organization_id = ?
+        AND d.delegate_person_id = ?
+        AND d.status = 'active'
+        AND d.valid_from <= CURRENT_TIMESTAMP
+        AND (d.valid_until IS NULL OR d.valid_until >= CURRENT_TIMESTAMP)
+      ORDER BY d.created_at DESC
+    `).all(organizationId, delegatePersonId) as Array<{
+      scopeJson: string
+      delegationCredentialRef?: string
+      authorityRef: string
+      authorityCredentialRef?: string
+    }>
+
+    for (const row of rows) {
+      const scope = this.parseScope(row.scopeJson)
+      if (Array.isArray(scope.permissions) && scope.permissions.includes(permission)) {
+        return {
+          authorityRef: row.authorityRef,
+          credentialReferences: [row.authorityCredentialRef, row.delegationCredentialRef].filter(Boolean) as string[],
+        }
+      }
+    }
+    return undefined
+  }
+
+  private violatesSeparationOfDuties(input: AuthorityDecisionInput): boolean {
+    const separated = new Set(input.separationOfDutiesPersonIds || [])
+    return separated.has(input.personId)
   }
 
   private persistDecision(input: AuthorityDecisionInput, decision: AuthorityDecision): AuthorityDecision {
