@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { DatabaseManager } from '../persistence/DatabaseManager'
+import { authorizationService } from './AuthorizationService'
 
 export type RequestStatus = 'draft' | 'submitted' | 'in_review' | 'approved' | 'rejected' | 'in_fulfilment' | 'completed' | 'cancelled'
 
@@ -27,8 +28,8 @@ export interface CreatePlatformRequestInput {
  * Generic organizational request layer.
  *
  * Identity is resolved from the authenticated tenant + opaque subject reference.
- * Lifecycle transitions are authorized server-side from organizational authority;
- * client-provided person/organization identifiers are never trusted as proof.
+ * Lifecycle transitions are authorized through the centralized SSI-aware
+ * AuthorizationService; business modules do not implement their own RBAC logic.
  */
 export class PlatformRequestService {
   private resolvePrincipal(tenantId: string, subjectRef: string) {
@@ -37,7 +38,6 @@ export class PlatformRequestService {
       SELECT id
       FROM organizations
       WHERE tenant_id = ? AND status = 'active'
-      ORDER BY created_at ASC
       LIMIT 1
     `).get(tenantId) as { id?: string } | undefined
 
@@ -46,7 +46,8 @@ export class PlatformRequestService {
     const person = db.prepare(`
       SELECT p.id
       FROM people p
-      JOIN organization_memberships m ON m.person_id = p.id AND m.organization_id = p.organization_id
+      JOIN organization_memberships m
+        ON m.person_id = p.id AND m.organization_id = p.organization_id
       WHERE p.organization_id = ? AND p.subject_ref = ?
         AND p.status = 'active' AND m.membership_status = 'active'
       LIMIT 1
@@ -133,7 +134,14 @@ export class PlatformRequestService {
   ) {
     const db = DatabaseManager.getDatabase()
     const current = db.prepare(`
-      SELECT r.status, r.organization_id AS organizationId, r.requester_person_id AS requesterPersonId
+      SELECT
+        r.status,
+        r.organization_id AS organizationId,
+        r.requester_person_id AS requesterPersonId,
+        r.department_id AS departmentId,
+        r.amount,
+        r.currency,
+        r.context_json AS contextJson
       FROM requests r
       JOIN organizations o ON o.id = r.organization_id
       WHERE r.id = ? AND o.tenant_id = ? AND o.status = 'active'
@@ -141,6 +149,10 @@ export class PlatformRequestService {
       status?: RequestStatus
       organizationId?: string
       requesterPersonId?: string
+      departmentId?: string
+      amount?: number
+      currency?: string
+      contextJson?: string
     } | undefined
 
     if (!current?.organizationId || !current.requesterPersonId) throw new Error('Request not found')
@@ -160,8 +172,7 @@ export class PlatformRequestService {
       throw new Error(`Invalid request transition: ${current.status} -> ${toStatus}`)
     }
 
-    const transitionPermission: Record<RequestStatus, string | undefined> = {
-      draft: undefined,
+    const permissions: Partial<Record<RequestStatus, string>> = {
       submitted: 'request.submit',
       in_review: 'request.review',
       approved: 'request.approve',
@@ -170,25 +181,34 @@ export class PlatformRequestService {
       completed: 'request.complete',
       cancelled: 'request.cancel',
     }
-
+    const permission = permissions[toStatus]
     const actorIsRequester = actorPersonId === current.requesterPersonId
-    const permission = transitionPermission[toStatus]
-    const requesterAllowed = actorIsRequester && (toStatus === 'submitted' || toStatus === 'cancelled')
-    const authorityAllowed = permission
-      ? this.hasAuthority(current.organizationId, actorPersonId, permission)
-      : false
 
-    if (!requesterAllowed && !authorityAllowed) {
-      this.recordPolicyDecision({
-        organizationId: current.organizationId,
-        principalPersonId: actorPersonId,
-        action: permission ?? `request.transition.${toStatus}`,
+    if (actorIsRequester && (toStatus === 'submitted' || toStatus === 'cancelled')) {
+      // Requester may submit/cancel their own request. No additional authority
+      // is required for these user-owned lifecycle actions.
+      this.recordDecisionEvent(current.organizationId, actorPersonId, requestId, `request.${toStatus}`, 'allow', 'requester_action')
+    } else {
+      const context = this.parseContext(current.contextJson)
+      const separationOfDuties = this.getSeparationOfDuties(current.status as RequestStatus, toStatus, current.requesterPersonId)
+      const decision = authorizationService.decide({
+        tenantId,
+        personId: actorPersonId,
+        action: permission || `request.transition.${toStatus}`,
+        requiredPermission: permission || `request.transition.${toStatus}`,
         resourceType: 'request',
         resourceId: requestId,
-        decision: 'deny',
-        reasonCode: 'insufficient_authority'
+        amount: typeof current.amount === 'number' ? current.amount : undefined,
+        currency: current.currency,
+        departmentId: current.departmentId,
+        projectRef: typeof context.projectRef === 'string' ? context.projectRef : undefined,
+        costCentreRef: typeof context.costCentreRef === 'string' ? context.costCentreRef : undefined,
+        separationOfDutiesPersonIds: separationOfDuties,
       })
-      throw new Error('Insufficient authority for request transition')
+
+      if (decision.decision !== 'allow') {
+        throw new Error(`Insufficient authority: ${decision.reasonCode}`)
+      }
     }
 
     const now = new Date().toISOString()
@@ -202,42 +222,46 @@ export class PlatformRequestService {
       `).run(toStatus, toStatus, now, toStatus, now, requestId)
 
       this.recordEvent(requestId, 'request.status_changed', actorPersonId, current.status ?? null, toStatus, payload)
-      this.recordPolicyDecision({
-        organizationId: current.organizationId as string,
-        principalPersonId: actorPersonId,
-        action: permission ?? `request.transition.${toStatus}`,
-        resourceType: 'request',
-        resourceId: requestId,
-        decision: 'allow',
-        reasonCode: requesterAllowed ? 'requester_action' : 'authority_grant'
-      })
     })()
 
     return this.getForTenant(requestId, tenantId)
   }
 
-  private hasAuthority(organizationId: string, personId: string, permission: string): boolean {
-    const db = DatabaseManager.getDatabase()
-    const row = db.prepare(`
-      SELECT 1
-      FROM authority_grants a
-      LEFT JOIN roles r ON r.id = a.role_id AND r.organization_id = a.organization_id
-      WHERE a.organization_id = ?
-        AND a.person_id = ?
-        AND a.status = 'active'
-        AND (a.valid_from IS NULL OR a.valid_from <= CURRENT_TIMESTAMP)
-        AND (a.valid_until IS NULL OR a.valid_until >= CURRENT_TIMESTAMP)
-        AND (
-          a.authority_type = ?
-          OR EXISTS (
-            SELECT 1
-            FROM json_each(COALESCE(r.permissions, '[]'))
-            WHERE json_each.value = ?
-          )
-        )
-      LIMIT 1
-    `).get(organizationId, personId, permission, permission)
-    return !!row
+  private getSeparationOfDuties(fromStatus: RequestStatus, toStatus: RequestStatus, requesterPersonId: string): string[] {
+    // Approval/review should not be performed by the requester by default.
+    // Additional module-specific SoD rules are applied by the owning workflow.
+    if (fromStatus === 'in_review' && ['approved', 'rejected'].includes(toStatus)) return [requesterPersonId]
+    return []
+  }
+
+  private parseContext(value?: string): Record<string, unknown> {
+    try {
+      const parsed = JSON.parse(value || '{}')
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  private recordDecisionEvent(
+    organizationId: string,
+    actorPersonId: string,
+    requestId: string,
+    action: string,
+    decision: 'allow' | 'deny',
+    reasonCode: string
+  ) {
+    // AuthorizationService persists the policy decision. This helper exists
+    // only for requester-owned actions that intentionally bypass authority.
+    DatabaseManager.getDatabase().prepare(`
+      INSERT INTO policy_decisions (
+        id, organization_id, principal_person_id, action,
+        resource_type, resource_id, decision, reason_code, policy_version
+      ) VALUES (?, ?, ?, ?, 'request', ?, ?, ?, ?)
+    `).run(
+      randomUUID(), organizationId, actorPersonId, action,
+      requestId, decision, reasonCode, 'platform-v1'
+    )
   }
 
   getForTenant(requestId: string, tenantId: string) {
@@ -252,13 +276,15 @@ export class PlatformRequestService {
 
     const items = db.prepare('SELECT * FROM request_items WHERE request_id = ? ORDER BY rowid').all(requestId)
     const approvals = db.prepare('SELECT * FROM request_approvals WHERE request_id = ? ORDER BY created_at').all(requestId)
+    const tasks = db.prepare('SELECT * FROM request_tasks WHERE request_id = ? ORDER BY created_at').all(requestId)
     const events = db.prepare('SELECT * FROM request_events WHERE request_id = ? ORDER BY created_at').all(requestId)
 
     return {
       ...request,
-      context: JSON.parse(request.context_json || '{}'),
+      context: this.parseContext(request.context_json),
       items,
       approvals,
+      tasks,
       events
     }
   }
@@ -285,26 +311,6 @@ export class PlatformRequestService {
     sql += ' ORDER BY r.created_at DESC LIMIT ?'
     params.push(Math.min(Math.max(limit, 1), 500))
     return db.prepare(sql).all(...params)
-  }
-
-  private recordPolicyDecision(input: {
-    organizationId: string
-    principalPersonId: string
-    action: string
-    resourceType: string
-    resourceId: string
-    decision: 'allow' | 'deny'
-    reasonCode: string
-  }) {
-    DatabaseManager.getDatabase().prepare(`
-      INSERT INTO policy_decisions (
-        id, organization_id, principal_person_id, action,
-        resource_type, resource_id, decision, reason_code, policy_version
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      randomUUID(), input.organizationId, input.principalPersonId, input.action,
-      input.resourceType, input.resourceId, input.decision, input.reasonCode, 'platform-v1'
-    )
   }
 
   private recordEvent(
