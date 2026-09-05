@@ -1,6 +1,6 @@
-import { Body, Post, Request, Route, Security, Tags } from 'tsoa'
+import { Body, Path, Post, Request, Route, Security, Tags } from 'tsoa'
 import type { Request as ExRequest } from 'express'
-import { ssiTrustService } from '../../services/SsiTrustService'
+import { ssiTrustService, type PresentationQueryLanguage } from '../../services/SsiTrustService'
 
 type AuthenticatedClaims = {
   tenantId?: string
@@ -24,10 +24,12 @@ export class SsiTrustController {
       verifierRef: string
       purposeCode: string
       purposeTextRef?: string
-      queryLanguage?: 'dcql'
+      queryLanguage?: PresentationQueryLanguage
       queryRef: string
       transactionRef?: string
       expiresAt: string
+      credoVerificationSessionId?: string
+      verifierClientIdRef?: string
     }
   ) {
     const p = principal(request)
@@ -35,6 +37,26 @@ export class SsiTrustController {
       ...body,
       tenantId: p.tenantId,
       requesterSubjectRef: p.subjectRef,
+    })
+  }
+
+  @Post('presentation-requests/{requestId}/bind-verifier-session')
+  public async bindVerifierSession(
+    @Request() request: ExRequest,
+    @Path() requestId: string,
+    @Body() body: {
+      verifierRef: string
+      verificationSessionId: string
+      verifierClientIdRef?: string
+    }
+  ) {
+    const p = principal(request)
+    return ssiTrustService.bindCredoVerificationSession({
+      tenantId: p.tenantId,
+      requestId,
+      verifierRef: body.verifierRef,
+      verificationSessionId: body.verificationSessionId,
+      verifierClientIdRef: body.verifierClientIdRef,
     })
   }
 
