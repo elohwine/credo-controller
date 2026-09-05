@@ -36,8 +36,6 @@ export class CredoPresentationVerificationService {
   private readonly issuedCredentialRepository = new IssuedCredentialRepository()
 
   async verify(input: PlatformPresentationVerificationInput): Promise<PlatformPresentationVerificationResult> {
-    ssiTrustService.assertVerificationRequest(input.tenantId, input.requestId)
-
     const agent = input.request.agent
     const verifier = (agent.modules as any).openId4VcVerifier
     if (!verifier) throw new Error('OpenID4VP verifier module is not configured')
