@@ -9,9 +9,23 @@ logs.txt
 *.tgz
 
 # dotenv environment variable files
+.env
+.env.*
+!.env.sample
 
+# Local persistence / wallet / credential material
+/data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+*.pem
+*.key
+*.p12
+*.pfx
 
-# parcel-bundler cache (https://parceljs.org/)
+# parcel-bundler cache
 .cache
 .parcel-cache
 
@@ -25,18 +39,12 @@ dist
 
 # Gatsby files
 .cache/
-# Comment in the public line in if your project uses Gatsby and not Next.js
-# https://nextjs.org/blog/next-9-1#public-directory-support
-# public
 
-# vuepress build output
-.vuepress/dist
-
-# vuepress v2.x temp and cache directory
+# vuepress v2 temp/cache
 .temp
-.cache
 
-# Docusaurus cache and generated files
+# Docusaurus cache
+a.docusaurus
 .docusaurus
 
 # Serverless directories
@@ -51,7 +59,7 @@ dist
 # TernJS port file
 .tern-port
 
-# Stores VSCode versions used for testing VSCode extensions
+# Stores VSCode versions used in tests
 .vscode-test
 
 # yarn v2
@@ -60,5 +68,3 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
-build
-logs.txt
