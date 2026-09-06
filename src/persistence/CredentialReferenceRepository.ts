@@ -18,6 +18,7 @@ export interface CredentialReferenceRecord {
 }
 
 export interface UpsertCredentialReferenceInput {
+  id?: string
   organizationId: string
   subjectRef?: string
   credentialType: string
@@ -39,7 +40,7 @@ export interface UpsertCredentialReferenceInput {
 export class CredentialReferenceRepository {
   public upsert(input: UpsertCredentialReferenceInput): CredentialReferenceRecord {
     const db = DatabaseManager.getDatabase()
-    const id = randomUUID()
+    const id = input.id ?? randomUUID()
     const digest = input.digest ?? this.createReferenceDigest(input)
 
     db.prepare(`
@@ -74,27 +75,15 @@ export class CredentialReferenceRepository {
       digest
     )
 
-    return {
-      id,
-      organizationId: input.organizationId,
-      subjectRef: input.subjectRef,
-      credentialType: input.credentialType,
-      issuerRef: input.issuerRef,
-      format: input.format,
-      externalRef: input.externalRef,
-      status: input.status ?? 'unknown',
-      issuedAt: input.issuedAt,
-      expiresAt: input.expiresAt,
-      lastVerifiedAt: input.lastVerifiedAt,
-      digest,
-    }
+    return this.toRecord(id, input, digest)
   }
 
   public create(input: UpsertCredentialReferenceInput): CredentialReferenceRecord {
     const db = DatabaseManager.getDatabase()
-    const id = randomUUID()
-    const digest = input.digest ?? this.createReferenceDigest(input)
+    const id = input.id ?? randomUUID()
+    if (this.findById(input.organizationId, id)) throw new Error('Credential reference already exists')
 
+    const digest = input.digest ?? this.createReferenceDigest(input)
     db.prepare(`
       INSERT INTO credential_references (
         id, organization_id, subject_ref, credential_type, issuer_ref,
@@ -116,25 +105,12 @@ export class CredentialReferenceRepository {
       digest
     )
 
-    return {
-      id,
-      organizationId: input.organizationId,
-      subjectRef: input.subjectRef,
-      credentialType: input.credentialType,
-      issuerRef: input.issuerRef,
-      format: input.format,
-      externalRef: input.externalRef,
-      status: input.status ?? 'unknown',
-      issuedAt: input.issuedAt,
-      expiresAt: input.expiresAt,
-      lastVerifiedAt: input.lastVerifiedAt,
-      digest,
-    }
+    return this.toRecord(id, input, digest)
   }
 
   public findById(organizationId: string, id: string): CredentialReferenceRecord | undefined {
     const db = DatabaseManager.getDatabase()
-    const row = db.prepare(`
+    return db.prepare(`
       SELECT
         id, organization_id AS organizationId, subject_ref AS subjectRef,
         credential_type AS credentialType, issuer_ref AS issuerRef,
@@ -145,8 +121,6 @@ export class CredentialReferenceRepository {
       WHERE organization_id = ? AND id = ?
       LIMIT 1
     `).get(organizationId, id) as CredentialReferenceRecord | undefined
-
-    return row
   }
 
   public findForSubject(
@@ -155,7 +129,7 @@ export class CredentialReferenceRepository {
     credentialType?: string
   ): CredentialReferenceRecord[] {
     const db = DatabaseManager.getDatabase()
-    const rows = db.prepare(`
+    return db.prepare(`
       SELECT
         id, organization_id AS organizationId, subject_ref AS subjectRef,
         credential_type AS credentialType, issuer_ref AS issuerRef,
@@ -168,8 +142,6 @@ export class CredentialReferenceRepository {
         AND (? IS NULL OR credential_type = ?)
       ORDER BY created_at DESC
     `).all(organizationId, subjectRef, credentialType ?? null, credentialType ?? null) as CredentialReferenceRecord[]
-
-    return rows
   }
 
   public updateStatus(
@@ -185,6 +157,27 @@ export class CredentialReferenceRepository {
       WHERE organization_id = ? AND id = ?
     `).run(status, verifiedAt, organizationId, id)
     return result.changes === 1
+  }
+
+  private toRecord(
+    id: string,
+    input: UpsertCredentialReferenceInput,
+    digest: string
+  ): CredentialReferenceRecord {
+    return {
+      id,
+      organizationId: input.organizationId,
+      subjectRef: input.subjectRef,
+      credentialType: input.credentialType,
+      issuerRef: input.issuerRef,
+      format: input.format,
+      externalRef: input.externalRef,
+      status: input.status ?? 'unknown',
+      issuedAt: input.issuedAt,
+      expiresAt: input.expiresAt,
+      lastVerifiedAt: input.lastVerifiedAt,
+      digest,
+    }
   }
 
   private createReferenceDigest(input: UpsertCredentialReferenceInput): string {
