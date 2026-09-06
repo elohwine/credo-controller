@@ -1,7 +1,9 @@
-import { Body, Path, Post, Request, Route, Security, Tags } from 'tsoa'
 import type { Request as ExRequest } from 'express'
-import { ssiPresentationService } from '../../services/ssi/SsiPresentationService'
+
+import { Body, Path, Post, Request, Route, Security, Tags } from 'tsoa'
+
 import { ssiTrustService, type PresentationQueryLanguage } from '../../services/SsiTrustService'
+import { ssiPresentationService } from '../../services/ssi/SsiPresentationService'
 
 type AuthenticatedClaims = {
   tenantId?: string
