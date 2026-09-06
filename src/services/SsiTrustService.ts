@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'crypto'
+
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { authorizationService } from './AuthorizationService'
 
@@ -16,6 +17,7 @@ export interface PresentationRequestInput {
   expiresAt: string
   credoVerificationSessionId?: string
   verifierClientIdRef?: string
+  protocolState?: string
 }
 
 export interface PresentationConsentInput {
@@ -48,12 +50,14 @@ export interface PresentationVerificationInput {
 
 export interface PresentationProtocolContext {
   requestId: string
+  tenantId: string
   verifierRef: string
   protocol: string
   queryLanguage: PresentationQueryLanguage
   queryRef: string
   credoVerificationSessionId?: string
   verifierClientIdRef?: string
+  protocolState?: string
   expiresAt: string
 }
 
@@ -63,11 +67,6 @@ export interface VerifierRegistrationContext {
   credoVerifierIdRef: string
 }
 
-/**
- * Reference-first SSI trust service.
- * Raw VCs, SD-JWTs, mdocs and VPs remain protocol data and are not persisted
- * in business records.
- */
 export class SsiTrustService {
   private resolveOrganization(tenantId: string): string {
     const db = DatabaseManager.getDatabase()
@@ -177,8 +176,8 @@ export class SsiTrustService {
       INSERT INTO presentation_requests (
         id, organization_id, requester_person_id, verifier_ref, purpose_code, purpose_text_ref,
         query_language, query_ref, transaction_ref, status, expires_at,
-        credo_verification_session_id, verifier_client_id_ref, protocol
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+        credo_verification_session_id, verifier_client_id_ref, protocol, protocol_state
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
     `).run(
       requestId,
       organizationId,
@@ -192,7 +191,8 @@ export class SsiTrustService {
       expiresAt.toISOString(),
       input.credoVerificationSessionId ?? null,
       input.verifierClientIdRef ?? null,
-      protocol
+      protocol,
+      input.protocolState ?? null
     )
 
     return { requestId, expiresAt: expiresAt.toISOString(), queryLanguage, protocol }
@@ -200,24 +200,33 @@ export class SsiTrustService {
 
   getProtocolContext(tenantId: string, requestId: string): PresentationProtocolContext {
     const organizationId = this.resolveOrganization(tenantId)
+    return this.getProtocolContextByOrganization(organizationId, requestId)
+  }
+
+  getProtocolContextByState(state: string): PresentationProtocolContext {
+    if (!state || state.length > 512) throw new Error('Invalid OpenID4VP state')
     const db = DatabaseManager.getDatabase()
     const row = db.prepare(`
       SELECT
-        id AS requestId,
-        verifier_ref AS verifierRef,
-        protocol,
-        query_language AS queryLanguage,
-        query_ref AS queryRef,
-        credo_verification_session_id AS credoVerificationSessionId,
-        verifier_client_id_ref AS verifierClientIdRef,
-        expires_at AS expiresAt
-      FROM presentation_requests
-      WHERE id = ? AND organization_id = ?
+        pr.id AS requestId,
+        o.tenant_id AS tenantId,
+        pr.verifier_ref AS verifierRef,
+        pr.protocol,
+        pr.query_language AS queryLanguage,
+        pr.query_ref AS queryRef,
+        pr.credo_verification_session_id AS credoVerificationSessionId,
+        pr.verifier_client_id_ref AS verifierClientIdRef,
+        pr.protocol_state AS protocolState,
+        pr.expires_at AS expiresAt
+      FROM presentation_requests pr
+      JOIN organizations o ON o.id = pr.organization_id
+      WHERE pr.protocol_state = ?
+        AND o.status = 'active'
       LIMIT 1
-    `).get(requestId, organizationId) as PresentationProtocolContext | undefined
+    `).get(state) as PresentationProtocolContext | undefined
 
-    if (!row) throw new Error('Presentation request not found')
-    if (new Date(row.expiresAt).getTime() <= Date.now()) throw new Error('Presentation request has expired')
+    if (!row) throw new Error('Presentation protocol state not found')
+    this.assertProtocolContextUsable(row)
     return row
   }
 
@@ -227,16 +236,20 @@ export class SsiTrustService {
     verifierRef: string
     verificationSessionId: string
     verifierClientIdRef?: string
+    protocolState?: string
   }) {
     const organizationId = this.resolveOrganization(input.tenantId)
     const db = DatabaseManager.getDatabase()
     const result = db.prepare(`
       UPDATE presentation_requests
-      SET credo_verification_session_id = ?, verifier_client_id_ref = COALESCE(?, verifier_client_id_ref)
+      SET credo_verification_session_id = ?,
+          verifier_client_id_ref = COALESCE(?, verifier_client_id_ref),
+          protocol_state = COALESCE(?, protocol_state)
       WHERE id = ? AND organization_id = ? AND verifier_ref = ?
     `).run(
       input.verificationSessionId,
       input.verifierClientIdRef ?? null,
+      input.protocolState ?? null,
       input.requestId,
       organizationId,
       input.verifierRef
@@ -361,6 +374,39 @@ export class SsiTrustService {
     )
 
     return { resultId, verified: input.verified, evidenceDigest }
+  }
+
+  private getProtocolContextByOrganization(organizationId: string, requestId: string): PresentationProtocolContext {
+    const db = DatabaseManager.getDatabase()
+    const row = db.prepare(`
+      SELECT
+        pr.id AS requestId,
+        o.tenant_id AS tenantId,
+        pr.verifier_ref AS verifierRef,
+        pr.protocol,
+        pr.query_language AS queryLanguage,
+        pr.query_ref AS queryRef,
+        pr.credo_verification_session_id AS credoVerificationSessionId,
+        pr.verifier_client_id_ref AS verifierClientIdRef,
+        pr.protocol_state AS protocolState,
+        pr.expires_at AS expiresAt
+      FROM presentation_requests pr
+      JOIN organizations o ON o.id = pr.organization_id
+      WHERE pr.id = ?
+        AND pr.organization_id = ?
+        AND o.status = 'active'
+      LIMIT 1
+    `).get(requestId, organizationId) as PresentationProtocolContext | undefined
+
+    if (!row) throw new Error('Presentation request not found')
+    this.assertProtocolContextUsable(row)
+    return row
+  }
+
+  private assertProtocolContextUsable(context: PresentationProtocolContext): void {
+    if (new Date(context.expiresAt).getTime() <= Date.now()) throw new Error('Presentation request has expired')
+    if (!context.verifierRef) throw new Error('Presentation verifier is missing')
+    if (!context.protocol) throw new Error('Presentation protocol is missing')
   }
 
   private createEvidenceDigest(input: PresentationVerificationInput): string {
