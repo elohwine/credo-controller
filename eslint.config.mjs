@@ -15,6 +15,7 @@ export default [
       '**/build/**',
       '**/*.js',
       '**/*.d.ts',
+      'credo-ui/**',
     ],
   },
   {
@@ -27,7 +28,7 @@ export default [
         sourceType: 'module',
       },
       globals: {
-        console: false, // no-console rule
+        console: false,
       },
     },
     plugins: {
@@ -37,8 +38,7 @@ export default [
     },
     rules: {
       'no-constant-condition': 'warn',
-  // Temporarily disabled to unblock progress; re-enable gradually as types harden
-  '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/no-use-before-define': ['error', { functions: false, classes: false, variables: true }],
