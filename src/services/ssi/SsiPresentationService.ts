@@ -1,5 +1,7 @@
-import { DcqlService } from '@credo-ts/core'
 import type { Request as ExRequest } from 'express'
+
+import { DcqlService } from '@credo-ts/core'
+
 import { ssiTrustService } from '../SsiTrustService'
 
 export interface CreatePlatformPresentationRequestInput {
@@ -30,7 +32,7 @@ export interface CreatePlatformPresentationRequestResult {
  * The workflow/business layer never constructs request JWTs itself.
  */
 export class SsiPresentationService {
-  async createPresentationRequest(
+  public async createPresentationRequest(
     input: CreatePlatformPresentationRequestInput
   ): Promise<CreatePlatformPresentationRequestResult> {
     const queryLanguage = input.queryLanguage ?? 'dcql'
@@ -43,8 +45,6 @@ export class SsiPresentationService {
 
     const registration = ssiTrustService.getVerifierRegistration(input.tenantId, input.verifierRef)
 
-    // Create the business request first. This performs tenant/member/authority
-    // checks before the external wallet protocol session is created.
     const platformRequest = ssiTrustService.createPresentationRequest({
       tenantId: input.tenantId,
       requesterSubjectRef: input.requesterSubjectRef,
