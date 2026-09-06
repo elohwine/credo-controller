@@ -1,5 +1,6 @@
-import { Body, Post, Request, Route, Tags } from 'tsoa'
 import type { Request as ExRequest } from 'express'
+
+import { Body, Post, Request, Route, Tags } from 'tsoa'
 
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { credoPresentationVerificationService } from '../../services/ssi/CredoPresentationVerificationService'
