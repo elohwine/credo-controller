@@ -1,6 +1,8 @@
-import { gunzipSync } from 'zlib'
-import { JsonTransformer, W3cJsonLdVerifiableCredential } from '@credo-ts/core'
 import type { Request as ExRequest } from 'express'
+
+import { JsonTransformer, W3cJsonLdVerifiableCredential } from '@credo-ts/core'
+import { gunzipSync } from 'zlib'
+
 import type { CredentialStatus } from './SsiTypes'
 
 const MINIMUM_STATUS_LIST_ENTRIES = 131_072
@@ -45,7 +47,7 @@ type BitstringStatusListCredential = {
 }
 
 export class CredentialStatusService implements CredentialStatusResolver {
-  async resolve(input: {
+  public async resolve(input: {
     credentialId?: string
     credentialStatus?: unknown
     issuerRef?: string
