@@ -157,21 +157,30 @@ export class CredentialStatusService implements CredentialStatusResolver {
       return undefined
     }
 
+    let statusMessage: Array<{ status: string; message: string }> | undefined
+    if (candidate.statusMessage !== undefined) {
+      if (!Array.isArray(candidate.statusMessage)) return undefined
+      if (
+        candidate.statusMessage.some(
+          (message) =>
+            !message ||
+            typeof message !== 'object' ||
+            typeof (message as Record<string, unknown>).status !== 'string' ||
+            typeof (message as Record<string, unknown>).message !== 'string'
+        )
+      ) {
+        return undefined
+      }
+      statusMessage = candidate.statusMessage as Array<{ status: string; message: string }>
+    }
+
     return {
       type: 'BitstringStatusListEntry',
       statusPurpose: candidate.statusPurpose,
       statusListIndex: candidate.statusListIndex,
       statusListCredential: candidate.statusListCredential,
       statusSize: typeof candidate.statusSize === 'number' ? candidate.statusSize : undefined,
-      statusMessage: Array.isArray(candidate.statusMessage)
-        ? candidate.statusMessage.filter(
-            (message): message is { status: string; message: string } =>
-              !!message &&
-              typeof message === 'object' &&
-              typeof (message as Record<string, unknown>).status === 'string' &&
-              typeof (message as Record<string, unknown>).message === 'string'
-          )
-        : undefined,
+      statusMessage,
     }
   }
 
@@ -270,7 +279,9 @@ export class CredentialStatusService implements CredentialStatusResolver {
 
   private decodeBitstring(encodedList: string): Buffer {
     if (!encodedList.startsWith('u')) throw new Error('Unsupported status list multibase encoding')
-    return gunzipSync(Buffer.from(encodedList.slice(1), 'base64url'))
+    return gunzipSync(Buffer.from(encodedList.slice(1), 'base64url'), {
+      maxOutputLength: MAX_STATUS_LIST_BYTES + 1,
+    })
   }
 
   private readBitsMostSignificantFirst(bytes: Buffer, bitOffset: number, bitLength: number): number {
