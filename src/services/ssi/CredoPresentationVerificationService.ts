@@ -43,6 +43,10 @@ export class CredoPresentationVerificationService {
       throw new Error('Presentation request is not bound to a Credo verification session')
     }
 
+    if (context.protocolState !== input.state) {
+      throw new Error('OpenID4VP state does not match the stored presentation request')
+    }
+
     const agent = input.request.agent
     const verifier = (agent.modules as any).openId4VcVerifier
     if (!verifier) throw new Error('OpenID4VP verifier module is not configured')
@@ -61,6 +65,10 @@ export class CredoPresentationVerificationService {
         },
       })
 
+      // Credo returned successfully, which is the protocol-level verification
+      // gate for the persisted session: state, nonce, audience, holder/key
+      // binding and the selected presentation query have passed Credo's checks.
+      const protocolVerified = verificationResult != null
       const isDcql = context.queryLanguage === 'dcql'
       const verifiedResponse = isDcql ? verificationResult?.dcql : verificationResult?.presentationExchange
       const presentations = this.extractPresentations(verifiedResponse, isDcql)
@@ -89,18 +97,13 @@ export class CredoPresentationVerificationService {
       const issuerRefs = this.extractIssuerRefs(credentials)
       const trust = issuerTrustService.evaluate(input.tenantId, issuerRefs)
       const trustVerified = trust.decision === 'trusted'
-
-      // Credo only returns a successful verified response after the persisted
-      // request session and its protocol checks have passed. For DCQL, this also
-      // includes Credo's DCQL evaluation of the presented credentials.
-      const holderBindingVerified = true
-      const audienceVerified = true
-      const nonceVerified = true
-      const schemaVerified = isDcql
-        ? Boolean(verificationResult?.dcql?.presentationResult)
-        : Boolean(verificationResult?.presentationExchange?.definition && verificationResult?.presentationExchange?.submission)
+      const schemaVerified = protocolVerified
+      const holderBindingVerified = protocolVerified
+      const audienceVerified = protocolVerified
+      const nonceVerified = protocolVerified
 
       const verified =
+        protocolVerified &&
         !statusInvalid &&
         holderBindingVerified &&
         audienceVerified &&
@@ -163,16 +166,10 @@ export class CredoPresentationVerificationService {
     }
   }
 
-  private extractPresentations(
-    verifiedResponse: any,
-    isDcql: boolean
-  ): unknown[] {
+  private extractPresentations(verifiedResponse: any, isDcql: boolean): unknown[] {
     if (!verifiedResponse) return []
-
     if (!isDcql) return Array.isArray(verifiedResponse.presentations) ? verifiedResponse.presentations : []
 
-    // DCQL presentations are keyed by credential query id. A query can request
-    // multiple presentations, so flatten all query groups without persisting them.
     return Object.values(verifiedResponse.presentations ?? {}).flatMap((values: any) =>
       Array.isArray(values) ? values : [values]
     )
