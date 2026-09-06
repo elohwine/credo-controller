@@ -102,13 +102,20 @@ export class SsiPresentationService {
     const verificationSessionId = protocolResult.verificationSession?.id
     if (!verificationSessionId) throw new Error('Credo did not return a verification session')
 
-    const verifierClientIdRef = protocolResult.verificationSession?.requestPayload?.client_id
+    const requestPayload = protocolResult.verificationSession?.requestPayload
+    const verifierClientIdRef = requestPayload?.client_id
+    const protocolState = requestPayload?.state
+    if (typeof protocolState !== 'string' || protocolState.length < 16 || protocolState.length > 512) {
+      throw new Error('Credo did not return a valid OpenID4VP state')
+    }
+
     ssiTrustService.bindCredoVerificationSession({
       tenantId: input.tenantId,
       requestId: platformRequest.requestId,
       verifierRef: input.verifierRef,
       verificationSessionId,
       verifierClientIdRef: typeof verifierClientIdRef === 'string' ? verifierClientIdRef : undefined,
+      protocolState,
     })
 
     return {
