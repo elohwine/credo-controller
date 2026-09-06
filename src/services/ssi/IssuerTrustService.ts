@@ -13,7 +13,7 @@ export interface IssuerTrustResult {
  * currently trusted by this organization's configured trust anchors?
  */
 export class IssuerTrustService {
-  evaluate(tenantId: string, issuerRefs: string[]): IssuerTrustResult {
+  public evaluate(tenantId: string, issuerRefs: string[]): IssuerTrustResult {
     if (issuerRefs.length === 0) {
       return { decision: 'unknown', trustedIssuerRefs: [], untrustedIssuerRefs: [] }
     }
