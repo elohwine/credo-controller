@@ -1,4 +1,5 @@
 import type { Request as ExRequest } from 'express'
+
 import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
 import { ssiTrustService } from '../SsiTrustService'
 import { credentialStatusService } from './CredentialStatusService'
@@ -6,7 +7,6 @@ import { issuerTrustService } from './IssuerTrustService'
 
 export interface PlatformPresentationVerificationInput {
   tenantId: string
-  subjectRef: string
   requestId: string
   state: string
   verifiablePresentation: unknown
@@ -36,7 +36,7 @@ export interface PlatformPresentationVerificationResult {
 export class CredoPresentationVerificationService {
   private readonly issuedCredentialRepository = new IssuedCredentialRepository()
 
-  async verify(input: PlatformPresentationVerificationInput): Promise<PlatformPresentationVerificationResult> {
+  public async verify(input: PlatformPresentationVerificationInput): Promise<PlatformPresentationVerificationResult> {
     const context = ssiTrustService.getProtocolContext(input.tenantId, input.requestId)
 
     if (!context.credoVerificationSessionId) {
@@ -79,6 +79,7 @@ export class CredoPresentationVerificationService {
           credentialId: credential?.id || credential?.jti || credential?.vc?.id,
           credentialStatus: credential?.credentialStatus || credential?.vc?.credentialStatus,
           issuerRef: this.extractIssuerRef(credential),
+          request: input.request,
         }))
       )
 
