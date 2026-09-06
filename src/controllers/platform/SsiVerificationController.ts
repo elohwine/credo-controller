@@ -2,50 +2,40 @@ import type { Request as ExRequest } from 'express'
 
 import { Body, Post, Request, Route, Tags } from 'tsoa'
 
-import { DatabaseManager } from '../../persistence/DatabaseManager'
+import { ssiTrustService } from '../../services/SsiTrustService'
 import { credoPresentationVerificationService } from '../../services/ssi/CredoPresentationVerificationService'
 
 @Route('api/platform/ssi')
 @Tags('Platform SSI')
 export class SsiVerificationController {
+  /**
+   * OpenID4VP callback. The protocol state is the only client-supplied
+   * correlation identifier; tenant and request identity are resolved from the
+   * server-side presentation request record. Credo then validates the bound
+   * verification session and the submitted presentation.
+   */
   @Post('verify')
   public async verify(
     @Request() request: ExRequest,
     @Body() body: {
-      requestId: string
       state: string
       verifiablePresentation: string
       presentationSubmission?: unknown
     }
   ) {
-    if (!body?.requestId || !body.state || !body.verifiablePresentation) {
-      throw new Error('requestId, state and verifiablePresentation are required')
+    if (!body?.state || !body.verifiablePresentation) {
+      throw new Error('state and verifiablePresentation are required')
     }
 
-    const tenantId = this.resolveTenantForPresentationRequest(body.requestId)
+    const context = ssiTrustService.getProtocolContextByState(body.state)
 
     return credoPresentationVerificationService.verify({
-      tenantId,
-      requestId: body.requestId,
+      tenantId: context.tenantId,
+      requestId: context.requestId,
       state: body.state,
       verifiablePresentation: body.verifiablePresentation,
       presentationSubmission: body.presentationSubmission,
       request,
     })
-  }
-
-  private resolveTenantForPresentationRequest(requestId: string): string {
-    const db = DatabaseManager.getDatabase()
-    const row = db.prepare(`
-      SELECT o.tenant_id AS tenantId
-      FROM presentation_requests pr
-      JOIN organizations o ON o.id = pr.organization_id
-      WHERE pr.id = ?
-        AND o.status = 'active'
-      LIMIT 1
-    `).get(requestId) as { tenantId?: string } | undefined
-
-    if (!row?.tenantId) throw new Error('Presentation request not found')
-    return row.tenantId
   }
 }
