@@ -52,9 +52,7 @@ export class CredentialDefinitionRepository {
         tag: record.tag || null,
       })
 
-      this.logger.debug(
-        `Saved credential definition: ${record.credentialDefinitionId} for tenant: ${record.tenantId}`,
-      )
+      this.logger.debug(`Saved credential definition: ${record.credentialDefinitionId} for tenant: ${record.tenantId}`)
     } catch (error) {
       this.logger.error(
         { error, credentialDefinitionId: record.credentialDefinitionId },
@@ -173,7 +171,10 @@ export class CredentialDefinitionRepository {
   /**
    * Find credential definition by tenant and definition ID (unique combination)
    */
-  findByTenantAndDefinitionId(tenantId: string, credentialDefinitionId: string): CredentialDefinitionRecord | undefined {
+  findByTenantAndDefinitionId(
+    tenantId: string,
+    credentialDefinitionId: string,
+  ): CredentialDefinitionRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`

@@ -43,7 +43,8 @@ export class CredentialReferenceRepository {
     const id = input.id ?? randomUUID()
     const digest = input.digest ?? this.createReferenceDigest(input)
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO credential_references (
         id, organization_id, subject_ref, credential_type, issuer_ref,
         format, external_ref, status, issued_at, expires_at,
@@ -60,7 +61,8 @@ export class CredentialReferenceRepository {
         expires_at = excluded.expires_at,
         last_verified_at = excluded.last_verified_at,
         digest = excluded.digest
-    `).run(
+    `,
+    ).run(
       id,
       input.organizationId,
       input.subjectRef ?? null,
@@ -72,7 +74,7 @@ export class CredentialReferenceRepository {
       input.issuedAt ?? null,
       input.expiresAt ?? null,
       input.lastVerifiedAt ?? null,
-      digest
+      digest,
     )
 
     return this.toRecord(id, input, digest)
@@ -84,13 +86,15 @@ export class CredentialReferenceRepository {
     if (this.findById(input.organizationId, id)) throw new Error('Credential reference already exists')
 
     const digest = input.digest ?? this.createReferenceDigest(input)
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO credential_references (
         id, organization_id, subject_ref, credential_type, issuer_ref,
         format, external_ref, status, issued_at, expires_at,
         last_verified_at, digest
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
+    ).run(
       id,
       input.organizationId,
       input.subjectRef ?? null,
@@ -102,7 +106,7 @@ export class CredentialReferenceRepository {
       input.issuedAt ?? null,
       input.expiresAt ?? null,
       input.lastVerifiedAt ?? null,
-      digest
+      digest,
     )
 
     return this.toRecord(id, input, digest)
@@ -110,7 +114,9 @@ export class CredentialReferenceRepository {
 
   public findById(organizationId: string, id: string): CredentialReferenceRecord | undefined {
     const db = DatabaseManager.getDatabase()
-    return db.prepare(`
+    return db
+      .prepare(
+        `
       SELECT
         id, organization_id AS organizationId, subject_ref AS subjectRef,
         credential_type AS credentialType, issuer_ref AS issuerRef,
@@ -120,16 +126,20 @@ export class CredentialReferenceRepository {
       FROM credential_references
       WHERE organization_id = ? AND id = ?
       LIMIT 1
-    `).get(organizationId, id) as CredentialReferenceRecord | undefined
+    `,
+      )
+      .get(organizationId, id) as CredentialReferenceRecord | undefined
   }
 
   public findForSubject(
     organizationId: string,
     subjectRef: string,
-    credentialType?: string
+    credentialType?: string,
   ): CredentialReferenceRecord[] {
     const db = DatabaseManager.getDatabase()
-    return db.prepare(`
+    return db
+      .prepare(
+        `
       SELECT
         id, organization_id AS organizationId, subject_ref AS subjectRef,
         credential_type AS credentialType, issuer_ref AS issuerRef,
@@ -141,29 +151,31 @@ export class CredentialReferenceRepository {
         AND subject_ref = ?
         AND (? IS NULL OR credential_type = ?)
       ORDER BY created_at DESC
-    `).all(organizationId, subjectRef, credentialType ?? null, credentialType ?? null) as CredentialReferenceRecord[]
+    `,
+      )
+      .all(organizationId, subjectRef, credentialType ?? null, credentialType ?? null) as CredentialReferenceRecord[]
   }
 
   public updateStatus(
     organizationId: string,
     id: string,
     status: CredentialReferenceRecord['status'],
-    verifiedAt = new Date().toISOString()
+    verifiedAt = new Date().toISOString(),
   ): boolean {
     const db = DatabaseManager.getDatabase()
-    const result = db.prepare(`
+    const result = db
+      .prepare(
+        `
       UPDATE credential_references
       SET status = ?, last_verified_at = ?
       WHERE organization_id = ? AND id = ?
-    `).run(status, verifiedAt, organizationId, id)
+    `,
+      )
+      .run(status, verifiedAt, organizationId, id)
     return result.changes === 1
   }
 
-  private toRecord(
-    id: string,
-    input: UpsertCredentialReferenceInput,
-    digest: string
-  ): CredentialReferenceRecord {
+  private toRecord(id: string, input: UpsertCredentialReferenceInput, digest: string): CredentialReferenceRecord {
     return {
       id,
       organizationId: input.organizationId,

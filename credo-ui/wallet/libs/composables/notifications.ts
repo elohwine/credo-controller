@@ -24,7 +24,7 @@ export function extractErrorMessage(error: any): string {
     const data = error.response._data || error.response.data
     if (data?.details) return data.details
     if (data?.message) return data.message
-    
+
     const status = error.response.status
     if (status === 401) return 'Unauthorized - please log in again'
     if (status === 403) return 'Access denied'

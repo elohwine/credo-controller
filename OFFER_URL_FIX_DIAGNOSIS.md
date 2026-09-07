@@ -17,12 +17,14 @@
 ### Step 1: Initial Problem Analysis
 
 User reported:
+
 ```
 POST http://localhost:3000/api/wallet/credentials/accept-offer 500 (Internal Server Error)
 Failed to save invoice: {message: 'Failed to accept offer: Invalid Credential Offer Request'}
 ```
 
 The browser console showed the offer URL being truncated in the log:
+
 ```
 [Shop] Saving invoice to wallet with offer: openid-credential-offer://?credential_offer_uri=http%3A%2F%2F172.19.0.10%3A3000%
 ```
@@ -34,11 +36,13 @@ This suggested the URL was incomplete or malformed.
 Tested three potential issues:
 
 **a) Credo Offer Format Validation**
+
 - Checked Sphereon's OID4VCI URL validation regex
 - Confirmed it only accepts: localhost, FQDNs, or IPv4 addresses (not bare hostnames)
 - This was NOT the issue - the source was using `172.19.0.10:3000` (valid IP)
 
 **b) Offer URL Generation**
+
 - Manually tested `/custom-oidc/issuer/credential-offers` endpoint with API key
 - Confirmed it returns correctly formatted, complete offer URLs:
   ```
@@ -47,11 +51,13 @@ Tested three potential issues:
 - This was NOT the issue - offer generation was working correctly
 
 **c) Offer URL Handling in Portal Frontend**
+
 - Checked shop component's `handleSaveInvoice()` function
 - Verified axios POST was sending the offer URI correctly
 - This was NOT the issue - UI code was correct
 
 **d) Backend Accept-Offer Logic**
+
 - Inspected `WalletCredentialsController.acceptOffer()` implementation
 - Found robust offer URI normalization that handles:
   - Multi-level URL encoding
@@ -90,6 +96,7 @@ portal:
 ```
 
 When the Next.js portal container (running on `172.19.0.13:5000`) makes a request to `http://localhost:3000`, the browser doesn't resolve it; instead:
+
 1. Node.js server in the container tries to fetch from `localhost:3000`
 2. Inside the container, `localhost` resolves to the container's loopback (`127.0.0.1`)
 3. Port 3000 is NOT exposed on the container's loopback
@@ -105,6 +112,7 @@ When the Next.js portal container (running on `172.19.0.13:5000`) makes a reques
 **File:** [docker-compose.full.yml](docker-compose.full.yml#L119-L120)
 
 **Before:**
+
 ```yaml
 environment:
   - NEXT_PUBLIC_BACKEND_URL=http://localhost:3000
@@ -112,6 +120,7 @@ environment:
 ```
 
 **After:**
+
 ```yaml
 environment:
   - NEXT_PUBLIC_BACKEND_URL=http://172.19.0.10:3000
@@ -169,6 +178,7 @@ curl -X POST http://localhost:3000/api/wallet/credentials/accept-offer \
 ### Browser Testing
 
 Navigate to `http://localhost:5000/shop` (or your portal URL):
+
 1. Add items to cart
 2. Proceed to checkout
 3. Enter phone number
@@ -189,11 +199,13 @@ Navigate to `http://localhost:5000/shop` (or your portal URL):
 ### Credential Offer Format
 
 The OpenID4VCI `credential_offer_uri` format is:
+
 ```
 openid-credential-offer://?credential_offer_uri=<url_encoded_http_url>
 ```
 
 Example (decoded):
+
 ```
 openid-credential-offer://?credential_offer_uri=http://172.19.0.10:3000/oidc/issuer/default-platform-issuer/offers/44ee56c5-0960-4c49-823d-a30d73f67c20
 ```
@@ -223,11 +235,13 @@ The `console.log('[Shop] Saving invoice to wallet with offer:', invoiceUrl.slice
 ### For Users Testing
 
 1. **Rebuild containers:**
+
    ```bash
    sudo docker compose -f docker-compose.full.yml up -d --build
    ```
 
 2. **Clear browser cache** (localStorage might have old URLs):
+
    ```javascript
    // In browser console
    localStorage.clear()

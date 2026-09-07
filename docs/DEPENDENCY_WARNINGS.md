@@ -1,6 +1,7 @@
 # Dependency Warnings Analysis
 
 ## Summary
+
 The warnings you're seeing during `yarn install` are **non-blocking** and don't prevent the application from running. The e2e tests passed successfully despite these warnings. However, understanding them helps maintain the project long-term.
 
 ## Warning Categories
@@ -14,12 +15,12 @@ These are deep in the dependency tree and don't affect functionality:
   → From: @credo-ts/core > @digitalcredentials/vc
   → Status: Merged into ECMAScript standard
   → Action: None needed (transitive dependency of Credo)
-  
+
 expo-random@14.0.1, @unimodules/react-native-adapter, @unimodules/core
   → From: @credo-ts/core > @digitalcredentials/jsonld-signatures
   → Status: Replaced by expo-crypto
   → Action: None needed (only used in React Native contexts)
-  
+
 node-fetch > fetch-blob > node-domexception@1.0.0
   → Status: Use platform DOMException instead
   → Action: None needed (node-fetch@2 pinned intentionally)
@@ -38,6 +39,7 @@ warning Resolution field "@credo-ts/askar@0.5.15" is incompatible with requested
 ```
 
 **Why:** Your `package.json` has:
+
 ```json
 "resolutions": {
   "@credo-ts/core": "0.5.15",
@@ -57,6 +59,7 @@ warning "@credo-ts/anoncreds@0.5.15" has unmet peer dependency "@hyperledger/ano
 ```
 
 **Why:** You're using the Node.js native bindings:
+
 - `@hyperledger/aries-askar-nodejs@0.2.3`
 - `@hyperledger/anoncreds-nodejs@0.3.1`
 
@@ -71,6 +74,7 @@ warning "@ayanworks/credo-polygon-w3c-module > ... > @nomicfoundation/hardhat-ve
 **Why:** Hardhat is a dev tool for blockchain contract verification. Only needed if you're deploying Polygon smart contracts.
 
 **Action:** ⚠️ Optional - add if using Polygon contract features:
+
 ```bash
 yarn add -D hardhat@^2.26.0
 ```
@@ -80,12 +84,14 @@ yarn add -D hardhat@^2.26.0
 ### Immediate Actions (Optional)
 
 1. **Suppress warnings in CI/CD:**
+
 ```bash
 # Add to .yarnrc or scripts
 yarn install --silent 2>/dev/null || yarn install
 ```
 
 2. **Document known warnings:**
+
 ```bash
 # Add to package.json
 "scripts": {
@@ -96,10 +102,12 @@ yarn install --silent 2>/dev/null || yarn install
 ### Future Maintenance
 
 1. **Monitor Credo updates:**
+
    - Watch for @credo-ts v0.6.x or v1.0.0
    - Upstream fixes for deprecated dependencies
 
 2. **Update when stable:**
+
 ```bash
 # Check for updates
 yarn outdated @credo-ts/core @credo-ts/askar
@@ -116,12 +124,13 @@ yarn add @credo-ts/core@latest \
 3. **Native bindings compatibility matrix:**
    | Credo Version | Askar Native | Anoncreds Native |
    |--------------|--------------|------------------|
-   | 0.5.15       | 0.2.3        | 0.3.1            |
-   | 0.6.x        | 0.3.x        | 0.3.x            |
+   | 0.5.15 | 0.2.3 | 0.3.1 |
+   | 0.6.x | 0.3.x | 0.3.x |
 
 ## Testing Strategy
 
 ✅ **Current status:** All warnings are non-blocking
+
 - E2e tests pass: tenant provisioning, credential issuance, JWS verification
 - Native bindings work: Askar 0.3.2 loaded successfully
 - TypeScript compiles cleanly
@@ -151,16 +160,19 @@ yarn test
 For production, consider:
 
 1. **Lock file integrity:**
+
 ```bash
 yarn install --frozen-lockfile --check-files
 ```
 
 2. **Audit security:**
+
 ```bash
 yarn audit --level moderate
 ```
 
 3. **Prune dev deps:**
+
 ```bash
 NODE_ENV=production yarn install --production --ignore-scripts
 ```

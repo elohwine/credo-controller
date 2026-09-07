@@ -1,12 +1,12 @@
 /**
  * IdenEx Credentis - Workflow Template Controller
- * 
+ *
  * Verifiable Trust Infrastructure for Africa's Digital Economy
- * 
+ *
  * Provides API access to pre-built workflow templates that SMEs can
  * pick, configure, and deploy without engineering cycles. Templates
  * cover finance, e-commerce, HR, supply chain, and insurance use cases.
- * 
+ *
  * @module controllers/workflow/WorkflowTemplateController
  * @copyright 2024-2026 IdenEx Credentis
  */
@@ -65,10 +65,7 @@ export class WorkflowTemplateController extends Controller {
    * List all available workflow templates
    */
   @Get('/')
-  public async listTemplates(
-    @Query() category?: string,
-    @Query() industry?: string
-  ): Promise<TemplateListItem[]> {
+  public async listTemplates(@Query() category?: string, @Query() industry?: string): Promise<TemplateListItem[]> {
     let templates: WorkflowTemplate[] = workflowTemplates
 
     if (category) {
@@ -153,7 +150,7 @@ export class WorkflowTemplateController extends Controller {
   @Security('jwt', ['admin', 'tenant'])
   public async instantiate(
     @Path() templateId: string,
-    @Body() request: InstantiateTemplateRequest
+    @Body() request: InstantiateTemplateRequest,
   ): Promise<InstantiateTemplateResponse> {
     const template = getTemplateById(templateId)
     if (!template) {
@@ -200,7 +197,7 @@ export class WorkflowTemplateController extends Controller {
   @Post('/{templateId}/preview')
   public async preview(
     @Path() templateId: string,
-    @Body() body: { tenantId: string; config: Record<string, unknown> }
+    @Body() body: { tenantId: string; config: Record<string, unknown> },
   ): Promise<{ actions: Array<{ action: string; config: Record<string, unknown> }> }> {
     const template = getTemplateById(templateId)
     if (!template) {

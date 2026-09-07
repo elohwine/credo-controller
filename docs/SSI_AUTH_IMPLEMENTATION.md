@@ -15,12 +15,12 @@ Implemented TRUE Self-Sovereign Identity (SSI) authentication for the Credentis 
 
 ### SSI Principles Applied
 
-| Principle | Implementation |
-|-----------|----------------|
-| User controls identity | PII stored in wallet VC, not our database |
-| Minimized data exposure | Only SHA-256 hashes stored for lookup |
-| Verifiable claims | PlatformIdentityVC issued by platform DID |
-| No data breach risk | No PII to steal from database |
+| Principle               | Implementation                            |
+| ----------------------- | ----------------------------------------- |
+| User controls identity  | PII stored in wallet VC, not our database |
+| Minimized data exposure | Only SHA-256 hashes stored for lookup     |
+| Verifiable claims       | PlatformIdentityVC issued by platform DID |
+| No data breach risk     | No PII to steal from database             |
 
 ### Database Schema (No PII)
 
@@ -142,12 +142,12 @@ User now owns all previous VCs
 
 ```typescript
 interface PlatformIdentityClaims {
-  phone?: string           // E.164 format (+263774183277)
-  email?: string           // Optional email
-  displayName: string      // User's display name
-  registeredAt: string     // ISO timestamp
+  phone?: string // E.164 format (+263774183277)
+  email?: string // Optional email
+  displayName: string // User's display name
+  registeredAt: string // ISO timestamp
   platformTenantId: string // Wallet/tenant ID on platform
-  platformName: string     // "Credentis"
+  platformName: string // "Credentis"
   verificationLevel: 'unverified' | 'phone_verified' | 'email_verified' | 'kyc_verified'
 }
 ```
@@ -161,50 +161,56 @@ interface PlatformIdentityClaims {
 ## Files Changed
 
 ### Core Service
-| File | Purpose |
-|------|---------|
+
+| File                             | Purpose                                                        |
+| -------------------------------- | -------------------------------------------------------------- |
 | `src/services/SSIAuthService.ts` | Main SSI auth service with register, loginWithVC, loginWithPin |
-| `src/services/modelRegistry.ts` | Added `seedPlatformCredentialDefinitions()` for root agent |
-| `src/cliAgent.ts` | Wires platform credential seeding at startup |
+| `src/services/modelRegistry.ts`  | Added `seedPlatformCredentialDefinitions()` for root agent     |
+| `src/cliAgent.ts`                | Wires platform credential seeding at startup                   |
 
 ### Controller
-| File | Purpose |
-|------|---------|
+
+| File                                             | Purpose                                   |
+| ------------------------------------------------ | ----------------------------------------- |
 | `src/controllers/wallet/WalletAuthController.ts` | Updated register/login to use SSI service |
 
 ### Credential Definition
-| File | Purpose |
-|------|---------|
+
+| File                                           | Purpose                           |
+| ---------------------------------------------- | --------------------------------- |
 | `src/config/credentials/PlatformIdentityVC.ts` | VC type, schema, claims interface |
 
 ### Database Migration
-| File | Purpose |
-|------|---------|
+
+| File                                 | Purpose             |
+| ------------------------------------ | ------------------- |
 | `migrations/019_ssi_auth_tables.sql` | SSI tables (no PII) |
 
 ---
 
 ## Environment Variables
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `PII_ENCRYPTION_KEY` | AES-256-CBC key for temp phone links | dev key (32 chars) |
-| `PIN_SALT` | Salt for PIN hashing | `credo-pin-salt-v1` |
-| `PLATFORM_NAME` | Name in PlatformIdentityVC | `Credentis` |
-| `ISSUER_API_URL` | URL for VC issuance | `http://localhost:3000` |
-| `ISSUER_API_KEY` | API key for issuance endpoint | `test-api-key-12345` |
+| Variable             | Purpose                              | Default                 |
+| -------------------- | ------------------------------------ | ----------------------- |
+| `PII_ENCRYPTION_KEY` | AES-256-CBC key for temp phone links | dev key (32 chars)      |
+| `PIN_SALT`           | Salt for PIN hashing                 | `credo-pin-salt-v1`     |
+| `PLATFORM_NAME`      | Name in PlatformIdentityVC           | `Credentis`             |
+| `ISSUER_API_URL`     | URL for VC issuance                  | `http://localhost:3000` |
+| `ISSUER_API_KEY`     | API key for issuance endpoint        | `test-api-key-12345`    |
 
 ---
 
 ## Security Features
 
 ### Data Protection
+
 - **Phone/Email:** SHA-256 hashed before storage
 - **PIN:** SHA-256 with salt (configurable via `PIN_SALT`)
 - **Temp Phone Links:** AES-256-CBC encrypted with random IV
 - **Login Challenges:** One-time use, 5-minute expiry
 
 ### Session Management
+
 - JWT tokens with 30-day expiry
 - No PII in token payload (only tenantId, role)
 - Secret stored in agent genericRecords
@@ -214,6 +220,7 @@ interface PlatformIdentityClaims {
 ## API Endpoints
 
 ### Registration
+
 ```
 POST /api/wallet/auth/register
 Body: { username, phone?, email?, pin? }
@@ -221,6 +228,7 @@ Response: { walletId, claimedExistingTenant?, existingCredentialsCount? }
 ```
 
 ### Login (PIN-based)
+
 ```
 POST /api/wallet/auth/login
 Body: { phone?, email?, pin }
@@ -228,6 +236,7 @@ Response: { token }
 ```
 
 ### Login Challenge (VC-based)
+
 ```
 GET /api/wallet/auth/login-challenge
 Response: { nonce, expiresAt }
@@ -242,14 +251,16 @@ Response: { token, claims }
 ## EcoCash Integration
 
 ### Sandbox Mode
+
 Toggle via `ECOCASH_SANDBOX` environment variable:
 
-| Value | Behavior |
-|-------|----------|
-| `true` | Auto-completes payment after 3s delay, triggers webhook simulation |
-| `false` | Initiates real USSD PIN push via EcoCash API |
+| Value   | Behavior                                                           |
+| ------- | ------------------------------------------------------------------ |
+| `true`  | Auto-completes payment after 3s delay, triggers webhook simulation |
+| `false` | Initiates real USSD PIN push via EcoCash API                       |
 
 ### Payment Flow with SSI
+
 ```
 Cart → POST /finance/initiate-payment
         ↓
@@ -268,16 +279,19 @@ Else:
 ## Next Steps
 
 ### Phase 2: Security Hardening
+
 - [ ] Move JWT secrets to HashiCorp Vault
 - [ ] Implement per-tenant secret rotation
 - [ ] Add status list revocation for PlatformIdentityVC
 
 ### Phase 3: Enhanced Verification
+
 - [ ] SMS OTP for phone_verified level
 - [ ] Email verification flow
 - [ ] KYC integration for kyc_verified level
 
 ### Phase 4: Audit & Compliance
+
 - [ ] Audit logging middleware (tenantId + correlationId)
 - [ ] GDPR-compliant data deletion
 - [ ] Backup/restore procedures for wallets
@@ -287,6 +301,7 @@ Else:
 ## Testing
 
 ### Manual Test Flow
+
 ```bash
 # 1. Start server
 yarn dev
@@ -303,6 +318,7 @@ curl -X POST http://localhost:3000/api/wallet/auth/login \
 ```
 
 ### Fastlane Test
+
 ```bash
 # 1. Checkout without registration
 curl -X POST http://localhost:3000/finance/initiate-payment \
@@ -320,14 +336,14 @@ curl -X POST http://localhost:3000/api/wallet/auth/register \
 
 ## Summary
 
-| Feature | Status |
-|---------|--------|
+| Feature                            | Status      |
+| ---------------------------------- | ----------- |
 | SSIAuthService with no PII storage | ✅ Complete |
-| PlatformIdentityVC issuance | ✅ Complete |
-| PIN-based login (Web2 fallback) | ✅ Complete |
-| VC presentation login | ✅ Complete |
-| Fastlane phone linking | ✅ Complete |
-| EcoCash sandbox toggle | ✅ Complete |
-| Build passing | ✅ Verified |
+| PlatformIdentityVC issuance        | ✅ Complete |
+| PIN-based login (Web2 fallback)    | ✅ Complete |
+| VC presentation login              | ✅ Complete |
+| Fastlane phone linking             | ✅ Complete |
+| EcoCash sandbox toggle             | ✅ Complete |
+| Build passing                      | ✅ Verified |
 
 **Build Status:** ✅ `yarn build` passes successfully

@@ -75,7 +75,10 @@ export class OidcMetadataController extends Controller {
       metadata.credential_configurations_supported = {}
     }
 
-    request.logger?.info({ module: 'oidc-metadata', operation: 'getPlatformIssuerMetadata', baseUrl }, 'Served platform issuer metadata')
+    request.logger?.info(
+      { module: 'oidc-metadata', operation: 'getPlatformIssuerMetadata', baseUrl },
+      'Served platform issuer metadata',
+    )
     return metadata
   }
 
@@ -104,9 +107,7 @@ export class OidcMetadataController extends Controller {
    * Platform-level OAuth Authorization Server metadata
    */
   @Get('.well-known/oauth-authorization-server')
-  public async getPlatformAuthorizationServerMetadata(
-    @Request() request: ExRequest,
-  ): Promise<Record<string, unknown>> {
+  public async getPlatformAuthorizationServerMetadata(@Request() request: ExRequest): Promise<Record<string, unknown>> {
     const baseUrl = process.env.PUBLIC_BASE_URL || `${request.protocol}://${request.get('host')}`
     const issuerBase = `${baseUrl}/oidc/issuer/default-platform-issuer`
 
@@ -145,7 +146,7 @@ export class OidcMetadataController extends Controller {
       // NOTE: controller is under src/controllers/oidc, utils is two levels up
       const { credentialDefinitionStore } = require('../../utils/credentialDefinitionStore')
       const definitions = credentialDefinitionStore.list(tenantId)
-      console.log(`[OidcMetadata] Found ${definitions.length} definitions for tenant ${tenantId}`);
+      console.log(`[OidcMetadata] Found ${definitions.length} definitions for tenant ${tenantId}`)
 
       const credentialConfigurations: Record<string, any> = {}
       definitions.forEach((def: any) => {

@@ -11,329 +11,339 @@ import { createHash } from 'crypto'
 const logger = rootLogger.child({ module: 'EcoCashWebhookController' })
 
 interface EcoCashWebhookPayload {
-    paymentRequestId?: string
-    status: string
-    transactionId?: string
-    amount?: number
-    currency?: string
-    sourceReference?: string
-    customerMsisdn?: string
-    timestamp?: string
-    metadata?: any
+  paymentRequestId?: string
+  status: string
+  transactionId?: string
+  amount?: number
+  currency?: string
+  sourceReference?: string
+  customerMsisdn?: string
+  timestamp?: string
+  metadata?: any
 }
 
 function normalizeMsisdn(msisdn?: string): string | undefined {
-    if (!msisdn) return undefined
-    let clean = msisdn.replace(/\D/g, '')
-    if (clean.startsWith('0') && clean.length === 10) {
-        clean = `263${clean.slice(1)}`
-    }
-    return clean
+  if (!msisdn) return undefined
+  let clean = msisdn.replace(/\D/g, '')
+  if (clean.startsWith('0') && clean.length === 10) {
+    clean = `263${clean.slice(1)}`
+  }
+  return clean
 }
 
 function hashMsisdn(msisdn?: string): string | undefined {
-    const normalized = normalizeMsisdn(msisdn)
-    if (!normalized) return undefined
-    return createHash('sha256').update(normalized.trim().toLowerCase()).digest('hex')
+  const normalized = normalizeMsisdn(msisdn)
+  if (!normalized) return undefined
+  return createHash('sha256').update(normalized.trim().toLowerCase()).digest('hex')
 }
 
 @Route('webhooks')
 @Tags('Webhooks')
 export class EcoCashWebhookController extends Controller {
-    /**
-     * EcoCash webhook endpoint for payment status updates
-     * This endpoint is called by EcoCash when payment status changes
-     * 
-     * Flow on SUCCESS:
-     * 1. Validate idempotency via sourceReference
-     * 2. Update ack_payments record state to 'paid'
-     * 3. Issue ReceiptVC (PaymentReceiptCredential)
-     * 4. Send receipt to WhatsApp via WhatsAppPayloadController
-     * 5. Update cart status to 'paid'
-     */
-    @Post('ecocash')
-    public async handleEcoCashWebhook(
-        @Body() payload: EcoCashWebhookPayload,
-        @Header('X-API-KEY') apiKey?: string,
-        @Request() request?: ExRequest
-    ): Promise<any> {
-        const db = DatabaseManager.getDatabase()
+  /**
+   * EcoCash webhook endpoint for payment status updates
+   * This endpoint is called by EcoCash when payment status changes
+   *
+   * Flow on SUCCESS:
+   * 1. Validate idempotency via sourceReference
+   * 2. Update ack_payments record state to 'paid'
+   * 3. Issue ReceiptVC (PaymentReceiptCredential)
+   * 4. Send receipt to WhatsApp via WhatsAppPayloadController
+   * 5. Update cart status to 'paid'
+   */
+  @Post('ecocash')
+  public async handleEcoCashWebhook(
+    @Body() payload: EcoCashWebhookPayload,
+    @Header('X-API-KEY') apiKey?: string,
+    @Request() request?: ExRequest,
+  ): Promise<any> {
+    const db = DatabaseManager.getDatabase()
 
-        try {
-            logger.info({ payload }, 'Received EcoCash webhook')
+    try {
+      logger.info({ payload }, 'Received EcoCash webhook')
 
-            // Validate API key (simple validation - in production use HMAC)
-            const expectedApiKey = process.env.ECOCASH_WEBHOOK_SECRET || 'test-webhook-secret'
-            if (apiKey !== expectedApiKey) {
-                logger.warn({ providedKey: apiKey }, 'Invalid webhook API key')
-                this.setStatus(401)
-                return { error: 'Unauthorized' }
-            }
+      // Validate API key (simple validation - in production use HMAC)
+      const expectedApiKey = process.env.ECOCASH_WEBHOOK_SECRET || 'test-webhook-secret'
+      if (apiKey !== expectedApiKey) {
+        logger.warn({ providedKey: apiKey }, 'Invalid webhook API key')
+        this.setStatus(401)
+        return { error: 'Unauthorized' }
+      }
 
-            // Idempotency check: Look up payment by sourceReference
-            const existingPayment = db.prepare(`
+      // Idempotency check: Look up payment by sourceReference
+      const existingPayment = db
+        .prepare(
+          `
                 SELECT * FROM ack_payments WHERE idempotency_key = ? OR payment_request_token = ?
-            `).get(payload.sourceReference, payload.sourceReference) as any
+            `,
+        )
+        .get(payload.sourceReference, payload.sourceReference) as any
 
-            if (existingPayment && existingPayment.state === 'paid') {
-                logger.info({ sourceReference: payload.sourceReference }, 'Payment already processed (idempotency check)')
-                return {
-                    status: 'acknowledged',
-                    receiptGenerated: false,
-                    reason: 'Payment already processed'
-                }
-            }
+      if (existingPayment && existingPayment.state === 'paid') {
+        logger.info({ sourceReference: payload.sourceReference }, 'Payment already processed (idempotency check)')
+        return {
+          status: 'acknowledged',
+          receiptGenerated: false,
+          reason: 'Payment already processed',
+        }
+      }
 
-            // Check if payment was successful
-            if (payload.status === 'SUCCESS' || payload.status === 'COMPLETED') {
-                logger.info({ sourceReference: payload.sourceReference }, 'Payment successful, processing receipt')
+      // Check if payment was successful
+      if (payload.status === 'SUCCESS' || payload.status === 'COMPLETED') {
+        logger.info({ sourceReference: payload.sourceReference }, 'Payment successful, processing receipt')
 
-                const apiKey = process.env.ISSUER_API_KEY || 'test-api-key-12345'
-                const issuerApiUrl = process.env.ISSUER_API_URL || 'http://localhost:3000'
-                const baseUrl = process.env.NGROK_URL || 'http://localhost:3000'
-                // Use default tenant for issuer metadata refresh
-                const tenantId = existingPayment?.tenant_id || 'default'
+        const apiKey = process.env.ISSUER_API_KEY || 'test-api-key-12345'
+        const issuerApiUrl = process.env.ISSUER_API_URL || 'http://localhost:3000'
+        const baseUrl = process.env.NGROK_URL || 'http://localhost:3000'
+        // Use default tenant for issuer metadata refresh
+        const tenantId = existingPayment?.tenant_id || 'default'
 
-                // Get cart if we have a payment record
-                let cartId: string | undefined
-                let cart: any
-                if (existingPayment?.cart_id) {
-                    cartId = existingPayment.cart_id
-                    cart = db.prepare('SELECT * FROM carts WHERE id = ?').get(cartId)
-                }
+        // Get cart if we have a payment record
+        let cartId: string | undefined
+        let cart: any
+        if (existingPayment?.cart_id) {
+          cartId = existingPayment.cart_id
+          cart = db.prepare('SELECT * FROM carts WHERE id = ?').get(cartId)
+        }
 
-                // Issue PaymentReceipt (ReceiptVC) - uses modelRegistry registered type
-                try {
-                    // Audit Trail: Link to InvoiceVC
-                    const invoiceId = existingPayment?.invoice_id
-                    const invoiceHash = existingPayment?.invoice_hash
-                    const previousRecordHash = invoiceHash // Chain link
+        // Issue PaymentReceipt (ReceiptVC) - uses modelRegistry registered type
+        try {
+          // Audit Trail: Link to InvoiceVC
+          const invoiceId = existingPayment?.invoice_id
+          const invoiceHash = existingPayment?.invoice_hash
+          const previousRecordHash = invoiceHash // Chain link
 
-                    const payerPhone = payload.customerMsisdn || existingPayment?.payer_phone
-                    const subjectHash = hashMsisdn(payerPhone)
+          const payerPhone = payload.customerMsisdn || existingPayment?.payer_phone
+          const subjectHash = hashMsisdn(payerPhone)
 
-                    const receiptResponse = await axios.post(
-                        `${issuerApiUrl}/custom-oidc/issuer/credential-offers`,
-                        {
-                            credentials: [{
-                                // Use ReceiptVC which is configured in issuer metadata
-                                credentialDefinitionId: 'ReceiptVC',
-                                format: 'jwt_vc_json',
-                                type: ['VerifiableCredential', 'ReceiptVC'],
-                                claims: {
-                                    transactionId: payload.transactionId,
-                                    amount: String(payload.amount || existingPayment?.amount || '0'),
-                                    currency: payload.currency || existingPayment?.currency || 'USD',
-                                    payerPhone,
-                                    subjectHash,
-                                    merchant: existingPayment?.tenant_id || 'unknown',
-                                    cartId: cartId,
-                                    invoiceId: invoiceId,
-                                    invoiceHash: invoiceHash,
-                                    previousRecordHash: previousRecordHash,
-                                    timestamp: new Date().toISOString()
-                                }
-                            }]
-                        },
-                        {
-                            headers: {
-                                'x-api-key': apiKey,
-                                'x-tenant-id': tenantId,
-                                'Content-Type': 'application/json'
-                            }
-                        }
-                    )
+          const receiptResponse = await axios.post(
+            `${issuerApiUrl}/custom-oidc/issuer/credential-offers`,
+            {
+              credentials: [
+                {
+                  // Use ReceiptVC which is configured in issuer metadata
+                  credentialDefinitionId: 'ReceiptVC',
+                  format: 'jwt_vc_json',
+                  type: ['VerifiableCredential', 'ReceiptVC'],
+                  claims: {
+                    transactionId: payload.transactionId,
+                    amount: String(payload.amount || existingPayment?.amount || '0'),
+                    currency: payload.currency || existingPayment?.currency || 'USD',
+                    payerPhone,
+                    subjectHash,
+                    merchant: existingPayment?.tenant_id || 'unknown',
+                    cartId: cartId,
+                    invoiceId: invoiceId,
+                    invoiceHash: invoiceHash,
+                    previousRecordHash: previousRecordHash,
+                    timestamp: new Date().toISOString(),
+                  },
+                },
+              ],
+            },
+            {
+              headers: {
+                'x-api-key': apiKey,
+                'x-tenant-id': tenantId,
+                'Content-Type': 'application/json',
+              },
+            },
+          )
 
-                    // Extract offer URL from various possible field names
-                    const receiptOfferUrl = receiptResponse.data?.credential_offer_url 
-                        || receiptResponse.data?.credential_offer_uri 
-                        || receiptResponse.data?.offerUrl 
-                        || receiptResponse.data?.credentialOffer
-                    logger.info({ receiptOfferUrl, transactionId: payload.transactionId }, 'ReceiptVC issued')
+          // Extract offer URL from various possible field names
+          const receiptOfferUrl =
+            receiptResponse.data?.credential_offer_url ||
+            receiptResponse.data?.credential_offer_uri ||
+            receiptResponse.data?.offerUrl ||
+            receiptResponse.data?.credentialOffer
+          logger.info({ receiptOfferUrl, transactionId: payload.transactionId }, 'ReceiptVC issued')
 
-                    // Generate verification shortlink (QR)
-                    const { url: verificationUrl, code: verificationCode } = ShortlinkService.createReceiptLink(
-                        payload.transactionId || 'unknown',
-                        {
-                            amount: String(payload.amount || existingPayment?.amount || '0'),
-                            currency: payload.currency || existingPayment?.currency || 'USD',
-                            merchant: existingPayment?.tenant_id || 'unknown'
-                        }
-                    )
-                    logger.info({ verificationUrl, verificationCode }, 'Generated verification shortlink')
+          // Generate verification shortlink (QR)
+          const { url: verificationUrl, code: verificationCode } = ShortlinkService.createReceiptLink(
+            payload.transactionId || 'unknown',
+            {
+              amount: String(payload.amount || existingPayment?.amount || '0'),
+              currency: payload.currency || existingPayment?.currency || 'USD',
+              merchant: existingPayment?.tenant_id || 'unknown',
+            },
+          )
+          logger.info({ verificationUrl, verificationCode }, 'Generated verification shortlink')
 
-                    // Update or create payment record
-                    if (existingPayment) {
-                        // Update existing payment record
-                        db.prepare(`
+          // Update or create payment record
+          if (existingPayment) {
+            // Update existing payment record
+            db.prepare(
+              `
                             UPDATE ack_payments 
                             SET state = 'paid', provider_ref = ?, updated_at = ?
                             WHERE id = ?
-                        `).run(payload.transactionId, new Date().toISOString(), existingPayment.id)
-                    } else {
-                        // Create new payment record for idempotency tracking
-                        const newPaymentId = `pay-${Date.now()}`
-                        db.prepare(`
+                        `,
+            ).run(payload.transactionId, new Date().toISOString(), existingPayment.id)
+          } else {
+            // Create new payment record for idempotency tracking
+            const newPaymentId = `pay-${Date.now()}`
+            db.prepare(
+              `
                             INSERT INTO ack_payments (
                                 id, tenant_id, cart_id, provider_ref, 
                                 amount, currency, state, idempotency_key, 
                                 created_at, updated_at
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        `).run(
-                            newPaymentId,
-                            'default',
-                            cartId || null,
-                            payload.transactionId,
-                            payload.amount || 0,
-                            payload.currency || 'USD',
-                            'paid',
-                            payload.sourceReference,
-                            new Date().toISOString(),
-                            new Date().toISOString()
-                        )
+                        `,
+            ).run(
+              newPaymentId,
+              'default',
+              cartId || null,
+              payload.transactionId,
+              payload.amount || 0,
+              payload.currency || 'USD',
+              'paid',
+              payload.sourceReference,
+              new Date().toISOString(),
+              new Date().toISOString(),
+            )
 
-                        // Store receipt
-                        db.prepare(`
+            // Store receipt
+            db.prepare(
+              `
                             INSERT INTO ack_payment_receipts (id, payment_id, credential_offer_url, credential_type, issued_at)
                             VALUES (?, ?, ?, ?, ?)
-                        `).run(
-                            `rcp-${Date.now()}`,
-                            newPaymentId,
-                            receiptOfferUrl,
-                            'PaymentReceipt',
-                            new Date().toISOString()
-                        )
-                    }
+                        `,
+            ).run(`rcp-${Date.now()}`, newPaymentId, receiptOfferUrl, 'PaymentReceipt', new Date().toISOString())
+          }
 
-                    // If we have an existing payment, also store the receipt
-                    if (existingPayment) {
-                        // Store receipt in ack_payment_receipts
-                        db.prepare(`
+          // If we have an existing payment, also store the receipt
+          if (existingPayment) {
+            // Store receipt in ack_payment_receipts
+            db.prepare(
+              `
                             INSERT INTO ack_payment_receipts (id, payment_id, credential_offer_url, credential_type, issued_at)
                             VALUES (?, ?, ?, ?, ?)
-                        `).run(
-                            `rcp-${Date.now()}`,
-                            existingPayment.id,
-                            receiptOfferUrl,
-                            'PaymentReceipt',
-                            new Date().toISOString()
-                        )
-                    }
+                        `,
+            ).run(`rcp-${Date.now()}`, existingPayment.id, receiptOfferUrl, 'PaymentReceipt', new Date().toISOString())
+          }
 
-                    // Update cart status to 'paid' if associated
-                    if (cartId) {
-                        try {
-                            db.prepare(`
+          // Update cart status to 'paid' if associated
+          if (cartId) {
+            try {
+              db.prepare(
+                `
                                  UPDATE carts 
                                  SET status = 'paid', updated_at = ?
                                  WHERE id = ?
-                             `).run(new Date().toISOString(), cartId)
-                            logger.info({ cartId }, 'Cart status updated to paid')
-                        } catch (e) {
-                            logger.warn({ error: e instanceof Error ? e.message : String(e) }, 'Failed to update cart status')
-                        }
-                    }
+                             `,
+              ).run(new Date().toISOString(), cartId)
+              logger.info({ cartId }, 'Cart status updated to paid')
+            } catch (e) {
+              logger.warn({ error: e instanceof Error ? e.message : String(e) }, 'Failed to update cart status')
+            }
+          }
 
-                    // Send receipt to WhatsApp if we have a cart with buyer phone
-                    if (cartId && receiptOfferUrl) {
-                        try {
-                            await axios.post(
-                                `${baseUrl}/api/wa/cart/${cartId}/send-receipt`,
-                                {
-                                    receiptOfferUrl,
-                                    transactionId: payload.transactionId,
-                                    verificationUrl,
-                                    verificationCode
-                                },
-                                { headers: { 'Content-Type': 'application/json' }, timeout: 10000 }
-                            )
-                            logger.info({ cartId }, 'Receipt sent to WhatsApp')
-                        } catch (waErr: any) {
-                            logger.warn({ error: waErr.message }, 'Failed to send receipt to WhatsApp')
-                        }
-                    }
+          // Send receipt to WhatsApp if we have a cart with buyer phone
+          if (cartId && receiptOfferUrl) {
+            try {
+              await axios.post(
+                `${baseUrl}/api/wa/cart/${cartId}/send-receipt`,
+                {
+                  receiptOfferUrl,
+                  transactionId: payload.transactionId,
+                  verificationUrl,
+                  verificationCode,
+                },
+                { headers: { 'Content-Type': 'application/json' }, timeout: 10000 },
+              )
+              logger.info({ cartId }, 'Receipt sent to WhatsApp')
+            } catch (waErr: any) {
+              logger.warn({ error: waErr.message }, 'Failed to send receipt to WhatsApp')
+            }
+          }
 
-                    // Also execute the workflow for any additional actions
-                    try {
-                        await workflowService.executeWorkflow(
-                            'finance-receipt-v1',
-                            {
-                                transactionId: payload.transactionId,
-                                amount: payload.amount,
-                                currency: payload.currency || 'USD',
-                                sourceReference: payload.sourceReference,
-                                paymentRequestId: payload.paymentRequestId,
-                                cartId: cartId,
-                                receiptOfferUrl,
-                                metadata: payload.metadata
-                            },
-                            'default'
-                        )
-                    } catch (workflowErr: any) {
-                        logger.warn({ error: workflowErr.message }, 'Workflow execution failed (non-critical)')
-                    }
+          // Also execute the workflow for any additional actions
+          try {
+            await workflowService.executeWorkflow(
+              'finance-receipt-v1',
+              {
+                transactionId: payload.transactionId,
+                amount: payload.amount,
+                currency: payload.currency || 'USD',
+                sourceReference: payload.sourceReference,
+                paymentRequestId: payload.paymentRequestId,
+                cartId: cartId,
+                receiptOfferUrl,
+                metadata: payload.metadata,
+              },
+              'default',
+            )
+          } catch (workflowErr: any) {
+            logger.warn({ error: workflowErr.message }, 'Workflow execution failed (non-critical)')
+          }
 
-                    // Emit payment.completed event to trigger any listening workflows
-                    try {
-                        await triggerService.emitEvent('payment.completed', {
-                            transactionId: payload.transactionId,
-                            amount: payload.amount,
-                            currency: payload.currency || 'USD',
-                            sourceReference: payload.sourceReference,
-                            paymentMethod: 'EcoCash',
-                            cartId: cartId,
-                            merchantId: existingPayment?.tenant_id,
-                            receiptOfferUrl,
-                            timestamp: new Date().toISOString()
-                        }, 'ecocash-webhook')
-                    } catch (eventErr: any) {
-                        logger.warn({ error: eventErr.message }, 'Event emission failed (non-critical)')
-                    }
+          // Emit payment.completed event to trigger any listening workflows
+          try {
+            await triggerService.emitEvent(
+              'payment.completed',
+              {
+                transactionId: payload.transactionId,
+                amount: payload.amount,
+                currency: payload.currency || 'USD',
+                sourceReference: payload.sourceReference,
+                paymentMethod: 'EcoCash',
+                cartId: cartId,
+                merchantId: existingPayment?.tenant_id,
+                receiptOfferUrl,
+                timestamp: new Date().toISOString(),
+              },
+              'ecocash-webhook',
+            )
+          } catch (eventErr: any) {
+            logger.warn({ error: eventErr.message }, 'Event emission failed (non-critical)')
+          }
 
-                    return {
-                        status: 'acknowledged',
-                        receiptGenerated: true,
-                        receiptOfferUrl,
-                        transactionId: payload.transactionId
-                    }
-                } catch (receiptError: any) {
-                    logger.error({ error: receiptError.message }, 'Failed to issue ReceiptVC')
-                    // Still acknowledge the webhook to prevent retries
-                    return {
-                        status: 'acknowledged',
-                        receiptGenerated: false,
-                        error: receiptError.message
-                    }
-                }
-            } else if (payload.status === 'FAILED' || payload.status === 'CANCELLED') {
-                // Update payment record to failed state
-                if (existingPayment) {
-                    db.prepare(`
+          return {
+            status: 'acknowledged',
+            receiptGenerated: true,
+            receiptOfferUrl,
+            transactionId: payload.transactionId,
+          }
+        } catch (receiptError: any) {
+          logger.error({ error: receiptError.message }, 'Failed to issue ReceiptVC')
+          // Still acknowledge the webhook to prevent retries
+          return {
+            status: 'acknowledged',
+            receiptGenerated: false,
+            error: receiptError.message,
+          }
+        }
+      } else if (payload.status === 'FAILED' || payload.status === 'CANCELLED') {
+        // Update payment record to failed state
+        if (existingPayment) {
+          db.prepare(
+            `
                         UPDATE ack_payments 
                         SET state = 'failed', updated_at = ?
                         WHERE id = ?
-                    `).run(new Date().toISOString(), existingPayment.id)
-                }
-
-                logger.info({ status: payload.status }, 'Payment failed/cancelled')
-                return {
-                    status: 'acknowledged',
-                    receiptGenerated: false,
-                    reason: `Payment status is ${payload.status}`
-                }
-            } else {
-                logger.info({ status: payload.status }, 'Payment pending, no action taken')
-                return {
-                    status: 'acknowledged',
-                    receiptGenerated: false,
-                    reason: `Payment status is ${payload.status}`
-                }
-            }
-        } catch (error: any) {
-            logger.error({ error: error.message }, 'Webhook processing error')
-            this.setStatus(500)
-            return { error: error.message }
+                    `,
+          ).run(new Date().toISOString(), existingPayment.id)
         }
-    }
-}
 
+        logger.info({ status: payload.status }, 'Payment failed/cancelled')
+        return {
+          status: 'acknowledged',
+          receiptGenerated: false,
+          reason: `Payment status is ${payload.status}`,
+        }
+      } else {
+        logger.info({ status: payload.status }, 'Payment pending, no action taken')
+        return {
+          status: 'acknowledged',
+          receiptGenerated: false,
+          reason: `Payment status is ${payload.status}`,
+        }
+      }
+    } catch (error: any) {
+      logger.error({ error: error.message }, 'Webhook processing error')
+      this.setStatus(500)
+      return { error: error.message }
+    }
+  }
+}

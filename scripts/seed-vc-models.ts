@@ -14,8 +14,18 @@ import axios from 'axios'
 import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 
-interface RegisteredSchema { schemaId: string; name: string; version: string }
-interface CredentialDefinition { credentialDefinitionId: string; name: string; version: string; schemaId: string; credentialType: string[] }
+interface RegisteredSchema {
+  schemaId: string
+  name: string
+  version: string
+}
+interface CredentialDefinition {
+  credentialDefinitionId: string
+  name: string
+  version: string
+  schemaId: string
+  credentialType: string[]
+}
 
 const args = yargs(hideBin(process.argv))
   .option('backend', { type: 'string', default: 'http://localhost:3000' })
@@ -328,7 +338,16 @@ async function main() {
         properties: {
           credentialSubject: {
             type: 'object',
-            required: ['statementId', 'periodStart', 'periodEnd', 'revenue', 'expenses', 'netIncome', 'currency', 'generatedAt'],
+            required: [
+              'statementId',
+              'periodStart',
+              'periodEnd',
+              'revenue',
+              'expenses',
+              'netIncome',
+              'currency',
+              'generatedAt',
+            ],
             properties: {
               statementId: { type: 'string' },
               organizationName: { type: 'string' },
@@ -369,7 +388,15 @@ async function main() {
         properties: {
           credentialSubject: {
             type: 'object',
-            required: ['statementId', 'asOfDate', 'totalAssets', 'totalLiabilities', 'totalEquity', 'currency', 'generatedAt'],
+            required: [
+              'statementId',
+              'asOfDate',
+              'totalAssets',
+              'totalLiabilities',
+              'totalEquity',
+              'currency',
+              'generatedAt',
+            ],
             properties: {
               statementId: { type: 'string' },
               organizationName: { type: 'string' },
@@ -459,7 +486,7 @@ async function main() {
               role: { type: 'string' },
               startDate: { type: 'string' },
               employer: { type: 'string' },
-              termsHash: { type: 'string' }
+              termsHash: { type: 'string' },
             },
           },
         },
@@ -486,7 +513,7 @@ async function main() {
               'liabilities',
               'equity',
               'currency',
-              'generatedAt'
+              'generatedAt',
             ],
             properties: {
               statementType: { type: 'string' }, // 'IncomeStatement' | 'BalanceSheet'
@@ -499,7 +526,7 @@ async function main() {
               liabilities: { type: 'number' },
               equity: { type: 'number' },
               currency: { type: 'string' },
-              generatedAt: { type: 'string', format: 'date-time' }
+              generatedAt: { type: 'string', format: 'date-time' },
             },
           },
         },
@@ -519,7 +546,7 @@ async function main() {
             properties: {
               type: { type: 'string', const: 'StatusList2021' },
               statusPurpose: { type: 'string', const: 'revocation' },
-              encodedList: { type: 'string' }
+              encodedList: { type: 'string' },
             },
           },
         },
@@ -553,7 +580,7 @@ async function main() {
               eventHash: { type: 'string' },
               prevEventHash: { type: 'string' },
               sequenceNumber: { type: 'number' },
-              receivedAt: { type: 'string', format: 'date-time' }
+              receivedAt: { type: 'string', format: 'date-time' },
             },
           },
         },
@@ -583,13 +610,13 @@ async function main() {
                     serialNumber: { type: 'string' },
                     quantity: { type: 'number' },
                     unitCost: { type: 'number' },
-                    eventHash: { type: 'string' }
-                  }
-                }
+                    eventHash: { type: 'string' },
+                  },
+                },
               },
               totalItems: { type: 'number' },
               eventHashes: { type: 'array', items: { type: 'string' } },
-              fulfilledAt: { type: 'string', format: 'date-time' }
+              fulfilledAt: { type: 'string', format: 'date-time' },
             },
           },
         },
@@ -616,7 +643,7 @@ async function main() {
               eventHash: { type: 'string' },
               prevEventHash: { type: 'string' },
               reason: { type: 'string' },
-              transferredAt: { type: 'string', format: 'date-time' }
+              transferredAt: { type: 'string', format: 'date-time' },
             },
           },
         },
@@ -636,7 +663,7 @@ async function main() {
   }
 
   for (const s of schemas) {
-    const existing = existingSchemas.find(es => es.name === s.name && es.version === s.version)
+    const existing = existingSchemas.find((es) => es.name === s.name && es.version === s.version)
     if (existing) {
       registeredSchemas[s.name] = existing
       console.log(`Schema already exists: ${s.name} -> ${existing.schemaId}`)
@@ -755,12 +782,12 @@ async function main() {
         credentialSubject: {
           runId: 'RUN-2026-01-sample',
           period: '2026-01',
-          totalGross: 50000.00,
-          totalNet: 42500.00,
-          totalDeductions: 7500.00,
-          totalNssa: 2250.00,
-          totalPaye: 5000.00,
-          totalAidsLevy: 250.00,
+          totalGross: 50000.0,
+          totalNet: 42500.0,
+          totalDeductions: 7500.0,
+          totalNssa: 2250.0,
+          totalPaye: 5000.0,
+          totalAidsLevy: 250.0,
           employeeCount: 10,
           currency: 'USD',
           employer: 'Demo Corp',
@@ -780,7 +807,7 @@ async function main() {
           complianceId: 'TAX-2026-01-NSSA',
           taxType: 'NSSA',
           period: '2026-01',
-          amount: 2250.00,
+          amount: 2250.0,
           currency: 'USD',
           filingDate: new Date().toISOString().slice(0, 10),
           referenceNumber: 'NSSA-REF-001',
@@ -820,7 +847,7 @@ async function main() {
           expenseClaimId: 'EXP-001',
           employeeId: 'EMP-001',
           description: 'Client meeting lunch',
-          amount: 45.00,
+          amount: 45.0,
           currency: 'USD',
           category: 'meals',
           approvedBy: 'MGR-001',
@@ -840,20 +867,20 @@ async function main() {
           organizationName: 'Demo Corp',
           periodStart: '2026-01-01',
           periodEnd: '2026-03-31',
-          revenue: 500000.00,
-          costOfGoodsSold: 200000.00,
-          grossProfit: 300000.00,
-          operatingExpenses: 100000.00,
-          operatingIncome: 200000.00,
-          otherIncome: 5000.00,
-          otherExpenses: 2000.00,
-          expenses: 302000.00,
-          netIncome: 203000.00,
+          revenue: 500000.0,
+          costOfGoodsSold: 200000.0,
+          grossProfit: 300000.0,
+          operatingExpenses: 100000.0,
+          operatingIncome: 200000.0,
+          otherIncome: 5000.0,
+          otherExpenses: 2000.0,
+          expenses: 302000.0,
+          netIncome: 203000.0,
           currency: 'USD',
           breakdown: {
-            sales: 500000.00,
-            payroll: 80000.00,
-            operations: 20000.00,
+            sales: 500000.0,
+            payroll: 80000.0,
+            operations: 20000.0,
           },
           generatedAt: new Date().toISOString(),
         },
@@ -870,22 +897,22 @@ async function main() {
           statementId: 'BS-2026-Q1',
           organizationName: 'Demo Corp',
           asOfDate: '2026-03-31',
-          currentAssets: 250000.00,
-          cash: 100000.00,
-          accountsReceivable: 100000.00,
-          inventory: 50000.00,
-          nonCurrentAssets: 500000.00,
-          propertyPlantEquipment: 500000.00,
-          totalAssets: 750000.00,
-          currentLiabilities: 100000.00,
-          accountsPayable: 75000.00,
-          shortTermDebt: 25000.00,
-          nonCurrentLiabilities: 200000.00,
-          longTermDebt: 200000.00,
-          totalLiabilities: 300000.00,
-          shareCapital: 200000.00,
-          retainedEarnings: 250000.00,
-          totalEquity: 450000.00,
+          currentAssets: 250000.0,
+          cash: 100000.0,
+          accountsReceivable: 100000.0,
+          inventory: 50000.0,
+          nonCurrentAssets: 500000.0,
+          propertyPlantEquipment: 500000.0,
+          totalAssets: 750000.0,
+          currentLiabilities: 100000.0,
+          accountsPayable: 75000.0,
+          shortTermDebt: 25000.0,
+          nonCurrentLiabilities: 200000.0,
+          longTermDebt: 200000.0,
+          totalLiabilities: 300000.0,
+          shareCapital: 200000.0,
+          retainedEarnings: 250000.0,
+          totalEquity: 450000.0,
           currency: 'USD',
           generatedAt: new Date().toISOString(),
         },
@@ -903,20 +930,20 @@ async function main() {
           organizationName: 'Demo Corp',
           periodStart: '2026-01-01',
           periodEnd: '2026-03-31',
-          cashFromOperations: 180000.00,
-          netIncome: 203000.00,
-          depreciation: 15000.00,
-          changesInWorkingCapital: -38000.00,
-          cashFromInvesting: -50000.00,
-          capitalExpenditures: -50000.00,
+          cashFromOperations: 180000.0,
+          netIncome: 203000.0,
+          depreciation: 15000.0,
+          changesInWorkingCapital: -38000.0,
+          cashFromInvesting: -50000.0,
+          capitalExpenditures: -50000.0,
           assetSales: 0,
-          cashFromFinancing: -20000.00,
+          cashFromFinancing: -20000.0,
           debtProceeds: 0,
-          debtRepayments: -10000.00,
-          dividendsPaid: -10000.00,
-          netCashFlow: 110000.00,
-          beginningCash: 90000.00,
-          endingCash: 200000.00,
+          debtRepayments: -10000.0,
+          dividendsPaid: -10000.0,
+          netCashFlow: 110000.0,
+          beginningCash: 90000.0,
+          endingCash: 200000.0,
           currency: 'USD',
           generatedAt: new Date().toISOString(),
         },
@@ -947,12 +974,12 @@ async function main() {
           statementType: 'IncomeStatement',
           periodStart: '2023-01-01',
           periodEnd: '2023-12-31',
-          revenue: 1000000.00,
-          expenses: 800000.00,
-          netIncome: 200000.00,
-          assets: 1500000.00,
-          liabilities: 500000.00,
-          equity: 1000000.00,
+          revenue: 1000000.0,
+          expenses: 800000.0,
+          netIncome: 200000.0,
+          assets: 1500000.0,
+          liabilities: 500000.0,
+          equity: 1000000.0,
           currency: 'USD',
           generatedAt: new Date().toISOString(),
         },
@@ -983,14 +1010,14 @@ async function main() {
           lotId: 'LOT-sample',
           catalogItemId: 'ITM-sample',
           quantity: 100,
-          unitCost: 10.00,
+          unitCost: 10.0,
           currency: 'USD',
           supplierId: 'supplier-001',
           supplierInvoiceRef: 'INV-001',
           locationId: 'LOC-001',
           eventHash: 'sha256-hash',
           sequenceNumber: 1,
-          receivedAt: new Date().toISOString()
+          receivedAt: new Date().toISOString(),
         },
       },
     },
@@ -1003,12 +1030,10 @@ async function main() {
         credentialSubject: {
           receiptId: 'RCP-sample',
           transactionId: 'TX-sample',
-          fulfillments: [
-            { lotId: 'LOT-001', quantity: 5, eventHash: 'sha256-hash' }
-          ],
+          fulfillments: [{ lotId: 'LOT-001', quantity: 5, eventHash: 'sha256-hash' }],
           totalItems: 5,
           eventHashes: ['sha256-hash'],
-          fulfilledAt: new Date().toISOString()
+          fulfilledAt: new Date().toISOString(),
         },
       },
     },
@@ -1027,7 +1052,7 @@ async function main() {
           quantity: 50,
           eventHash: 'sha256-hash',
           reason: 'Stock redistribution',
-          transferredAt: new Date().toISOString()
+          transferredAt: new Date().toISOString(),
         },
       },
     },
@@ -1043,7 +1068,7 @@ async function main() {
   }
 
   for (const d of defs) {
-    const existing = existingCredDefs.find(ecd => ecd.name === d.name && ecd.version === d.version)
+    const existing = existingCredDefs.find((ecd) => ecd.name === d.name && ecd.version === d.version)
     if (existing) {
       console.log(`CredDef already exists: ${d.name} -> ${existing.credentialDefinitionId}`)
     } else {

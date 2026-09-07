@@ -10,12 +10,7 @@
 import { injectable } from 'tsyringe'
 import { v4 as uuidv4 } from 'uuid'
 import { DatabaseManager } from './DatabaseManager'
-import type {
-  AiAgentRecord,
-  AiAgentStatus,
-  AiAgentScope,
-  ProvisionAiAgentParams,
-} from '../ai/types/ack-types'
+import type { AiAgentRecord, AiAgentStatus, AiAgentScope, ProvisionAiAgentParams } from '../ai/types/ack-types'
 
 @injectable()
 export class AiAgentRepository {
@@ -26,7 +21,7 @@ export class AiAgentRepository {
     params: ProvisionAiAgentParams & {
       agentDid: string
       controllerCredentialJwt: string
-    }
+    },
   ): Promise<AiAgentRecord> {
     const db = DatabaseManager.getDatabase()
     const now = new Date().toISOString()
@@ -46,12 +41,14 @@ export class AiAgentRepository {
       updatedAt: now,
     }
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO ai_agents (
         id, tenant_id, agent_did, owner_did, controller_credential_jwt,
         label, roles, status, metadata, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
+    ).run(
       record.id,
       record.tenantId,
       record.agentDid,
@@ -62,7 +59,7 @@ export class AiAgentRepository {
       record.status,
       record.metadata ? JSON.stringify(record.metadata) : null,
       record.createdAt,
-      record.updatedAt
+      record.updatedAt,
     )
 
     return record
@@ -95,7 +92,7 @@ export class AiAgentRepository {
    */
   async listAgentsByTenant(
     tenantId: string,
-    options?: { status?: AiAgentStatus; limit?: number; offset?: number }
+    options?: { status?: AiAgentStatus; limit?: number; offset?: number },
   ): Promise<AiAgentRecord[]> {
     const db = DatabaseManager.getDatabase()
     let query = 'SELECT * FROM ai_agents WHERE tenant_id = ?'
@@ -141,26 +138,21 @@ export class AiAgentRepository {
     const db = DatabaseManager.getDatabase()
     const now = new Date().toISOString()
 
-    db.prepare('UPDATE ai_agents SET status = ?, updated_at = ? WHERE id = ?').run(
-      status,
-      now,
-      id
-    )
+    db.prepare('UPDATE ai_agents SET status = ?, updated_at = ? WHERE id = ?').run(status, now, id)
   }
 
   /**
    * Update agent controller credential (for key rotation)
    */
-  async updateControllerCredential(
-    id: string,
-    controllerCredentialJwt: string
-  ): Promise<void> {
+  async updateControllerCredential(id: string, controllerCredentialJwt: string): Promise<void> {
     const db = DatabaseManager.getDatabase()
     const now = new Date().toISOString()
 
-    db.prepare(
-      'UPDATE ai_agents SET controller_credential_jwt = ?, updated_at = ? WHERE id = ?'
-    ).run(controllerCredentialJwt, now, id)
+    db.prepare('UPDATE ai_agents SET controller_credential_jwt = ?, updated_at = ? WHERE id = ?').run(
+      controllerCredentialJwt,
+      now,
+      id,
+    )
   }
 
   /**
@@ -170,11 +162,7 @@ export class AiAgentRepository {
     const db = DatabaseManager.getDatabase()
     const now = new Date().toISOString()
 
-    db.prepare('UPDATE ai_agents SET roles = ?, updated_at = ? WHERE id = ?').run(
-      JSON.stringify(roles),
-      now,
-      id
-    )
+    db.prepare('UPDATE ai_agents SET roles = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(roles), now, id)
   }
 
   /**
@@ -190,9 +178,7 @@ export class AiAgentRepository {
    */
   async agentDidExists(agentDid: string): Promise<boolean> {
     const db = DatabaseManager.getDatabase()
-    const row = db
-      .prepare('SELECT 1 FROM ai_agents WHERE agent_did = ?')
-      .get(agentDid)
+    const row = db.prepare('SELECT 1 FROM ai_agents WHERE agent_did = ?').get(agentDid)
     return !!row
   }
 

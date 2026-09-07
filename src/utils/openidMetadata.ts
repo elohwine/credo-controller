@@ -19,6 +19,8 @@ export function buildIssuerMetadata(input: IssuerMetadataInput) {
   const credentialConfigurations: Record<string, any> = {}
   const credentialsSupported: any[] = []
 
+  const issuerUrl = input.issuerUrl ?? input.baseUrl
+
   if (input.tenantId) {
     try {
       const { credentialDefinitionStore } = require('./credentialDefinitionStore')
@@ -28,13 +30,10 @@ export function buildIssuerMetadata(input: IssuerMetadataInput) {
         // Support multiple common formats for each definition
         const formats = ['jwt_vc', 'jwt_vc_json']
 
-        // Some parts of the codebase (and some clients) reference credential configuration IDs
-        // by the *credential definition name* (e.g., FinancialStatementDef_jwt_vc_json), while
-        // others reference by the *leaf VC type* (e.g., FinancialStatementCredential_jwt_vc_json).
-        // To avoid hard-to-debug 500s during offer creation, we advertise BOTH.
-        const leafType = Array.isArray(def.credentialType) && def.credentialType.length
-          ? def.credentialType[def.credentialType.length - 1]
-          : def.name
+        const leafType =
+          Array.isArray(def.credentialType) && def.credentialType.length
+            ? def.credentialType[def.credentialType.length - 1]
+            : def.name
         const idBases = Array.from(new Set([def.name, leafType].filter(Boolean)))
 
         formats.forEach((format) => {
@@ -61,7 +60,6 @@ export function buildIssuerMetadata(input: IssuerMetadataInput) {
               }
             }
 
-            // Also populate Draft 11 credentials_supported array for native module compatibility
             credentialsSupported.push({
               id: configId,
               format: format,
@@ -74,20 +72,33 @@ export function buildIssuerMetadata(input: IssuerMetadataInput) {
         })
       })
     } catch (error) {
-      // If credential definitions can't be loaded, use empty object
       console.warn('Failed to load credential definitions for metadata:', error)
     }
   }
 
-  return {
-    credential_issuer: input.issuerUrl,
+  if (!Object.keys(credentialConfigurations).length && !credentialsSupported.length) {
+    credentialsSupported.push({
+      format: 'jwt_vc',
+      types: ['VerifiableCredential'],
+      cryptographic_binding_methods_supported: ['did'],
+      cryptographic_suites_supported: ['Ed25519Signature2018'],
+    })
+  }
+
+  const metadata: Record<string, unknown> = {
+    credential_issuer: issuerUrl,
     issuer: input.issuerDid,
     credential_endpoint: input.credentialEndpoint,
     token_endpoint: input.tokenEndpoint,
-    credential_configurations_supported: credentialConfigurations,
     credentials_supported: credentialsSupported,
     display: input.display ? [input.display] : [],
   }
+
+  if (Object.keys(credentialConfigurations).length > 0) {
+    metadata.credential_configurations_supported = credentialConfigurations
+  }
+
+  return metadata
 }
 
 export interface VerifierMetadataInput {

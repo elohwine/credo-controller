@@ -1,6 +1,6 @@
 Clear — we’re on the same page.
 
-You want to **reuse only the walt.id UI code (web wallet + issuer/verifier portal frontends)** and **wire those UIs to *your* backend (Credo Controller)** — *not* run or depend on the walt.id backend stack or APIs. That’s totally doable and a sensible path: you get polished UI/UX components out-of-the-box and keep control of business logic, credentials issuance, verification, and data flows in your own backend.
+You want to **reuse only the walt.id UI code (web wallet + issuer/verifier portal frontends)** and **wire those UIs to _your_ backend (Credo Controller)** — _not_ run or depend on the walt.id backend stack or APIs. That’s totally doable and a sensible path: you get polished UI/UX components out-of-the-box and keep control of business logic, credentials issuance, verification, and data flows in your own backend.
 
 Below is a robust, actionable implementation guide that shows exactly how to do that: which repos to clone, the layout of changes, the endpoints your Credo backend must implement (with example payloads), where to edit the UIs to point to your endpoints, test sequences, security considerations, plus a prioritized TODO list so you can start coding immediately.
 
@@ -29,19 +29,20 @@ Below is a robust, actionable implementation guide that shows exactly how to do 
 
    Confirm presence of:
 
-   * `waltid-applications/waltid-web-wallet`
-   * `waltid-applications/waltid-web-portal`
-   * Each contains a `package.json` and local README.
+   - `waltid-applications/waltid-web-wallet`
+   - `waltid-applications/waltid-web-portal`
+   - Each contains a `package.json` and local README.
 
 2. **Install dependencies**
 
-   * Detect correct package manager (`pnpm` > `yarn` > `npm`).
-   * Run from root:
+   - Detect correct package manager (`pnpm` > `yarn` > `npm`).
+   - Run from root:
 
      ```bash
      pnpm install
      ```
-   * Optionally build shared packages if the monorepo requires it.
+
+   - Optionally build shared packages if the monorepo requires it.
 
 3. **Run individual apps locally for quick testing**
 
@@ -78,64 +79,65 @@ Below is a robust, actionable implementation guide that shows exactly how to do 
 
 5. **Wire all REST calls in the UI to our backend instead of Walt ID**
 
-   * Search for any `fetch(...)`, `axios`, or `api.ts` references pointing to:
+   - Search for any `fetch(...)`, `axios`, or `api.ts` references pointing to:
 
-     * `walt.id`, `wallet-api`, or `community.walt.id`
-   * Replace base URLs with `process.env.NEXT_PUBLIC_*` variables above.
-   * Example change:
+     - `walt.id`, `wallet-api`, or `community.walt.id`
+
+   - Replace base URLs with `process.env.NEXT_PUBLIC_*` variables above.
+   - Example change:
 
      ```diff
      - const res = await fetch(`${WALT_BACKEND}/api/credentials`, { ... })
      + const res = await fetch(`${process.env.NEXT_PUBLIC_ISSUER_URL}/credentials`, { ... })
      ```
-   * Keep the existing request/response structures identical wherever possible.
+
+   - Keep the existing request/response structures identical wherever possible.
 
 6. **Wire Credo backend (for local UI )**
-scan backend for routes to map to new frontend
-
-  
- 
+   scan backend for routes to map to new frontend
 
 7. **Multi-tenant integration design**
 
-   * Every API route must read a `tenantId` (from request body, header, or env).
-   * Backend must namespace data (credentials, keys, agent configs) by `tenantId`.
-   * Example pattern:
+   - Every API route must read a `tenantId` (from request body, header, or env).
+   - Backend must namespace data (credentials, keys, agent configs) by `tenantId`.
+   - Example pattern:
 
      ```
      /api/{tenantId}/issuer/...
      /api/{tenantId}/verifier/...
      ```
-   * UI automatically injects tenant context:
+
+   - UI automatically injects tenant context:
 
      ```js
      const tenant = process.env.NEXT_PUBLIC_TENANT_ID || "default";
      fetch(`${BASE_URL}/api/${tenant}/issuer/credential-offers`, {...})
      ```
-   * Copilot: generate helper function `withTenant(path)` to simplify calls.
+
+   - Copilot: generate helper function `withTenant(path)` to simplify calls.
 
 8. **Verify connectivity**
 
-   * Run mock backend (`node mock-credo.js`).
-   * Start wallets & portal; issue + verify test credential.
-   * Observe network requests hitting `localhost:8085`.
+   - Run mock backend (`node mock-credo.js`).
+   - Start wallets & portal; issue + verify test credential.
+   - Observe network requests hitting `localhost:8085`.
 
 9. **Prepare for real backend (Credo)**
 
-   * Replace mock with real Credo controllers exposing same endpoints.
-   * Ensure CORS enabled for `localhost:4001` and `:5000`.
-   * Add JWT/API-key auth for each tenant’s agents.
-   * Map EcoCash payment confirmations → VC issuance flow (e.g., PaymentReceipt VC).
-   * Implement revocation, audit logging, and DIDComm notifications later.
+   - Replace mock with real Credo controllers exposing same endpoints.
+   - Ensure CORS enabled for `localhost:4001` and `:5000`.
+   - Add JWT/API-key auth for each tenant’s agents.
+   - Map EcoCash payment confirmations → VC issuance flow (e.g., PaymentReceipt VC).
+   - Implement revocation, audit logging, and DIDComm notifications later.
 
 10. **Optional enhancements**
 
-    * Integrate **Vercel AI SDK Gen UI** once base wiring works:
+    - Integrate **Vercel AI SDK Gen UI** once base wiring works:
 
-      * Add `@vercel/ai` dependency.
-      * Build a Generative UI assistant to explain receipts, verify data provenance, and guide users.
-      * Each Gen-UI response must query verifiable data from Credo’s API before presenting.
-      * Keep wallet keys fully client-side; never expose in AI prompt context.
+      - Add `@vercel/ai` dependency.
+      - Build a Generative UI assistant to explain receipts, verify data provenance, and guide users.
+      - Each Gen-UI response must query verifiable data from Credo’s API before presenting.
+      - Keep wallet keys fully client-side; never expose in AI prompt context.
 
 ---
 
@@ -159,10 +161,10 @@ scan backend for routes to map to new frontend
 
 5. **README.md** summarizing:
 
-   * Setup commands
-   * Local testing
-   * Tenant configuration
-   * Deployment steps (Vercel / Render / AWS)
+   - Setup commands
+   - Local testing
+   - Tenant configuration
+   - Deployment steps (Vercel / Render / AWS)
 
 6. **Optional**: script to deploy the wallet + portal to Vercel for public demos.
 
@@ -170,13 +172,12 @@ scan backend for routes to map to new frontend
 
 ### 🧩 Success criteria
 
-* UI apps launch cleanly (`npm run dev` shows no missing backend errors).
-* All network requests go to `localhost:8085/api/*` (not walt.id).
-* Multi-tenant header/param included in all requests.
-* Issuance → Acceptance → Verification flows complete with mock backend.
-* Codebase easily migrates to real Credo backend later (no UI rewrite).
-* Ready for future **Agentic AI integration** layer for verifiable, autonomous transactions.
-
+- UI apps launch cleanly (`npm run dev` shows no missing backend errors).
+- All network requests go to `localhost:8085/api/*` (not walt.id).
+- Multi-tenant header/param included in all requests.
+- Issuance → Acceptance → Verification flows complete with mock backend.
+- Codebase easily migrates to real Credo backend later (no UI rewrite).
+- Ready for future **Agentic AI integration** layer for verifiable, autonomous transactions.
 
 # Recommended developer approach (fastest path to test)
 
@@ -192,10 +193,10 @@ scan backend for routes to map to new frontend
 
 # Security & UX notes (must do before production)
 
-* **Wallet key management**: since the wallet UI will generate keys locally (good!), ensure you inform users about backup (mnemonic), and provide easy recovery UX if you plan to rely on local keys for demos.
-* **Issuance signing keys**: your Credo backend must securely sign VCs — store signer keys in KMS/HSM (do not keep in plain env vars). Implement rotation & use signature schemes compatible with DID method you pick (Ed25519, etc).
-* **Consent & clarity**: ensure the wallet UI’s consent screens are not removed — users must knowingly accept credentials. Generative UI later will help explain this.
-* **Revocation API**: design a minimal revocation API and ensure verifier checks revocation status (or use short expiry for initial VCs).
+- **Wallet key management**: since the wallet UI will generate keys locally (good!), ensure you inform users about backup (mnemonic), and provide easy recovery UX if you plan to rely on local keys for demos.
+- **Issuance signing keys**: your Credo backend must securely sign VCs — store signer keys in KMS/HSM (do not keep in plain env vars). Implement rotation & use signature schemes compatible with DID method you pick (Ed25519, etc).
+- **Consent & clarity**: ensure the wallet UI’s consent screens are not removed — users must knowingly accept credentials. Generative UI later will help explain this.
+- **Revocation API**: design a minimal revocation API and ensure verifier checks revocation status (or use short expiry for initial VCs).
 
 ---
 
@@ -203,28 +204,28 @@ scan backend for routes to map to new frontend
 
 **Phase A — Local UI wiring**
 
-* [ ] Clone `waltid-web-wallet`, `waltid-verifier-portal`.
-* [ ] Run each UI locally (`npm install` & `npm run dev`).
-* [ ] Search & document config entries that point to backend (issuer/verifier base URLs).
+- [ ] Clone `waltid-web-wallet`, `waltid-verifier-portal`.
+- [ ] Run each UI locally (`npm install` & `npm run dev`).
+- [ ] Search & document config entries that point to backend (issuer/verifier base URLs).
 
 **Phase B - Real Credo endpoints wiring**
 
-* [ ] Implement Credo `POST /issuer/credential-offers` that builds offer & returns `offerUrl`.
-* [ ] Implement Credo `POST /issuer/issue` that signs a VC (use waltid-ssikit or your own VC signer) and returns the VC object & wallet deep-link.
-* [ ] Implement `POST /verifier/verify` that validates VP (signature + claims + revocation).
-* [ ] Ensure web wallet can accept the VC (test with one holder DID).
+- [ ] Implement Credo `POST /issuer/credential-offers` that builds offer & returns `offerUrl`.
+- [ ] Implement Credo `POST /issuer/issue` that signs a VC (use waltid-ssikit or your own VC signer) and returns the VC object & wallet deep-link.
+- [ ] Implement `POST /verifier/verify` that validates VP (signature + claims + revocation).
+- [ ] Ensure web wallet can accept the VC (test with one holder DID).
 
 **Phase D — Payment integration**
 
-* [ ] Integrate EcoCash payment flow & webhook to Credo. On success call `POST /issuer/issue`.
-* [ ] Build simple merchant verifier flow (POS web page) that requests VP and verifies.
+- [ ] Integrate EcoCash payment flow & webhook to Credo. On success call `POST /issuer/issue`.
+- [ ] Build simple merchant verifier flow (POS web page) that requests VP and verifies.
 
 **Phase E — Hardening & production**
 
-* [ ] Move signing keys to KMS/HSM.
-* [ ] Add revocation list & checks.
-* [ ] Add audit logs, replay protection for webhooks.
-* [ ] Add TLS, rate limits, API keys & auth for issuer endpoints.
+- [ ] Move signing keys to KMS/HSM.
+- [ ] Add revocation list & checks.
+- [ ] Add audit logs, replay protection for webhooks.
+- [ ] Add TLS, rate limits, API keys & auth for issuer endpoints.
 
 NOTE: This plan assumes familiarity with Credo Controller development, VC issuance concepts, and basic React UI editing. Adjust the plan as needed based on your project requirements.
 

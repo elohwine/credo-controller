@@ -1,4 +1,4 @@
-import 'reflect-metadata'   // MUST be first import before any decorated controllers
+import 'reflect-metadata' // MUST be first import before any decorated controllers
 import type { Request as ExRequest } from 'express'
 
 import { Body, Controller, Get, Path, Post, Route, Security, Tags, Request } from 'tsoa'
@@ -95,13 +95,13 @@ export class OID4VCredentialDefinitionController extends Controller {
             baseUrl: process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
             credentialEndpoint: `${process.env.PUBLIC_BASE_URL}/oidc/token`,
             tokenEndpoint: `${process.env.PUBLIC_BASE_URL}/oidc/token`,
-            tenantId
+            tenantId,
           })
 
           await agent.modules.openId4VcIssuer.updateIssuerMetadata({
             issuerId: issuer.issuerId,
             credentialsSupported: newMetadata.credentials_supported,
-            credentialConfigurationsSupported: newMetadata.credential_configurations_supported
+            credentialConfigurationsSupported: newMetadata.credential_configurations_supported,
           })
 
           // Update cache

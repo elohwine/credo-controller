@@ -15,15 +15,15 @@ Zimbabwe already transacts digitally (EcoCash, ZESA, food, airtime). The blocker
 
 ## ✅ What We ARE Building (MVP Scope)
 
-| Component | Status | Description |
-|-----------|--------|-------------|
-| **Product Catalog** | ✅ Exists | SKU/service list with merchant trust badge |
-| **Cart & Checkout** | ✅ Exists | Cart total, delivery option, EcoCash payment |
-| **EcoCash Payment** | ✅ Exists | C2B payment via webhook confirmation |
-| **ReceiptVC Issuance** | ✅ Exists | Signed VC on payment success |
-| **Embedded Wallet** | ✅ Exists | Wallet UI for credential storage |
-| **Driver Verification** | 🏗 Enhance | Mobile web verifier for delivery handover |
-| **Consent Flow** | 🏗 Enhance | "Save verified receipt to wallet?" prompt |
+| Component               | Status     | Description                                  |
+| ----------------------- | ---------- | -------------------------------------------- |
+| **Product Catalog**     | ✅ Exists  | SKU/service list with merchant trust badge   |
+| **Cart & Checkout**     | ✅ Exists  | Cart total, delivery option, EcoCash payment |
+| **EcoCash Payment**     | ✅ Exists  | C2B payment via webhook confirmation         |
+| **ReceiptVC Issuance**  | ✅ Exists  | Signed VC on payment success                 |
+| **Embedded Wallet**     | ✅ Exists  | Wallet UI for credential storage             |
+| **Driver Verification** | 🏗 Enhance | Mobile web verifier for delivery handover    |
+| **Consent Flow**        | 🏗 Enhance | "Save verified receipt to wallet?" prompt    |
 
 ---
 
@@ -44,12 +44,12 @@ These come AFTER proof of trust works:
 
 ## 📊 Success Metrics (Pilot KPIs)
 
-| Metric | Target |
-|--------|--------|
-| ReceiptVC issuance rate | ≥90% of successful payments |
-| Save-to-wallet rate | ≥40% of purchases |
-| Driver verification success | ≥90% where attempted |
-| Dispute reduction | Qualitative improvement in pilot |
+| Metric                      | Target                           |
+| --------------------------- | -------------------------------- |
+| ReceiptVC issuance rate     | ≥90% of successful payments      |
+| Save-to-wallet rate         | ≥40% of purchases                |
+| Driver verification success | ≥90% where attempted             |
+| Dispute reduction           | Qualitative improvement in pilot |
 
 ---
 
@@ -99,13 +99,13 @@ These come AFTER proof of trust works:
 
 ## 📅 12-Week Sprint Overview
 
-| Weeks | Focus |
-|-------|-------|
-| 1-2 | Foundations, EcoCash sandbox |
-| 3-5 | Checkout UI, ReceiptVC, embedded wallet |
-| 6-7 | Driver verification, QA |
-| 8-10 | Pilot onboarding & soft launch |
-| 11-12 | Analytics, go/no-go decision |
+| Weeks | Focus                                   |
+| ----- | --------------------------------------- |
+| 1-2   | Foundations, EcoCash sandbox            |
+| 3-5   | Checkout UI, ReceiptVC, embedded wallet |
+| 6-7   | Driver verification, QA                 |
+| 8-10  | Pilot onboarding & soft launch          |
+| 11-12 | Analytics, go/no-go decision            |
 
 See [MVP_IMPLEMENTATION_GUIDE.md](./docs/MVP_IMPLEMENTATION_GUIDE.md) for detailed breakdown.
 

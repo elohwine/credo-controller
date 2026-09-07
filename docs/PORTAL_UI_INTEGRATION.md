@@ -43,34 +43,46 @@ Root Token → Create/Get Tenant → Tenant Token (RestTenantAgent)
 Tenant Token → Access Protected Endpoints (schemas, credential-definitions)
 ```
 
-### Implementation (_app.tsx)
+### Implementation (\_app.tsx)
 
 ```typescript
 // 1. Get root token
-const rootTokenRes = await axios.post(`${credoBackend}/agent/token`, {}, {
-  headers: { Authorization: apiKey }
-})
+const rootTokenRes = await axios.post(
+  `${credoBackend}/agent/token`,
+  {},
+  {
+    headers: { Authorization: apiKey },
+  },
+)
 const rootToken = rootTokenRes.data.token
 
 // 2. Create or retrieve tenant (cached in localStorage)
 let tenantId = localStorage.getItem('credoTenantId')
 if (!tenantId) {
-  const createRes = await axios.post(`${credoBackend}/multi-tenancy/create-tenant`, {
-    config: { label: 'Portal Tenant' }
-  }, { headers: { Authorization: `Bearer ${rootToken}` } })
+  const createRes = await axios.post(
+    `${credoBackend}/multi-tenancy/create-tenant`,
+    {
+      config: { label: 'Portal Tenant' },
+    },
+    { headers: { Authorization: `Bearer ${rootToken}` } },
+  )
   tenantId = createRes.data.tenantId
   localStorage.setItem('credoTenantId', tenantId)
 }
 
 // 3. Get tenant token
-const tokenRes = await axios.post(`${credoBackend}/multi-tenancy/get-token/${tenantId}`, {}, {
-  headers: { Authorization: `Bearer ${rootToken}` }
-})
+const tokenRes = await axios.post(
+  `${credoBackend}/multi-tenancy/get-token/${tenantId}`,
+  {},
+  {
+    headers: { Authorization: `Bearer ${rootToken}` },
+  },
+)
 const tenantToken = tokenRes.data.token
 
 // 4. Use tenant token for API calls
 const credDefsRes = await axios.get(`${credoBackend}/oidc/credential-definitions`, {
-  headers: { Authorization: `Bearer ${tenantToken}` }
+  headers: { Authorization: `Bearer ${tenantToken}` },
 })
 ```
 
@@ -106,13 +118,13 @@ components/credentials/CredentialDefinitionList.tsx
 
 Aligned with portal's `tailwind.config.ts`:
 
-| Category | Type | Color | Usage |
-|----------|------|-------|-------|
-| Payment & Transaction | `PaymentReceipt` | Green 500/700 | `border-green-500 bg-green-50` |
-| Identity Documents | `GenericIDCredential` | Primary 400/700 (blue) | `border-primary-400 bg-primary-50` |
-| Educational Badges | `OpenBadge` | Yellow 500/700 | `border-yellow-500 bg-yellow-50` |
-| mDoc Health Records | `MdocHealthSummary` | Red 400/700 | `border-red-400 bg-red-50` |
-| EHR Clinical Data | `EHRSummary` | Orange 500/700 | `border-orange-500 bg-orange-50` |
+| Category              | Type                  | Color                  | Usage                              |
+| --------------------- | --------------------- | ---------------------- | ---------------------------------- |
+| Payment & Transaction | `PaymentReceipt`      | Green 500/700          | `border-green-500 bg-green-50`     |
+| Identity Documents    | `GenericIDCredential` | Primary 400/700 (blue) | `border-primary-400 bg-primary-50` |
+| Educational Badges    | `OpenBadge`           | Yellow 500/700         | `border-yellow-500 bg-yellow-50`   |
+| mDoc Health Records   | `MdocHealthSummary`   | Red 400/700            | `border-red-400 bg-red-50`         |
+| EHR Clinical Data     | `EHRSummary`          | Orange 500/700         | `border-orange-500 bg-orange-50`   |
 
 ## Data Flow
 
@@ -168,12 +180,12 @@ yarn dev
 ```typescript
 // ❌ Wrong: Using root token
 axios.get('/oidc/credential-definitions', {
-  headers: { Authorization: `Bearer ${rootToken}` }
+  headers: { Authorization: `Bearer ${rootToken}` },
 })
 
 // ✅ Correct: Using tenant token
 axios.get('/oidc/credential-definitions', {
-  headers: { Authorization: `Bearer ${tenantToken}` }
+  headers: { Authorization: `Bearer ${tenantToken}` },
 })
 ```
 
@@ -238,14 +250,14 @@ Navigate to `http://localhost:3003/credential-models` — new category appears!
 
 ## API Endpoints Used
 
-| Endpoint | Method | Auth | Description |
-|----------|--------|------|-------------|
-| `/agent/token` | POST | API Key | Get root token |
-| `/multi-tenancy/create-tenant` | POST | Root Token | Create tenant |
-| `/multi-tenancy/get-token/:tenantId` | POST | Root Token | Get tenant token |
-| `/oidc/credential-definitions` | GET | Tenant Token | List credential definitions |
-| `/oidc/schemas` | GET | Tenant Token | List schemas |
-| `/agent/health/database` | GET | None | Database stats |
+| Endpoint                             | Method | Auth         | Description                 |
+| ------------------------------------ | ------ | ------------ | --------------------------- |
+| `/agent/token`                       | POST   | API Key      | Get root token              |
+| `/multi-tenancy/create-tenant`       | POST   | Root Token   | Create tenant               |
+| `/multi-tenancy/get-token/:tenantId` | POST   | Root Token   | Get tenant token            |
+| `/oidc/credential-definitions`       | GET    | Tenant Token | List credential definitions |
+| `/oidc/schemas`                      | GET    | Tenant Token | List schemas                |
+| `/agent/health/database`             | GET    | None         | Database stats              |
 
 ## Context Providers
 

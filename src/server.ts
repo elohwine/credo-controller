@@ -15,6 +15,7 @@ import dotenv from 'dotenv'
 import express from 'express'
 import { rateLimit } from 'express-rate-limit'
 import * as fs from 'fs'
+import path from 'path'
 import { generateHTML, serve } from 'swagger-ui-express'
 import { ValidateError } from 'tsoa'
 import { container } from 'tsyringe'
@@ -103,7 +104,9 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     console.log('[server.ts] Agent modules after container registration:', Object.keys((agent.modules as any) || {}))
   }
 
-  fs.writeFileSync('/app/data/config.json', JSON.stringify(config, null, 2))
+  const configDir = process.env.CONFIG_DATA_DIR ?? path.resolve(process.cwd(), 'data')
+  fs.mkdirSync(configDir, { recursive: true })
+  fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify(config, null, 2))
 
   const app = config.app ?? express()
   if (config.cors) {
@@ -323,6 +326,25 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   // registered when the issuer record was created (e.g., GenericIDCredential_jwt_vc_json).
   // Only provide platform-level (non-issuer-specific) augmented metadata if needed.
 
+  // Back-compat alias: some clients still hit /oidc/issuer/* while the TSOA
+  // controller is mounted under the legacy /custom-oidc path. Rewrite only the
+  // issuer-management endpoints that are intentionally provided by the app.
+  app.use((req: ExRequest, res: ExResponse, next: NextFunction) => {
+    const legacyCustomIssuerPaths = [
+      '/oidc/issuer/credential-offers',
+      '/oidc/issuer/credentials',
+      '/oidc/issuer/credentials/',
+    ]
+    if (
+      req.path === '/oidc/issuer/credential-offers' ||
+      req.path === '/oidc/issuer/credentials' ||
+      req.path.startsWith('/oidc/issuer/credentials/')
+    ) {
+      req.url = req.url.replace(/^\/oidc\/issuer/, '/custom-oidc/issuer')
+    }
+    next()
+  })
+
   // Mount TSOA routes (API controllers)
   // take precedence over the generic Credo OpenID4VC router which matches prefixes.
   RegisterRoutes(app)
@@ -338,11 +360,12 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     // Add a lightweight logger around the issuer credential endpoint to capture
     // the incoming credential request and the issuer response for debugging.
     app.use('/oidc/issuer', async (req: ExRequest, res: ExResponse, next: NextFunction) => {
-      const isCredentialEndpoint = req.method === 'POST' && req.path.endsWith('/credential')
+      const requestPath = typeof req.path === 'string' ? req.path : typeof req.originalUrl === 'string' ? req.originalUrl : ''
+      const isCredentialEndpoint = req.method === 'POST' && requestPath.endsWith('/credential')
       if (isCredentialEndpoint) {
         try {
           req.logger?.info(
-            { path: req.path, bodyPreview: typeof req.body === 'object' ? Object.keys(req.body) : typeof req.body },
+            { path: requestPath, bodyPreview: typeof req.body === 'object' ? Object.keys(req.body) : typeof req.body },
             'Issuer credential request incoming',
           )
         } catch (e) {

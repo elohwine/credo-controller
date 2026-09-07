@@ -7,11 +7,7 @@
  * Reference: https://www.agentcommercekit.com/ack-pay
  */
 
-import type {
-  AckPayAdapter,
-  AckPaymentOption,
-  AckPaymentRequest,
-} from '../types/ack-types'
+import type { AckPayAdapter, AckPaymentOption, AckPaymentRequest } from '../types/ack-types'
 
 /**
  * Base class for ACK-Pay adapters with common utilities
@@ -74,11 +70,7 @@ export abstract class BaseAckPayAdapter implements AckPayAdapter {
     instructions?: string
   }>
 
-  abstract verifyPayment(params: {
-    providerRef: string
-    expectedAmount: number
-    expectedCurrency: string
-  }): Promise<{
+  abstract verifyPayment(params: { providerRef: string; expectedAmount: number; expectedCurrency: string }): Promise<{
     verified: boolean
     settledAt?: string
     failureReason?: string

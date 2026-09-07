@@ -1,17 +1,21 @@
 # Walt.id UI → Credo Backend API Mapping
 
 ## Overview
+
 This document maps walt.id UI API calls to Credo Controller endpoints.
 
 ## Issuer APIs
 
 ### Create Credential Offer
+
 **Walt.id UI Call:**
+
 ```
 POST /api/issuer/credential-offers
 ```
 
 **Credo Backend:**
+
 ```
 POST /oidc/issuer/credential-offers
 Authorization: Bearer <tenant-token>
@@ -36,6 +40,7 @@ Content-Type: application/json
 ```
 
 **Response:**
+
 ```json
 {
   "offerId": "uuid",
@@ -46,12 +51,15 @@ Content-Type: application/json
 ```
 
 ### Issue Credential (Token Exchange)
+
 **Walt.id UI Call:**
+
 ```
 POST /api/issuer/token
 ```
 
 **Credo Backend:**
+
 ```
 POST /oidc/token
 Content-Type: application/x-www-form-urlencoded
@@ -62,6 +70,7 @@ grant_type=urn:ietf:params:oauth:grant-type:pre-authorized_code
 ```
 
 **Response:**
+
 ```json
 {
   "credentialId": "uuid",
@@ -70,24 +79,30 @@ grant_type=urn:ietf:params:oauth:grant-type:pre-authorized_code
 ```
 
 ### List Issued Credentials
+
 **Walt.id UI Call:**
+
 ```
 GET /api/issuer/credentials
 ```
 
 **Credo Backend:**
+
 ```
 GET /oidc/issuer/credentials
 Authorization: Bearer <tenant-token>
 ```
 
 ### Revoke Credential
+
 **Walt.id UI Call:**
+
 ```
 POST /api/issuer/credentials/{id}/revoke
 ```
 
 **Credo Backend:**
+
 ```
 POST /oidc/issuer/credentials/{id}/revoke
 Authorization: Bearer <tenant-token>
@@ -96,12 +111,15 @@ Authorization: Bearer <tenant-token>
 ## Verifier APIs
 
 ### Create Presentation Request
+
 **Walt.id UI Call:**
+
 ```
 POST /api/verifier/presentation-requests
 ```
 
 **Credo Backend:**
+
 ```
 POST /oidc/verifier/presentation-requests
 Authorization: Bearer <tenant-token>
@@ -114,6 +132,7 @@ Content-Type: application/json
 ```
 
 **Response:**
+
 ```json
 {
   "requestId": "uuid",
@@ -124,12 +143,15 @@ Content-Type: application/json
 ```
 
 ### Verify Presentation
+
 **Walt.id UI Call:**
+
 ```
 POST /api/verifier/verify
 ```
 
 **Credo Backend:**
+
 ```
 POST /oidc/verifier/verify
 Authorization: Bearer <tenant-token>
@@ -142,6 +164,7 @@ Content-Type: application/json
 ```
 
 **Response:**
+
 ```json
 {
   "verified": true,
@@ -159,35 +182,44 @@ Content-Type: application/json
 ## Wallet APIs (Backend-to-Backend)
 
 ### Get Tenant Metadata
+
 **Walt.id UI Call:**
+
 ```
 GET /api/wallet/metadata
 ```
 
 **Credo Backend:**
+
 ```
 GET /multi-tenancy/{tenantId}/metadata
 Authorization: Bearer <tenant-token>
 ```
 
 ### Get Issuer Metadata (OpenID)
+
 **Walt.id UI Call:**
+
 ```
 GET /.well-known/openid-credential-issuer
 ```
 
 **Credo Backend:**
+
 ```
 GET /{tenantId}/.well-known/openid-credential-issuer
 ```
 
 ### Get Verifier Metadata (OpenID)
+
 **Walt.id UI Call:**
+
 ```
 GET /.well-known/openid-verifier
 ```
 
 **Credo Backend:**
+
 ```
 GET /{tenantId}/.well-known/openid-verifier
 ```
@@ -195,6 +227,7 @@ GET /{tenantId}/.well-known/openid-verifier
 ## Multi-Tenancy
 
 ### Create Tenant
+
 ```
 POST /multi-tenancy/create-tenant
 Authorization: Bearer <admin-api-key>
@@ -209,6 +242,7 @@ Content-Type: application/json
 ```
 
 **Response:**
+
 ```json
 {
   "id": "tenant-uuid",
@@ -225,6 +259,7 @@ Content-Type: application/json
 ## Authentication Flow
 
 1. **Admin creates tenant:**
+
    ```bash
    curl -X POST http://localhost:3000/multi-tenancy/create-tenant \
      -H "Authorization: Bearer <admin-key>" \
@@ -257,13 +292,15 @@ Ensure Credo backend allows UI origins:
 
 ```typescript
 // src/server.ts
-app.use(cors({
-  origin: [
-    'http://localhost:4001',  // wallet
-    'http://localhost:5000',  // portal
-    process.env.WALLET_UI_URL,
-    process.env.PORTAL_UI_URL
-  ],
-  credentials: true
-}))
+app.use(
+  cors({
+    origin: [
+      'http://localhost:4001', // wallet
+      'http://localhost:5000', // portal
+      process.env.WALLET_UI_URL,
+      process.env.PORTAL_UI_URL,
+    ],
+    credentials: true,
+  }),
+)
 ```

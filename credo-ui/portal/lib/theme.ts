@@ -1,18 +1,18 @@
 /**
  * Credentis Unified Brand Theme
- * 
+ *
  * All portal pages should use these constants for consistent branding.
  * The Payroll page was the reference for this style guide.
  */
 
 // Core brand colors
 export const BRAND = {
-  curious: '#2188CA',      // Primary blue
-  linkWater: '#D0E6F3',    // Light blue background
-  viking: '#6FB4DC',       // Accent blue
-  cornflower: '#88C4E3',   // Soft blue
-  dark: '#0A3D5C',         // Dark blue for text/headings
-} as const;
+  curious: '#2188CA', // Primary blue
+  linkWater: '#D0E6F3', // Light blue background
+  viking: '#6FB4DC', // Accent blue
+  cornflower: '#88C4E3', // Soft blue
+  dark: '#0A3D5C', // Dark blue for text/headings
+} as const
 
 // Status badge configurations
 export const STATUS_STYLES = {
@@ -31,7 +31,7 @@ export const STATUS_STYLES = {
   cancelled: { bg: 'bg-red-100', text: 'text-red-800' },
   error: { bg: 'bg-red-100', text: 'text-red-800' },
   inactive: { bg: 'bg-gray-100', text: 'text-gray-600' },
-} as const;
+} as const
 
 // Common component class names
 export const CLASSES = {
@@ -40,28 +40,30 @@ export const CLASSES = {
   pageHeaderGradientStyle: {
     background: `linear-gradient(135deg, ${BRAND.dark} 0%, ${BRAND.curious} 100%)`,
   },
-  
+
   // Section headers
   sectionTitle: 'text-3xl font-bold text-white',
   sectionSubtitle: 'text-sm mt-2',
-  
+
   // Cards
   statCard: 'relative overflow-hidden rounded-xl p-6 shadow-sm hover:shadow-md transition-all',
   statCardStyle: { backgroundColor: BRAND.linkWater },
-  
+
   // Tables
   tableWrapper: 'overflow-hidden rounded-xl shadow ring-1 ring-black ring-opacity-5',
   tableHeader: 'px-6 py-3 text-left text-xs font-semibold uppercase',
   tableHeaderStyle: { backgroundColor: BRAND.linkWater, color: BRAND.dark },
   tableRow: 'hover:bg-gray-50 transition-colors',
   tableCell: 'px-6 py-4 text-sm',
-  
+
   // Buttons
-  primaryButton: 'inline-flex items-center rounded-lg px-4 py-2 text-sm font-medium text-white transition-all hover:shadow-md disabled:opacity-50',
+  primaryButton:
+    'inline-flex items-center rounded-lg px-4 py-2 text-sm font-medium text-white transition-all hover:shadow-md disabled:opacity-50',
   primaryButtonStyle: { backgroundColor: BRAND.curious },
-  secondaryButton: 'inline-flex items-center rounded-lg border-2 px-4 py-2 text-sm font-medium transition-all hover:shadow-md',
+  secondaryButton:
+    'inline-flex items-center rounded-lg border-2 px-4 py-2 text-sm font-medium transition-all hover:shadow-md',
   secondaryButtonStyle: { borderColor: BRAND.curious, color: BRAND.curious, backgroundColor: 'white' },
-  
+
   // Tabs
   tabActive: 'border-current',
   tabInactive: 'border-transparent hover:border-gray-300',
@@ -69,12 +71,12 @@ export const CLASSES = {
     color: active ? BRAND.curious : '#6B7280',
     borderColor: active ? BRAND.curious : undefined,
   }),
-  
+
   // Forms
   inputBorder: { borderColor: BRAND.viking },
   label: 'block text-sm font-medium mb-1',
   labelStyle: { color: BRAND.dark },
-  
+
   // Modals
   modalBackdrop: 'fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-[100]',
   modalContent: 'bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl',
@@ -83,14 +85,14 @@ export const CLASSES = {
   modalIconWrapperStyle: { backgroundColor: BRAND.linkWater },
   modalTitle: 'text-xl font-semibold',
   modalTitleStyle: { color: BRAND.dark },
-  
+
   // Info boxes
   infoBox: 'p-4 rounded-lg',
   infoBoxStyle: { backgroundColor: BRAND.linkWater },
-  
+
   // Empty state
   emptyState: 'px-6 py-12 text-center text-sm text-gray-500',
-} as const;
+} as const
 
 // Helper function to format currency
 export const formatCurrency = (amount: number, currency: string = 'USD') => {
@@ -98,11 +100,11 @@ export const formatCurrency = (amount: number, currency: string = 'USD') => {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
-  }).format(amount);
-};
+  }).format(amount)
+}
 
 // Helper function to get status styles
 export const getStatusStyle = (status: string) => {
-  const normalizedStatus = status.toLowerCase().replace(/\s+/g, '_');
-  return STATUS_STYLES[normalizedStatus as keyof typeof STATUS_STYLES] || STATUS_STYLES.pending;
-};
+  const normalizedStatus = status.toLowerCase().replace(/\s+/g, '_')
+  return STATUS_STYLES[normalizedStatus as keyof typeof STATUS_STYLES] || STATUS_STYLES.pending
+}

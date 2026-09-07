@@ -13,7 +13,7 @@ spec:
       labels:
         app: web-portal
       annotations:
-        deployment/id: "_DEFAULT_DEPLOYMENT_"
+        deployment/id: '_DEFAULT_DEPLOYMENT_'
     spec:
       containers:
         - name: web-portal
@@ -21,13 +21,13 @@ spec:
           imagePullPolicy: Always
           env:
             - name: NEXT_PUBLIC_VC_REPO
-              value: "https://credentials.test.waltid.cloud"
+              value: 'https://credentials.test.waltid.cloud'
             - name: NEXT_PUBLIC_ISSUER
-              value: "https://issuer.portal.test.waltid.cloud"
+              value: 'https://issuer.portal.test.waltid.cloud'
             - name: NEXT_PUBLIC_VERIFIER
-              value: "https://verifier.portal.test.waltid.cloud"
+              value: 'https://verifier.portal.test.waltid.cloud'
             - name: NEXT_PUBLIC_WALLET
-              value: "https://wallet.test.waltid.cloud"
+              value: 'https://wallet.test.waltid.cloud'
           ports:
             - containerPort: 3000
               name: http-portal
@@ -50,7 +50,7 @@ kind: Ingress
 metadata:
   name: portal-ingress
   annotations:
-    kubernetes.io/ingress.class: "nginx"
+    kubernetes.io/ingress.class: 'nginx'
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   tls:

@@ -33,18 +33,20 @@ export class MultiTenancyController extends Controller {
 
       // Combine them: for each credo tenant, attach persistence metadata if available
       return credoTenants.map((ct: any) => {
-        const pt = persistenceTenants.find(p => p.id === ct.id)
+        const pt = persistenceTenants.find((p) => p.id === ct.id)
         const tenantJson = JsonTransformer.toJSON(ct) as Record<string, any>
         return {
           ...tenantJson,
           id: ct.id,
           label: ct.config?.label,
-          persistence: pt ? {
-            issuerDid: pt.issuerDid,
-            verifierDid: pt.verifierDid,
-            verifierKid: pt.verifierKid,
-            metadata: pt.metadata
-          } : undefined
+          persistence: pt
+            ? {
+                issuerDid: pt.issuerDid,
+                verifierDid: pt.verifierDid,
+                verifierKid: pt.verifierKid,
+                metadata: pt.metadata,
+              }
+            : undefined,
         }
       })
     } catch (error) {

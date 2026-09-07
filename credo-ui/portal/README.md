@@ -10,7 +10,6 @@
 <img src="https://img.shields.io/badge/-LinkedIn-0072b1?style=flat&logo=linkedin" alt="Follow walt_id" />
 </a>
 
-
 </div>
 
 ## Getting Started
@@ -22,7 +21,7 @@ pnpm install
 pnpm dev
 ```
 
-***Note!*** The web portal requires the environment variables to run.
+**_Note!_** The web portal requires the environment variables to run.
 Locally, they can be set up using a `.env` or `.env.local` file:
 
 ```text
@@ -30,7 +29,7 @@ NEXT_PUBLIC_VC_REPO=https://credentials.walt.id
 NEXT_PUBLIC_ISSUER=https://issuer.portal.walt.id
 NEXT_PUBLIC_VERIFIER=https://verifier.portal.walt.id
 NEXT_PUBLIC_WALLET=https://wallet.walt.id
-``` 
+```
 
 Build for production
 
@@ -48,9 +47,8 @@ docker run -p 7102:7102 -i -t waltid/portal
 
 ## Join the community
 
-* Connect and get the latest updates: [Discord](https://discord.gg/AW8AgqJthZ) | [Newsletter](https://walt.id/newsletter) | [YouTube](https://www.youtube.com/channel/UCXfOzrv3PIvmur_CmwwmdLA) | [LinkedIn](https://www.linkedin.com/company/walt-id/)
-* Get help, request features and report bugs: [GitHub Issues ](https://github.com/walt-id/waltid-identity/issues)
-
+- Connect and get the latest updates: [Discord](https://discord.gg/AW8AgqJthZ) | [Newsletter](https://walt.id/newsletter) | [YouTube](https://www.youtube.com/channel/UCXfOzrv3PIvmur_CmwwmdLA) | [LinkedIn](https://www.linkedin.com/company/walt-id/)
+- Get help, request features and report bugs: [GitHub Issues ](https://github.com/walt-id/waltid-identity/issues)
 
 ## License
 

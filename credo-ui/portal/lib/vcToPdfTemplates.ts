@@ -1,9 +1,9 @@
 /**
  * VC to PDF Template Mapping
- * 
+ *
  * Converts Verifiable Credentials to PDF-ready HTML templates
  * for Invoice and Quote credentials.
- * 
+ *
  * Usage:
  * 1. Take a VC JSON (e.g., InvoiceCredential)
  * 2. Pass to renderInvoiceHtml() or renderQuoteHtml()
@@ -11,17 +11,17 @@
  * 4. Hash the PDF (sha256) and embed in a presentation proof
  */
 
-const CREDENTIS_BLUE = '#2188CA';
-const CREDENTIS_LIGHT = '#D0E6F3';
+const CREDENTIS_BLUE = '#2188CA'
+const CREDENTIS_LIGHT = '#D0E6F3'
 
 interface VerifiableCredential {
-  '@context': string[];
-  type: string[];
-  id: string;
-  issuer: { id: string; name: string };
-  holder: { id: string; name: string };
-  issuanceDate: string;
-  claims: Record<string, any>;
+  '@context': string[]
+  type: string[]
+  id: string
+  issuer: { id: string; name: string }
+  holder: { id: string; name: string }
+  issuanceDate: string
+  claims: Record<string, any>
 }
 
 /**
@@ -39,7 +39,7 @@ export const invoiceTemplateMapping = {
     items: 'claims.items', // array path
     columns: ['description', 'amount'], // keys in each item
   },
-};
+}
 
 /**
  * Template mapping for Quote credentials
@@ -56,7 +56,7 @@ export const quoteTemplateMapping = {
     lines: 'claims.lines',
     columns: ['description', 'amount'],
   },
-};
+}
 
 /**
  * Render Invoice VC as HTML template
@@ -69,9 +69,9 @@ export function renderInvoiceHtml(vc: VerifiableCredential): string {
       <td style="padding:8px;border-bottom:1px solid #eee;">${i.description}</td>
       <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${i.amount}</td>
     </tr>
-  `
+  `,
     )
-    .join('');
+    .join('')
 
   return `
 <!DOCTYPE html>
@@ -184,7 +184,7 @@ export function renderInvoiceHtml(vc: VerifiableCredential): string {
   </div>
 </body>
 </html>
-  `;
+  `
 }
 
 /**
@@ -198,9 +198,9 @@ export function renderQuoteHtml(vc: VerifiableCredential): string {
       <td style="padding:8px;border-bottom:1px solid #eee;">${line.description}</td>
       <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${line.amount}</td>
     </tr>
-  `
+  `,
     )
-    .join('');
+    .join('')
 
   return `
 <!DOCTYPE html>
@@ -320,39 +320,39 @@ export function renderQuoteHtml(vc: VerifiableCredential): string {
   </div>
 </body>
 </html>
-  `;
+  `
 }
 
 /**
  * Example: How to generate PDFs from VCs
- * 
+ *
  * SERVER-SIDE (trusted environment):
- * 
+ *
  * ```typescript
  * import puppeteer from 'puppeteer';
  * import { renderInvoiceHtml } from './vcToPdfTemplates';
- * 
+ *
  * async function generateInvoicePdf(vc: VerifiableCredential) {
  *   const html = renderInvoiceHtml(vc);
- *   
+ *
  *   const browser = await puppeteer.launch();
  *   const page = await browser.newPage();
  *   await page.setContent(html);
- *   
+ *
  *   const pdf = await page.pdf({
  *     format: 'A4',
  *     printBackground: true,
  *   });
- *   
+ *
  *   await browser.close();
- *   
+ *
  *   // Hash the PDF to prove it matches the VC
  *   const hash = crypto.createHash('sha256').update(pdf).digest('hex');
- *   
+ *
  *   return { pdf, hash };
  * }
  * ```
- * 
+ *
  * IMPORTANT: Generate PDFs server-side (issuer backend) for canonical documents.
  * Do NOT rely on client-side PDF generation for authoritative documents.
  */

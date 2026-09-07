@@ -1,8 +1,8 @@
 /**
  * SSI Auth Service - Self-Sovereign Identity Authentication
- * 
+ *
  * TRUE SSI APPROACH - No PII stored in database!
- * 
+ *
  * Key Architecture:
  * 1. PII (Phone, Email, Name) is NEVER stored in the database - only SHA-256 hashes for lookup
  * 2. Actual PII lives ONLY in the user's wallet as PlatformIdentityVC
@@ -10,7 +10,7 @@
  *    a) Present VC → Verify signature → Issue session token (TRUE SSI)
  *    b) Hash-based lookup with PIN (Web2-friendly fallback)
  * 4. User controls their data - we're not a PII honeypot
- * 
+ *
  * Fastlane Flow:
  * - At checkout, phone entered → encrypted temp record with tenantId (auto-expires 24h)
  * - On registration, if phone matches → claim existing tenant's VCs
@@ -34,15 +34,13 @@ const logger = rootLogger.child({ module: 'SSIAuthService' })
 export class SSIAuthService {
   private agent: Agent<RestMultiTenantAgentModules>
 
-  constructor(
-    @inject(Agent) agent: Agent
-  ) {
+  constructor(@inject(Agent) agent: Agent) {
     this.agent = agent as Agent<RestMultiTenantAgentModules>
   }
 
   /**
    * Register a new user - creates tenant and issues PlatformIdentityVC
-   * 
+   *
    * Flow:
    * 1. Check if phone/email hash exists
    * 2. Check for existing tenant to claim (Fastlane: phone was linked at checkout)
@@ -52,7 +50,7 @@ export class SSIAuthService {
    */
   async register(claims: {
     username: string
-    pin?: string  // Optional 4-6 digit PIN for Web2-friendly login fallback
+    pin?: string // Optional 4-6 digit PIN for Web2-friendly login fallback
     phone?: string
     email?: string
     claimExistingTenantId?: string
@@ -65,53 +63,71 @@ export class SSIAuthService {
     retroactiveReceiptsQueued?: number
   }> {
     const db = DatabaseManager.getDatabase()
-    
+
     // Debug: Log incoming claims
-    console.log('[SSIAuthService] Processing registration:', JSON.stringify({
-      username: claims.username,
-      phone: claims.phone,
-      phoneType: typeof claims.phone,
-      phoneLength: claims.phone?.length,
-      hasPhone: !!claims.phone,
-      email: claims.email,
-      hasEmail: !!claims.email
-    }, null, 2))
-    
+    console.log(
+      '[SSIAuthService] Processing registration:',
+      JSON.stringify(
+        {
+          username: claims.username,
+          phone: claims.phone,
+          phoneType: typeof claims.phone,
+          phoneLength: claims.phone?.length,
+          hasPhone: !!claims.phone,
+          email: claims.email,
+          hasEmail: !!claims.email,
+        },
+        null,
+        2,
+      ),
+    )
+
     // 1. Hash PII for lookup (Privacy Preserving - only hashes stored)
     // We normalize phone to ensure consistent lookups (077... matches 26377...)
     const phoneHash = claims.phone ? this.hashData(this.normalizePhone(claims.phone)) : null
     const emailHash = claims.email ? this.hashData(claims.email) : null
     const pinHash = claims.pin ? this.hashPin(claims.pin) : null
-    
-    console.log('[SSIAuthService] Computed hashes:', JSON.stringify({
-      phoneHash: phoneHash ? phoneHash.substring(0, 16) + '...' : null,
-      emailHash: emailHash ? emailHash.substring(0, 16) + '...' : null,
-      hasPinHash: !!pinHash
-    }, null, 2))
-    
+
+    console.log(
+      '[SSIAuthService] Computed hashes:',
+      JSON.stringify(
+        {
+          phoneHash: phoneHash ? phoneHash.substring(0, 16) + '...' : null,
+          emailHash: emailHash ? emailHash.substring(0, 16) + '...' : null,
+          hasPinHash: !!pinHash,
+        },
+        null,
+        2,
+      ),
+    )
+
     // Check duplication by hash
     let existingUser = null
     if (phoneHash) {
       existingUser = db.prepare('SELECT * FROM ssi_users WHERE phone_hash = ?').get(phoneHash) as any
       if (existingUser) {
-          // If we have a guest tenant to claim, but user exists -> MIGRATE
-          const guestId = claims.claimExistingTenantId || (claims.phone ? await this.findTenantByPhone(claims.phone) : undefined)
-          
-          if (guestId && guestId !== existingUser.tenant_id) {
-              logger.info({ guestId, targetId: existingUser.tenant_id }, 'User exists: Migrating guest tenant data to registered account')
-              await this.migrateGuestTenant(guestId, existingUser.tenant_id)
-              
-              // Return successful "Registration" (effectively login + claim)
-              const token = await this.generateSessionToken(existingUser.id, existingUser.tenant_id)
-              return {
-                  tenantId: existingUser.tenant_id,
-                  walletId: existingUser.tenant_id,
-                  token,
-                  claimedExisting: true,
-                  vcOfferUrl: undefined // No new identity VC needed
-              }
+        // If we have a guest tenant to claim, but user exists -> MIGRATE
+        const guestId =
+          claims.claimExistingTenantId || (claims.phone ? await this.findTenantByPhone(claims.phone) : undefined)
+
+        if (guestId && guestId !== existingUser.tenant_id) {
+          logger.info(
+            { guestId, targetId: existingUser.tenant_id },
+            'User exists: Migrating guest tenant data to registered account',
+          )
+          await this.migrateGuestTenant(guestId, existingUser.tenant_id)
+
+          // Return successful "Registration" (effectively login + claim)
+          const token = await this.generateSessionToken(existingUser.id, existingUser.tenant_id)
+          return {
+            tenantId: existingUser.tenant_id,
+            walletId: existingUser.tenant_id,
+            token,
+            claimedExisting: true,
+            vcOfferUrl: undefined, // No new identity VC needed
           }
-          throw new Error('User already exists (phone)')
+        }
+        throw new Error('User already exists (phone)')
       }
     }
     if (emailHash) {
@@ -122,16 +138,19 @@ export class SSIAuthService {
     // 2. Check for existing tenant to claim (from Fastlane checkout)
     let tenantId = claims.claimExistingTenantId
     let claimedExisting = false
-    
+
     // Also check temp_phone_links if phone provided
     // We fetch ALL tenants that match the phone, to handle cases where multiple guest sessions were created
     // due to inconsistent phone formatting or device switching
     const foundGuestTenants = claims.phone ? await this.findAllTenantsByPhone(claims.phone) : []
-    
+
     if (!tenantId && foundGuestTenants.length > 0) {
       tenantId = foundGuestTenants[0]
       if (tenantId) {
-        logger.info({ tenantId, count: foundGuestTenants.length, phone: '***' }, 'Found existing tenant(s) to claim via phone link')
+        logger.info(
+          { tenantId, count: foundGuestTenants.length, phone: '***' },
+          'Found existing tenant(s) to claim via phone link',
+        )
       }
     }
 
@@ -142,13 +161,13 @@ export class SSIAuthService {
         tenantRecord = await this.agent.modules.tenants.getTenantById(tenantId)
         claimedExisting = true
         logger.info({ tenantId }, 'Claiming existing tenant')
-        
+
         // MIGRATE other found tenants to this one
         for (const guestId of foundGuestTenants) {
-            if (guestId !== tenantId) {
-                logger.info({ guestId, targetId: tenantId }, 'Merging secondary guest tenant into main account')
-                await this.migrateGuestTenant(guestId, tenantId)
-            }
+          if (guestId !== tenantId) {
+            logger.info({ guestId, targetId: tenantId }, 'Merging secondary guest tenant into main account')
+            await this.migrateGuestTenant(guestId, tenantId)
+          }
         }
       } catch (e) {
         logger.warn({ tenantId }, 'Failed to find existing tenant, creating new one')
@@ -158,7 +177,7 @@ export class SSIAuthService {
 
     if (!tenantId) {
       tenantRecord = await this.agent.modules.tenants.createTenant({
-        config: { label: `user-${Date.now()}` }  // No PII in label
+        config: { label: `user-${Date.now()}` }, // No PII in label
       })
       tenantId = tenantRecord.id
     }
@@ -174,24 +193,26 @@ export class SSIAuthService {
       registeredAt: new Date().toISOString(),
       platformTenantId: tenantId!,
       platformName: process.env.PLATFORM_NAME || 'Credentis',
-      verificationLevel: 'unverified'
+      verificationLevel: 'unverified',
     })
 
     // 5. Create SSI User Record - NO PII, NO PASSWORD stored
     const userId = crypto.randomUUID()
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO ssi_users (
         id, tenant_id, did, phone_hash, email_hash, pin_hash, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
+    ).run(
       userId,
       tenantId,
       userDid,
       phoneHash,
       emailHash,
-      pinHash,  // Optional PIN hash for Web2 fallback
+      pinHash, // Optional PIN hash for Web2 fallback
       new Date().toISOString(),
-      new Date().toISOString()
+      new Date().toISOString(),
     )
 
     // 6. Retroactive Issuance: Source-of-Truth Re-Issuance (Fastlane Fix)
@@ -202,8 +223,8 @@ export class SSIAuthService {
       retroactiveReceiptsQueued = await this.countPastReceipts(claims.phone)
       if (retroactiveReceiptsQueued > 0) {
         // Run un-awaited to not block the UI response
-        this.reissuePastReceipts(tenantId!, claims.phone, userId).catch(err =>
-          logger.error({ error: err.message, phone: '***' }, 'Retroactive issuance failed')
+        this.reissuePastReceipts(tenantId!, claims.phone, userId).catch((err) =>
+          logger.error({ error: err.message, phone: '***' }, 'Retroactive issuance failed'),
         )
       }
     }
@@ -222,7 +243,7 @@ export class SSIAuthService {
       token,
       claimedExisting,
       vcOfferUrl,
-      retroactiveReceiptsQueued
+      retroactiveReceiptsQueued,
     }
   }
 
@@ -235,11 +256,15 @@ export class SSIAuthService {
     nonce: string
   }): Promise<{ token: string; tenantId: string; claims: PlatformIdentityClaims }> {
     const db = DatabaseManager.getDatabase()
-    
+
     // Verify nonce is valid
-    const challenge = db.prepare(`
+    const challenge = db
+      .prepare(
+        `
       SELECT * FROM ssi_login_challenges WHERE nonce = ? AND expires_at > ?
-    `).get(params.nonce, new Date().toISOString()) as any
+    `,
+      )
+      .get(params.nonce, new Date().toISOString()) as any
 
     if (!challenge) throw new Error('Invalid or expired login challenge')
 
@@ -269,15 +294,14 @@ export class SSIAuthService {
     if (!user) throw new Error('User not found')
 
     // Update last login
-    db.prepare('UPDATE ssi_users SET last_login_at = ? WHERE id = ?')
-      .run(new Date().toISOString(), user.id)
+    db.prepare('UPDATE ssi_users SET last_login_at = ? WHERE id = ?').run(new Date().toISOString(), user.id)
 
     const token = await this.generateSessionToken(user.id, tenantId, user.did)
 
     return {
       token,
       tenantId,
-      claims: credentialSubject as PlatformIdentityClaims
+      claims: credentialSubject as PlatformIdentityClaims,
     }
   }
 
@@ -291,18 +315,24 @@ export class SSIAuthService {
     pin: string
   }): Promise<{ token: string; tenantId: string }> {
     const db = DatabaseManager.getDatabase()
-    
+
     // Normalize phone on login too!
-    const lookupHash = credentials.phone 
-      ? this.hashData(this.normalizePhone(credentials.phone)) 
-      : (credentials.email ? this.hashData(credentials.email) : null)
+    const lookupHash = credentials.phone
+      ? this.hashData(this.normalizePhone(credentials.phone))
+      : credentials.email
+        ? this.hashData(credentials.email)
+        : null
 
     if (!lookupHash) throw new Error('Phone or Email required')
 
-    const user = db.prepare(`
+    const user = db
+      .prepare(
+        `
       SELECT * FROM ssi_users 
       WHERE phone_hash = ? OR email_hash = ?
-    `).get(lookupHash, lookupHash) as any
+    `,
+      )
+      .get(lookupHash, lookupHash) as any
 
     if (!user) throw new Error('Invalid credentials')
 
@@ -313,8 +343,7 @@ export class SSIAuthService {
     }
 
     // Update last login
-    db.prepare('UPDATE ssi_users SET last_login_at = ? WHERE id = ?')
-      .run(new Date().toISOString(), user.id)
+    db.prepare('UPDATE ssi_users SET last_login_at = ? WHERE id = ?').run(new Date().toISOString(), user.id)
 
     const token = await this.generateSessionToken(user.id, user.tenant_id, user.did)
 
@@ -329,10 +358,12 @@ export class SSIAuthService {
     const nonce = crypto.randomUUID()
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString() // 5 min
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO ssi_login_challenges (nonce, expires_at, created_at)
       VALUES (?, ?, ?)
-    `).run(nonce, expiresAt, new Date().toISOString())
+    `,
+    ).run(nonce, expiresAt, new Date().toISOString())
 
     return { nonce, expiresAt }
   }
@@ -346,11 +377,13 @@ export class SSIAuthService {
     const encryptedPhone = this.encryptPII(phone)
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO temp_phone_links (tenant_id, encrypted_phone, expires_at, created_at)
       VALUES (?, ?, ?, ?)
-    `).run(tenantId, encryptedPhone, expiresAt, new Date().toISOString())
-    
+    `,
+    ).run(tenantId, encryptedPhone, expiresAt, new Date().toISOString())
+
     logger.info({ tenantId }, 'Phone linked temporarily for Fastlane flow')
   }
 
@@ -360,8 +393,10 @@ export class SSIAuthService {
   async findRegisteredTenantByPhone(phone: string): Promise<string | undefined> {
     const db = DatabaseManager.getDatabase()
     const phoneHash = this.hashData(this.normalizePhone(phone))
-    const user = db.prepare('SELECT tenant_id FROM ssi_users WHERE phone_hash = ?').get(phoneHash) as { tenant_id: string }
-    
+    const user = db.prepare('SELECT tenant_id FROM ssi_users WHERE phone_hash = ?').get(phoneHash) as {
+      tenant_id: string
+    }
+
     if (user) {
       logger.info({ tenantId: user.tenant_id }, 'Found Registered Tenant for phone number')
       return user.tenant_id
@@ -381,10 +416,14 @@ export class SSIAuthService {
     const db = DatabaseManager.getDatabase()
     const foundIds: string[] = []
 
-    const links = db.prepare(`
+    const links = db
+      .prepare(
+        `
       SELECT tenant_id, encrypted_phone FROM temp_phone_links 
       WHERE expires_at > ?
-    `).all(new Date().toISOString()) as { tenant_id: string; encrypted_phone: string }[]
+    `,
+      )
+      .all(new Date().toISOString()) as { tenant_id: string; encrypted_phone: string }[]
 
     const normalizedInput = this.normalizePhone(phone)
     for (const link of links) {
@@ -431,19 +470,21 @@ export class SSIAuthService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': apiKey
+          'x-api-key': apiKey,
         },
         body: JSON.stringify({
-          credentials: [{
-            credentialDefinitionId: PLATFORM_IDENTITY_VC_TYPE,
-            format: 'jwt_vc_json',
-            type: ['VerifiableCredential', PLATFORM_IDENTITY_VC_TYPE],
-            claims: {
-              ...claims,
-              tenantId  // Include tenantId for later lookup
-            }
-          }]
-        })
+          credentials: [
+            {
+              credentialDefinitionId: PLATFORM_IDENTITY_VC_TYPE,
+              format: 'jwt_vc_json',
+              type: ['VerifiableCredential', PLATFORM_IDENTITY_VC_TYPE],
+              claims: {
+                ...claims,
+                tenantId, // Include tenantId for later lookup
+              },
+            },
+          ],
+        }),
       })
 
       if (!response.ok) {
@@ -451,7 +492,11 @@ export class SSIAuthService {
         return undefined
       }
 
-      const data = await response.json() as { offerUrl?: string; credentialOffer?: string; credential_offer_uri?: string }
+      const data = (await response.json()) as {
+        offerUrl?: string
+        credentialOffer?: string
+        credential_offer_uri?: string
+      }
       return data.offerUrl || data.credentialOffer || data.credential_offer_uri
     } catch (err: any) {
       logger.error({ error: err.message }, 'Error issuing PlatformIdentityVC')
@@ -479,64 +524,73 @@ export class SSIAuthService {
     const sessionToken = userId ? await this.generateSessionToken(userId, tenantId) : undefined
 
     for (const payment of payments) {
-        try {
-            // Issue ReceiptVC
-            // We issue directly to the new tenant (x-tenant-id header target)
-            const response = await fetch(`${issuerApiUrl}/custom-oidc/issuer/credential-offers`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': apiKey,
-                    'x-tenant-id': tenantId // Target the new registered tenant!
+      try {
+        // Issue ReceiptVC
+        // We issue directly to the new tenant (x-tenant-id header target)
+        const response = await fetch(`${issuerApiUrl}/custom-oidc/issuer/credential-offers`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'x-tenant-id': tenantId, // Target the new registered tenant!
+          },
+          body: JSON.stringify({
+            credentials: [
+              {
+                credentialDefinitionId: 'ReceiptVC',
+                format: 'jwt_vc_json',
+                type: ['VerifiableCredential', 'ReceiptVC'],
+                claims: {
+                  transactionId: payment.provider_ref || payment.id,
+                  amount: String(payment.amount),
+                  currency: payment.currency || 'USD',
+                  payerPhone: payment.payer_phone,
+                  subjectHash,
+                  merchant: payment.tenant_id,
+                  cartId: payment.cart_id,
+                  invoiceId: payment.invoice_id,
+                  invoiceHash: payment.invoice_hash, // Preserves audit chain if available
+                  previousRecordHash: payment.invoice_hash,
+                  timestamp: payment.updated_at || new Date().toISOString(),
                 },
-                body: JSON.stringify({
-                    credentials: [{
-                        credentialDefinitionId: 'ReceiptVC',
-                        format: 'jwt_vc_json',
-                        type: ['VerifiableCredential', 'ReceiptVC'],
-                        claims: {
-                            transactionId: payment.provider_ref || payment.id,
-                            amount: String(payment.amount),
-                            currency: payment.currency || 'USD',
-                          payerPhone: payment.payer_phone,
-                            subjectHash,
-                            merchant: payment.tenant_id,
-                            cartId: payment.cart_id,
-                            invoiceId: payment.invoice_id,
-                            invoiceHash: payment.invoice_hash, // Preserves audit chain if available
-                            previousRecordHash: payment.invoice_hash,
-                            timestamp: payment.updated_at || new Date().toISOString()
-                        }
-                    }]
-                })
-            })
+              },
+            ],
+          }),
+        })
 
-            if (response.ok) {
-                 logger.debug({ paymentId: payment.id, tenantId }, 'Retroactively issued ReceiptVC')
-                 if (sessionToken) {
-                   try {
-                     const offerPayload = await response.json() as any
-                     const offerUri = offerPayload?.credential_offer_uri || offerPayload?.credential_offer_url || offerPayload?.offerUrl || offerPayload?.credentialOffer
-                     if (offerUri) {
-                       await fetch(`${holderApiUrl}/api/wallet/credentials/accept-offer`, {
-                         method: 'POST',
-                         headers: {
-                           'Content-Type': 'application/json',
-                           Authorization: `Bearer ${sessionToken}`
-                         },
-                         body: JSON.stringify({ offerUri })
-                       })
-                     }
-                   } catch (acceptError: any) {
-                     logger.warn({ paymentId: payment.id, error: acceptError.message }, 'Failed to auto-accept retro ReceiptVC')
-                   }
-                 }
-            } else {
-                 logger.warn({ status: response.status, paymentId: payment.id }, 'Failed to retro-issue receipt')
+        if (response.ok) {
+          logger.debug({ paymentId: payment.id, tenantId }, 'Retroactively issued ReceiptVC')
+          if (sessionToken) {
+            try {
+              const offerPayload = (await response.json()) as any
+              const offerUri =
+                offerPayload?.credential_offer_uri ||
+                offerPayload?.credential_offer_url ||
+                offerPayload?.offerUrl ||
+                offerPayload?.credentialOffer
+              if (offerUri) {
+                await fetch(`${holderApiUrl}/api/wallet/credentials/accept-offer`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${sessionToken}`,
+                  },
+                  body: JSON.stringify({ offerUri }),
+                })
+              }
+            } catch (acceptError: any) {
+              logger.warn(
+                { paymentId: payment.id, error: acceptError.message },
+                'Failed to auto-accept retro ReceiptVC',
+              )
             }
-        } catch (e: any) {
-             logger.error({ error: e.message, paymentId: payment.id }, 'Error retro-issuing receipt')
+          }
+        } else {
+          logger.warn({ status: response.status, paymentId: payment.id }, 'Failed to retro-issue receipt')
         }
+      } catch (e: any) {
+        logger.error({ error: e.message, paymentId: payment.id }, 'Error retro-issuing receipt')
+      }
     }
   }
 
@@ -552,11 +606,15 @@ export class SSIAuthService {
     const normalizedPhone = this.normalizePhone(phone)
 
     // Find all PAID payments for this phone (check both raw and normalized)
-    return db.prepare(`
+    return db
+      .prepare(
+        `
         SELECT * FROM ack_payments 
         WHERE (payer_phone = ? OR payer_phone = ?) 
         AND state IN ('paid', 'delivered')
-    `).all(normalizedPhone, phone) as any[]
+    `,
+      )
+      .all(normalizedPhone, phone) as any[]
   }
 
   private normalizePhone(phone: string): string {
@@ -574,7 +632,10 @@ export class SSIAuthService {
   private hashPin(pin: string): string {
     // PIN with salt for extra security
     const salt = process.env.PIN_SALT || 'credo-pin-salt-v1'
-    return crypto.createHash('sha256').update(salt + pin).digest('hex')
+    return crypto
+      .createHash('sha256')
+      .update(salt + pin)
+      .digest('hex')
   }
 
   private encryptPII(data: string): string {
@@ -601,68 +662,79 @@ export class SSIAuthService {
    */
   async migrateGuestTenant(guestTenantId: string, targetTenantId: string): Promise<void> {
     try {
-        const guestAgent = await this.agent.modules.tenants.getTenantAgent({ tenantId: guestTenantId })
-        const targetAgent = await this.agent.modules.tenants.getTenantAgent({ tenantId: targetTenantId })
+      const guestAgent = await this.agent.modules.tenants.getTenantAgent({ tenantId: guestTenantId })
+      const targetAgent = await this.agent.modules.tenants.getTenantAgent({ tenantId: targetTenantId })
 
-        // 1. Get W3C Credentials (JWT VCs)
-        // Note: We resolve service from dependency manager to ensure correct context
-        const guestW3c = guestAgent.dependencyManager.resolve(W3cCredentialService)
-        const targetW3c = targetAgent.dependencyManager.resolve(W3cCredentialService)
+      // 1. Get W3C Credentials (JWT VCs)
+      // Note: We resolve service from dependency manager to ensure correct context
+      const guestW3c = guestAgent.dependencyManager.resolve(W3cCredentialService)
+      const targetW3c = targetAgent.dependencyManager.resolve(W3cCredentialService)
 
-        const records = await guestW3c.getAllCredentialRecords(guestAgent.context)
-        
-        logger.info({ guestTenantId, targetTenantId, count: records.length }, 'Migrating credentials from guest to registered account')
+      const records = await guestW3c.getAllCredentialRecords(guestAgent.context)
 
-        for (const record of records) {
-            try {
-                // Check if already exists? (by ID)
-                // W3cCredentialService doesn't strictly enforce ID uniqueness across wallets, but good to check?
-                // Just try store, if it fails it fails.
-                await targetW3c.storeCredential(targetAgent.context, {
-                    credential: record.credential
-                })
-            } catch (e: any) {
-                // Ignore duplicates
-                logger.debug({ id: record.id, error: e.message }, 'Skipping credential migration (likely duplicate)')
-            }
+      logger.info(
+        { guestTenantId, targetTenantId, count: records.length },
+        'Migrating credentials from guest to registered account',
+      )
+
+      for (const record of records) {
+        try {
+          // Check if already exists? (by ID)
+          // W3cCredentialService doesn't strictly enforce ID uniqueness across wallets, but good to check?
+          // Just try store, if it fails it fails.
+          await targetW3c.storeCredential(targetAgent.context, {
+            credential: record.credential,
+          })
+        } catch (e: any) {
+          // Ignore duplicates
+          logger.debug({ id: record.id, error: e.message }, 'Skipping credential migration (likely duplicate)')
         }
+      }
 
-        // 2. Clear temp links for guest so we don't find it again
-        await this.deletePhoneLink(guestTenantId)
-        
-        // 3. Mark guest tenant as migrated in some way? 
-        // For now, removing the phone link effectively "hides" it from future lookups.
+      // 2. Clear temp links for guest so we don't find it again
+      await this.deletePhoneLink(guestTenantId)
 
+      // 3. Mark guest tenant as migrated in some way?
+      // For now, removing the phone link effectively "hides" it from future lookups.
     } catch (error: any) {
-        logger.error({ error: error.message, guestTenantId, targetTenantId }, 'Tenant migration failed')
-        // Don't block the auth flow, best effort
+      logger.error({ error: error.message, guestTenantId, targetTenantId }, 'Tenant migration failed')
+      // Don't block the auth flow, best effort
     }
   }
 
   private async generateSessionToken(userId: string, tenantId: string, did?: string): Promise<string> {
     let secret = process.env.JWT_SECRET
-    
+
     if (!secret) {
-        const genericRecords = await this.agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
-        secret = genericRecords[0]?.content.secretKey as string
+      const genericRecords = await this.agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
+      secret = genericRecords[0]?.content.secretKey as string
     }
 
     if (!secret) {
-        throw new Error('No JWT secret found for signing session token')
+      throw new Error('No JWT secret found for signing session token')
     }
-    
-    return jwt.sign({
-      id: userId,
-      tenantId,
-      did: did || 'unknown',
-      role: 'RestTenantAgent',
-      // NO PII in token - claims come from VC when needed
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days
-    }, secret)
+
+    return jwt.sign(
+      {
+        id: userId,
+        tenantId,
+        did: did || 'unknown',
+        role: 'RestTenantAgent',
+        // NO PII in token - claims come from VC when needed
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60, // 30 days
+      },
+      secret,
+    )
   }
 
-  async generateScopedSessionToken(params: { userId: string; tenantId: string; did?: string; expiresInSeconds: number; audience?: string }): Promise<string> {
+  async generateScopedSessionToken(params: {
+    userId: string
+    tenantId: string
+    did?: string
+    expiresInSeconds: number
+    audience?: string
+  }): Promise<string> {
     let secret = process.env.JWT_SECRET
 
     if (!secret) {
@@ -675,15 +747,18 @@ export class SSIAuthService {
     }
 
     const now = Math.floor(Date.now() / 1000)
-    return jwt.sign({
-      id: params.userId,
-      tenantId: params.tenantId,
-      did: params.did || 'unknown',
-      role: 'RestTenantAgent',
-      aud: params.audience || 'holder-wallet',
-      iat: now,
-      exp: now + params.expiresInSeconds
-    }, secret)
+    return jwt.sign(
+      {
+        id: params.userId,
+        tenantId: params.tenantId,
+        did: params.did || 'unknown',
+        role: 'RestTenantAgent',
+        aud: params.audience || 'holder-wallet',
+        iat: now,
+        exp: now + params.expiresInSeconds,
+      },
+      secret,
+    )
   }
 
   /**

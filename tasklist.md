@@ -8,6 +8,7 @@
 ## ✅ Sprint 4 — Completed
 
 ### Sprint 4 Tasks
+
 - [x] Verify VC signing with tenant DID (cliAgent.ts uses didsApi.getCreatedDids)
 - [x] Test credential_offer_uri generation (confirmed working)
 - [x] Implement shortlink generator for verifier QR (ShortlinkService + Webhook integration)
@@ -18,6 +19,7 @@
 ## ✅ Sprint 3 — Completed
 
 ### Sprint 3 Tasks
+
 - [x] Portal consent UI for QuoteVC acceptance
 - [x] Portal consent UI for InvoiceVC acceptance
 - [x] Checkout endpoint creates pending payment (WhatsAppPayloadController)
@@ -49,32 +51,33 @@
 
 ## 📋 Sprint Overview
 
-| Sprint | Focus | Status |
-|--------|-------|--------|
-| 1 | Kickoff & Foundations | ✅ Complete |
-| 2 | EcoCash Integration Review | ✅ Complete |
-| 3 | Portal Checkout UI Polish | ✅ Complete |
-| 4 | ReceiptVC Issuance Enhancement | ✅ Complete |
-| 5 | Embedded Wallet Storage | 🏗 In Progress |
-| 6 | Driver Verification Page | ⏳ Pending |
+| Sprint | Focus                          | Status         |
+| ------ | ------------------------------ | -------------- |
+| 1      | Kickoff & Foundations          | ✅ Complete    |
+| 2      | EcoCash Integration Review     | ✅ Complete    |
+| 3      | Portal Checkout UI Polish      | ✅ Complete    |
+| 4      | ReceiptVC Issuance Enhancement | ✅ Complete    |
+| 5      | Embedded Wallet Storage        | 🏗 In Progress |
+| 6      | Driver Verification Page       | ⏳ Pending     |
 
 ---
 
 ## 🏗 Sprint 5 — In Progress
 
 ### Sprint 5 Tasks (Embedded Wallet & Shopfront)
+
 - [x] Separate **Admin Catalog** (onboarding) from **Shopfront** (customer view) `feat(shop)`
 - [x] Create separate `/shop` page with Cart & Checkout flow
 - [x] Backend: Return `invoiceOfferId` in checkout for embedded acceptance
 - [x] Frontend: Implement **Embedded Wallet** consent flow (Inline "Save Invoice")
-- [ ] Verify full end-to-end flow (Shop -> Save -> Pay -> Receipt) - *Requires Server Restart*
+- [ ] Verify full end-to-end flow (Shop -> Save -> Pay -> Receipt) - _Requires Server Restart_
 - [ ] Add "Save Receipt" prompt in Shop after payment success
-| 7 | QA & Hardening | ⏳ Pending |
-| 8 | Pilot Onboarding | ⏳ Pending |
-| 9 | Pilot Soft Launch | ⏳ Pending |
-| 10 | Iterate on Feedback | ⏳ Pending |
-| 11 | Analytics & Compliance | ⏳ Pending |
-| 12 | Go/No-Go Decision | ⏳ Pending |
+      | 7 | QA & Hardening | ⏳ Pending |
+      | 8 | Pilot Onboarding | ⏳ Pending |
+      | 9 | Pilot Soft Launch | ⏳ Pending |
+      | 10 | Iterate on Feedback | ⏳ Pending |
+      | 11 | Analytics & Compliance | ⏳ Pending |
+      | 12 | Go/No-Go Decision | ⏳ Pending |
 
 ---
 
@@ -86,12 +89,12 @@ _None yet — Sprint 1 in progress_
 
 ## 📊 KPI Tracking
 
-| Metric | Target | Current |
-|--------|--------|---------|
-| ReceiptVC issuance rate | ≥90% | - |
-| Save-to-wallet rate | ≥40% | - |
-| Driver verification success | ≥90% | - |
-| Pilot transactions | 50+ | 0 |
+| Metric                      | Target | Current |
+| --------------------------- | ------ | ------- |
+| ReceiptVC issuance rate     | ≥90%   | -       |
+| Save-to-wallet rate         | ≥40%   | -       |
+| Driver verification success | ≥90%   | -       |
+| Pilot transactions          | 50+    | 0       |
 
 ---
 

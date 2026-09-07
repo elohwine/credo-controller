@@ -1,7 +1,14 @@
+import type { SsiEvidenceInput } from './SsiTypes'
 import type { Request as ExRequest } from 'express'
 
+import { Agent } from '@credo-ts/core'
+import { container } from 'tsyringe'
+
+import { CredentialReferenceRepository } from '../../persistence/CredentialReferenceRepository'
+import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
 import { ssiTrustService } from '../SsiTrustService'
+
 import { credentialStatusService } from './CredentialStatusService'
 import { issuerTrustService } from './IssuerTrustService'
 
@@ -21,6 +28,7 @@ export interface PlatformPresentationVerificationResult {
   reasonCode: string
   statusChecked: boolean
   evidenceDigest: string
+  ssiEvidence: SsiEvidenceInput[]
 }
 
 /**
@@ -35,9 +43,11 @@ export interface PlatformPresentationVerificationResult {
  */
 export class CredoPresentationVerificationService {
   private readonly issuedCredentialRepository = new IssuedCredentialRepository()
+  private readonly credentialReferenceRepository = new CredentialReferenceRepository()
 
   public async verify(input: PlatformPresentationVerificationInput): Promise<PlatformPresentationVerificationResult> {
     const context = ssiTrustService.getProtocolContext(input.tenantId, input.requestId)
+    const registration = ssiTrustService.getVerifierRegistration(input.tenantId, context.verifierRef)
 
     if (!context.credoVerificationSessionId) {
       throw new Error('Presentation request is not bound to a Credo verification session')
@@ -47,13 +57,13 @@ export class CredoPresentationVerificationService {
       throw new Error('OpenID4VP state does not match the stored presentation request')
     }
 
-    const agent = input.request.agent
-    const verifier = (agent.modules as any).openId4VcVerifier
-    if (!verifier) throw new Error('OpenID4VP verifier module is not configured')
-
     if (context.protocol !== 'openid4vp') {
       throw new Error(`Unsupported presentation protocol: ${context.protocol}`)
     }
+
+    const { verificationAgent, release } = await this.resolveVerificationAgent(input)
+    const verifier = (verificationAgent.modules as any).openId4VcVerifier
+    if (!verifier) throw new Error('OpenID4VP verifier module is not configured')
 
     try {
       const verificationResult = await verifier.verifyAuthorizationResponse({
@@ -65,10 +75,16 @@ export class CredoPresentationVerificationService {
         },
       })
 
-      // Credo returned successfully, which is the protocol-level verification
-      // gate for the persisted session: state, nonce, audience, holder/key
-      // binding and the selected presentation query have passed Credo's checks.
-      const protocolVerified = verificationResult != null
+      const verificationSession = verificationResult?.verificationSession
+      const protocolVerified = verificationSession?.state === 'ResponseVerified'
+      const verifierBound = verificationSession?.verifierId === registration.credoVerifierIdRef
+      const responseState = verificationSession?.authorizationResponsePayload?.state
+      const stateBound = typeof responseState === 'string' ? responseState === input.state : true
+
+      const requestPayload = this.decodeJwtPayload(verificationSession?.authorizationRequestJwt)
+      const expectedAudience = typeof requestPayload?.client_id === 'string' ? requestPayload.client_id : undefined
+      const expectedNonce = typeof requestPayload?.nonce === 'string' ? requestPayload.nonce : undefined
+
       const isDcql = context.queryLanguage === 'dcql'
       const verifiedResponse = isDcql ? verificationResult?.dcql : verificationResult?.presentationExchange
       const presentations = this.extractPresentations(verifiedResponse, isDcql)
@@ -81,29 +97,46 @@ export class CredoPresentationVerificationService {
 
       const credentialIds = this.extractCredentialIds(credentials)
       const locallyRevoked = credentialIds.some((id) => this.issuedCredentialRepository.isRevoked(id))
+      const statusRequest = {
+        agent: verificationAgent,
+        logger: input.request.logger,
+      } as ExRequest
 
       const statusResults = await Promise.all(
-        credentials.map((credential: any) => credentialStatusService.resolve({
-          credentialId: credential?.id || credential?.jti || credential?.vc?.id,
-          credentialStatus: credential?.credentialStatus || credential?.vc?.credentialStatus,
-          issuerRef: this.extractIssuerRef(credential),
-          request: input.request,
-        }))
+        credentials.map((credential: any) =>
+          credentialStatusService.resolve({
+            credentialId: credential?.id || credential?.jti || credential?.vc?.id,
+            credentialStatus: credential?.credentialStatus || credential?.vc?.credentialStatus,
+            issuerRef: this.extractIssuerRef(credential),
+            request: statusRequest,
+          }),
+        ),
       )
 
       const statusChecked = statusResults.length > 0 && statusResults.every((result) => result.checked)
-      const statusInvalid = locallyRevoked || statusResults.some((result) => result.status === 'revoked' || result.status === 'suspended')
+      const statusInvalid =
+        locallyRevoked || statusResults.some((result) => result.status === 'revoked' || result.status === 'suspended')
 
       const issuerRefs = this.extractIssuerRefs(credentials)
-      const trust = issuerTrustService.evaluate(input.tenantId, issuerRefs)
+      const trust = issuerTrustService.evaluate({
+        tenantId: input.tenantId,
+        issuerRefs,
+        verifierRef: context.verifierRef,
+      })
       const trustVerified = trust.decision === 'trusted'
-      const schemaVerified = protocolVerified
-      const holderBindingVerified = protocolVerified
-      const audienceVerified = protocolVerified
-      const nonceVerified = protocolVerified
+
+      const ssiEvidence = this.buildSsiEvidence(input.tenantId, credentials, statusResults, trust.trustedIssuerRefs)
+
+      const querySatisfied = this.isQuerySatisfied(verifiedResponse, isDcql)
+      const schemaVerified = protocolVerified && querySatisfied
+      const holderBindingVerified = protocolVerified && verifierBound && stateBound && presentations.length > 0
+      const audienceVerified = protocolVerified && verifierBound && stateBound && !!expectedAudience
+      const nonceVerified = protocolVerified && verifierBound && stateBound && !!expectedNonce
 
       const verified =
         protocolVerified &&
+        verifierBound &&
+        stateBound &&
         !statusInvalid &&
         holderBindingVerified &&
         audienceVerified &&
@@ -114,11 +147,21 @@ export class CredoPresentationVerificationService {
 
       const reasonCode = verified
         ? 'verified'
-        : trust.decision !== 'trusted'
-          ? 'issuer_untrusted'
-          : !statusChecked
-            ? 'credential_status_unverified'
-            : 'verification_failed'
+        : !protocolVerified
+          ? 'protocol_verification_failed'
+          : !verifierBound
+            ? 'verifier_session_mismatch'
+            : !stateBound
+              ? 'protocol_state_mismatch'
+              : !schemaVerified
+                ? 'presentation_query_not_satisfied'
+                : trust.decision !== 'trusted'
+                  ? 'issuer_untrusted'
+                  : !statusChecked
+                    ? 'credential_status_unverified'
+                    : statusInvalid
+                      ? 'credential_status_invalid'
+                      : 'verification_failed'
 
       const recorded = ssiTrustService.recordVerification({
         requestId: input.requestId,
@@ -142,9 +185,39 @@ export class CredoPresentationVerificationService {
         reasonCode,
         statusChecked,
         evidenceDigest: recorded.evidenceDigest,
+        ssiEvidence,
       }
     } catch {
       return this.recordFailure(input, 'verification_failed')
+    } finally {
+      await release()
+    }
+  }
+
+  private async resolveVerificationAgent(input: PlatformPresentationVerificationInput): Promise<{
+    verificationAgent: Agent<any>
+    release: () => Promise<void>
+  }> {
+    const fallbackAgent = input.request.agent as Agent<any> | undefined
+    const rootAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<any>)
+    const hasTenantsModule = 'tenants' in (rootAgent.modules as Record<string, unknown>)
+
+    if (!hasTenantsModule) {
+      const verificationAgent = fallbackAgent ?? rootAgent
+      return {
+        verificationAgent,
+        release: async () => {},
+      }
+    }
+
+    const tenantAgent = await (rootAgent.modules as any).tenants.getTenantAgent({ tenantId: input.tenantId })
+    return {
+      verificationAgent: tenantAgent,
+      release: async () => {
+        if (typeof tenantAgent.endSession === 'function') {
+          await tenantAgent.endSession()
+        }
+      },
     }
   }
 
@@ -163,6 +236,7 @@ export class CredoPresentationVerificationService {
       reasonCode: resultCode,
       statusChecked: false,
       evidenceDigest: recorded.evidenceDigest,
+      ssiEvidence: [] as SsiEvidenceInput[],
     }
   }
 
@@ -171,7 +245,7 @@ export class CredoPresentationVerificationService {
     if (!isDcql) return Array.isArray(verifiedResponse.presentations) ? verifiedResponse.presentations : []
 
     return Object.values(verifiedResponse.presentations ?? {}).flatMap((values: any) =>
-      Array.isArray(values) ? values : [values]
+      Array.isArray(values) ? values : [values],
     )
   }
 
@@ -223,6 +297,81 @@ export class CredoPresentationVerificationService {
     if (typeof issuer === 'string') return issuer
     if (issuer?.id) return String(issuer.id)
     return undefined
+  }
+
+  private decodeJwtPayload(jwt?: string): Record<string, unknown> | undefined {
+    if (!jwt) return undefined
+
+    const parts = jwt.split('.')
+    if (parts.length !== 3) return undefined
+
+    try {
+      return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as Record<string, unknown>
+    } catch {
+      return undefined
+    }
+  }
+
+  private isQuerySatisfied(verifiedResponse: unknown, isDcql: boolean): boolean {
+    if (!verifiedResponse || typeof verifiedResponse !== 'object') return false
+    const value: any = verifiedResponse
+
+    if (isDcql) {
+      const matchedGroups = Object.values(value.presentations ?? {})
+      return matchedGroups.some((group) => (Array.isArray(group) ? group.length > 0 : !!group))
+    }
+
+    return Array.isArray(value.presentations) && value.presentations.length > 0
+  }
+
+  private buildSsiEvidence(
+    tenantId: string,
+    credentials: unknown[],
+    statusResults: Array<{ status: string; checked: boolean; statusListCredential?: string }>,
+    trustedIssuerRefs: string[],
+  ): SsiEvidenceInput[] {
+    const trustedSet = new Set(trustedIssuerRefs)
+    const organizationId = this.resolveOrganizationId(tenantId)
+
+    return credentials.map((credential: any, index) => {
+      const issuerRef = this.extractIssuerRef(credential)
+      const credentialTypes = this.extractCredentialTypes([credential])
+      const credentialType = credentialTypes[0] ?? 'VerifiableCredential'
+      const statusResult = statusResults[index]
+      const externalRef = credential?.id || credential?.jti || credential?.vc?.id
+
+      const ref = organizationId
+        ? this.credentialReferenceRepository.upsert({
+            organizationId,
+            credentialType,
+            issuerRef,
+            status: (statusResult?.status ?? 'unknown') as any,
+            lastVerifiedAt: new Date().toISOString(),
+            externalRef: externalRef ? String(externalRef) : undefined,
+          })
+        : null
+
+      return {
+        credentialType,
+        issuerRef,
+        status: (statusResult?.status ?? 'unknown') as any,
+        isTrustedIssuer: issuerRef ? trustedSet.has(issuerRef) : false,
+        credentialReferenceId: ref?.id ?? '',
+      }
+    })
+  }
+
+  private resolveOrganizationId(tenantId: string): string | undefined {
+    try {
+      const db = (DatabaseManager as any).getDatabase?.()
+      if (!db) return undefined
+      const row = db
+        .prepare('SELECT id FROM organizations WHERE tenant_id = ? AND status = ? LIMIT 1')
+        .get(tenantId, 'active') as { id?: string } | undefined
+      return row?.id
+    } catch {
+      return undefined
+    }
   }
 }
 

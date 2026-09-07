@@ -23,7 +23,7 @@ export interface TenantPersistenceRecord {
   verifierKid: string
   askarProfile: string
   metadata: TenantMetadata
-  tenantType: TenantType
+  tenantType?: TenantType
   domain?: string
 }
 
@@ -80,7 +80,7 @@ export function initTenantStore(dbPath?: string): Database {
     // Ignore error if column exists
   }
   try {
-    db.prepare("ALTER TABLE tenants ADD COLUMN domain TEXT").run()
+    db.prepare('ALTER TABLE tenants ADD COLUMN domain TEXT').run()
   } catch (e: any) {
     // Ignore error if column exists
   }
@@ -97,6 +97,13 @@ function ensureDb(): Database {
 
 export function upsertTenant(record: TenantPersistenceRecord) {
   const database = ensureDb()
+  const normalizedRecord = {
+    ...record,
+    tenantType: record.tenantType ?? 'USER',
+    domain: record.domain ?? null,
+    metadata: JSON.stringify(record.metadata ?? {}),
+  }
+
   const stmt = database.prepare(`
     INSERT INTO tenants(
       id, label, status, created_at, issuer_did, issuer_kid, verifier_did, verifier_kid, askar_profile, metadata, tenant_type, domain
@@ -114,10 +121,7 @@ export function upsertTenant(record: TenantPersistenceRecord) {
       tenant_type=excluded.tenant_type,
       domain=excluded.domain
   `)
-  stmt.run({
-    ...record,
-    metadata: JSON.stringify(record.metadata ?? {}),
-  })
+  stmt.run(normalizedRecord)
 }
 
 export function getTenantById(id: string): TenantPersistenceRecord | null {
@@ -158,7 +162,7 @@ function mapTenantRow(row: TenantRow): TenantPersistenceRecord {
     askarProfile: row.askar_profile,
     metadata: normalizeMetadata(JSON.parse(row.metadata ?? '{}')),
     tenantType: (row.tenant_type as TenantType) || 'USER',
-    domain: row.domain || undefined
+    domain: row.domain || undefined,
   }
 }
 

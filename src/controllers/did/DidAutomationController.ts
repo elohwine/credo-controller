@@ -52,7 +52,10 @@ export class DidAutomationController extends Controller {
 function extractPublicKeyBase58(verificationMethod?: any): string | undefined {
   if (!verificationMethod) return undefined
   if (verificationMethod.publicKeyBase58) return verificationMethod.publicKeyBase58
-  if (typeof verificationMethod.publicKeyMultibase === 'string' && verificationMethod.publicKeyMultibase.startsWith('z')) {
+  if (
+    typeof verificationMethod.publicKeyMultibase === 'string' &&
+    verificationMethod.publicKeyMultibase.startsWith('z')
+  ) {
     return verificationMethod.publicKeyMultibase.slice(1)
   }
   return undefined

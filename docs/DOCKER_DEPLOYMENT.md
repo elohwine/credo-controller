@@ -94,6 +94,7 @@ docker run --rm credo-deps \
 ```
 
 Expected output:
+
 ```
 ✓ Askar version: 0.2.3
 Askar: 0.2.3
@@ -161,13 +162,13 @@ Docker Compose profiles allow running different configurations:
 
 ### Available Profiles
 
-| Profile | Description | Services |
-|---------|-------------|----------|
-| (default) | Production stack | credo-controller |
-| dev | Development with hot reload | credo-dev |
-| test | Test runner | credo-test |
-| monitoring | Observability stack | otel-collector, jaeger |
-| proxy | Nginx reverse proxy | nginx |
+| Profile    | Description                 | Services               |
+| ---------- | --------------------------- | ---------------------- |
+| (default)  | Production stack            | credo-controller       |
+| dev        | Development with hot reload | credo-dev              |
+| test       | Test runner                 | credo-test             |
+| monitoring | Observability stack         | otel-collector, jaeger |
+| proxy      | Nginx reverse proxy         | nginx                  |
 
 ### Using Profiles
 
@@ -375,10 +376,10 @@ Add to service definition:
 
 ```yaml
 logging:
-  driver: "json-file"
+  driver: 'json-file'
   options:
-    max-size: "10m"
-    max-file: "3"
+    max-size: '10m'
+    max-file: '3'
 ```
 
 ## Troubleshooting
@@ -386,6 +387,7 @@ logging:
 ### Issue: Native Module Errors
 
 **Symptom:**
+
 ```
 Error: No native build was found
 ```
@@ -393,11 +395,13 @@ Error: No native build was found
 **Solution:**
 
 1. Rebuild image from scratch:
+
    ```bash
    docker compose build --no-cache credo-controller
    ```
 
 2. Verify base image has build tools:
+
    ```bash
    docker run --rm node:20.18.1 gcc --version
    ```
@@ -411,6 +415,7 @@ Error: No native build was found
 ### Issue: Container Exits Immediately
 
 **Symptom:**
+
 ```
 credo-controller exited with code 1
 ```
@@ -418,11 +423,13 @@ credo-controller exited with code 1
 **Solution:**
 
 1. Check logs:
+
    ```bash
    docker compose logs credo-controller
    ```
 
 2. Run interactively:
+
    ```bash
    docker compose run --rm credo-controller sh
    # Then manually: node ./bin/afj-rest.js --config ./config.json
@@ -436,6 +443,7 @@ credo-controller exited with code 1
 ### Issue: Database Permission Errors
 
 **Symptom:**
+
 ```
 EACCES: permission denied, open '/app/data/tenants.db'
 ```
@@ -443,11 +451,13 @@ EACCES: permission denied, open '/app/data/tenants.db'
 **Solution:**
 
 1. Check volume permissions:
+
    ```bash
    docker compose exec credo-controller ls -la /app/data
    ```
 
 2. Fix ownership:
+
    ```bash
    docker compose exec -u root credo-controller chown -R credo:credo /app/data
    ```
@@ -464,6 +474,7 @@ EACCES: permission denied, open '/app/data/tenants.db'
 ### Issue: Port Already in Use
 
 **Symptom:**
+
 ```
 Bind for 0.0.0.0:3000 failed: port is already allocated
 ```
@@ -471,14 +482,16 @@ Bind for 0.0.0.0:3000 failed: port is already allocated
 **Solution:**
 
 1. Change port in `.env`:
+
    ```env
    PORT=3001
    ```
 
 2. Or in docker compose.yml:
+
    ```yaml
    ports:
-     - "3001:3000"
+     - '3001:3000'
    ```
 
 3. Find what's using the port:
@@ -490,6 +503,7 @@ Bind for 0.0.0.0:3000 failed: port is already allocated
 ### Issue: Out of Memory
 
 **Symptom:**
+
 ```
 JavaScript heap out of memory
 ```
@@ -497,12 +511,14 @@ JavaScript heap out of memory
 **Solution:**
 
 1. Increase Node.js memory:
+
    ```yaml
    environment:
-     NODE_OPTIONS: "--max-old-space-size=4096"
+     NODE_OPTIONS: '--max-old-space-size=4096'
    ```
 
 2. Increase container limits:
+
    ```yaml
    deploy:
      resources:
@@ -520,11 +536,13 @@ JavaScript heap out of memory
 **Solution:**
 
 1. Use BuildKit:
+
    ```bash
    DOCKER_BUILDKIT=1 docker compose build
    ```
 
 2. Add to `.env`:
+
    ```env
    COMPOSE_DOCKER_CLI_BUILD=1
    DOCKER_BUILDKIT=1
@@ -576,13 +594,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Build Docker image
         run: docker build --target production -t credo-controller:${{ github.sha }} .
-      
+
       - name: Run tests
         run: docker run --rm credo-controller:${{ github.sha }} yarn test
-      
+
       - name: Push to registry
         run: |
           echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin

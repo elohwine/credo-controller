@@ -23,7 +23,7 @@ import { TsLogger } from '../src/utils/logger'
 
 const run = async () => {
   const logger = new TsLogger(LogLevel.info)
-  
+
   const agent = new Agent({
     config: {
       walletConfig: {
@@ -69,7 +69,7 @@ const run = async () => {
       port: 3000,
       webhookUrl: process.env.WEBHOOK_URL,
     },
-    'test-api-key-12345'
+    'test-api-key-12345',
   )
 
   console.log(`🚀 Server running on http://localhost:3000`)

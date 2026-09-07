@@ -1,12 +1,15 @@
 # Credo Controller API Quick Reference for UI Integration
 
 ## Base URL
+
 ```
 http://localhost:3000
 ```
 
 ## Authentication
+
 All requests (except public metadata) require:
+
 ```
 Authorization: Bearer <tenant-token>
 X-Tenant-ID: <tenant-id>  # Optional but recommended
@@ -17,6 +20,7 @@ X-Tenant-ID: <tenant-id>  # Optional but recommended
 ## 🏢 Multi-Tenancy APIs
 
 ### Create Tenant
+
 ```bash
 POST /multi-tenancy/create-tenant
 Auth: Admin API Key
@@ -33,6 +37,7 @@ Response: {
 ```
 
 ### Get Tenant Info
+
 ```bash
 GET /multi-tenancy/{tenantId}
 Auth: Admin or Tenant Token
@@ -43,6 +48,7 @@ Auth: Admin or Tenant Token
 ## 💳 Wallet APIs (New)
 
 ### Get Wallet Metadata
+
 ```bash
 GET /api/wallet/metadata
 Auth: Tenant Token
@@ -56,6 +62,7 @@ Response: {
 ```
 
 ### Store Credential
+
 ```bash
 POST /api/wallet/credentials
 Auth: Tenant Token
@@ -67,6 +74,7 @@ Response: {"id": "cred-uuid", "stored": true}
 ```
 
 ### List Credentials
+
 ```bash
 GET /api/wallet/credentials
 Auth: Tenant Token
@@ -82,12 +90,14 @@ Response: [
 ```
 
 ### Get Credential
+
 ```bash
 GET /api/wallet/credentials/{id}
 Auth: Tenant Token
 ```
 
 ### Delete Credential
+
 ```bash
 POST /api/wallet/credentials/{id}/delete
 Auth: Tenant Token
@@ -99,6 +109,7 @@ Response: {"deleted": true}
 ## 🎫 Issuer APIs
 
 ### Create Credential Offer
+
 ```bash
 POST /oidc/issuer/credential-offers
 Auth: Tenant Token
@@ -127,6 +138,7 @@ Response: {
 ```
 
 ### Get Credential Offer (Public)
+
 ```bash
 GET /oidc/credential-offers/{preAuthorizedCode}
 Auth: None (public)
@@ -138,6 +150,7 @@ Response: {
 ```
 
 ### Token Exchange (Issue Credential)
+
 ```bash
 POST /oidc/token
 Auth: None (uses pre-authorized code)
@@ -154,6 +167,7 @@ Response: {
 ```
 
 ### List Issued Credentials
+
 ```bash
 GET /oidc/issuer/credentials
 Auth: Tenant Token
@@ -169,12 +183,14 @@ Response: [
 ```
 
 ### Get Issued Credential
+
 ```bash
 GET /oidc/issuer/credentials/{id}
 Auth: Tenant Token
 ```
 
 ### Revoke Credential
+
 ```bash
 POST /oidc/issuer/credentials/{id}/revoke
 Auth: Tenant Token
@@ -186,6 +202,7 @@ Response: {"revoked": true}
 ## ✅ Verifier APIs
 
 ### Create Presentation Request
+
 ```bash
 POST /oidc/verifier/presentation-requests
 Auth: Tenant Token
@@ -202,6 +219,7 @@ Response: {
 ```
 
 ### Verify Presentation
+
 ```bash
 POST /oidc/verifier/verify
 Auth: Tenant Token
@@ -233,6 +251,7 @@ Response: {
 ## 📜 Metadata APIs (Public)
 
 ### Issuer Metadata (OIDC4VCI)
+
 ```bash
 GET /{tenantId}/.well-known/openid-credential-issuer
 Auth: None (public)
@@ -244,6 +263,7 @@ Response: {
 ```
 
 ### Verifier Metadata (OIDC4VP)
+
 ```bash
 GET /{tenantId}/.well-known/openid-verifier
 Auth: None (public)
@@ -254,6 +274,7 @@ Response: {
 ```
 
 ### Issuer DID
+
 ```bash
 GET /{tenantId}/issuer/did
 Auth: None (public)
@@ -269,6 +290,7 @@ Response: {
 ## 📋 Schema APIs
 
 ### Register Schema
+
 ```bash
 POST /schemas
 Auth: Tenant Token
@@ -299,12 +321,14 @@ Response: {
 ```
 
 ### Get Schema
+
 ```bash
 GET /schemas/{schemaId}
 Auth: Tenant Token
 ```
 
 ### List Schemas
+
 ```bash
 GET /schemas
 Auth: Tenant Token
@@ -315,6 +339,7 @@ Auth: Tenant Token
 ## 🔑 DID APIs
 
 ### Create DID
+
 ```bash
 POST /dids/create-key
 Auth: Tenant Token
@@ -328,6 +353,7 @@ Response: {
 ```
 
 ### Resolve DID
+
 ```bash
 GET /dids/resolve/{did}
 Auth: Tenant Token
@@ -338,6 +364,7 @@ Auth: Tenant Token
 ## 🔄 Common Flows
 
 ### Flow 1: Credential Issuance
+
 ```
 1. POST /oidc/issuer/credential-offers (issuer portal)
    → Get offerUri
@@ -353,6 +380,7 @@ Auth: Tenant Token
 ```
 
 ### Flow 2: Verification
+
 ```
 1. POST /oidc/verifier/presentation-requests (verifier portal)
    → Get requestId, nonce
@@ -364,6 +392,7 @@ Auth: Tenant Token
 ```
 
 ### Flow 3: Tenant Setup
+
 ```
 1. POST /multi-tenancy/create-tenant (admin)
    → Get tenant token, issuer/verifier DIDs
@@ -378,6 +407,7 @@ Auth: Tenant Token
 ## 🌐 CORS Headers
 
 Backend automatically sets:
+
 ```
 Access-Control-Allow-Origin: http://localhost:3000, http://localhost:4000, http://localhost:4001, http://localhost:5000
 Access-Control-Allow-Credentials: true
@@ -389,6 +419,7 @@ Access-Control-Allow-Headers: Authorization, Content-Type, X-Tenant-ID
 ## 🧪 Test Commands
 
 ### Create Test Tenant
+
 ```bash
 curl -X POST http://localhost:3000/multi-tenancy/create-tenant \
   -H "Authorization: Bearer test-api-key" \
@@ -397,12 +428,14 @@ curl -X POST http://localhost:3000/multi-tenancy/create-tenant \
 ```
 
 ### Test Wallet Metadata
+
 ```bash
 curl http://localhost:3000/api/wallet/metadata \
   -H "Authorization: Bearer <tenant-token>"
 ```
 
 ### Test Credential Offer
+
 ```bash
 curl -X POST http://localhost:3000/oidc/issuer/credential-offers \
   -H "Authorization: Bearer <tenant-token>" \
@@ -435,6 +468,7 @@ curl -X POST http://localhost:3000/oidc/issuer/credential-offers \
 ---
 
 **See also:**
+
 - [UI Integration Guide](./docs/UI_INTEGRATION.md) - Full setup instructions
 - [API Mapping](./credo-ui/API_MAPPING.md) - Detailed endpoint mapping
 - [OpenAPI Docs](http://localhost:3000/docs) - Interactive API explorer

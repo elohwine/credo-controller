@@ -3,7 +3,9 @@
 ## 🎉 What Was Created
 
 ### 1. **Setup Script** (`scripts/setup-ui.sh`)
+
 Automated setup script that:
+
 - ✅ Clones walt.id identity repository
 - ✅ Installs dependencies (pnpm/yarn/npm auto-detected)
 - ✅ Creates `.env.local` files for wallet and portal
@@ -11,12 +13,15 @@ Automated setup script that:
 - ✅ Creates API mapping documentation
 
 **Run it:**
+
 ```bash
 ./scripts/setup-ui.sh
 ```
 
 ### 2. **Backend Wallet Controller** (`src/controllers/wallet/WalletController.ts`)
+
 New REST API endpoints for wallet functionality:
+
 - `GET /api/wallet/metadata` - Get wallet info, holder DID, credentials
 - `POST /api/wallet/credentials` - Store credential after issuance
 - `GET /api/wallet/credentials` - List all credentials
@@ -24,13 +29,17 @@ New REST API endpoints for wallet functionality:
 - `POST /api/wallet/credentials/{id}/delete` - Delete credential
 
 ### 3. **Tenant Helper Utilities** (`src/utils/ui-integration/tenantHelper.ts`)
+
 Helper functions for multi-tenant routing:
+
 - `withTenant(tenantId, path)` - Build tenant-scoped URLs
 - `extractTenantFromRequest(req)` - Extract tenant from header/subdomain/query
 - `buildTenantContext(req, tenantId?)` - Create full tenant context
 
 ### 4. **Documentation**
+
 - **`docs/UI_INTEGRATION.md`** - Complete integration guide with:
+
   - Architecture overview
   - Quick start instructions
   - API mapping examples
@@ -44,39 +53,45 @@ Helper functions for multi-tenant routing:
 ## 📋 Existing Backend Endpoints Ready for UI
 
 ### Issuer APIs (Already Implemented)
+
 ✅ `POST /oidc/issuer/credential-offers` - Create credential offer  
 ✅ `GET /oidc/credential-offers/{code}` - Get offer details  
 ✅ `POST /oidc/token` - Redeem pre-authorized code  
 ✅ `GET /oidc/issuer/credentials` - List issued credentials  
 ✅ `GET /oidc/issuer/credentials/{id}` - Get specific credential  
-✅ `POST /oidc/issuer/credentials/{id}/revoke` - Revoke credential  
+✅ `POST /oidc/issuer/credentials/{id}/revoke` - Revoke credential
 
 ### Verifier APIs (Already Implemented)
+
 ✅ `POST /oidc/verifier/presentation-requests` - Create presentation request  
-✅ `POST /oidc/verifier/verify` - Verify presentation  
+✅ `POST /oidc/verifier/verify` - Verify presentation
 
 ### Metadata APIs (Already Implemented)
+
 ✅ `GET /{tenantId}/.well-known/openid-credential-issuer` - Issuer metadata  
 ✅ `GET /{tenantId}/.well-known/openid-verifier` - Verifier metadata  
-✅ `GET /{tenantId}/issuer/did` - Get issuer DID  
+✅ `GET /{tenantId}/issuer/did` - Get issuer DID
 
 ### Multi-Tenancy APIs (Already Implemented)
+
 ✅ `POST /multi-tenancy/create-tenant` - Create tenant  
 ✅ `GET /multi-tenancy/{tenantId}` - Get tenant info  
 ✅ `GET /multi-tenancy/{tenantId}/metadata` - Get tenant metadata  
 ✅ `GET /multi-tenancy/{tenantId}/metadata/issuer` - Get issuer metadata  
 ✅ `GET /multi-tenancy/{tenantId}/metadata/verifier` - Get verifier metadata  
-✅ `DELETE /multi-tenancy/{tenantId}` - Delete tenant  
+✅ `DELETE /multi-tenancy/{tenantId}` - Delete tenant
 
 ## 🚀 Next Steps (In Order)
 
 ### Phase 1: Setup UI Components (5 minutes)
+
 ```bash
 # Run the setup script
 ./scripts/setup-ui.sh
 ```
 
 This will:
+
 1. Clone walt.id UI into `credo-ui/waltid-identity/`
 2. Install dependencies
 3. Create environment files
@@ -85,18 +100,21 @@ This will:
 ### Phase 2: Start Services (2 minutes)
 
 **Terminal 1 - Backend:**
+
 ```bash
 yarn dev
 # → http://localhost:3000
 ```
 
 **Terminal 2 - Wallet:**
+
 ```bash
 cd credo-ui && ./start-wallet.sh
 # → http://localhost:4001
 ```
 
 **Terminal 3 - Portal:**
+
 ```bash
 cd credo-ui && ./start-portal.sh
 # → http://localhost:5000
@@ -107,10 +125,12 @@ cd credo-ui && ./start-portal.sh
 The setup script creates `.env.local` files pointing to Credo backend. You need to:
 
 1. **Update API client base URLs** in UI code:
+
    - Find: `waltid-web-wallet/src/lib/api.ts` (or similar)
    - Replace walt.id URLs with `process.env.NEXT_PUBLIC_*` variables
 
 2. **Add tenant context** to fetch calls:
+
    ```typescript
    headers: {
      'Authorization': `Bearer ${token}`,
@@ -129,6 +149,7 @@ The setup script creates `.env.local` files pointing to Credo backend. You need 
 ### Phase 4: Test End-to-End (15 minutes)
 
 1. **Create tenant:**
+
    ```bash
    curl -X POST http://localhost:3000/multi-tenancy/create-tenant \
      -H "Authorization: Bearer test-api-key" \
@@ -144,12 +165,14 @@ The setup script creates `.env.local` files pointing to Credo backend. You need 
 ### Phase 5: Rebuild Backend Routes (5 minutes)
 
 After adding WalletController:
+
 ```bash
 yarn build
 # This regenerates routes.ts and swagger.json
 ```
 
 Restart backend:
+
 ```bash
 yarn dev
 ```
@@ -157,6 +180,7 @@ yarn dev
 ### Phase 6: EcoCash Integration (Future)
 
 Once UI flows work:
+
 1. Add EcoCash webhook endpoint
 2. On payment success → create credential offer
 3. Send offer URI to customer (SMS/push)
@@ -192,6 +216,7 @@ credo-controller/
 ## ✅ Verification Checklist
 
 Before testing:
+
 - [ ] Setup script ran successfully
 - [ ] `credo-ui/waltid-identity/` exists
 - [ ] `.env.local` files created in wallet and portal
@@ -204,6 +229,7 @@ Before testing:
 ## 🔧 If Issues Occur
 
 ### Setup script fails to clone
+
 ```bash
 # Clone manually
 cd credo-controller
@@ -213,18 +239,21 @@ git clone https://github.com/walt-id/waltid-identity.git
 ```
 
 ### Dependencies fail to install
+
 ```bash
 cd credo-ui/waltid-identity
 pnpm install  # or yarn install or npm install
 ```
 
 ### UI doesn't connect to backend
+
 1. Check `.env.local` files have correct URLs
 2. Verify CORS enabled in `src/server.ts`
 3. Check backend logs for rejected requests
 4. Test endpoint directly with curl
 
 ### Wallet can't store credentials
+
 1. Verify WalletController routes generated: `yarn build`
 2. Check backend logs for errors
 3. Verify tenant token is valid

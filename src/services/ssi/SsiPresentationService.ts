@@ -1,7 +1,5 @@
 import type { Request as ExRequest } from 'express'
 
-import { DcqlService } from '@credo-ts/core'
-
 import { ssiTrustService } from '../SsiTrustService'
 
 export interface CreatePlatformPresentationRequestInput {
@@ -33,7 +31,7 @@ export interface CreatePlatformPresentationRequestResult {
  */
 export class SsiPresentationService {
   public async createPresentationRequest(
-    input: CreatePlatformPresentationRequestInput
+    input: CreatePlatformPresentationRequestInput,
   ): Promise<CreatePlatformPresentationRequestResult> {
     const queryLanguage = input.queryLanguage ?? 'dcql'
     const expiresAt = new Date(input.expiresAt)
@@ -52,9 +50,10 @@ export class SsiPresentationService {
       purposeCode: input.purposeCode,
       purposeTextRef: input.purposeTextRef,
       queryLanguage,
-      queryRef: queryLanguage === 'dcql'
-        ? JSON.stringify(input.dcqlQuery ?? null)
-        : JSON.stringify(input.presentationDefinition ?? null),
+      queryRef:
+        queryLanguage === 'dcql'
+          ? JSON.stringify(input.dcqlQuery ?? null)
+          : JSON.stringify(input.presentationDefinition ?? null),
       transactionRef: input.transactionRef,
       expiresAt: expiresAt.toISOString(),
     })
@@ -69,8 +68,7 @@ export class SsiPresentationService {
     if (queryLanguage === 'dcql') {
       if (!input.dcqlQuery) throw new Error('dcqlQuery is required for a DCQL presentation request')
 
-      const dcqlService = agent.dependencyManager.resolve(DcqlService)
-      const dcqlQuery = dcqlService.validateDcqlQuery(input.dcqlQuery)
+      const dcqlQuery = this.normalizeDcqlQuery(input.dcqlQuery)
 
       protocolResult = await verifierModule.createAuthorizationRequest({
         verifierId: registration.credoVerifierIdRef,
@@ -126,6 +124,14 @@ export class SsiPresentationService {
       protocol: 'openid4vp',
       expiresAt: platformRequest.expiresAt,
     }
+  }
+
+  private normalizeDcqlQuery(query: unknown): Record<string, unknown> {
+    if (!query || typeof query !== 'object' || Array.isArray(query)) {
+      throw new Error('dcqlQuery must be an object')
+    }
+
+    return query as Record<string, unknown>
   }
 }
 

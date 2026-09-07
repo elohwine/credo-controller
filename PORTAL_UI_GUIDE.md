@@ -22,6 +22,7 @@ Access portal at: `http://localhost:5000`
 ## Feature Guide
 
 ### 📦 Catalog Management (`/catalog`)
+
 **Use Case**: Manage product inventory for e-commerce
 
 1. Click "Add Item" button
@@ -38,27 +39,32 @@ Access portal at: `http://localhost:5000`
 ---
 
 ### 🛡️ Trust & Compliance (`/trust`)
+
 **Use Case**: Monitor merchant reputation and report issues
 
 **Check Trust Score**:
+
 1. Enter merchant ID (e.g., "merchant-001")
 2. View score (0-100) and badge
 3. Review trust drivers breakdown
 
 **Create Escalation**:
+
 1. Click "Report Issue"
 2. Enter merchant ID
 3. Select reason (fraud/non-delivery/counterfeit/dispute)
 4. Provide description
 5. Submit to regulator
 
-**API Endpoints**: 
+**API Endpoints**:
+
 - `GET /api/trust/:merchantId`
 - `POST /api/regulator/escalations`
 
 ---
 
 ### 💰 Payroll Processing (`/payroll`)
+
 **Use Case**: Process employee payroll and issue PayslipVCs
 
 1. Click "Run Payroll"
@@ -72,6 +78,7 @@ Access portal at: `http://localhost:5000`
 ---
 
 ### 👤 Employee Onboarding (`/onboarding`)
+
 **Use Case**: Track new employee onboarding workflows
 
 1. Click "New Employee"
@@ -89,6 +96,7 @@ Access portal at: `http://localhost:5000`
 ---
 
 ### 💬 WhatsApp Commerce (`/whatsapp`)
+
 **Use Case**: Monitor WhatsApp shopping cart activity
 
 1. View active carts in left panel
@@ -101,6 +109,7 @@ Access portal at: `http://localhost:5000`
 ---
 
 ### 🚫 Credential Revocation (`/revocation`)
+
 **Use Case**: Revoke compromised or invalid credentials
 
 1. Browse all issued credentials
@@ -114,30 +123,36 @@ Access portal at: `http://localhost:5000`
 ---
 
 ### 📊 System Metrics (`/metrics`)
+
 **Use Case**: Monitor platform health and performance
 
 **Health Checks** (auto-refresh every 5s):
+
 - Overall status (healthy/unhealthy)
 - Database connection
 - Agent availability
 - Memory usage
 
 **System Resources**:
+
 - Heap memory (used/total)
 - RSS memory
 - Uptime
 
 **Database Metrics**:
+
 - Active connections
 - Pool size
 - Query latency
 
 **Business Metrics**:
+
 - Active wallets
 - Credentials issued
 - Workflows executed
 
-**API Endpoints**: 
+**API Endpoints**:
+
 - `GET /health`
 - `GET /metrics/json`
 
@@ -157,6 +172,7 @@ Access portal at: `http://localhost:5000`
 ## Common Workflows
 
 ### E-commerce Flow
+
 1. **Catalog** → Add products
 2. **WhatsApp** → Customer creates cart
 3. **Finance** → Generate invoice
@@ -165,12 +181,14 @@ Access portal at: `http://localhost:5000`
 6. **Finance** → Issue PaymentReceiptVC
 
 ### HR Workflow
+
 1. **Onboarding** → Create new employee case
 2. **HR Operations** → Add to department
 3. **Payroll** → Include in pay run
 4. **Payroll** → Issue PayslipVC
 
 ### Trust & Compliance
+
 1. **Finance** → Transaction occurs
 2. **Trust** → Score automatically updated
 3. **Trust** → Issue detected → Create escalation
@@ -181,6 +199,7 @@ Access portal at: `http://localhost:5000`
 ## Development Notes
 
 ### API Base URL
+
 Currently hardcoded to `http://localhost:3000`. For production:
 
 ```typescript
@@ -189,31 +208,34 @@ NEXT_PUBLIC_API_URL=https://api.credentis.co.zw
 ```
 
 Update fetch calls:
+
 ```typescript
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
 fetch(`${API_URL}/api/catalog/items`)
 ```
 
 ### Authentication
+
 Portal pages currently bypass authentication. To add tenant auth:
 
 ```typescript
 // Add to each page component
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/hooks/useAuth'
 
 export default function CatalogPage() {
-  const { token } = useAuth();
-  
+  const { token } = useAuth()
+
   const res = await fetch(`${API_URL}/api/catalog/items`, {
     headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    }
-  });
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  })
 }
 ```
 
 ### Error Handling
+
 Add toast notifications:
 
 ```typescript
@@ -234,20 +256,24 @@ try {
 ## Troubleshooting
 
 ### "Failed to fetch" errors
+
 - Ensure API server is running on port 3000
 - Check CORS configuration in `src/server.ts`
 - Verify endpoint exists in backend
 
 ### Empty data/tables
+
 - Backend may need sample data seeding
 - Check browser console for API errors
 - Verify database migrations ran successfully
 
 ### Navigation not working
+
 - Clear Next.js cache: `rm -rf .next`
 - Rebuild portal: `yarn build && yarn dev`
 
 ### Metrics not updating
+
 - Check metrics endpoint: `curl http://localhost:3000/health`
 - Ensure MetricsController is mounted
 - Verify TSOA routes regenerated
@@ -270,6 +296,7 @@ try {
 ## Support
 
 For issues or questions:
+
 - Check logs: `tail -f logs.txt`
 - Review API docs: `http://localhost:3000/api-docs`
 - See implementation checklist: `IMPLEMENTATION_CHECKLIST.md`

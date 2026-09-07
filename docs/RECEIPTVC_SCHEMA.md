@@ -11,19 +11,19 @@
 
 ### Fields
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `receiptId` | string | ✅ | Unique receipt identifier |
-| `orderId` | string | ✅ | Reference to cart/order |
-| `transactionId` | string | ✅ | EcoCash transaction reference |
-| `merchantDid` | string | ✅ | Issuer merchant DID |
-| `merchantName` | string | ✅ | Human-readable merchant name |
-| `amount` | number | ✅ | Payment amount |
-| `currency` | string | ✅ | Currency code (USD, ZWL) |
-| `paymentMethod` | string | ✅ | Payment method (EcoCash) |
-| `timestamp` | string | ✅ | ISO 8601 timestamp |
-| `items` | array | ❌ | Line items (optional) |
-| `buyerPhone` | string | ❌ | Buyer phone (hashed) |
+| Field           | Type   | Required | Description                   |
+| --------------- | ------ | -------- | ----------------------------- |
+| `receiptId`     | string | ✅       | Unique receipt identifier     |
+| `orderId`       | string | ✅       | Reference to cart/order       |
+| `transactionId` | string | ✅       | EcoCash transaction reference |
+| `merchantDid`   | string | ✅       | Issuer merchant DID           |
+| `merchantName`  | string | ✅       | Human-readable merchant name  |
+| `amount`        | number | ✅       | Payment amount                |
+| `currency`      | string | ✅       | Currency code (USD, ZWL)      |
+| `paymentMethod` | string | ✅       | Payment method (EcoCash)      |
+| `timestamp`     | string | ✅       | ISO 8601 timestamp            |
+| `items`         | array  | ❌       | Line items (optional)         |
+| `buyerPhone`    | string | ❌       | Buyer phone (hashed)          |
 
 ---
 
@@ -55,9 +55,7 @@
 
 ```json
 {
-  "@context": [
-    "https://www.w3.org/2018/credentials/v1"
-  ],
+  "@context": ["https://www.w3.org/2018/credentials/v1"],
   "type": ["VerifiableCredential", "ReceiptVC"],
   "issuer": "did:key:z6Mkf...",
   "issuanceDate": "2026-01-30T12:00:00Z",
@@ -67,7 +65,7 @@
     "transactionId": "ECOCASH-ABC12345",
     "merchantDid": "did:key:z6Mkf...",
     "merchantName": "Harare Groceries",
-    "amount": 25.50,
+    "amount": 25.5,
     "currency": "USD",
     "paymentMethod": "EcoCash",
     "timestamp": "2026-01-30T12:00:00Z"
@@ -99,8 +97,8 @@ Returns verification result + receipt summary for driver verification.
 
 ## Implementation Files
 
-| File | Purpose |
-|------|---------|
-| `src/services/modelRegistry.ts` | Schema registration |
-| `src/controllers/finance/FinanceController.ts` | Receipt issuance endpoint |
-| `src/controllers/webhooks/EcoCashWebhookController.ts` | Payment → VC trigger |
+| File                                                   | Purpose                   |
+| ------------------------------------------------------ | ------------------------- |
+| `src/services/modelRegistry.ts`                        | Schema registration       |
+| `src/controllers/finance/FinanceController.ts`         | Receipt issuance endpoint |
+| `src/controllers/webhooks/EcoCashWebhookController.ts` | Payment → VC trigger      |

@@ -11,6 +11,7 @@
 - ✅ Health endpoint: `GET /agent/health/database` (returns row counts)
 
 **Files Modified:**
+
 - `src/utils/schemaStore.ts` — DatabaseManager integration
 - `src/utils/credentialDefinitionStore.ts` — DatabaseManager integration
 - `samples/simpleStart.ts` — Added `DatabaseManager.initialize()`
@@ -26,10 +27,12 @@
 - ✅ New page: `/credential-models` with full credential browser
 
 **Files Created:**
+
 - `components/credentials/CredentialDefinitionList.tsx` — Grouped card display
 - `pages/credential-models.tsx` — Credential models browser page
 
 **Theme Colors:**
+
 - 💳 Payment & Transaction → Green (`border-green-500 bg-green-50`)
 - 🆔 Identity Documents → Blue (`border-primary-400 bg-primary-50`)
 - 🏅 Educational Badges → Yellow (`border-yellow-500 bg-yellow-50`)
@@ -68,13 +71,13 @@ Navigate to: **http://localhost:3003/credential-models**
 
 ## 📊 Supported Credential Models
 
-| # | Model | Type | Use Case | Claims |
-|---|-------|------|----------|--------|
-| 1 | **PaymentReceipt** | Payment | E-commerce receipts | amount, currency, transactionId, merchantName |
-| 2 | **GenericIDCredential** | Identity | Government IDs | fullName, dateOfBirth, documentNumber, nationality |
-| 3 | **OpenBadge** | Educational | Skill certifications | badgeName, achievementType, issuerName, criteriaUrl |
-| 4 | **MdocHealthSummary** | Health | mDoc records | patientId, bloodType, allergies, medications |
-| 5 | **EHRSummary** | Health | Clinical data | patientId, diagnosis, treatmentPlan, labResults |
+| #   | Model                   | Type        | Use Case             | Claims                                              |
+| --- | ----------------------- | ----------- | -------------------- | --------------------------------------------------- |
+| 1   | **PaymentReceipt**      | Payment     | E-commerce receipts  | amount, currency, transactionId, merchantName       |
+| 2   | **GenericIDCredential** | Identity    | Government IDs       | fullName, dateOfBirth, documentNumber, nationality  |
+| 3   | **OpenBadge**           | Educational | Skill certifications | badgeName, achievementType, issuerName, criteriaUrl |
+| 4   | **MdocHealthSummary**   | Health      | mDoc records         | patientId, bloodType, allergies, medications        |
+| 5   | **EHRSummary**          | Health      | Clinical data        | patientId, diagnosis, treatmentPlan, labResults     |
 
 ## 🔧 System Architecture
 
@@ -420,7 +423,7 @@ The credential model system is now **production-ready** with:
 ✅ **Manual seeding** via `yarn seed:models` (all 5 models)  
 ✅ **Themed portal UI** with grouped credential display  
 ✅ **Health monitoring** via `/agent/health/database` endpoint  
-✅ **Comprehensive documentation** for extension and troubleshooting  
+✅ **Comprehensive documentation** for extension and troubleshooting
 
 **Next:** Test persistence across backend restarts, then proceed with Vault integration and status list revocation!
 

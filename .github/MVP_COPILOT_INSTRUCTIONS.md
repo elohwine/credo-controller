@@ -8,6 +8,7 @@
 ## 🎯 Mission Statement
 
 Build trust infrastructure for Zimbabwe e-commerce:
+
 - **ReceiptVC** proves payment to drivers and customers
 - **Embedded wallet** stores proof without key ceremonies
 - **Driver verification** collapses trust at handover moment
@@ -16,10 +17,10 @@ Build trust infrastructure for Zimbabwe e-commerce:
 
 ## 🏗 UI Architecture (IMPORTANT)
 
-| UI | Port | Role |
-|----|------|------|
+| UI         | Port | Role                                                     |
+| ---------- | ---- | -------------------------------------------------------- |
 | **Portal** | 5000 | Checkout, catalog, consent prompt, issuer/verifier flows |
-| **Wallet** | 4000 | VC storage and embedding ONLY (no checkout logic) |
+| **Wallet** | 4000 | VC storage and embedding ONLY (no checkout logic)        |
 
 **Consent Flow:** Portal shows "Save verified receipt to wallet?" → on consent, issues VC offer → Wallet accepts and stores.
 
@@ -27,15 +28,15 @@ Build trust infrastructure for Zimbabwe e-commerce:
 
 ## ✅ MVP Scope (ONLY work on these)
 
-| Feature | Files | Status |
-|---------|-------|--------|
-| EcoCash Payment | `src/controllers/webhooks/EcoCashWebhookController.ts` | ✅ Done |
-| ReceiptVC Issuance | `src/controllers/finance/FinanceController.ts` | ✅ Done |
-| WhatsApp Commerce | `src/controllers/whatsapp/WhatsAppPayloadController.ts` | ✅ Done |
-| Wallet UI (Storage) | `credo-ui/wallet/` | ✅ Done |
-| Portal UI (Checkout) | `credo-ui/portal/` | ✅ Done |
-| Driver Verifier | `src/controllers/oidc/OidcVerifierController.ts` | 🏗 Enhance |
-| Consent Flow | **Portal UI checkout** | 🏗 Enhance |
+| Feature              | Files                                                   | Status     |
+| -------------------- | ------------------------------------------------------- | ---------- |
+| EcoCash Payment      | `src/controllers/webhooks/EcoCashWebhookController.ts`  | ✅ Done    |
+| ReceiptVC Issuance   | `src/controllers/finance/FinanceController.ts`          | ✅ Done    |
+| WhatsApp Commerce    | `src/controllers/whatsapp/WhatsAppPayloadController.ts` | ✅ Done    |
+| Wallet UI (Storage)  | `credo-ui/wallet/`                                      | ✅ Done    |
+| Portal UI (Checkout) | `credo-ui/portal/`                                      | ✅ Done    |
+| Driver Verifier      | `src/controllers/oidc/OidcVerifierController.ts`        | 🏗 Enhance |
+| Consent Flow         | **Portal UI checkout**                                  | 🏗 Enhance |
 
 ---
 
@@ -54,6 +55,7 @@ Build trust infrastructure for Zimbabwe e-commerce:
 ## 🔑 Key Files for MVP
 
 ### Backend
+
 ```
 src/controllers/webhooks/EcoCashWebhookController.ts  # Payment webhook
 src/controllers/finance/FinanceController.ts          # Receipt issuance
@@ -63,12 +65,14 @@ src/services/CredentialIssuanceService.ts             # VC creation
 ```
 
 ### Frontend
+
 ```
 credo-ui/wallet/                # Holder wallet (Nuxt)
 credo-ui/portal/                # Issuer portal (Next.js)
 ```
 
 ### Config
+
 ```
 docker-compose.full.yml         # Full stack
 .env.local                      # Environment vars

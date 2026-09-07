@@ -12,7 +12,7 @@ import { getRequestContext } from './requestContext'
 function logToTransport(logObject: ILogObject) {
   try {
     appendFileSync('/app/data/logs.txt', JSON.stringify(logObject) + '\n')
-  } catch { }
+  } catch {}
 }
 
 export class TsLogger extends BaseLogger {
@@ -94,7 +94,7 @@ export class TsLogger extends BaseLogger {
         default:
           rootLogger.info(pinoData, text)
       }
-    } catch { }
+    } catch {}
     let logMessage = ''
     if (typeof message === 'string') {
       logMessage = message

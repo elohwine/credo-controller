@@ -1,4 +1,3 @@
-
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { randomUUID } from 'crypto'
 import { rootLogger } from '../utils/pinoLogger'
@@ -8,389 +7,414 @@ import { credentialIssuanceService } from './CredentialIssuanceService'
 const logger = rootLogger.child({ module: 'OperationsService' })
 
 export interface LeaveRequest {
-    id: string
-    tenantId: string
-    employeeId: string
-    leaveType: 'annual' | 'sick' | 'unpaid' | 'maternity' | 'study'
-    startDate: string
-    endDate: string
-    daysCount: number
-    reason?: string
-    status: 'pending' | 'approved' | 'rejected'
-    approverId?: string
-    approvalVcId?: string
-    createdAt: string
+  id: string
+  tenantId: string
+  employeeId: string
+  leaveType: 'annual' | 'sick' | 'unpaid' | 'maternity' | 'study'
+  startDate: string
+  endDate: string
+  daysCount: number
+  reason?: string
+  status: 'pending' | 'approved' | 'rejected'
+  approverId?: string
+  approvalVcId?: string
+  createdAt: string
 }
 
 export interface ExpenseClaim {
-    id: string
-    tenantId: string
-    employeeId: string
-    description: string
-    amount: number
-    currency: string
-    category: 'travel' | 'meals' | 'equipment' | 'other'
-    receiptUrl?: string | null
-    status: 'pending' | 'approved' | 'paid' | 'rejected'
-    approvedBy?: string
-    approvalVcId?: string
-    paidAt?: string
-    createdAt: string
+  id: string
+  tenantId: string
+  employeeId: string
+  description: string
+  amount: number
+  currency: string
+  category: 'travel' | 'meals' | 'equipment' | 'other'
+  receiptUrl?: string | null
+  status: 'pending' | 'approved' | 'paid' | 'rejected'
+  approvedBy?: string
+  approvalVcId?: string
+  paidAt?: string
+  createdAt: string
 }
 
 export class OperationsService {
+  // --- Leave Management ---
 
-    // --- Leave Management ---
+  async createLeaveRequest(
+    tenantId: string,
+    employeeId: string,
+    data: Omit<LeaveRequest, 'id' | 'tenantId' | 'employeeId' | 'status' | 'createdAt'>,
+  ): Promise<LeaveRequest> {
+    const db = DatabaseManager.getDatabase()
+    const id = `LEAVE-${randomUUID()}`
+    const now = new Date().toISOString()
 
-    async createLeaveRequest(
-        tenantId: string,
-        employeeId: string,
-        data: Omit<LeaveRequest, 'id' | 'tenantId' | 'employeeId' | 'status' | 'createdAt'>
-    ): Promise<LeaveRequest> {
-        const db = DatabaseManager.getDatabase()
-        const id = `LEAVE-${randomUUID()}`
-        const now = new Date().toISOString()
+    const req: LeaveRequest = {
+      id,
+      tenantId,
+      employeeId,
+      ...data,
+      status: 'pending',
+      createdAt: now,
+    }
 
-        const req: LeaveRequest = {
-            id,
-            tenantId,
-            employeeId,
-            ...data,
-            status: 'pending',
-            createdAt: now
-        }
-
-        db.prepare(`
+    db.prepare(
+      `
             INSERT INTO leave_requests (id, tenant_id, employee_id, leave_type, start_date, end_date, days_count, reason, status, created_at)
             VALUES (@id, @tenantId, @employeeId, @leaveType, @startDate, @endDate, @daysCount, @reason, @status, @createdAt)
-        `).run(req)
+        `,
+    ).run(req)
 
-        await auditService.logAction({
-            tenantId,
-            actorDid: employeeId,
-            actionType: 'leave_request_created',
-            details: { leaveId: id, type: data.leaveType }
+    await auditService.logAction({
+      tenantId,
+      actorDid: employeeId,
+      actionType: 'leave_request_created',
+      details: { leaveId: id, type: data.leaveType },
+    })
+
+    return req
+  }
+
+  async updateLeaveStatus(
+    tenantId: string,
+    adminDid: string,
+    leaveId: string,
+    status: 'approved' | 'rejected',
+  ): Promise<{ approvalVcId?: string }> {
+    const db = DatabaseManager.getDatabase()
+
+    // Get leave details
+    const leave = db.prepare('SELECT * FROM leave_requests WHERE id = ?').get(leaveId) as any
+    if (!leave) throw new Error('Leave request not found')
+
+    let approvalVcId: string | undefined
+    let approvalVcOfferUri: string | undefined
+
+    // Issue LeaveApprovalVC on approval
+    if (status === 'approved') {
+      try {
+        const offer = await credentialIssuanceService.createOffer({
+          credentialType: 'LeaveApprovalVC',
+          claims: {
+            leaveRequestId: leaveId,
+            employeeId: leave.employee_id,
+            leaveType: leave.leave_type,
+            startDate: leave.start_date,
+            endDate: leave.end_date,
+            daysCount: leave.days_count,
+            reason: leave.reason || '',
+            approvedBy: adminDid,
+            approvedAt: new Date().toISOString(),
+          },
+          tenantId,
         })
-
-        return req
+        approvalVcId = offer.offerId
+        approvalVcOfferUri = offer.credential_offer_deeplink
+        logger.info({ leaveId, vcId: approvalVcId }, 'LeaveApprovalVC issued')
+      } catch (e: any) {
+        logger.warn({ error: e.message, leaveId }, 'Failed to issue LeaveApprovalVC')
+      }
     }
 
-    async updateLeaveStatus(tenantId: string, adminDid: string, leaveId: string, status: 'approved' | 'rejected'): Promise<{ approvalVcId?: string }> {
-        const db = DatabaseManager.getDatabase()
+    const res = db
+      .prepare(
+        'UPDATE leave_requests SET status = ?, approver_id = ?, approval_vc_id = ?, approval_vc_offer_uri = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      )
+      .run(status, adminDid, approvalVcId || null, approvalVcOfferUri || null, leaveId)
 
-        // Get leave details
-        const leave = db.prepare('SELECT * FROM leave_requests WHERE id = ?').get(leaveId) as any
-        if (!leave) throw new Error('Leave request not found')
+    if (res.changes === 0) throw new Error('Leave request not found')
 
-        let approvalVcId: string | undefined
-        let approvalVcOfferUri: string | undefined
+    await auditService.logAction({
+      tenantId,
+      actorDid: adminDid,
+      actionType: `leave_request_${status}`,
+      details: { leaveId, approvalVcId },
+    })
 
-        // Issue LeaveApprovalVC on approval
-        if (status === 'approved') {
-            try {
-                const offer = await credentialIssuanceService.createOffer({
-                    credentialType: 'LeaveApprovalVC',
-                    claims: {
-                        leaveRequestId: leaveId,
-                        employeeId: leave.employee_id,
-                        leaveType: leave.leave_type,
-                        startDate: leave.start_date,
-                        endDate: leave.end_date,
-                        daysCount: leave.days_count,
-                        reason: leave.reason || '',
-                        approvedBy: adminDid,
-                        approvedAt: new Date().toISOString()
-                    },
-                    tenantId
-                })
-                approvalVcId = offer.offerId
-                approvalVcOfferUri = offer.credential_offer_deeplink
-                logger.info({ leaveId, vcId: approvalVcId }, 'LeaveApprovalVC issued')
-            } catch (e: any) {
-                logger.warn({ error: e.message, leaveId }, 'Failed to issue LeaveApprovalVC')
-            }
-        }
+    return { approvalVcId }
+  }
 
-        const res = db.prepare('UPDATE leave_requests SET status = ?, approver_id = ?, approval_vc_id = ?, approval_vc_offer_uri = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-            .run(status, adminDid, approvalVcId || null, approvalVcOfferUri || null, leaveId)
+  /**
+   * Get leave approval VC offer for reoffer
+   * Self-healing: Regenerates offer if missing
+   */
+  async getLeaveApprovalVCOffer(
+    tenantId: string,
+    leaveId: string,
+  ): Promise<{ credential_offer_uri: string; credential_offer_deeplink: string }> {
+    const db = DatabaseManager.getDatabase()
+    const row = db.prepare('SELECT * FROM leave_requests WHERE id = ? AND tenant_id = ?').get(leaveId, tenantId) as any
 
-        if (res.changes === 0) throw new Error('Leave request not found')
+    if (!row) throw new Error(`Leave request ${leaveId} not found`)
 
-        await auditService.logAction({
-            tenantId,
-            actorDid: adminDid,
-            actionType: `leave_request_${status}`,
-            details: { leaveId, approvalVcId }
-        })
+    if (!row.approval_vc_offer_uri) {
+      logger.info({ leaveId }, 'Regenerating missing LeaveApprovalVC offer')
 
-        return { approvalVcId }
+      // Only regenerate if status is approved and we have an approver
+      if (row.status !== 'approved' || !row.approver_id) {
+        throw new Error(`Cannot reoffer: Leave request ${leaveId} is not approved or missing approver`)
+      }
+
+      const offer = await credentialIssuanceService.createOffer({
+        credentialType: 'LeaveApprovalVC',
+        claims: {
+          leaveRequestId: leaveId,
+          employeeId: row.employee_id,
+          leaveType: row.leave_type,
+          startDate: row.start_date,
+          endDate: row.end_date,
+          daysCount: row.days_count,
+          reason: row.reason || '',
+          approvedBy: row.approver_id,
+          approvedAt: row.updated_at, // Use last update as approval time
+        },
+        tenantId,
+      })
+
+      db.prepare('UPDATE leave_requests SET approval_vc_offer_uri = ? WHERE id = ?').run(
+        offer.credential_offer_deeplink,
+        leaveId,
+      )
+
+      row.approval_vc_offer_uri = offer.credential_offer_deeplink
     }
 
-    /**
-     * Get leave approval VC offer for reoffer
-     * Self-healing: Regenerates offer if missing
-     */
-    async getLeaveApprovalVCOffer(tenantId: string, leaveId: string): Promise<{ credential_offer_uri: string, credential_offer_deeplink: string }> {
-        const db = DatabaseManager.getDatabase()
-        const row = db.prepare('SELECT * FROM leave_requests WHERE id = ? AND tenant_id = ?').get(leaveId, tenantId) as any
-
-        if (!row) throw new Error(`Leave request ${leaveId} not found`)
-
-        if (!row.approval_vc_offer_uri) {
-            logger.info({ leaveId }, 'Regenerating missing LeaveApprovalVC offer')
-
-            // Only regenerate if status is approved and we have an approver
-            if (row.status !== 'approved' || !row.approver_id) {
-                throw new Error(`Cannot reoffer: Leave request ${leaveId} is not approved or missing approver`)
-            }
-
-            const offer = await credentialIssuanceService.createOffer({
-                credentialType: 'LeaveApprovalVC',
-                claims: {
-                    leaveRequestId: leaveId,
-                    employeeId: row.employee_id,
-                    leaveType: row.leave_type,
-                    startDate: row.start_date,
-                    endDate: row.end_date,
-                    daysCount: row.days_count,
-                    reason: row.reason || '',
-                    approvedBy: row.approver_id,
-                    approvedAt: row.updated_at // Use last update as approval time
-                },
-                tenantId
-            })
-
-            db.prepare('UPDATE leave_requests SET approval_vc_offer_uri = ? WHERE id = ?')
-                .run(offer.credential_offer_deeplink, leaveId)
-
-            row.approval_vc_offer_uri = offer.credential_offer_deeplink
-        }
-
-        const deeplink = row.approval_vc_offer_uri
-        let uri = deeplink
-        if (deeplink.includes('credential_offer_uri=')) {
-            const encodedUri = deeplink.split('credential_offer_uri=')[1]
-            uri = decodeURIComponent(encodedUri)
-        }
-
-        return {
-            credential_offer_uri: uri,
-            credential_offer_deeplink: deeplink
-        }
+    const deeplink = row.approval_vc_offer_uri
+    let uri = deeplink
+    if (deeplink.includes('credential_offer_uri=')) {
+      const encodedUri = deeplink.split('credential_offer_uri=')[1]
+      uri = decodeURIComponent(encodedUri)
     }
 
-    // ... (listLeaveRequests omitted) ...
+    return {
+      credential_offer_uri: uri,
+      credential_offer_deeplink: deeplink,
+    }
+  }
 
-    // --- Expense Management ---
+  // ... (listLeaveRequests omitted) ...
 
-    // ... (create/update expense omitted) ...
+  // --- Expense Management ---
 
-    /**
-     * Get expense approval VC offer for reoffer
-     * Self-healing: Regenerates offer if missing
-     */
-    async getExpenseApprovalVCOffer(tenantId: string, claimId: string): Promise<{ credential_offer_uri: string, credential_offer_deeplink: string }> {
-        const db = DatabaseManager.getDatabase()
-        const row = db.prepare('SELECT * FROM expense_claims WHERE id = ? AND tenant_id = ?').get(claimId, tenantId) as any
+  // ... (create/update expense omitted) ...
 
-        if (!row) throw new Error(`Expense claim ${claimId} not found`)
+  /**
+   * Get expense approval VC offer for reoffer
+   * Self-healing: Regenerates offer if missing
+   */
+  async getExpenseApprovalVCOffer(
+    tenantId: string,
+    claimId: string,
+  ): Promise<{ credential_offer_uri: string; credential_offer_deeplink: string }> {
+    const db = DatabaseManager.getDatabase()
+    const row = db.prepare('SELECT * FROM expense_claims WHERE id = ? AND tenant_id = ?').get(claimId, tenantId) as any
 
-        if (!row.approval_vc_offer_uri) {
-            logger.info({ claimId }, 'Regenerating missing ExpenseApprovalVC offer')
+    if (!row) throw new Error(`Expense claim ${claimId} not found`)
 
-            if (row.status !== 'approved' || !row.approved_by) {
-                throw new Error(`Cannot reoffer: Expense claim ${claimId} is not approved or missing approver`)
-            }
+    if (!row.approval_vc_offer_uri) {
+      logger.info({ claimId }, 'Regenerating missing ExpenseApprovalVC offer')
 
-            const offer = await credentialIssuanceService.createOffer({
-                credentialType: 'ExpenseApprovalVC',
-                claims: {
-                    expenseClaimId: claimId,
-                    employeeId: row.employee_id,
-                    description: row.description,
-                    amount: row.amount,
-                    currency: row.currency,
-                    category: row.category,
-                    approvedBy: row.approved_by,
-                    approvedAt: row.updated_at
-                },
-                tenantId
-            })
+      if (row.status !== 'approved' || !row.approved_by) {
+        throw new Error(`Cannot reoffer: Expense claim ${claimId} is not approved or missing approver`)
+      }
 
-            db.prepare('UPDATE expense_claims SET approval_vc_offer_uri = ? WHERE id = ?')
-                .run(offer.credential_offer_deeplink, claimId)
+      const offer = await credentialIssuanceService.createOffer({
+        credentialType: 'ExpenseApprovalVC',
+        claims: {
+          expenseClaimId: claimId,
+          employeeId: row.employee_id,
+          description: row.description,
+          amount: row.amount,
+          currency: row.currency,
+          category: row.category,
+          approvedBy: row.approved_by,
+          approvedAt: row.updated_at,
+        },
+        tenantId,
+      })
 
-            row.approval_vc_offer_uri = offer.credential_offer_deeplink
-        }
+      db.prepare('UPDATE expense_claims SET approval_vc_offer_uri = ? WHERE id = ?').run(
+        offer.credential_offer_deeplink,
+        claimId,
+      )
 
-        const deeplink = row.approval_vc_offer_uri
-        let uri = deeplink
-        if (deeplink.includes('credential_offer_uri=')) {
-            const encodedUri = deeplink.split('credential_offer_uri=')[1]
-            uri = decodeURIComponent(encodedUri)
-        }
-
-        return {
-            credential_offer_uri: uri,
-            credential_offer_deeplink: deeplink
-        }
+      row.approval_vc_offer_uri = offer.credential_offer_deeplink
     }
 
-    async listLeaveRequests(tenantId: string, employeeId?: string): Promise<LeaveRequest[]> {
-        const db = DatabaseManager.getDatabase()
-        let query = 'SELECT * FROM leave_requests WHERE tenant_id = ?'
-        const params: any[] = [tenantId]
-
-        if (employeeId) {
-            query += ' AND employee_id = ?'
-            params.push(employeeId)
-        }
-
-        query += ' ORDER BY created_at DESC'
-
-        const rows = db.prepare(query).all(...params) as any[]
-        return rows.map(r => ({
-            id: r.id,
-            tenantId: r.tenant_id,
-            employeeId: r.employee_id,
-            leaveType: r.leave_type,
-            startDate: r.start_date,
-            endDate: r.end_date,
-            daysCount: r.days_count,
-            reason: r.reason,
-            status: r.status,
-            approverId: r.approver_id,
-            approvalVcId: r.approval_vc_id,
-            createdAt: r.created_at
-        }))
+    const deeplink = row.approval_vc_offer_uri
+    let uri = deeplink
+    if (deeplink.includes('credential_offer_uri=')) {
+      const encodedUri = deeplink.split('credential_offer_uri=')[1]
+      uri = decodeURIComponent(encodedUri)
     }
 
-    // --- Expense Management ---
+    return {
+      credential_offer_uri: uri,
+      credential_offer_deeplink: deeplink,
+    }
+  }
 
-    async createExpenseClaim(
-        tenantId: string,
-        employeeId: string,
-        data: Omit<ExpenseClaim, 'id' | 'tenantId' | 'employeeId' | 'status' | 'createdAt'>
-    ): Promise<ExpenseClaim> {
-        const db = DatabaseManager.getDatabase()
-        const id = `EXP-${randomUUID()}`
-        const now = new Date().toISOString()
+  async listLeaveRequests(tenantId: string, employeeId?: string): Promise<LeaveRequest[]> {
+    const db = DatabaseManager.getDatabase()
+    let query = 'SELECT * FROM leave_requests WHERE tenant_id = ?'
+    const params: any[] = [tenantId]
 
-        const claim: ExpenseClaim = {
-            id,
-            tenantId,
-            employeeId,
-            ...data,
-            receiptUrl: data.receiptUrl ?? null,
-            status: 'pending',
-            createdAt: now
-        }
+    if (employeeId) {
+      query += ' AND employee_id = ?'
+      params.push(employeeId)
+    }
 
-        db.prepare(`
+    query += ' ORDER BY created_at DESC'
+
+    const rows = db.prepare(query).all(...params) as any[]
+    return rows.map((r) => ({
+      id: r.id,
+      tenantId: r.tenant_id,
+      employeeId: r.employee_id,
+      leaveType: r.leave_type,
+      startDate: r.start_date,
+      endDate: r.end_date,
+      daysCount: r.days_count,
+      reason: r.reason,
+      status: r.status,
+      approverId: r.approver_id,
+      approvalVcId: r.approval_vc_id,
+      createdAt: r.created_at,
+    }))
+  }
+
+  // --- Expense Management ---
+
+  async createExpenseClaim(
+    tenantId: string,
+    employeeId: string,
+    data: Omit<ExpenseClaim, 'id' | 'tenantId' | 'employeeId' | 'status' | 'createdAt'>,
+  ): Promise<ExpenseClaim> {
+    const db = DatabaseManager.getDatabase()
+    const id = `EXP-${randomUUID()}`
+    const now = new Date().toISOString()
+
+    const claim: ExpenseClaim = {
+      id,
+      tenantId,
+      employeeId,
+      ...data,
+      receiptUrl: data.receiptUrl ?? null,
+      status: 'pending',
+      createdAt: now,
+    }
+
+    db.prepare(
+      `
             INSERT INTO expense_claims (id, tenant_id, employee_id, description, amount, currency, category, receipt_url, status, created_at)
             VALUES (@id, @tenantId, @employeeId, @description, @amount, @currency, @category, @receiptUrl, @status, @createdAt)
-        `).run(claim)
+        `,
+    ).run(claim)
 
-        await auditService.logAction({
-            tenantId,
-            actorDid: employeeId,
-            actionType: 'expense_claim_created',
-            details: { claimId: id, amount: data.amount }
+    await auditService.logAction({
+      tenantId,
+      actorDid: employeeId,
+      actionType: 'expense_claim_created',
+      details: { claimId: id, amount: data.amount },
+    })
+
+    return claim
+  }
+
+  async updateExpenseStatus(
+    tenantId: string,
+    adminDid: string,
+    claimId: string,
+    status: 'approved' | 'rejected' | 'paid',
+  ): Promise<{ approvalVcId?: string }> {
+    const db = DatabaseManager.getDatabase()
+
+    // Get expense details
+    const expense = db.prepare('SELECT * FROM expense_claims WHERE id = ?').get(claimId) as any
+    if (!expense) throw new Error('Expense claim not found')
+
+    const updates: string[] = ['status = ?', 'updated_at = CURRENT_TIMESTAMP']
+    const params: any[] = [status]
+    let approvalVcId: string | undefined
+
+    if (status === 'approved') {
+      updates.push('approved_by = ?')
+      params.push(adminDid)
+
+      // Issue ExpenseApprovalVC
+      try {
+        const offer = await credentialIssuanceService.createOffer({
+          credentialType: 'ExpenseApprovalVC',
+          claims: {
+            expenseClaimId: claimId,
+            employeeId: expense.employee_id,
+            description: expense.description,
+            amount: expense.amount,
+            currency: expense.currency,
+            category: expense.category,
+            approvedBy: adminDid,
+            approvedAt: new Date().toISOString(),
+          },
+          tenantId,
         })
-
-        return claim
+        approvalVcId = offer.offerId
+        updates.push('approval_vc_id = ?')
+        params.push(approvalVcId)
+        updates.push('approval_vc_offer_uri = ?')
+        params.push(offer.credential_offer_deeplink)
+        logger.info({ claimId, vcId: approvalVcId }, 'ExpenseApprovalVC issued')
+      } catch (e: any) {
+        logger.warn({ error: e.message, claimId }, 'Failed to issue ExpenseApprovalVC')
+      }
+    } else if (status === 'paid') {
+      updates.push('paid_at = CURRENT_TIMESTAMP')
     }
 
-    async updateExpenseStatus(tenantId: string, adminDid: string, claimId: string, status: 'approved' | 'rejected' | 'paid'): Promise<{ approvalVcId?: string }> {
-        const db = DatabaseManager.getDatabase()
+    params.push(claimId)
 
-        // Get expense details
-        const expense = db.prepare('SELECT * FROM expense_claims WHERE id = ?').get(claimId) as any
-        if (!expense) throw new Error('Expense claim not found')
+    const res = db.prepare(`UPDATE expense_claims SET ${updates.join(', ')} WHERE id = ?`).run(...params)
 
-        const updates: string[] = ['status = ?', 'updated_at = CURRENT_TIMESTAMP']
-        const params: any[] = [status]
-        let approvalVcId: string | undefined
+    if (res.changes === 0) throw new Error('Expense claim not found')
 
-        if (status === 'approved') {
-            updates.push('approved_by = ?')
-            params.push(adminDid)
+    await auditService.logAction({
+      tenantId,
+      actorDid: adminDid,
+      actionType: `expense_claim_${status}`,
+      details: { claimId, approvalVcId },
+    })
 
-            // Issue ExpenseApprovalVC
-            try {
-                const offer = await credentialIssuanceService.createOffer({
-                    credentialType: 'ExpenseApprovalVC',
-                    claims: {
-                        expenseClaimId: claimId,
-                        employeeId: expense.employee_id,
-                        description: expense.description,
-                        amount: expense.amount,
-                        currency: expense.currency,
-                        category: expense.category,
-                        approvedBy: adminDid,
-                        approvedAt: new Date().toISOString()
-                    },
-                    tenantId
-                })
-                approvalVcId = offer.offerId
-                updates.push('approval_vc_id = ?')
-                params.push(approvalVcId)
-                updates.push('approval_vc_offer_uri = ?')
-                params.push(offer.credential_offer_deeplink)
-                logger.info({ claimId, vcId: approvalVcId }, 'ExpenseApprovalVC issued')
-            } catch (e: any) {
-                logger.warn({ error: e.message, claimId }, 'Failed to issue ExpenseApprovalVC')
-            }
-        } else if (status === 'paid') {
-            updates.push('paid_at = CURRENT_TIMESTAMP')
-        }
+    return { approvalVcId }
+  }
 
-        params.push(claimId)
+  async listExpenseClaims(tenantId: string, employeeId?: string): Promise<ExpenseClaim[]> {
+    const db = DatabaseManager.getDatabase()
+    let query = 'SELECT * FROM expense_claims WHERE tenant_id = ?'
+    const params: any[] = [tenantId]
 
-        const res = db.prepare(`UPDATE expense_claims SET ${updates.join(', ')} WHERE id = ?`).run(...params)
-
-        if (res.changes === 0) throw new Error('Expense claim not found')
-
-        await auditService.logAction({
-            tenantId,
-            actorDid: adminDid,
-            actionType: `expense_claim_${status}`,
-            details: { claimId, approvalVcId }
-        })
-
-        return { approvalVcId }
+    if (employeeId) {
+      query += ' AND employee_id = ?'
+      params.push(employeeId)
     }
 
+    query += ' ORDER BY created_at DESC'
 
-    async listExpenseClaims(tenantId: string, employeeId?: string): Promise<ExpenseClaim[]> {
-        const db = DatabaseManager.getDatabase()
-        let query = 'SELECT * FROM expense_claims WHERE tenant_id = ?'
-        const params: any[] = [tenantId]
-
-        if (employeeId) {
-            query += ' AND employee_id = ?'
-            params.push(employeeId)
-        }
-
-        query += ' ORDER BY created_at DESC'
-
-        const rows = db.prepare(query).all(...params) as any[]
-        return rows.map(r => ({
-            id: r.id,
-            tenantId: r.tenant_id,
-            employeeId: r.employee_id,
-            description: r.description,
-            amount: r.amount,
-            currency: r.currency,
-            category: r.category,
-            receiptUrl: r.receipt_url,
-            status: r.status,
-            approvedBy: r.approved_by,
-            approvalVcId: r.approval_vc_id,
-            paidAt: r.paid_at,
-            createdAt: r.created_at
-        }))
-    }
+    const rows = db.prepare(query).all(...params) as any[]
+    return rows.map((r) => ({
+      id: r.id,
+      tenantId: r.tenant_id,
+      employeeId: r.employee_id,
+      description: r.description,
+      amount: r.amount,
+      currency: r.currency,
+      category: r.category,
+      receiptUrl: r.receipt_url,
+      status: r.status,
+      approvedBy: r.approved_by,
+      approvalVcId: r.approval_vc_id,
+      paidAt: r.paid_at,
+      createdAt: r.created_at,
+    }))
+  }
 }
 
 export const operationsService = new OperationsService()

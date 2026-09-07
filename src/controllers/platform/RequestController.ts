@@ -1,6 +1,12 @@
-import { Body, Get, Path, Post, Query, Request, Route, Security, Tags } from 'tsoa'
 import type { Request as ExRequest } from 'express'
-import { platformRequestService, CreatePlatformRequestInput, RequestStatus } from '../../services/PlatformRequestService'
+
+import { Body, Get, Path, Post, Query, Request, Route, Security, Tags } from 'tsoa'
+
+import {
+  platformRequestService,
+  CreatePlatformRequestInput,
+  RequestStatus,
+} from '../../services/PlatformRequestService'
 
 type AuthenticatedClaims = {
   tenantId?: string
@@ -26,17 +32,14 @@ export class RequestController {
   @Post('/')
   public async create(
     @Request() request: ExRequest,
-    @Body() body: Omit<CreatePlatformRequestInput, 'tenantId' | 'subjectRef'>
+    @Body() body: Omit<CreatePlatformRequestInput, 'tenantId' | 'subjectRef'>,
   ) {
     const principal = getPrincipal(request)
     return platformRequestService.create({ ...body, ...principal })
   }
 
   @Post('/{requestId}/submit')
-  public async submit(
-    @Request() request: ExRequest,
-    @Path() requestId: string
-  ) {
+  public async submit(@Request() request: ExRequest, @Path() requestId: string) {
     const principal = getPrincipal(request)
     return platformRequestService.submit(requestId, principal.tenantId, principal.subjectRef)
   }
@@ -44,11 +47,12 @@ export class RequestController {
   @Post('/transition')
   public async transition(
     @Request() request: ExRequest,
-    @Body() body: {
+    @Body()
+    body: {
       requestId: string
       toStatus: RequestStatus
       payload?: Record<string, unknown>
-    }
+    },
   ) {
     const principal = getPrincipal(request)
     return platformRequestService.transitionBySubject(
@@ -56,7 +60,7 @@ export class RequestController {
       principal.tenantId,
       principal.subjectRef,
       body.toStatus,
-      body.payload
+      body.payload,
     )
   }
 
@@ -65,17 +69,15 @@ export class RequestController {
     @Request() request: ExRequest,
     @Query() status?: RequestStatus,
     @Query() requestType?: string,
-    @Query() limit?: number
+    @Query() limit?: number,
+    @Query() cursor?: string,
   ) {
     const principal = getPrincipal(request)
-    return platformRequestService.list(principal.tenantId, status, requestType, limit)
+    return platformRequestService.list(principal.tenantId, principal.subjectRef, status, requestType, limit, cursor)
   }
 
   @Get('/{requestId}')
-  public async get(
-    @Request() request: ExRequest,
-    @Path() requestId: string
-  ) {
+  public async get(@Request() request: ExRequest, @Path() requestId: string) {
     const principal = getPrincipal(request)
     return platformRequestService.getForTenant(requestId, principal.tenantId)
   }

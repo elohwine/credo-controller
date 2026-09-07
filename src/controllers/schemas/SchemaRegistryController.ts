@@ -1,4 +1,4 @@
-import 'reflect-metadata'   // MUST be first import before any decorated controllers
+import 'reflect-metadata' // MUST be first import before any decorated controllers
 import type { RegisterSchemaRequestBody } from '../../types/api'
 import type { Request as ExRequest } from 'express'
 

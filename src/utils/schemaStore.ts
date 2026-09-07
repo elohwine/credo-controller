@@ -25,26 +25,26 @@ class SchemaStore {
     } catch (e: any) {
       return { error: 'Invalid JSON Schema: ' + e.message }
     }
-    
+
     const tenantId = input.tenantId || 'global'
     const existing = this.find(input.name, input.version, tenantId)
     if (existing) {
       return { error: 'Schema with name+version already exists for this tenant' }
     }
-    
+
     const schema: RegisteredSchema = {
       schemaId: randomUUID(),
       createdAt: new Date().toISOString(),
       ...input,
     }
-    
+
     // Persist to database
     const db = DatabaseManager.getDatabase()
     const insert = db.prepare(`
       INSERT INTO json_schemas (id, tenant_id, schema_id, schema_data, name, version, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
-    
+
     insert.run(
       randomUUID(),
       tenantId,
@@ -52,9 +52,9 @@ class SchemaStore {
       JSON.stringify(schema.jsonSchema),
       schema.name,
       schema.version,
-      schema.createdAt
+      schema.createdAt,
     )
-    
+
     return schema
   }
 
@@ -63,7 +63,7 @@ class SchemaStore {
     const query = tenantId
       ? db.prepare('SELECT * FROM json_schemas WHERE tenant_id = ? ORDER BY created_at DESC')
       : db.prepare('SELECT * FROM json_schemas ORDER BY created_at DESC')
-    
+
     const rows = (tenantId ? query.all(tenantId) : query.all()) as Array<{
       schema_id: string
       schema_data: string
@@ -72,7 +72,7 @@ class SchemaStore {
       created_at: string
       tenant_id: string
     }>
-    
+
     return rows.map((row) => ({
       schemaId: row.schema_id,
       name: row.name,
@@ -85,17 +85,19 @@ class SchemaStore {
 
   public get(schemaId: string): RegisteredSchema | undefined {
     const db = DatabaseManager.getDatabase()
-    const row = db.prepare('SELECT * FROM json_schemas WHERE schema_id = ?').get(schemaId) as {
-      schema_id: string
-      schema_data: string
-      name: string
-      version: string
-      created_at: string
-      tenant_id: string
-    } | undefined
-    
+    const row = db.prepare('SELECT * FROM json_schemas WHERE schema_id = ?').get(schemaId) as
+      | {
+          schema_id: string
+          schema_data: string
+          name: string
+          version: string
+          created_at: string
+          tenant_id: string
+        }
+      | undefined
+
     if (!row) return undefined
-    
+
     return {
       schemaId: row.schema_id,
       name: row.name,
@@ -109,18 +111,21 @@ class SchemaStore {
   public find(name: string, version: string, tenantId?: string): RegisteredSchema | undefined {
     const db = DatabaseManager.getDatabase()
     const tid = tenantId || 'global'
-    const row = db.prepare('SELECT * FROM json_schemas WHERE name = ? AND version = ? AND tenant_id = ?')
-      .get(name, version, tid) as {
-        schema_id: string
-        schema_data: string
-        name: string
-        version: string
-        created_at: string
-        tenant_id: string
-      } | undefined
-    
+    const row = db
+      .prepare('SELECT * FROM json_schemas WHERE name = ? AND version = ? AND tenant_id = ?')
+      .get(name, version, tid) as
+      | {
+          schema_id: string
+          schema_data: string
+          name: string
+          version: string
+          created_at: string
+          tenant_id: string
+        }
+      | undefined
+
     if (!row) return undefined
-    
+
     return {
       schemaId: row.schema_id,
       name: row.name,

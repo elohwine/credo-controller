@@ -1,20 +1,20 @@
 /**
  * PDF Template Renderers for Verifiable Credentials
- * 
+ *
  * These functions generate HTML that can be converted to PDF using:
  * - Puppeteer: page.setContent(html); page.pdf({ format: 'A4' })
  * - wkhtmltopdf: wkhtmltopdf - output.pdf < html
- * 
+ *
  * IMPORTANT: Generate PDFs server-side only for canonical/authoritative documents.
  * Embed PDF hash (sha256) into VC for tamper-proof verification.
  */
 
-import type { VerifiableCredential } from './CanonicalCredentialCard';
+import type { VerifiableCredential } from './CanonicalCredentialCard'
 
 // Credentis brand colors
-const CRED_BLUE = '#2188CA';
-const CRED_LIGHT = '#D0E6F3';
-const CRED_DARK = '#102A43';
+const CRED_BLUE = '#2188CA'
+const CRED_LIGHT = '#D0E6F3'
+const CRED_DARK = '#102A43'
 
 // Common styles for all PDF templates
 const commonStyles = `
@@ -116,33 +116,33 @@ const commonStyles = `
     font-size: 12px;
     margin-top: 8px;
   }
-`;
+`
 
 // Helper to safely access nested properties
 const getIssuerName = (vc: VerifiableCredential): string => {
-  if (typeof vc.issuer === 'string') return vc.issuer;
-  return vc.issuer?.name || 'Credentis';
-};
+  if (typeof vc.issuer === 'string') return vc.issuer
+  return vc.issuer?.name || 'Credentis'
+}
 
 const getHolderName = (vc: VerifiableCredential): string => {
-  if (typeof vc.holder === 'string') return vc.holder;
-  const claims = vc.claims || vc.credentialSubject || {};
-  return vc.holder?.name || (claims as Record<string, string>).name || 'Holder';
-};
+  if (typeof vc.holder === 'string') return vc.holder
+  const claims = vc.claims || vc.credentialSubject || {}
+  return vc.holder?.name || (claims as Record<string, string>).name || 'Holder'
+}
 
 const getClaims = (vc: VerifiableCredential): Record<string, unknown> => {
-  return vc.claims || vc.credentialSubject || {};
-};
+  return vc.claims || vc.credentialSubject || {}
+}
 
 /**
  * Render Invoice VC to PDF-ready HTML
  */
 export function renderInvoicePdfHtml(vc: VerifiableCredential): string {
-  const claims = getClaims(vc);
+  const claims = getClaims(vc)
   const items = (claims.items || claims.lineItems || []) as Array<{
-    description: string;
-    amount: string;
-  }>;
+    description: string
+    amount: string
+  }>
 
   const itemRows = items
     .map(
@@ -151,9 +151,9 @@ export function renderInvoicePdfHtml(vc: VerifiableCredential): string {
         <td>${item.description}</td>
         <td>${item.amount}</td>
       </tr>
-    `
+    `,
     )
-    .join('');
+    .join('')
 
   return `
 <!DOCTYPE html>
@@ -210,18 +210,18 @@ export function renderInvoicePdfHtml(vc: VerifiableCredential): string {
   </div>
 </body>
 </html>
-  `.trim();
+  `.trim()
 }
 
 /**
  * Render Quote VC to PDF-ready HTML
  */
 export function renderQuotePdfHtml(vc: VerifiableCredential): string {
-  const claims = getClaims(vc);
+  const claims = getClaims(vc)
   const lines = (claims.lines || claims.items || []) as Array<{
-    description: string;
-    amount: string;
-  }>;
+    description: string
+    amount: string
+  }>
 
   const lineRows = lines
     .map(
@@ -230,9 +230,9 @@ export function renderQuotePdfHtml(vc: VerifiableCredential): string {
         <td>${line.description}</td>
         <td>${line.amount}</td>
       </tr>
-    `
+    `,
     )
-    .join('');
+    .join('')
 
   return `
 <!DOCTYPE html>
@@ -289,12 +289,12 @@ export function renderQuotePdfHtml(vc: VerifiableCredential): string {
   </div>
 </body>
 </html>
-  `.trim();
+  `.trim()
 }
 
 /**
  * VC → PDF Template Mapping Configuration
- * 
+ *
  * Use this to dynamically map VC fields to template placeholders.
  */
 export const invoiceTemplateMapping = {
@@ -309,7 +309,7 @@ export const invoiceTemplateMapping = {
     items: 'claims.items',
     columns: ['description', 'amount'],
   },
-};
+}
 
 export const quoteTemplateMapping = {
   placeholders: {
@@ -323,4 +323,4 @@ export const quoteTemplateMapping = {
     items: 'claims.lines',
     columns: ['description', 'amount'],
   },
-};
+}

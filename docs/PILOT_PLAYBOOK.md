@@ -7,6 +7,7 @@
 ## 🏪 Merchant Onboarding
 
 ### Prerequisites
+
 - Active EcoCash merchant account
 - WhatsApp Business number
 - Product catalog (3-5 items for pilot)
@@ -14,6 +15,7 @@
 ### Setup Steps
 
 1. **Create Merchant Account**
+
    ```
    POST /multi-tenancy/create-tenant
    {
@@ -22,10 +24,12 @@
    ```
 
 2. **Configure EcoCash**
+
    - Add merchant code to tenant config
    - Verify webhook endpoint access
 
 3. **Seed Products**
+
    ```
    POST /catalog/items
    {
@@ -46,6 +50,7 @@
 ## 🚗 Driver Onboarding
 
 ### Prerequisites
+
 - Smartphone with camera
 - WhatsApp access
 - Brief training (15 min)
@@ -73,6 +78,7 @@
 ## 📱 WhatsApp Message Templates
 
 ### Order Confirmation
+
 ```
 🛒 *Order Confirmed*
 
@@ -86,6 +92,7 @@ Your verified receipt will be sent after payment.
 ```
 
 ### Receipt Delivered
+
 ```
 ✅ *Payment Received*
 
@@ -100,6 +107,7 @@ Merchant: {{merchant_name}}
 ```
 
 ### Delivery Verification
+
 ```
 📦 *Ready for Delivery*
 
@@ -116,12 +124,12 @@ The driver will scan to confirm delivery.
 
 ## 🔧 Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| QR won't scan | Check camera focus, ensure adequate lighting |
+| Issue                 | Solution                                        |
+| --------------------- | ----------------------------------------------- |
+| QR won't scan         | Check camera focus, ensure adequate lighting    |
 | "Verification Failed" | Check if payment was completed, contact support |
-| No receipt received | Verify phone number, check WhatsApp connection |
-| Payment timeout | Retry payment, check EcoCash balance |
+| No receipt received   | Verify phone number, check WhatsApp connection  |
+| Payment timeout       | Retry payment, check EcoCash balance            |
 
 ---
 
@@ -136,6 +144,7 @@ The driver will scan to confirm delivery.
 ## 📊 Pilot Feedback Form
 
 Collect weekly feedback:
+
 - Transaction count
 - Issues encountered
 - User confusion points

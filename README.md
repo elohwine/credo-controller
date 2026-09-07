@@ -41,6 +41,7 @@ The REST API provides an OpenAPI schema that can easily be viewed using the Swag
 > The OpenAPI spec is generated from the model classes used by Aries Framework JavaScript. Due to limitations in the inspection of these classes, the generated schema does not always exactly match the expected format. Keep this in mind when using this package. If you encounter any issues, feel free to open an issue.
 
 **📚 Documentation:**
+
 - [Local Development Setup](./docs/LOCAL_DEV_SETUP.md) - Native module installation & troubleshooting
 - [Docker Deployment Guide](./docs/DOCKER_DEPLOYMENT.md) - Production containerization
 - [UI Integration Guide](./docs/UI_INTEGRATION.md) - Walt.id wallet & portal setup

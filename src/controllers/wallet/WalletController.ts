@@ -3,8 +3,19 @@ import { Controller, Post, Get, Route, Tags, Body, Request, Path, Query, Securit
 import type { Request as ExRequest } from 'express'
 import { injectable } from 'tsyringe'
 import { getTenantById } from '../../persistence/TenantRepository'
-import { getWalletCredentialsByWalletId, getWalletCredentialById, saveWalletCredential } from '../../persistence/WalletCredentialRepository'
-import { Agent, W3cCredentialService, DifPresentationExchangeService, ClaimFormat, JsonTransformer, KeyType } from '@credo-ts/core'
+import {
+  getWalletCredentialsByWalletId,
+  getWalletCredentialById,
+  saveWalletCredential,
+} from '../../persistence/WalletCredentialRepository'
+import {
+  Agent,
+  W3cCredentialService,
+  DifPresentationExchangeService,
+  ClaimFormat,
+  JsonTransformer,
+  KeyType,
+} from '@credo-ts/core'
 import { container } from 'tsyringe'
 import { getWalletUserByWalletId } from '../../persistence/UserRepository'
 import { UnauthorizedError } from '../../errors/errors'
@@ -40,11 +51,7 @@ interface WalletListingsResponse {
  *  - delegates other fetch calls to the original fetch or node-fetch
  *  - restores original fetch in finally
  */
-async function withScopedIssuerFetch<T>(
-  issuerOrigin: string,
-  issuerMetadata: any,
-  fn: () => Promise<T>
-): Promise<T> {
+async function withScopedIssuerFetch<T>(issuerOrigin: string, issuerMetadata: any, fn: () => Promise<T>): Promise<T> {
   const globalAny = globalThis as any
   const originalFetch = globalAny.fetch
 
@@ -164,7 +171,9 @@ export class WalletController extends Controller {
     if (typeof raw === 'object' && raw !== null) return raw
     if (typeof raw === 'string') {
       const s = raw.trim()
-      try { return JSON.parse(s) } catch (e) {
+      try {
+        return JSON.parse(s)
+      } catch (e) {
         if (s.startsWith('http://') || s.startsWith('https://')) return { url: s }
         return { raw: s }
       }
@@ -226,11 +235,11 @@ export class WalletController extends Controller {
         name: `${user.username}'s Wallet`,
         createdOn: user.createdAt,
         addedOn: user.createdAt,
-        permission: 'owner'
+        permission: 'owner',
       }
       return {
         account: user.username,
-        wallets: [wallet]
+        wallets: [wallet],
       }
     } catch (error) {
       throw new UnauthorizedError('Invalid token')
@@ -240,17 +249,19 @@ export class WalletController extends Controller {
   @Get('{walletId}/credentials')
   @Security('apiKey')
   @Security('jwt', [SCOPES.TENANT_AGENT])
-  public async listCredentials(
-    @Request() request: ExRequest,
-    @Path() walletId: string
-  ): Promise<any[]> {
+  public async listCredentials(@Request() request: ExRequest, @Path() walletId: string): Promise<any[]> {
     this.ensureWalletAccess(request, walletId)
     // Read from TENANT's Credo wallet (Askar) - credentials are stored per-tenant
     const agent = this.getAgent(request)
     try {
       const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
       const credentialRecords = await w3cCredentialService.getAllCredentialRecords(agent.context)
-      console.log('[listCredentials] Found credentials in tenant wallet:', credentialRecords.length, 'for wallet:', walletId)
+      console.log(
+        '[listCredentials] Found credentials in tenant wallet:',
+        credentialRecords.length,
+        'for wallet:',
+        walletId,
+      )
 
       return credentialRecords.map((record: any) => {
         // Extract credential type from the credential
@@ -263,18 +274,17 @@ export class WalletController extends Controller {
         if (cred) {
           const types = cred.type || []
           credentialType = types.find((t: string) => t !== 'VerifiableCredential') || types[0] || 'VerifiableCredential'
-          issuerDid = typeof cred.issuer === 'string'
-            ? cred.issuer
-            : cred.issuer?.id || ''
+          issuerDid = typeof cred.issuer === 'string' ? cred.issuer : cred.issuer?.id || ''
         }
 
         // Build a normalized credential structure for the UI
         // Credo W3cCredential has: context, type, credentialSubject, issuer, issuanceDate, etc.
         // The credentialSubject may have claims nested under a 'claims' property
         const credentialSubject = cred?.credentialSubject || {}
-        const flatClaims = credentialSubject.claims && typeof credentialSubject.claims === 'object'
-          ? { ...credentialSubject, ...credentialSubject.claims }
-          : credentialSubject
+        const flatClaims =
+          credentialSubject.claims && typeof credentialSubject.claims === 'object'
+            ? { ...credentialSubject, ...credentialSubject.claims }
+            : credentialSubject
 
         // Create a normalized parsedDocument for UI consumption
         const normalizedCred = {
@@ -286,7 +296,14 @@ export class WalletController extends Controller {
           expirationDate: cred?.expirationDate,
         }
 
-        console.log('[listCredentials] Credential:', record.id, 'type:', credentialType, 'subject:', JSON.stringify(flatClaims).slice(0, 200))
+        console.log(
+          '[listCredentials] Credential:',
+          record.id,
+          'type:',
+          credentialType,
+          'subject:',
+          JSON.stringify(flatClaims).slice(0, 200),
+        )
 
         return {
           wallet: walletId,
@@ -298,7 +315,7 @@ export class WalletController extends Controller {
           parsedDocument: normalizedCred,
           format: cred?.claimFormat || 'jwt_vc',
           type: credentialType,
-          issuerDid
+          issuerDid,
         }
       })
     } catch (error: any) {
@@ -317,7 +334,7 @@ export class WalletController extends Controller {
     @Path() walletId: string,
     @Query() limit = 20,
     @Query() cursor?: string,
-    @Query() type?: string
+    @Query() type?: string,
   ): Promise<{ items: any[]; nextCursor?: string }> {
     this.ensureWalletAccess(request, walletId)
     const agent = this.getAgent(request)
@@ -337,11 +354,13 @@ export class WalletController extends Controller {
       const cred = record.credential
       const credentialSubject = (cred as any)?.credentialSubject || {}
       const subjectClaims = (credentialSubject as any)?.claims
-      const flatClaims = subjectClaims && typeof subjectClaims === 'object'
-        ? { ...credentialSubject, ...subjectClaims }
-        : credentialSubject
+      const flatClaims =
+        subjectClaims && typeof subjectClaims === 'object'
+          ? { ...credentialSubject, ...subjectClaims }
+          : credentialSubject
       const types = cred?.type || []
-      const credentialType = types.find((t: string) => t !== 'VerifiableCredential') || types[0] || 'VerifiableCredential'
+      const credentialType =
+        types.find((t: string) => t !== 'VerifiableCredential') || types[0] || 'VerifiableCredential'
 
       return {
         vc_id: record.id,
@@ -352,13 +371,14 @@ export class WalletController extends Controller {
         status: flatClaims.status || 'ACTIVE',
         thumb: flatClaims.transactionId || flatClaims.invoiceId || flatClaims.receiptId || credentialType,
         parsedDocument: {
-          '@context': (cred as any)?.context || (cred as any)?.['@context'] || ['https://www.w3.org/2018/credentials/v1'],
+          '@context': (cred as any)?.context ||
+            (cred as any)?.['@context'] || ['https://www.w3.org/2018/credentials/v1'],
           type: cred?.type || ['VerifiableCredential'],
           credentialSubject: flatClaims,
           issuer: cred?.issuer,
           issuanceDate: cred?.issuanceDate,
           expirationDate: cred?.expirationDate,
-        }
+        },
       }
     })
 
@@ -372,7 +392,7 @@ export class WalletController extends Controller {
   public async getCredentialDetail(
     @Request() request: ExRequest,
     @Path() walletId: string,
-    @Path() credentialId: string
+    @Path() credentialId: string,
   ): Promise<any> {
     this.ensureWalletAccess(request, walletId)
     const agent = this.getAgent(request)
@@ -388,9 +408,10 @@ export class WalletController extends Controller {
     const cred = record.credential
     const credentialSubject = (cred as any)?.credentialSubject || {}
     const subjectClaims = (credentialSubject as any)?.claims
-    const flatClaims = subjectClaims && typeof subjectClaims === 'object'
-      ? { ...credentialSubject, ...subjectClaims }
-      : credentialSubject
+    const flatClaims =
+      subjectClaims && typeof subjectClaims === 'object'
+        ? { ...credentialSubject, ...subjectClaims }
+        : credentialSubject
 
     return {
       vc_id: record.id,
@@ -404,7 +425,7 @@ export class WalletController extends Controller {
         issuanceDate: cred?.issuanceDate,
         expirationDate: cred?.expirationDate,
         proof: (cred as any)?.proof,
-      }
+      },
     }
   }
 
@@ -415,7 +436,7 @@ export class WalletController extends Controller {
   public async hasCredentialOfType(
     @Request() request: ExRequest,
     @Path() walletId: string,
-    @Path() credentialType: string
+    @Path() credentialType: string,
   ): Promise<{ exists: boolean; count: number; credentials: any[] }> {
     // Check in TENANT's Credo wallet
     const agent = this.getAgent(request)
@@ -428,7 +449,9 @@ export class WalletController extends Controller {
         return types.includes(credentialType)
       })
 
-      console.log(`[hasCredentialOfType] Checking for '${credentialType}' in tenant wallet: found ${matchingCredentials.length}`)
+      console.log(
+        `[hasCredentialOfType] Checking for '${credentialType}' in tenant wallet: found ${matchingCredentials.length}`,
+      )
 
       return {
         exists: matchingCredentials.length > 0,
@@ -437,8 +460,8 @@ export class WalletController extends Controller {
           id: r.id,
           types: r.credential?.type,
           issuer: r.credential?.issuer,
-          issuanceDate: r.credential?.issuanceDate
-        }))
+          issuanceDate: r.credential?.issuanceDate,
+        })),
       }
     } catch (error: any) {
       console.error('[hasCredentialOfType] Error:', error.message)
@@ -449,7 +472,7 @@ export class WalletController extends Controller {
   @Get('{walletId}/dids')
   public async getDids(
     @Request() request: ExRequest,
-    @Path() walletId: string
+    @Path() walletId: string,
   ): Promise<Array<{ did: string; default: boolean }>> {
     const agent = request.agent as unknown as Agent<RestMultiTenantAgentModules>
     try {
@@ -465,7 +488,7 @@ export class WalletController extends Controller {
   public async getCredential(
     @Request() request: ExRequest,
     @Path() walletId: string,
-    @Path() credentialId: string
+    @Path() credentialId: string,
   ): Promise<any> {
     const agent = this.getAgent(request)
     try {
@@ -483,7 +506,7 @@ export class WalletController extends Controller {
         addedOn: record.createdAt || new Date().toISOString(),
         manifest: null,
         parsedDocument: null,
-        format: 'jwt_vc'
+        format: 'jwt_vc',
       }
     } catch (error: any) {
       if (error.message.includes('not found')) {
@@ -499,11 +522,15 @@ export class WalletController extends Controller {
   public async resolveCredentialOffer(
     @Request() request: ExRequest,
     @Path() walletId: string,
-    @Body() body: any
+    @Body() body: any,
   ): Promise<any> {
     console.log('[resolveCredentialOffer] === START (Credo OID4VC) ===')
     try {
-      console.log('[resolveCredentialOffer] Input:', { walletId, bodyType: typeof body, body: typeof body === 'string' ? body.slice(0, 500) : JSON.stringify(body).slice(0, 500) })
+      console.log('[resolveCredentialOffer] Input:', {
+        walletId,
+        bodyType: typeof body,
+        body: typeof body === 'string' ? body.slice(0, 500) : JSON.stringify(body).slice(0, 500),
+      })
     } catch (e) {
       console.log('[resolveCredentialOffer] Input logging failed', (e as any)?.message)
     }
@@ -571,7 +598,13 @@ export class WalletController extends Controller {
     console.log('[resolveCredentialOffer] about to call holder.resolveCredentialOffer with toResolve:', toResolve)
     console.log('[resolveCredentialOffer] original wrapper offerUri:', offerUri)
 
-    const issuerOrigin = (() => { try { return new URL(toResolve).origin } catch { return null } })()
+    const issuerOrigin = (() => {
+      try {
+        return new URL(toResolve).origin
+      } catch {
+        return null
+      }
+    })()
     let issuerMetadata: any = undefined
     let valueBasedDeepLink: string | undefined = undefined
 
@@ -587,7 +620,7 @@ export class WalletController extends Controller {
         })
       } else {
         // Default path: let holder fetch metadata as usual
-        // STRATEGY: Try the FULL WRAPPER first (usually works best with Credo), 
+        // STRATEGY: Try the FULL WRAPPER first (usually works best with Credo),
         // then fallback to the inner HTTP URL.
         try {
           console.log('[resolveCredentialOffer] Attempt 1 (Full Wrapper):', credoOfferUri.slice(0, 100) + '...')
@@ -605,22 +638,25 @@ export class WalletController extends Controller {
 
       console.log('[resolveCredentialOffer] Credo resolved offer:', {
         issuer: resolved.metadata?.credentialIssuer?.credential_issuer,
-        offeredCredentials: resolved.offeredCredentials?.length
+        offeredCredentials: resolved.offeredCredentials?.length,
       })
 
       // Extract credential_issuer with multiple fallbacks
-      let credentialIssuerUrl = resolved.metadata?.credentialIssuer?.credential_issuer
-        || resolved.credentialOfferPayload?.credential_issuer
-        || issuerOrigin // Fallback to the origin we extracted from the offer URL
+      let credentialIssuerUrl =
+        resolved.metadata?.credentialIssuer?.credential_issuer ||
+        resolved.credentialOfferPayload?.credential_issuer ||
+        issuerOrigin // Fallback to the origin we extracted from the offer URL
 
       console.log('[resolveCredentialOffer] credential_issuer:', credentialIssuerUrl)
 
       const response = {
         credential_issuer: credentialIssuerUrl,
-        credential_configuration_ids: resolved.offeredCredentialConfigurations ? Object.keys(resolved.offeredCredentialConfigurations) : [],
+        credential_configuration_ids: resolved.offeredCredentialConfigurations
+          ? Object.keys(resolved.offeredCredentialConfigurations)
+          : [],
         credentials: resolved.offeredCredentials,
         grants: resolved.credentialOfferPayload?.grants,
-        _credoResolved: JsonTransformer.toJSON(resolved)
+        _credoResolved: JsonTransformer.toJSON(resolved),
       }
 
       console.log('[resolveCredentialOffer] === SUCCESS (Credo) ===')
@@ -634,10 +670,7 @@ export class WalletController extends Controller {
   }
 
   @Get('{walletId}/exchange/resolveIssuerOpenIDMetadata')
-  public async resolveIssuerOpenIDMetadata(
-    @Path() walletId: string,
-    @Query() issuer: string
-  ): Promise<any> {
+  public async resolveIssuerOpenIDMetadata(@Path() walletId: string, @Query() issuer: string): Promise<any> {
     // Validate that issuer is present and is an absolute URL
     if (!issuer || typeof issuer !== 'string') {
       this.setStatus(400)
@@ -645,7 +678,10 @@ export class WalletController extends Controller {
     }
 
     // Normalize localhost and 127.0.0.1 to api (internal container hostname)
-    let normalizedIssuer = issuer.replace(/localhost/g, 'api').replace(/127.0.0.1/g, 'api').replace(/\/+$/, '')
+    let normalizedIssuer = issuer
+      .replace(/localhost/g, 'api')
+      .replace(/127.0.0.1/g, 'api')
+      .replace(/\/+$/, '')
 
     // Ensure it's an absolute URL
     if (!normalizedIssuer.startsWith('http://') && !normalizedIssuer.startsWith('https://')) {
@@ -676,11 +712,13 @@ export class WalletController extends Controller {
   public async useOfferRequest(
     @Request() request: ExRequest,
     @Path() walletId: string,
-    @Query() did?: string,  // Optional - we use base agent's DID for OID4VC operations
-    @Body() body?: any
+    @Query() did?: string, // Optional - we use base agent's DID for OID4VC operations
+    @Body() body?: any,
   ): Promise<any> {
     console.log('[useOfferRequest] === START (Credo OID4VC) ===')
-    try { console.log('[useOfferRequest] Input:', { walletId, did, bodyType: typeof body }) } catch (e) { }
+    try {
+      console.log('[useOfferRequest] Input:', { walletId, did, bodyType: typeof body })
+    } catch (e) {}
 
     let offerUri = ''
     if (typeof body === 'string') {
@@ -691,14 +729,16 @@ export class WalletController extends Controller {
         const keys = Object.keys(body)
         if (keys.length === 1) {
           const k = keys[0]
-          offerUri = k.startsWith('openid-credential-offer://') ? k : (body[k] || '')
+          offerUri = k.startsWith('openid-credential-offer://') ? k : body[k] || ''
         }
       }
     }
 
     console.log('[useOfferRequest] Parsed offerUri:', (offerUri || '').slice(0, 200))
 
-    const toResolve2 = extractAndNormalizeInnerOfferUrl(offerUri) || ((offerUri && (offerUri.startsWith('http://') || offerUri.startsWith('https://'))) ? offerUri : null)
+    const toResolve2 =
+      extractAndNormalizeInnerOfferUrl(offerUri) ||
+      (offerUri && (offerUri.startsWith('http://') || offerUri.startsWith('https://')) ? offerUri : null)
 
     if (!toResolve2) {
       this.setStatus(400)
@@ -793,21 +833,37 @@ export class WalletController extends Controller {
         resolved,
         {
           credentialBindingResolver: async (options: any) => {
-            console.log('[useOfferRequest] Credential binding resolver called with options:', JSON.stringify(options, null, 2))
-            const { credentialFormat, supportedDidMethods, keyType, supportsAllDidMethods, supportsJwk, supportedVerificationMethods } = options || {}
-            console.log('[useOfferRequest] Binding params:', { credentialFormat, supportedDidMethods, keyType, supportsAllDidMethods, supportsJwk })
+            console.log(
+              '[useOfferRequest] Credential binding resolver called with options:',
+              JSON.stringify(options, null, 2),
+            )
+            const {
+              credentialFormat,
+              supportedDidMethods,
+              keyType,
+              supportsAllDidMethods,
+              supportsJwk,
+              supportedVerificationMethods,
+            } = options || {}
+            console.log('[useOfferRequest] Binding params:', {
+              credentialFormat,
+              supportedDidMethods,
+              keyType,
+              supportsAllDidMethods,
+              supportsJwk,
+            })
             return { method: 'did', didUrl: holderDidUrl }
-          }
-        }
+          },
+        },
       )
 
       // acceptCredentialOfferUsingPreAuthorizedCode returns an array of credential records directly
-      const credentials = Array.isArray(acceptResult) ? acceptResult : (acceptResult?.credentials || [])
+      const credentials = Array.isArray(acceptResult) ? acceptResult : acceptResult?.credentials || []
 
       console.log('[useOfferRequest] Credo accept result:', {
         credentialCount: credentials.length,
         firstCredentialType: typeof credentials[0],
-        firstCredentialFormat: credentials[0]?.claimFormat || credentials[0]?.type || 'unknown'
+        firstCredentialFormat: credentials[0]?.claimFormat || credentials[0]?.type || 'unknown',
       })
 
       const { randomUUID } = await import('crypto')
@@ -846,7 +902,7 @@ export class WalletController extends Controller {
           hasJwt: !!jwtToken,
           jwtLength: jwtToken?.length,
           credentialType: typeof credentialRecord,
-          credentialKeys: typeof credentialRecord === 'object' ? Object.keys(credentialRecord || {}) : []
+          credentialKeys: typeof credentialRecord === 'object' ? Object.keys(credentialRecord || {}) : [],
         })
 
         if (format === 'jwt_vc' || format === 'jwt_vc_json' || jwtToken) {
@@ -873,7 +929,9 @@ export class WalletController extends Controller {
               savedCredentialId = storedRecord.id
               console.log('[useOfferRequest] Stored credential in tenant wallet:', storedRecord.id)
             } else {
-              console.log('[useOfferRequest] Credential is not a W3cCredential instance, skipping tenant wallet storage')
+              console.log(
+                '[useOfferRequest] Credential is not a W3cCredential instance, skipping tenant wallet storage',
+              )
             }
           } catch (storeError: any) {
             console.warn('[useOfferRequest] Could not store in tenant wallet:', storeError?.message)
@@ -895,7 +953,8 @@ export class WalletController extends Controller {
           }
         } else {
           // Fallback: try to store whatever we have
-          verifiableCredential = typeof credentialRecord === 'string' ? credentialRecord : JSON.stringify(credentialRecord)
+          verifiableCredential =
+            typeof credentialRecord === 'string' ? credentialRecord : JSON.stringify(credentialRecord)
 
           try {
             if (credentialRecord && typeof credentialRecord === 'object') {
@@ -917,7 +976,7 @@ export class WalletController extends Controller {
       return {
         id: savedCredentialId,
         verifiableCredential,
-        credentialCount: acceptResult.credentials?.length || 0
+        credentialCount: acceptResult.credentials?.length || 0,
       }
     } catch (error: any) {
       console.error('[useOfferRequest] === FAILED ===')
@@ -931,7 +990,7 @@ export class WalletController extends Controller {
   public async resolvePresentationRequest(
     @Request() request: ExRequest,
     @Path() walletId: string,
-    @Body() body: any
+    @Body() body: any,
   ): Promise<string> {
     console.log('[resolvePresentationRequest] Input body:', typeof body === 'string' ? body : JSON.stringify(body))
     let requestUri = ''
@@ -974,7 +1033,7 @@ export class WalletController extends Controller {
   public async matchCredentialsForPresentationDefinition(
     @Request() request: ExRequest,
     @Path() walletId: string,
-    @Body() body: any
+    @Body() body: any,
   ): Promise<any[]> {
     const agent = this.getAgent(request)
     const presentationDefinition = typeof body === 'string' ? JSON.parse(body) : body
@@ -995,21 +1054,21 @@ export class WalletController extends Controller {
                 id: sdJwtRecord.id,
                 document: sdJwtRecord.compactSdJwtVc || sdJwtRecord.credential,
                 parsedDocument: JSON.stringify(vcAny.disclosedPayload || {}),
-                disclosures: vcAny.disclosedPayload || null
+                disclosures: vcAny.disclosedPayload || null,
               })
             } else if ('credential' in credRecord) {
               matchedCredentials.push({
                 id: credRecord.id,
                 document: (credRecord as any).credential,
                 parsedDocument: null,
-                disclosures: null
+                disclosures: null,
               })
             } else {
               matchedCredentials.push({
                 id: credRecord.id,
                 document: JSON.stringify(credRecord),
                 parsedDocument: null,
-                disclosures: null
+                disclosures: null,
               })
             }
           }
@@ -1027,11 +1086,16 @@ export class WalletController extends Controller {
   public async usePresentationRequest(
     @Request() request: ExRequest,
     @Path() walletId: string,
-    @Body() body: any
+    @Body() body: any,
   ): Promise<any> {
     console.log('[usePresentationRequest] Body:', JSON.stringify(body))
     const { presentationRequest, selectedCredentials } = body
-    if (!presentationRequest || !selectedCredentials || !Array.isArray(selectedCredentials) || selectedCredentials.length === 0) {
+    if (
+      !presentationRequest ||
+      !selectedCredentials ||
+      !Array.isArray(selectedCredentials) ||
+      selectedCredentials.length === 0
+    ) {
       this.setStatus(400)
       throw new Error('Missing presentationRequest or selectedCredentials')
     }
@@ -1039,20 +1103,24 @@ export class WalletController extends Controller {
     const agent = this.getBaseAgentForHolder()
     try {
       console.log('[usePresentationRequest] Resolving request for submission...')
-      const resolved = await (agent.modules as any).openId4VcHolder.resolveOpenId4VpAuthorizationRequest(presentationRequest)
+      const resolved = await (agent.modules as any).openId4VcHolder.resolveOpenId4VpAuthorizationRequest(
+        presentationRequest,
+      )
 
       console.log('[usePresentationRequest] Accepting request...')
       const inputDescriptors = resolved.authorizationRequest.presentationDefinition?.inputDescriptors || []
       const submissionInput: Record<string, string> = {}
       if (inputDescriptors.length > 0) {
         const credId = selectedCredentials[0]
-        inputDescriptors.forEach((d: any) => { submissionInput[d.id] = credId })
+        inputDescriptors.forEach((d: any) => {
+          submissionInput[d.id] = credId
+        })
       }
 
       console.log('[usePresentationRequest] Submission Input:', submissionInput)
       const response = await (agent.modules as any).openId4VcHolder.acceptOpenId4VpAuthorizationRequest({
         authorizationRequest: resolved.authorizationRequest,
-        submissionInput
+        submissionInput,
       })
 
       console.log('[usePresentationRequest] Success. Redirect URI:', response.redirectUri)

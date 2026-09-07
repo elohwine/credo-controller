@@ -17,7 +17,7 @@ const run = async () => {
   // Start ngrok tunnel for webhook support in dev
   const enableNgrok = process.env.ENABLE_NGROK !== 'false' && process.env.NODE_ENV !== 'production'
   let ngrokUrl: string | null = null
-  
+
   if (enableNgrok) {
     try {
       ngrokUrl = await startNgrokTunnel({ port: serverPort })
@@ -139,7 +139,7 @@ async function seedCredentialModels() {
 
   // Register schemas if not exist
   for (const s of schemas) {
-    const existing = schemaStore.list().find(es => es.name === s.name && es.version === s.version)
+    const existing = schemaStore.list().find((es) => es.name === s.name && es.version === s.version)
     if (!existing) {
       const result = schemaStore.register(s)
       if ('error' in result) {
@@ -151,8 +151,8 @@ async function seedCredentialModels() {
   }
 
   // Get registered schemas
-  const paymentReceiptSchema = schemaStore.list().find(s => s.name === 'PaymentReceipt')
-  const genericIDSchema = schemaStore.list().find(s => s.name === 'GenericIDCredential')
+  const paymentReceiptSchema = schemaStore.list().find((s) => s.name === 'PaymentReceipt')
+  const genericIDSchema = schemaStore.list().find((s) => s.name === 'GenericIDCredential')
 
   if (!paymentReceiptSchema || !genericIDSchema) {
     console.warn('Required schemas not found, skipping credential definition seeding')
@@ -196,7 +196,7 @@ async function seedCredentialModels() {
 
   // Register credential definitions if not exist
   for (const d of defs) {
-    const existing = credentialDefinitionStore.list().find(ecd => ecd.name === d.name && ecd.version === d.version)
+    const existing = credentialDefinitionStore.list().find((ecd) => ecd.name === d.name && ecd.version === d.version)
     if (!existing) {
       const result = credentialDefinitionStore.register(d)
       if ('error' in result) {

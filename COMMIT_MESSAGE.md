@@ -5,6 +5,7 @@
 ### Changes Made
 
 **New Files:**
+
 - `credo-ui/wallet/libs/stores/useNotificationStore.ts` - Pinia store for notifications
 - `credo-ui/wallet/libs/components/NotificationContainer.vue` - UI component with animations
 - `credo-ui/wallet/src/plugins/error-handler.client.ts` - Global $fetch error interceptor
@@ -13,6 +14,7 @@
 - Copied all above to `credo-ui/wallet-dev/`
 
 **Modified Files:**
+
 - `credo-ui/wallet/src/app.vue` - Added NotificationContainer
 - `credo-ui/wallet/src/pages/login.vue` - Success/error notifications
 - `credo-ui/wallet/src/pages/signup.vue` - Success/error notifications
@@ -21,6 +23,7 @@
 - `credo-ui/wallet-dev/src/app.vue` - Added NotificationContainer
 
 **Database:**
+
 - Cleaned `wallet_users`, `wallet_credentials`, `wallet_sessions` tables (ready for fresh registration with correct tenant UUIDs)
 
 ### Features
@@ -31,12 +34,12 @@
 ✅ **Tenant UUID fix** - Database cleaned; new registrations use proper tenant IDs  
 ✅ **Click to dismiss** - Auto-dismiss after 5s or click to close  
 ✅ **Smooth animations** - Slide-in from right with proper transitions  
-✅ **No silent failures** - Every API error visible to user  
+✅ **No silent failures** - Every API error visible to user
 
 ### Error Message Mappings
 
 - 401 → "Unauthorized - please log in again"
-- 403 → "Access denied"  
+- 403 → "Access denied"
 - 404 → "Resource not found"
 - 422 → Backend `details` field
 - 500+ → "Server error - please try again later"

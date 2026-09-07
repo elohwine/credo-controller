@@ -1,15 +1,11 @@
 {
-    "extends": "./.nuxt/tsconfig.json",
-    "compilerOptions": {
-        "skipLibCheck": true,
-        "paths": {
-            "~/*": [
-                "./src/*"
-            ],
-            "@credentis-web-wallet/*": [
-                "./libs/*"
-            ]
-        },
-        "allowImportingTsExtensions": true
-    }
+  "extends": "./.nuxt/tsconfig.json",
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "paths": {
+      "~/*": ["./src/*"],
+      "@credentis-web-wallet/*": ["./libs/*"]
+    },
+    "allowImportingTsExtensions": true
+  }
 }

@@ -6,14 +6,14 @@ export default defineNuxtPlugin(() => {
   // Global error handler for fetch requests
   const handleFetchError = (error: any, context?: string) => {
     console.error('Fetch error:', error)
-    
+
     let message = 'An unexpected error occurred'
-    
+
     if (error?.response) {
       // Server responded with error status
       const status = error.response.status
       const data = error.response._data || error.response.data
-      
+
       if (status === 401) {
         message = 'Unauthorized. Please log in again.'
       } else if (status === 403) {

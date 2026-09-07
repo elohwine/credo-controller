@@ -7,10 +7,10 @@ import type {
 } from '../../types/api'
 import type { Request as ExRequest } from 'express'
 
-import { DcqlService } from '@credo-ts/core'
 import { Controller, Post, Route, Tags, Body, SuccessResponse, Security, Request, Get } from 'tsoa'
-import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
+
 import { ssiTrustService } from '../../services/SsiTrustService'
+import { credoPresentationVerificationService } from '../../services/ssi/CredoPresentationVerificationService'
 
 /**
  * OpenID4VP protocol controller.
@@ -21,8 +21,6 @@ import { ssiTrustService } from '../../services/SsiTrustService'
 @Route('oidc')
 @Tags('OIDC4VP')
 export class OidcVerifierController extends Controller {
-  private readonly issuedCredentialRepository = new IssuedCredentialRepository()
-
   @Get('verifier/formats')
   public async getSupportedFormats(): Promise<{ formats: string[] }> {
     return {
@@ -85,8 +83,7 @@ export class OidcVerifierController extends Controller {
         throw new Error('dcqlQuery is required when queryLanguage is dcql')
       }
 
-      const dcqlService = agent.dependencyManager.resolve(DcqlService)
-      const dcqlQuery = dcqlService.validateDcqlQuery(body.dcqlQuery)
+      const dcqlQuery = this.normalizeDcqlQuery(body.dcqlQuery)
 
       result = await verifierModule.createAuthorizationRequest({
         ...common,
@@ -121,7 +118,7 @@ export class OidcVerifierController extends Controller {
         verifierId,
         queryLanguage,
       },
-      'Created OpenID4VP presentation request'
+      'Created OpenID4VP presentation request',
     )
 
     return {
@@ -132,125 +129,74 @@ export class OidcVerifierController extends Controller {
     }
   }
 
+  /**
+   * Verify a presentation response. Routes through the shared
+   * CredoPresentationVerificationService — same path as the primary
+   * api/platform/ssi/verify endpoint. Requires the platform request to have
+   * been created via the platform SSI API so that a protocol state and
+   * verification session are stored.
+   *
+   * @deprecated New callers should use POST /api/platform/ssi/verify directly.
+   */
   @Post('verifier/verify')
   @Security('jwt', ['tenant'])
   public async verifyPresentation(
     @Request() request: ExRequest,
-    @Body() body: VerifyPresentationRequestBody,
+    @Body()
+    body: VerifyPresentationRequestBody,
   ): Promise<VerifyPresentationResponse> {
-    const { requestId, state, verifiablePresentation } = body || {}
-    if (!requestId || !state || !verifiablePresentation) {
+    const { state, verifiablePresentation } = body || {}
+    if (!state || !verifiablePresentation) {
       this.setStatus(400)
-      throw new Error('requestId, state and verifiablePresentation are required')
+      throw new Error('state and verifiablePresentation are required')
     }
 
     try {
-      const verificationResult = await (request.agent.modules as any).openId4VcVerifier.verifyAuthorizationResponse({
-        verificationSessionId: requestId,
-        authorizationResponse: {
-          vp_token: verifiablePresentation,
-          presentation_submission: body.presentationSubmission,
-          state,
+      const context = ssiTrustService.getProtocolContextByState(state)
+
+      const result = await credoPresentationVerificationService.verify({
+        tenantId: context.tenantId,
+        requestId: context.requestId,
+        state,
+        verifiablePresentation,
+        presentationSubmission: body.presentationSubmission,
+        request,
+      })
+
+      request.logger?.info(
+        {
+          module: 'verifier',
+          operation: 'verifyPresentation',
+          requestId: context.requestId,
+          verified: result.verified,
+          reasonCode: result.reasonCode,
         },
-      })
-
-      if (verificationResult?.dcql) {
-        const dcqlPresentations = verificationResult.dcql.presentations ?? {}
-        const credentialCount = Object.values(dcqlPresentations).reduce(
-          (count: number, presentations: any) => count + (Array.isArray(presentations) ? presentations.length : 0),
-          0
-        )
-
-        return {
-          verified: true,
-          format: 'dcql',
-          credentialCount,
-          presentation: undefined,
-          checks: {
-            signature: true,
-            nonce: true,
-            audience: true,
-            revocation: true,
-            schema: true,
-          },
-        } as any
-      }
-
-      const presentations = verificationResult?.presentationExchange?.presentations ?? []
-      const credentials = presentations.flatMap((presentation: any) => {
-        const values = presentation?.verifiableCredential
-        return Array.isArray(values) ? values : [values].filter(Boolean)
-      })
-
-      const credentialIds = this.extractCredentialIds(credentials)
-      const revokedIds = credentialIds.filter((id) => this.issuedCredentialRepository.isRevoked(id))
-
-      if (revokedIds.length > 0) {
-        return {
-          verified: false,
-          format: 'pex_v2',
-          error: 'One or more credentials have been revoked',
-          revokedIds,
-          checks: {
-            signature: true,
-            nonce: true,
-            audience: true,
-            revocation: false,
-            schema: true,
-          },
-        } as any
-      }
+        'OpenID4VP verification completed',
+      )
 
       return {
-        verified: true,
-        format: 'pex_v2',
-        presentation: undefined,
-        credentialCount: credentials.length,
-        checks: {
-          signature: true,
-          nonce: true,
-          audience: true,
-          revocation: true,
-          schema: true,
-        },
+        verified: result.verified,
+        format: context.queryLanguage === 'dcql' ? 'dcql' : 'pex_v2',
+        credentialCount: result.credentialCount,
+        reasonCode: result.reasonCode,
+        evidenceDigest: result.evidenceDigest,
       } as any
-    } catch {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Verification failed'
       request.logger?.warn(
-        { module: 'verifier', operation: 'verifyPresentation', requestId },
-        'OpenID4VP verification failed'
+        { module: 'verifier', operation: 'verifyPresentation' },
+        `OpenID4VP verification failed: ${message}`,
       )
-      return { verified: false, format: 'openid4vp', error: 'Verification failed' } as any
+      this.setStatus(400)
+      throw new Error(message)
     }
   }
 
-  private extractCredentialIds(credentials: unknown[]): string[] {
-    const ids: string[] = []
-
-    for (const credential of credentials) {
-      if (!credential) continue
-
-      if (typeof credential === 'string') {
-        const token = credential.includes('~') ? credential.split('~')[0] : credential
-        const parts = token.split('.')
-        if (parts.length === 3) {
-          try {
-            const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'))
-            const id = payload?.vc?.id || payload?.id || payload?.jti
-            if (id) ids.push(String(id))
-          } catch {
-            // Credo performs authoritative token verification.
-          }
-        }
-        continue
-      }
-
-      if (typeof credential === 'object') {
-        const value: any = credential
-        const id = value.id || value.credentialId || value.jti || value.vc?.id
-        if (id) ids.push(String(id))
-      }
+  private normalizeDcqlQuery(query: unknown): Record<string, unknown> {
+    if (!query || typeof query !== 'object' || Array.isArray(query)) {
+      throw new Error('dcqlQuery must be an object')
     }
 
-    return Array.from(new Set(ids))
+    return query as Record<string, unknown>
   }
 }

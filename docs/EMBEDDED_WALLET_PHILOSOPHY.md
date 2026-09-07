@@ -33,6 +33,7 @@ All of that is slowlane vanity early on.
 ## 🔑 Critical Functionalities
 
 ### 1. Zero-Friction VC Acceptance
+
 - One tap: "Save for proof"
 - Default = Yes
 - No keys, no setup ceremony, no jargon
@@ -40,20 +41,25 @@ All of that is slowlane vanity early on.
 - Bound to device/browser profile
 
 ### 2. ReceiptVC as Primary Asset
+
 Not identity — proof of:
+
 - Purchase
 - Delivery
 - Transaction integrity
 - Dispute resolution
 
 Zimbabwe pain solved:
+
 - Fake receipts
 - Cash disputes
 - WhatsApp screenshots
 - Corrupt delivery confirmations
 
 ### 3. Contextual Wallet UI
+
 Wallet ONLY appears at:
+
 - Checkout
 - Order tracking
 - Delivery confirmation
@@ -64,6 +70,7 @@ Users think: "This app keeps my proof safe"
 Not: "I am managing credentials"
 
 ### 4. Driver Verification (Killer Trust Loop)
+
 ```
 Driver shows QR → Customer scans → Sees:
   • Driver identity VC
@@ -74,6 +81,7 @@ One tap: "Confirm delivery"
 ```
 
 This loop:
+
 - Confirms delivery
 - Releases escrow
 - Finalizes ReceiptVC
@@ -82,14 +90,18 @@ This loop:
 **This is the "aha" moment for Zimbabwe.**
 
 ### 5. Escrow Hook (Signal, Not Banking)
+
 You do NOT build banking. You build:
+
 - A **release signal**
 - Triggered by delivery confirmation or time fallback
 
 Control the chokepoint, not the industry.
 
 ### 6. Silent SSI → OIDC Bridge
+
 Login via:
+
 - Existing session
 - Device trust
 - VC continuity
@@ -98,7 +110,9 @@ No OTPs, passwords, SMS.
 Zimbabwe reality: SMS unreliable, SIM swaps common.
 
 ### 7. Progressive Portability (Later)
+
 Only AFTER trust established:
+
 - "Export your wallet"
 - "Install full wallet app"
 - "Use across platforms"
@@ -106,7 +120,9 @@ Only AFTER trust established:
 Don't sell the exit before value is captured.
 
 ### 8. Consent-as-UX (Not Compliance)
+
 Consent is:
+
 - Visual
 - Contextual
 - One-tap
@@ -136,9 +152,9 @@ Not checkbox walls or legal jargon.
 
 ## Implementation Files
 
-| Component | Location |
-|-----------|----------|
-| Wallet UI | `credo-ui/wallet/` |
-| Portal Checkout | `credo-ui/portal/` |
-| VC Issuance | `src/services/CredentialIssuanceService.ts` |
-| Driver Verifier | Create `/verify/{token}` endpoint |
+| Component       | Location                                    |
+| --------------- | ------------------------------------------- |
+| Wallet UI       | `credo-ui/wallet/`                          |
+| Portal Checkout | `credo-ui/portal/`                          |
+| VC Issuance     | `src/services/CredentialIssuanceService.ts` |
+| Driver Verifier | Create `/verify/{token}` endpoint           |

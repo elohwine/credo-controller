@@ -1,11 +1,14 @@
 import { Agent } from '@credo-ts/core'
 import { container } from 'tsyringe'
-import { 
-  PLATFORM_IDENTITY_VC_TYPE, 
-  PLATFORM_IDENTITY_CREDENTIAL_DEFINITION 
+import {
+  PLATFORM_IDENTITY_VC_TYPE,
+  PLATFORM_IDENTITY_CREDENTIAL_DEFINITION,
 } from '../config/credentials/PlatformIdentityVC'
 
-interface SeedParams { tenantId: string; issuerDid: string }
+interface SeedParams {
+  tenantId: string
+  issuerDid: string
+}
 
 /**
  * Seed platform-level credential definitions for root agent (SSI auth, etc.)
@@ -38,11 +41,11 @@ export async function seedPlatformCredentialDefinitions(rootIssuerDid: string): 
               registeredAt: { type: 'string', format: 'date-time' },
               platformTenantId: { type: 'string', description: 'Linked tenant ID on platform' },
               platformName: { type: 'string', description: 'Platform issuer name' },
-              verificationLevel: { type: 'string', enum: ['unverified', 'phone_verified', 'kyc_verified'] }
-            }
-          }
-        }
-      }
+              verificationLevel: { type: 'string', enum: ['unverified', 'phone_verified', 'kyc_verified'] },
+            },
+          },
+        },
+      },
     })
   }
 
@@ -62,8 +65,8 @@ export async function seedPlatformCredentialDefinitions(rootIssuerDid: string): 
           registeredAt: new Date().toISOString(),
           platformTenantId: 'tenant-id',
           platformName: 'IdenEx Credentis',
-          verificationLevel: 'phone_verified'
-        }
+          verificationLevel: 'phone_verified',
+        },
       },
       format: 'jwt_vc_json',
       // Global - no tenantId means root agent scope
@@ -86,32 +89,62 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
     const ensureSchema = (name: string, version: string, jsonSchema: Record<string, any>) => {
       const existing = schemaStore.find(name, version, tenantId)
       if (existing) {
-        console.log(`[ModelRegistry] Schema ${name}@${version} already exists: ${existing.schemaId}`);
+        console.log(`[ModelRegistry] Schema ${name}@${version} already exists: ${existing.schemaId}`)
         return existing.schemaId
       }
       const registered: any = schemaStore.register({ name, version, jsonSchema, tenantId })
       if ('error' in registered) throw new Error(`Schema registration failed: ${registered.error}`)
-      console.log(`[ModelRegistry] Registered schema ${name}@${version}: ${registered.schemaId}`);
+      console.log(`[ModelRegistry] Registered schema ${name}@${version}: ${registered.schemaId}`)
       return registered.schemaId
     }
     const paymentSchemaId = ensureSchema('PaymentReceipt', '1.0.0', {
       $id: 'PaymentReceipt-1.0.0',
       type: 'object',
       required: ['credentialSubject'],
-      properties: { credentialSubject: { type: 'object', required: ['transactionId', 'amount', 'currency'], properties: { transactionId: { type: 'string' }, amount: { type: 'string' }, currency: { type: 'string' }, merchant: { type: 'string' } } } },
+      properties: {
+        credentialSubject: {
+          type: 'object',
+          required: ['transactionId', 'amount', 'currency'],
+          properties: {
+            transactionId: { type: 'string' },
+            amount: { type: 'string' },
+            currency: { type: 'string' },
+            merchant: { type: 'string' },
+          },
+        },
+      },
     })
 
     const genericIdSchemaId = ensureSchema('GenericIDCredential', '1.0.0', {
       $id: 'GenericIDCredential-1.0.0',
       type: 'object',
       required: ['credentialSubject'],
-      properties: { credentialSubject: { type: 'object', required: ['fullName', 'identifier'], properties: { fullName: { type: 'string' }, identifier: { type: 'string' }, issuedAt: { type: 'string', format: 'date-time' } } } },
+      properties: {
+        credentialSubject: {
+          type: 'object',
+          required: ['fullName', 'identifier'],
+          properties: {
+            fullName: { type: 'string' },
+            identifier: { type: 'string' },
+            issuedAt: { type: 'string', format: 'date-time' },
+          },
+        },
+      },
     })
 
-    const registerDef = (name: string, version: string, schemaId: string, credentialType: string[], claimsTemplate: any, format: string = 'jwt_vc') => {
-      const existing = credentialDefinitionStore.list(tenantId).find((d) => d.name === name && d.version === version && d.schemaId === schemaId && d.issuerDid === issuerDid)
+    const registerDef = (
+      name: string,
+      version: string,
+      schemaId: string,
+      credentialType: string[],
+      claimsTemplate: any,
+      format: string = 'jwt_vc',
+    ) => {
+      const existing = credentialDefinitionStore
+        .list(tenantId)
+        .find((d) => d.name === name && d.version === version && d.schemaId === schemaId && d.issuerDid === issuerDid)
       if (existing) {
-        console.log(`[ModelRegistry] CredDef ${name} already exists: ${existing.credentialDefinitionId}`);
+        console.log(`[ModelRegistry] CredDef ${name} already exists: ${existing.credentialDefinitionId}`)
         return existing.credentialDefinitionId
       }
       const res: any = credentialDefinitionStore.register({
@@ -125,7 +158,7 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
         tenantId,
       })
       if ('error' in res) throw new Error(`CredDef registration failed: ${res.error}`)
-      console.log(`[ModelRegistry] Registered CredDef ${name} with ID ${res.credentialDefinitionId}`);
+      console.log(`[ModelRegistry] Registered CredDef ${name} with ID ${res.credentialDefinitionId}`)
       return res.credentialDefinitionId
     }
 
@@ -144,10 +177,10 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
             items: { type: 'array', items: { type: 'object' } },
             totalAmount: { type: 'number' },
             currency: { type: 'string' },
-            merchantDid: { type: 'string' }
-          }
-        }
-      }
+            merchantDid: { type: 'string' },
+          },
+        },
+      },
     })
 
     const invoiceSchemaId = ensureSchema('InvoiceVC', '1.0.0', {
@@ -163,10 +196,10 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
             cartRef: { type: 'string' },
             amount: { type: 'number' },
             currency: { type: 'string' },
-            dueDate: { type: 'string', format: 'date-time' }
-          }
-        }
-      }
+            dueDate: { type: 'string', format: 'date-time' },
+          },
+        },
+      },
     })
 
     const receiptSchemaId = ensureSchema('ReceiptVC', '1.0.0', {
@@ -181,10 +214,10 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
             receiptId: { type: 'string' },
             invoiceRef: { type: 'string' },
             paymentRef: { type: 'string' },
-            timestamp: { type: 'string', format: 'date-time' }
-          }
-        }
-      }
+            timestamp: { type: 'string', format: 'date-time' },
+          },
+        },
+      },
     })
 
     const catalogItemSchemaId = ensureSchema('CatalogItemVC', '1.0.0', {
@@ -204,10 +237,10 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
             currency: { type: 'string' },
             sku: { type: 'string' },
             merchantId: { type: 'string' },
-            createdAt: { type: 'string', format: 'date-time' }
-          }
-        }
-      }
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+      },
     })
 
     const ehrSchemaId = ensureSchema('EHRSummary', '1.0.0', {
@@ -237,32 +270,11 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
       },
     })
 
-    registerDef(
-      'CartSnapshotVC',
-      '1.0.0',
-      cartSchemaId,
-      ['VerifiableCredential', 'CartSnapshotVC'],
-      {},
-      'jwt_vc_json'
-    )
+    registerDef('CartSnapshotVC', '1.0.0', cartSchemaId, ['VerifiableCredential', 'CartSnapshotVC'], {}, 'jwt_vc_json')
 
-    registerDef(
-      'InvoiceVC',
-      '1.0.0',
-      invoiceSchemaId,
-      ['VerifiableCredential', 'InvoiceVC'],
-      {},
-      'jwt_vc_json'
-    )
+    registerDef('InvoiceVC', '1.0.0', invoiceSchemaId, ['VerifiableCredential', 'InvoiceVC'], {}, 'jwt_vc_json')
 
-    registerDef(
-      'ReceiptVC',
-      '1.0.0',
-      receiptSchemaId,
-      ['VerifiableCredential', 'ReceiptVC'],
-      {},
-      'jwt_vc_json'
-    )
+    registerDef('ReceiptVC', '1.0.0', receiptSchemaId, ['VerifiableCredential', 'ReceiptVC'], {}, 'jwt_vc_json')
 
     registerDef(
       'CatalogItemVC',
@@ -270,7 +282,7 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
       catalogItemSchemaId,
       ['VerifiableCredential', 'CatalogItemVC'],
       {},
-      'jwt_vc_json'
+      'jwt_vc_json',
     )
 
     const badgeSchemaId = ensureSchema('OpenBadge', '3.0.0', {
@@ -316,12 +328,10 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
       {
         credentialSubject: {
           patientId: 'PAT-123',
-          encounters: [
-            { date: '2025-01-01', type: 'Consultation', notes: 'Routine check' },
-          ],
+          encounters: [{ date: '2025-01-01', type: 'Consultation', notes: 'Routine check' }],
         },
       },
-      'jwt_vc_json'
+      'jwt_vc_json',
     )
 
     registerDef(
@@ -337,7 +347,7 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
           criteriaUrl: 'https://example.org/badges/blockchain-fundamentals',
         },
       },
-      'jwt_vc_json'
+      'jwt_vc_json',
     )
 
     registerDef(
@@ -352,7 +362,7 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
           lastUpdated: new Date().toISOString(),
         },
       },
-      'jwt_vc_json'
+      'jwt_vc_json',
     )
 
     // --- Legacy / Generic Models ---
@@ -370,7 +380,7 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
           merchant: 'SeedMerchant',
         },
       },
-      'jwt_vc_json'
+      'jwt_vc_json',
     )
 
     // PaymentReceiptCredential - alias for EcoCash webhook compatibility
@@ -390,7 +400,7 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
           timestamp: new Date().toISOString(),
         },
       },
-      'jwt_vc_json'
+      'jwt_vc_json',
     )
 
     registerDef(
@@ -405,7 +415,7 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
           issuedAt: new Date().toISOString(),
         },
       },
-      'jwt_vc_json'
+      'jwt_vc_json',
     )
 
     // --- HR / Employment VCs ---
@@ -426,10 +436,10 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
             employer: { type: 'string' },
             startDate: { type: 'string', format: 'date-time' },
             salary: { type: 'string' },
-            contractType: { type: 'string' }
-          }
-        }
-      }
+            contractType: { type: 'string' },
+          },
+        },
+      },
     })
 
     registerDef(
@@ -445,10 +455,10 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
           department: 'Engineering',
           employer: 'Credo Demo Corp',
           startDate: new Date().toISOString(),
-          contractType: 'Full-time'
+          contractType: 'Full-time',
         },
       },
-      'jwt_vc_json'
+      'jwt_vc_json',
     )
   })
 }

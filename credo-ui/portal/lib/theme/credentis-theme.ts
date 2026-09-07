@@ -1,9 +1,9 @@
 /**
  * Credentis Mantine Theme
- * 
+ *
  * This is the single source of truth for all design tokens.
  * All colors, spacing, and typography come from here.
- * 
+ *
  * Rules:
  * - Glass layers consume these colors, never define new ones
  * - No gradients unless derived from primary
@@ -11,22 +11,22 @@
  * - Glass surfaces: radius 12-16px
  */
 
-import { createTheme, MantineColorsTuple } from '@mantine/core';
+import { createTheme, MantineColorsTuple } from '@mantine/core'
 
 // Credentis Brand Palette
 // Derived from the logo: Curious Blue, Link Water, Viking, Cornflower
 const credentis: MantineColorsTuple = [
-  '#e8f4fa',  // 0: Lightest (backgrounds)
-  '#d0e6f3',  // 1: Link Water (light backgrounds)
-  '#b8d8ec',  // 2
-  '#a0cae5',  // 3
-  '#88c4e3',  // 4: Cornflower (tertiary)
-  '#6fb4dc',  // 5: Viking (secondary)
-  '#2188ca',  // 6: Curious Blue (primary) ← primaryShade
-  '#1b6fa6',  // 7: Darker
-  '#155782',  // 8
-  '#0f3f5e',  // 9: Darkest
-];
+  '#e8f4fa', // 0: Lightest (backgrounds)
+  '#d0e6f3', // 1: Link Water (light backgrounds)
+  '#b8d8ec', // 2
+  '#a0cae5', // 3
+  '#88c4e3', // 4: Cornflower (tertiary)
+  '#6fb4dc', // 5: Viking (secondary)
+  '#2188ca', // 6: Curious Blue (primary) ← primaryShade
+  '#1b6fa6', // 7: Darker
+  '#155782', // 8
+  '#0f3f5e', // 9: Darkest
+]
 
 // Supporting palette for semantic colors
 const success: MantineColorsTuple = [
@@ -40,7 +40,7 @@ const success: MantineColorsTuple = [
   '#199a69',
   '#137c54',
   '#0d5e3f',
-];
+]
 
 const warning: MantineColorsTuple = [
   '#fff8e6',
@@ -53,7 +53,7 @@ const warning: MantineColorsTuple = [
   '#b38400',
   '#8c6800',
   '#664c00',
-];
+]
 
 const danger: MantineColorsTuple = [
   '#ffeaea',
@@ -66,14 +66,14 @@ const danger: MantineColorsTuple = [
   '#c01818',
   '#a00000',
   '#800000',
-];
+]
 
 export const credentisTheme = createTheme({
   // Color configuration
   colors: {
     credentis,
     brand: credentis, // Alias for easier usage
-    blue: credentis,  // Override default blue with Credentis colors
+    blue: credentis, // Override default blue with Credentis colors
     success,
     warning,
     danger,
@@ -103,20 +103,20 @@ export const credentisTheme = createTheme({
 
   // Spacing scale (consistent throughout)
   spacing: {
-    xs: '0.25rem',  // 4px
-    sm: '0.5rem',   // 8px
-    md: '1rem',     // 16px
-    lg: '1.5rem',   // 24px
-    xl: '2rem',     // 32px
+    xs: '0.25rem', // 4px
+    sm: '0.5rem', // 8px
+    md: '1rem', // 16px
+    lg: '1.5rem', // 24px
+    xl: '2rem', // 32px
   },
 
   // Border radius
   radius: {
-    xs: '0.25rem',  // 4px
-    sm: '0.5rem',   // 8px - structural default
-    md: '0.75rem',  // 12px - glass surfaces
-    lg: '1rem',     // 16px - glass cards
-    xl: '1.5rem',   // 24px - hero elements
+    xs: '0.25rem', // 4px
+    sm: '0.5rem', // 8px - structural default
+    md: '0.75rem', // 12px - glass surfaces
+    lg: '1rem', // 16px - glass cards
+    xl: '1.5rem', // 24px - hero elements
   },
   defaultRadius: 'sm', // 8px for structural UI
 
@@ -216,14 +216,14 @@ export const credentisTheme = createTheme({
       slow: '500ms',
     },
   },
-});
+})
 
 // Export individual color values for use outside Mantine
 export const credentisColors = {
-  curious: '#2188CA',    // Primary
-  linkWater: '#D0E6F3',  // Light background
-  viking: '#6FB4DC',     // Secondary
+  curious: '#2188CA', // Primary
+  linkWater: '#D0E6F3', // Light background
+  viking: '#6FB4DC', // Secondary
   cornflower: '#88C4E3', // Tertiary
-} as const;
+} as const
 
-export default credentisTheme;
+export default credentisTheme

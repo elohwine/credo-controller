@@ -28,7 +28,7 @@ function extractTenantFromJwt(token: string): string | undefined {
 
 export async function ensurePortalTenant(
   credoBackend: string,
-  options?: { forceRefresh?: boolean; holderBackend?: string; holderApiKey?: string }
+  options?: { forceRefresh?: boolean; holderBackend?: string; holderApiKey?: string },
 ): Promise<PortalTenantAuth> {
   if (typeof window === 'undefined') {
     throw new Error('ensurePortalTenant must be called in the browser')
@@ -37,22 +37,23 @@ export async function ensurePortalTenant(
   const holderBackend = options?.holderBackend || credoBackend
 
   // PRIORITY 1: Check if user is logged in (SSI auth token contains their registered tenant)
-  const authToken = normalizeStored(window.localStorage.getItem('authToken')) ||
-                    normalizeStored(window.localStorage.getItem('auth.token')) ||
-                    normalizeStored(window.localStorage.getItem('walletToken')) ||
-                    normalizeStored(window.localStorage.getItem('credoTenantToken'))
-  
+  const authToken =
+    normalizeStored(window.localStorage.getItem('authToken')) ||
+    normalizeStored(window.localStorage.getItem('auth.token')) ||
+    normalizeStored(window.localStorage.getItem('walletToken')) ||
+    normalizeStored(window.localStorage.getItem('credoTenantToken'))
+
   if (authToken) {
     const loggedInTenantId = extractTenantFromJwt(authToken)
     if (loggedInTenantId) {
       // User is logged in - use their registered tenant, not anonymous one
       console.log('[ensurePortalTenant] Using logged-in user tenant:', loggedInTenantId)
-      
+
       // Persist to match expected localStorage keys
       window.localStorage.setItem('credoTenantId', loggedInTenantId)
       window.localStorage.setItem('tenantId', loggedInTenantId)
       window.localStorage.setItem('tenantToken', authToken)
-      
+
       return { tenantId: loggedInTenantId, tenantToken: authToken }
     }
   }
@@ -91,7 +92,7 @@ export async function ensurePortalTenant(
     const createRes = await axios.post(
       `${holderBackend}/multi-tenancy/create-tenant`,
       { config: { label: 'Portal Tenant', tenantType: 'USER' }, baseUrl: credoBackend },
-      { headers: { Authorization: `Bearer ${rootToken}` } }
+      { headers: { Authorization: `Bearer ${rootToken}` } },
     )
 
     tenantId = createRes?.data?.tenantId
@@ -101,14 +102,14 @@ export async function ensurePortalTenant(
       const tokenRes = await axios.post(
         `${holderBackend}/multi-tenancy/get-token/${tenantId}`,
         {},
-        { headers: { Authorization: `Bearer ${rootToken}` } }
+        { headers: { Authorization: `Bearer ${rootToken}` } },
       )
       tenantToken = tokenRes?.data?.token
     } catch {
       const createRes = await axios.post(
         `${holderBackend}/multi-tenancy/create-tenant`,
         { config: { label: 'Portal Tenant', tenantType: 'USER' }, baseUrl: credoBackend },
-        { headers: { Authorization: `Bearer ${rootToken}` } }
+        { headers: { Authorization: `Bearer ${rootToken}` } },
       )
       tenantId = createRes?.data?.tenantId
       tenantToken = createRes?.data?.token

@@ -117,12 +117,12 @@ export class CredentialStatusService implements CredentialStatusResolver {
         entry.statusMessage?.some(({ status }) => status === String(statusValue))
           ? 'credential_status_invalid'
           : 'credential_status_nonzero',
-        entry
+        entry,
       )
     } catch (error) {
       input.request?.logger?.warn(
         { module: 'ssi-status', operation: 'resolve', statusListCredential: entry.statusListCredential },
-        `Credential status retrieval/verification failed: ${error instanceof Error ? error.message : 'unknown error'}`
+        `Credential status retrieval/verification failed: ${error instanceof Error ? error.message : 'unknown error'}`,
       )
       return this.result('unknown', false, 'status_retrieval_error', entry)
     }
@@ -132,7 +132,7 @@ export class CredentialStatusService implements CredentialStatusResolver {
     status: CredentialStatus,
     checked: boolean,
     reasonCode: string,
-    entry?: BitstringStatusListEntry
+    entry?: BitstringStatusListEntry,
   ): CredentialStatusResult {
     return {
       status,
@@ -166,7 +166,7 @@ export class CredentialStatusService implements CredentialStatusResolver {
             !message ||
             typeof message !== 'object' ||
             typeof (message as Record<string, unknown>).status !== 'string' ||
-            typeof (message as Record<string, unknown>).message !== 'string'
+            typeof (message as Record<string, unknown>).message !== 'string',
         )
       ) {
         return undefined
@@ -223,7 +223,7 @@ export class CredentialStatusService implements CredentialStatusResolver {
 
   private async verifyStatusListCredential(
     credential: BitstringStatusListCredential | string,
-    request?: ExRequest
+    request?: ExRequest,
   ): Promise<boolean> {
     if (!request?.agent) return false
 

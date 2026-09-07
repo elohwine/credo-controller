@@ -172,7 +172,10 @@ export function getCredentialTemplate(vc: any): CredentialTemplate {
       subtitle: subtitleParts.join(' · ') || undefined,
       fields: [
         { label: 'From', value: issuerName },
-        { label: 'To', value: asString(subject?.holderName) ?? asString(subject?.customerName) ?? asString(vc?.holder?.name) ?? null },
+        {
+          label: 'To',
+          value: asString(subject?.holderName) ?? asString(subject?.customerName) ?? asString(vc?.holder?.name) ?? null,
+        },
         { label: 'Date', value: subject?.date ?? subject?.timestamp },
         { label: 'Total', value: subject?.total ?? subject?.amount },
       ].filter((f) => f.value !== null && f.value !== undefined && f.value !== ''),
@@ -193,7 +196,10 @@ export function getCredentialTemplate(vc: any): CredentialTemplate {
       subtitle: subtitleParts.join(' · ') || undefined,
       fields: [
         { label: 'From', value: issuerName },
-        { label: 'To', value: asString(subject?.holderName) ?? asString(subject?.customerName) ?? asString(vc?.holder?.name) ?? null },
+        {
+          label: 'To',
+          value: asString(subject?.holderName) ?? asString(subject?.customerName) ?? asString(vc?.holder?.name) ?? null,
+        },
         { label: 'Valid until', value: subject?.validUntil },
         { label: 'Estimated total', value: subject?.estimatedTotal },
       ].filter((f) => f.value !== null && f.value !== undefined && f.value !== ''),

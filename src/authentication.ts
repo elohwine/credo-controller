@@ -9,7 +9,8 @@ import { AgentRole, ErrorMessages, SCOPES } from './enums'
 import { StatusException } from './errors'
 import { TsLogger } from './utils/logger'
 
-let dynamicApiKey: string = process.env.STATIC_API_KEY || (process.env.NODE_ENV === 'production' ? '' : 'test-api-key-12345')
+let dynamicApiKey: string =
+  process.env.STATIC_API_KEY || (process.env.NODE_ENV === 'production' ? '' : 'test-api-key-12345')
 
 const cache = new Map<string, string>()
 
@@ -27,7 +28,11 @@ function getCookieValue(cookieHeader: string | undefined, name: string): string 
     const key = trimmed.slice(0, eqIndex).trim()
     if (key !== name) continue
     const rawValue = trimmed.slice(eqIndex + 1)
-    try { return decodeURIComponent(rawValue) } catch { return rawValue }
+    try {
+      return decodeURIComponent(rawValue)
+    } catch {
+      return rawValue
+    }
   }
   return undefined
 }
@@ -164,5 +169,9 @@ async function getSecretKey(agent: Agent | TenantAgent<any>): Promise<string> {
   return cachedKey
 }
 
-export function setDynamicApiKey(newApiKey: string) { dynamicApiKey = newApiKey }
-export function getDynamicApiKey() { return dynamicApiKey }
+export function setDynamicApiKey(newApiKey: string) {
+  dynamicApiKey = newApiKey
+}
+export function getDynamicApiKey() {
+  return dynamicApiKey
+}

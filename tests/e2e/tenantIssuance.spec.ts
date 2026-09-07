@@ -53,23 +53,23 @@ describe('Tenant issuance e2e', () => {
       const holderDid = await client.createKeyDid(tenantToken)
 
       const offer = await client.createCredentialOffer(tenantToken, {
-  credentials: [
-    {
-      // W3C JWT VC issuance
-      type: ['VerifiableCredential', 'E2ECredential'],
-      schemaId: schema.schemaId,          // tie back to schema registry
-      format: 'jwt_vc',                   // or 'sd_jwt' if you want selective disclosure
-      claimsTemplate: {
-        credentialSubject: {
-          givenName: 'Alice',
-          familyName: 'Doe',
-        },
-      },
-      issuerDid: tenant.issuerDid,
-    },
-  ],
-  issuerDid: tenant.issuerDid,            // optional if controller infers it
-})
+        credentials: [
+          {
+            // W3C JWT VC issuance
+            type: ['VerifiableCredential', 'E2ECredential'],
+            schemaId: schema.schemaId, // tie back to schema registry
+            format: 'jwt_vc', // or 'sd_jwt' if you want selective disclosure
+            claimsTemplate: {
+              credentialSubject: {
+                givenName: 'Alice',
+                familyName: 'Doe',
+              },
+            },
+            issuerDid: tenant.issuerDid,
+          },
+        ],
+        issuerDid: tenant.issuerDid, // optional if controller infers it
+      })
 
       const tokenResponse = await client.redeemCredential({
         grant_type: 'urn:ietf:params:oauth:grant-type:pre-authorized_code',

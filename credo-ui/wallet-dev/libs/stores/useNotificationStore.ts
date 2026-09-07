@@ -14,7 +14,7 @@ export const useNotificationStore = defineStore('notification', () => {
   function showNotification(message: string, type: Notification['type'] = 'info', duration = 5000) {
     const id = `notification-${Date.now()}-${Math.random()}`
     const notification: Notification = { id, message, type, duration }
-    
+
     notifications.value.push(notification)
 
     if (duration > 0) {

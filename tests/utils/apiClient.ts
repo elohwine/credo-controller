@@ -44,6 +44,7 @@ export class ApiClient {
       config: {
         label: options?.config?.label ?? 'Test Tenant',
         connectionImageUrl: options?.config?.connectionImageUrl,
+        tenantType: options?.config?.tenantType ?? 'ORG',
       },
       baseUrl: options?.baseUrl ?? 'http://localhost:3000',
       displayName: options?.displayName ?? options?.config?.label ?? 'Test Tenant',
@@ -74,9 +75,7 @@ export class ApiClient {
   }
 
   public async createKeyDid(tenantToken: string) {
-    const response = await this.request
-      .post('/dids/automation/key')
-      .set('Authorization', `Bearer ${tenantToken}`)
+    const response = await this.request.post('/dids/automation/key').set('Authorization', `Bearer ${tenantToken}`)
 
     if (response.status !== 200 || !response.body?.did) {
       throw new Error(`Failed to create did:key: ${response.status}`)
@@ -111,10 +110,7 @@ export class ApiClient {
         } as const),
     }
 
-    const response = await this.request
-      .post('/oidc/schemas')
-      .set('Authorization', `Bearer ${tenantToken}`)
-      .send(body)
+    const response = await this.request.post('/oidc/schemas').set('Authorization', `Bearer ${tenantToken}`).send(body)
 
     if (response.status !== 201 || !response.body?.schemaId) {
       throw new Error(`Failed to register schema: ${response.status}`)
@@ -123,10 +119,7 @@ export class ApiClient {
     return response.body as { schemaId: string }
   }
 
-  public async registerCredentialDefinition(
-    tenantToken: string,
-    body: RegisterCredentialDefinitionBody,
-  ) {
+  public async registerCredentialDefinition(tenantToken: string, body: RegisterCredentialDefinitionBody) {
     const response = await this.request
       .post('/oidc/credential-definitions/')
       .set('Authorization', `Bearer ${tenantToken}`)
@@ -144,7 +137,7 @@ export class ApiClient {
     body: CreateCredentialOfferRequest,
   ): Promise<CreateCredentialOfferResponse> {
     const response = await this.request
-      .post('/oidc/issuer/credential-offers')
+      .post('/custom-oidc/issuer/credential-offers')
       .set('Authorization', `Bearer ${tenantToken}`)
       .send(body)
 
@@ -165,9 +158,7 @@ export class ApiClient {
     return response.body as TokenResponseBody
   }
 
-  public async createPresentationRequest(
-    tenantToken: string,
-  ): Promise<CreatePresentationRequestResponse> {
+  public async createPresentationRequest(tenantToken: string): Promise<CreatePresentationRequestResponse> {
     const response = await this.request
       .post('/oidc/verifier/presentation-requests')
       .set('Authorization', `Bearer ${tenantToken}`)
@@ -197,9 +188,7 @@ export class ApiClient {
   }
 
   public async listIssuedCredentials(tenantToken: string) {
-    const response = await this.request
-      .get('/oidc/issuer/credentials')
-      .set('Authorization', `Bearer ${tenantToken}`)
+    const response = await this.request.get('/oidc/issuer/credentials').set('Authorization', `Bearer ${tenantToken}`)
 
     if (response.status !== 200) {
       throw new Error(`Failed to list issued credentials: ${response.status}`)

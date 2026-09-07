@@ -1,6 +1,7 @@
 # EcoCash Webhook Setup Guide
 
 ## Prerequisites
+
 1. **Ngrok Account**: Sign up at https://ngrok.com
 2. **Ngrok Installed**: Already installed at `/snap/bin/ngrok`
 3. **Credo Server Running**: `yarn dev` on port 3000
@@ -8,6 +9,7 @@
 ## Quick Setup
 
 ### 1. Get Your Ngrok Auth Token
+
 ```bash
 # Visit: https://dashboard.ngrok.com/get-started/your-authtoken
 # Copy your authtoken
@@ -17,6 +19,7 @@ ngrok config add-authtoken YOUR_AUTH_TOKEN_HERE
 ```
 
 ### 2. Start Ngrok Tunnel
+
 ```bash
 # Option A: Use the setup script (recommended)
 ./scripts/setup-webhook-tunnel.sh
@@ -26,7 +29,9 @@ ngrok http 3000
 ```
 
 ### 3. Copy the HTTPS URL
+
 When ngrok starts, you'll see output like:
+
 ```
 Forwarding  https://abc123.ngrok.io -> http://localhost:3000
 ```
@@ -34,6 +39,7 @@ Forwarding  https://abc123.ngrok.io -> http://localhost:3000
 **Copy the HTTPS URL** (e.g., `https://abc123.ngrok.io`)
 
 ### 4. Set Environment Variable
+
 ```bash
 # Add to .env file
 echo "NGROK_URL=https://abc123.ngrok.io" >> .env
@@ -43,6 +49,7 @@ export NGROK_URL=https://abc123.ngrok.io
 ```
 
 ### 5. Restart Credo Server
+
 ```bash
 # Stop current server (Ctrl+C)
 # Restart
@@ -52,12 +59,14 @@ yarn dev
 ## Configure EcoCash Dashboard
 
 ### For Sandbox Testing
+
 1. Log in to EcoCash Developer Portal
 2. Navigate to **Webhooks** or **Callback URLs**
 3. Add webhook URL: `https://YOUR-NGROK-URL/webhooks/ecocash`
 4. Set webhook secret: `test-webhook-secret` (or update `ECOCASH_WEBHOOK_SECRET` in .env)
 
 ### Webhook URL Format
+
 ```
 https://abc123.ngrok.io/webhooks/ecocash
 ```
@@ -65,16 +74,19 @@ https://abc123.ngrok.io/webhooks/ecocash
 ## Testing the Webhook
 
 ### 1. Monitor Ngrok Traffic
+
 Open ngrok web interface: http://localhost:4040
 
 This shows all HTTP requests to your tunnel in real-time.
 
 ### 2. Run E2E Test
+
 ```bash
 npx ts-node tests/test_ecocash_e2e.ts
 ```
 
 ### 3. Simulate Webhook Manually
+
 ```bash
 curl -X POST https://YOUR-NGROK-URL/webhooks/ecocash \
   -H "X-API-KEY: test-webhook-secret" \
@@ -91,18 +103,22 @@ curl -X POST https://YOUR-NGROK-URL/webhooks/ecocash \
 ## Troubleshooting
 
 ### Ngrok URL Changes
+
 Free ngrok URLs change on every restart. Solutions:
+
 - **Paid Plan**: Get a static subdomain
 - **Update .env**: Update `NGROK_URL` after each restart
 - **Automation**: Use ngrok API to get current URL programmatically
 
 ### Webhook Not Receiving Calls
+
 1. Check ngrok is running: http://localhost:4040
 2. Verify webhook URL in EcoCash dashboard
 3. Check `X-API-KEY` header matches `ECOCASH_WEBHOOK_SECRET`
 4. Review ngrok traffic logs for incoming requests
 
 ### Server Not Accessible
+
 1. Ensure Credo server is running on port 3000
 2. Check firewall settings
 3. Verify ngrok tunnel status: `ngrok http 3000 --log=stdout`
@@ -110,6 +126,7 @@ Free ngrok URLs change on every restart. Solutions:
 ## Production Deployment
 
 For production, replace ngrok with:
+
 - **Cloud Deployment**: Deploy to AWS/GCP/Azure with public IP
 - **Domain**: Use your own domain with SSL certificate
 - **Load Balancer**: Use cloud provider's load balancer

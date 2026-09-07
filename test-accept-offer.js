@@ -63,7 +63,7 @@ async function getWalletInfo(token) {
   const didsResponse = await fetch(`${HOLDER_URL}/api/wallet/wallet/${walletId}/dids`, {
     headers: { Authorization: `Bearer ${token}` },
   })
-  
+
   let holderDid = null
   if (didsResponse.ok) {
     const dids = await didsResponse.json()
@@ -76,13 +76,13 @@ async function getWalletInfo(token) {
 async function checkExistingCredential(token, walletId, credentialType) {
   const checkResponse = await fetch(
     `${HOLDER_URL}/api/wallet/wallet/${walletId}/credentials/exists/${credentialType}`,
-    { headers: { Authorization: `Bearer ${token}` } }
+    { headers: { Authorization: `Bearer ${token}` } },
   )
 
   if (checkResponse.ok) {
     return await checkResponse.json()
   }
-  
+
   return { exists: false, count: 0, credentials: [] }
 }
 
@@ -90,12 +90,12 @@ async function listCredentials(token, walletId) {
   const response = await fetch(`${HOLDER_URL}/api/wallet/wallet/${walletId}/credentials`, {
     headers: { Authorization: `Bearer ${token}` },
   })
-  
+
   if (!response.ok) {
     const error = await response.text()
     throw new Error(`Failed to list credentials: ${response.status} ${error}`)
   }
-  
+
   return await response.json()
 }
 
@@ -106,21 +106,21 @@ async function createOffer() {
     throw new Error(`Failed to fetch issuer debug info: ${debugResponse.status}`)
   }
   const debugData = await debugResponse.json()
-  
-  const activeIssuer = debugData.issuers.find(i => i.credentialsSupported && i.credentialsSupported.length > 0)
+
+  const activeIssuer = debugData.issuers.find((i) => i.credentialsSupported && i.credentialsSupported.length > 0)
   if (!activeIssuer) {
     throw new Error('No active issuer with credentials found')
   }
-  
-  const cred = activeIssuer.credentialsSupported.find(c => c.format === 'jwt_vc_json')
+
+  const cred = activeIssuer.credentialsSupported.find((c) => c.format === 'jwt_vc_json')
   if (!cred) {
     throw new Error('No jwt_vc_json credential found in active issuer')
   }
-  
+
   const credDefId = cred.id.replace(/_jwt_vc_json$/, '')
   console.log('  Using credential definition ID:', credDefId)
   console.log('  From issuer:', activeIssuer.id)
-  
+
   const offerResponse = await fetch(`${ISSUER_URL}/custom-oidc/issuer/credential-offers`, {
     method: 'POST',
     headers: {
@@ -147,17 +147,14 @@ async function createOffer() {
 }
 
 async function acceptOffer(token, walletId, offerUri) {
-  const acceptResponse = await fetch(
-    `${HOLDER_URL}/api/wallet/wallet/${walletId}/exchange/useOfferRequest`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ credential_offer_uri: offerUri }),
-    }
-  )
+  const acceptResponse = await fetch(`${HOLDER_URL}/api/wallet/wallet/${walletId}/exchange/useOfferRequest`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ credential_offer_uri: offerUri }),
+  })
 
   if (!acceptResponse.ok) {
     const error = await acceptResponse.text()
@@ -184,7 +181,7 @@ async function runTest() {
   // Step 3: Check if credential already exists
   console.log('\nStep 3: Checking for existing', CREDENTIAL_TYPE, 'credential...')
   const existingCheck = await checkExistingCredential(holderToken, walletId, CREDENTIAL_TYPE)
-  
+
   if (existingCheck.exists) {
     console.log(`\n✅ ${CREDENTIAL_TYPE} already exists in wallet!`)
     console.log('   Count:', existingCheck.count)
@@ -194,12 +191,12 @@ async function runTest() {
       console.log(`       Issuer: ${c.issuer?.id || c.issuer}`)
       console.log(`       Issued: ${c.issuanceDate}`)
     })
-    
+
     console.log('\n=== ✅ TEST PASSED (credential already accepted) ===')
     console.log('No need to create a new offer - wallet already has this credential type.')
     return
   }
-  
+
   console.log('✅ No existing', CREDENTIAL_TYPE, 'found - proceeding with offer')
 
   // Step 4: Create offer on issuer
@@ -219,15 +216,15 @@ async function runTest() {
 
   // Step 6: Verify credential is now in wallet
   console.log('\nStep 6: Verifying credential is now in wallet...')
-  
+
   // Wait a moment for any async storage
-  await new Promise(resolve => setTimeout(resolve, 500))
-  
+  await new Promise((resolve) => setTimeout(resolve, 500))
+
   const credentials = await listCredentials(holderToken, walletId)
   console.log('✅ Credentials in wallet:', credentials.length)
-  
-  const newCredential = credentials.find(c => c.id === acceptResult.id || c.type === CREDENTIAL_TYPE)
-  
+
+  const newCredential = credentials.find((c) => c.id === acceptResult.id || c.type === CREDENTIAL_TYPE)
+
   if (newCredential) {
     console.log('✅ New credential found:')
     console.log('   ID:', newCredential.id)

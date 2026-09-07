@@ -180,9 +180,14 @@ export function getIssuedCredentialById(id: string): StoredIssuedCredential | nu
   }
 }
 
-export function listIssuedCredentials(filters?: { subject?: string; issuer?: string; tenantId?: string }): StoredIssuedCredential[] {
+export function listIssuedCredentials(filters?: {
+  subject?: string
+  issuer?: string
+  tenantId?: string
+}): StoredIssuedCredential[] {
   const database = ensureDb()
-  let sql = 'SELECT id, jwt, subject, issuer, created_at as createdAt, revoked, revoked_at as revokedAt, schema_id as schemaId, tenant_id as tenantId FROM issued_credentials WHERE 1=1'
+  let sql =
+    'SELECT id, jwt, subject, issuer, created_at as createdAt, revoked, revoked_at as revokedAt, schema_id as schemaId, tenant_id as tenantId FROM issued_credentials WHERE 1=1'
   const params: any[] = []
 
   if (filters?.subject) {
@@ -247,7 +252,9 @@ export function savePresentationRequest(req: StoredPresentationRequest) {
 export function getPresentationRequestById(id: string): StoredPresentationRequest | null {
   const database = ensureDb()
   const row = database
-    .prepare('SELECT id, definition, created_at as createdAt, tenant_id as tenantId, nonce, audience FROM presentation_requests WHERE id = ?')
+    .prepare(
+      'SELECT id, definition, created_at as createdAt, tenant_id as tenantId, nonce, audience FROM presentation_requests WHERE id = ?',
+    )
     .get(id) as any
   if (!row) return null
   return {

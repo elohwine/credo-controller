@@ -1,8 +1,11 @@
+import type { WorkflowExecutionResult } from './WorkflowService'
+
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { workflowRepository } from '../persistence/WorkflowRepository'
-import { WorkflowService, WorkflowExecutionResult } from './WorkflowService'
+
 import { authorizationService } from './AuthorizationService'
 import { platformRequestService } from './PlatformRequestService'
+import { WorkflowService } from './WorkflowService'
 
 /**
  * Application boundary between organizational requests and the existing
@@ -13,19 +16,21 @@ import { platformRequestService } from './PlatformRequestService'
  * and correlates an existing workflow run with a platform request.
  */
 export class PlatformWorkflowService {
-  constructor(private readonly workflowService = new WorkflowService()) {}
+  public constructor(private readonly workflowService = new WorkflowService()) {}
 
-  async startForRequest(
+  public async startForRequest(
     requestId: string,
     workflowId: string,
     tenantId: string,
     subjectRef: string,
-    input: Record<string, unknown> = {}
+    input: Record<string, unknown> = {},
   ): Promise<WorkflowExecutionResult> {
     const principal = platformRequestService.resolvePrincipal(tenantId, subjectRef)
     const db = DatabaseManager.getDatabase()
 
-    const request = db.prepare(`
+    const request = db
+      .prepare(
+        `
       SELECT
         r.id,
         r.organization_id AS organizationId,
@@ -38,13 +43,17 @@ export class PlatformWorkflowService {
         AND o.tenant_id = ?
         AND o.status = 'active'
       LIMIT 1
-    `).get(requestId, tenantId) as {
-      id?: string
-      organizationId?: string
-      requesterPersonId?: string
-      requestType?: string
-      status?: string
-    } | undefined
+    `,
+      )
+      .get(requestId, tenantId) as
+      | {
+          id?: string
+          organizationId?: string
+          requesterPersonId?: string
+          requestType?: string
+          status?: string
+        }
+      | undefined
 
     if (!request?.organizationId || !request.requesterPersonId) {
       throw new Error('Request not found')
@@ -73,42 +82,114 @@ export class PlatformWorkflowService {
       ...input,
     }
 
-    const result = await this.workflowService.executeWorkflow(
-      workflowId,
-      workflowInput,
-      tenantId,
-      { triggerType: 'manual', triggerRef: requestId, async: true }
-    )
+    const result = await this.workflowService.executeWorkflow(workflowId, workflowInput, tenantId, {
+      triggerType: 'manual',
+      triggerRef: requestId,
+      async: true,
+    })
 
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE requests
       SET workflow_id = ?, workflow_run_id = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ? AND organization_id = ?
-    `).run(workflowId, result.runId, requestId, request.organizationId)
+    `,
+    ).run(workflowId, result.runId, requestId, request.organizationId)
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO request_events (
         id, request_id, event_type, actor_person_id,
         from_status, to_status, payload_json
       ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
+    ).run(
       requestId,
       'workflow.started',
       principal.personId,
       request.status ?? null,
       request.status ?? null,
-      JSON.stringify({ workflowId, runId: result.runId })
+      JSON.stringify({ workflowId, runId: result.runId }),
     )
 
     return result
   }
 
-  async getRunStatus(requestId: string, tenantId: string, subjectRef: string) {
+  public async getRunStatus(requestId: string, tenantId: string, subjectRef: string) {
     const request = platformRequestService.getForSubject(requestId, tenantId, subjectRef)
     if (!request) throw new Error('Request not found')
     if (!request.workflow_run_id) return undefined
 
     return this.workflowService.getRunStatus(request.workflow_run_id)
+  }
+
+  public async completeTask(
+    requestId: string,
+    taskId: string,
+    tenantId: string,
+    subjectRef: string,
+    outcomeRef?: string,
+  ): Promise<WorkflowExecutionResult | undefined> {
+    const principal = platformRequestService.resolvePrincipal(tenantId, subjectRef)
+    const db = DatabaseManager.getDatabase()
+
+    const task = db
+      .prepare(
+        `SELECT t.id, t.status, t.assignee_person_id AS assigneePersonId
+         FROM request_tasks t
+         JOIN requests r ON r.id = t.request_id
+         JOIN organizations o ON o.id = r.organization_id
+         WHERE t.id = ? AND t.request_id = ? AND o.tenant_id = ?
+         LIMIT 1`,
+      )
+      .get(taskId, requestId, tenantId) as
+      | {
+          id?: string
+          status?: string
+          assigneePersonId?: string | null
+        }
+      | undefined
+
+    if (!task?.id) throw new Error('Task not found')
+    if (task.status !== 'pending') throw new Error(`Task is already ${task.status}`)
+
+    if (task.assigneePersonId && task.assigneePersonId !== principal.personId) {
+      const decision = authorizationService.decide({
+        tenantId,
+        personId: principal.personId,
+        action: 'request.task.complete',
+        requiredPermission: 'request.task.complete',
+        resourceType: 'request_task',
+        resourceId: taskId,
+      })
+      if (decision.decision !== 'allow') {
+        throw new Error(`Insufficient authority: ${decision.reasonCode}`)
+      }
+    }
+
+    db.prepare(
+      `
+      UPDATE request_tasks
+      SET status = 'completed', completed_at = CURRENT_TIMESTAMP, outcome_ref = ?
+      WHERE id = ? AND status = 'pending'
+    `,
+    ).run(outcomeRef ?? null, taskId)
+
+    const request = db
+      .prepare(
+        `SELECT r.workflow_run_id AS workflowRunId
+         FROM requests r
+         JOIN organizations o ON o.id = r.organization_id
+         WHERE r.id = ? AND o.tenant_id = ?
+         LIMIT 1`,
+      )
+      .get(requestId, tenantId) as { workflowRunId?: string | null } | undefined
+
+    if (request?.workflowRunId) {
+      return this.workflowService.resumeWorkflow(request.workflowRunId, { taskId, outcomeRef })
+    }
+
+    return undefined
   }
 }
 

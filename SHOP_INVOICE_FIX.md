@@ -19,8 +19,9 @@ await axios.post(`${holderUrl}/api/wallet/credentials/accept-offer`, ...);
 ```
 
 The problem:
+
 - The holder-api service is a separate container without direct access to the portal tenant's JWT validation context
-- The `accept-offer` endpoint requires `@Security('jwt', [SCOPES.TENANT_AGENT])` 
+- The `accept-offer` endpoint requires `@Security('jwt', [SCOPES.TENANT_AGENT])`
 - Portal tenant tokens weren't properly validated on the holder-api container
 - Cached tokens in localStorage became stale after restarts, causing 401s until cleared
 
@@ -32,18 +33,23 @@ Changed both `handleSaveInvoice` and `handleSaveReceipt` to use the main backend
 
 ```typescript
 // CORRECT - Use main backend API with proper tenant context
-const { tenantToken } = await ensurePortalTenant(backendUrl);  // backendUrl = port 3000
-const response = await axios.post(`${backendUrl}/api/wallet/credentials/accept-offer`, {
-    offerUri: invoiceUrl
-}, {
-    headers: { 
-        Authorization: `Bearer ${tenantToken}`,
-        'Content-Type': 'application/json'
-    }
-});
+const { tenantToken } = await ensurePortalTenant(backendUrl) // backendUrl = port 3000
+const response = await axios.post(
+  `${backendUrl}/api/wallet/credentials/accept-offer`,
+  {
+    offerUri: invoiceUrl,
+  },
+  {
+    headers: {
+      Authorization: `Bearer ${tenantToken}`,
+      'Content-Type': 'application/json',
+    },
+  },
+)
 ```
 
 **Why this works:**
+
 - Main backend API (port 3000) has the complete tenant security context
 - Portal tenant tokens are validated against the same agent that created them
 - Accept-offer endpoint can properly resolve the tenant and store credentials
@@ -53,7 +59,7 @@ const response = await axios.post(`${backendUrl}/api/wallet/credentials/accept-o
 If `accept-offer` returns 401, the shop now forces a tenant token refresh and retries once:
 
 ```typescript
-const { tenantToken } = await ensurePortalTenant(backendUrl, { forceRefresh: true });
+const { tenantToken } = await ensurePortalTenant(backendUrl, { forceRefresh: true })
 ```
 
 ### 3. Fixed Excessive Cart Polling (line 71-82)
@@ -75,6 +81,7 @@ const { cart: pollingCart } = useCartPolling(
 ```
 
 **Benefits:**
+
 - Stops polling GET requests before invoice is saved to wallet
 - Reduces server load during invoice confirmation stage
 - Only enables polling when payment is actually expected
@@ -90,7 +97,7 @@ To verify the fix:
    - Should show success message instead of 401 error
    - Credential will be stored in wallet
 5. **Simulate payment** via EcoCash webhook
-6. **In receipt step**, click "Save Receipt to Wallet"  
+6. **In receipt step**, click "Save Receipt to Wallet"
    - Should succeed and store receipt credential
 
 ## Related Files Modified

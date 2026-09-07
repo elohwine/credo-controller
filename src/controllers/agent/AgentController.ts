@@ -96,9 +96,9 @@ export class AgentController extends Controller {
     try {
       let secretKey = process.env.JWT_SECRET
       if (!secretKey) {
-          const genericRecords = await request.agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
-          console.log('[AgentController] found generic records:', genericRecords.length)
-          secretKey = genericRecords[0]?.content.secretKey as string
+        const genericRecords = await request.agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
+        console.log('[AgentController] found generic records:', genericRecords.length)
+        secretKey = genericRecords[0]?.content.secretKey as string
       }
 
       if (!secretKey) {

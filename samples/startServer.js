@@ -1,7 +1,26 @@
 const { startServer } = require('../build/index')
 const express = require('express')
 const { Router } = require('express')
-const { Agent, AutoAcceptCredential, AutoAcceptProof, ConnectionsModule, CredentialsModule, DidsModule, HttpOutboundTransport, KeyDidRegistrar, KeyDidResolver, LogLevel, ProofsModule, WebDidResolver, W3cCredentialsModule, W3cCredential, W3cCredentialSubject, W3cIssuer, ClaimFormat, JsonTransformer } = require('@credo-ts/core')
+const {
+  Agent,
+  AutoAcceptCredential,
+  AutoAcceptProof,
+  ConnectionsModule,
+  CredentialsModule,
+  DidsModule,
+  HttpOutboundTransport,
+  KeyDidRegistrar,
+  KeyDidResolver,
+  LogLevel,
+  ProofsModule,
+  WebDidResolver,
+  W3cCredentialsModule,
+  W3cCredential,
+  W3cCredentialSubject,
+  W3cIssuer,
+  ClaimFormat,
+  JsonTransformer,
+} = require('@credo-ts/core')
 const { AskarModule, AskarMultiWalletDatabaseScheme } = require('@credo-ts/askar')
 const { TenantsModule } = require('@credo-ts/tenants')
 const { OpenId4VcIssuerModule, OpenId4VcVerifierModule, OpenId4VcHolderModule } = require('@credo-ts/openid4vc')
@@ -34,11 +53,11 @@ async function run() {
       const issuers = await agent.modules.openId4VcIssuer.getAllIssuers()
       res.json({
         count: issuers.length,
-        issuers: issuers.map(i => ({
+        issuers: issuers.map((i) => ({
           id: i.issuerId,
           credentialsSupported: i.credentialsSupported,
-          display: i.display
-        }))
+          display: i.display,
+        })),
       })
     } catch (e) {
       res.status(500).json({ error: e.message })
@@ -62,8 +81,8 @@ async function run() {
         ariesAskar,
         multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.ProfilePerWallet,
         config: {
-          storagePath: process.env.ASKAR_STORAGE_PATH || './data/askar-issuer'
-        }
+          storagePath: process.env.ASKAR_STORAGE_PATH || './data/askar-issuer',
+        },
       }),
       tenants: new TenantsModule({
         sessionAcquireTimeout: maxTimerMs,
@@ -85,7 +104,12 @@ async function run() {
           credentialOffer: {},
           accessToken: {},
           credential: {
-            credentialRequestToCredentialMapper: async ({ agentContext, issuanceSession, holderBinding, credentialConfigurationIds }) => {
+            credentialRequestToCredentialMapper: async ({
+              agentContext,
+              issuanceSession,
+              holderBinding,
+              credentialConfigurationIds,
+            }) => {
               console.log('[startServer] === CREDENTIAL MAPPER START ===')
               console.log('[startServer] issuanceSession keys:', Object.keys(issuanceSession || {}))
               const metadata = issuanceSession?.issuanceMetadata || {}
@@ -112,8 +136,8 @@ async function run() {
                 const created = await didsApi.create({
                   method: 'key',
                   options: {
-                    keyType: KeyType.Ed25519
-                  }
+                    keyType: KeyType.Ed25519,
+                  },
                 })
                 issuerDid = created.didState.did
               } else {
@@ -122,7 +146,8 @@ async function run() {
 
               // Get the verification method (key reference) for signing
               const issuerDidDocument = await didsApi.resolveDidDocument(issuerDid)
-              const verificationMethod = issuerDidDocument.verificationMethod?.[0]?.id || `${issuerDid}#${issuerDid.replace('did:key:', '')}`
+              const verificationMethod =
+                issuerDidDocument.verificationMethod?.[0]?.id || `${issuerDid}#${issuerDid.replace('did:key:', '')}`
 
               // Normalize claims - ensure we have a flat object
               let normalizedClaims = claims || {}
@@ -199,16 +224,18 @@ async function run() {
     // This ensures QuoteVC, ReceiptVC etc are all registered correctly.
     const { credentialDefinitionStore } = require('../build/utils/credentialDefinitionStore')
     const allDefinitions = credentialDefinitionStore.list() || []
-    const demoTypes = Array.from(new Set([
-      'GenericIDCredential',
-      'CartSnapshotVC',
-      'InvoiceVC',
-      'ReceiptVC',
-      'EmploymentContractVC',
-      'QuoteVC',
-      'ApprovalVC',
-      ...allDefinitions.map(d => d.name)
-    ]))
+    const demoTypes = Array.from(
+      new Set([
+        'GenericIDCredential',
+        'CartSnapshotVC',
+        'InvoiceVC',
+        'ReceiptVC',
+        'EmploymentContractVC',
+        'QuoteVC',
+        'ApprovalVC',
+        ...allDefinitions.map((d) => d.name),
+      ]),
+    )
 
     console.log(`ℹ️ Advertising ${demoTypes.length} types: ${demoTypes.join(', ')}`)
 
@@ -320,11 +347,11 @@ async function run() {
       const issuers = await agent.modules.openId4VcIssuer.getAllIssuers()
       res.json({
         count: issuers.length,
-        issuers: issuers.map(i => ({
+        issuers: issuers.map((i) => ({
           id: i.issuerId,
           credentialsSupported: i.credentialsSupported,
-          issuerUrl: `${process.env.PUBLIC_BASE_URL || 'http://api:3000'}/oidc/issuer/${i.issuerId}` // Debug helper
-        }))
+          issuerUrl: `${process.env.PUBLIC_BASE_URL || 'http://api:3000'}/oidc/issuer/${i.issuerId}`, // Debug helper
+        })),
       })
     } catch (e) {
       res.status(500).json({ error: e.message })
@@ -338,7 +365,6 @@ async function run() {
   // process.env.OFFER_PUSH_URL = process.env.OFFER_PUSH_URL || 'http://localhost:6000/api/wallet/holder-wallet/exchange/useOfferRequest'
   process.env.OFFER_PUSH_API_KEY = process.env.OFFER_PUSH_API_KEY || 'holder-api-key-12345'
 
-
   const server = await startServer(
     agent,
     {
@@ -347,7 +373,7 @@ async function run() {
       webhookUrl: process.env.WEBHOOK_URL,
       app,
     },
-    'test-api-key-12345'
+    'test-api-key-12345',
   )
   // server.keepAliveTimeout = 0; // Disable keep-alive to prevent socket hang ups
   // server.headersTimeout = 66000; // Not needed if keep-alive is 0

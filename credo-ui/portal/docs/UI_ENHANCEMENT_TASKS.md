@@ -6,24 +6,24 @@
 
 ## 🎨 Color Palette (Credentis Brand)
 
-| Token | Hex | Usage |
-|-------|-----|-------|
-| **Curious Blue** | `#2188CA` | Primary actions, links, headers |
-| **Link Water** | `#D0E6F3` | Background, light surfaces (replaces white) |
-| **Viking** | `#6FB4DC` | Secondary accents, hover states |
-| **Cornflower** | `#88C4E3` | Tertiary, borders, subtle highlights |
+| Token            | Hex       | Usage                                       |
+| ---------------- | --------- | ------------------------------------------- |
+| **Curious Blue** | `#2188CA` | Primary actions, links, headers             |
+| **Link Water**   | `#D0E6F3` | Background, light surfaces (replaces white) |
+| **Viking**       | `#6FB4DC` | Secondary accents, hover states             |
+| **Cornflower**   | `#88C4E3` | Tertiary, borders, subtle highlights        |
 
 ---
 
 ## 📚 Library Stack (Finalized)
 
-| Library | Role | Install |
-|---------|------|---------|
-| **Mantine v7+** | Core UI (forms, layout, modals, tables) | `@mantine/core @mantine/hooks @mantine/form @mantine/notifications` |
-| **React Bits** | Micro-interactions (text animations, magnet cursors) | Copy components from reactbits.dev |
-| **Glassmorphism CSS** | Visual layer for trust surfaces | Custom CSS (see below) |
-| **Framer Motion** | Animations | `framer-motion` |
-| **Tabler Icons** | Icons | `@tabler/icons-react` |
+| Library               | Role                                                 | Install                                                             |
+| --------------------- | ---------------------------------------------------- | ------------------------------------------------------------------- |
+| **Mantine v7+**       | Core UI (forms, layout, modals, tables)              | `@mantine/core @mantine/hooks @mantine/form @mantine/notifications` |
+| **React Bits**        | Micro-interactions (text animations, magnet cursors) | Copy components from reactbits.dev                                  |
+| **Glassmorphism CSS** | Visual layer for trust surfaces                      | Custom CSS (see below)                                              |
+| **Framer Motion**     | Animations                                           | `framer-motion`                                                     |
+| **Tabler Icons**      | Icons                                                | `@tabler/icons-react`                                               |
 
 ---
 
@@ -32,6 +32,7 @@
 ### Phase 0.1: Foundation Setup
 
 - [ ] **Task 1:** Install Mantine and configure theme with Credentis palette
+
   ```bash
   cd credo-ui/portal && npm install @mantine/core @mantine/hooks @mantine/form @mantine/notifications @tabler/icons-react framer-motion
   ```
@@ -97,11 +98,7 @@ Create `styles/glass.css` with controlled glass classes:
 .glass-credential {
   backdrop-filter: blur(20px) saturate(200%);
   -webkit-backdrop-filter: blur(20px) saturate(200%);
-  background: linear-gradient(
-    135deg,
-    rgba(208, 230, 243, 0.9) 0%,
-    rgba(136, 196, 227, 0.8) 100%
-  );
+  background: linear-gradient(135deg, rgba(208, 230, 243, 0.9) 0%, rgba(136, 196, 227, 0.8) 100%);
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.3);
 }
@@ -121,14 +118,14 @@ Create `styles/glass.css` with controlled glass classes:
 ### Phase 0.4: Navigation & Layout Improvements
 
 - [ ] **Task 6:** Reorganize nav into logical groups:
-  
-  | Group | Items |
-  |-------|-------|
-  | **Core** | Home, Credentials |
-  | **Commerce** | Catalog, Finance, Inventory |
-  | **Operations** | HR, Onboarding, Payroll |
-  | **Trust** | Trust, Revocation, Workflows |
-  | **System** | Metrics, WhatsApp |
+
+  | Group          | Items                        |
+  | -------------- | ---------------------------- |
+  | **Core**       | Home, Credentials            |
+  | **Commerce**   | Catalog, Finance, Inventory  |
+  | **Operations** | HR, Onboarding, Payroll      |
+  | **Trust**      | Trust, Revocation, Workflows |
+  | **System**     | Metrics, WhatsApp            |
 
 - [ ] **Task 7:** Add collapsible sidebar for desktop, drawer for mobile
 
@@ -142,13 +139,13 @@ Create `styles/glass.css` with controlled glass classes:
 
 Apply Mantine spacing scale consistently:
 
-| Spacing | Use Case |
-|---------|----------|
-| `xs` (4px) | Inline icon gaps |
-| `sm` (8px) | Form field margins |
-| `md` (16px) | Section padding |
-| `lg` (24px) | Card padding |
-| `xl` (32px) | Page section gaps |
+| Spacing     | Use Case           |
+| ----------- | ------------------ |
+| `xs` (4px)  | Inline icon gaps   |
+| `sm` (8px)  | Form field margins |
+| `md` (16px) | Section padding    |
+| `lg` (24px) | Card padding       |
+| `xl` (32px) | Page section gaps  |
 
 - [ ] **Task 10:** Replace all raw pixel values with Mantine spacing tokens
 
@@ -162,12 +159,12 @@ Apply Mantine spacing scale consistently:
 
 **Safe React Bits components to use:**
 
-| Component | Use Case |
-|-----------|----------|
-| `SplitText` | Hero headings, page titles |
-| `Aurora` | Background for wallet/holder views |
-| `Dock` | Quick action bar (wallet only) |
-| `Magnet` | Interactive credential cards |
+| Component   | Use Case                           |
+| ----------- | ---------------------------------- |
+| `SplitText` | Hero headings, page titles         |
+| `Aurora`    | Background for wallet/holder views |
+| `Dock`      | Quick action bar (wallet only)     |
+| `Magnet`    | Interactive credential cards       |
 
 **Framer Motion patterns:**
 
@@ -198,32 +195,35 @@ Apply Mantine spacing scale consistently:
 
 Components where glass IS appropriate:
 
-| Component | Description |
-|-----------|-------------|
+| Component        | Description                          |
+| ---------------- | ------------------------------------ |
 | `CredentialCard` | Display issued VCs with glass effect |
-| `ProofResult` | Verification success/failure |
-| `VerifiedSeal` | Animated checkmark with glass glow |
-| `WalletIdentity` | User DID display |
-| `TrustScore` | Merchant trust visualization |
-| `PaymentReceipt` | Receipt VC presentation |
+| `ProofResult`    | Verification success/failure         |
+| `VerifiedSeal`   | Animated checkmark with glass glow   |
+| `WalletIdentity` | User DID display                     |
+| `TrustScore`     | Merchant trust visualization         |
+| `PaymentReceipt` | Receipt VC presentation              |
 
 ---
 
 ## ✅ Compliance Checklist
 
 ### Glass Rules
+
 - [ ] Glass only on trust/proof surfaces
 - [ ] No glass on forms, inputs, buttons
 - [ ] No glass on admin/issuer/verifier pages
 - [ ] Glass consumes theme colors, never defines new ones
 
 ### Mantine Rules
+
 - [ ] All colors from theme tokens
 - [ ] All spacing from theme scale
 - [ ] Default radius: 8px structural, 12-16px glass
 - [ ] Focus states respect accessibility
 
 ### Animation Rules
+
 - [ ] Motion reveals truth (proof, verification)
 - [ ] No animation on navigation
 - [ ] No animation on inputs
@@ -242,15 +242,15 @@ Components where glass IS appropriate:
 
 ## 🔗 Official Documentation Links
 
-| Resource | URL |
-|----------|-----|
-| Mantine Getting Started | https://mantine.dev/getting-started/ |
-| Mantine Theme Object | https://mantine.dev/theming/theme-object/ |
-| Mantine UI Components | https://ui.mantine.dev/ |
-| React Bits | https://www.reactbits.dev/ |
-| Glass UI Generator | https://ui.glass/generator/ |
-| Framer Motion | https://www.framer.com/motion/ |
-| Tabler Icons | https://tabler.io/icons |
+| Resource                | URL                                       |
+| ----------------------- | ----------------------------------------- |
+| Mantine Getting Started | https://mantine.dev/getting-started/      |
+| Mantine Theme Object    | https://mantine.dev/theming/theme-object/ |
+| Mantine UI Components   | https://ui.mantine.dev/                   |
+| React Bits              | https://www.reactbits.dev/                |
+| Glass UI Generator      | https://ui.glass/generator/               |
+| Framer Motion           | https://www.framer.com/motion/            |
+| Tabler Icons            | https://tabler.io/icons                   |
 
 ---
 
@@ -272,4 +272,4 @@ Wallet/Holder/Proof (Mantine + Glass Accents)
 └── Message: "This proof is real"
 ```
 
-> **Remember:** Glass is where *belief* happens.
+> **Remember:** Glass is where _belief_ happens.

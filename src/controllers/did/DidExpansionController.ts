@@ -269,10 +269,7 @@ export class DidExpansionController extends Controller {
   /** Verify a published did:web by fetching remote did.json via agent resolution and comparing id */
   @Get('verify-web/{domain}')
   @Security('jwt', ['tenant'])
-  public async verifyPublishedDidWeb(
-    @Request() request: ExRequest,
-    @Path() domain: string,
-  ): Promise<any> {
+  public async verifyPublishedDidWeb(@Request() request: ExRequest, @Path() domain: string): Promise<any> {
     const norm = domain
       .trim()
       .toLowerCase()

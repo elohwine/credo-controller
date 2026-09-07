@@ -31,6 +31,7 @@ chmod +x scripts/setup-ui.sh
 ```
 
 This will:
+
 - Clone walt.id identity repository into `credo-ui/`
 - Install dependencies
 - Create `.env.local` files with Credo backend URLs
@@ -39,23 +40,28 @@ This will:
 ### 2. Start Services
 
 **Terminal 1 - Credo Backend:**
+
 ```bash
 yarn dev
 # Runs on http://localhost:3000
 ```
 
 **Terminal 2 - Web Wallet (demo):**
+
 ```bash
 cd credo-ui && ./start-wallet.sh
 # Runs on http://localhost:4001
 ```
 
 **Terminal 3 - Web Portal:**
+
 ```bash
 cd credo-ui && ./start-portal.sh
 # Runs on http://localhost:5000
 ```
+
 If you need to launch the portal manually (e.g., for debugging), set the `PORT` env var so Next binds to 5000:
+
 ```bash
 cd credo-ui/waltid-identity/waltid-applications/waltid-web-portal
 PORT=5000 yarn dev
@@ -68,6 +74,7 @@ PORT=5000 yarn dev
 #### 1. Create Credential Offer
 
 **UI Request:**
+
 ```javascript
 POST /api/issuer/credential-offers
 Content-Type: application/json
@@ -93,6 +100,7 @@ Authorization: Bearer <tenant-token>
 **Credo Backend:** `POST /oidc/issuer/credential-offers`
 
 **Response:**
+
 ```json
 {
   "offerId": "uuid",
@@ -113,6 +121,7 @@ Authorization: Bearer <tenant-token>
 #### 2. Redeem Offer (Wallet)
 
 **UI Request:**
+
 ```javascript
 POST /api/issuer/token
 Content-Type: application/x-www-form-urlencoded
@@ -125,6 +134,7 @@ grant_type=urn:ietf:params:oauth:grant-type:pre-authorized_code
 **Credo Backend:** `POST /oidc/token`
 
 **Response:**
+
 ```json
 {
   "credentialId": "uuid",
@@ -135,6 +145,7 @@ grant_type=urn:ietf:params:oauth:grant-type:pre-authorized_code
 #### 3. Store in Wallet
 
 **UI Request:**
+
 ```javascript
 POST /api/wallet/credentials
 Content-Type: application/json
@@ -153,6 +164,7 @@ Authorization: Bearer <tenant-token>
 #### 1. Create Presentation Request
 
 **UI Request:**
+
 ```javascript
 POST /api/verifier/presentation-requests
 Content-Type: application/json
@@ -167,6 +179,7 @@ Authorization: Bearer <tenant-token>
 **Credo Backend:** `POST /oidc/verifier/presentation-requests`
 
 **Response:**
+
 ```json
 {
   "requestId": "uuid",
@@ -183,6 +196,7 @@ Wallet creates VP JWT with nonce and signs with holder DID.
 #### 3. Verify Presentation
 
 **UI Request:**
+
 ```javascript
 POST /api/verifier/verify
 Content-Type: application/json
@@ -197,6 +211,7 @@ Authorization: Bearer <tenant-token>
 **Credo Backend:** `POST /oidc/verifier/verify`
 
 **Response:**
+
 ```json
 {
   "verified": true,
@@ -314,6 +329,7 @@ const response = await fetch(`${ISSUER_API}/issuer/credential-offers`, {
 ### Token Management
 
 1. **Admin creates tenant:**
+
 ```bash
 curl -X POST http://localhost:3000/multi-tenancy/create-tenant \
   -H "Authorization: Bearer <admin-api-key>" \
@@ -327,6 +343,7 @@ curl -X POST http://localhost:3000/multi-tenancy/create-tenant \
 Response includes `token` - store securely in UI.
 
 2. **UI includes token in all requests:**
+
 ```javascript
 headers: {
   'Authorization': `Bearer ${tenantToken}`,
@@ -447,22 +464,26 @@ docker build -t credo-portal-ui ./waltid-applications/waltid-web-portal
 ### Issue: CORS errors
 
 **Solution:** Update `src/server.ts`:
+
 ```typescript
-app.use(cors({
-  origin: [
-    'http://localhost:4000',
-    'http://localhost:4001',
-    'http://localhost:5000',
-    process.env.WALLET_UI_URL,
-    process.env.PORTAL_UI_URL
-  ],
-  credentials: true
-}))
+app.use(
+  cors({
+    origin: [
+      'http://localhost:4000',
+      'http://localhost:4001',
+      'http://localhost:5000',
+      process.env.WALLET_UI_URL,
+      process.env.PORTAL_UI_URL,
+    ],
+    credentials: true,
+  }),
+)
 ```
 
 ### Issue: Tenant not found
 
 **Solution:** Ensure tenant token is valid:
+
 ```bash
 # Decode JWT
 echo "<token>" | cut -d. -f2 | base64 -d | jq
@@ -471,6 +492,7 @@ echo "<token>" | cut -d. -f2 | base64 -d | jq
 ### Issue: Credential offer not accepted
 
 **Solution:** Check offer format matches OIDC4VCI spec. Enable debug logs:
+
 ```bash
 DEBUG=* yarn dev
 ```

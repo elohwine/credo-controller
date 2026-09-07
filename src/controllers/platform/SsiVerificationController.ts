@@ -17,11 +17,12 @@ export class SsiVerificationController {
   @Post('verify')
   public async verify(
     @Request() request: ExRequest,
-    @Body() body: {
+    @Body()
+    body: {
       state: string
       verifiablePresentation: string
       presentationSubmission?: unknown
-    }
+    },
   ) {
     if (!body?.state || !body.verifiablePresentation) {
       throw new Error('state and verifiablePresentation are required')

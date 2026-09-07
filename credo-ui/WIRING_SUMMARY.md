@@ -3,37 +3,46 @@
 ## ✅ Completed Changes
 
 ### 1. **Portal Configuration** (`waltid-web-portal`)
+
 - **next.config.js**: Updated default URLs to point to Credo backend
+
   - `NEXT_PUBLIC_ISSUER`: `http://localhost:3000/oidc/issuer`
   - `NEXT_PUBLIC_VERIFIER`: `http://localhost:3000/oidc/verifier`
   - `NEXT_PUBLIC_VC_REPO`: `http://localhost:3000`
 
-- **utils/getOfferUrl.tsx**: 
+- **utils/getOfferUrl.tsx**:
+
   - Changed OpenID metadata endpoint to Credo format: `/tenants/{tenantId}/.well-known/openid-credential-issuer`
   - Transformed credential offer payload to match Credo API format
   - Added tenant authentication headers
 
 - **pages/verify/index.tsx**:
+
   - Updated issuer metadata fetch to use Credo tenant endpoint
   - Changed presentation request to call `/oidc/verifier/presentation-requests`
 
-- **pages/_app.tsx**:
+- **pages/\_app.tsx**:
+
   - Replaced walt.id credential repository with Credo `/schemas/credential-definitions`
   - Added tenant authentication headers
 
 - **.env.local**: Added all required environment variables with Credo defaults
 
 ### 2. **Wallet Configuration** (`waltid-web-wallet`)
+
 - **nuxt.config.ts** (demo-wallet):
+
   - Updated devProxy to route `/wallet-api/` calls to Credo backend
   - Configured path rewriting for API compatibility
 
-- **.env.local**: 
+- **.env.local**:
   - Added Nuxt-specific environment variables
   - Configured wallet backend URL: `http://localhost:3000/api/wallet`
 
 ### 3. **Cleanup Actions**
+
 Removed unnecessary files and directories:
+
 - ❌ `waltid-libraries/` - Backend libraries not needed
 - ❌ `docker compose/` - Walt.id deployment configs
 - ❌ `.github/` - CI/CD workflows
@@ -41,32 +50,36 @@ Removed unnecessary files and directories:
 - ❌ `waltid-android/` - Mobile app
 - ❌ `waltid-cli/` - CLI tools
 - ❌ `waltid-crypto-ios-testApp/` - iOS test apps
-- ❌ `waltid-openid4vc-ios-testApp/` - iOS test apps  
+- ❌ `waltid-openid4vc-ios-testApp/` - iOS test apps
 - ❌ `waltid-web-web3login/` - Web3 login component
 
 ## 📋 API Endpoint Mappings
 
 ### Issuer Flow
-| Walt.id UI Call | Credo Backend Endpoint |
-|----------------|------------------------|
-| `POST /openid4vc/jwt/issue` | `POST /oidc/issuer/credential-offers` |
+
+| Walt.id UI Call                                       | Credo Backend Endpoint                                         |
+| ----------------------------------------------------- | -------------------------------------------------------------- |
+| `POST /openid4vc/jwt/issue`                           | `POST /oidc/issuer/credential-offers`                          |
 | `GET /{version}/.well-known/openid-credential-issuer` | `GET /tenants/{tenantId}/.well-known/openid-credential-issuer` |
 
 ### Verifier Flow
-| Walt.id UI Call | Credo Backend Endpoint |
-|----------------|------------------------|
+
+| Walt.id UI Call          | Credo Backend Endpoint                      |
+| ------------------------ | ------------------------------------------- |
 | `POST /openid4vc/verify` | `POST /oidc/verifier/presentation-requests` |
 
 ### Wallet Flow
-| Walt.id UI Call | Credo Backend Endpoint |
-|----------------|------------------------|
-| `GET /wallet-api/wallet/{id}/dids` | `GET /api/wallet/metadata` |
-| `POST /wallet-api/wallet/{id}/exchange/useOfferRequest` | `POST /oidc/token` |
-| `GET /wallet-api/wallet/{id}/credentials` | `GET /api/wallet/credentials` |
+
+| Walt.id UI Call                                         | Credo Backend Endpoint        |
+| ------------------------------------------------------- | ----------------------------- |
+| `GET /wallet-api/wallet/{id}/dids`                      | `GET /api/wallet/metadata`    |
+| `POST /wallet-api/wallet/{id}/exchange/useOfferRequest` | `POST /oidc/token`            |
+| `GET /wallet-api/wallet/{id}/credentials`               | `GET /api/wallet/credentials` |
 
 ## 🔑 Required Environment Variables
 
 ### Portal (.env.local)
+
 ```bash
 NEXT_PUBLIC_TENANT_ID=default
 NEXT_PUBLIC_TENANT_TOKEN=<from-tenant-creation>
@@ -76,6 +89,7 @@ NEXT_PUBLIC_BACKEND_URL=http://localhost:3000
 ```
 
 ### Wallet (.env.local)
+
 ```bash
 NUXT_PUBLIC_TENANT_ID=default
 NUXT_PUBLIC_TENANT_TOKEN=<from-tenant-creation>
@@ -100,6 +114,7 @@ NUXT_PUBLIC_ISSUER_URL=http://localhost:3000/oidc
 6. **Test Flow**: Create credential offer in portal → accept in wallet → verify
 
 ## 📁 Cleaned File Structure
+
 ```
 credo-ui/
 ├── waltid-identity/

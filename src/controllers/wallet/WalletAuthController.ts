@@ -8,9 +8,18 @@ import { Agent, Key, KeyType, TypedArrayEncoder, W3cCredentialService } from '@c
 import { container, inject, injectable } from 'tsyringe'
 import { SSIAuthService } from '../../services/SSIAuthService'
 import { saveWalletCredential, getWalletCredentialsByWalletId } from '../../persistence/WalletCredentialRepository'
-import { saveLoginChallenge, getLoginChallenge, deleteLoginChallenge, cleanupExpiredChallenges } from '../../persistence/LoginChallengeRepository'
+import {
+  saveLoginChallenge,
+  getLoginChallenge,
+  deleteLoginChallenge,
+  cleanupExpiredChallenges,
+} from '../../persistence/LoginChallengeRepository'
 import { getWalletUserByWalletId } from '../../persistence/UserRepository'
-import { findTenantByPhone, claimTenantForUser, getTenantCredentialCount } from '../../services/PhoneTenantLinkingService'
+import {
+  findTenantByPhone,
+  claimTenantForUser,
+  getTenantCredentialCount,
+} from '../../services/PhoneTenantLinkingService'
 import { UnauthorizedError } from '../../errors/errors'
 import { AgentRole } from '../../enums'
 import type { RestMultiTenantAgentModules } from '../../cliAgent'
@@ -19,19 +28,19 @@ import type { VerifyPresentationRequestBody } from '../../types/api'
 interface LoginRequest {
   username?: string
   email?: string
-  phone?: string  // Fastlane: Support phone-based login
-  pin?: string    // SSI: Optional PIN for Web2-friendly login
+  phone?: string // Fastlane: Support phone-based login
+  pin?: string // SSI: Optional PIN for Web2-friendly login
   [key: string]: any // Allow additional properties from auth module
 }
 
 interface RegisterRequest {
   username: string
-  email?: string    // Optional if phone is provided
-  phone?: string    // Fastlane: Phone-first registration
-  pin?: string      // SSI: Optional PIN for Web2-friendly login fallback
+  email?: string // Optional if phone is provided
+  phone?: string // Fastlane: Phone-first registration
+  pin?: string // SSI: Optional PIN for Web2-friendly login fallback
   tenantType?: 'USER' | 'ORG'
   domain?: string
-  claimExistingTenant?: boolean  // If true, claim any existing tenant linked to this phone
+  claimExistingTenant?: boolean // If true, claim any existing tenant linked to this phone
 }
 
 interface LoginChallengeResponse {
@@ -69,14 +78,15 @@ interface WalletListings {
 @Tags('Wallet-Auth')
 @injectable()
 export class WalletAuthController extends Controller {
-  constructor(
-    @inject(SSIAuthService) private ssiAuthService: SSIAuthService
-  ) {
+  constructor(@inject(SSIAuthService) private ssiAuthService: SSIAuthService) {
     super()
   }
 
   @Post('/register')
-  public async register(@Request() request: ExRequest, @Body() body: RegisterRequest): Promise<{ 
+  public async register(
+    @Request() request: ExRequest,
+    @Body() body: RegisterRequest,
+  ): Promise<{
     message: string
     walletId: string
     holderDid?: string
@@ -88,96 +98,102 @@ export class WalletAuthController extends Controller {
 
     // Fastlane: Check if phone has an associated anonymous tenant
     if (body.claimExistingTenant && body.phone) {
-        // Use SSIAuthService (temp_phone_links) instead of PhoneTenantLinkingService (browser_session_tenants)
-        // to ensure compatibility with WhatsApp/Checkout flows
-        const existingTenantId = await this.ssiAuthService.findTenantByPhone(body.phone)
-        
-        if (existingTenantId) {
-            // Check if it's already claimed/registered? 
-            // SSIAuthService.findTenantByPhone returns IDs from temp links (unclaimed usually)
-            // or we can check via ssi_users table if we had that method exposed
-            
-            // Assume if it's in temp links, it's a candidate for claiming
-            // OR it might be the registered tenant ID if we updated checkout logic
-            claimExistingTenantId = existingTenantId
-            
-            // Optional: Get credential count for logging
-            try {
-                existingCredentialsCount = getTenantCredentialCount(existingTenantId)
-            } catch (e) {
-                // Ignore count error
-            }
+      // Use SSIAuthService (temp_phone_links) instead of PhoneTenantLinkingService (browser_session_tenants)
+      // to ensure compatibility with WhatsApp/Checkout flows
+      const existingTenantId = await this.ssiAuthService.findTenantByPhone(body.phone)
 
-            request.logger?.info({ 
-                phone: body.phone, 
-                tenantId: claimExistingTenantId, 
-                creds: existingCredentialsCount 
-            }, 'Found existing tenant to claim via SSIAuthService')
+      if (existingTenantId) {
+        // Check if it's already claimed/registered?
+        // SSIAuthService.findTenantByPhone returns IDs from temp links (unclaimed usually)
+        // or we can check via ssi_users table if we had that method exposed
+
+        // Assume if it's in temp links, it's a candidate for claiming
+        // OR it might be the registered tenant ID if we updated checkout logic
+        claimExistingTenantId = existingTenantId
+
+        // Optional: Get credential count for logging
+        try {
+          existingCredentialsCount = getTenantCredentialCount(existingTenantId)
+        } catch (e) {
+          // Ignore count error
         }
+
+        request.logger?.info(
+          {
+            phone: body.phone,
+            tenantId: claimExistingTenantId,
+            creds: existingCredentialsCount,
+          },
+          'Found existing tenant to claim via SSIAuthService',
+        )
+      }
     }
 
     try {
-        const result = await this.ssiAuthService.register({
-            username: body.username,
-            pin: body.pin,
-            email: body.email,
-            phone: body.phone,
-            claimExistingTenantId
-        })
+      const result = await this.ssiAuthService.register({
+        username: body.username,
+        pin: body.pin,
+        email: body.email,
+        phone: body.phone,
+        claimExistingTenantId,
+      })
 
-        // If we claimed a tenant, ensure the link is finalized
-        if (claimExistingTenantId) {
-             try {
-                // If we accessed the user ID from the result (implied), we'd use it here.
-                // The service handles most logic, but let's confirm usage.
-             } catch (e) {
-                 // ignore
-             }
+      // If we claimed a tenant, ensure the link is finalized
+      if (claimExistingTenantId) {
+        try {
+          // If we accessed the user ID from the result (implied), we'd use it here.
+          // The service handles most logic, but let's confirm usage.
+        } catch (e) {
+          // ignore
         }
+      }
 
-        return {
-            message: 'User registered successfully (SSI)',
-            walletId: result.walletId,
-            claimedExistingTenant: !!claimExistingTenantId,
-            existingCredentialsCount
-        }
+      return {
+        message: 'User registered successfully (SSI)',
+        walletId: result.walletId,
+        claimedExistingTenant: !!claimExistingTenantId,
+        existingCredentialsCount,
+      }
     } catch (e: any) {
-        if (e.message.includes('already exists')) {
-            this.setStatus(400)
-        } else {
-            console.error('Registration failed:', e)
-            this.setStatus(500)
-        }
-        throw e
+      if (e.message.includes('already exists')) {
+        this.setStatus(400)
+      } else {
+        console.error('Registration failed:', e)
+        this.setStatus(500)
+      }
+      throw e
     }
   }
 
   @Post('/login')
-  public async login(@Request() request: ExRequest, @Body() body: LoginRequest): Promise<{ token: string; hasGenericId?: boolean }> {
+  public async login(
+    @Request() request: ExRequest,
+    @Body() body: LoginRequest,
+  ): Promise<{ token: string; hasGenericId?: boolean }> {
     console.log('[LOGIN] ===== START LOGIN FLOW (SSI) =====')
 
     try {
-        // If no PIN provided, we can't do PIN-based login
-        if (!body.pin) {
-            this.setStatus(400)
-            throw new Error('PIN required for login')
-        }
+      // If no PIN provided, we can't do PIN-based login
+      if (!body.pin) {
+        this.setStatus(400)
+        throw new Error('PIN required for login')
+      }
 
-        const result = await this.ssiAuthService.loginWithPin({
-            phone: body.phone,
-            email: body.email || (body.username?.includes('@') ? body.username : undefined),
-            pin: body.pin
-        })
+      const result = await this.ssiAuthService.loginWithPin({
+        phone: body.phone,
+        email: body.email || (body.username?.includes('@') ? body.username : undefined),
+        pin: body.pin,
+      })
 
-        console.log('[LOGIN] User authenticated via SSI Service')
-        return {
-            token: result.token,
-            hasGenericId: true 
-        }
+      console.log('[LOGIN] User authenticated via SSI Service')
+      return {
+        token: result.token,
+        hasGenericId: true,
+      }
     } catch (e: any) {
-        console.log('[LOGIN] Authentication failed:', e.message)
-        this.setStatus(401)
-        throw new Error('Invalid credentials')
+      console.log('[LOGIN] Authentication failed:', e.message)
+      this.setStatus(401)
+      throw new Error('Invalid credentials')
     }
   }
 
@@ -185,7 +201,9 @@ export class WalletAuthController extends Controller {
    * Initiate Vc-Based Login (SIOPv2)
    */
   @Post('/login-wallet')
-  public async loginWithWallet(@Request() request: ExRequest): Promise<{ authorizationRequest: string; state: string }> {
+  public async loginWithWallet(
+    @Request() request: ExRequest,
+  ): Promise<{ authorizationRequest: string; state: string }> {
     const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
 
     // Define what we are asking for: The 'GenericID' credential
@@ -202,29 +220,29 @@ export class WalletAuthController extends Controller {
                 path: ['$.type'],
                 filter: {
                   type: 'array',
-                  contains: { const: 'GenericID' }
-                }
-              }
-            ]
-          }
-        }
-      ]
+                  contains: { const: 'GenericID' },
+                },
+              },
+            ],
+          },
+        },
+      ],
     }
 
     // Create Authorization Request
     const result = await (baseAgent.modules as any).openId4VcVerifier.createAuthorizationRequest({
       requestSigner: {
         method: 'did',
-        did: await (baseAgent.dids as any).getCreatedDids({ method: 'key' }).then((dids: any[]) => dids[0].did)
+        did: await (baseAgent.dids as any).getCreatedDids({ method: 'key' }).then((dids: any[]) => dids[0].did),
       },
       presentationExchange: {
-        definition: presentationDefinition
-      }
+        definition: presentationDefinition,
+      },
     })
 
     return {
       authorizationRequest: result.authorizationRequest,
-      state: result.authorizationRequest.split('state=')[1]?.split('&')[0] || 'unknown'
+      state: result.authorizationRequest.split('state=')[1]?.split('&')[0] || 'unknown',
     }
   }
 
@@ -232,7 +250,10 @@ export class WalletAuthController extends Controller {
    * Verify VC-Based Login
    */
   @Post('/login-wallet/verify')
-  public async verifyWalletLogin(@Request() request: ExRequest, @Body() body: VerifyPresentationRequestBody): Promise<{ token: string }> {
+  public async verifyWalletLogin(
+    @Request() request: ExRequest,
+    @Body() body: VerifyPresentationRequestBody,
+  ): Promise<{ token: string }> {
     const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
 
     try {
@@ -240,8 +261,8 @@ export class WalletAuthController extends Controller {
         authorizationResponse: {
           vp_token: body.verifiablePresentation,
           presentation_submission: body.presentationSubmission,
-          state: body.requestId // Frontend sends state as requestId
-        }
+          state: body.requestId, // Frontend sends state as requestId
+        },
       })
 
       if (!verificationResult.isVerified) {
@@ -258,16 +279,16 @@ export class WalletAuthController extends Controller {
       // For now, assuming we trust the verification, we need to deserialize the credential data
       // But 'presentation' object in Credo result is the W3C model.
 
-      // Hack: we need the claim 'walletId' or 'sub'. 
+      // Hack: we need the claim 'walletId' or 'sub'.
       // If expecting 'GenericID' format we issued:
       const credentialSubject = (vc as any).credentialSubject
-      const walletId = credentialSubject.id // In our issue logic, sub/id was the User DID. 
+      const walletId = credentialSubject.id // In our issue logic, sub/id was the User DID.
       // Wait, in 'register', we set `walletId: tenantId` in the DB, and `sub: userDid` in the VC.
       // And we saved it to `WalletCredentialRepository`.
       // We need a way to look up the User/Tenant by the DID presented.
 
       // Ideally the VC has a claim 'walletId'.
-      // In 'register', we didn't explicitly check if 'GenericID' scheme has 'walletId'. 
+      // In 'register', we didn't explicitly check if 'GenericID' scheme has 'walletId'.
       // Let's modify 'register' to include 'walletId' in claims if not there.
       // Re-checking register: claims: { name, email, walletId, role }. YES.
 
@@ -278,21 +299,22 @@ export class WalletAuthController extends Controller {
 
       // Generate Session Token
       const secret = await this.getJwtSecret()
-      const token = jwt.sign({
-        walletId: tenantId,
-        role: AgentRole.RestTenantAgent,
-        tenantId: tenantId,
-        iat: Math.floor(Date.now() / 1000),
-        exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60)
-      }, secret)
+      const token = jwt.sign(
+        {
+          walletId: tenantId,
+          role: AgentRole.RestTenantAgent,
+          tenantId: tenantId,
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+        },
+        secret,
+      )
 
       return { token }
-
     } catch (e: any) {
       throw new UnauthorizedError(`Login Failed: ${e.message}`)
     }
   }
-
 
   @Get('/session')
   public async getSession(@Request() request: ExRequest): Promise<SessionResponse> {
@@ -315,7 +337,7 @@ export class WalletAuthController extends Controller {
         id: user.id.toString(),
         username: user.username,
         email: user.email,
-        walletId: user.walletId
+        walletId: user.walletId,
       }
     } catch (error) {
       throw new UnauthorizedError('Invalid token')
@@ -337,14 +359,14 @@ export class WalletAuthController extends Controller {
     saveLoginChallenge({
       id: nonce,
       createdAt: now.toISOString(),
-      expiresAt: expiresAt.toISOString()
+      expiresAt: expiresAt.toISOString(),
     })
 
     request.logger?.info({ nonce }, 'Generated login challenge')
 
     return {
       nonce,
-      expiresAt: expiresAt.toISOString()
+      expiresAt: expiresAt.toISOString(),
     }
   }
 
@@ -352,7 +374,10 @@ export class WalletAuthController extends Controller {
    * Verify signed nonce and authenticate user by DID
    */
   @Post('/login-verify')
-  public async loginVerify(@Request() request: ExRequest, @Body() body: LoginVerifyRequest): Promise<{ token: string }> {
+  public async loginVerify(
+    @Request() request: ExRequest,
+    @Body() body: LoginVerifyRequest,
+  ): Promise<{ token: string }> {
     const { did, signature, nonce } = body
 
     // 1. Verify the challenge exists and hasn't expired
@@ -420,7 +445,6 @@ export class WalletAuthController extends Controller {
       request.logger?.info({ did, userId: user.id }, 'User authenticated via DID signature')
 
       return { token }
-
     } catch (error) {
       request.logger?.error({ error: (error as Error).message, did }, 'DID verification failed')
       this.setStatus(401)
@@ -432,9 +456,9 @@ export class WalletAuthController extends Controller {
   public async logout(@Request() request: ExRequest): Promise<{ message: string }> {
     // Clear session cookie
     if (request.res) {
-        request.res.clearCookie('auth.token', { path: '/' })
-        // Clear potential other cookies if used
-        request.res.clearCookie('auth.refreshToken', { path: '/' })
+      request.res.clearCookie('auth.token', { path: '/' })
+      // Clear potential other cookies if used
+      request.res.clearCookie('auth.refreshToken', { path: '/' })
     }
     return { message: 'Logged out successfully' }
   }
@@ -455,13 +479,16 @@ export class WalletAuthController extends Controller {
 
   private async generateJwtToken(user: { id: string | number; walletId?: string }): Promise<string> {
     const secret = await this.getJwtSecret()
-    return jwt.sign({
-      id: user.id,
-      walletId: user.walletId || user.id,
-      role: AgentRole.RestTenantAgent,
-      tenantId: user.walletId || user.id,
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days
-    }, secret)
+    return jwt.sign(
+      {
+        id: user.id,
+        walletId: user.walletId || user.id,
+        role: AgentRole.RestTenantAgent,
+        tenantId: user.walletId || user.id,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60, // 30 days
+      },
+      secret,
+    )
   }
 }

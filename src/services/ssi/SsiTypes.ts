@@ -46,6 +46,12 @@ export interface PresentationRequest {
   expiresAt: string
 }
 
+export interface SsiCredentialCondition {
+  credentialType: string
+  trustedIssuer?: boolean
+  statusMustBeValid?: boolean
+}
+
 export interface AuthorityScope {
   permissions: string[]
   resourceTypes?: string[]
@@ -54,7 +60,16 @@ export interface AuthorityScope {
   costCentreRefs?: string[]
   currency?: string
   maxAmount?: number
+  requiredCredentials?: SsiCredentialCondition[]
   constraints?: Record<string, unknown>
+}
+
+export interface SsiEvidenceInput {
+  credentialType: string
+  issuerRef?: string
+  status: CredentialStatus
+  isTrustedIssuer: boolean
+  credentialReferenceId: string
 }
 
 export interface AuthorityDecisionInput {
@@ -70,6 +85,7 @@ export interface AuthorityDecisionInput {
   costCentreRef?: string
   requiredPermission?: string
   separationOfDutiesPersonIds?: string[]
+  ssiEvidence?: SsiEvidenceInput[]
 }
 
 export interface AuthorityDecision {

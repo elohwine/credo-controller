@@ -1,13 +1,13 @@
 /**
  * IdenEx Credentis - Notification Service
- * 
+ *
  * Verifiable Trust Infrastructure for Africa's Digital Economy
- * 
+ *
  * Delivery channels for workflow notifications:
  * - Email (SMTP)
  * - WhatsApp Business Cloud API
  * - Wallet push (HTTP webhook)
- * 
+ *
  * @module services/NotificationService
  * @copyright 2024-2026 IdenEx Credentis
  */
@@ -109,7 +109,7 @@ export class NotificationService {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
-      }
+      },
     )
 
     logger.info({ to: payload.to, messageId: response.data?.messages?.[0]?.id }, 'WhatsApp text sent')
@@ -151,7 +151,7 @@ export class NotificationService {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
-      }
+      },
     )
 
     logger.info({ to: payload.to, messageId: response.data?.messages?.[0]?.id }, 'WhatsApp CTA sent')
@@ -179,7 +179,7 @@ export class NotificationService {
         offerUri: payload.offerUri,
         actionUrl: payload.actionUrl,
       },
-      { headers }
+      { headers },
     )
 
     logger.info({ pushUrl }, 'Wallet push sent')

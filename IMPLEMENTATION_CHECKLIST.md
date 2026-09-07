@@ -5,6 +5,7 @@
 ### 1. ✅ Persistent Storage Layer (SQLite)
 
 **Files Modified:**
+
 - `src/utils/schemaStore.ts` — Replaced in-memory array with DatabaseManager queries
 - `src/utils/credentialDefinitionStore.ts` — Replaced in-memory array with DatabaseManager queries
 - `samples/simpleStart.ts` — Added `DatabaseManager.initialize()` call
@@ -13,16 +14,19 @@
 **Database:** `./data/persistence.db`
 
 **Tables:**
+
 - `json_schemas` (tenant-isolated schema storage)
 - `credential_definitions` (tenant-isolated credential templates)
 
 ### 2. ✅ Portal UI Credential Browser
 
 **Files Created:**
+
 - `credo-ui/waltid-identity/waltid-applications/waltid-web-portal/components/credentials/CredentialDefinitionList.tsx`
 - `credo-ui/waltid-identity/waltid-applications/waltid-web-portal/pages/credential-models.tsx`
 
 **Features:**
+
 - Grouped display by credential type (Payment, ID, Badge, Health, EHR)
 - Color-coded cards matching portal's Tailwind theme
 - Expandable claims template with JSON preview
@@ -33,6 +37,7 @@
 ### 3. ✅ Comprehensive Documentation
 
 **Files Created:**
+
 - `docs/CREDENTIAL_MODELS.md` — System architecture, supported models, API usage, extension guide
 - `docs/PORTAL_UI_INTEGRATION.md` — Portal setup, authentication flow, theming guide
 - `docs/CREDENTIAL_MODELS_SUMMARY.md` — Implementation summary and quick start
@@ -101,6 +106,7 @@ yarn dev
 Navigate to: **http://localhost:3003/credential-models**
 
 **Expected:**
+
 - 5 credential models grouped by category
 - Color-coded cards (green, blue, yellow, red, orange)
 - Expandable claims template on each card

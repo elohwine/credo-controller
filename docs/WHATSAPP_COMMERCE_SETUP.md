@@ -5,6 +5,7 @@ This guide explains how to configure and test the WhatsApp commerce flow for Cre
 ## Overview
 
 The WhatsApp commerce flow:
+
 ```
 Catalog → Cart → (Optional QuoteVC) → EcoCash Payment → ReceiptVC → Delivery Verification
 ```
@@ -45,21 +46,25 @@ API_BASE_URL=http://localhost:3000
 ## Getting WhatsApp Business API Credentials
 
 ### Step 1: Create Meta Developer Account
+
 1. Go to https://developers.facebook.com
 2. Create a developer account if you don't have one
 3. Create a new "Business" type app
 
 ### Step 2: Add WhatsApp Product
+
 1. In your app dashboard, click "Add Product"
 2. Select "WhatsApp" and click "Set Up"
 3. Follow the guided setup
 
 ### Step 3: Get Your Credentials
+
 1. **Phone Number ID**: Found in WhatsApp > API Setup
 2. **Access Token**: Generate a permanent token or use the temporary one for testing
 3. **Business Number**: The phone number registered with your WhatsApp Business Account
 
 ### Step 4: Configure Webhooks
+
 1. In WhatsApp > Configuration
 2. Set callback URL to: `{NGROK_URL}/webhooks/whatsapp`
 3. Set verify token (any string you choose)
@@ -68,11 +73,14 @@ API_BASE_URL=http://localhost:3000
 ## Getting EcoCash API Credentials
 
 ### For Testing (Sandbox)
+
 Contact EcoCash developer relations or use:
+
 - Sandbox portal: https://sandbox.ecocash.co.zw (if available)
 - Test credentials are often provided upon registration
 
 ### For Production
+
 1. Register as an EcoCash merchant
 2. Complete KYC/business verification
 3. Receive production API credentials
@@ -144,6 +152,7 @@ curl http://localhost:3000/api/receipts/verify/EC123456
 ## Testing the Verification UI
 
 1. Start the portal:
+
 ```bash
 cd credo-ui/portal
 npm run dev
@@ -169,6 +178,7 @@ ngrok http 3000
 ```
 
 Then configure:
+
 - WhatsApp webhook URL: `{NGROK_URL}/webhooks/whatsapp`
 - EcoCash webhook URL: `{NGROK_URL}/webhooks/ecocash`
 
@@ -203,10 +213,10 @@ Then configure:
        │ <─── webhook ────────── │   Success    │
        │                         │   Callback   │
        v                         └──────────────┘
-┌─────────────┐                  
-│  Issue      │                  
-│  ReceiptVC  │                  
-└──────┬──────┘                  
+┌─────────────┐
+│  Issue      │
+│  ReceiptVC  │
+└──────┬──────┘
        │
        v
 ┌─────────────┐    scan/lookup   ┌──────────────┐
@@ -218,34 +228,37 @@ Then configure:
 ## Troubleshooting
 
 ### WhatsApp messages not sending
+
 - Check `WABA_TOKEN` is valid (tokens expire)
 - Verify `WABA_PHONE_NUMBER_ID` is correct
 - Ensure recipient phone number is in E.164 format (+263...)
 - Check WhatsApp template approval status
 
 ### EcoCash webhooks not received
+
 - Verify ngrok is running and URL is correct
 - Check webhook secret matches configuration
 - Look at ngrok dashboard for incoming requests
 
 ### Payment stuck in PENDING
+
 - EcoCash sandbox may require manual approval
 - Check for webhook delivery failures
 - Verify `sourceReference` matches across calls
 
 ## API Endpoints Summary
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/catalog/items` | Create catalog item |
-| GET | `/api/catalog/items/:id/link` | Get wa.me link |
-| POST | `/api/wa/cart/create` | Create cart from payload |
-| GET | `/api/wa/cart/:id` | Get cart details |
-| POST | `/api/wa/cart/:id/items` | Add items to cart |
-| POST | `/api/wa/cart/:id/present-options` | Send in-chat options |
-| POST | `/api/wa/cart/:id/issue-quote` | Issue QuoteVC (optional) |
-| POST | `/api/wa/cart/:id/checkout` | Initiate payment |
-| POST | `/api/wa/cart/:id/send-receipt` | Send ReceiptVC |
-| POST | `/webhooks/ecocash` | EcoCash payment webhook |
-| GET | `/api/receipts/verify/:txId` | Verify receipt |
-| POST | `/api/receipts/confirm-delivery` | Confirm delivery |
+| Method | Endpoint                           | Description              |
+| ------ | ---------------------------------- | ------------------------ |
+| POST   | `/api/catalog/items`               | Create catalog item      |
+| GET    | `/api/catalog/items/:id/link`      | Get wa.me link           |
+| POST   | `/api/wa/cart/create`              | Create cart from payload |
+| GET    | `/api/wa/cart/:id`                 | Get cart details         |
+| POST   | `/api/wa/cart/:id/items`           | Add items to cart        |
+| POST   | `/api/wa/cart/:id/present-options` | Send in-chat options     |
+| POST   | `/api/wa/cart/:id/issue-quote`     | Issue QuoteVC (optional) |
+| POST   | `/api/wa/cart/:id/checkout`        | Initiate payment         |
+| POST   | `/api/wa/cart/:id/send-receipt`    | Send ReceiptVC           |
+| POST   | `/webhooks/ecocash`                | EcoCash payment webhook  |
+| GET    | `/api/receipts/verify/:txId`       | Verify receipt           |
+| POST   | `/api/receipts/confirm-delivery`   | Confirm delivery         |

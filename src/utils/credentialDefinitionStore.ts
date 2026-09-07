@@ -56,7 +56,7 @@ class CredentialDefinitionStore {
       }),
       record.issuerDid,
       `${record.name}@${record.version}`,
-      record.createdAt
+      record.createdAt,
     )
 
     return record
@@ -95,7 +95,15 @@ class CredentialDefinitionStore {
 
     // Strip common format suffixes that may be appended to the credential type name
     // e.g., "GenericIDCredential_jwt_vc_json" -> "GenericIDCredential"
-    const formatSuffixes = ['_jwt_vc_json', '_jwt_vc_json-ld', '_vc+sd-jwt', '_ldp_vc', '_mso_mdoc', '_jwt_vc', '_sd_jwt']
+    const formatSuffixes = [
+      '_jwt_vc_json',
+      '_jwt_vc_json-ld',
+      '_vc+sd-jwt',
+      '_ldp_vc',
+      '_mso_mdoc',
+      '_jwt_vc',
+      '_sd_jwt',
+    ]
     let baseId = id
     for (const suffix of formatSuffixes) {
       if (id.endsWith(suffix)) {
@@ -107,41 +115,51 @@ class CredentialDefinitionStore {
     console.log(`[CredDefStore] Looking up credential definition - original: "${id}", base: "${baseId}"`)
 
     // First try to find by credential_definition_id (UUID)
-    let row = db.prepare('SELECT * FROM credential_definitions WHERE credential_definition_id = ?')
-      .get(id) as {
-        credential_definition_id: string
-        schema_id: string
-        definition_data: string
-        issuer_did: string
-        created_at: string
-        tenant_id: string
-      } | undefined
+    let row = db.prepare('SELECT * FROM credential_definitions WHERE credential_definition_id = ?').get(id) as
+      | {
+          credential_definition_id: string
+          schema_id: string
+          definition_data: string
+          issuer_did: string
+          created_at: string
+          tenant_id: string
+        }
+      | undefined
 
     // If not found, try with the base ID (without format suffix)
     if (!row && baseId !== id) {
-      row = db.prepare('SELECT * FROM credential_definitions WHERE credential_definition_id = ?')
+      row = db
+        .prepare('SELECT * FROM credential_definitions WHERE credential_definition_id = ?')
         .get(baseId) as typeof row
     }
 
     // If not found, try to find by credential type name in the definition_data using base ID
     if (!row) {
       // SQLite json_extract to search in the credentialType array
-      row = db.prepare(`
+      row = db
+        .prepare(
+          `
         SELECT * FROM credential_definitions 
         WHERE json_extract(definition_data, '$.credentialType') LIKE ?
         ORDER BY created_at DESC
         LIMIT 1
-      `).get(`%"${baseId}"%`) as typeof row
+      `,
+        )
+        .get(`%"${baseId}"%`) as typeof row
     }
 
     // Also try by name field using base ID
     if (!row) {
-      row = db.prepare(`
+      row = db
+        .prepare(
+          `
         SELECT * FROM credential_definitions 
         WHERE json_extract(definition_data, '$.name') = ?
         ORDER BY created_at DESC
         LIMIT 1
-      `).get(baseId) as typeof row
+      `,
+        )
+        .get(baseId) as typeof row
     }
 
     if (!row) {
@@ -150,7 +168,6 @@ class CredentialDefinitionStore {
     }
 
     console.log(`[CredDefStore] Found credential definition: ${row.credential_definition_id}`)
-
 
     const data = JSON.parse(row.definition_data)
     return {
@@ -195,20 +212,26 @@ class CredentialDefinitionStore {
     name: string,
     version: string,
     issuerDid: string,
-    tenantId: string
+    tenantId: string,
   ): CredentialDefinitionRecord | undefined {
     const db = DatabaseManager.getDatabase()
-    const row = db.prepare(`
+    const row = db
+      .prepare(
+        `
       SELECT * FROM credential_definitions 
       WHERE tenant_id = ? AND issuer_did = ? AND json_extract(definition_data, '$.name') = ? AND json_extract(definition_data, '$.version') = ?
-    `).get(tenantId, issuerDid, name, version) as {
-      credential_definition_id: string
-      schema_id: string
-      definition_data: string
-      issuer_did: string
-      created_at: string
-      tenant_id: string
-    } | undefined
+    `,
+      )
+      .get(tenantId, issuerDid, name, version) as
+      | {
+          credential_definition_id: string
+          schema_id: string
+          definition_data: string
+          issuer_did: string
+          created_at: string
+          tenant_id: string
+        }
+      | undefined
 
     if (!row) return undefined
 

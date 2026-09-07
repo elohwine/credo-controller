@@ -25,7 +25,7 @@ export class EcoCashAckPayAdapter extends BaseAckPayAdapter {
 
   constructor(
     @inject(DatabaseManager) private dbManager: DatabaseManager,
-    @inject('ECOCASH_BASE_URL') baseUrl?: string
+    @inject('ECOCASH_BASE_URL') baseUrl?: string,
   ) {
     super()
     this.baseUrl = baseUrl ?? process.env.ECOCASH_BASE_URL ?? 'https://api.ecocash.co.zw'
@@ -69,10 +69,7 @@ export class EcoCashAckPayAdapter extends BaseAckPayAdapter {
     // })
 
     // For now, create a simple JWT placeholder
-    const paymentRequestToken = await this.createPaymentRequestToken(
-      paymentRequest,
-      params.issuerDid
-    )
+    const paymentRequestToken = await this.createPaymentRequestToken(paymentRequest, params.issuerDid)
 
     return { paymentRequestToken, paymentRequest }
   }
@@ -132,11 +129,7 @@ export class EcoCashAckPayAdapter extends BaseAckPayAdapter {
    *
    * Called from webhook handler or polling service.
    */
-  async verifyPayment(params: {
-    providerRef: string
-    expectedAmount: number
-    expectedCurrency: string
-  }): Promise<{
+  async verifyPayment(params: { providerRef: string; expectedAmount: number; expectedCurrency: string }): Promise<{
     verified: boolean
     settledAt?: string
     failureReason?: string
@@ -193,7 +186,7 @@ export class EcoCashAckPayAdapter extends BaseAckPayAdapter {
 
     // Placeholder JWT - replace with actual signing
     const receiptCredentialJwt = `eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NksifQ.${Buffer.from(
-      JSON.stringify(receipt)
+      JSON.stringify(receipt),
     ).toString('base64url')}.placeholder`
 
     // Update payment record with receipt
@@ -206,10 +199,7 @@ export class EcoCashAckPayAdapter extends BaseAckPayAdapter {
   // Helper methods
   // ============================================================================
 
-  private async createPaymentRequestToken(
-    paymentRequest: AckPaymentRequest,
-    issuerDid: string
-  ): Promise<string> {
+  private async createPaymentRequestToken(paymentRequest: AckPaymentRequest, issuerDid: string): Promise<string> {
     // Placeholder JWT creation - replace with actual signing
     const header = { typ: 'JWT', alg: 'ES256K' }
     const payload = {
@@ -219,15 +209,13 @@ export class EcoCashAckPayAdapter extends BaseAckPayAdapter {
     }
 
     return `${Buffer.from(JSON.stringify(header)).toString('base64url')}.${Buffer.from(
-      JSON.stringify(payload)
+      JSON.stringify(payload),
     ).toString('base64url')}.placeholder`
   }
 
   private async getPaymentByIdempotencyKey(key: string): Promise<any | null> {
     const db = DatabaseManager.getDatabase()
-    return db
-      .prepare('SELECT * FROM ack_payments WHERE idempotency_key = ?')
-      .get(key) as any
+    return db.prepare('SELECT * FROM ack_payments WHERE idempotency_key = ?').get(key) as any
   }
 
   private async storePaymentRecord(params: {
@@ -242,13 +230,15 @@ export class EcoCashAckPayAdapter extends BaseAckPayAdapter {
     const db = DatabaseManager.getDatabase()
     const now = new Date().toISOString()
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO ack_payments (
         id, tenant_id, payment_request_token, payment_option_id,
         provider_ref, payer_did, merchant_did, amount, currency,
         state, idempotency_key, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
+    ).run(
       params.id,
       'default', // TODO: get from context
       params.paymentRequestToken,
@@ -261,33 +251,28 @@ export class EcoCashAckPayAdapter extends BaseAckPayAdapter {
       params.state,
       params.idempotencyKey,
       now,
-      now
+      now,
     )
   }
 
-  private async updatePaymentWithReceipt(
-    providerRef: string,
-    receiptJwt: string
-  ): Promise<void> {
+  private async updatePaymentWithReceipt(providerRef: string, receiptJwt: string): Promise<void> {
     const db = DatabaseManager.getDatabase()
     const now = new Date().toISOString()
 
     // Update payment state
-    db.prepare(
-      'UPDATE ack_payments SET state = ?, updated_at = ? WHERE provider_ref = ?'
-    ).run('paid', now, providerRef)
+    db.prepare('UPDATE ack_payments SET state = ?, updated_at = ? WHERE provider_ref = ?').run('paid', now, providerRef)
 
     // Get payment ID
-    const payment = db
-      .prepare('SELECT id FROM ack_payments WHERE provider_ref = ?')
-      .get(providerRef) as any
+    const payment = db.prepare('SELECT id FROM ack_payments WHERE provider_ref = ?').get(providerRef) as any
 
     if (payment) {
       // Store receipt
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO ack_payment_receipts (id, payment_id, credential_jwt, created_at)
         VALUES (?, ?, ?, ?)
-      `).run(uuidv4(), payment.id, receiptJwt, now)
+      `,
+      ).run(uuidv4(), payment.id, receiptJwt, now)
     }
   }
 }

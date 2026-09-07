@@ -1,11 +1,13 @@
 # Portal UI Completion Summary
 
 ## Overview
+
 Extended the Credo Portal UI to cover all backend API controllers. Previously only quote/invoice/receipt flows were accessible. Now all 16+ API domains have dedicated UI pages.
 
 ## New Portal Pages Created
 
 ### 1. Catalog Management (`/catalog`)
+
 - **File**: `credo-ui/portal/pages/catalog/index.tsx`
 - **Backend**: `src/controllers/catalog/CatalogController.ts`
 - **Features**:
@@ -16,6 +18,7 @@ Extended the Credo Portal UI to cover all backend API controllers. Previously on
   - Category filtering
 
 ### 2. Trust & Compliance (`/trust`)
+
 - **File**: `credo-ui/portal/pages/trust/index.tsx`
 - **Backend**: `src/controllers/trust/TrustController.ts` + `src/controllers/regulator/EscalationController.ts`
 - **Features**:
@@ -26,6 +29,7 @@ Extended the Credo Portal UI to cover all backend API controllers. Previously on
   - Merchant search by ID
 
 ### 3. Payroll Processing (`/payroll`)
+
 - **File**: `credo-ui/portal/pages/payroll/index.tsx`
 - **Backend**: `src/controllers/payroll/PayrollController.ts`
 - **Features**:
@@ -36,6 +40,7 @@ Extended the Credo Portal UI to cover all backend API controllers. Previously on
   - Total amounts and employee counts
 
 ### 4. Employee Onboarding (`/onboarding`)
+
 - **File**: `credo-ui/portal/pages/onboarding/index.tsx`
 - **Backend**: `src/controllers/onboarding/OnboardingController.ts`
 - **Features**:
@@ -47,6 +52,7 @@ Extended the Credo Portal UI to cover all backend API controllers. Previously on
   - Status icons (checkmark for completed, clock for in-progress)
 
 ### 5. WhatsApp Commerce (`/whatsapp`)
+
 - **File**: `credo-ui/portal/pages/whatsapp/index.tsx`
 - **Backend**: `src/controllers/whatsapp/WhatsAppController.ts`
 - **Features**:
@@ -58,6 +64,7 @@ Extended the Credo Portal UI to cover all backend API controllers. Previously on
   - Integration info banner
 
 ### 6. Credential Revocation (`/revocation`)
+
 - **File**: `credo-ui/portal/pages/revocation/index.tsx`
 - **Backend**: `src/controllers/revocation/RevocationController.ts`
 - **Features**:
@@ -69,6 +76,7 @@ Extended the Credo Portal UI to cover all backend API controllers. Previously on
   - Irreversible action warnings
 
 ### 7. System Metrics (`/metrics`)
+
 - **File**: `credo-ui/portal/pages/metrics/index.tsx`
 - **Backend**: `src/controllers/metrics/MetricsController.ts`
 - **Features**:
@@ -83,8 +91,10 @@ Extended the Credo Portal UI to cover all backend API controllers. Previously on
 ## Updated Components
 
 ### Navigation (`credo-ui/portal/components/Layout.tsx`)
+
 **Before**: 3 links (Home, Credentials, Workflows)  
 **After**: 13 links covering all domains:
+
 - Home
 - Credentials
 - Catalog
@@ -100,8 +110,10 @@ Extended the Credo Portal UI to cover all backend API controllers. Previously on
 - Metrics
 
 ### Home Page (`credo-ui/portal/pages/index.tsx`)
+
 **Before**: Credential selection UI (generic credential issuance)  
 **After**: Feature dashboard with:
+
 - 12 feature cards with icons and descriptions
 - Direct links to all portal sections
 - Platform capabilities overview
@@ -110,21 +122,21 @@ Extended the Credo Portal UI to cover all backend API controllers. Previously on
 
 ## API Coverage Matrix
 
-| API Controller | Portal Page | Status |
-|---------------|-------------|--------|
-| `/api/catalog` | `/catalog` | ✅ NEW |
-| `/api/trust` | `/trust` | ✅ NEW |
-| `/api/payroll` | `/payroll` | ✅ NEW |
-| `/api/onboarding` | `/onboarding` | ✅ NEW |
-| `/api/wa` (WhatsApp) | `/whatsapp` | ✅ NEW |
-| `/api/revocation` | `/revocation` | ✅ NEW |
-| `/metrics`, `/health` | `/metrics` | ✅ NEW |
-| `/api/finance` | `/finance/reports` | ✅ Existing |
-| `/api/inventory` | `/inventory/dashboard` | ✅ Existing |
-| `/api/operations` | `/hr/operations` | ✅ Existing |
-| `/oidc/*` | `/credentials`, `/credential-models` | ✅ Existing |
-| `/api/workflows` | `/workflows` | ✅ Existing |
-| `/api/verify` | `/verify/[vcId]` | ✅ Existing |
+| API Controller        | Portal Page                          | Status      |
+| --------------------- | ------------------------------------ | ----------- |
+| `/api/catalog`        | `/catalog`                           | ✅ NEW      |
+| `/api/trust`          | `/trust`                             | ✅ NEW      |
+| `/api/payroll`        | `/payroll`                           | ✅ NEW      |
+| `/api/onboarding`     | `/onboarding`                        | ✅ NEW      |
+| `/api/wa` (WhatsApp)  | `/whatsapp`                          | ✅ NEW      |
+| `/api/revocation`     | `/revocation`                        | ✅ NEW      |
+| `/metrics`, `/health` | `/metrics`                           | ✅ NEW      |
+| `/api/finance`        | `/finance/reports`                   | ✅ Existing |
+| `/api/inventory`      | `/inventory/dashboard`               | ✅ Existing |
+| `/api/operations`     | `/hr/operations`                     | ✅ Existing |
+| `/oidc/*`             | `/credentials`, `/credential-models` | ✅ Existing |
+| `/api/workflows`      | `/workflows`                         | ✅ Existing |
+| `/api/verify`         | `/verify/[vcId]`                     | ✅ Existing |
 
 ## Design Patterns
 
@@ -168,6 +180,7 @@ All new pages follow consistent patterns:
 ## Files Changed
 
 ### Created (7 new pages):
+
 - `credo-ui/portal/pages/catalog/index.tsx`
 - `credo-ui/portal/pages/trust/index.tsx`
 - `credo-ui/portal/pages/payroll/index.tsx`
@@ -177,6 +190,7 @@ All new pages follow consistent patterns:
 - `credo-ui/portal/pages/metrics/index.tsx`
 
 ### Modified (2 files):
+
 - `credo-ui/portal/components/Layout.tsx` - Extended navigation
 - `credo-ui/portal/pages/index.tsx` - Redesigned as feature dashboard
 

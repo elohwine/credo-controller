@@ -37,22 +37,22 @@ export async function startNgrokTunnel(config: NgrokConfig): Promise<string> {
   try {
     console.log(`Starting ngrok tunnel on port ${config.port}...`)
     tunnelUrl = await ngrok.connect(ngrokConfig)
-    
+
     // Set environment variable for the application to use
     process.env.NGROK_URL = tunnelUrl
-    
+
     console.log(`\n🌐 Ngrok tunnel established!`)
     console.log(`   Public URL: ${tunnelUrl}`)
     console.log(`   Inspect:    http://127.0.0.1:4040`)
     console.log(`   Webhooks:`)
     console.log(`     - WhatsApp: ${tunnelUrl}/webhooks/whatsapp`)
     console.log(`     - EcoCash:  ${tunnelUrl}/webhooks/ecocash`)
-    
+
     return tunnelUrl
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     console.error(`Failed to start ngrok tunnel: ${errorMessage}`)
-    
+
     // Check for common errors
     if (errorMessage.includes('authtoken')) {
       console.log('\n💡 To fix this:')
@@ -60,7 +60,7 @@ export async function startNgrokTunnel(config: NgrokConfig): Promise<string> {
       console.log('   2. Set NGROK_AUTHTOKEN environment variable')
       console.log('   3. Or run: ngrok config add-authtoken YOUR_TOKEN')
     }
-    
+
     throw error
   }
 }

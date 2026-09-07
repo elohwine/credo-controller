@@ -1,4 +1,5 @@
-import 'reflect-metadata'   // MUST be first import before any decorated controllers
+import 'reflect-metadata' // MUST be first import before any decorated controllers
+import type { RestAgentModules, RestMultiTenantAgentModules } from '../../cliAgent'
 import type {
   CreateCredentialOfferRequest,
   CreateCredentialOfferResponse,
@@ -6,6 +7,7 @@ import type {
   TokenResponseBody,
   IssuedCredentialRecord,
 } from '../../types/api'
+import type { TenantAgent } from '@credo-ts/tenants/build/TenantAgent'
 import type { Request as ExRequest } from 'express'
 
 import { Agent } from '@credo-ts/core'
@@ -13,11 +15,9 @@ import { randomUUID } from 'crypto'
 import { Controller, Post, Get, Route, Tags, Body, SuccessResponse, Security, Path, Query, Request } from 'tsoa'
 import { container } from 'tsyringe'
 
-import { credentialDefinitionStore } from '../../utils/credentialDefinitionStore'
-import { getTenantById } from '../../persistence/TenantRepository'
 import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
-import type { TenantAgent } from '@credo-ts/tenants/build/TenantAgent'
-import type { RestAgentModules, RestMultiTenantAgentModules } from '../../cliAgent'
+import { getTenantById } from '../../persistence/TenantRepository'
+import { credentialDefinitionStore } from '../../utils/credentialDefinitionStore'
 
 // Use request-scoped Pino logger attached by middleware
 
@@ -122,9 +122,10 @@ export class OidcIssuerController extends Controller {
 
         const formats = ['jwt_vc', 'jwt_vc_json']
         const refreshedSupported = definitions.flatMap((def: any) => {
-          const leafType = Array.isArray(def.credentialType) && def.credentialType.length
-            ? def.credentialType[def.credentialType.length - 1]
-            : def.name
+          const leafType =
+            Array.isArray(def.credentialType) && def.credentialType.length
+              ? def.credentialType[def.credentialType.length - 1]
+              : def.name
           const idBases = Array.from(new Set([def.name, leafType].filter(Boolean)))
 
           return formats.flatMap((format) =>
@@ -135,7 +136,7 @@ export class OidcIssuerController extends Controller {
               cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
               cryptographic_suites_supported: ['EdDSA', 'ES256'],
               display: [{ name: base }],
-            }))
+            })),
           )
         })
 
@@ -159,24 +160,26 @@ export class OidcIssuerController extends Controller {
 
     const issuerWithAnySupported = issuers.find((i: any) => (i?.credentialsSupported || []).length > 0)
 
-    const issuerId =
-      issuerWithMatchingSupported?.issuerId ||
-      issuerWithAnySupported?.issuerId ||
-      issuers[0].issuerId
+    const issuerId = issuerWithMatchingSupported?.issuerId || issuerWithAnySupported?.issuerId || issuers[0].issuerId
 
     // Log inputs
-    request.logger?.info({
-      issuerId,
-      credentialConfigurations,
-      credentialsOriginal: body.credentials
-    }, 'Calling createCredentialOffer')
+    request.logger?.info(
+      {
+        issuerId,
+        credentialConfigurations,
+        credentialsOriginal: body.credentials,
+      },
+      'Calling createCredentialOffer',
+    )
 
     // Extract claims from the first credential template (if provided)
     const firstCred = body.credentials[0] as any
     const claims = firstCred?.claims || firstCred?.claimsTemplate?.credentialSubject || {}
 
-    request.logger?.info({ module: 'issuer', operation: 'createOffer', claimsCount: Object.keys(claims).length, claimsKeys: Object.keys(claims) }, 'Extracted claims from body')
-    console.log('[OidcIssuerController] Extracted claims:', JSON.stringify(claims))
+    request.logger?.info(
+      { module: 'issuer', operation: 'createOffer', credentialCount: body.credentials.length },
+      'Extracted claims from body',
+    )
 
     // Create offer using Credo Native Module
     // Note: ensure we cast to any if types aren't fully picked up yet
@@ -184,30 +187,33 @@ export class OidcIssuerController extends Controller {
       issuerId,
       offeredCredentials: credentialConfigurations,
       preAuthorizedCodeFlowConfig: {
-        userPinRequired: false
+        userPinRequired: false,
       },
       // Pass claims to issuance session so credentialRequestToCredentialMapper can access them
       issuanceMetadata: {
         claims: claims,
         tenantId: tenantId,
-        credentialDefinitionId: body.credentials[0]?.credentialDefinitionId || credentialConfigurations[0]
+        credentialDefinitionId: body.credentials[0]?.credentialDefinitionId || credentialConfigurations[0],
       },
       grants: {
         authorization_code: {
-          issuer_state: randomUUID()
+          issuer_state: randomUUID(),
         },
         'urn:ietf:params:oauth:grant-type:pre-authorized_code': {
           'pre-authorized_code': randomUUID(),
-          user_pin_required: false
-        }
-      }
+          user_pin_required: false,
+        },
+      },
     })
 
     // In this version of Credo, credentialOffer is the URI string, and issuanceSession contains details
     const { credentialOffer: offerUri, issuanceSession } = result as any
     const payload = issuanceSession.credentialOfferPayload
 
-    request.logger?.info({ module: 'issuer', operation: 'createOffer', credentialOfferUri: offerUri }, 'Created native credential offer')
+    request.logger?.info(
+      { module: 'issuer', operation: 'createOffer', credentialOfferUri: offerUri },
+      'Created native credential offer',
+    )
 
     // === PUSH NOTIFICATION (WEBHOOK) ===
     // If OFFER_PUSH_URL is configured, push the offer URI to the holder immediately
@@ -226,25 +232,26 @@ export class OidcIssuerController extends Controller {
         fetch(pushUrl, {
           method: 'POST',
           headers,
-          body: JSON.stringify({ credential_offer_uri: offerUri })
+          body: JSON.stringify({ credential_offer_uri: offerUri }),
         })
-          .then(res => {
+          .then((res) => {
             if (res.ok) request.logger?.info({ status: res.status }, 'Push notification successful')
             else request.logger?.warn({ status: res.status, statusText: res.statusText }, 'Push notification failed')
           })
-          .catch(err => {
+          .catch((err) => {
             request.logger?.error({ error: err.message }, 'Push notification error')
           })
       })
     }
 
-
     return {
       offerId: issuanceSession.id,
       credential_offer_url: offerUri,
       credential_offer_uri: offerUri,
-      preAuthorizedCode: payload.grants?.['urn:ietf:params:oauth:grant-type:pre-authorized_code']?.['pre-authorized_code'] as string,
-      expiresAt: new Date(Date.now() + 3600000).toISOString()
+      preAuthorizedCode: payload.grants?.['urn:ietf:params:oauth:grant-type:pre-authorized_code']?.[
+        'pre-authorized_code'
+      ] as string,
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
     }
   }
 
@@ -275,7 +282,7 @@ export class OidcIssuerController extends Controller {
   public async revokeCredential(
     @Request() request: ExRequest,
     @Path() id: string,
-    @Body() body?: { reason?: string }
+    @Body() body?: { reason?: string },
   ): Promise<any> {
     try {
       // Credo generic credentials module does not support 'revocation' (ledger/status list) directly via this API yet.
@@ -321,7 +328,10 @@ export class OidcIssuerController extends Controller {
     if (subject) {
       // Subject DID is usually in credentialAttributes or specific metadata depending on format
       // This might need more specific filtering based on CredentialExchangeRecord structure
-      return records.filter((r: any) => r.connectionId === subject || (r as any).credentialAttributes?.some((a: any) => a.value === subject))
+      return records.filter(
+        (r: any) =>
+          r.connectionId === subject || (r as any).credentialAttributes?.some((a: any) => a.value === subject),
+      )
     }
     return records
   }

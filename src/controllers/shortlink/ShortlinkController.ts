@@ -3,114 +3,99 @@ import { ShortlinkService } from '../../services/ShortlinkService'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 
 interface CreateShortlinkRequest {
-    type: 'credential' | 'receipt' | 'verification'
-    targetId: string
-    metadata?: Record<string, any>
-    ttlHours?: number
+  type: 'credential' | 'receipt' | 'verification'
+  targetId: string
+  metadata?: Record<string, any>
+  ttlHours?: number
 }
 
 interface ShortlinkResponse {
-    code: string
-    url: string
-    expiresAt: string
+  code: string
+  url: string
+  expiresAt: string
 }
 
 interface ResolveResponse {
-    valid: boolean
-    type?: string
-    targetId?: string
-    metadata?: Record<string, any> | null
-    expiresAt?: string
-    verificationUrl?: string
+  valid: boolean
+  type?: string
+  targetId?: string
+  metadata?: Record<string, any> | null
+  expiresAt?: string
+  verificationUrl?: string
 }
 
 /**
  * Shortlink Controller - Generate and resolve short verification links
- * 
+ *
  * Used for driver verification QR codes during delivery handover.
  */
 @Route('api/shortlinks')
 @Tags('Shortlinks')
 export class ShortlinkController extends Controller {
+  /**
+   * Create a new shortlink for verification
+   */
+  @Post('')
+  public async createShortlink(@Body() body: CreateShortlinkRequest): Promise<ShortlinkResponse> {
+    const result = ShortlinkService.create(body.type, body.targetId, body.metadata, body.ttlHours)
 
-    /**
-     * Create a new shortlink for verification
-     */
-    @Post('')
-    public async createShortlink(
-        @Body() body: CreateShortlinkRequest
-    ): Promise<ShortlinkResponse> {
-        const result = ShortlinkService.create(
-            body.type,
-            body.targetId,
-            body.metadata,
-            body.ttlHours
-        )
+    this.setStatus(201)
+    return result
+  }
 
-        this.setStatus(201)
-        return result
+  /**
+   * Resolve a shortlink code
+   */
+  @Get('{code}')
+  public async resolveShortlink(@Path() code: string): Promise<ResolveResponse> {
+    const result = ShortlinkService.resolve(code)
+
+    if (!result) {
+      this.setStatus(404)
+      return { valid: false }
     }
 
-    /**
-     * Resolve a shortlink code
-     */
-    @Get('{code}')
-    public async resolveShortlink(
-        @Path() code: string
-    ): Promise<ResolveResponse> {
-        const result = ShortlinkService.resolve(code)
+    // Build verification page URL
+    const baseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000'
+    const verificationUrl = `${baseUrl}/verify/receipt/${result.targetId}`
 
-        if (!result) {
-            this.setStatus(404)
-            return { valid: false }
-        }
-
-        // Build verification page URL
-        const baseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000'
-        const verificationUrl = `${baseUrl}/verify/receipt/${result.targetId}`
-
-        return {
-            valid: true,
-            type: result.type,
-            targetId: result.targetId,
-            metadata: result.metadata,
-            expiresAt: result.expiresAt,
-            verificationUrl,
-        }
+    return {
+      valid: true,
+      type: result.type,
+      targetId: result.targetId,
+      metadata: result.metadata,
+      expiresAt: result.expiresAt,
+      verificationUrl,
     }
+  }
 
-    /**
-     * Create a receipt verification shortlink
-     */
-    @Post('receipt')
-    public async createReceiptShortlink(
-        @Body() body: {
-            transactionId: string
-            amount?: string
-            currency?: string
-            merchant?: string
-        }
-    ): Promise<ShortlinkResponse> {
-        const { transactionId, amount, currency, merchant } = body
+  /**
+   * Create a receipt verification shortlink
+   */
+  @Post('receipt')
+  public async createReceiptShortlink(
+    @Body() body: { transactionId: string; amount?: string; currency?: string; merchant?: string },
+  ): Promise<ShortlinkResponse> {
+    const { transactionId, amount, currency, merchant } = body
 
-        const result = ShortlinkService.createReceiptLink(transactionId, {
-            amount,
-            currency,
-            merchant,
-        })
+    const result = ShortlinkService.createReceiptLink(transactionId, {
+      amount,
+      currency,
+      merchant,
+    })
 
-        this.setStatus(201)
-        return result
-    }
+    this.setStatus(201)
+    return result
+  }
 
-    /**
-     * Cleanup expired shortlinks (admin only)
-     */
-    @Post('cleanup')
-    public async cleanupExpired(): Promise<{ deleted: number }> {
-        const deleted = ShortlinkService.cleanup()
-        return { deleted }
-    }
+  /**
+   * Cleanup expired shortlinks (admin only)
+   */
+  @Post('cleanup')
+  public async cleanupExpired(): Promise<{ deleted: number }> {
+    const deleted = ShortlinkService.cleanup()
+    return { deleted }
+  }
 }
 
 /**
@@ -120,101 +105,100 @@ export class ShortlinkController extends Controller {
 @Route('v')
 @Tags('Verification Pages')
 export class VerificationPageController extends Controller {
+  /**
+   * Mobile verification page for shortlink codes
+   * Driver scans QR → sees verification status → confirms delivery
+   */
+  @Get('{code}')
+  @Produces('text/html')
+  @Response<string>(200, 'HTML verification page')
+  public async getVerificationPage(@Path() code: string): Promise<string> {
+    const result = ShortlinkService.resolve(code)
 
-    /**
-     * Mobile verification page for shortlink codes
-     * Driver scans QR → sees verification status → confirms delivery
-     */
-    @Get('{code}')
-    @Produces('text/html')
-    @Response<string>(200, 'HTML verification page')
-    public async getVerificationPage(
-        @Path() code: string
-    ): Promise<string> {
-        const result = ShortlinkService.resolve(code)
+    if (!result) {
+      this.setStatus(404)
+      return this.renderPage({
+        valid: false,
+        error: 'Link expired or invalid',
+        code,
+      })
+    }
 
-        if (!result) {
-            this.setStatus(404)
-            return this.renderPage({
-                valid: false,
-                error: 'Link expired or invalid',
-                code
-            })
-        }
+    // Lookup payment/receipt info from database
+    const db = DatabaseManager.getDatabase()
+    let receiptData: any = null
 
-        // Lookup payment/receipt info from database
-        const db = DatabaseManager.getDatabase()
-        let receiptData: any = null
-
-        if (result.type === 'receipt') {
-            const payment = db.prepare(`
+    if (result.type === 'receipt') {
+      const payment = db
+        .prepare(
+          `
                 SELECT * FROM ack_payments WHERE provider_ref = ? OR idempotency_key = ?
-            `).get(result.targetId, result.targetId) as any
+            `,
+        )
+        .get(result.targetId, result.targetId) as any
 
-            if (payment) {
-                receiptData = {
-                    transactionId: result.targetId,
-                    amount: payment.amount,
-                    currency: payment.currency,
-                    merchant: payment.tenant_id,
-                    status: payment.state,
-                    paidAt: payment.updated_at
-                }
-            }
+      if (payment) {
+        receiptData = {
+          transactionId: result.targetId,
+          amount: payment.amount,
+          currency: payment.currency,
+          merchant: payment.tenant_id,
+          status: payment.state,
+          paidAt: payment.updated_at,
         }
-
-        return this.renderPage({
-            valid: true,
-            type: result.type,
-            targetId: result.targetId,
-            metadata: result.metadata,
-            receipt: receiptData,
-            expiresAt: result.expiresAt,
-            code
-        })
+      }
     }
 
-    /**
-     * Confirm delivery action (driver taps to release escrow signal)
-     */
-    @Post('{code}/confirm')
-    public async confirmDelivery(
-        @Path() code: string
-    ): Promise<{ success: boolean; message: string }> {
-        const result = ShortlinkService.resolve(code)
+    return this.renderPage({
+      valid: true,
+      type: result.type,
+      targetId: result.targetId,
+      metadata: result.metadata,
+      receipt: receiptData,
+      expiresAt: result.expiresAt,
+      code,
+    })
+  }
 
-        if (!result) {
-            this.setStatus(404)
-            return { success: false, message: 'Link expired or invalid' }
-        }
+  /**
+   * Confirm delivery action (driver taps to release escrow signal)
+   */
+  @Post('{code}/confirm')
+  public async confirmDelivery(@Path() code: string): Promise<{ success: boolean; message: string }> {
+    const result = ShortlinkService.resolve(code)
 
-        // Mark shortlink as used
-        ShortlinkService.markUsed(code)
-
-        // TODO: Emit escrow.release signal when escrow module is wired
-        // For now, just log and return success
-        console.log(`[DELIVERY CONFIRMED] Code: ${code}, Transaction: ${result.targetId}`)
-
-        return {
-            success: true,
-            message: 'Delivery confirmed! Escrow release signal sent.'
-        }
+    if (!result) {
+      this.setStatus(404)
+      return { success: false, message: 'Link expired or invalid' }
     }
 
-    private renderPage(data: {
-        valid: boolean
-        error?: string
-        type?: string
-        targetId?: string
-        metadata?: Record<string, any> | null
-        receipt?: any
-        expiresAt?: string
-        code: string
-    }): string {
-        const baseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000'
+    // Mark shortlink as used
+    ShortlinkService.markUsed(code)
 
-        if (!data.valid) {
-            return `<!DOCTYPE html>
+    // TODO: Emit escrow.release signal when escrow module is wired
+    // For now, just log and return success
+    console.log(`[DELIVERY CONFIRMED] Code: ${code}, Transaction: ${result.targetId}`)
+
+    return {
+      success: true,
+      message: 'Delivery confirmed! Escrow release signal sent.',
+    }
+  }
+
+  private renderPage(data: {
+    valid: boolean
+    error?: string
+    type?: string
+    targetId?: string
+    metadata?: Record<string, any> | null
+    receipt?: any
+    expiresAt?: string
+    code: string
+  }): string {
+    const baseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000'
+
+    if (!data.valid) {
+      return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -240,12 +224,12 @@ export class VerificationPageController extends Controller {
     </div>
 </body>
 </html>`
-        }
+    }
 
-        const receipt = data.receipt || data.metadata || {}
-        const amount = receipt.amount ? `${receipt.currency || 'USD'} ${receipt.amount}` : 'N/A'
+    const receipt = data.receipt || data.metadata || {}
+    const amount = receipt.amount ? `${receipt.currency || 'USD'} ${receipt.amount}` : 'N/A'
 
-        return `<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -327,5 +311,5 @@ export class VerificationPageController extends Controller {
     </script>
 </body>
 </html>`
-    }
+  }
 }

@@ -27,7 +27,8 @@ export class SsiTrustController {
   @Post('presentation-requests')
   public async createPresentationRequest(
     @Request() request: ExRequest,
-    @Body() body: {
+    @Body()
+    body: {
       verifierRef: string
       purposeCode: string
       purposeTextRef?: string
@@ -36,7 +37,7 @@ export class SsiTrustController {
       presentationDefinition?: unknown
       transactionRef?: string
       expiresAt: string
-    }
+    },
   ) {
     const p = principal(request)
     return ssiPresentationService.createPresentationRequest({
@@ -55,11 +56,12 @@ export class SsiTrustController {
   public async bindVerifierSession(
     @Request() request: ExRequest,
     @Path() requestId: string,
-    @Body() body: {
+    @Body()
+    body: {
       verifierRef: string
       verificationSessionId: string
       verifierClientIdRef?: string
-    }
+    },
   ) {
     const p = principal(request)
     return ssiTrustService.bindCredoVerificationSession({
@@ -74,14 +76,15 @@ export class SsiTrustController {
   @Post('presentation-consents')
   public async recordConsent(
     @Request() request: ExRequest,
-    @Body() body: {
+    @Body()
+    body: {
       requestId: string
       decision: 'approved' | 'declined'
       requestedCategories: string[]
       disclosedCategories?: string[]
       privacyNoticeRef?: string
       consentVersion: string
-    }
+    },
   ) {
     const p = principal(request)
     return ssiTrustService.recordConsent({

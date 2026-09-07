@@ -112,12 +112,7 @@ export interface AckPaymentReceiptClaim {
 /**
  * Payment reconciliation states
  */
-export type PaymentReconciliationState =
-  | 'initiated'
-  | 'pending'
-  | 'paid'
-  | 'failed'
-  | 'refunded'
+export type PaymentReconciliationState = 'initiated' | 'pending' | 'paid' | 'failed' | 'refunded'
 
 /**
  * Payment record for tracking (platform-specific)
@@ -205,11 +200,7 @@ export interface AckPayAdapter {
   /**
    * Verify payment with provider
    */
-  verifyPayment(params: {
-    providerRef: string
-    expectedAmount: number
-    expectedCurrency: string
-  }): Promise<{
+  verifyPayment(params: { providerRef: string; expectedAmount: number; expectedCurrency: string }): Promise<{
     verified: boolean
     settledAt?: string
     failureReason?: string

@@ -17,6 +17,7 @@
 ## Sprint Breakdown
 
 ### Sprint 1 — Kickoff & Foundations
+
 **Goal:** Plan, infra, schemas
 
 - [ ] Kickoff meeting, finalize MVP scope
@@ -30,6 +31,7 @@
 ---
 
 ### Sprint 2 — EcoCash Integration Review
+
 **Goal:** Validate payment flow & webhooks
 
 - [ ] Test `EcoCashWebhookController` with sandbox
@@ -42,6 +44,7 @@
 ---
 
 ### Sprint 3 — Portal Checkout UI Polish
+
 **Goal:** Cart & checkout UX improvements in **Portal UI**
 
 - [ ] Review existing catalog page in portal
@@ -54,6 +57,7 @@
 ---
 
 ### Sprint 4 — ReceiptVC Issuance Enhancement
+
 **Goal:** Ensure VC issuance robust
 
 - [ ] Verify VC signing with tenant DID
@@ -66,6 +70,7 @@
 ---
 
 ### Sprint 5 — Embedded Wallet Storage
+
 **Goal:** Wallet accepts and stores ReceiptVC (embedding focus)
 
 - [ ] Review wallet credential acceptance flow
@@ -78,6 +83,7 @@
 ---
 
 ### Sprint 6 — Driver Verification Page
+
 **Goal:** Mobile web verifier for delivery
 
 - [ ] Create `/verify/{token}` endpoint
@@ -91,6 +97,7 @@
 ---
 
 ### Sprint 7 — QA & Hardening
+
 **Goal:** E2E tests, error handling, offline fallback
 
 - [ ] Create E2E test script (order → pay → VC → verify)
@@ -104,6 +111,7 @@
 ---
 
 ### Sprint 8 — Pilot Onboarding
+
 **Goal:** Recruit 5 merchants, 1 delivery partner
 
 - [ ] Create pilot playbook document
@@ -117,6 +125,7 @@
 ---
 
 ### Sprint 9 — Pilot Soft Launch
+
 **Goal:** Run pilot, collect data
 
 - [ ] Deploy to staging with TLS
@@ -129,6 +138,7 @@
 ---
 
 ### Sprint 10 — Iterate on Feedback
+
 **Goal:** Fix issues, improve UX
 
 - [ ] Address top 3 pilot friction points
@@ -141,6 +151,7 @@
 ---
 
 ### Sprint 11 — Analytics & Compliance
+
 **Goal:** Dashboard and regulator prep
 
 - [ ] Build simple analytics dashboard
@@ -153,6 +164,7 @@
 ---
 
 ### Sprint 12 — Go/No-Go Decision
+
 **Goal:** Review and plan Phase 2
 
 - [ ] Pilot review meeting

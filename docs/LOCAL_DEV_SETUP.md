@@ -122,6 +122,7 @@ node -e "const { ariesAskar } = require('@hyperledger/aries-askar-nodejs'); cons
 ```
 
 Expected output:
+
 ```
 Askar version: 0.2.3
 ```
@@ -159,6 +160,7 @@ yarn test --coverage
 ### Issue: "No native build was found"
 
 **Symptom:**
+
 ```
 No native build was found for platform=linux arch=x64 runtime=node abi=127
 ```
@@ -166,17 +168,20 @@ No native build was found for platform=linux arch=x64 runtime=node abi=127
 **Solutions:**
 
 1. **Check Node.js version compatibility:**
+
    ```bash
    node --version
    # Should be 20.x (stable LTS)
    ```
 
 2. **Rebuild native modules:**
+
    ```bash
    npm rebuild --build-from-source
    ```
 
 3. **Clear cache and reinstall:**
+
    ```bash
    rm -rf node_modules ~/.node-gyp ~/.npm/_cacache
    yarn cache clean
@@ -184,11 +189,12 @@ No native build was found for platform=linux arch=x64 runtime=node abi=127
    ```
 
 4. **Check build tools:**
+
    ```bash
    # Verify gcc/g++
    gcc --version
    g++ --version
-   
+
    # Verify Python 3
    python3 --version
    ```
@@ -196,6 +202,7 @@ No native build was found for platform=linux arch=x64 runtime=node abi=127
 ### Issue: "Cannot find module '@credo-ts/core'"
 
 **Solution:**
+
 ```bash
 # Ensure all dependencies are installed
 yarn install
@@ -209,11 +216,13 @@ yarn list @credo-ts/core
 ### Issue: Build fails with OpenSSL errors
 
 **Ubuntu/Debian:**
+
 ```bash
 sudo apt-get install -y libssl-dev
 ```
 
 **macOS:**
+
 ```bash
 brew install openssl
 export OPENSSL_ROOT_DIR=$(brew --prefix openssl)
@@ -223,6 +232,7 @@ npm rebuild
 ### Issue: Python errors during build
 
 **Ensure Python 3 is available as 'python':**
+
 ```bash
 # Create symlink if needed
 sudo ln -s /usr/bin/python3 /usr/bin/python
