@@ -1,8 +1,19 @@
 import { randomUUID } from 'crypto'
-import { DatabaseManager } from '../persistence/DatabaseManager'
-import { authorizationService } from './AuthorizationService'
 
-export type RequestStatus = 'draft' | 'submitted' | 'in_review' | 'approved' | 'rejected' | 'in_fulfilment' | 'completed' | 'cancelled'
+import { DatabaseManager } from '../persistence/DatabaseManager'
+
+import { authorizationService } from './AuthorizationService'
+import { requestContextValidator } from './RequestContextValidator'
+
+export type RequestStatus =
+  | 'draft'
+  | 'submitted'
+  | 'in_review'
+  | 'approved'
+  | 'rejected'
+  | 'in_fulfilment'
+  | 'completed'
+  | 'cancelled'
 
 export interface CreatePlatformRequestInput {
   tenantId: string
@@ -32,18 +43,24 @@ export interface CreatePlatformRequestInput {
  * AuthorizationService; business modules do not implement their own RBAC logic.
  */
 export class PlatformRequestService {
-  resolvePrincipal(tenantId: string, subjectRef: string) {
+  public resolvePrincipal(tenantId: string, subjectRef: string) {
     const db = DatabaseManager.getDatabase()
-    const organization = db.prepare(`
+    const organization = db
+      .prepare(
+        `
       SELECT id
       FROM organizations
       WHERE tenant_id = ? AND status = 'active'
       LIMIT 1
-    `).get(tenantId) as { id?: string } | undefined
+    `,
+      )
+      .get(tenantId) as { id?: string } | undefined
 
     if (!organization?.id) throw new Error('Organization context not found')
 
-    const person = db.prepare(`
+    const person = db
+      .prepare(
+        `
       SELECT p.id
       FROM people p
       JOIN organization_memberships m
@@ -51,19 +68,29 @@ export class PlatformRequestService {
       WHERE p.organization_id = ? AND p.subject_ref = ?
         AND p.status = 'active' AND m.membership_status = 'active'
       LIMIT 1
-    `).get(organization.id, subjectRef) as { id?: string } | undefined
+    `,
+      )
+      .get(organization.id, subjectRef) as { id?: string } | undefined
 
     if (!person?.id) throw new Error('Authenticated subject is not an active organization member')
     return { organizationId: organization.id, personId: person.id }
   }
 
-  create(input: CreatePlatformRequestInput) {
+  public create(input: CreatePlatformRequestInput) {
     const db = DatabaseManager.getDatabase()
     const principal = this.resolvePrincipal(input.tenantId, input.subjectRef)
     const requestId = randomUUID()
 
+    // Validate context_json before persisting — prevents credential material leakage
+    const context = input.context ?? {}
+    const contextValidation = requestContextValidator.validate(input.requestType, context)
+    if (!contextValidation.valid) {
+      throw new Error(`Invalid request context: ${contextValidation.errors.join('; ')}`)
+    }
+
     db.transaction(() => {
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO requests (
           id, organization_id, requester_person_id, request_type,
           title, description, amount, currency, priority,
@@ -73,7 +100,8 @@ export class PlatformRequestService {
           @title, @description, @amount, @currency, @priority,
           'draft', @targetModule, @contextJson
         )
-      `).run({
+      `,
+      ).run({
         id: requestId,
         organizationId: principal.organizationId,
         requesterPersonId: principal.personId,
@@ -84,56 +112,61 @@ export class PlatformRequestService {
         currency: input.currency ?? null,
         priority: input.priority ?? 'normal',
         targetModule: input.targetModule ?? null,
-        contextJson: JSON.stringify(input.context ?? {})
+        contextJson: JSON.stringify(context),
       })
 
       for (const item of input.items ?? []) {
-        db.prepare(`
+        db.prepare(
+          `
           INSERT INTO request_items (
             id, request_id, item_type, description, quantity, unit_price, metadata_json
           ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          randomUUID(), requestId,
+        `,
+        ).run(
+          randomUUID(),
+          requestId,
           item.itemType ?? 'line_item',
           item.description,
           item.quantity ?? 1,
           item.unitPrice ?? null,
-          JSON.stringify(item.metadata ?? {})
+          JSON.stringify(item.metadata ?? {}),
         )
       }
 
       this.recordEvent(requestId, 'request.created', principal.personId, null, 'draft', {
-        requestType: input.requestType
+        requestType: input.requestType,
       })
     })()
 
     return this.getForSubject(requestId, input.tenantId, input.subjectRef)
   }
 
-  submit(requestId: string, tenantId: string, subjectRef: string) {
+  public submit(requestId: string, tenantId: string, subjectRef: string) {
     return this.transitionBySubject(requestId, tenantId, subjectRef, 'submitted')
   }
 
-  transitionBySubject(
+  public transitionBySubject(
     requestId: string,
     tenantId: string,
     subjectRef: string,
     toStatus: RequestStatus,
-    payload: Record<string, unknown> = {}
+    payload: Record<string, unknown> = {},
   ) {
     const principal = this.resolvePrincipal(tenantId, subjectRef)
     return this.transition(requestId, tenantId, toStatus, principal.personId, payload)
   }
 
-  transition(
+  public transition(
     requestId: string,
     tenantId: string,
     toStatus: RequestStatus,
     actorPersonId: string,
-    payload: Record<string, unknown> = {}
+    payload: Record<string, unknown> = {},
   ) {
     const db = DatabaseManager.getDatabase()
-    const current = db.prepare(`
+    const current = db
+      .prepare(
+        `
       SELECT
         r.status,
         r.organization_id AS organizationId,
@@ -145,15 +178,19 @@ export class PlatformRequestService {
       FROM requests r
       JOIN organizations o ON o.id = r.organization_id
       WHERE r.id = ? AND o.tenant_id = ? AND o.status = 'active'
-    `).get(requestId, tenantId) as {
-      status?: RequestStatus
-      organizationId?: string
-      requesterPersonId?: string
-      departmentId?: string
-      amount?: number
-      currency?: string
-      contextJson?: string
-    } | undefined
+    `,
+      )
+      .get(requestId, tenantId) as
+      | {
+          status?: RequestStatus
+          organizationId?: string
+          requesterPersonId?: string
+          departmentId?: string
+          amount?: number
+          currency?: string
+          contextJson?: string
+        }
+      | undefined
 
     if (!current?.organizationId || !current.requesterPersonId) throw new Error('Request not found')
 
@@ -165,7 +202,7 @@ export class PlatformRequestService {
       rejected: ['draft'],
       in_fulfilment: ['completed', 'cancelled'],
       completed: [],
-      cancelled: []
+      cancelled: [],
     }
 
     if (!allowed[current.status ?? 'draft'].includes(toStatus)) {
@@ -185,10 +222,21 @@ export class PlatformRequestService {
     const actorIsRequester = actorPersonId === current.requesterPersonId
 
     if (actorIsRequester && (toStatus === 'submitted' || toStatus === 'cancelled')) {
-      this.recordDecisionEvent(current.organizationId, actorPersonId, requestId, `request.${toStatus}`, 'allow', 'requester_action')
+      this.recordDecisionEvent(
+        current.organizationId,
+        actorPersonId,
+        requestId,
+        `request.${toStatus}`,
+        'allow',
+        'requester_action',
+      )
     } else {
       const context = this.parseContext(current.contextJson)
-      const separationOfDuties = this.getSeparationOfDuties(current.status as RequestStatus, toStatus, current.requesterPersonId)
+      const separationOfDuties = this.getSeparationOfDuties(
+        current.status as RequestStatus,
+        toStatus,
+        current.requesterPersonId,
+      )
       const decision = authorizationService.decide({
         tenantId,
         personId: actorPersonId,
@@ -211,13 +259,15 @@ export class PlatformRequestService {
 
     const now = new Date().toISOString()
     db.transaction(() => {
-      db.prepare(`
+      db.prepare(
+        `
         UPDATE requests
         SET status = ?, updated_at = CURRENT_TIMESTAMP,
             submitted_at = CASE WHEN ? = 'submitted' THEN COALESCE(submitted_at, ?) ELSE submitted_at END,
             completed_at = CASE WHEN ? = 'completed' THEN ? ELSE completed_at END
         WHERE id = ?
-      `).run(toStatus, toStatus, now, toStatus, now, requestId)
+      `,
+      ).run(toStatus, toStatus, now, toStatus, now, requestId)
 
       this.recordEvent(requestId, 'request.status_changed', actorPersonId, current.status ?? null, toStatus, payload)
     })()
@@ -227,7 +277,11 @@ export class PlatformRequestService {
     return this.getForTenant(requestId, tenantId)
   }
 
-  private getSeparationOfDuties(fromStatus: RequestStatus, toStatus: RequestStatus, requesterPersonId: string): string[] {
+  private getSeparationOfDuties(
+    fromStatus: RequestStatus,
+    toStatus: RequestStatus,
+    requesterPersonId: string,
+  ): string[] {
     if (fromStatus === 'in_review' && ['approved', 'rejected'].includes(toStatus)) return [requesterPersonId]
     return []
   }
@@ -247,28 +301,33 @@ export class PlatformRequestService {
     requestId: string,
     action: string,
     decision: 'allow' | 'deny',
-    reasonCode: string
+    reasonCode: string,
   ) {
-    DatabaseManager.getDatabase().prepare(`
+    DatabaseManager.getDatabase()
+      .prepare(
+        `
       INSERT INTO policy_decisions (
         id, organization_id, principal_person_id, action,
         resource_type, resource_id, decision, reason_code, policy_version
       ) VALUES (?, ?, ?, ?, 'request', ?, ?, ?, ?)
-    `).run(
-      randomUUID(), organizationId, actorPersonId, action,
-      requestId, decision, reasonCode, 'platform-v1'
-    )
+    `,
+      )
+      .run(randomUUID(), organizationId, actorPersonId, action, requestId, decision, reasonCode, 'platform-v1')
   }
 
-  getForSubject(requestId: string, tenantId: string, subjectRef: string) {
+  public getForSubject(requestId: string, tenantId: string, subjectRef: string) {
     const db = DatabaseManager.getDatabase()
     const principal = this.resolvePrincipal(tenantId, subjectRef)
-    const request = db.prepare(`
+    const request = db
+      .prepare(
+        `
       SELECT r.*
       FROM requests r
       JOIN organizations o ON o.id = r.organization_id
       WHERE r.id = ? AND o.tenant_id = ? AND o.status = 'active'
-    `).get(requestId, tenantId) as any
+    `,
+      )
+      .get(requestId, tenantId) as any
     if (!request) return undefined
 
     if (request.requester_person_id !== principal.personId) {
@@ -292,19 +351,30 @@ export class PlatformRequestService {
    * Compatibility method for internal callers that already operate on a
    * tenant-scoped request. New HTTP callers should use getForSubject().
    */
-  getForTenant(requestId: string, tenantId: string) {
+  public getForTenant(requestId: string, tenantId: string) {
     const db = DatabaseManager.getDatabase()
-    const request = db.prepare(`
+    const request = db
+      .prepare(
+        `
       SELECT r.*
       FROM requests r
       JOIN organizations o ON o.id = r.organization_id
       WHERE r.id = ? AND o.tenant_id = ?
-    `).get(requestId, tenantId) as any
+    `,
+      )
+      .get(requestId, tenantId) as any
     if (!request) return undefined
     return this.hydrateRequest(requestId, request)
   }
 
-  list(tenantId: string, subjectRef: string, status?: RequestStatus, requestType?: string, limit = 100) {
+  public list(
+    tenantId: string,
+    subjectRef: string,
+    status?: RequestStatus,
+    requestType?: string,
+    limit = 20,
+    cursor?: string,
+  ): { items: unknown[]; nextCursor: string | null } {
     const db = DatabaseManager.getDatabase()
     const principal = this.resolvePrincipal(tenantId, subjectRef)
     const readDecision = authorizationService.decide({
@@ -315,6 +385,7 @@ export class PlatformRequestService {
       resourceType: 'request',
     })
     const canReadAll = readDecision.decision === 'allow'
+    const pageSize = Math.min(Math.max(limit, 1), 100)
 
     let sql = `
       SELECT r.*
@@ -325,6 +396,10 @@ export class PlatformRequestService {
     `
     const params: unknown[] = [tenantId, canReadAll ? 1 : 0, principal.personId]
 
+    if (cursor) {
+      sql += ' AND r.created_at < ?'
+      params.push(cursor)
+    }
     if (status) {
       sql += ' AND r.status = ?'
       params.push(status)
@@ -334,15 +409,23 @@ export class PlatformRequestService {
       params.push(requestType)
     }
 
-    sql += ' ORDER BY r.created_at DESC LIMIT ?'
-    params.push(Math.min(Math.max(limit, 1), 500))
-    return db.prepare(sql).all(...params)
+    sql += ' ORDER BY r.created_at DESC, r.id DESC LIMIT ?'
+    params.push(pageSize + 1)
+
+    const rows = db.prepare(sql).all(...params) as Array<{ created_at?: string }>
+    const hasMore = rows.length > pageSize
+    const items = hasMore ? rows.slice(0, pageSize) : rows
+    const nextCursor = hasMore ? (items[items.length - 1]?.created_at ?? null) : null
+
+    return { items, nextCursor }
   }
 
   private hydrateRequest(requestId: string, request: any) {
     const db = DatabaseManager.getDatabase()
     const items = db.prepare('SELECT * FROM request_items WHERE request_id = ? ORDER BY rowid').all(requestId)
-    const approvals = db.prepare('SELECT * FROM request_approvals WHERE request_id = ? ORDER BY created_at').all(requestId)
+    const approvals = db
+      .prepare('SELECT * FROM request_approvals WHERE request_id = ? ORDER BY created_at')
+      .all(requestId)
     const tasks = db.prepare('SELECT * FROM request_tasks WHERE request_id = ? ORDER BY created_at').all(requestId)
     const events = db.prepare('SELECT * FROM request_events WHERE request_id = ? ORDER BY created_at').all(requestId)
 
@@ -352,7 +435,7 @@ export class PlatformRequestService {
       items,
       approvals,
       tasks,
-      events
+      events,
     }
   }
 
@@ -362,16 +445,17 @@ export class PlatformRequestService {
     actorPersonId: string | undefined,
     fromStatus: string | null,
     toStatus: string | null,
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
   ) {
-    DatabaseManager.getDatabase().prepare(`
+    DatabaseManager.getDatabase()
+      .prepare(
+        `
       INSERT INTO request_events (
         id, request_id, event_type, actor_person_id, from_status, to_status, payload_json
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      randomUUID(), requestId, eventType, actorPersonId ?? null,
-      fromStatus, toStatus, JSON.stringify(payload)
-    )
+    `,
+      )
+      .run(randomUUID(), requestId, eventType, actorPersonId ?? null, fromStatus, toStatus, JSON.stringify(payload))
   }
 }
 

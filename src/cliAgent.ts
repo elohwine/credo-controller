@@ -109,17 +109,16 @@ export const buildModules = (cfg: {
         credentialOffer: {},
         accessToken: {},
         credential: {
-          credentialRequestToCredentialMapper: async ({ agentContext, issuanceSession, holderBinding, credentialConfigurationIds }) => {
+          credentialRequestToCredentialMapper: async ({
+            agentContext,
+            issuanceSession,
+            holderBinding,
+            credentialConfigurationIds,
+          }) => {
             const credentialConfigurationId = credentialConfigurationIds[0]
 
             const metadata = (issuanceSession.issuanceMetadata as any) ?? {}
             const claims = metadata?.claims || {}
-
-            // Debug logging to trace claims flow
-            console.log('[CredentialMapper] credentialConfigurationId:', credentialConfigurationId)
-            console.log('[CredentialMapper] issuanceMetadata:', JSON.stringify(metadata, null, 2))
-            console.log('[CredentialMapper] extracted claims:', JSON.stringify(claims))
-            console.log('[CredentialMapper] holderBinding:', JSON.stringify(holderBinding))
 
             let subjectDid = metadata?.subjectDid || 'did:example:unknown'
             if (holderBinding && typeof holderBinding === 'object' && 'did' in holderBinding) {
@@ -142,7 +141,7 @@ export const buildModules = (cfg: {
             const credentialId = metadata?.credentialId || `urn:uuid:${issuanceSession.id}`
             const tenantId = metadata?.tenantId || 'default'
 
-            const credentialPayload = {
+            const credentialPayload: Record<string, unknown> = {
               id: credentialId,
               '@context': ['https://www.w3.org/2018/credentials/v1'],
               type: credDef.credentialType || ['VerifiableCredential', credentialConfigurationId],
@@ -152,7 +151,27 @@ export const buildModules = (cfg: {
                 id: subjectDid,
                 ...claims,
               },
-            } as any
+            }
+
+            // Allocate a W3C BitstringStatusList entry so the credential can be
+            // revoked or suspended after issuance. Failure is non-fatal — the
+            // credential is still issued, but without a status capability.
+            try {
+              const { statusListAllocatorService } = await import('./services/ssi/StatusListAllocatorService')
+              const allocation = statusListAllocatorService.allocateForTenant(
+                tenantId,
+                issuerDid,
+                'revocation',
+                credentialId,
+              )
+              if (allocation) {
+                credentialPayload.credentialStatus = allocation.entry
+              }
+            } catch (statusErr: any) {
+              agentContext.config.logger.warn(
+                `Status list allocation failed — credential issued without credentialStatus: ${statusErr?.message}`,
+              )
+            }
 
             try {
               const { IssuedCredentialRepository } = await import('./persistence/IssuedCredentialRepository')
@@ -175,7 +194,7 @@ export const buildModules = (cfg: {
               credentialSupportedId: credentialConfigurationId,
               format: ClaimFormat.JwtVc,
               verificationMethod,
-              credential: credentialPayload,
+              credential: credentialPayload as any,
             }
           },
         },
@@ -246,12 +265,12 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
 
   const tenantModules = tenancy
     ? {
-      tenants: new TenantsModuleClass<typeof baseModules>({
-        sessionAcquireTimeout: Number(process.env.SESSION_ACQUIRE_TIMEOUT) || maxTimerMs,
-        sessionLimit: Number(process.env.SESSION_LIMIT) || maxTimerMs,
-      }),
-      ...baseModules,
-    }
+        tenants: new TenantsModuleClass<typeof baseModules>({
+          sessionAcquireTimeout: Number(process.env.SESSION_ACQUIRE_TIMEOUT) || maxTimerMs,
+          sessionLimit: Number(process.env.SESSION_LIMIT) || maxTimerMs,
+        }),
+        ...baseModules,
+      }
     : baseModules
 
   const agent = new Agent({ config: agentConfig, modules: tenantModules as any, dependencies: agentDependencies })
@@ -285,9 +304,10 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
     // IMPORTANT: advertise both definition-name IDs (e.g., FinancialStatementDef_jwt_vc_json)
     // and leaf-type IDs (e.g., FinancialStatementCredential_jwt_vc_json) for compatibility.
     const credentialsSupported = allDefs.flatMap((def) => {
-      const leafType = Array.isArray(def.credentialType) && def.credentialType.length
-        ? def.credentialType[def.credentialType.length - 1]
-        : def.name
+      const leafType =
+        Array.isArray(def.credentialType) && def.credentialType.length
+          ? def.credentialType[def.credentialType.length - 1]
+          : def.name
 
       const idBases = Array.from(new Set([def.name, leafType].filter(Boolean)))
 
@@ -315,7 +335,9 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
     if (existingIssuers && existingIssuers.length > 0) {
       // Reuse existing issuer - just update its metadata with all credentials
       const issuer = existingIssuers[0]
-      agent.config.logger.info(`Reusing existing issuer: ${issuer.issuerId}. Updating metadata with ${credentialsSupported.length} credentials...`)
+      agent.config.logger.info(
+        `Reusing existing issuer: ${issuer.issuerId}. Updating metadata with ${credentialsSupported.length} credentials...`,
+      )
 
       await agent.modules.openId4VcIssuer.updateIssuerMetadata({
         issuerId: issuer.issuerId,

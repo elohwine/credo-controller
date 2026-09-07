@@ -141,38 +141,53 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
       'https://credentis-wallet.fly.dev',
       'https://credentis-api.fly.dev',
       // Docker Internal IPs
-      'http://172.16.0.0:3000', 'http://172.16.0.0:4000', 'http://172.16.0.0:5000', 'http://172.16.0.0:6000',
-      'http://172.17.0.0:3000', 'http://172.17.0.0:4000', 'http://172.17.0.0:5000', 'http://172.17.0.0:6000',
-      'http://172.18.0.0:3000', 'http://172.18.0.0:4000', 'http://172.18.0.0:5000', 'http://172.18.0.0:6000',
-      'http://172.19.0.0:3000', 'http://172.19.0.0:4000', 'http://172.19.0.0:5000', 'http://172.19.0.0:6000',
+      'http://172.16.0.0:3000',
+      'http://172.16.0.0:4000',
+      'http://172.16.0.0:5000',
+      'http://172.16.0.0:6000',
+      'http://172.17.0.0:3000',
+      'http://172.17.0.0:4000',
+      'http://172.17.0.0:5000',
+      'http://172.17.0.0:6000',
+      'http://172.18.0.0:3000',
+      'http://172.18.0.0:4000',
+      'http://172.18.0.0:5000',
+      'http://172.18.0.0:6000',
+      'http://172.19.0.0:3000',
+      'http://172.19.0.0:4000',
+      'http://172.19.0.0:5000',
+      'http://172.19.0.0:6000',
     ]
 
     const isDockerOrigin = (origin: string) => {
-      return origin.startsWith('http://172.') ||
+      return (
+        origin.startsWith('http://172.') ||
         origin.startsWith('http://api') ||
         origin.startsWith('http://holder-api') ||
         origin.startsWith('http://portal') ||
         origin.startsWith('http://wallet')
+      )
     }
 
+    app.use(
+      cors({
+        origin: (origin, callback) => {
+          // Allow requests with no origin (like mobile apps or curl requests)
+          if (!origin) return callback(null, true)
 
-    app.use(cors({
-      origin: (origin, callback) => {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true)
-
-        if (allowedOrigins.indexOf(origin) !== -1 || isDockerOrigin(origin)) {
-          callback(null, true)
-        } else {
-          agent.config.logger.warn(`CORS blocked origin: ${origin}`)
-          callback(new Error('Not allowed by CORS'))
-        }
-      },
-      credentials: true,
-      methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'x-correlation-id', 'x-api-key', 'x-tenant-id'],
-      exposedHeaders: ['x-correlation-id'],
-    }))
+          if (allowedOrigins.indexOf(origin) !== -1 || isDockerOrigin(origin)) {
+            callback(null, true)
+          } else {
+            agent.config.logger.warn(`CORS blocked origin: ${origin}`)
+            callback(new Error('Not allowed by CORS'))
+          }
+        },
+        credentials: true,
+        methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'x-correlation-id', 'x-api-key', 'x-tenant-id'],
+        exposedHeaders: ['x-correlation-id'],
+      }),
+    )
   }
 
   if (config.socketServer || config.webhookUrl) {
@@ -229,7 +244,10 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
 
     res.on('finish', () => {
       const duration = Date.now() - start
-      req.logger?.info({ method: req.method, path: req.path, status: res.statusCode, duration, response: responseBody }, 'Request completed')
+      req.logger?.info(
+        { method: req.method, path: req.path, status: res.statusCode, duration, response: responseBody },
+        'Request completed',
+      )
     })
 
     next()
@@ -323,7 +341,10 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
       const isCredentialEndpoint = req.method === 'POST' && req.path.endsWith('/credential')
       if (isCredentialEndpoint) {
         try {
-          req.logger?.info({ path: req.path, bodyPreview: typeof req.body === 'object' ? Object.keys(req.body) : typeof req.body }, 'Issuer credential request incoming')
+          req.logger?.info(
+            { path: req.path, bodyPreview: typeof req.body === 'object' ? Object.keys(req.body) : typeof req.body },
+            'Issuer credential request incoming',
+          )
         } catch (e) {
           // ignore logging errors
         }
@@ -339,7 +360,21 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
 
         res.on('finish', () => {
           try {
-            req.logger?.warn({ status: res.statusCode, responsePreview: typeof responseBody === 'string' ? responseBody.slice?.(0, 400) : responseBody }, 'Issuer credential endpoint responded')
+            const responseSize =
+              typeof responseBody === 'string'
+                ? responseBody.length
+                : responseBody == null
+                  ? 0
+                  : JSON.stringify(responseBody).length
+
+            req.logger?.warn(
+              {
+                status: res.statusCode,
+                responseType: typeof responseBody,
+                responseSize,
+              },
+              'Issuer credential endpoint responded',
+            )
           } catch (e) {
             // ignore
           }
@@ -359,6 +394,36 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     agent.config.logger.info('Mounting OpenID4VC Verifier routes at /oidc/verifier')
     app.use('/oidc/verifier', modules.openId4VcVerifier.config.router)
   }
+
+  // ── Status List endpoint ─────────────────────────────────────────────────
+  // Public, unauthenticated: holders and verifiers dereference this URL to
+  // check credential status. The URL is embedded in credentialStatus entries
+  // at issuance time. No authentication required per W3C BitstringStatusList spec.
+  app.get('/status-lists/:statusListId', async (req: ExRequest, res: ExResponse) => {
+    const { statusListId } = req.params
+    // Basic ID format guard to prevent path traversal or injection
+    if (!/^[0-9a-f-]{36}$/.test(statusListId)) {
+      res.status(400).json({ error: 'Invalid status list identifier' })
+      return
+    }
+    try {
+      const { statusListPublisherService } = await import('./services/ssi/StatusListPublisherService')
+      const agentForSigning = req.agent ? (req.agent as unknown as Agent<any>) : null
+      const vcJson = await statusListPublisherService.serveOrPublish(statusListId, agentForSigning)
+      if (!vcJson) {
+        res.status(404).json({ error: 'Status list not found or not yet published' })
+        return
+      }
+      // Serve as JSON or compact JWT — content-type follows whether it looks like a JWT
+      const isJwt = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(vcJson.trim())
+      res.setHeader('Content-Type', isJwt ? 'application/jwt' : 'application/json')
+      res.setHeader('Cache-Control', 'public, max-age=300')
+      res.status(200).send(vcJson)
+    } catch (err) {
+      req.logger?.error({ statusListId, err }, 'Error serving status list')
+      res.status(500).json({ error: 'Failed to serve status list' })
+    }
+  })
 
   app.use((async (err: unknown, req: ExRequest, res: ExResponse, next: NextFunction): Promise<ExResponse | void> => {
     // Check if headers were already sent
