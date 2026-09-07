@@ -4,6 +4,8 @@ import { gzipSync } from 'zlib'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { rootLogger } from '../../utils/pinoLogger'
 
+import { statusListCacheService } from './StatusListCacheService'
+
 const logger = rootLogger.child({ module: 'StatusListAllocatorService' })
 
 /**
@@ -232,11 +234,14 @@ export class StatusListAllocatorService {
 
   private setStatus(allocationId: string, newStatus: 'valid' | 'revoked' | 'suspended'): void {
     const db = DatabaseManager.getDatabase()
+    let statusListId: string
     db.transaction(() => {
       const row = db
         .prepare(`SELECT status_list_id FROM credential_status_allocations WHERE id = ?`)
         .get(allocationId) as AllocationRow | undefined
       if (!row) throw new Error(`Status allocation not found: ${allocationId}`)
+
+      statusListId = row.status_list_id
 
       db.prepare(
         `UPDATE credential_status_allocations
@@ -249,8 +254,13 @@ export class StatusListAllocatorService {
         `UPDATE credential_status_lists
            SET signed_vc_json = NULL, published_at = NULL, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
-      ).run(row.status_list_id)
+      ).run(statusListId)
     })()
+
+    // Invalidate in-memory cache after transaction
+    if (statusListId!) {
+      statusListCacheService.invalidate(statusListId)
+    }
   }
 
   private getOrCreateActiveList(organizationId: string, issuerRef: string, purpose: StatusPurpose): StatusListRow {

@@ -407,18 +407,39 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
       return
     }
     try {
+      const { statusListCacheService } = await import('./services/ssi/StatusListCacheService')
       const { statusListPublisherService } = await import('./services/ssi/StatusListPublisherService')
+
+      // Try cache first (synchronous check)
+      const cached = statusListCacheService.getSync(statusListId)
+      if (cached && !cached.isStale) {
+        // Fresh in cache
+        const isJwt = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(cached.vc.trim())
+        res.setHeader('Content-Type', isJwt ? 'application/jwt' : 'application/json')
+        res.setHeader('Cache-Control', 'public, max-age=300')
+        res.status(200).send(cached.vc)
+        return
+      }
+
+      // Cache miss or stale; refresh with option to serve stale if available
       const agentForSigning = req.agent ? (req.agent as unknown as Agent<any>) : null
-      const vcJson = await statusListPublisherService.serveOrPublish(statusListId, agentForSigning)
-      if (!vcJson) {
+      const refreshed = await statusListCacheService.get(statusListId, true)
+      if (!refreshed || !refreshed.vc) {
         res.status(404).json({ error: 'Status list not found or not yet published' })
         return
       }
+
       // Serve as JSON or compact JWT — content-type follows whether it looks like a JWT
-      const isJwt = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(vcJson.trim())
+      const isJwt = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(refreshed.vc.trim())
       res.setHeader('Content-Type', isJwt ? 'application/jwt' : 'application/json')
-      res.setHeader('Cache-Control', 'public, max-age=300')
-      res.status(200).send(vcJson)
+      if (refreshed.isStale) {
+        // Stale data served; indicate to client it should re-fetch or add validation step
+        res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300')
+        res.setHeader('X-Status-List-Stale', 'true')
+      } else {
+        res.setHeader('Cache-Control', 'public, max-age=300')
+      }
+      res.status(200).send(refreshed.vc)
     } catch (err) {
       req.logger?.error({ statusListId, err }, 'Error serving status list')
       res.status(500).json({ error: 'Failed to serve status list' })

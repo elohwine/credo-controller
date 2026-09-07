@@ -31,7 +31,7 @@ export class DatabaseManager {
 
     this.instance = new Database(dbPath, {
       readonly: config.readonly || false,
-      verbose: config.verbose ? ((message?: unknown) => this.logQuery(String(message))) : undefined,
+      verbose: config.verbose ? (message?: unknown) => this.logQuery(String(message)) : undefined,
     })
 
     this.instance.pragma('foreign_keys = ON')
@@ -45,6 +45,11 @@ export class DatabaseManager {
     this.logger.info(`Database initialized at: ${dbPath}`)
     this.runMigrations()
     return this.instance
+  }
+
+  static setDatabase(db: Database.Database): void {
+    this.instance = db
+    this.logger.info('Database instance set for testing')
   }
 
   static getDatabase(): Database.Database {
