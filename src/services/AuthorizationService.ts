@@ -1,20 +1,83 @@
+import type {
+  AuthorityDecision,
+  AuthorityDecisionInput,
+  AuthorityScope,
+  SsiCredentialCondition,
+  SsiEvidenceInput,
+} from './ssi/SsiTypes'
+
 import { randomUUID } from 'crypto'
+
 import { DatabaseManager } from '../persistence/DatabaseManager'
-import type { AuthorityDecision, AuthorityDecisionInput, AuthorityScope } from './ssi/SsiTypes'
+import { rootLogger } from '../utils/pinoLogger'
+
+import { authZENAdapterService } from './AuthZENAdapterService'
+import { authorizationPolicyService } from './AuthorizationPolicyService'
+
+const logger = rootLogger.child({ module: 'AuthorizationService' })
 
 /**
  * Authorization is intentionally separate from credential verification.
  * A verified credential is evidence consumed by policy; it is not itself the
  * permission to perform a business action.
+ *
+ * decide() is the synchronous in-process path (default).
+ * decideAsync() adds optional external AuthZEN delegation when the organization
+ * has an external_authzen adapter configured.
  */
 export class AuthorizationService {
-  decide(input: AuthorityDecisionInput): AuthorityDecision {
+  /**
+   * Async authorization decision that routes through an external AuthZEN
+   * endpoint when the organization has one configured. Falls back to the
+   * synchronous in-process path if no external adapter is set or if the
+   * external call fails (fail-closed).
+   */
+  public async decideAsync(input: AuthorityDecisionInput): Promise<AuthorityDecision> {
+    const db = DatabaseManager.getDatabase()
+    const org = db
+      .prepare(`SELECT id FROM organizations WHERE tenant_id = ? AND status = 'active' LIMIT 1`)
+      .get(input.tenantId) as { id?: string } | undefined
+
+    if (org?.id) {
+      try {
+        const config = authorizationPolicyService.getExternalAuthzConfig(org.id)
+        if (config?.type === 'external_authzen' && config.endpoint && config.tokenRef) {
+          const result = await authZENAdapterService.evaluate(
+            config.endpoint,
+            config.tokenRef,
+            { type: 'person', id: input.personId },
+            { name: input.action },
+            { type: input.resourceType, id: input.resourceId },
+            { organizationId: org.id, tenantId: input.tenantId, amount: input.amount, currency: input.currency },
+          )
+          const decisionId = randomUUID()
+          const evaluatedAt = new Date().toISOString()
+          return this.persistDecision(input, {
+            decisionId,
+            decision: result.decision ? 'allow' : 'deny',
+            reasonCode: result.reasonCode ?? (result.decision ? 'authzen_allow' : 'authzen_deny'),
+            credentialReferences: [],
+            policyVersion: result.policyVersion ?? 'external',
+            evaluatedAt,
+          })
+        }
+      } catch (err) {
+        logger.warn({ err }, 'External AuthZEN call failed — falling back to in-process evaluation')
+      }
+    }
+
+    return this.decide(input)
+  }
+
+  public decide(input: AuthorityDecisionInput): AuthorityDecision {
     const db = DatabaseManager.getDatabase()
     const evaluatedAt = new Date().toISOString()
     const decisionId = randomUUID()
     const permission = input.requiredPermission || input.action
 
-    const actor = db.prepare(`
+    const actor = db
+      .prepare(
+        `
       SELECT p.id AS personId, p.organization_id AS organizationId
       FROM people p
       JOIN organizations o ON o.id = p.organization_id
@@ -27,7 +90,9 @@ export class AuthorizationService {
         AND p.status = 'active'
         AND m.membership_status = 'active'
       LIMIT 1
-    `).get(input.tenantId, input.personId) as { personId?: string; organizationId?: string } | undefined
+    `,
+      )
+      .get(input.tenantId, input.personId) as { personId?: string; organizationId?: string } | undefined
 
     if (!actor?.organizationId) {
       return this.persistDecision(input, {
@@ -40,7 +105,12 @@ export class AuthorizationService {
       })
     }
 
-    const authorityRows = db.prepare(`
+    // Resolve the currently active versioned policy tag for this organization.
+    const policyVersion = this.resolveActivePolicyVersion(actor.organizationId)
+
+    const authorityRows = db
+      .prepare(
+        `
       SELECT
         a.id,
         a.authority_type AS authorityType,
@@ -53,7 +123,9 @@ export class AuthorizationService {
         AND (a.valid_from IS NULL OR a.valid_from <= CURRENT_TIMESTAMP)
         AND (a.valid_until IS NULL OR a.valid_until >= CURRENT_TIMESTAMP)
       ORDER BY a.created_at DESC
-    `).all(actor.organizationId, input.personId) as Array<{
+    `,
+      )
+      .all(actor.organizationId, input.personId) as Array<{
       id: string
       authorityType: string
       scopeJson: string
@@ -71,7 +143,20 @@ export class AuthorizationService {
           reasonCode: 'separation_of_duties_violation',
           authorityRef: authority.id,
           credentialReferences: authority.sourceCredentialRef ? [authority.sourceCredentialRef] : [],
-          policyVersion: 'platform-v1',
+          policyVersion,
+          evaluatedAt,
+        })
+      }
+
+      const ssiCheck = this.evaluateSsiEvidence(scope.requiredCredentials, input.ssiEvidence)
+      if (!ssiCheck.satisfied) {
+        return this.persistDecision(input, {
+          decisionId,
+          decision: 'deny',
+          reasonCode: ssiCheck.reasonCode,
+          authorityRef: authority.id,
+          credentialReferences: ssiCheck.credentialRefs,
+          policyVersion,
           evaluatedAt,
         })
       }
@@ -81,8 +166,11 @@ export class AuthorizationService {
         decision: 'allow',
         reasonCode: 'authority_scope_match',
         authorityRef: authority.id,
-        credentialReferences: authority.sourceCredentialRef ? [authority.sourceCredentialRef] : [],
-        policyVersion: 'platform-v1',
+        credentialReferences: [
+          ...(authority.sourceCredentialRef ? [authority.sourceCredentialRef] : []),
+          ...ssiCheck.credentialRefs,
+        ],
+        policyVersion,
         evaluatedAt,
       })
     }
@@ -99,7 +187,24 @@ export class AuthorizationService {
           reasonCode: 'separation_of_duties_violation',
           authorityRef: delegated.authorityRef,
           credentialReferences: delegated.credentialReferences,
-          policyVersion: 'platform-v1',
+          policyVersion,
+          evaluatedAt,
+        })
+      }
+
+      const ssiCheck = this.evaluateSsiEvidence(
+        this.parseScope(this.getRawDelegationAuthorityScope(actor.organizationId, delegated.authorityRef))
+          .requiredCredentials,
+        input.ssiEvidence,
+      )
+      if (!ssiCheck.satisfied) {
+        return this.persistDecision(input, {
+          decisionId,
+          decision: 'deny',
+          reasonCode: ssiCheck.reasonCode,
+          authorityRef: delegated.authorityRef,
+          credentialReferences: ssiCheck.credentialRefs,
+          policyVersion,
           evaluatedAt,
         })
       }
@@ -109,8 +214,8 @@ export class AuthorizationService {
         decision: 'allow',
         reasonCode: 'active_delegation_scope_match',
         authorityRef: delegated.authorityRef,
-        credentialReferences: delegated.credentialReferences,
-        policyVersion: 'platform-v1',
+        credentialReferences: [...delegated.credentialReferences, ...ssiCheck.credentialRefs],
+        policyVersion,
         evaluatedAt,
       })
     }
@@ -120,7 +225,7 @@ export class AuthorizationService {
       decision: 'deny',
       reasonCode: 'no_matching_authority',
       credentialReferences: [],
-      policyVersion: 'platform-v1',
+      policyVersion,
       evaluatedAt,
     })
   }
@@ -128,9 +233,17 @@ export class AuthorizationService {
   private parseScope(value: string): AuthorityScope {
     try {
       const parsed = JSON.parse(value || '{}')
-      return parsed && typeof parsed === 'object' ? parsed : {}
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return { permissions: [] }
+      }
+
+      const maybeScope = parsed as Partial<AuthorityScope>
+      return {
+        ...maybeScope,
+        permissions: Array.isArray(maybeScope.permissions) ? maybeScope.permissions : [],
+      }
     } catch {
-      return {}
+      return { permissions: [] }
     }
   }
 
@@ -162,10 +275,12 @@ export class AuthorizationService {
   private findValidDelegation(
     organizationId: string,
     input: AuthorityDecisionInput,
-    permission: string
+    permission: string,
   ): { authorityRef: string; credentialReferences: string[] } | undefined {
     const db = DatabaseManager.getDatabase()
-    const rows = db.prepare(`
+    const rows = db
+      .prepare(
+        `
       SELECT
         d.scope_json AS delegationScopeJson,
         d.source_credential_ref AS delegationCredentialRef,
@@ -185,7 +300,9 @@ export class AuthorizationService {
         AND d.valid_from <= CURRENT_TIMESTAMP
         AND (d.valid_until IS NULL OR d.valid_until >= CURRENT_TIMESTAMP)
       ORDER BY d.created_at DESC
-    `).all(organizationId, input.personId) as Array<{
+    `,
+      )
+      .all(organizationId, input.personId) as Array<{
       delegationScopeJson: string
       delegationCredentialRef?: string
       authorityRef: string
@@ -208,6 +325,45 @@ export class AuthorizationService {
     return undefined
   }
 
+  private getRawDelegationAuthorityScope(organizationId: string, authorityRef: string): string {
+    const db = DatabaseManager.getDatabase()
+    const row = db
+      .prepare('SELECT scope_json AS scopeJson FROM authority_grants WHERE organization_id = ? AND id = ? LIMIT 1')
+      .get(organizationId, authorityRef) as { scopeJson?: string } | undefined
+    return row?.scopeJson ?? '{}'
+  }
+
+  private evaluateSsiEvidence(
+    required: SsiCredentialCondition[] | undefined,
+    supplied: SsiEvidenceInput[] | undefined,
+  ): { satisfied: boolean; reasonCode: string; credentialRefs: string[] } {
+    if (!required || required.length === 0) {
+      return { satisfied: true, reasonCode: 'no_credential_conditions', credentialRefs: [] }
+    }
+
+    const credentialRefs: string[] = []
+
+    for (const condition of required) {
+      const match = (supplied ?? []).find((e) => e.credentialType === condition.credentialType)
+
+      if (!match) {
+        return { satisfied: false, reasonCode: 'required_credential_missing', credentialRefs }
+      }
+
+      if (condition.statusMustBeValid && match.status !== 'valid') {
+        return { satisfied: false, reasonCode: 'credential_status_not_valid', credentialRefs }
+      }
+
+      if (condition.trustedIssuer && !match.isTrustedIssuer) {
+        return { satisfied: false, reasonCode: 'credential_issuer_not_trusted', credentialRefs }
+      }
+
+      credentialRefs.push(match.credentialReferenceId)
+    }
+
+    return { satisfied: true, reasonCode: 'credential_conditions_met', credentialRefs }
+  }
+
   private violatesSeparationOfDuties(input: AuthorityDecisionInput): boolean {
     const separated = new Set(input.separationOfDutiesPersonIds || [])
     return separated.has(input.personId)
@@ -215,18 +371,24 @@ export class AuthorizationService {
 
   private persistDecision(input: AuthorityDecisionInput, decision: AuthorityDecision): AuthorityDecision {
     const db = DatabaseManager.getDatabase()
-    const organization = db.prepare(`
+    const organization = db
+      .prepare(
+        `
       SELECT id FROM organizations WHERE tenant_id = ? AND status = 'active' LIMIT 1
-    `).get(input.tenantId) as { id?: string } | undefined
+    `,
+      )
+      .get(input.tenantId) as { id?: string } | undefined
 
     if (organization?.id) {
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO policy_decisions (
           id, organization_id, principal_person_id, action,
           resource_type, resource_id, decision, reason_code,
           authority_ref, credential_refs_json, policy_version, decided_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      `,
+      ).run(
         decision.decisionId,
         organization.id,
         input.personId,
@@ -243,6 +405,38 @@ export class AuthorizationService {
     }
 
     return decision
+  }
+
+  /**
+   * Resolves the active versioned policy label for an organization.
+   *
+   * Returns 'v{N}' when a deployed policy_version exists, or 'platform-v1' as
+   * a backward-compatible fallback when the table is absent or no active version
+   * has been deployed yet.
+   */
+  private resolveActivePolicyVersion(organizationId: string): string {
+    try {
+      const db = DatabaseManager.getDatabase()
+      const row = db
+        .prepare(
+          `
+          SELECT 'v' || pv.version_number AS policyVersion
+            FROM policy_versions pv
+            JOIN authority_policies ap ON pv.authority_policy_id = ap.id
+           WHERE ap.organization_id = ?
+             AND pv.deployment_status = 'active'
+             AND (ap.effective_from IS NULL OR ap.effective_from <= CURRENT_TIMESTAMP)
+             AND (ap.effective_until IS NULL OR ap.effective_until > CURRENT_TIMESTAMP)
+           ORDER BY pv.version_number DESC
+           LIMIT 1
+        `,
+        )
+        .get(organizationId) as { policyVersion?: string } | undefined
+      return row?.policyVersion ?? 'platform-v1'
+    } catch {
+      // Graceful fallback when policy_versions table has not been migrated yet
+      return 'platform-v1'
+    }
   }
 }
 
