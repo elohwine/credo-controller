@@ -1,7 +1,7 @@
-import type { BasicMessageRecord, BasicMessageStorageProps } from '@credo-ts/core'
+import type { DidCommBasicMessageRecord, DidCommBasicMessageStorageProps } from '@credo-ts/didcomm'
 
 import { Request as Req } from 'express'
-import { Body, Controller, Example, Get, Path, Post, Route, Tags, Security, Request } from 'tsoa'
+import { Body, Controller, Get, Path, Post, Route, Tags, Security, Request } from 'tsoa'
 import { injectable } from 'tsyringe'
 
 import { SCOPES } from '../../../enums'
@@ -19,14 +19,13 @@ export class BasicMessageController extends Controller {
    * @param connectionId Connection identifier
    * @returns BasicMessageRecord[]
    */
-  @Example<BasicMessageStorageProps[]>([BasicMessageRecordExample])
   @Get('/:connectionId')
   public async getBasicMessages(
     @Request() request: Req,
     @Path('connectionId') connectionId: RecordId,
-  ): Promise<BasicMessageRecord[]> {
+  ): Promise<DidCommBasicMessageRecord[]> {
     try {
-      const basicMessageRecords = await request.agent.basicMessages.findAllByQuery({ connectionId })
+      const basicMessageRecords = await request.agent.didcomm.basicMessages.findAllByQuery({ connectionId })
       this.setStatus(200)
       return basicMessageRecords
     } catch (error) {
@@ -40,7 +39,6 @@ export class BasicMessageController extends Controller {
    * @param connectionId Connection identifier
    * @param content The content of the message
    */
-  @Example<BasicMessageStorageProps>(BasicMessageRecordExample)
   @Post('/:connectionId')
   public async sendMessage(
     @Request() request: Req,
@@ -48,7 +46,7 @@ export class BasicMessageController extends Controller {
     @Body() body: Record<'content', string>,
   ) {
     try {
-      const basicMessageRecord = await request.agent.basicMessages.sendMessage(connectionId, body.content)
+      const basicMessageRecord = await request.agent.didcomm.basicMessages.sendMessage(connectionId, body.content)
       this.setStatus(201)
       return basicMessageRecord
     } catch (error) {

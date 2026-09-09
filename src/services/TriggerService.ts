@@ -40,7 +40,7 @@ export interface EventTriggerConfig {
   inputMapping?: Record<string, string>
 }
 
-export interface WorkflowTrigger {
+export interface WorkflowTriggerModel {
   id: string
   workflowId: string
   tenantId: string
@@ -89,7 +89,7 @@ class TriggerService {
   /**
    * Create a new trigger for a workflow
    */
-  createTrigger(trigger: Omit<WorkflowTrigger, 'id' | 'createdAt'>): WorkflowTrigger {
+  createTrigger(trigger: Omit<WorkflowTriggerModel, 'id' | 'createdAt'>): WorkflowTriggerModel {
     const db = DatabaseManager.getDatabase()
     const id = `trigger-${uuid()}`
 
@@ -108,7 +108,7 @@ class TriggerService {
       trigger.isActive ? 1 : 0,
     )
 
-    const created: WorkflowTrigger = {
+    const created: WorkflowTriggerModel = {
       id,
       ...trigger,
       createdAt: new Date(),
@@ -134,7 +134,7 @@ class TriggerService {
   /**
    * Get trigger by ID
    */
-  getTrigger(triggerId: string): WorkflowTrigger | undefined {
+  getTrigger(triggerId: string): WorkflowTriggerModel | undefined {
     const db = DatabaseManager.getDatabase()
     const row = db
       .prepare(
@@ -158,7 +158,7 @@ class TriggerService {
       triggerType?: string
       isActive?: boolean
     } = {},
-  ): WorkflowTrigger[] {
+  ): WorkflowTriggerModel[] {
     const db = DatabaseManager.getDatabase()
     let sql = 'SELECT * FROM workflow_triggers WHERE 1=1'
     const params: any[] = []
@@ -353,7 +353,7 @@ class TriggerService {
   /**
    * Start a scheduled trigger (cron job)
    */
-  private startScheduledTrigger(trigger: WorkflowTrigger): void {
+  private startScheduledTrigger(trigger: WorkflowTriggerModel): void {
     if (trigger.triggerType !== 'schedule') return
 
     const config = trigger.triggerConfig as ScheduleTriggerConfig
@@ -422,9 +422,9 @@ class TriggerService {
   }
 
   /**
-   * Convert database row to WorkflowTrigger
+    * Convert database row to workflow trigger model
    */
-  private rowToTrigger(row: any): WorkflowTrigger {
+  private rowToTrigger(row: any): WorkflowTriggerModel {
     return {
       id: row.id,
       workflowId: row.workflow_id,

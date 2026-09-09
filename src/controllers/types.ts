@@ -1,42 +1,65 @@
 import type { RecordId } from './examples'
 import type { CustomHandshakeProtocol } from '../enums'
-import type { AnonCredsCredentialFormat, LegacyIndyCredentialFormat } from '@credo-ts/anoncreds'
 import type {
-  AutoAcceptCredential,
-  AutoAcceptProof,
-  CredentialFormatPayload,
-  HandshakeProtocol,
-  ReceiveOutOfBandInvitationConfig,
+  DidCommAttachment,
+  DidCommAutoAcceptCredential,
+  DidCommAutoAcceptProof,
+  DidCommCredentialFormat,
+  DidCommCredentialFormatPayload,
+  DidCommHandshakeProtocol,
+  DidCommMessage,
+  DidCommProofFormat,
+  DidCommRouting,
   OutOfBandDidCommService,
+  ReceiveOutOfBandInvitationConfig,
+} from '@credo-ts/didcomm'
+import type {
   DidResolutionMetadata,
   DidDocumentMetadata,
-  ProofExchangeRecord,
-  ProofFormat,
   DidRegistrationExtraOptions,
   DidDocument,
   DidRegistrationSecretOptions,
   InitConfig,
-  WalletConfig,
-  CredentialExchangeRecord,
   DidResolutionOptions,
-  JsonCredential,
-  AgentMessage,
-  Routing,
-  Attachment,
-  KeyType,
-  JsonLdCredentialFormat,
   JsonObject,
-  W3cJsonLdVerifyCredentialOptions,
-  DataIntegrityProofOptions,
   W3cJsonLdSignCredentialOptions,
   W3cCredential,
   W3cCredentialSubject,
 } from '@credo-ts/core'
-import type { LinkedDataProofOptions } from '@credo-ts/core/build/modules/vc/data-integrity/models/LinkedDataProof'
-import type { SingleOrArray } from '@credo-ts/core/build/utils'
+import type { AnonCredsCredential } from '@credo-ts/anoncreds'
+
+type ProofExchangeRecord = unknown
+type CredentialExchangeRecord = unknown
+type WalletConfig = {
+  id: string
+  key: string
+  keyDerivationMethod?: string
+}
+type JsonCredential = unknown
+type JsonLdCredentialFormat = unknown
+type LegacyIndyCredentialFormat = unknown
+type AnonCredsCredentialFormat = unknown
+
+export type SupportedKeyType = 'Ed25519' | 'Bls12381g2' | 'P-256'
 import type { DIDDocument } from 'did-resolver'
 
-export type CustomTenantConfig = Pick<InitConfig, 'label' | 'connectionImageUrl'> & {
+type TsoaSingleOrArray<T> = T | T[]
+
+export type AutoAcceptProof = DidCommAutoAcceptProof
+export type AutoAcceptCredential = DidCommAutoAcceptCredential
+export type HandshakeProtocol = DidCommHandshakeProtocol
+export type AgentMessage = DidCommMessage
+export type Routing = DidCommRouting
+export type Attachment = DidCommAttachment
+export type ProofFormat = DidCommProofFormat
+export type CredentialFormatPayload<
+  CFs extends DidCommCredentialFormat[],
+  M extends keyof DidCommCredentialFormat['credentialFormats'],
+> = DidCommCredentialFormatPayload<CFs, M>
+
+export type CustomTenantConfig = {
+  label: string
+  connectionImageUrl?: string
   walletConfig: Pick<WalletConfig, 'id' | 'key' | 'keyDerivationMethod'>
   tenantType?: 'USER' | 'ORG'
   domain?: string
@@ -56,7 +79,7 @@ export interface AgentToken {
 export interface AgentMessageType {
   '@id': string
   '@type': string
-  [key: string]: unknown
+  [key: string]: any
 }
 
 export interface DidResolutionResultProps {
@@ -71,7 +94,7 @@ export interface ProofRequestMessageResponse {
 }
 
 // type CredentialFormats = [CredentialFormat]
-type CredentialFormats = [LegacyIndyCredentialFormat, AnonCredsCredentialFormat, JsonLdCredentialFormat]
+type CredentialFormats = any[]
 
 enum ProtocolVersion {
   v1 = 'v1',
@@ -79,7 +102,7 @@ enum ProtocolVersion {
 }
 export interface ProposeCredentialOptions {
   protocolVersion: ProtocolVersion
-  credentialFormats: CredentialFormatPayload<CredentialFormatType[], 'createProposal'>
+  credentialFormats: any
   autoAcceptCredential?: AutoAcceptCredential
   comment?: string
   connectionId: RecordId
@@ -93,7 +116,7 @@ export interface ProposeCredentialOptions {
 
 export interface AcceptCredentialProposalOptions {
   credentialRecordId: string
-  credentialFormats?: CredentialFormatPayload<CredentialFormats, 'acceptProposal'>
+  credentialFormats?: any
   autoAcceptCredential?: AutoAcceptCredential
   comment?: string
 }
@@ -101,7 +124,7 @@ export interface AcceptCredentialProposalOptions {
 export interface CreateOfferOptions {
   protocolVersion: ProtocolVersion
   connectionId: RecordId
-  credentialFormats: CredentialFormatPayload<CredentialFormats, 'createOffer'>
+  credentialFormats: any
   autoAcceptCredential?: AutoAcceptCredential
   comment?: string
   goalCode?: string
@@ -112,7 +135,7 @@ type CredentialFormatType = LegacyIndyCredentialFormat | JsonLdCredentialFormat 
 
 export interface CreateOfferOobOptions {
   protocolVersion: string
-  credentialFormats: CredentialFormatPayload<CredentialFormatType[], 'createOffer'>
+  credentialFormats: any
   autoAcceptCredential?: AutoAcceptCredential
   comment?: string
   goalCode?: string
@@ -294,7 +317,7 @@ export interface ResolvedDid {
 }
 
 export interface DidCreate {
-  keyType?: KeyType
+  keyType?: SupportedKeyType
   seed?: string
   domain?: string
   method: string
@@ -360,7 +383,7 @@ export interface WriteTransaction {
     schemaId: string
     issuerId: string
     tag: string
-    value: unknown
+    value: any
     type: string
   }
 }
@@ -390,7 +413,7 @@ export type ThreadId = string
 
 export type SignDataOptions = {
   data: string
-  keyType: KeyType
+  keyType: SupportedKeyType
   publicKeyBase58: string
   did?: string
   method?: string
@@ -398,7 +421,7 @@ export type SignDataOptions = {
 
 export type VerifyDataOptions = {
   data: string
-  keyType: KeyType
+  keyType: SupportedKeyType
   publicKeyBase58: string
   signature: string
 }
@@ -406,7 +429,7 @@ export type VerifyDataOptions = {
 export interface jsonLdCredentialOptions {
   '@context': Array<string | JsonObject>
   type: Array<string>
-  credentialSubject: SingleOrArray<JsonObject>
+  credentialSubject: TsoaSingleOrArray<JsonObject>
   proofType: string
 }
 
@@ -415,22 +438,17 @@ export interface credentialPayloadToSign {
   method: string
   credential: jsonLdCredentialOptions // TODO: add support for other credential format
 }
-export interface SafeW3cJsonLdVerifyCredentialOptions extends W3cJsonLdVerifyCredentialOptions {
-  // Ommited due to issues with TSOA
-  proof: SingleOrArray<Omit<LinkedDataProofOptions, 'cryptosuite'> | DataIntegrityProofOptions>
-}
-
 export type ExtensibleW3cCredentialSubject = W3cCredentialSubject & {
-  [key: string]: unknown
+  [key: string]: any
 }
 
 export type ExtensibleW3cCredential = W3cCredential & {
-  [key: string]: unknown
-  credentialSubject: SingleOrArray<ExtensibleW3cCredentialSubject>
+  [key: string]: any
+  credentialSubject: TsoaSingleOrArray<ExtensibleW3cCredentialSubject>
 }
 
 export type CustomW3cJsonLdSignCredentialOptions = Omit<W3cJsonLdSignCredentialOptions, 'format'> & {
-  [key: string]: unknown
+  [key: string]: any
 }
 
 export interface CreateTenantOptions {
@@ -449,9 +467,9 @@ export interface CreateTenantOptions {
 /** Metadata bundle returned when requesting tenant metadata */
 export interface TenantMetadataResponse {
   /** OpenID issuer metadata object */
-  issuer: Record<string, unknown>
+  issuer: Record<string, any>
   /** OpenID verifier metadata object */
-  verifier: Record<string, unknown>
+  verifier: Record<string, any>
 }
 
 /** Response returned by POST /multi-tenancy/create-tenant */
@@ -481,5 +499,5 @@ export interface CreateTenantResponse {
   /** Issuer + verifier metadata objects */
   metadata: TenantMetadataResponse
   /** Allow forward-compat extension */
-  [key: string]: unknown
+  [key: string]: any
 }

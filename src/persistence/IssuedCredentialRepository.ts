@@ -6,7 +6,7 @@
 import { DatabaseManager } from './DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
 
-export interface IssuedCredentialRecord {
+export interface IssuedCredentialPersistenceRecord {
   id: string
   tenantId: string
   credentialId: string
@@ -27,7 +27,7 @@ export class IssuedCredentialRepository {
   /**
    * Save or update issued credential
    */
-  save(record: IssuedCredentialRecord): void {
+  save(record: IssuedCredentialPersistenceRecord): void {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -68,7 +68,7 @@ export class IssuedCredentialRepository {
   /**
    * Find credential by credential ID
    */
-  findByCredentialId(credentialId: string): IssuedCredentialRecord | undefined {
+  findByCredentialId(credentialId: string): IssuedCredentialPersistenceRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -99,7 +99,7 @@ export class IssuedCredentialRepository {
   /**
    * Find credential by ID
    */
-  findById(id: string): IssuedCredentialRecord | undefined {
+  findById(id: string): IssuedCredentialPersistenceRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -130,7 +130,7 @@ export class IssuedCredentialRepository {
   /**
    * Find all credentials for a tenant
    */
-  findByTenantId(tenantId: string): IssuedCredentialRecord[] {
+  findByTenantId(tenantId: string): IssuedCredentialPersistenceRecord[] {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -158,7 +158,7 @@ export class IssuedCredentialRepository {
   /**
    * Find credentials by holder DID
    */
-  findByHolderDid(holderDid: string): IssuedCredentialRecord[] {
+  findByHolderDid(holderDid: string): IssuedCredentialPersistenceRecord[] {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`

@@ -24,14 +24,14 @@ export interface TrustDriver {
   evidence?: string
 }
 
-export interface TrustScore {
+export interface TrustEngineScore {
   merchantId: string
   score: number // 0-100
   drivers: TrustDriver[]
   lastComputed: string
 }
 
-export interface TrustEvent {
+export interface TrustEngineEvent {
   id: string
   merchantId: string
   eventType: 'payment' | 'dispute' | 'refund' | 'kyc_attestation' | 'review' | 'delivery'
@@ -54,9 +54,14 @@ export class TrustEngine {
   /**
    * Record a trust-relevant event for a merchant
    */
-  recordEvent(merchantId: string, eventType: TrustEvent['eventType'], data?: any, impact?: number): TrustEvent {
+  recordEvent(
+    merchantId: string,
+    eventType: TrustEngineEvent['eventType'],
+    data?: any,
+    impact?: number,
+  ): TrustEngineEvent {
     const db = DatabaseManager.getDatabase()
-    const event: TrustEvent = {
+    const event: TrustEngineEvent = {
       id: `EVT-${randomUUID()}`,
       merchantId,
       eventType,
@@ -79,7 +84,7 @@ export class TrustEngine {
   /**
    * Compute trust score for a merchant
    */
-  computeScore(merchantId: string): TrustScore {
+  computeScore(merchantId: string): TrustEngineScore {
     const db = DatabaseManager.getDatabase()
 
     // Get all events for this merchant
@@ -190,7 +195,7 @@ export class TrustEngine {
   /**
    * Get cached trust score (or compute if stale)
    */
-  getScore(merchantId: string, maxAgeMinutes: number = 60): TrustScore | null {
+  getScore(merchantId: string, maxAgeMinutes: number = 60): TrustEngineScore | null {
     const db = DatabaseManager.getDatabase()
 
     const row = db.prepare('SELECT * FROM trust_scores WHERE merchant_id = ?').get(merchantId) as any
@@ -213,7 +218,7 @@ export class TrustEngine {
     }
   }
 
-  private calculateDefaultImpact(eventType: TrustEvent['eventType']): number {
+  private calculateDefaultImpact(eventType: TrustEngineEvent['eventType']): number {
     switch (eventType) {
       case 'payment':
         return 5

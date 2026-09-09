@@ -2348,3 +2348,2467 @@ BUSINESS EXECUTION
    =
 VERIFIABLE ORGANIZATIONAL OPERATIONS
 ```
+
+
+
+UI
+
+Credentis Platform Remodel — UI & Inbox Workflow Guide
+
+1. Product UI principle
+
+Credentis is a verifiable organizational workflow platform.
+
+The UI must therefore make this feel like:
+
+«“I have something to do.”»
+
+not:
+
+«“I have a credential to manage.”»
+
+The primary user interaction is:
+
+Inbox → Item → Context → Required action → Decision / evidence / task → Workflow continues
+
+SSI is embedded into that experience when required.
+
+The platform architecture explicitly separates the organizational workflow layer from the SSI layer: SSI supplies evidence and trust, while the organization platform owns requests, authorization, workflow state and outcomes.
+
+---
+
+2. What must NOT be changed
+
+The existing inbox-driven UX should remain the central interaction pattern.
+
+Do not redesign the mobile application into:
+
+- Requests
+- Approvals
+- Tasks
+- Credentials
+- Workflows
+
+as unrelated top-level work areas.
+
+Those are different kinds of work represented inside the user's inbox.
+
+For example:
+
+INBOX
+
+School Fees
+└── Review fee payment
+    └── Approve / Pay / Provide information
+
+    Requisition
+    └── Approve requisition
+        └── Review / Approve / Reject / Request changes
+
+        Supplier
+        └── Verify supplier
+            └── Review credential / Present credential / Continue
+            Field Operation
+            └── Complete site inspection
+                └── Review / Submit evidence / Complete task
+
+                Consent
+                └── Permission requested
+                    └── Review / Allow / Decline
+
+                    The item type determines the interaction, but the user should still experience everything as one Action Inbox.
+
+                    ---
+
+                    3. Mobile application structure
+
+                    The mobile application should become:
+
+                    HOME / INBOX        │
+                            ├── Inbox
+                                    │    ├── Requests
+                                            │    ├── Approvals
+                                                    │    ├── Tasks
+                                                            │    ├── Consent requests
+                                                                    │    ├── Credential requests
+                                                                            │    ├── Presentation requests
+                                                                                    │    ├── Evidence requests
+                                                                                            │    └── Notifications
+                                                                                                    │
+                                                                                                            ├── Wallet
+                                                                                                                    │    ├── Credentials
+                                                                                                                            │    ├── DIDs / Identity
+                                                                                                                                    │    └── Presentations
+                                                                                                                                            │
+                                                                                                                                                    ├── Scan
+                                                                                                                                                            │    └── Universal protocol entry
+                                                                                                                                                                    │
+                                                                                                                                                                            └── Profile / Settings
+
+                                                                                                                                                                            Priority
+
+                                                                                                                                                                            The default landing page should be Inbox, not Wallet.
+
+                                                                                                                                                                            Wallet functionality remains important, but it is the user's private SSI capability.
+
+                                                                                                                                                                            Inbox is the user's organizational action surface.
+
+                                                                                                                                                                            ---
+
+                                                                                                                                                                            4. Inbox design
+
+                                                                                                                                                                            Header
+
+                                                                                                                                                                            The inbox header should communicate:
+
+                                                                                                                                                                            Good morning, Elowine
+
+                                                                                                                                                                            You have 4 actions requiring attention
+
+                                                                                                                                                                            Then:
+
+                                                                                                                                                                            [ Search ]
+
+                                                                                                                                                                            [All] [Needs action] [Waiting] [Completed]
+
+                                                                                                                                                                            Optional filters:
+
+                                                                                                                                                                            Priority
+                                                                                                                                                                            Organisation
+                                                                                                                                                                            Department
+                                                                                                                                                                            Type
+                                                                                                                                                                            Due date
+
+                                                                                                                                                                            Avoid making users navigate to another section merely to find something they need to act on.
+
+                                                                                                                                                                            ---
+
+                                                                                                                                                                            5. Inbox item card
+
+                                                                                                                                                                            Each inbox item should expose enough information to answer:
+
+                                                                                                                                                                            1. What is this?
+                                                                                                                                                                            2. Why am I seeing it?
+                                                                                                                                                                            3. What do I need to do?
+                                                                                                                                                                            4. How urgent is it?
+                                                                                                                                                                            5. What happens after I act?
+
+                                                                                                                                                                            Example:
+
+                                                                                                                                                                            ┌──────────────────────────────────┐
+                                                                                                                                                                            │ ?? ACTION REQUIRED               │
+                                                                                                                                                                            │                                  │
+                                                                                                                                                                            │ Requisition Approval             │
+                                                                                                                                                                            │ Office Equipment                 │
+                                                                                                                                                                            │                                  │
+                                                                                                                                                                            │ Finance Department               │
+                                                                                                                                                                            │ USD 4,200                        │
+                                                                                                                                                                            │ Requested by: John M.            │
+                                                                                                                                                                            │                                  │
+                                                                                                                                                                            │ Due today                        │
+                                                                                                                                                                            │                                  │
+                                                                                                                                                                            │ [Review]                         │
+                                                                                                                                                                            └──────────────────────────────────┘
+
+                                                                                                                                                                            For a school-fees workflow:
+
+                                                                                                                                                                            ┌──────────────────────────────────┐
+                                                                                                                                                                            │ PAYMENT REQUIRED                 │
+                                                                                                                                                                            │                                  │
+                                                                                                                                                                            │ School Fees                     │
+                                                                                                                                                                            │ Term 3 Fees                     │
+                                                                                                                                                                            │                                  │
+                                                                                                                                                                            │ Student: Brian T.               │
+                                                                                                                                                                            │ School: Example High School     │
+                                                                                                                                                                            │ Amount: USD 650                  │
+                                                                                                                                                                            │                                  │
+                                                                                                                                                                            │ Due: 12 Sep 2026                │
+                                                                                                                                                                            │                                  │
+                                                                                                                                                                            │ [Review & Pay]                  │
+                                                                                                                                                                            └──────────────────────────────────┘
+
+                                                                                                                                                                            The inbox card should not expose unnecessary credential technical detail.
+
+                                                                                                                                                                            ---
+
+                                                                                                                                                                            6. Inbox item detail
+
+                                                                                                                                                                            Selecting an item opens a context-first detail screen.
+
+                                                                                                                                                                            Recommended structure:
+
+                                                                                                                                                                            ← Back
+
+                                                                                                                                                                            ACTION REQUIRED
+
+                                                                                                                                                                            Approve Requisition
+                                                                                                                                                                            REQ-2026-00142
+
+                                                                                                                                                                            ────────────────────
+
+                                                                                                                                                                            Request
+                                                                                                                                                                            Office laptops
+
+                                                                                                                                                                            Amount
+                                                                                                                                                                            USD 4,200
+
+                                                                                                                                                                            Requested by
+                                                                                                                                                                            John M.
+
+                                                                                                                                                                            Department
+                                                                                                                                                                            Finance
+
+                                                                                                                                                                            Cost centre
+                                                                                                                                                                            FIN-001
+
+                                                                                                                                                                            ────────────────────
+
+                                                                                                                                                                            Items
+
+                                                                                                                                                                            4 × Laptop
+                                                                                                                                                                            2 × Monitor
+                                                                                                                                                                            1 × Printer
+
+                                                                                                                                                                            ────────────────────
+
+                                                                                                                                                                            Why am I seeing this?
+
+                                                                                                                                                                            You are authorised to approve
+                                                                                                                                                                            requests for this department.
+
+                                                                                                                                                                            ────────────────────
+
+                                                                                                                                                                            Trust & evidence
+
+                                                                                                                                                                            Requester
+                                                                                                                                                                            ✓ Organization member
+
+                                                                                                                                                                            Authority
+                                                                                                                                                                            ✓ Procurement approval authority
+
+                                                                                                                                                                            Delegation
+                                                                                                                                                                            ✓ Valid
+
+                                                                                                                                                                            Credential status
+                                                                                                                                                                            ✓ Current
+
+                                                                                                                                                                            ────────────────────
+
+                                                                                                                                                                            Workflow
+
+                                                                                                                                                                            Submitted
+                                                                                                                                                                               ↓
+                                                                                                                                                                               Review
+                                                                                                                                                                                  ↓
+                                                                                                                                                                                  YOU ARE HERE
+                                                                                                                                                                                     ↓
+                                                                                                                                                                                     Procurement
+                                                                                                                                                                                        ↓
+                                                                                                                                                                                        Purchase Order
+                                                                                                                                                                                           ↓
+                                                                                                                                                                                           Fulfilment
+
+                                                                                                                                                                                           ────────────────────
+
+                                                                                                                                                                                           [Reject]     [Approve]
+
+                                                                                                                                                                                           This is critical.
+
+                                                                                                                                                                                           The UI should explain why the user can act, not simply display:
+
+                                                                                                                                                                                           «“Credential verified.”»
+
+                                                                                                                                                                                           Credential verification is only one part of authorization.
+
+                                                                                                                                                                                           The policy model already evaluates tenant, membership, permissions, amount, department, project/cost centre, delegation and separation-of-duties constraints.
+
+                                                                                                                                                                                           ---
+
+                                                                                                                                                                                           7. Approval UX
+
+                                                                                                                                                                                           Approval should be a deliberate action.
+
+                                                                                                                                                                                           Pressing:
+
+                                                                                                                                                                                           Approve
+
+                                                                                                                                                                                           opens a confirmation sheet:
+
+                                                                                                                                                                                           Approve requisition?
+
+                                                                                                                                                                                           Office Equipment
+                                                                                                                                                                                           USD 4,200
+
+                                                                                                                                                                                           You are approving this request as:
+                                                                                                                                                                                           Finance Manager
+
+                                                                                                                                                                                           This action will:
+                                                                                                                                                                                           ✓ record your decision
+                                                                                                                                                                                           ✓ advance the workflow
+                                                                                                                                                                                           ✓ notify the next participant
+
+                                                                                                                                                                                           [Cancel]
+
+                                                                                                                                                                                           [Confirm Approval]
+
+                                                                                                                                                                                           Then:
+
+                                                                                                                                                                                           ✓ Approved
+
+                                                                                                                                                                                           The request has moved to Procurement.
+
+                                                                                                                                                                                           [View request]
+                                                                                                                                                                                           [Back to Inbox]
+
+                                                                                                                                                                                           The item should leave the active inbox automatically.
+
+                                                                                                                                                                                           The workflow engine is responsible for continuing execution rather than the UI manually orchestrating the next step. "WorkflowService" already supports action execution, run tracking, pause/resume, and human-task integration.
+
+                                                                                                                                                                                           ---
+
+                                                                                                                                                                                           8. Reject / request changes
+
+                                                                                                                                                                                           Reject should not be a destructive red button with no context.
+
+                                                                                                                                                                                           Flow:
+
+                                                                                                                                                                                           Reject request
+
+                                                                                                                                                                                           Reason
+
+                                                                                                                                                                                           ○ Incorrect amount
+                                                                                                                                                                                           ○ Insufficient documentation
+                                                                                                                                                                                           ○ Not required
+                                                                                                                                                                                           ○ Policy issue
+                                                                                                                                                                                           ○ Other
+
+                                                                                                                                                                                           Comment
+                                                                                                                                                                                           [________________________]
+
+                                                                                                                                                                                           [Cancel]
+                                                                                                                                                                                           [Reject Request]
+
+                                                                                                                                                                                           For workflows where rejection should return the request to the requester:
+
+                                                                                                                                                                                           Rejected
+                                                                                                                                                                                           ↓
+                                                                                                                                                                                           Requester notified
+                                                                                                                                                                                           ↓
+                                                                                                                                                                                           Request returned for correction
+
+                                                                                                                                                                                           The backend already models rejected requests as capable of returning to draft.
+
+                                                                                                                                                                                           ---
+
+                                                                                                                                                                                           9. Human task UX
+
+                                                                                                                                                                                           A workflow may pause and wait for a person.
+
+                                                                                                                                                                                           The user should never see:
+
+                                                                                                                                                                                           «WORKFLOW_PAUSE»
+
+                                                                                                                                                                                           or technical workflow state.
+
+                                                                                                                                                                                           Instead:
+
+                                                                                                                                                                                           ACTION REQUIRED
+
+                                                                                                                                                                                           Supplier verification
+
+                                                                                                                                                                                           The workflow is waiting for you
+                                                                                                                                                                                           to verify the supplier's credentials.
+
+                                                                                                                                                                                           [Review supplier]
+
+                                                                                                                                                                                           The backend creates a request task and pauses execution; task completion then resumes the workflow.
+
+                                                                                                                                                                                           The mobile app should therefore treat:
+
+                                                                                                                                                                                           task
+
+                                                                                                                                                                                           as an inbox interaction, not as a separate task-management application.
+
+                                                                                                                                                                                           ---
+
+                                                                                                                                                                                           10. School-fees reference workflow
+
+                                                                                                                                                                                           School fees should be used as the UX reference for a simple multi-stage workflow.
+
+                                                                                                                                                                                           Example:
+
+                                                                                                                                                                                           Fee request / fee notice
+                                                                                                                                                                                                   ↓
+                                                                                                                                                                                                   Inbox
+                                                                                                                                                                                                           ↓
+                                                                                                                                                                                                           Open school-fees item
+                                                                                                                                                                                                                   ↓
+                                                                                                                                                                                                                   Display student + school + amount + period
+                                                                                                                                                                                                                           ↓
+                                                                                                                                                                                                                           Policy / eligibility / evidence
+                                                                                                                                                                                                                                   ↓
+                                                                                                                                                                                                                                   Payment action
+                                                                                                                                                                                                                                           ↓
+                                                                                                                                                                                                                                           EcoCash / payment provider
+                                                                                                                                                                                                                                                   ↓
+                                                                                                                                                                                                                                                   Payment proof
+                                                                                                                                                                                                                                                           ↓
+                                                                                                                                                                                                                                                           Reconciliation
+                                                                                                                                                                                                                                                                   ↓
+                                                                                                                                                                                                                                                                   Receipt / confirmation
+                                                                                                                                                                                                                                                                           ↓
+                                                                                                                                                                                                                                                                           Completed
+
+                                                                                                                                                                                                                                                                           The user should experience this as a single journey.
+
+                                                                                                                                                                                                                                                                           Do not force the user to navigate:
+
+                                                                                                                                                                                                                                                                           Finance
+                                                                                                                                                                                                                                                                           → Credentials
+                                                                                                                                                                                                                                                                           → Payments
+                                                                                                                                                                                                                                                                           → Receipts
+                                                                                                                                                                                                                                                                           → Verification
+
+                                                                                                                                                                                                                                                                           to finish one operation.
+
+                                                                                                                                                                                                                                                                           Those capabilities appear inside the workflow where needed.
+
+                                                                                                                                                                                                                                                                           ---
+
+                                                                                                                                                                                                                                                                           11. Requisition reference workflow
+
+                                                                                                                                                                                                                                                                           Requisition should demonstrate the richer organizational model.
+
+                                                                                                                                                                                                                                                                           Requester
+                                                                                                                                                                                                                                                                              ↓
+                                                                                                                                                                                                                                                                              Create requisition
+                                                                                                                                                                                                                                                                                 ↓
+                                                                                                                                                                                                                                                                                 Submit
+                                                                                                                                                                                                                                                                                    ↓
+                                                                                                                                                                                                                                                                                    Inbox of reviewer
+                                                                                                                                                                                                                                                                                       ↓
+                                                                                                                                                                                                                                                                                       Review request
+                                                                                                                                                                                                                                                                                          ↓
+                                                                                                                                                                                                                                                                                          Authorization evaluation
+                                                                                                                                                                                                                                                                                             ↓
+                                                                                                                                                                                                                                                                                             Approve / Reject / Request changes
+                                                                                                                                                                                                                                                                                                ↓
+                                                                                                                                                                                                                                                                                                Procurement
+                                                                                                                                                                                                                                                                                                   ↓
+                                                                                                                                                                                                                                                                                                   Supplier verification
+                                                                                                                                                                                                                                                                                                      ↓
+                                                                                                                                                                                                                                                                                                      Purchase order
+                                                                                                                                                                                                                                                                                                         ↓
+                                                                                                                                                                                                                                                                                                         Fulfilment
+                                                                                                                                                                                                                                                                                                            ↓
+                                                                                                                                                                                                                                                                                                            Invoice
+                                                                                                                                                                                                                                                                                                               ↓
+                                                                                                                                                                                                                                                                                                               Payment approval
+                                                                                                                                                                                                                                                                                                                  ↓
+                                                                                                                                                                                                                                                                                                                  Payment
+                                                                                                                                                                                                                                                                                                                     ↓
+                                                                                                                                                                                                                                                                                                                     Proof
+                                                                                                                                                                                                                                                                                                                        ↓
+                                                                                                                                                                                                                                                                                                                        Reconciliation
+                                                                                                                                                                                                                                                                                                                           ↓
+                                                                                                                                                                                                                                                                                                                           Supplier notification
+                                                                                                                                                                                                                                                                                                                              ↓
+                                                                                                                                                                                                                                                                                                                              Complete
+
+                                                                                                                                                                                                                                                                                                                              The mobile user should not see this as a collection of unrelated screens.
+
+                                                                                                                                                                                                                                                                                                                              They see:
+
+                                                                                                                                                                                                                                                                                                                              Inbox
+                                                                                                                                                                                                                                                                                                                                 ↓
+                                                                                                                                                                                                                                                                                                                                 Current action
+                                                                                                                                                                                                                                                                                                                                    ↓
+                                                                                                                                                                                                                                                                                                                                    Context
+                                                                                                                                                                                                                                                                                                                                       ↓
+                                                                                                                                                                                                                                                                                                                                       Decision
+                                                                                                                                                                                                                                                                                                                                          ↓
+                                                                                                                                                                                                                                                                                                                                          Next action appears when required
+
+                                                                                                                                                                                                                                                                                                                                          The portal can expose richer operational views because it is intended for organizational administration and reporting.
+
+                                                                                                                                                                                                                                                                                                                                          ---
+
+                                                                                                                                                                                                                                                                                                                                          12. SSI inside workflows
+
+                                                                                                                                                                                                                                                                                                                                          SSI should appear only when the workflow requires trust or evidence.
+
+                                                                                                                                                                                                                                                                                                                                          Example:
+
+                                                                                                                                                                                                                                                                                                                                          Approve Supplier
+
+                                                                                                                                                                                                                                                                                                                                          Supplier Identity
+                                                                                                                                                                                                                                                                                                                                          ✓ Verified
+
+                                                                                                                                                                                                                                                                                                                                          Organization membership
+                                                                                                                                                                                                                                                                                                                                          ✓ Valid
+
+                                                                                                                                                                                                                                                                                                                                          Business credential
+                                                                                                                                                                                                                                                                                                                                          ✓ Issued by trusted registry
+
+                                                                                                                                                                                                                                                                                                                                          Credential status
+                                                                                                                                                                                                                                                                                                                                          ✓ Active
+
+                                                                                                                                                                                                                                                                                                                                          Presentation
+                                                                                                                                                                                                                                                                                                                                          ✓ Verified
+
+                                                                                                                                                                                                                                                                                                                                          Business authorization
+                                                                                                                                                                                                                                                                                                                                          ✓ Supplier is eligible
+
+                                                                                                                                                                                                                                                                                                                                          [Continue]
+
+                                                                                                                                                                                                                                                                                                                                          Avoid exposing protocol jargon such as:
+
+                                                                                                                                                                                                                                                                                                                                          DCQL
+                                                                                                                                                                                                                                                                                                                                          OID4VP
+                                                                                                                                                                                                                                                                                                                                          JWT VC
+                                                                                                                                                                                                                                                                                                                                          SD-JWT
+                                                                                                                                                                                                                                                                                                                                          DIDComm
+                                                                                                                                                                                                                                                                                                                                          nonce
+                                                                                                                                                                                                                                                                                                                                          presentation definition
+
+                                                                                                                                                                                                                                                                                                                                          unless the user is in an advanced diagnostic/admin area.
+
+                                                                                                                                                                                                                                                                                                                                          The normal user needs:
+
+                                                                                                                                                                                                                                                                                                                                          «“Verified supplier identity”»
+
+                                                                                                                                                                                                                                                                                                                                          not:
+
+                                                                                                                                                                                                                                                                                                                                          «“DCQL query succeeded.”»
+
+                                                                                                                                                                                                                                                                                                                                          ---
+
+                                                                                                                                                                                                                                                                                                                                          13. Wallet integration
+
+                                                                                                                                                                                                                                                                                                                                          Wallet is a private capability, not the business application's master record.
+
+                                                                                                                                                                                                                                                                                                                                          Wallet screens:
+
+                                                                                                                                                                                                                                                                                                                                          My Wallet
+
+                                                                                                                                                                                                                                                                                                                                          Credentials
+                                                                                                                                                                                                                                                                                                                                          ────────────
+                                                                                                                                                                                                                                                                                                                                          Employee Credential
+                                                                                                                                                                                                                                                                                                                                          Supplier Credential
+                                                                                                                                                                                                                                                                                                                                          Professional License
+                                                                                                                                                                                                                                                                                                                                          Student Credential
+
+                                                                                                                                                                                                                                                                                                                                          Identity
+                                                                                                                                                                                                                                                                                                                                          ────────
+                                                                                                                                                                                                                                                                                                                                          My DID
+
+                                                                                                                                                                                                                                                                                                                                          Activity
+                                                                                                                                                                                                                                                                                                                                          ────────
+                                                                                                                                                                                                                                                                                                                                          Presentations
+                                                                                                                                                                                                                                                                                                                                          Credential requests
+
+                                                                                                                                                                                                                                                                                                                                          When a workflow needs a credential:
+
+                                                                                                                                                                                                                                                                                                                                          Requisition
+                                                                                                                                                                                                                                                                                                                                             ↓
+                                                                                                                                                                                                                                                                                                                                             Supplier verification required
+                                                                                                                                                                                                                                                                                                                                                ↓
+                                                                                                                                                                                                                                                                                                                                                [Present credential]
+                                                                                                                                                                                                                                                                                                                                                   ↓
+                                                                                                                                                                                                                                                                                                                                                   Wallet opens
+                                                                                                                                                                                                                                                                                                                                                      ↓
+                                                                                                                                                                                                                                                                                                                                                      User reviews requested information
+                                                                                                                                                                                                                                                                                                                                                         ↓
+                                                                                                                                                                                                                                                                                                                                                         [Approve disclosure]
+                                                                                                                                                                                                                                                                                                                                                            ↓
+                                                                                                                                                                                                                                                                                                                                                            Presentation generated
+                                                                                                                                                                                                                                                                                                                                                               ↓
+                                                                                                                                                                                                                                                                                                                                                               Return to workflow
+
+                                                                                                                                                                                                                                                                                                                                                               The user should feel as though the wallet temporarily assists the workflow.
+
+                                                                                                                                                                                                                                                                                                                                                               It should not feel like they have left the business application completely.
+
+                                                                                                                                                                                                                                                                                                                                                               ---
+
+                                                                                                                                                                                                                                                                                                                                                               14. Consent UX
+
+                                                                                                                                                                                                                                                                                                                                                               Consent should be explicit.
+
+                                                                                                                                                                                                                                                                                                                                                               Example:
+
+                                                                                                                                                                                                                                                                                                                                                               Credential information requested
+
+                                                                                                                                                                                                                                                                                                                                                               Finance Department wants to verify:
+
+                                                                                                                                                                                                                                                                                                                                                               ✓ Organization name
+                                                                                                                                                                                                                                                                                                                                                               ✓ Registration number
+                                                                                                                                                                                                                                                                                                                                                               ✓ Authorized representative
+
+                                                                                                                                                                                                                                                                                                                                                               Purpose:
+                                                                                                                                                                                                                                                                                                                                                               Supplier onboarding
+
+                                                                                                                                                                                                                                                                                                                                                               This information will be used for:
+                                                                                                                                                                                                                                                                                                                                                               Supplier verification
+
+                                                                                                                                                                                                                                                                                                                                                               Expires:
+                                                                                                                                                                                                                                                                                                                                                               30 September 2026
+
+                                                                                                                                                                                                                                                                                                                                                               [Decline]
+                                                                                                                                                                                                                                                                                                                                                               [Approve & Present]
+
+                                                                                                                                                                                                                                                                                                                                                               Consent should then return the user directly to the workflow.
+
+                                                                                                                                                                                                                                                                                                                                                               The platform already has consent actions and workflow integration concepts; the UI should expose the human-readable version of that model.
+
+                                                                                                                                                                                                                                                                                                                                                               ---
+
+                                                                                                                                                                                                                                                                                                                                                               15. Evidence UX
+
+                                                                                                                                                                                                                                                                                                                                                               Evidence should be displayed as contextual proof.
+
+                                                                                                                                                                                                                                                                                                                                                               Example:
+
+                                                                                                                                                                                                                                                                                                                                                               Evidence
+
+                                                                                                                                                                                                                                                                                                                                                               Purchase Invoice
+                                                                                                                                                                                                                                                                                                                                                               ✓ Validated
+
+                                                                                                                                                                                                                                                                                                                                                               Payment Proof
+                                                                                                                                                                                                                                                                                                                                                               ✓ Verified
+
+                                                                                                                                                                                                                                                                                                                                                               Supplier Credential
+                                                                                                                                                                                                                                                                                                                                                               ✓ Current
+
+                                                                                                                                                                                                                                                                                                                                                               Presentation
+                                                                                                                                                                                                                                                                                                                                                               ✓ Verified
+
+                                                                                                                                                                                                                                                                                                                                                               [View evidence]
+
+                                                                                                                                                                                                                                                                                                                                                               Do not turn the evidence screen into a technical repository browser.
+
+                                                                                                                                                                                                                                                                                                                                                               Users need confidence and provenance, not raw protocol material.
+
+                                                                                                                                                                                                                                                                                                                                                               ---
+
+                                                                                                                                                                                                                                                                                                                                                               16. Workflow progress indicator
+
+                                                                                                                                                                                                                                                                                                                                                               Every multi-step business workflow should support a visual progress indicator.
+
+                                                                                                                                                                                                                                                                                                                                                               Example:
+
+                                                                                                                                                                                                                                                                                                                                                               REQUEST
+                                                                                                                                                                                                                                                                                                                                                                 ✓
+
+                                                                                                                                                                                                                                                                                                                                                                 REVIEW
+                                                                                                                                                                                                                                                                                                                                                                   ✓
+
+                                                                                                                                                                                                                                                                                                                                                                   APPROVAL
+                                                                                                                                                                                                                                                                                                                                                                     ● YOU ARE HERE
+
+                                                                                                                                                                                                                                                                                                                                                                     FULFILMENT
+                                                                                                                                                                                                                                                                                                                                                                       ○
+
+                                                                                                                                                                                                                                                                                                                                                                       VERIFICATION
+                                                                                                                                                                                                                                                                                                                                                                         ○
+
+                                                                                                                                                                                                                                                                                                                                                                         COMPLETE
+                                                                                                                                                                                                                                                                                                                                                                           ○
+
+                                                                                                                                                                                                                                                                                                                                                                           For a long workflow, collapse completed stages.
+
+                                                                                                                                                                                                                                                                                                                                                                           The active stage should be visually dominant.
+
+                                                                                                                                                                                                                                                                                                                                                                           ---
+
+                                                                                                                                                                                                                                                                                                                                                                           17. Notifications
+                                                                                                                                                                                                                                                                                                                                                                           Notifications should deep-link directly into the relevant inbox item.
+
+                                                                                                                                                                                                                                                                                                                                                                           Example:
+
+                                                                                                                                                                                                                                                                                                                                                                           Credentis
+
+                                                                                                                                                                                                                                                                                                                                                                           Requisition approval required
+
+                                                                                                                                                                                                                                                                                                                                                                           John submitted a USD 4,200
+                                                                                                                                                                                                                                                                                                                                                                           equipment requisition.
+
+                                                                                                                                                                                                                                                                                                                                                                           [Review now]
+
+                                                                                                                                                                                                                                                                                                                                                                           Opening notification:
+
+                                                                                                                                                                                                                                                                                                                                                                           → /inbox/{itemId}
+
+                                                                                                                                                                                                                                                                                                                                                                           Never:
+
+                                                                                                                                                                                                                                                                                                                                                                           notification
+                                                                                                                                                                                                                                                                                                                                                                           → dashboard
+                                                                                                                                                                                                                                                                                                                                                                           → workflow
+                                                                                                                                                                                                                                                                                                                                                                           → requisition
+                                                                                                                                                                                                                                                                                                                                                                           → approval
+
+                                                                                                                                                                                                                                                                                                                                                                           The notification should take the user directly to the action.
+
+                                                                                                                                                                                                                                                                                                                                                                           ---
+
+                                                                                                                                                                                                                                                                                                                                                                           18. Mobile bottom navigation
+
+                                                                                                                                                                                                                                                                                                                                                                           Recommended:
+
+                                                                                                                                                                                                                                                                                                                                                                           ┌──────────────────────────────────┐
+                                                                                                                                                                                                                                                                                                                                                                           │                                  │
+                                                                                                                                                                                                                                                                                                                                                                           │          CURRENT SCREEN          │
+                                                                                                                                                                                                                                                                                                                                                                           │                                  │
+                                                                                                                                                                                                                                                                                                                                                                           ├──────────────────────────────────┤
+                                                                                                                                                                                                                                                                                                                                                                           │  Inbox   Scan   Wallet   Profile │
+                                                                                                                                                                                                                                                                                                                                                                           └──────────────────────────────────┘
+
+                                                                                                                                                                                                                                                                                                                                                                           Inbox receives the strongest emphasis.
+
+                                                                                                                                                                                                                                                                                                                                                                           A badge can show:
+
+                                                                                                                                                                                                                                                                                                                                                                           Inbox ④
+
+                                                                                                                                                                                                                                                                                                                                                                           Scan should be universal:
+
+                                                                                                                                                                                                                                                                                                                                                                           Scan
+                                                                                                                                                                                                                                                                                                                                                                            ├── Credential offer
+                                                                                                                                                                                                                                                                                                                                                                             ├── Presentation request
+                                                                                                                                                                                                                                                                                                                                                                              ├── Workflow/action link
+                                                                                                                                                                                                                                                                                                                                                                               ├── Evidence request
+                                                                                                                                                                                                                                                                                                                                                                                └── Organization QR
+
+                                                                                                                                                                                                                                                                                                                                                                                Do not create multiple competing scanning experiences.
+
+                                                                                                                                                                                                                                                                                                                                                                                ---
+
+                                                                                                                                                                                                                                                                                                                                                                                19. Portal UI architecture
+
+                                                                                                                                                                                                                                                                                                                                                                                The web portal should complement the mobile inbox rather than duplicate it.
+
+                                                                                                                                                                                                                                                                                                                                                                                Portal navigation
+
+                                                                                                                                                                                                                                                                                                                                                                                Dashboard
+
+                                                                                                                                                                                                                                                                                                                                                                                Work
+                                                                                                                                                                                                                                                                                                                                                                                ├── Inbox / My actions
+                                                                                                                                                                                                                                                                                                                                                                                ├── Requests
+                                                                                                                                                                                                                                                                                                                                                                                ├── Approvals
+                                                                                                                                                                                                                                                                                                                                                                                ├── Tasks
+                                                                                                                                                                                                                                                                                                                                                                                └── Workflows
+
+                                                                                                                                                                                                                                                                                                                                                                                Operations
+                                                                                                                                                                                                                                                                                                                                                                                ├── Finance
+                                                                                                                                                                                                                                                                                                                                                                                ├── Procurement
+                                                                                                                                                                                                                                                                                                                                                                                ├── HR
+                                                                                                                                                                                                                                                                                                                                                                                └── Field Operations
+
+                                                                                                                                                                                                                                                                                                                                                                                Trust & Evidence
+                                                                                                                                                                                                                                                                                                                                                                                ├── Credentials
+                                                                                                                                                                                                                                                                                                                                                                                ├── Verification
+                                                                                                                                                                                                                                                                                                                                                                                ├── Evidence
+                                                                                                                                                                                                                                                                                                                                                                                └── Trusted issuers
+
+                                                                                                                                                                                                                                                                                                                                                                                Organization
+                                                                                                                                                                                                                                                                                                                                                                                ├── People
+                                                                                                                                                                                                                                                                                                                                                                                ├── Departments
+                                                                                                                                                                                                                                                                                                                                                                                ├── Roles
+                                                                                                                                                                                                                                                                                                                                                                                ├── Authorities
+                                                                                                                                                                                                                                                                                                                                                                                ├── Delegations
+                                                                                                                                                                                                                                                                                                                                                                                └── Audit
+
+                                                                                                                                                                                                                                                                                                                                                                                Settings
+
+                                                                                                                                                                                                                                                                                                                                                                                The important distinction is:
+
+                                                                                                                                                                                                                                                                                                                                                                                Mobile = execute actions
+
+                                                                                                                                                                                                                                                                                                                                                                                Portal = manage, monitor, configure and analyze
+
+                                                                                                                                                                                                                                                                                                                                                                                The portal may expose richer lists and administrative tables without forcing those concepts onto mobile.
+
+                                                                                                                                                                                                                                                                                                                                                                                ---
+
+                                                                                                                                                                                                                                                                                                                                                                                20. Portal dashboard
+
+                                                                                                                                                                                                                                                                                                                                                                                The remodelled portal dashboard should stop presenting the product primarily as a credential/commerce demo.
+
+                                                                                                                                                                                                                                                                                                                                                                                Current workflow UI is still explicitly framed around “Issuance Workflows” and directly executes workflows using "/agent/token" and "/workflows/{id}/execute"; that should become an organizational workflow surface rather than the main product metaphor.
+
+                                                                                                                                                                                                                                                                                                                                                                                Recommended dashboard:
+
+                                                                                                                                                                                                                                                                                                                                                                                Good morning
+
+                                                                                                                                                                                                                                                                                                                                                                                Credentis Organization
+
+                                                                                                                                                                                                                                                                                                                                                                                ────────────────────────
+
+                                                                                                                                                                                                                                                                                                                                                                                82
+                                                                                                                                                                                                                                                                                                                                                                                Active requests
+
+                                                                                                                                                                                                                                                                                                                                                                                14
+                                                                                                                                                                                                                                                                                                                                                                                Awaiting approval
+
+                                                                                                                                                                                                                                                                                                                                                                                7
+                                                                                                                                                                                                                                                                                                                                                                                Tasks due today
+
+                                                                                                                                                                                                                                                                                                                                                                                3
+                                                                                                                                                                                                                                                                                                                                                                                Exceptions
+
+                                                                                                                                                                                                                                                                                                                                                                                ────────────────────────
+
+                                                                                                                                                                                                                                                                                                                                                                                My work
+
+                                                                                                                                                                                                                                                                                                                                                                                14 approvals
+                                                                                                                                                                                                                                                                                                                                                                                7 assigned tasks
+                                                                                                                                                                                                                                                                                                                                                                                2 information requests
+
+                                                                                                                                                                                                                                                                                                                                                                                ────────────────────────
+
+                                                                                                                                                                                                                                                                                                                                                                                Operations
+
+                                                                                                                                                                                                                                                                                                                                                                                Finance
+                                                                                                                                                                                                                                                                                                                                                                                $38,200 pending
+
+                                                                                                                                                                                                                                                                                                                                                                                Procurement
+                                                                                                                                                                                                                                                                                                                                                                                12 active requisitions
+
+                                                                                                                                                                                                                                                                                                                                                                                HR
+                                                                                                                                                                                                                                                                                                                                                                                4 onboarding cases
+
+                                                                                                                                                                                                                                                                                                                                                                                ────────────────────────
+
+                                                                                                                                                                                                                                                                                                                                                                                Trust
+
+                                                                                                                                                                                                                                                                                                                                                                                98.2% verified requests
+                                                                                                                                                                                                                                                                                                                                                                                2 credentials expiring
+                                                                                                                                                                                                                                                                                                                                                                                1 trusted issuer warning
+
+                                                                                                                                                                                                                                                                                                                                                                                This immediately communicates:
+
+                                                                                                                                                                                                                                                                                                                                                                                organizational work + trust
+
+                                                                                                                                                                                                                                                                                                                                                                                rather than:
+
+                                                                                                                                                                                                                                                                                                                                                                                credential issuance
+
+                                                                                                                                                                                                                                                                                                                                                                                ---
+
+                                                                                                                                                                                                                                                                                                                                                                                21. Request creation UX
+
+                                                                                                                                                                                                                                                                                                                                                                                Request creation should be guided.
+
+                                                                                                                                                                                                                                                                                                                                                                                Example:
+
+                                                                                                                                                                                                                                                                                                                                                                                Create request
+
+                                                                                                                                                                                                                                                                                                                                                                                What do you need?
+
+                                                                                                                                                                                                                                                                                                                                                                                [ Purchase something ]
+                                                                                                                                                                                                                                                                                                                                                                                [ Make a payment ]
+                                                                                                                                                                                                                                                                                                                                                                                [ Onboard a person ]
+                                                                                                                                                                                                                                                                                                                                                                                [ Verify a supplier ]
+                                                                                                                                                                                                                                                                                                                                                                                [ Request access ]
+                                                                                                                                                                                                                                                                                                                                                                                [ Other ]
+
+                                                                                                                                                                                                                                                                                                                                                                                Then the appropriate form appears.
+
+                                                                                                                                                                                                                                                                                                                                                                                For requisition:
+
+                                                                                                                                                                                                                                                                                                                                                                                Requisition
+
+                                                                                                                                                                                                                                                                                                                                                                                Department
+                                                                                                                                                                                                                                                                                                                                                                                Cost centre
+                                                                                                                                                                                                                                                                                                                                                                                Required date
+
+                                                                                                                                                                                                                                                                                                                                                                                Items
+                                                                                                                                                                                                                                                                                                                                                                                ────────────────
+                                                                                                                                                                                                                                                                                                                                                                                Laptop × 4
+                                                                                                                                                                                                                                                                                                                                                                                Monitor × 2
+                                                                                                                                                                                                                                                                                                                                                                                Printer × 1
+
+                                                                                                                                                                                                                                                                                                                                                                                Estimated amount
+                                                                                                                                                                                                                                                                                                                                                                                USD 4,200
+
+                                                                                                                                                                                                                                                                                                                                                                                Supporting evidence
+                                                                                                                                                                                                                                                                                                                                                                                [Add]
+
+                                                                                                                                                                                                                                                                                                                                                                                [Save draft]
+                                                                                                                                                                                                                                                                                                                                                                                [Submit]
+
+                                                                                                                                                                                                                                                                                                                                                                                The user should not need to know which workflow will process the request.
+
+                                                                                                                                                                                                                                                                                                                                                                                The platform selects or routes the appropriate workflow.
+
+                                                                                                                                                                                                                                                                                                                                                                                ---
+
+                                                                                                                                                                                                                                                                                                                                                                                22. Backend/UI contract
+
+                                                                                                                                                                                                                                                                                                                                                                                The UI should consume generalized objects such as:
+
+                                                                                                                                                                                                                                                                                                                                                                                {
+                                                                                                                                                                                                                                                                                                                                                                                  id,
+                                                                                                                                                                                                                                                                                                                                                                                    type,
+                                                                                                                                                                                                                                                                                                                                                                                      requestId,
+                                                                                                                                                                                                                                                                                                                                                                                        title,
+                                                                                                                                                                                                                                                                                                                                                                                          summary,
+                                                                                                                                                                                                                                                                                                                                                                                            status,
+                                                                                                                                                                                                                                                                                                                                                                                              priority,
+                                                                                                                                                                                                                                                                                                                                                                                                createdAt,
+                                                                                                                                                                                                                                                                                                                                                                                                  dueAt,
+                                                                                                                                                                                                                                                                                                                                                                                                    context,
+                                                                                                                                                                                                                                                                                                                                                                                                      requiredAction,
+                                                                                                                                                                                                                                                                                                                                                                                                        availableActions,
+                                                                                                                                                                                                                                                                                                                                                                                                          evidence,
+                                                                                                                                                                                                                                                                                                                                                                                                            trust,
+                                                                                                                                                                                                                                                                                                                                                                                                              workflow
+                                                                                                                                                                                                                                                                                                                                                                                }
+
+                                                                                                                                                                                                                                                                                                                                                                                This is the UI model.
+
+                                                                                                                                                                                                                                                                                                                                                                                The backend remains authoritative for:
+
+                                                                                                                                                                                                                                                                                                                                                                                authorization
+                                                                                                                                                                                                                                                                                                                                                                                request state
+                                                                                                                                                                                                                                                                                                                                                                                workflow state
+                                                                                                                                                                                                                                                                                                                                                                                task assignment
+                                                                                                                                                                                                                                                                                                                                                                                policy decisions
+                                                                                                                                                                                                                                                                                                                                                                                trust decisions
+                                                                                                                                                                                                                                                                                                                                                                                evidence validity
+                                                                                                                                                                                                                                                                                                                                                                                credential status
+                                                                                                                                                                                                                                                                                                                                                                                audit
+
+                                                                                                                                                                                                                                                                                                                                                                                The client must never decide:
+
+                                                                                                                                                                                                                                                                                                                                                                                "show Approve because user has Manager credential"
+
+                                                                                                                                                                                                                                                                                                                                                                                Instead:
+
+                                                                                                                                                                                                                                                                                                                                                                                backend
+                                                                                                                                                                                                                                                                                                                                                                                → authorized actions
+
+                                                                                                                                                                                                                                                                                                                                                                                UI
+                                                                                                                                                                                                                                                                                                                                                                                → renders those actions
+
+                                                                                                                                                                                                                                                                                                                                                                                ---
+
+                                                                                                                                                                                                                                                                                                                                                                                23. Error states
+
+                                                                                                                                                                                                                                                                                                                                                                                Every action-oriented screen should have clear state handling.
+
+                                                                                                                                                                                                                                                                                                                                                                                Loading
+
+                                                                                                                                                                                                                                                                                                                                                                                Loading request...
+
+                                                                                                                                                                                                                                                                                                                                                                                Awaiting backend
+
+                                                                                                                                                                                                                                                                                                                                                                                Processing approval...
+
+                                                                                                                                                                                                                                                                                                                                                                                Authorization denied
+
+                                                                                                                                                                                                                                                                                                                                                                                You cannot approve this request.
+
+                                                                                                                                                                                                                                                                                                                                                                                Your current authority does not permit
+                                                                                                                                                                                                                                                                                                                                                                                approval for this amount or department.
+
+                                                                                                                                                                                                                                                                                                                                                                                [Back]
+
+                                                                                                                                                                                                                                                                                                                                                                                Credential problem
+
+                                                                                                                                                                                                                                                                                                                                                                                Verification could not be completed.
+
+                                                                                                                                                                                                                                                                                                                                                                                The supplier credential is expired.
+
+                                                                                                                                                                                                                                                                                                                                                                                [Review details]
+                                                                                                                                                                                                                                                                                                                                                                                [Try again]
+
+                                                                                                                                                                                                                                                                                                                                                                                Workflow failure
+
+                                                                                                                                                                                                                                                                                                                                                                                This request could not continue.
+
+                                                                                                                                                                                                                                                                                                                                                                                No action was completed.
+
+                                                                                                                                                                                                                                                                                                                                                                                Reference:
+                                                                                                                                                                                                                                                                                                                                                                                REQ-2026-00142
+
+                                                                                                                                                                                                                                                                                                                                                                                [Retry]
+                                                                                                                                                                                                                                                                                                                                                                                [Contact administrator]
+
+                                                                                                                                                                                                                                                                                                                                                                                Never expose raw exceptions, stack traces or protocol errors to ordinary users.
+
+                                                                                                                                                                                                                                                                                                                                                                                ---
+
+                                                                                                                                                                                                                                                                                                                                                                                24. Status language
+
+                                                                                                                                                                                                                                                                                                                                                                                Use business language instead of technical workflow language.
+
+                                                                                                                                                                                                                                                                                                                                                                                Backend concept| UI language
+                                                                                                                                                                                                                                                                                                                                                                                "draft"| Draft
+                                                                                                                                                                                                                                                                                                                                                                                "submitted"| Submitted
+                                                                                                                                                                                                                                                                                                                                                                                "in_review"| Under review
+                                                                                                                                                                                                                                                                                                                                                                                "approved"| Approved
+                                                                                                                                                                                                                                                                                                                                                                                "rejected"| Rejected
+                                                                                                                                                                                                                                                                                                                                                                                "in_fulfilment"| In progress
+                                                                                                                                                                                                                                                                                                                                                                                "completed"| Completed
+                                                                                                                                                                                                                                                                                                                                                                                "cancelled"| Cancelled
+                                                                                                                                                                                                                                                                                                                                                                                pending task| Action required
+                                                                                                                                                                                                                                                                                                                                                                                workflow paused| Waiting for action
+                                                                                                                                                                                                                                                                                                                                                                                credential verified| Identity verified
+                                                                                                                                                                                                                                                                                                                                                                                credential status valid| Credential current
+                                                                                                                                                                                                                                                                                                                                                                                authorization allow| Authorized
+                                                                                                                                                                                                                                                                                                                                                                                authorization deny| Not authorized
+
+                                                                                                                                                                                                                                                                                                                                                                                ---
+
+                                                                                                                                                                                                                                                                                                                                                                                25. Visual design direction
+
+                                                                                                                                                                                                                                                                                                                                                                                Use the existing MUI/Material design language rather than replacing the UI framework.
+
+                                                                                                                                                                                                                                                                                                                                                                                The remodel should feel:
+
+                                                                                                                                                                                                                                                                                                                                                                                professional + trustworthy + operational + calm
+
+                                                                                                                                                                                                                                                                                                                                                                                not:
+
+                                                                                                                                                                                                                                                                                                                                                                                blockchain-heavy + crypto-oriented + developer-centric
+
+                                                                                                                                                                                                                                                                                                                                                                                Cards
+
+                                                                                                                                                                                                                                                                                                                                                                                Use cards for:
+
+                                                                                                                                                                                                                                                                                                                                                                                - inbox items
+                                                                                                                                                                                                                                                                                                                                                                                - KPIs
+                                                                                                                                                                                                                                                                                                                                                                                - trust summaries
+                                                                                                                                                                                                                                                                                                                                                                                - workflow progress
+                                                                                                                                                                                                                                                                                                                                                                                - evidence
+
+                                                                                                                                                                                                                                                                                                                                                                                Tables
+
+                                                                                                                                                                                                                                                                                                                                                                                Use tables in the portal for:
+
+                                                                                                                                                                                                                                                                                                                                                                                - request lists
+                                                                                                                                                                                                                                                                                                                                                                                - approvals
+                                                                                                                                                                                                                                                                                                                                                                                - transactions
+                                                                                                                                                                                                                                                                                                                                                                                - suppliers
+                                                                                                                                                                                                                                                                                                                                                                                - people
+                                                                                                                                                                                                                                                                                                                                                                                - audit records
+
+                                                                                                                                                                                                                                                                                                                                                                                Mobile
+
+                                                                                                                                                                                                                                                                                                                                                                                Prefer:
+
+                                                                                                                                                                                                                                                                                                                                                                                - large touch targets
+                                                                                                                                                                                                                                                                                                                                                                                - bottom sheets
+                                                                                                                                                                                                                                                                                                                                                                                - concise context
+                                                                                                                                                                                                                                                                                                                                                                                - clear primary actions
+                                                                                                                                                                                                                                                                                                                                                                                - one decision per screen
+
+                                                                                                                                                                                                                                                                                                                                                                                ---
+
+                                                                                                                                                                                                                                                                                                                                                                                26. The single most important reusable component
+
+                                                                                                                                                                                                                                                                                                                                                                                Create a reusable:
+
+                                                                                                                                                                                                                                                                                                                                                                                InboxActionScreen
+
+                                                                                                                                                                                                                                                                                                                                                                                It should accept a workflow item and dynamically render:
+
+                                                                                                                                                                                                                                                                                                                                                                                Header
+                                                                                                                                                                                                                                                                                                                                                                                ↓
+                                                                                                                                                                                                                                                                                                                                                                                Status
+                                                                                                                                                                                                                                                                                                                                                                                ↓
+                                                                                                                                                                                                                                                                                                                                                                                Context
+                                                                                                                                                                                                                                                                                                                                                                                ↓
+                                                                                                                                                                                                                                                                                                                                                                                Business information
+                                                                                                                                                                                                                                                                                                                                                                                ↓
+                                                                                                                                                                                                                                                                                                                                                                                Trust/evidence
+                                                                                                                                                                                                                                                                                                                                                                                ↓
+                                                                                                                                                                                                                                                                                                                                                                                Workflow progress
+                                                                                                                                                                                                                                                                                                                                                                                ↓
+                                                                                                                                                                                                                                                                                                                                                                                Available action
+                                                                                                                                                                                                                                                                                                                                                                                ↓
+                                                                                                                                                                                                                                                                                                                                                                                Confirmation
+                                                                                                                                                                                                                                                                                                                                                                                ↓
+                                                                                                                                                                                                                                                                                                                                                                                Outcome
+
+                                                                                                                                                                                                                                                                                                                                                                                Conceptually:
+
+                                                                                                                                                                                                                                                                                                                                                                                <InboxActionScreen
+                                                                                                                                                                                                                                                                                                                                                                                  item={item}
+                                                                                                                                                                                                                                                                                                                                                                                    onAction={handleAction}
+                                                                                                                                                                                                                                                                                                                                                                                    />
+
+                                                                                                                                                                                                                                                                                                                                                                                    The component should support:
+
+                                                                                                                                                                                                                                                                                                                                                                                    approval
+                                                                                                                                                                                                                                                                                                                                                                                    review
+                                                                                                                                                                                                                                                                                                                                                                                    task completion
+                                                                                                                                                                                                                                                                                                                                                                                    consent
+                                                                                                                                                                                                                                                                                                                                                                                    credential presentation
+                                                                                                                                                                                                                                                                                                                                                                                    evidence submission
+                                                                                                                                                                                                                                                                                                                                                                                    information request
+                                                                                                                                                                                                                                                                                                                                                                                    payment
+                                                                                                                                                                                                                                                                                                                                                                                    verification
+
+                                                                                                                                                                                                                                                                                                                                                                                    This is the key reusable surface of the remodel.
+
+                                                                                                                                                                                                                                                                                                                                                                                    ---
+
+                                                                                                                                                                                                                                                                                                                                                                                    27. Workflow-specific UI should be configuration-driven
+
+                                                                                                                                                                                                                                                                                                                                                                                    Do not create:
+
+                                                                                                                                                                                                                                                                                                                                                                                    SchoolFeesApprovalScreen.vue
+                                                                                                                                                                                                                                                                                                                                                                                    RequisitionApprovalScreen.vue
+                                                                                                                                                                                                                                                                                                                                                                                    SupplierApprovalScreen.vue
+                                                                                                                                                                                                                                                                                                                                                                                    PaymentApprovalScreen.vue
+
+                                                                                                                                                                                                                                                                                                                                                                                    as completely unrelated screens.
+
+                                                                                                                                                                                                                                                                                                                                                                                    Instead:
+
+                                                                                                                                                                                                                                                                                                                                                                                    InboxActionScreen
+                                                                                                                                                                                                                                                                                                                                                                                            +
+                                                                                                                                                                                                                                                                                                                                                                                            workflow/item configuration
+
+                                                                                                                                                                                                                                                                                                                                                                                            Example:
+
+                                                                                                                                                                                                                                                                                                                                                                                            {
+                                                                                                                                                                                                                                                                                                                                                                                                  type: "requisition.approval",
+                                                                                                                                                                                                                                                                                                                                                                                                    title: "Approve requisition",
+                                                                                                                                                                                                                                                                                                                                                                                                      sections: [
+                                                                                                                                                                                                                                                                                                                                                                                                            "requester",
+                                                                                                                                                                                                                                                                                                                                                                                                                "department",
+                                                                                                                                                                                                                                                                                                                                                                                                                    "items",
+                                                                                                                                                                                                                                                                                                                                                                                                                        "amount",
+                                                                                                                                                                                                                                                                                                                                                                                                                            "evidence",
+                                                                                                                                                                                                                                                                                                                                                                                                                                "trust",
+                                                                                                                                                                                                                                                                                                                                                                                                                                    "workflow"
+                                                                                                                                                                                                                                                                                                                                                                                                      ],
+                                                                                                                                                                                                                                                                                                                                                                                                        actions: [
+                                                                                                                                                                                                                                                                                                                                                                                                                    "approve",
+                                                                                                                                                                                                                                                                                                                                                                                                                        "reject",
+                                                                                                                                                                                                                                                                                                                                                                                                                            "request_changes"
+                                                                                                                                                                                                                                                                                                                                                                                                        ]
+                                                                                                                                                                                                                                                                                                                                                                                                        }
+
+                                                                                                                                                                                                                                                                                                                                                                                                        Then:
+
+                                                                                                                                                                                                                                                                                                                                                                                                        {
+                                                                                                                                                                                                                                                                                                                                                                                                          type: "school_fee.payment",
+                                                                                                                                                                                                                                                                                                                                                                                                            sections: [
+                                                                                                                                                                                                                                                                                                                                                                                                                    "student",
+                                                                                                                                                                                                                                                                                                                                                                                                                        "school",
+                                                                                                                                                                                                                                                                                                                                                                                                                            "period",
+                                                                                                                                                                                                                                                                                                                                                                                                                                "amount",
+                                                                                                                                                                                                                                                                                                                                                                                                                                    "payment_method",
+                                                                                                                                                                                                                                                                                                                                                                                                                                        "evidence"
+                                                                                                                                                                                                                                                                                                                                                                                                                                          ],
+                                                                                                                                                                                                                                                                                                                                                                                                                                            actions: [
+                                                                                                                                                                                                                                                                                                                                                                                                                                                    "pay",
+                                                                                                                                                                                                                                                                                                                                                                                                                                                        "decline"
+                                                                                                                                                                                                                                                                                                                                                                                                                                            ]
+                                                                                                                                                                                                                                                                                                                                                                                                                                            }
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Same UX framework.
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Different business configuration.
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            ---
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            28. Remodel sequence
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Phase 1 — Preserve
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Preserve the existing working inbox flow exactly as the UX foundation.
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Do not redesign the established interaction model.
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Phase 2 — Generalize
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Extract reusable:
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Inbox
+                                                                                                                                                                                                                                                                                                                                                                                                                                            InboxItem
+                                                                                                                                                                                                                                                                                                                                                                                                                                            InboxActionScreen
+                                                                                                                                                                                                                                                                                                                                                                                                                                            ActionBar
+                                                                                                                                                                                                                                                                                                                                                                                                                                            ApprovalSheet
+                                                                                                                                                                                                                                                                                                                                                                                                                                            EvidencePanel
+                                                                                                                                                                                                                                                                                                                                                                                                                                            TrustPanel
+                                                                                                                                                                                                                                                                                                                                                                                                                                            WorkflowProgress
+                                                                                                                                                                                                                                                                                                                                                                                                                                            OutcomePanel
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Phase 3 — Connect to platform APIs
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Connect those components to:
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            requests
+                                                                                                                                                                                                                                                                                                                                                                                                                                            tasks
+                                                                                                                                                                                                                                                                                                                                                                                                                                            workflow runs
+                                                                                                                                                                                                                                                                                                                                                                                                                                            authorization
+                                                                                                                                                                                                                                                                                                                                                                                                                                            policy decisions
+                                                                                                                                                                                                                                                                                                                                                                                                                                            evidence
+                                                                                                                                                                                                                                                                                                                                                                                                                                            trust
+                                                                                                                                                                                                                                                                                                                                                                                                                                            consent
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Phase 4 — Embed SSI
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Only invoke wallet/SSI when a workflow requires:
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            credential
+                                                                                                                                                                                                                                                                                                                                                                                                                                            presentation
+                                                                                                                                                                                                                                                                                                                                                                                                                                            consent
+                                                                                                                                                                                                                                                                                                                                                                                                                                            identity evidence
+                                                                                                                                                                                                                                                                                                                                                                                                                                            trust verification
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Phase 5 — Business modules
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Add:
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Finance
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Procurement
+                                                                                                                                                                                                                                                                                                                                                                                                                                            HR
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Field Operations
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            using the same inbox/action primitives.
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Phase 6 — Advanced automation
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Then add:
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            workflow automation
+                                                                                                                                                                                                                                                                                                                                                                                                                                            provider integrations
+                                                                                                                                                                                                                                                                                                                                                                                                                                            EcoCash
+                                                                                                                                                                                                                                                                                                                                                                                                                                            notifications
+                                                                                                                                                                                                                                                                                                                                                                                                                                            AI assistance
+                                                                                                                                                                                                                                                                                                                                                                                                                                            analytics
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            ---
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            29. Final target experience
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            The finished product should allow this:
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Example A — Requisition
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                            Notification
+                                                                                                                                                                                                                                                                                                                                                                                                                                               ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                               Inbox
+                                                                                                                                                                                                                                                                                                                                                                                                                                                  ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                  Approve requisition
+                                                                                                                                                                                                                                                                                                                                                                                                                                                     ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                     Review details
+                                                                                                                                                                                                                                                                                                                                                                                                                                                        ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                        See authorization + trust
+                                                                                                                                                                                                                                                                                                                                                                                                                                                           ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                           Approve
+                                                                                                                                                                                                                                                                                                                                                                                                                                                              ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                              Workflow continues
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                 ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                 Procurement receives next task
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                 Example B — School fees
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                 Notification
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                    Inbox
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                       ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                       School fees
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                          ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                          Review amount
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                             ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                             Pay
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                EcoCash/provider
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   Payment proof
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      Reconciliation
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         Receipt
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            Completed
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            Example C — Supplier onboarding
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            Inbox
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               Verify supplier
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  Request credential presentation
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     Wallet
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        Consent
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           Presentation
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              Verification
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 Authorization
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ↓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    Workflow continues
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    From the user's perspective these are all the same product:
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    «“Credentis tells me what needs my attention, gives me the context and evidence I need, lets me act, and moves the work forward.”»
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    That should be the defining UI principle of the remodel.
+                                                                                                                                                                                                                                                                                                                                                                                                                                            ]
+                                                                                                                                                                                                                                                                                                                                                                                                            ]
+                                                                                                                                                                                                                                                                                                                                                                                                        ]
+                                                                                                                                                                                                                                                                                                                                                                                                      ]
+                                                                                                                                                                                                                                                                                                                                                                                            }
+
+                                                                                                                                                                                                                                                                                                                                                                        org onbparding
+                                                                                                                                                                                                                                                                                                                                                                        Exactly. After reviewing the remodel direction and the current Git branch, I would **not bring back the old “activate features → activate workflow” onboarding model**.
+
+The better model is:
+
+> **Create Organization → Establish Organizational Identity → Configure Operating Structure → Establish Authority → Configure Workflow Rules → Connect Trust/Providers → Ready**
+
+The critical distinction is that **you are configuring an organization, not switching product features on and off**.
+
+The current backend already points in this direction. Creating a tenant provisions the technical SSI foundation — tenant wallet/profile, issuer DID, verifier DID, OpenID issuer/verifier records and default VC models for an ORG tenant.  The organizational foundation is then a separate layer involving memberships, roles, authorities, requests and policy. Your new `PlatformRequestService` and authorization layer are already designed around that model.
+
+## The onboarding model I recommend
+
+Think of organization onboarding as **“Build your operating system”**, not a setup wizard that must be completed from start to finish.
+
+### Stage 1 — Create the organization
+
+The first screen should be extremely simple:
+
+```text
+Create your organization
+
+Organization name
+[______________________]
+
+Organization type
+[ Company ▼ ]
+
+Country
+[ Zimbabwe ▼ ]
+
+Primary contact
+[______________________]
+
+Work email
+[______________________]
+
+[Create organization]
+```
+
+Once submitted, the system should immediately create the tenant and silently provision the SSI infrastructure in the background.
+
+The administrator should **not** see:
+
+```text
+Creating issuer DID...
+Creating verifier DID...
+Creating Askar profile...
+Creating credential definitions...
+```
+
+Those are infrastructure concerns.
+
+The user should see:
+
+```text
+✓ Organization created
+
+Let's set up how your organization works.
+```
+
+---
+
+# 1. Replace the old feature activation model
+
+The old conceptual model was effectively:
+
+```text
+Organization
+   ↓
+Choose features
+   ↓
+Activate Finance
+Activate Procurement
+Activate HR
+...
+   ↓
+Configure workflows
+```
+
+I would retire that.
+
+The new model is:
+
+```text
+Organization
+   ↓
+Organization setup
+   ├── People
+   ├── Departments
+   ├── Roles
+   ├── Authorities
+   ├── Approval rules
+   ├── Delegations
+   ├── Trust
+   └── Providers
+        ↓
+Workflow becomes usable when its prerequisites exist
+```
+
+So **Finance is not “activated.”**
+
+Instead:
+
+```text
+Finance exists
+     ↓
+No finance approver configured
+     ↓
+Finance workflow is not yet operational
+```
+
+Once the required authority is configured:
+
+```text
+Finance
+✓ Operational
+```
+
+This is a much better fit for the remodel.
+
+---
+
+# 2. The organization should have a “Setup Center”
+
+After creation, the administrator lands on:
+
+```text
+Organization Setup
+
+Acme Holdings
+
+Your organization is 68% ready
+
+━━━━━━━━━━━━━━━━━━━━
+
+CORE ORGANIZATION
+✓ Organization profile
+✓ Primary administrator
+● Departments
+● People
+
+AUTHORITY
+● Roles
+● Approval authorities
+● Delegations
+
+OPERATIONS
+● Workflow policies
+○ Finance configuration
+○ Procurement configuration
+○ HR configuration
+
+TRUST
+✓ Organization identity
+● Trusted issuers
+○ Credentials
+
+INTEGRATIONS
+○ EcoCash
+○ Notifications
+
+────────────────────
+
+[Continue setup]
+```
+
+This is **not feature activation**.
+
+It is a **readiness dashboard**.
+
+---
+
+# 3. Mandatory vs conditional vs recommended
+
+This is where the onboarding becomes powerful.
+
+Do not simply say:
+
+```text
+Required
+Optional
+```
+
+Use three states:
+
+### Required
+
+Must exist before a particular organizational capability can operate.
+
+### Conditional
+
+Required only when the organization uses a workflow that depends on it.
+
+### Recommended
+
+Improves the organization's setup but does not block operations.
+
+For example:
+
+| Configuration              | Status      |
+| -------------------------- | ----------- |
+| Organization profile       | Mandatory   |
+| Primary administrator      | Mandatory   |
+| At least one active member | Mandatory   |
+| At least one role          | Mandatory   |
+| Approval authority         | Conditional |
+| Department                 | Conditional |
+| Delegation                 | Optional    |
+| Trusted issuer             | Conditional |
+| EcoCash                    | Conditional |
+| Finance approver           | Conditional |
+| Procurement approver       | Conditional |
+
+This means you don't force a tiny organization to configure 25 people and 12 departments just to create its first request.
+
+---
+
+# 4. Don't ask the organization to configure everything immediately
+
+This is probably the biggest UX decision.
+
+The onboarding should **progressively discover configuration requirements**.
+
+Example:
+
+An organization creates itself and only wants to use:
+
+```text
+School fees
+```
+
+You shouldn't ask for:
+
+```text
+Procurement policies
+HR approval hierarchy
+Supplier credentials
+Inventory
+Purchase orders
+```
+
+Instead:
+
+```text
+Let's get your organization ready.
+
+First, we'll configure:
+
+✓ Organization
+✓ Administrator
+→ People
+→ Payment authority
+→ School-fee workflow
+```
+
+Later, when the organization starts Procurement:
+
+```text
+Procurement requires additional setup
+
+You need:
+
+• Procurement approver
+• Procurement department
+• Supplier verification policy
+
+[Set up now]
+```
+
+This is much cleaner than feature activation.
+
+---
+
+# 5. Use workflow prerequisites
+
+This should become a platform primitive.
+
+Every workflow should declare something conceptually like:
+
+```text
+Workflow
+School Fees Payment
+
+Prerequisites
+
+Organization
+✓ Active
+
+Requester
+✓ Available
+
+Payment authority
+✓ Configured
+
+Payment provider
+✓ Configured
+
+Approval authority
+✓ Configured
+```
+
+For requisition:
+
+```text
+Workflow
+Purchase Requisition
+
+Prerequisites
+
+Requester
+✓
+
+Department
+✓
+
+Cost centre
+✓
+
+Approver
+✓
+
+Approval threshold
+✓
+
+Procurement authority
+✗
+
+Supplier verification
+○ Optional
+```
+
+Therefore the workflow itself tells the admin what is missing.
+
+This is far better than:
+
+```text
+Activate Procurement
+```
+
+---
+
+# 6. Organization onboarding stages
+
+I would use seven setup domains.
+
+## A. Organization identity
+
+```text
+Organization details
+Legal/display name
+Organization type
+Country
+Address
+Contact information
+Logo
+Domain
+```
+
+Some can be optional initially.
+
+---
+
+## B. People
+
+This is where the organization starts becoming operational.
+
+```text
+People
+
+You
+✓ Organization administrator
+
+[Invite people]
+```
+
+Allow:
+
+```text
+Email
+Phone
+Name
+Role assignment
+Department
+Status
+```
+
+The organization should be able to continue with only the administrator and add employees later.
+
+---
+
+# 7. Roles
+
+Do not make the administrator define a complicated RBAC matrix during onboarding.
+
+Provide sensible starter roles.
+
+For example:
+
+```text
+Choose your organization roles
+
+✓ Organization Administrator
+
+[+ Add role]
+
+Suggested roles
+
+Finance Manager
+Procurement Officer
+Approver
+HR Manager
+Employee
+Field Officer
+```
+
+Then advanced administrators can customise them later.
+
+---
+
+# 8. Authority is more important than roles
+
+This is a major consequence of the new architecture.
+
+Don't make the onboarding model:
+
+```text
+John → Manager
+```
+
+and assume John can approve everything.
+
+Instead:
+
+```text
+John
+Role: Finance Manager
+
+Authorities
+✓ Approve finance requests
+✓ Approve payments up to USD 5,000
+✓ Department: Finance
+✓ Cost centres: FIN-*
+```
+
+Because your authorization model already considers much more than role alone — including amount, department, project, cost centre, delegation and separation of duties.
+
+The onboarding UI therefore needs an **Authority Setup** stage.
+
+---
+
+# 9. Approval setup
+
+This should be one of the most important onboarding screens.
+
+```text
+Approval setup
+
+Who can approve organizational requests?
+
+Finance
+   Approver
+   [Select person]
+
+Procurement
+   Approver
+   [Select person]
+
+HR
+   Approver
+   [Select person]
+
+Payments
+   Primary approver
+   [Select person]
+
+```
+
+But do not stop there.
+
+Add rules:
+
+```text
+Payment approvals
+
+USD 0 – 1,000
+→ Finance Officer
+
+USD 1,001 – 5,000
+→ Finance Manager
+
+USD 5,001+
+→ Finance Manager + Executive
+```
+
+This becomes the bridge between onboarding and the policy engine.
+
+---
+
+# 10. Avoid requiring “approval persons” universally
+
+This is important.
+
+An approval person is not inherently mandatory for organization creation.
+
+Instead:
+
+```text
+Organization exists
+✓
+
+Can create requests
+✓
+
+Can submit requests
+✓
+
+Can approve requests
+?
+```
+
+The platform can say:
+
+> “You don't currently have an approver configured for payment requests above USD 1,000.”
+
+That is much more intelligent than:
+
+> “Please configure an approver before continuing onboarding.”
+
+The requirement emerges from the business operation.
+
+---
+
+# 11. Departments
+
+Same principle.
+
+Don't force:
+
+```text
+Finance
+HR
+Procurement
+Operations
+IT
+Marketing
+```
+
+during initial setup.
+
+Instead:
+
+```text
+Departments
+
+No departments configured yet.
+
+Departments help route organizational work.
+
+[Add department]
+
+Suggested:
+Finance
+Procurement
+HR
+Operations
+```
+
+Then workflows can request department context when needed.
+
+---
+
+# 12. Delegations
+
+Delegation should also be progressive.
+
+```text
+Delegations
+
+No active delegations
+
+Delegations allow another authorized
+person to act on your behalf.
+
+[Add delegation]
+```
+
+Setup:
+
+```text
+Delegate
+
+From:
+Finance Manager
+
+To:
+Deputy Finance Manager
+
+Authorities:
+✓ Payment approval
+
+Maximum:
+USD 5,000
+
+Valid:
+1 Oct → 31 Dec 2026
+
+[Create delegation]
+```
+
+This plugs directly into the authorization architecture rather than being a separate administrative concept.
+
+---
+
+# 13. Trust setup
+
+This should be another setup domain, but not something ordinary users are forced to understand.
+
+The organization gets:
+
+```text
+Trust & Identity
+
+Organization identity
+✓ Created
+
+Issuer identity
+✓ Ready
+
+Verifier identity
+✓ Ready
+
+Trusted issuers
+0 configured
+
+Credentials
+3 credential types available
+```
+
+The technical tenant provisioning already creates issuer/verifier infrastructure for ORG tenants.
+
+So this screen is primarily for **business trust configuration**, not DID setup.
+
+---
+
+# 14. Integrations should be conditional
+
+EcoCash is a good example.
+
+Don't ask every organization:
+
+```text
+Configure EcoCash
+```
+
+during initial onboarding.
+
+Instead:
+
+```text
+Payments
+
+Available payment providers
+
+○ EcoCash
+○ Bank
+○ Zimswitch
+○ Other
+```
+
+Selecting EcoCash opens:
+
+```text
+EcoCash
+
+Used by:
+School fees
+Supplier payments
+Payroll
+
+Connection status
+Not connected
+
+[Connect]
+```
+
+Again:
+
+**provider configuration becomes a prerequisite for workflows that need it.**
+
+---
+
+# 15. The best onboarding experience is a hybrid
+
+I would therefore build:
+
+```text
+            CREATE ORGANIZATION
+                    ↓
+        ┌───────────────────────┐
+        │ Automatic provisioning│
+        │                       │
+        │ Tenant                │
+        │ DID                   │
+        │ Issuer                │
+        │ Verifier              │
+        │ Wallet profile        │
+        └───────────────────────┘
+                    ↓
+           ORGANIZATION SETUP
+                    ↓
+      ┌──────────────────────────┐
+      │ Core mandatory setup     │
+      │                          │
+      │ Organization             │
+      │ Administrator            │
+      │ Initial people           │
+      │ Initial role             │
+      └──────────────────────────┘
+                    ↓
+           READY TO START
+                    ↓
+            USE THE PLATFORM
+                    ↓
+      WORKFLOWS DISCOVER NEEDS
+                    ↓
+       MISSING CONFIGURATION?
+                    ↓
+         "Setup required"
+                    ↓
+        Complete configuration
+                    ↓
+          Workflow continues
+```
+
+That is the architecture I would lock in.
+
+---
+
+# 16. The onboarding should finish before the organization is “fully configured”
+
+This is subtle but important.
+
+Have two concepts:
+
+### Organization status
+
+```text
+ACTIVE
+```
+
+### Readiness
+
+```text
+Core setup      100%
+People setup     60%
+Authority setup  40%
+Finance setup    80%
+Procurement      20%
+Trust setup       90%
+```
+
+So:
+
+```text
+Organization: ACTIVE
+Readiness: 72%
+```
+
+The organization can operate while continuing setup.
+
+This avoids the classic SaaS onboarding problem where administrators get trapped inside a huge wizard.
+
+---
+
+# 17. The dashboard should continuously surface missing setup
+
+Example:
+
+```text
+Setup
+
+Your organization is ready for most operations.
+
+⚠ 2 configurations need attention
+
+Payment approvals
+Configure an approver for payments
+over USD 5,000.
+
+Procurement
+Add a procurement approver.
+
+[Review setup]
+```
+
+This is much more natural than a permanent onboarding wizard.
+
+---
+
+# 18. First-run experience
+
+After minimum setup:
+
+```text
+You're ready to go.
+
+Acme Holdings
+
+✓ Organization created
+✓ Your account configured
+✓ Authority established
+✓ Organizational identity ready
+
+Next:
+
+Create your first request
+
+[Create request]
+```
+
+Then the user immediately enters the actual product.
+
+This is important because your product's strongest interaction is the workflow/inbox, not administration.
+
+---
+
+# 19. The inbox can also drive onboarding
+
+This is where the remodel becomes especially interesting.
+
+Suppose an administrator creates a payment workflow but there is no approver.
+
+Instead of only displaying an error:
+
+```text
+Cannot continue.
+```
+
+the platform could create an organizational setup item:
+
+```text
+SETUP REQUIRED
+
+Payment approval authority missing
+
+No authorized approver is configured
+for payments above USD 5,000.
+
+[Configure approver]
+```
+
+That opens the setup screen.
+
+After configuration:
+
+```text
+✓ Approval authority configured
+
+Return to workflow
+```
+
+So onboarding itself starts using your **inbox/action model**.
+
+That's a very powerful unification.
+
+---
+
+# 20. What onboarding becomes in the final architecture
+
+You effectively get two types of work:
+
+```text
+BUSINESS WORK
+────────────────────
+Requisition
+Payment
+School fees
+Supplier verification
+HR onboarding
+Field inspection
+```
+
+and:
+
+```text
+ORGANIZATION SETUP WORK
+────────────────────
+Configure approver
+Invite employee
+Create department
+Define authority
+Configure delegation
+Connect EcoCash
+Configure trust issuer
+```
+
+**Both can use the same action/inbox primitives.**
+
+That means you don't need a second completely different workflow UX for administration.
+
+---
+
+# 21. UI architecture
+
+I would structure the portal around:
+
+```text
+Dashboard
+│
+├── Inbox
+│
+├── Requests
+│
+├── Operations
+│
+├── Trust & Evidence
+│
+└── Organization
+      │
+      ├── Overview
+      ├── Setup
+      ├── People
+      ├── Departments
+      ├── Roles
+      ├── Authorities
+      ├── Delegations
+      ├── Policies
+      └── Integrations
+```
+
+And:
+
+```text
+Organization → Setup
+```
+
+becomes the **configuration/readiness center**, not a feature manager.
+
+---
+
+# 22. One reusable setup component
+
+I would introduce something like:
+
+```text
+OrganizationReadiness
+```
+
+It displays:
+
+```text
+Organization readiness
+
+Core
+██████████ 100%
+
+People
+███████░░░ 70%
+
+Authority
+██████░░░░ 60%
+
+Trust
+█████████░ 90%
+
+Integrations
+████░░░░░░ 40%
+```
+
+Each item has:
+
+```text
+Ready
+Needs attention
+Not configured
+Optional
+```
+
+And each setup item knows:
+
+```text
+What it enables
+What is missing
+Who can configure it
+```
+
+---
+
+# 23. Most important architectural rule
+
+I would add this rule to the remodel plan:
+
+> **Configuration must be capability-driven, not feature-driven.**
+
+A workflow asks:
+
+```text
+What does this workflow require?
+```
+
+The organization setup system answers:
+
+```text
+Is it configured?
+Who is responsible?
+What's missing?
+```
+
+The UI then guides the administrator to fix it.
+
+So:
+
+```text
+Workflow
+   ↓
+Prerequisites
+   ↓
+Organization configuration
+   ↓
+Authorization policy
+   ↓
+Execution
+```
+
+rather than:
+
+```text
+Feature
+   ↓
+Activate
+   ↓
+Activate workflow
+```
+
+---
+
+# 24. How this fits the existing backend
+
+This actually fits your current branch quite well.
+
+You already have:
+
+```text
+organizations
+departments
+people
+organization_memberships
+roles
+authority_grants
+delegations
+requests
+request_approvals
+policy_decisions
+request_tasks
+request_events
+```
+
+and the authorization service already evaluates those organizational relationships when deciding whether someone can act.
+
+You also have a platform workflow boundary rather than replacing the existing workflow engine: `PlatformWorkflowService` authorizes the principal, correlates a workflow run with a request and resumes workflows after human tasks complete.
+
+So I would **not create a second onboarding framework** that sits beside this.
+
+I would create an:
+
+```text
+OrganizationSetup / Readiness layer
+```
+
+on top of the existing organization foundation and authorization primitives.
+
+---
+
+# 25. Final target
+
+The organization experience should ultimately feel like this:
+
+```text
+CREATE ORGANIZATION
+       ↓
+Automatically provision identity/trust infrastructure
+       ↓
+Configure yourself as administrator
+       ↓
+Add the people you need
+       ↓
+Define roles/authority
+       ↓
+Configure the workflows you actually intend to use
+       ↓
+Platform identifies missing prerequisites
+       ↓
+Administrator resolves them
+       ↓
+Organization becomes progressively more capable
+```
+
+And critically:
+
+> **There is no “Activate Finance”, “Activate Procurement”, or “Activate Workflow” button anymore.**
+
+There are simply **organizational capabilities that become operational when their prerequisites are configured**.
+
+That is much more consistent with the remodel we've been building toward, and it also gives us a clean path for the school-fees, requisition, finance, HR and field-operations examples without turning the product into a collection of disconnected modules.
+
+---
+
+# 26. Backend Realignment Implemented (Reuse-First)
+
+To align with the onboarding model above while reusing the existing platform stack:
+
+1. Keep the existing organization service/controller foundation.
+2. Add setup readiness instead of a new onboarding engine.
+3. Keep legacy activation route for compatibility, but treat it as an alias.
+
+Implemented API alignment:
+
+```text
+GET  /api/organizations/{orgTenantId}/setup/readiness
+POST /api/organizations/{orgTenantId}/workflows/configure
+POST /api/organizations/{orgTenantId}/workflows/activate   (legacy alias)
+```
+
+Readiness semantics:
+
+```text
+mandatory   -> blocks core readiness when missing
+conditional -> required only when enabled workflows need it
+recommended -> optional improvement, not a hard blocker
+```
+
+Readiness domains:
+
+```text
+core
+people
+authority
+operations
+trust
+integrations
+```
+
+Important reuse behavior:
+
+```text
+- No second workflow engine
+- No new parallel onboarding framework
+- Existing OrganizationService remains the source of truth
+- Existing workflow template activation logic is reused under configure semantics
+- Platform organization record is auto-healed/created during org onboarding
+```

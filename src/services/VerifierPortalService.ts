@@ -2,7 +2,7 @@ import { injectable } from 'tsyringe'
 import { auditService } from './AuditService'
 import { revocationService } from './RevocationService'
 import { rootLogger } from '../utils/pinoLogger'
-import { VerificationPolicy, VerificationResult } from '../types/trust'
+import { VerificationPolicy, TrustVerificationResult } from '../types/trust'
 
 const logger = rootLogger.child({ module: 'VerifierPortalService' })
 
@@ -20,8 +20,8 @@ export class VerifierPortalService {
     statusListEncoded: string | undefined,
     policy: VerificationPolicy,
     tenantId: string,
-  ): Promise<VerificationResult> {
-    const result: VerificationResult = {
+  ): Promise<TrustVerificationResult> {
+    const result: TrustVerificationResult = {
       verified: false,
       checks: { signature: true, revocation: true, claims: true }, // optimistically true start
     }

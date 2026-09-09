@@ -7,7 +7,7 @@ import type {
   TokenResponseBody,
   IssuedCredentialRecord,
 } from '../../types/api'
-import type { TenantAgent } from '@credo-ts/tenants/build/TenantAgent'
+import type { TenantAgent } from '@credo-ts/tenants'
 import type { Request as ExRequest } from 'express'
 
 import { Agent } from '@credo-ts/core'
@@ -100,7 +100,8 @@ export class OidcIssuerController extends Controller {
 
     // Pick the issuer that actually supports the offered credential configuration IDs.
     // We can have multiple issuer records (e.g., old ones with cleared metadata).
-    let issuers = await (agent.modules as any).openId4VcIssuer.getAllIssuers()
+    const issuerModule = (agent as any)?.openid4vc?.issuer || (agent.modules as any).openId4VcIssuer
+    let issuers = await issuerModule.getAllIssuers()
     if (!issuers || issuers.length === 0) {
       throw new Error('No OpenID4VC Issuer configured')
     }
@@ -141,14 +142,14 @@ export class OidcIssuerController extends Controller {
         })
 
         for (const i of issuers as any[]) {
-          await (agent.modules as any).openId4VcIssuer.updateIssuerMetadata({
+          await issuerModule.updateIssuerMetadata({
             issuerId: i.issuerId,
             credentialsSupported: refreshedSupported,
             display: i.display || [],
           })
         }
 
-        issuers = await (agent.modules as any).openId4VcIssuer.getAllIssuers()
+        issuers = await issuerModule.getAllIssuers()
         issuerWithMatchingSupported = issuers.find((i: any) => {
           const supported = (i?.credentialsSupported || []) as Array<{ id?: string }>
           return supported.some((s) => !!s?.id && offeredSet.has(s.id))
@@ -183,7 +184,7 @@ export class OidcIssuerController extends Controller {
 
     // Create offer using Credo Native Module
     // Note: ensure we cast to any if types aren't fully picked up yet
-    const result = await (agent.modules as any).openId4VcIssuer.createCredentialOffer({
+    const result = await issuerModule.createCredentialOffer({
       issuerId,
       offeredCredentials: credentialConfigurations,
       preAuthorizedCodeFlowConfig: {
@@ -264,7 +265,8 @@ export class OidcIssuerController extends Controller {
   @Security('jwt', ['tenant'])
   public async getCredential(@Request() request: ExRequest, @Path() id: string): Promise<any> {
     try {
-      const record = await request.agent.credentials.getById(id)
+      const credentialsApi = (request.agent as any).credentials
+      const record = await credentialsApi.getById(id)
       return record
     } catch (e) {
       this.setStatus(404)
@@ -285,11 +287,12 @@ export class OidcIssuerController extends Controller {
     @Body() body?: { reason?: string },
   ): Promise<any> {
     try {
+      const credentialsApi = (request.agent as any).credentials
       // Credo generic credentials module does not support 'revocation' (ledger/status list) directly via this API yet.
       // We will perform a local delete to prevent further usage from this agent's perspective.
       const reason = body?.reason
       issuedCredentialRepository.revoke(id, reason)
-      await request.agent.credentials.deleteById(id)
+      await credentialsApi.deleteById(id)
       return { id, revoked: true, status: 'deleted_locally', reason }
     } catch (e: any) {
       this.setStatus(500)
@@ -323,7 +326,8 @@ export class OidcIssuerController extends Controller {
   @Get('issuer/credentials')
   @Security('jwt', ['tenant'])
   public async listCredentials(@Request() request: ExRequest, @Query() subject?: string): Promise<any[]> {
-    const records = await request.agent.credentials.getAll()
+    const credentialsApi = (request.agent as any).credentials
+    const records = await credentialsApi.getAll()
     // Filter if needed (Credo getAll supports query but simple filter here is fine for now)
     if (subject) {
       // Subject DID is usually in credentialAttributes or specific metadata depending on format

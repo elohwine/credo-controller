@@ -179,7 +179,6 @@ export async function runCliServer() {
     },
     endpoints: parsed.endpoint,
     autoAcceptConnections: parsed['auto-accept-connections'],
-    autoAcceptCredentials: parsed['auto-accept-credentials'],
     autoAcceptProofs: parsed['auto-accept-proofs'],
     logLevel: parsed['log-level'],
     inboundTransports: parsed['inbound-transport'],

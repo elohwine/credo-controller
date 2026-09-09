@@ -19,7 +19,7 @@ export class EndorserTransactionController extends Controller {
    * Can be extended for different blockchain backends (Hyperledger Fabric, etc.)
    */
   @Post('/endorse')
-  public async endorserTransaction(@Request() request: Req, @Body() endorserTransaction: EndorserTransaction) {
+  public async endorserTransaction(@Request() request: Req, @Body() endorserTransaction: EndorserTransaction): Promise<any> {
     try {
       // TODO: Implement blockchain-agnostic endorsement logic
       // This can be extended to support multiple blockchain types
@@ -35,7 +35,7 @@ export class EndorserTransactionController extends Controller {
    * Pattern reusable for Hyperledger Fabric identity management
    */
   @Post('/set-endorser-role')
-  public async didNymTransaction(@Request() request: Req, @Body() didNymTransaction: DidNymTransaction) {
+  public async didNymTransaction(@Request() request: Req, @Body() didNymTransaction: DidNymTransaction): Promise<any> {
     try {
       // TODO: Implement blockchain-agnostic identity/permission management
       // This pattern can be adapted for Hyperledger Fabric MSP operations

@@ -1,14 +1,13 @@
 import type { ServerConfig } from '../utils/ServerConfig'
-import type { Agent, ConnectionStateChangedEvent } from '@credo-ts/core'
-
-import { ConnectionEventTypes } from '@credo-ts/core'
+import type { Agent } from '@credo-ts/core'
 
 import { sendWebSocketEvent } from './WebSocketEvents'
 import { sendWebhookEvent } from './WebhookEvent'
 
 export const connectionEvents = async (agent: Agent, config: ServerConfig) => {
-  agent.events.on(ConnectionEventTypes.ConnectionStateChanged, async (event: ConnectionStateChangedEvent) => {
-    const record = event.payload.connectionRecord
+  ;(agent.events as any).on('ConnectionStateChanged', async (event: any) => {
+    const record = event?.payload?.connectionRecord
+    if (!record) return
     const body = { ...record.toJSON(), ...event.metadata }
 
     // Only send webhook if webhook url is configured

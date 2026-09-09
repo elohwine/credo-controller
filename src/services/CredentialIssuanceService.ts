@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'crypto'
 import { container } from 'tsyringe'
-import { Agent, KeyType } from '@credo-ts/core'
+import { Agent } from '@credo-ts/core'
 import type { RestMultiTenantAgentModules } from '../cliAgent'
 import { rootLogger } from '../utils/pinoLogger'
 
@@ -86,21 +86,22 @@ export class CredentialIssuanceService {
     const tenantAgent = await (baseAgent.modules as any).tenants.getTenantAgent({ tenantId: request.tenantId })
 
     try {
-      // Use BASE agent's openId4VcIssuer, NOT tenant agent (which doesn't have it)
+      // Use BASE agent's OpenID4VC issuer, NOT tenant agent (which doesn't have it)
       const baseModules = baseAgent.modules as any
       logger.info(
         { moduleKeys: Object.keys(baseModules || {}), tenantId: request.tenantId },
         'Available modules on Base Agent',
       )
 
-      if (!baseModules.openId4VcIssuer) {
+      const issuerModule = (baseAgent as any).openid4vc?.issuer || baseModules.openId4VcIssuer
+      if (!issuerModule) {
         throw new Error(
-          `OpenId4VcIssuer module is missing on base agent. Available: ${Object.keys(baseModules || {}).join(', ')}`,
+          `OpenID4VC issuer module is missing on base agent. Available: ${Object.keys(baseModules || {}).join(', ')}`,
         )
       }
 
       // Get the issuer for this tenant
-      const issuers = await baseModules.openId4VcIssuer.getAllIssuers()
+      const issuers = await issuerModule.getAllIssuers()
       if (!issuers || issuers.length === 0) {
         throw new Error('No OpenID4VC issuers found for this tenant. Tenant provisioning may have failed.')
       }
@@ -114,7 +115,7 @@ export class CredentialIssuanceService {
       }
 
       // Create credential offer using the Credo API
-      const result = await baseModules.openId4VcIssuer.createCredentialOffer({
+      const result = await issuerModule.createCredentialOffer({
         issuerId: openId4VcIssuer.issuerId,
         offeredCredentials: [configId],
         preAuthorizedCodeFlowConfig: {
@@ -189,7 +190,7 @@ export class CredentialIssuanceService {
     if (dids.length > 0) return dids[0].did
 
     // Create one if missing
-    const did = await agent.dids.create({ method: 'key', options: { keyType: KeyType.Ed25519 } })
+    const did = await agent.dids.create({ method: 'key', options: { keyType: 'Ed25519' as any } })
     return did.didState.did as string
   }
 }

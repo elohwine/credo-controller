@@ -24,7 +24,7 @@ export interface CredentialReference {
   externalRef?: string
 }
 
-export interface VerificationResult {
+export interface SsiVerificationResult {
   verified: boolean
   credentialReferences: string[]
   issuerTrust: TrustDecision

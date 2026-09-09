@@ -26,7 +26,7 @@ export class SchemaController extends Controller {
    */
   @Example(SchemaExample)
   @Get('/:schemaId')
-  public async getSchemaById(@Request() request: Req, @Path('schemaId') schemaId: SchemaId) {
+  public async getSchemaById(@Request() request: Req, @Path('schemaId') schemaId: SchemaId): Promise<any> {
     try {
       this.setStatus(410)
       return { message: 'AnonCreds schema lookup is no longer supported in this build.' }
@@ -46,7 +46,7 @@ export class SchemaController extends Controller {
    */
   @Post('/')
   @Example(CreateSchemaSuccessful)
-  public async createSchema(@Request() request: Req, @Body() schema: CreateSchemaInput) {
+  public async createSchema(@Request() request: Req, @Body() schema: CreateSchemaInput): Promise<any> {
     try {
       this.setStatus(410)
       return { message: 'AnonCreds schema creation is no longer supported in this build.' }

@@ -59,7 +59,7 @@ export class SsiPresentationService {
     })
 
     const agent = input.request.agent
-    const verifierModule = (agent.modules as any).openId4VcVerifier
+    const verifierModule = (agent as any)?.openid4vc?.verifier || (agent.modules as any).openId4VcVerifier
     if (!verifierModule) throw new Error('OpenID4VP verifier module is not configured')
 
     const expirationInSeconds = Math.max(1, Math.ceil((expiresAt.getTime() - Date.now()) / 1000))

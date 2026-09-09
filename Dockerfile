@@ -1,7 +1,7 @@
 # ============================================
 # Stage 1: Base with native build dependencies
 # ============================================
-FROM node:20.18.1 AS base
+FROM node:24.12.0 AS base
 
 # Install system dependencies for native module compilation
 RUN apt-get update && apt-get install -y \
@@ -105,7 +105,7 @@ CMD ["yarn", "test"]
 # ============================================
 # Stage 7: Production runtime
 # ============================================
-FROM node:20.18.1-slim AS production
+FROM node:24.12.0-slim AS production
 
 # Install only runtime dependencies (no build tools)
 RUN apt-get update && apt-get install -y \

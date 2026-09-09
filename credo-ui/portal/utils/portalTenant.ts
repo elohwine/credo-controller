@@ -91,7 +91,14 @@ export async function ensurePortalTenant(
   if (!tenantId) {
     const createRes = await axios.post(
       `${holderBackend}/multi-tenancy/create-tenant`,
-      { config: { label: 'Portal Tenant', tenantType: 'USER' }, baseUrl: credoBackend },
+      {
+        config: {
+          label: 'Portal Tenant',
+          tenantType: 'USER',
+          connectionImageUrl: `${window.location.origin}/favicon.ico`,
+        },
+        baseUrl: credoBackend,
+      },
       { headers: { Authorization: `Bearer ${rootToken}` } },
     )
 
@@ -108,7 +115,14 @@ export async function ensurePortalTenant(
     } catch {
       const createRes = await axios.post(
         `${holderBackend}/multi-tenancy/create-tenant`,
-        { config: { label: 'Portal Tenant', tenantType: 'USER' }, baseUrl: credoBackend },
+        {
+          config: {
+            label: 'Portal Tenant',
+            tenantType: 'USER',
+            connectionImageUrl: `${window.location.origin}/favicon.ico`,
+          },
+          baseUrl: credoBackend,
+        },
         { headers: { Authorization: `Bearer ${rootToken}` } },
       )
       tenantId = createRes?.data?.tenantId

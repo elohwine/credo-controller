@@ -1,19 +1,19 @@
+import type { PeerDidNumAlgo2CreateOptions } from '@credo-ts/core'
 import type {
-  CredentialExchangeRecordProps,
   CredentialProtocolVersionType,
-  PeerDidNumAlgo2CreateOptions,
-  Routing,
-} from '@credo-ts/core'
+  DidCommCredentialExchangeRecordProps,
+  DidCommCredentialRole,
+  DidCommCredentialState,
+} from '@credo-ts/didcomm'
+import type { Routing } from '../../types'
 
 import {
-  CredentialState,
   W3cCredentialService,
-  CredentialRole,
   createPeerDidDocumentFromServices,
   PeerDidNumAlgo,
 } from '@credo-ts/core'
 import { Request as Req } from 'express'
-import { Body, Controller, Get, Path, Post, Route, Tags, Example, Query, Security, Request } from 'tsoa'
+import { Body, Controller, Get, Path, Post, Route, Tags, Query, Security, Request } from 'tsoa'
 import { injectable } from 'tsyringe'
 
 import { SCOPES } from '../../../enums'
@@ -49,15 +49,14 @@ export class CredentialController extends Controller {
    *
    * @returns CredentialExchangeRecord[]
    */
-  @Example<CredentialExchangeRecordProps[]>([CredentialExchangeRecordExample])
   @Get('/')
   public async getAllCredentials(
     @Request() request: Req,
     @Query('threadId') threadId?: ThreadId,
     @Query('parentThreadId') parentThreadId?: ThreadId,
     @Query('connectionId') connectionId?: RecordId,
-    @Query('state') state?: CredentialState,
-    @Query('role') role?: CredentialRole,
+    @Query('state') state?: DidCommCredentialState,
+    @Query('role') role?: DidCommCredentialRole,
   ) {
     try {
       // Legacy DIDComm credentials API not available with W3C-only stack.
@@ -70,7 +69,7 @@ export class CredentialController extends Controller {
   // TODO: Fix W3cCredentialRecordExample from example
   // @Example<W3cCredentialRecordOptions[]>([W3cCredentialRecordExample])
   @Get('/w3c')
-  public async getAllW3c(@Request() request: Req) {
+  public async getAllW3c(@Request() request: Req): Promise<any> {
     try {
       const w3cCredentialService = await request.agent.dependencyManager.resolve(W3cCredentialService)
       const w3cCredentialRecords = await w3cCredentialService.getAllCredentialRecords(request.agent.context)
@@ -83,7 +82,7 @@ export class CredentialController extends Controller {
   // TODO: Fix W3cCredentialRecordExample from example
   // @Example<W3cCredentialRecordOptions[]>([W3cCredentialRecordExample])
   @Get('/w3c/:id')
-  public async getW3cById(@Request() request: Req, @Path('id') id: string) {
+  public async getW3cById(@Request() request: Req, @Path('id') id: string): Promise<any> {
     try {
       const w3cCredentialService = await request.agent.dependencyManager.resolve(W3cCredentialService)
       const w3cRecord = await w3cCredentialService.getCredentialRecordById(request.agent.context, id)
@@ -99,9 +98,8 @@ export class CredentialController extends Controller {
    * @param credentialRecordId
    * @returns CredentialExchangeRecord
    */
-  @Example<CredentialExchangeRecordProps>(CredentialExchangeRecordExample)
   @Get('/:credentialRecordId')
-  public async getCredentialById(@Request() request: Req, @Path('credentialRecordId') credentialRecordId: RecordId) {
+  public async getCredentialById(@Request() request: Req, @Path('credentialRecordId') credentialRecordId: RecordId): Promise<any> {
     try {
       return { id: credentialRecordId, state: 'unknown' }
     } catch (error) {
@@ -116,9 +114,8 @@ export class CredentialController extends Controller {
    * @param options
    * @returns CredentialExchangeRecord
    */
-  @Example<CredentialExchangeRecordProps>(CredentialExchangeRecordExample)
   @Post('/propose-credential')
-  public async proposeCredential(@Request() request: Req, @Body() proposeCredentialOptions: ProposeCredentialOptions) {
+  public async proposeCredential(@Request() request: Req, @Body() proposeCredentialOptions: ProposeCredentialOptions): Promise<any> {
     try {
       this.setStatus(501)
       return { message: 'Not implemented in W3C-only build' }
@@ -135,7 +132,6 @@ export class CredentialController extends Controller {
    * @param options
    * @returns CredentialExchangeRecord
    */
-  @Example<CredentialExchangeRecordProps>(CredentialExchangeRecordExample)
   @Post('/accept-proposal')
   public async acceptProposal(
     @Request() request: Req,
@@ -156,9 +152,8 @@ export class CredentialController extends Controller {
    * @param options
    * @returns AgentMessage, CredentialExchangeRecord
    */
-  @Example<CredentialExchangeRecordProps>(CredentialExchangeRecordExample)
   @Post('/create-offer')
-  public async createOffer(@Request() request: Req, @Body() createOfferOptions: CreateOfferOptions) {
+  public async createOffer(@Request() request: Req, @Body() createOfferOptions: CreateOfferOptions): Promise<any> {
     try {
       this.setStatus(501)
       return { message: 'Not implemented in W3C-only build' }
@@ -168,7 +163,7 @@ export class CredentialController extends Controller {
   }
 
   @Post('/create-offer-oob')
-  public async createOfferOob(@Request() request: Req, @Body() outOfBandOption: CreateOfferOobOptions) {
+  public async createOfferOob(@Request() request: Req, @Body() outOfBandOption: CreateOfferOobOptions): Promise<any> {
     try {
       let invitationDid: string | undefined
       let routing: Routing
@@ -177,21 +172,25 @@ export class CredentialController extends Controller {
       if (outOfBandOption?.invitationDid) {
         invitationDid = outOfBandOption?.invitationDid
       } else {
-        routing = await request.agent.mediationRecipient.getRouting({})
-        const didDocument = createPeerDidDocumentFromServices([
-          {
-            id: 'didcomm',
-            recipientKeys: [routing.recipientKey],
-            routingKeys: routing.routingKeys,
-            serviceEndpoint: routing.endpoints[0],
-          },
-        ])
+        routing = await request.agent.didcomm.mediationRecipient.getRouting({})
+        const { didDocument, keys } = createPeerDidDocumentFromServices(
+          [
+            {
+              id: 'didcomm',
+              recipientKeys: [routing.recipientKey as any],
+              routingKeys: routing.routingKeys,
+              serviceEndpoint: (routing as any).endpoints?.[0],
+            },
+          ],
+          true,
+        )
         const did = await request.agent.dids.create<PeerDidNumAlgo2CreateOptions>({
-          didDocument,
           method: 'peer',
           options: {
             numAlgo: PeerDidNumAlgo.MultipleInceptionKeyWithoutDoc,
+            keys,
           },
+          didDocument,
         })
         invitationDid = did.didState.did
       }
@@ -204,7 +203,7 @@ export class CredentialController extends Controller {
       })
 
       const credentialMessage = offerOob.message
-      const outOfBandRecord = await request.agent.oob.createInvitation({
+      const outOfBandRecord = await request.agent.didcomm.oob.createInvitation({
         label: outOfBandOption.label,
         messages: [credentialMessage],
         autoAcceptConnection: true,
@@ -214,11 +213,9 @@ export class CredentialController extends Controller {
       })
       return {
         invitationUrl: outOfBandRecord.outOfBandInvitation.toUrl({
-          domain: request.agent.config.endpoints[0],
+          domain: process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
         }),
-        invitation: outOfBandRecord.outOfBandInvitation.toJSON({
-          useDidSovPrefixWhereAllowed: request.agent.config.useDidSovPrefixWhereAllowed,
-        }),
+        invitation: outOfBandRecord.outOfBandInvitation.toJSON(),
         outOfBandRecord: outOfBandRecord.toJSON(),
         outOfBandRecordId: outOfBandRecord.id,
         credentialRequestThId: offerOob.credentialRecord.threadId,
@@ -237,9 +234,8 @@ export class CredentialController extends Controller {
    * @param options
    * @returns CredentialExchangeRecord
    */
-  @Example<CredentialExchangeRecordProps>(CredentialExchangeRecordExample)
   @Post('/accept-offer')
-  public async acceptOffer(@Request() request: Req, @Body() acceptCredentialOfferOptions: CredentialOfferOptions) {
+  public async acceptOffer(@Request() request: Req, @Body() acceptCredentialOfferOptions: CredentialOfferOptions): Promise<any> {
     try {
       // Link secret is not applicable in W3C-only build
       this.setStatus(501)
@@ -257,7 +253,6 @@ export class CredentialController extends Controller {
    * @param options
    * @returns CredentialExchangeRecord
    */
-  @Example<CredentialExchangeRecordProps>(CredentialExchangeRecordExample)
   @Post('/accept-request')
   public async acceptRequest(
     @Request() request: Req,
@@ -278,9 +273,8 @@ export class CredentialController extends Controller {
    * @param options
    * @returns CredentialExchangeRecord
    */
-  @Example<CredentialExchangeRecordProps>(CredentialExchangeRecordExample)
   @Post('/accept-credential')
-  public async acceptCredential(@Request() request: Req, @Body() acceptCredential: AcceptCredential) {
+  public async acceptCredential(@Request() request: Req, @Body() acceptCredential: AcceptCredential): Promise<any> {
     try {
       this.setStatus(501)
       return { message: 'Not implemented in W3C-only build' }
@@ -296,7 +290,7 @@ export class CredentialController extends Controller {
    * @returns credentialRecord
    */
   @Get('/:credentialRecordId/form-data')
-  public async credentialFormData(@Request() request: Req, @Path('credentialRecordId') credentialRecordId: string) {
+  public async credentialFormData(@Request() request: Req, @Path('credentialRecordId') credentialRecordId: string): Promise<any> {
     try {
       this.setStatus(501)
       return { message: 'Not implemented in W3C-only build' }

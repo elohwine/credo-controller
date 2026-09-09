@@ -5,7 +5,6 @@ import {
   RecordNotFoundError,
   RecordDuplicateError,
   ClassValidationError,
-  MessageSendingError,
 } from '@credo-ts/core'
 
 import { RecordDuplicateError as CustomRecordDuplicateError, NotFoundError, InternalServerError } from './errors/errors'
@@ -17,7 +16,7 @@ class ErrorHandlingService {
       throw this.handleRecordDuplicateError(error)
     } else if (error instanceof ClassValidationError) {
       throw this.handleClassValidationError(error)
-    } else if (error instanceof MessageSendingError) {
+    } else if (isMessageSendingError(error)) {
       throw this.handleMessageSendingError(error)
     } else if (error instanceof RecordNotFoundError) {
       throw this.handleRecordNotFoundError(error)
@@ -48,9 +47,13 @@ class ErrorHandlingService {
     throw new InternalServerError(`ClassValidationError: ${error.message}`)
   }
 
-  private static handleMessageSendingError(error: MessageSendingError): BaseError {
+  private static handleMessageSendingError(error: Error): BaseError {
     throw new InternalServerError(`MessageSendingError: ${error.message}`)
   }
+}
+
+function isMessageSendingError(error: unknown): error is Error {
+  return error instanceof Error && error.name === 'MessageSendingError'
 }
 
 export default ErrorHandlingService

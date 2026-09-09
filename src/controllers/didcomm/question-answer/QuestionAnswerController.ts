@@ -2,7 +2,7 @@ import type { ValidResponse } from '@credo-ts/question-answer'
 
 import { QuestionAnswerRecord, QuestionAnswerRole, QuestionAnswerState } from '@credo-ts/question-answer'
 import { Request as Req } from 'express'
-import { Body, Controller, Get, Path, Post, Route, Tags, Query, Security, Example, Request } from 'tsoa'
+import { Body, Controller, Get, Path, Post, Route, Tags, Query, Security, Request } from 'tsoa'
 import { injectable } from 'tsyringe'
 
 import { SCOPES } from '../../../enums'
@@ -31,7 +31,7 @@ export class QuestionAnswerController extends Controller {
     @Query('role') role?: QuestionAnswerRole,
     @Query('state') state?: QuestionAnswerState,
     @Query('threadId') threadId?: string,
-  ) {
+  ): Promise<any> {
     try {
       const questionAnswerRecords = await request.agent.modules.questionAnswer.findAllByQuery({
         connectionId,
@@ -51,18 +51,12 @@ export class QuestionAnswerController extends Controller {
    * @param connectionId Connection identifier
    * @param content The content of the message
    */
-  @Example(QuestionAnswerRecord)
   @Post('question/:connectionId')
   public async sendQuestion(
     @Request() request: Req,
     @Path('connectionId') connectionId: RecordId,
-    @Body()
-    config: {
-      question: string
-      validResponses: ValidResponse[]
-      detail?: string
-    },
-  ) {
+    @Body() config: any,
+  ): Promise<any> {
     try {
       const { question, validResponses, detail } = config
 
@@ -85,7 +79,7 @@ export class QuestionAnswerController extends Controller {
    * @param response The response of the question
    */
   @Post('answer/:id')
-  public async sendAnswer(@Request() request: Req, @Path('id') id: RecordId, @Body() body: Record<'response', string>) {
+  public async sendAnswer(@Request() request: Req, @Path('id') id: RecordId, @Body() body: any): Promise<any> {
     try {
       const record = await request.agent.modules.questionAnswer.sendAnswer(id, body.response)
       return record.toJSON()
@@ -100,7 +94,7 @@ export class QuestionAnswerController extends Controller {
    * @returns ConnectionRecord
    */
   @Get('/:id')
-  public async getQuestionAnswerRecordById(@Request() request: Req, @Path('id') id: RecordId) {
+  public async getQuestionAnswerRecordById(@Request() request: Req, @Path('id') id: RecordId): Promise<any> {
     try {
       const record = await request.agent.modules.questionAnswer.findById(id)
 

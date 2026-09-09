@@ -19,6 +19,7 @@ import {
     IconBuildingStore,
     IconReceipt,
 } from '@tabler/icons-react';
+import OrgSwitcher from '@/components/OrgSwitcher';
 
 const LayoutNestingContext = React.createContext(false);
 
@@ -80,6 +81,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
             items: [
                 { label: 'Credentials', href: '/credential-models', icon: <IconCertificate size={16} />, description: 'Credential definitions' },
                 { label: 'Issue / Verify', href: '/select-credentials', icon: <IconFileCheck size={16} />, description: 'Manual credential ops' },
+                { label: 'Organization Setup', href: '/organization/setup', icon: <IconBuildingStore size={16} />, description: 'Readiness and capability setup' },
             ],
         },
         
@@ -253,6 +255,10 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                                         </Menu.Dropdown>
                                     </Menu>
                                 ))}
+
+                                <Box style={{ minWidth: 260, maxWidth: 340, flexShrink: 0 }}>
+                                    <OrgSwitcher />
+                                </Box>
                             </Group>
                         </Box>
                     </Group>

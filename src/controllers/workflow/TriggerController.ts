@@ -16,7 +16,7 @@
 import { Controller, Get, Post, Put, Delete, Route, Tags, Body, Path, Query, Request, Security, Header } from 'tsoa'
 import {
   triggerService,
-  WorkflowTrigger,
+  WorkflowTriggerModel,
   WebhookTriggerConfig,
   ScheduleTriggerConfig,
   EventTriggerConfig,

@@ -1,6 +1,5 @@
 import type { Request as ExRequest } from 'express'
 
-import { KeyType } from '@credo-ts/core'
 import { Controller, Post, Route, Security, Tags, Request } from 'tsoa'
 
 import { didStore } from '../../utils/didStore'
@@ -18,9 +17,10 @@ interface CreateKeyDidResponse {
 export class DidAutomationController extends Controller {
   @Post('/key')
   public async createKeyDid(@Request() request: ExRequest): Promise<CreateKeyDidResponse> {
-    const didResult = await request.agent.dids.create({
+    const req = request as ExRequest & { agent: any }
+    const didResult = await req.agent.dids.create({
       method: 'key',
-      options: { keyType: KeyType.Ed25519 },
+      options: { keyType: 'Ed25519' as any },
     })
     if (didResult.didState.state !== 'finished' || !didResult.didState.did) {
       this.setStatus(500)

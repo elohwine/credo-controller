@@ -62,7 +62,7 @@ export class CredoPresentationVerificationService {
     }
 
     const { verificationAgent, release } = await this.resolveVerificationAgent(input)
-    const verifier = (verificationAgent.modules as any).openId4VcVerifier
+    const verifier = (verificationAgent as any)?.openid4vc?.verifier || (verificationAgent.modules as any).openId4VcVerifier
     if (!verifier) throw new Error('OpenID4VP verifier module is not configured')
 
     try {

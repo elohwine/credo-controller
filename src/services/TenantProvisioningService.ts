@@ -1,8 +1,6 @@
-import type { Agent } from '@credo-ts/core'
+import type { Agent, KeyDidCreateOptions } from '@credo-ts/core'
 import type { TenantRecord } from '@credo-ts/tenants'
-import type { TenantAgent } from '@credo-ts/tenants/build/TenantAgent'
-
-import { KeyType } from '@credo-ts/core'
+import type { TenantAgent } from '@credo-ts/tenants'
 
 import { upsertTenant } from '../persistence/TenantRepository'
 import { didStore } from '../utils/didStore'
@@ -66,12 +64,14 @@ export async function provisionTenantResources({
       if (tenantType === 'USER') {
         // === USER TENANT (HOLDER ONLY) ===
         // 1. Create Holder DID (did:key)
-        const holderDidResult = await tenantAgent.dids.create({ method: 'key', options: { keyType: KeyType.Ed25519 } })
+        const holderDidResult = await createKeyDidForTenant(tenantAgent, 'holder')
         const holderDid = holderDidResult.didState.did
         const holderVm = holderDidResult.didState.didDocument?.verificationMethod?.[0]
         const holderKid = holderVm?.id ?? `${holderDid}#key-1`
 
-        if (!holderDid) throw new Error('Failed to create Holder DID')
+        if (!holderDid) {
+          throw new Error(`Failed to create Holder DID: missing DID in state=${holderDidResult.didState.state}`)
+        }
 
         console.log(`[Provisioning] Created Holder DID: ${holderDid}`)
 
@@ -87,14 +87,14 @@ export async function provisionTenantResources({
             issuer: {}, // Empty = Not an Issuer
             verifier: {}, // Empty = Not a Verifier
           },
-          askarProfile: tenantAgent.wallet?.walletConfig?.id || tenantRecord.id,
+          askarProfile: tenantRecord.id,
         }
       }
 
       // === ORG TENANT (ISSUER / VERIFIER) ===
       // Legacy logic for full issuer setup
 
-      const issuerDidState = await tenantAgent.dids.create({ method: 'key', options: { keyType: KeyType.Ed25519 } })
+      const issuerDidState = await createKeyDidForTenant(tenantAgent, 'issuer')
       if (issuerDidState.didState.state !== 'finished') {
         throw new Error('Failed to create issuer DID for tenant')
       }
@@ -102,7 +102,7 @@ export async function provisionTenantResources({
       const issuerVm = issuerDidState.didState.didDocument?.verificationMethod?.[0]
       const issuerKid = issuerVm?.id ?? `${issuerDid}#key-1`
 
-      const verifierDidState = await tenantAgent.dids.create({ method: 'key', options: { keyType: KeyType.Ed25519 } })
+      const verifierDidState = await createKeyDidForTenant(tenantAgent, 'verifier')
       if (verifierDidState.didState.state !== 'finished') {
         throw new Error('Failed to create verifier DID for tenant')
       }
@@ -141,7 +141,7 @@ export async function provisionTenantResources({
 
       // Create or Update native OpenID4VC Issuer record in the tenant wallet
       try {
-        const existingIssuers = await (tenantAgent.modules as any).openId4VcIssuer.getAllIssuers()
+        const existingIssuers = await (tenantAgent as any).openid4vc?.issuer?.getAllIssuers?.() ?? (tenantAgent.modules as any).openId4VcIssuer.getAllIssuers()
 
         const newCredentialsSupported = (issuerMetadata as any).credentials_supported || []
         const newDisplay = (issuerMetadata as any).display || []
@@ -153,14 +153,14 @@ export async function provisionTenantResources({
             `[Provisioning] Reuse existing OpenID4VC issuer ${existingIssuer.issuerId} for tenant ${tenantRecord.id}`,
           )
 
-          await (tenantAgent.modules as any).openId4VcIssuer.updateIssuerMetadata({
+          await (tenantAgent as any).openid4vc?.issuer?.updateIssuerMetadata?.({
             issuerId: existingIssuer.issuerId,
             credentialsSupported: newCredentialsSupported,
             display: newDisplay,
           })
         } else {
           // Only create if none exist
-          await (tenantAgent.modules as any).openId4VcIssuer.createIssuer({
+          await (tenantAgent as any).openid4vc?.issuer?.createIssuer?.({
             credentialsSupported: newCredentialsSupported,
             display: newDisplay,
           })
@@ -168,11 +168,11 @@ export async function provisionTenantResources({
         }
 
         // Create or Update native OpenID4VC Verifier record in the tenant wallet
-        const existingVerifiers = await (tenantAgent.modules as any).openId4VcVerifier.getAllVerifiers()
+        const existingVerifiers = await (tenantAgent as any).openid4vc?.verifier?.getAllVerifiers?.() ?? (tenantAgent.modules as any).openId4VcVerifier.getAllVerifiers()
         if (existingVerifiers && existingVerifiers.length > 0) {
           console.log(`[Provisioning] Reuse existing OpenID4VC verifier for tenant ${tenantRecord.id}`)
         } else {
-          await (tenantAgent.modules as any).openId4VcVerifier.createVerifier({
+          await (tenantAgent as any).openid4vc?.verifier?.createVerifier?.({
             // Verifier doesn't have complex metadata in this version of Credo,
             // but we initialize the record so it's ready.
           })
@@ -249,7 +249,7 @@ export async function provisionTenantResources({
           issuer: issuerMetadata,
           verifier: verifierMetadata,
         },
-        askarProfile: tenantAgent.wallet?.walletConfig?.id || tenantRecord.id,
+        askarProfile: tenantRecord.id,
       }
     },
   )
@@ -297,4 +297,27 @@ function extractPublicKeyBase58(verificationMethod?: any): string | undefined {
     if (multibase.startsWith('z')) return multibase.slice(1)
   }
   return undefined
+}
+
+async function createKeyDidForTenant(tenantAgent: TenantAgent<any>, role: 'holder' | 'issuer' | 'verifier') {
+  const didResult = await tenantAgent.dids.create<KeyDidCreateOptions>({
+    method: 'key',
+    options: {
+      createKey: {
+        type: {
+          kty: 'OKP',
+          crv: 'Ed25519',
+        },
+      },
+    },
+  })
+
+  if (didResult.didState.state !== 'finished') {
+    const reason = didResult.didState.state === 'failed' ? didResult.didState.reason : 'unknown'
+    throw new Error(
+      `Failed to create ${role} DID for tenant: state=${didResult.didState.state}, reason=${reason}`,
+    )
+  }
+
+  return didResult
 }

@@ -67,6 +67,12 @@ export default function Home() {
                             icon={IconFileCheck} 
                             href="/select-credentials"
                         />
+                        <ActionCard
+                            title="Organization Setup"
+                            description="Capability readiness center"
+                            icon={IconBuildingStore}
+                            href="/organization/setup"
+                        />
                     </SimpleGrid>
                 </Box>
 

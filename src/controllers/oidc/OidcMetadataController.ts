@@ -18,10 +18,10 @@ export class OidcMetadataController extends Controller {
    * This is useful for non-tenant offers that reference the base server as issuer.
    */
   @Get('.well-known/openid-credential-issuer')
-  public async getPlatformIssuerMetadata(@Request() request: ExRequest): Promise<Record<string, unknown>> {
+  public async getPlatformIssuerMetadata(@Request() request: ExRequest): Promise<any> {
     const baseUrl = process.env.PUBLIC_BASE_URL || `${request.protocol}://${request.get('host')}`
     // Minimal metadata required by wallets to discover token endpoint and issuer
-    const metadata: Record<string, unknown> = {
+    const metadata: any = {
       issuer: baseUrl,
       credential_issuer: baseUrl,
       token_endpoint: `${baseUrl}/oidc/issuer/default-platform-issuer/token`,
@@ -37,7 +37,7 @@ export class OidcMetadataController extends Controller {
       const { credentialDefinitionStore } = require('../../utils/credentialDefinitionStore')
       const definitions = credentialDefinitionStore.list() || []
 
-      const credentialConfigurations: Record<string, any> = {}
+      const credentialConfigurations: any = {}
       definitions.forEach((def: any) => {
         const storedFormat = (def.format || 'jwt_vc') as string
         // Map stored format to advertised OpenID4VC format
@@ -90,7 +90,7 @@ export class OidcMetadataController extends Controller {
   public async getIssuerAuthorizationServerMetadata(
     @Request() request: ExRequest,
     @Path() issuerId: string,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<any> {
     const baseUrl = process.env.PUBLIC_BASE_URL || `${request.protocol}://${request.get('host')}`
     const issuerBase = `${baseUrl}/oidc/issuer/${issuerId}`
 
@@ -107,7 +107,7 @@ export class OidcMetadataController extends Controller {
    * Platform-level OAuth Authorization Server metadata
    */
   @Get('.well-known/oauth-authorization-server')
-  public async getPlatformAuthorizationServerMetadata(@Request() request: ExRequest): Promise<Record<string, unknown>> {
+  public async getPlatformAuthorizationServerMetadata(@Request() request: ExRequest): Promise<any> {
     const baseUrl = process.env.PUBLIC_BASE_URL || `${request.protocol}://${request.get('host')}`
     const issuerBase = `${baseUrl}/oidc/issuer/default-platform-issuer`
 
@@ -127,7 +127,7 @@ export class OidcMetadataController extends Controller {
   public async getIssuerMetadata(
     @Request() request: ExRequest,
     @Path() tenantId: string,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<any> {
     const tenant = getTenantById(tenantId)
     if (!tenant) {
       this.setStatus(404)
@@ -148,7 +148,7 @@ export class OidcMetadataController extends Controller {
       const definitions = credentialDefinitionStore.list(tenantId)
       console.log(`[OidcMetadata] Found ${definitions.length} definitions for tenant ${tenantId}`)
 
-      const credentialConfigurations: Record<string, any> = {}
+      const credentialConfigurations: any = {}
       definitions.forEach((def: any) => {
         const storedFormat = (def.format || 'jwt_vc') as string
         let advertisedFormat = 'jwt_vc'
@@ -201,7 +201,7 @@ export class OidcMetadataController extends Controller {
   public async getVerifierMetadata(
     @Request() request: ExRequest,
     @Path() tenantId: string,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<any> {
     const tenant = getTenantById(tenantId)
     if (!tenant) {
       this.setStatus(404)

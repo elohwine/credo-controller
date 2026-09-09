@@ -39,7 +39,7 @@ export class RequestController {
   }
 
   @Post('/{requestId}/submit')
-  public async submit(@Request() request: ExRequest, @Path() requestId: string) {
+  public async submit(@Request() request: ExRequest, @Path() requestId: string): Promise<any> {
     const principal = getPrincipal(request)
     return platformRequestService.submit(requestId, principal.tenantId, principal.subjectRef)
   }
@@ -77,7 +77,7 @@ export class RequestController {
   }
 
   @Get('/{requestId}')
-  public async get(@Request() request: ExRequest, @Path() requestId: string) {
+  public async get(@Request() request: ExRequest, @Path() requestId: string): Promise<any> {
     const principal = getPrincipal(request)
     return platformRequestService.getForTenant(requestId, principal.tenantId)
   }

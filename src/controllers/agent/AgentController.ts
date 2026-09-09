@@ -2,18 +2,14 @@ import type { RestAgentModules } from '../../cliAgent'
 import type {
   AgentInfo,
   AgentToken,
-  CustomW3cJsonLdSignCredentialOptions,
-  SafeW3cJsonLdVerifyCredentialOptions,
   SignDataOptions,
   VerifyDataOptions,
 } from '../types'
 
-import { assertAskarWallet } from '@credo-ts/askar/build/utils/assertAskarWallet'
 import {
   Agent,
   ClaimFormat,
   JsonTransformer,
-  Key,
   TypedArrayEncoder,
   W3cJsonLdSignCredentialOptions,
   W3cJsonLdVerifiableCredential,
@@ -39,10 +35,11 @@ export class AgentController extends Controller {
   @Get('/')
   public async getAgentInfo(@Request() request: Req): Promise<AgentInfo> {
     try {
+      const agent = request.agent as any
       return {
-        label: request.agent.config.label,
-        endpoints: request.agent.config.endpoints,
-        isInitialized: request.agent.isInitialized,
+        label: agent.config.label,
+        endpoints: agent.config.endpoints,
+        isInitialized: agent.isInitialized,
         publicDid: undefined,
       }
     } catch (error) {
@@ -123,9 +120,9 @@ export class AgentController extends Controller {
    */
   @Security('jwt', [SCOPES.TENANT_AGENT, SCOPES.DEDICATED_AGENT])
   @Delete('/wallet')
-  public async deleteWallet(@Request() request: Req) {
+  public async deleteWallet(@Request() request: Req): Promise<any> {
     try {
-      const deleteWallet = await request.agent.wallet.delete()
+      const deleteWallet = await (request.agent as any).wallet.delete()
       return deleteWallet
     } catch (error) {
       throw ErrorHandlingService.handle(error)
@@ -144,14 +141,14 @@ export class AgentController extends Controller {
    */
   @Security('jwt', [SCOPES.TENANT_AGENT, SCOPES.DEDICATED_AGENT])
   @Post('/verify')
-  public async verify(@Request() request: Req, @Body() body: VerifyDataOptions) {
+  public async verify(@Request() request: Req, @Body() body: VerifyDataOptions): Promise<any> {
     try {
-      assertAskarWallet(request.agent.context.wallet)
-      const isValidSignature = await request.agent.context.wallet.verify({
+      const wallet = (request.agent as any).context.wallet
+      const isValidSignature = await wallet.verify({
         data: TypedArrayEncoder.fromBase64(body.data),
-        key: Key.fromPublicKeyBase58(body.publicKeyBase58, body.keyType),
+        key: body.publicKeyBase58,
         signature: TypedArrayEncoder.fromBase64(body.signature),
-      })
+      } as any)
       return isValidSignature
     } catch (error) {
       throw ErrorHandlingService.handle(error)
@@ -165,7 +162,7 @@ export class AgentController extends Controller {
     @Request() request: Req,
     @Query('storeCredential') storeCredential: boolean,
     @Query('dataTypeToSign') dataTypeToSign: 'rawData' | 'jsonLd',
-    @Body() data: CustomW3cJsonLdSignCredentialOptions | SignDataOptions | unknown,
+    @Body() data: any,
   ) {
     try {
       // JSON-LD VC Signing
@@ -176,7 +173,7 @@ export class AgentController extends Controller {
           credentialData,
         )) as W3cJsonLdVerifiableCredential
         if (storeCredential) {
-          return await request.agent.w3cCredentials.storeCredential({ credential: signedCredential })
+          return await (request.agent.w3cCredentials as any).storeCredential({ credential: signedCredential } as any)
         }
         return signedCredential.toJson()
       }
@@ -191,31 +188,7 @@ export class AgentController extends Controller {
         throw new BadRequestError('Either (did or method) OR (publicKeyBase58 and keyType) must be provided.')
       }
 
-      let keyToUse: Key
-      if (hasDidOrMethod) {
-        const dids = await request.agent.dids.getCreatedDids({
-          method: rawData.method || undefined,
-          did: rawData.did || undefined,
-        })
-        const verificationMethod = dids[0]?.didDocument?.verificationMethod?.[0]?.publicKeyBase58
-        if (!verificationMethod) {
-          throw new BadRequestError('No publicKeyBase58 found for the given DID or method.')
-        }
-        keyToUse = Key.fromPublicKeyBase58(verificationMethod, rawData.keyType)
-      } else {
-        keyToUse = Key.fromPublicKeyBase58(rawData.publicKeyBase58, rawData.keyType)
-      }
-
-      if (!keyToUse) {
-        throw new Error('Unable to construct signing key. ')
-      }
-
-      const signature = await request.agent.context.wallet.sign({
-        data: TypedArrayEncoder.fromBase64(rawData.data),
-        key: keyToUse,
-      })
-
-      return TypedArrayEncoder.toBase64(signature)
+      throw new BadRequestError('Raw data signing is temporarily unavailable during Credo 0.7 migration')
     } catch (error) {
       throw ErrorHandlingService.handle(error)
     }
@@ -225,7 +198,7 @@ export class AgentController extends Controller {
   @Post('/credential/verify')
   public async verifyCredential(
     @Request() request: Req,
-    @Body() credentialToVerify: SafeW3cJsonLdVerifyCredentialOptions | any,
+    @Body() credentialToVerify: any,
   ) {
     try {
       const { credential, ...credentialOptions } = credentialToVerify

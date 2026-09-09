@@ -55,10 +55,9 @@ export enum HttpStatusCode {
   InternalServerError = 500,
 }
 
-export declare enum CustomHandshakeProtocol {
-  DidExchange = 'https://didcomm.org/didexchange/1.1',
-  Connections = 'https://didcomm.org/connections/1.0',
-}
+export type CustomHandshakeProtocol =
+  | 'https://didcomm.org/didexchange/1.1'
+  | 'https://didcomm.org/connections/1.0'
 
 export enum AgentRole {
   RestRootAgentWithTenants = 'RestRootAgentWithTenants',
@@ -80,4 +79,16 @@ export enum SCOPES {
   MULTITENANT_BASE_AGENT = 'Basewallet',
   TENANT_AGENT = 'tenant',
   DEDICATED_AGENT = 'dedicated',
+}
+
+export enum AuthContext {
+  Org = 'org',
+  Personal = 'personal',
+}
+
+export enum ActorContext {
+  Organization = 'organization',
+  Personal = 'personal',
+  Guest = 'guest',
+  Service = 'service',
 }

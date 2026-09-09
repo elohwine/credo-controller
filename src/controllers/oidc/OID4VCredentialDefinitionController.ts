@@ -21,7 +21,7 @@ interface RegisterCredentialDefinitionBody {
 @Tags('OIDC4VC Credential Definitions')
 export class OID4VCredentialDefinitionController extends Controller {
   @Get('/')
-  public async listCredentialDefinitions(@Request() request: ExRequest) {
+  public async listCredentialDefinitions(@Request() request: ExRequest): Promise<any> {
     // Return all credential definitions, deduplicated by name+version
     const allDefs = credentialDefinitionStore.list()
     const seen = new Map<string, any>()
@@ -38,7 +38,7 @@ export class OID4VCredentialDefinitionController extends Controller {
   }
 
   @Get('/{id}')
-  public async getCredentialDefinition(@Path() id: string) {
+  public async getCredentialDefinition(@Path() id: string): Promise<any> {
     const def = credentialDefinitionStore.get(id)
     if (!def) {
       this.setStatus(404)
@@ -83,8 +83,8 @@ export class OID4VCredentialDefinitionController extends Controller {
       const tenantId = (request as any).user?.tenantId
       const agent = request.agent
 
-      if (tenantId && agent.modules.openId4VcIssuer) {
-        const issuers = await agent.modules.openId4VcIssuer.getAllIssuers()
+      if (tenantId && agent.openid4vc.issuer) {
+        const issuers = await agent.openid4vc.issuer.getAllIssuers()
         if (issuers.length > 0) {
           const issuer = issuers[0]
           const issuerUrl = `${process.env.PUBLIC_BASE_URL}/tenants/${tenantId}`
@@ -98,9 +98,8 @@ export class OID4VCredentialDefinitionController extends Controller {
             tenantId,
           })
 
-          await agent.modules.openId4VcIssuer.updateIssuerMetadata({
+          await agent.openid4vc.issuer.updateIssuerMetadata({
             issuerId: issuer.issuerId,
-            credentialsSupported: newMetadata.credentials_supported,
             credentialConfigurationsSupported: newMetadata.credential_configurations_supported,
           })
 

@@ -11,10 +11,10 @@ import {
 import {
   Agent,
   W3cCredentialService,
+  W3cCredentialRecord,
   DifPresentationExchangeService,
   ClaimFormat,
   JsonTransformer,
-  KeyType,
 } from '@credo-ts/core'
 import { container } from 'tsyringe'
 import { getWalletUserByWalletId } from '../../persistence/UserRepository'
@@ -268,8 +268,8 @@ export class WalletController extends Controller {
         let credentialType = 'VerifiableCredential'
         let issuerDid = ''
 
-        // Get the credential object - Credo stores it in record.credential
-        const cred = record.credential
+        // Get the credential object from the first stored instance
+        const cred = record.firstCredential
 
         if (cred) {
           const types = cred.type || []
@@ -351,7 +351,7 @@ export class WalletController extends Controller {
     const nextCursor = offset + safeLimit < filtered.length ? String(offset + safeLimit) : undefined
 
     const items = page.map((record: any) => {
-      const cred = record.credential
+      const cred = record.firstCredential
       const credentialSubject = (cred as any)?.credentialSubject || {}
       const subjectClaims = (credentialSubject as any)?.claims
       const flatClaims =
@@ -405,7 +405,7 @@ export class WalletController extends Controller {
       throw new Error('Credential not found')
     }
 
-    const cred = record.credential
+    const cred = record.firstCredential
     const credentialSubject = (cred as any)?.credentialSubject || {}
     const subjectClaims = (credentialSubject as any)?.claims
     const flatClaims =
@@ -501,7 +501,7 @@ export class WalletController extends Controller {
       return {
         wallet: walletId,
         id: record.id,
-        document: record.credential,
+        document: record.firstCredential,
         disclosures: null,
         addedOn: record.createdAt || new Date().toISOString(),
         manifest: null,
@@ -624,11 +624,11 @@ export class WalletController extends Controller {
         // then fallback to the inner HTTP URL.
         try {
           console.log('[resolveCredentialOffer] Attempt 1 (Full Wrapper):', credoOfferUri.slice(0, 100) + '...')
-          resolved = await (agent.modules as any).openId4VcHolder.resolveCredentialOffer(credoOfferUri)
+          resolved = await (agent as any).openid4vc?.holder?.resolveCredentialOffer(credoOfferUri)
         } catch (e: any) {
           console.warn('[resolveCredentialOffer] Full Wrapper failed, trying direct HTTP URL...')
           try {
-            resolved = await (agent.modules as any).openId4VcHolder.resolveCredentialOffer(toResolve)
+            resolved = await (agent as any).openid4vc?.holder?.resolveCredentialOffer(toResolve)
           } catch (e2: any) {
             console.error('[resolveCredentialOffer] Both attempts failed:', (e2 as any)?.message)
             throw e2
@@ -767,12 +767,12 @@ export class WalletController extends Controller {
         resolved = body._credoResolved
       } else {
         try {
-          resolved = await (agent.modules as any).openId4VcHolder.resolveCredentialOffer(toResolve2)
+          resolved = await (agent as any).openid4vc?.holder?.resolveCredentialOffer(toResolve2)
         } catch (e: any) {
           console.warn('[useOfferRequest] Failed resolving inner URL, error:', e?.message?.slice?.(0, 200))
           try {
             console.log('[useOfferRequest] Retrying resolve with original wrapper offerUri:', offerUri)
-            resolved = await (agent.modules as any).openId4VcHolder.resolveCredentialOffer(offerUri)
+            resolved = await (agent as any).openid4vc?.holder?.resolveCredentialOffer(offerUri)
           } catch (e2: any) {
             console.error('[useOfferRequest] Retry also failed:', e2?.message)
             throw e2
@@ -805,7 +805,7 @@ export class WalletController extends Controller {
       if (baseAgentDids.length === 0) {
         console.log('[useOfferRequest] No DID in base agent, creating one...')
         try {
-          const createdDid = await agent.dids.create({ method: 'key', options: { keyType: KeyType.Ed25519 } })
+          const createdDid = await agent.dids.create({ method: 'key', options: { keyType: 'Ed25519' as any } })
           holderDid = createdDid.didState.did as string
           console.log('[useOfferRequest] Created DID in base agent:', holderDid)
         } catch (didError: any) {
@@ -829,7 +829,7 @@ export class WalletController extends Controller {
       console.log('[useOfferRequest] Using holder DID URL for binding:', holderDidUrl)
 
       // Use the correct API method: acceptCredentialOfferUsingPreAuthorizedCode
-      const acceptResult = await (agent.modules as any).openId4VcHolder.acceptCredentialOfferUsingPreAuthorizedCode(
+      const acceptResult = await (agent as any).openid4vc?.holder?.acceptCredentialOfferUsingPreAuthorizedCode(
         resolved,
         {
           credentialBindingResolver: async (options: any) => {
@@ -924,7 +924,7 @@ export class WalletController extends Controller {
             // The credentialRecord should be a W3cJwtVerifiableCredential if from OID4VC
             if (credentialRecord && typeof credentialRecord === 'object' && credentialRecord.credential) {
               const storedRecord = await tenantW3cService.storeCredential(tenantAgent.context, {
-                credential: credentialRecord,
+                record: W3cCredentialRecord.fromCredential(credentialRecord),
               })
               savedCredentialId = storedRecord.id
               console.log('[useOfferRequest] Stored credential in tenant wallet:', storedRecord.id)
@@ -943,7 +943,7 @@ export class WalletController extends Controller {
           try {
             if (credentialRecord && typeof credentialRecord === 'object') {
               const storedRecord = await tenantW3cService.storeCredential(tenantAgent.context, {
-                credential: credentialRecord,
+                record: W3cCredentialRecord.fromCredential(credentialRecord),
               })
               savedCredentialId = storedRecord.id
               console.log('[useOfferRequest] Stored SD-JWT credential in tenant wallet:', storedRecord.id)
@@ -959,7 +959,7 @@ export class WalletController extends Controller {
           try {
             if (credentialRecord && typeof credentialRecord === 'object') {
               const storedRecord = await tenantW3cService.storeCredential(tenantAgent.context, {
-                credential: credentialRecord,
+                record: W3cCredentialRecord.fromCredential(credentialRecord),
               })
               savedCredentialId = storedRecord.id
               console.log('[useOfferRequest] Stored credential (fallback) in tenant wallet:', storedRecord.id)
@@ -1048,7 +1048,7 @@ export class WalletController extends Controller {
             const credRecord = verifiableCredential.credentialRecord
             const vcAny = verifiableCredential as any
 
-            if ('claimFormat' in verifiableCredential && verifiableCredential.claimFormat === ClaimFormat.SdJwtVc) {
+            if ('claimFormat' in verifiableCredential && verifiableCredential.claimFormat === ClaimFormat.SdJwtDc) {
               const sdJwtRecord = credRecord as any
               matchedCredentials.push({
                 id: sdJwtRecord.id,
@@ -1103,7 +1103,7 @@ export class WalletController extends Controller {
     const agent = this.getBaseAgentForHolder()
     try {
       console.log('[usePresentationRequest] Resolving request for submission...')
-      const resolved = await (agent.modules as any).openId4VcHolder.resolveOpenId4VpAuthorizationRequest(
+      const resolved = await (agent as any).openid4vc?.holder?.resolveOpenId4VpAuthorizationRequest(
         presentationRequest,
       )
 
@@ -1118,7 +1118,7 @@ export class WalletController extends Controller {
       }
 
       console.log('[usePresentationRequest] Submission Input:', submissionInput)
-      const response = await (agent.modules as any).openId4VcHolder.acceptOpenId4VpAuthorizationRequest({
+      const response = await (agent as any).openid4vc?.holder?.acceptOpenId4VpAuthorizationRequest({
         authorizationRequest: resolved.authorizationRequest,
         submissionInput,
       })

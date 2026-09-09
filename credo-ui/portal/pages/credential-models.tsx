@@ -50,7 +50,10 @@ export default function CredentialModelsPage() {
           const createRes = await axios.post(
             `${credoBackend}/multi-tenancy/create-tenant`,
             {
-              config: { label: 'Portal Tenant' },
+              config: {
+                label: 'Portal Tenant',
+                connectionImageUrl: `${window.location.origin}/favicon.ico`,
+              },
             },
             { headers: { Authorization: `Bearer ${rootToken}` } }
           );

@@ -77,17 +77,16 @@ export interface IssuedCredentialRecord {
 }
 
 // ---------- Verifier (OpenID4VP) ----------
-export type PresentationQueryLanguage = 'dcql' | 'pex_v2'
 
 export interface CreatePresentationRequestBody {
   /** Registered platform verifier. Preferred for production flows. */
   verifierRef?: string
   /** Query language defaults to DCQL for OpenID4VP 1.0. */
-  queryLanguage?: PresentationQueryLanguage
+  queryLanguage?: 'dcql' | 'pex_v2'
   /** Digital Credentials Query Language object. */
-  dcqlQuery?: Record<string, any>
+  dcqlQuery?: { [key: string]: unknown }
   /** DIF Presentation Exchange v2 object for compatibility flows. */
-  presentationDefinition?: Record<string, any>
+  presentationDefinition?: { [key: string]: unknown }
   /** Legacy direct signer reference; used only when verifierRef is omitted. */
   verifierDid?: string
 }
@@ -95,7 +94,7 @@ export interface CreatePresentationRequestBody {
 export interface CreatePresentationRequestResponse {
   requestId: string
   presentation_request_url: string
-  queryLanguage?: PresentationQueryLanguage
+  queryLanguage?: 'dcql' | 'pex_v2'
   protocol?: 'openid4vp'
 }
 
@@ -103,15 +102,13 @@ export interface VerifyPresentationRequestBody {
   requestId: string
   state: string
   verifiablePresentation: string
-  presentationSubmission?: any
+  presentationSubmission?: { [key: string]: unknown }
 }
 
 export interface VerifyPresentationResponse {
   verified: boolean
   reason?: string
-  schemaValidation?: any
-  /** Deprecated compatibility field. New platform verifier responses never populate it. */
-  presentation?: undefined
+  schemaValidation?: { [key: string]: unknown }
   error?: string
   checks?: {
     signature?: boolean

@@ -1,14 +1,14 @@
 // eslint-disable-next-line import/order
 import { otelSDK } from './tracer'
 import 'reflect-metadata'
+import './types/express'
 import type { RestAgentModules, RestMultiTenantAgentModules } from './cliAgent'
 import type { ApiError } from './errors'
 import type { ServerConfig } from './utils/ServerConfig'
 import type { Response as ExResponse, Request as ExRequest, NextFunction, ErrorRequestHandler } from 'express'
 
-import { Agent } from '@credo-ts/core'
-import { uuid } from '@credo-ts/core/build/utils/uuid'
-import { TenantAgent } from '@credo-ts/tenants/build/TenantAgent'
+import { Agent, utils } from '@credo-ts/core'
+import { TenantAgent } from '@credo-ts/tenants'
 import bodyParser from 'body-parser'
 import cors from 'cors'
 import dotenv from 'dotenv'
@@ -95,7 +95,7 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   if (process.env.DEBUG_AGENT_MODULES === 'true') {
     // DEBUG: Log agent modules before and after registration
     console.log('[server.ts] Agent modules before container registration:', Object.keys((agent.modules as any) || {}))
-    console.log('[server.ts] Has openId4VcIssuer?', !!(agent.modules as any)?.openId4VcIssuer)
+    console.log('[server.ts] Has openid4vc issuer?', !!(agent as any)?.openid4vc?.issuer)
   }
 
   container.registerInstance(Agent, agent as Agent)
@@ -220,7 +220,7 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     const headerName = 'x-correlation-id'
     const incoming =
       (req.headers[headerName] as string | undefined) || (req.headers['x-request-id'] as string | undefined)
-    const correlationId = incoming || uuid()
+    const correlationId = incoming || utils.uuid()
     req.correlationId = correlationId
     res.setHeader(headerName, correlationId)
     // Attach request-scoped child logger
@@ -353,7 +353,7 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   // We use a safe cast or check for the module existence since Agent type is generic
   const modules = (agent as any).modules
 
-  if (modules?.openId4VcIssuer?.config?.router) {
+  if ((agent as any)?.openid4vc?.issuer?.config?.router || modules?.openId4VcIssuer?.config?.router) {
     agent.config.logger.info('Mounting OpenID4VC Issuer routes at /oidc/issuer')
     // Compatibility shim: normalize wallet-specific JSON VC formats to the generic 'jwt_vc'
     // so the underlying OpenID4VC issuer module (which expects 'jwt_vc') accepts requests.
@@ -411,11 +411,13 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
 
       next()
     })
-    app.use('/oidc/issuer', modules.openId4VcIssuer.config.router)
+    const issuerRouter = (agent as any)?.openid4vc?.issuer?.config?.router || modules.openId4VcIssuer?.config?.router
+    app.use('/oidc/issuer', issuerRouter)
   }
-  if (modules?.openId4VcVerifier?.config?.router) {
+  if ((agent as any)?.openid4vc?.verifier?.config?.router || modules?.openId4VcVerifier?.config?.router) {
     agent.config.logger.info('Mounting OpenID4VC Verifier routes at /oidc/verifier')
-    app.use('/oidc/verifier', modules.openId4VcVerifier.config.router)
+    const verifierRouter = (agent as any)?.openid4vc?.verifier?.config?.router || modules.openId4VcVerifier?.config?.router
+    app.use('/oidc/verifier', verifierRouter)
   }
 
   // ── Status List endpoint ─────────────────────────────────────────────────

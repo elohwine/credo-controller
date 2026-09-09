@@ -21,7 +21,7 @@ import { listTenants as listPersistenceTenants } from '../../persistence/TenantR
 @injectable()
 export class MultiTenancyController extends Controller {
   @Get('/')
-  public async listTenants(@Request() request: Req) {
+  public async listTenants(@Request() request: Req): Promise<any> {
     try {
       const agent = request.agent as unknown as Agent<any>
 

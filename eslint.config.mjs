@@ -67,6 +67,18 @@ export default [
     },
   },
   {
+    files: ['src/controllers/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'MethodDefinition[value.async=true][value.returnType=null]',
+          message: 'Async controller methods must declare an explicit return type (for example: Promise<any>).',
+        },
+      ],
+    },
+  },
+  {
     files: ['jest.config.ts', 'eslint.config.js'],
     languageOptions: {
       parserOptions: {

@@ -1,15 +1,6 @@
 import type { DidResolutionResultProps } from '../types'
 import type { DidDocument, KeyDidCreateOptions, PeerDidNumAlgo2CreateOptions } from '@credo-ts/core'
 
-import {
-  KeyType,
-  TypedArrayEncoder,
-  DidDocumentBuilder,
-  getEd25519VerificationKey2018,
-  getBls12381G2Key2020,
-  createPeerDidDocumentFromServices,
-  PeerDidNumAlgo,
-} from '@credo-ts/core'
 import { Request as Req } from 'express'
 import { Body, Controller, Example, Get, Path, Post, Route, Tags, Security, Request } from 'tsoa'
 import { injectable } from 'tsyringe'
@@ -33,10 +24,11 @@ export class DidController extends Controller {
    */
   @Example<DidResolutionResultProps>(DidRecordExample)
   @Get('/:did')
-  public async getDidRecordByDid(@Request() request: Req, @Path('did') did: Did) {
+  public async getDidRecordByDid(@Request() request: Req, @Path('did') did: Did): Promise<any> {
+    const req = request as Req & { agent: AgentType }
     try {
-      const resolveResult = await request.agent.dids.resolve(did)
-      const importDid = await request.agent.dids.import({
+      const resolveResult = await req.agent.dids.resolve(did)
+      const importDid = await req.agent.dids.import({
         did,
         overwrite: true,
       })
@@ -58,7 +50,8 @@ export class DidController extends Controller {
   // @Example<DidResolutionResultProps>(DidRecordExample)
   @Example(CreateDidResponse)
   @Post('/write')
-  public async writeDid(@Request() request: Req, @Body() createDidOptions: DidCreate) {
+  public async writeDid(@Request() request: Req, @Body() createDidOptions: DidCreate): Promise<any> {
+    const req = request as Req & { agent: AgentType }
     let didRes
 
     try {
@@ -69,15 +62,15 @@ export class DidController extends Controller {
       let result
       switch (createDidOptions.method) {
         case DidMethod.Key:
-          result = await this.handleKey(request.agent, createDidOptions)
+          result = await this.handleKey(req.agent, createDidOptions)
           break
 
         case DidMethod.Web:
-          result = await this.handleWeb(request.agent, createDidOptions)
+          result = await this.handleWeb(req.agent, createDidOptions)
           break
 
         case DidMethod.Peer:
-          result = await this.handleDidPeer(request.agent, createDidOptions)
+          result = await this.handleDidPeer(req.agent, createDidOptions)
           break
 
         default:
@@ -93,39 +86,15 @@ export class DidController extends Controller {
   }
 
   private async handleDidPeer(agent: AgentType, createDidOptions: DidCreate) {
-    let didResponse
-    let did
-
     if (!createDidOptions.keyType) {
       throw Error('keyType is required')
     }
 
-    const didRouting = await agent.mediationRecipient.getRouting({})
-    const didDocument = createPeerDidDocumentFromServices([
-      {
-        id: 'didcomm',
-        recipientKeys: [didRouting.recipientKey],
-        routingKeys: didRouting.routingKeys,
-        serviceEndpoint: didRouting.endpoints[0],
-      },
-    ])
-
-    const didPeerResponse = await agent.dids.create<PeerDidNumAlgo2CreateOptions>({
-      didDocument,
-      method: DidMethod.Peer,
-      options: {
-        numAlgo: PeerDidNumAlgo.MultipleInceptionKeyWithoutDoc,
-      },
-    })
-
-    did = didPeerResponse.didState.did
-    didResponse = {
-      did,
-    }
-    return didResponse
+    const didPeerResponse = await (agent.dids as any).create({ method: DidMethod.Peer, options: {} })
+    return { did: didPeerResponse?.didState?.did }
   }
 
-  public async handleKey(agent: AgentType, didOptions: DidCreate) {
+  public async handleKey(agent: AgentType, didOptions: DidCreate): Promise<any> {
     let did
     let didResponse
     let didDocument
@@ -136,23 +105,15 @@ export class DidController extends Controller {
     if (!didOptions.keyType) {
       throw new BadRequestError('keyType is required')
     }
-    if (didOptions.keyType !== KeyType.Ed25519 && didOptions.keyType !== KeyType.Bls12381g2) {
+    if (didOptions.keyType !== 'Ed25519' && didOptions.keyType !== 'Bls12381g2') {
       throw new BadRequestError('Only ed25519 and bls12381g2 key type supported')
     }
 
     if (!didOptions.did) {
-      await agent.wallet.createKey({
-        keyType: didOptions.keyType,
-        seed: TypedArrayEncoder.fromString(didOptions.seed),
-      })
-
-      didResponse = await agent.dids.create<KeyDidCreateOptions>({
+      didResponse = await (agent.dids as any).create({
         method: DidMethod.Key,
         options: {
-          keyType: KeyType.Ed25519,
-        },
-        secret: {
-          privateKey: TypedArrayEncoder.fromString(didOptions.seed),
+          keyType: didOptions.keyType as any,
         },
       })
       did = `${didResponse.didState.did}`
@@ -174,8 +135,8 @@ export class DidController extends Controller {
     return { did: did, didDocument: didDocument }
   }
 
-  public async handleWeb(agent: AgentType, didOptions: DidCreate) {
-    let didDocument: DidDocument
+  public async handleWeb(agent: AgentType, didOptions: DidCreate): Promise<any> {
+    let didDocument: DidDocument | undefined
     if (!didOptions.domain) {
       throw new BadRequestError('For create did:web, domain is required')
     }
@@ -188,51 +149,39 @@ export class DidController extends Controller {
       throw new BadRequestError('keyType is required')
     }
 
-    if (didOptions.keyType !== KeyType.Ed25519 && didOptions.keyType !== KeyType.Bls12381g2) {
+    if (didOptions.keyType !== 'Ed25519' && didOptions.keyType !== 'Bls12381g2') {
       throw new BadRequestError('Only ed25519 and bls12381g2 key type supported')
     }
 
-    const domain = didOptions.domain
-    const did = `did:${didOptions.method}:${domain}`
-    const keyId = `${did}#key-1`
+    const did = `did:${didOptions.method}:${didOptions.domain}`
 
-    const key = await agent.wallet.createKey({
-      keyType: didOptions.keyType,
-      // Commenting for now, as per the multi-tenant endpoint
-      // privateKey: TypedArrayEncoder.fromString(didOptions.seed),
-      seed: TypedArrayEncoder.fromString(didOptions.seed),
+    const didResult = await (agent.dids as any).create({
+      method: DidMethod.Web,
+      options: {
+        domain: didOptions.domain,
+        keyType: didOptions.keyType as any,
+      },
     })
 
-    if (didOptions.keyType === KeyType.Ed25519) {
-      didDocument = new DidDocumentBuilder(did)
-        .addContext('https://w3id.org/security/suites/ed25519-2018/v1')
-        .addVerificationMethod(getEd25519VerificationKey2018({ key, id: keyId, controller: did }))
-        .addAuthentication(keyId)
-        .addAssertionMethod(keyId)
-        .build()
-    } else if (didOptions.keyType === KeyType.Bls12381g2) {
-      didDocument = new DidDocumentBuilder(did)
-        .addContext('https://w3id.org/security/bbs/v1')
-        .addVerificationMethod(getBls12381G2Key2020({ key, id: keyId, controller: did }))
-        .addAuthentication(keyId)
-        .addAssertionMethod(keyId)
-        .build()
-    } else {
-      throw new BadRequestError('Unsupported key type') // fallback, but this won't hit due to earlier check
+    if (didResult?.didState?.state !== 'finished') {
+      throw new BadRequestError('Failed to create did:web')
     }
+
+    didDocument = didResult.didState.didDocument
 
     await agent.dids.import({
       did,
       overwrite: true,
       didDocument,
     })
-    return { did, didDocument }
+    return { did: didResult.didState.did || did, didDocument }
   }
 
   @Get('/')
-  public async getDids(@Request() request: Req) {
+  public async getDids(@Request() request: Req): Promise<any> {
+    const req = request as Req & { agent: AgentType }
     try {
-      const createdDids = await request.agent.dids.getCreatedDids()
+      const createdDids = await req.agent.dids.getCreatedDids()
       return createdDids
     } catch (error) {
       throw ErrorHandlingService.handle(error)

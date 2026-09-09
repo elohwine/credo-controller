@@ -6,7 +6,7 @@
 import { DatabaseManager } from './DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
 
-export interface CredentialDefinitionRecord {
+export interface CredentialDefinitionPersistenceRecord {
   id: string
   tenantId: string
   credentialDefinitionId: string
@@ -23,7 +23,7 @@ export class CredentialDefinitionRepository {
   /**
    * Save or update credential definition
    */
-  save(record: CredentialDefinitionRecord): void {
+  save(record: CredentialDefinitionPersistenceRecord): void {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -65,7 +65,7 @@ export class CredentialDefinitionRepository {
   /**
    * Find credential definition by definition ID
    */
-  findByDefinitionId(credentialDefinitionId: string): CredentialDefinitionRecord | undefined {
+  findByDefinitionId(credentialDefinitionId: string): CredentialDefinitionPersistenceRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -93,7 +93,7 @@ export class CredentialDefinitionRepository {
   /**
    * Find credential definition by ID
    */
-  findById(id: string): CredentialDefinitionRecord | undefined {
+  findById(id: string): CredentialDefinitionPersistenceRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -121,7 +121,7 @@ export class CredentialDefinitionRepository {
   /**
    * Find all credential definitions for a tenant
    */
-  findByTenantId(tenantId: string): CredentialDefinitionRecord[] {
+  findByTenantId(tenantId: string): CredentialDefinitionPersistenceRecord[] {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -146,7 +146,7 @@ export class CredentialDefinitionRepository {
   /**
    * Find credential definitions by schema ID
    */
-  findBySchemaId(schemaId: string): CredentialDefinitionRecord[] {
+  findBySchemaId(schemaId: string): CredentialDefinitionPersistenceRecord[] {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -174,7 +174,7 @@ export class CredentialDefinitionRepository {
   findByTenantAndDefinitionId(
     tenantId: string,
     credentialDefinitionId: string,
-  ): CredentialDefinitionRecord | undefined {
+  ): CredentialDefinitionPersistenceRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -202,7 +202,7 @@ export class CredentialDefinitionRepository {
   /**
    * Find credential definitions by issuer DID
    */
-  findByIssuerDid(issuerDid: string): CredentialDefinitionRecord[] {
+  findByIssuerDid(issuerDid: string): CredentialDefinitionPersistenceRecord[] {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`

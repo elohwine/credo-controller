@@ -14,6 +14,6 @@ export * from './UserRepository'
 
 export type { DidRecord } from './DidRepository'
 export type { CredentialOfferRecord } from './CredentialOfferRepository'
-export type { IssuedCredentialRecord } from './IssuedCredentialRepository'
+export type { IssuedCredentialPersistenceRecord } from './IssuedCredentialRepository'
 export type { SchemaRecord } from './SchemaRepository'
-export type { CredentialDefinitionRecord } from './CredentialDefinitionRepository'
+export type { CredentialDefinitionPersistenceRecord } from './CredentialDefinitionRepository'

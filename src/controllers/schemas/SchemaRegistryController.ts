@@ -16,7 +16,7 @@ export class SchemaRegistryController extends Controller {
   @Post('schemas')
   @SuccessResponse('201', 'Created')
   @Security('jwt', ['tenant'])
-  public async registerSchema(@Request() request: ExRequest, @Body() body: RegisterSchemaRequestBody) {
+  public async registerSchema(@Request() request: ExRequest, @Body() body: RegisterSchemaRequestBody): Promise<any> {
     if (!body?.jsonSchema || typeof body.jsonSchema !== 'object') {
       throw new BadRequestError('jsonSchema required')
     }

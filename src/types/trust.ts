@@ -8,7 +8,7 @@ export interface VerificationChecks {
   claims: boolean
 }
 
-export interface VerificationResult {
+export interface TrustVerificationResult {
   verified: boolean
   checks: VerificationChecks
   error?: string

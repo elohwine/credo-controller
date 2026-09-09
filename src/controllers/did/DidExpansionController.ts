@@ -1,7 +1,7 @@
 import type { DidCreateResponse, CreateDidJwkRequest, PrepareDidWebRequest } from '../../types/api'
 import type { Request as ExRequest } from 'express'
 
-import { KeyType, TypedArrayEncoder } from '@credo-ts/core'
+import { TypedArrayEncoder } from '@credo-ts/core'
 import bs58 from 'bs58'
 import { JWK } from 'jose'
 import { Controller, Post, Get, Route, Tags, Body, SuccessResponse, Security, Request, Path } from 'tsoa'
@@ -39,12 +39,13 @@ export class DidExpansionController extends Controller {
     @Request() request: ExRequest,
     @Body() body: CreateDidKeyRequest,
   ): Promise<DidCreateResponse> {
+    const req = request as ExRequest & { agent: any; logger?: any }
     // Only Ed25519 supported; ignoring body.keyType for now
     // Use agent.dids.create so private key stays in Askar wallet managed by Credo
-    const keyType = KeyType.Ed25519 // Only Ed25519 supported here per prompt
-    const didCreate = await request.agent.dids.create({
+    const keyType = 'Ed25519' // Only Ed25519 supported here per prompt
+    const didCreate = await req.agent.dids.create({
       method: 'key',
-      options: { keyType },
+      options: { keyType: keyType as any },
     })
     if (didCreate.didState.state !== 'finished') {
       this.setStatus(500)
@@ -68,7 +69,7 @@ export class DidExpansionController extends Controller {
       publicKeyBase58,
       keyType: 'Ed25519',
     })
-    request.logger?.info({ module: 'did', operation: 'createDidKey', did }, 'Created did:key')
+    req.logger?.info({ module: 'did', operation: 'createDidKey', did }, 'Created did:key')
     return { did, didDocument: didDocumentJson, keyRef, createdAt }
   }
 
@@ -79,22 +80,23 @@ export class DidExpansionController extends Controller {
     @Request() request: ExRequest,
     @Body() body: CreateDidJwkRequest,
   ): Promise<DidCreateResponse> {
+    const req = request as ExRequest & { agent: any; logger?: any }
     // Create wallet key, transform to did:jwk by base64url encoding sorted public JWK
     // did:jwk not natively supported as a registrar yet; derive from wallet key material.
     const desired = body.keyType || 'P-256'
-    const keyType = desired === 'P-256' ? KeyType.P256 : KeyType.Ed25519
-    const key = await request.agent.wallet.createKey({ keyType })
+    const keyType = desired === 'P-256' ? 'P256' : 'Ed25519'
+    const key = await req.agent.wallet.createKey({ keyType: keyType as any })
 
     // Build public JWK
     let publicJwk: JWK
     const publicKeyBytes = TypedArrayEncoder.fromBase58(key.publicKeyBase58)
-    if (keyType === KeyType.Ed25519) {
+    if (keyType === 'Ed25519') {
       publicJwk = {
         kty: 'OKP',
         crv: 'Ed25519',
         x: Buffer.from(publicKeyBytes).toString('base64url'),
       }
-    } else if (keyType === KeyType.P256) {
+    } else if (keyType === 'P256') {
       // Expect uncompressed point (0x04 || X || Y)
       if (publicKeyBytes[0] !== 0x04 || publicKeyBytes.length !== 65) {
         this.setStatus(500)
@@ -151,7 +153,7 @@ export class DidExpansionController extends Controller {
       publicKeyBase58,
       keyType: desired,
     })
-    request.logger?.info({ module: 'did', operation: 'createDidJwk', did }, 'Created did:jwk')
+    req.logger?.info({ module: 'did', operation: 'createDidJwk', did }, 'Created did:jwk')
     return { did, didDocument, keyRef, createdAt }
   }
 
@@ -165,6 +167,7 @@ export class DidExpansionController extends Controller {
     @Request() request: ExRequest,
     @Body() body: PrepareDidWebRequest,
   ): Promise<DidCreateResponse & { publishInstructions: string; verifyCommand: string }> {
+    const req = request as ExRequest & { agent: any; logger?: any }
     // Construct did:web identifier + DID Document using either multibase key (Ed25519VerificationKey2020) or JWK form
     if (!body?.domain) {
       this.setStatus(400)
@@ -177,15 +180,15 @@ export class DidExpansionController extends Controller {
     const did = 'did:web:' + methodSpecificId
     const keyMethod = body.keyMethod || 'jwk'
     const keyType = body.keyType || 'Ed25519'
-    const walletKeyType = keyType === 'P-256' ? KeyType.P256 : KeyType.Ed25519
-    const key = await request.agent.wallet.createKey({ keyType: walletKeyType })
+    const walletKeyType = keyType === 'P-256' ? 'P256' : 'Ed25519'
+    const key = await req.agent.wallet.createKey({ keyType: walletKeyType as any })
     const publicKeyBytes = TypedArrayEncoder.fromBase58(key.publicKeyBase58)
 
     let verificationMethod: any
     let contextAdditions: string[] = []
     if (keyMethod === 'key') {
       // Use Ed25519VerificationKey2020 style (only valid for Ed25519)
-      if (walletKeyType !== KeyType.Ed25519) {
+      if (walletKeyType !== 'Ed25519') {
         this.setStatus(400)
         throw new Error('keyMethod "key" only supported with Ed25519 currently')
       }
@@ -201,7 +204,7 @@ export class DidExpansionController extends Controller {
       contextAdditions = ['https://w3id.org/security/suites/ed25519-2020/v1']
     } else {
       // JWK representation
-      if (walletKeyType === KeyType.Ed25519) {
+      if (walletKeyType === 'Ed25519') {
         verificationMethod = {
           id: did + '#key-1',
           type: 'JsonWebKey2020',
@@ -212,7 +215,7 @@ export class DidExpansionController extends Controller {
             x: Buffer.from(publicKeyBytes).toString('base64url'),
           },
         }
-      } else if (walletKeyType === KeyType.P256) {
+      } else if (walletKeyType === 'P256') {
         if (publicKeyBytes[0] !== 0x04 || publicKeyBytes.length !== 65) {
           this.setStatus(500)
           throw new Error('Unexpected P-256 public key format')
@@ -255,7 +258,7 @@ export class DidExpansionController extends Controller {
     const keyRef = key.fingerprint || key.publicKeyBase58
     const publicKeyBase58 = key.publicKeyBase58
     didStore.save({ did, method: 'web', keyRef, createdAt, type: 'web', didDocument, publicKeyBase58, keyType })
-    request.logger?.info({ module: 'did', operation: 'prepareDidWeb', did, domain }, 'Prepared did:web')
+    req.logger?.info({ module: 'did', operation: 'prepareDidWeb', did, domain }, 'Prepared did:web')
     return { did, didDocument, publishInstructions, verifyCommand, keyRef, createdAt }
   }
 
@@ -270,6 +273,7 @@ export class DidExpansionController extends Controller {
   @Get('verify-web/{domain}')
   @Security('jwt', ['tenant'])
   public async verifyPublishedDidWeb(@Request() request: ExRequest, @Path() domain: string): Promise<any> {
+    const req = request as ExRequest & { agent: any; logger?: any }
     const norm = domain
       .trim()
       .toLowerCase()
@@ -279,8 +283,8 @@ export class DidExpansionController extends Controller {
     const did = 'did:web:' + methodSpecificId
     const url = `https://${norm}/.well-known/did.json`
     try {
-      request.logger?.info({ did }, 'Verifying did:web via agent resolution')
-      const result = await request.agent.dids.resolve(did)
+      req.logger?.info({ did }, 'Verifying did:web via agent resolution')
+      const result = await req.agent.dids.resolve(did)
       const remote = result.didDocument
       const match = remote?.id === did
       return { did, url, match, remote, resolutionMetadata: result.didResolutionMetadata }

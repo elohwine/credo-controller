@@ -12,13 +12,13 @@ export interface RegisterCredentialDefinitionRequest {
   tenantId?: string
 }
 
-export interface CredentialDefinitionRecord extends RegisterCredentialDefinitionRequest {
+export interface CredentialDefinitionStoreRecord extends RegisterCredentialDefinitionRequest {
   credentialDefinitionId: string
   createdAt: string
 }
 
 class CredentialDefinitionStore {
-  public register(input: RegisterCredentialDefinitionRequest): CredentialDefinitionRecord | { error: string } {
+  public register(input: RegisterCredentialDefinitionRequest): CredentialDefinitionStoreRecord | { error: string } {
     const tenantId = input.tenantId || 'global'
 
     // Check if definition already exists for this tenant+name+version+issuer
@@ -27,7 +27,7 @@ class CredentialDefinitionStore {
       return { error: 'Credential definition with name+version+issuer already exists for this tenant' }
     }
 
-    const record: CredentialDefinitionRecord = {
+    const record: CredentialDefinitionStoreRecord = {
       credentialDefinitionId: randomUUID(),
       createdAt: new Date().toISOString(),
       ...input,
@@ -62,7 +62,7 @@ class CredentialDefinitionStore {
     return record
   }
 
-  public list(tenantId?: string): CredentialDefinitionRecord[] {
+  public list(tenantId?: string): CredentialDefinitionStoreRecord[] {
     const db = DatabaseManager.getDatabase()
     const query = tenantId
       ? db.prepare('SELECT * FROM credential_definitions WHERE tenant_id = ? ORDER BY created_at DESC')
@@ -90,7 +90,7 @@ class CredentialDefinitionStore {
     })
   }
 
-  public get(id: string): CredentialDefinitionRecord | undefined {
+  public get(id: string): CredentialDefinitionStoreRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     // Strip common format suffixes that may be appended to the credential type name
@@ -180,7 +180,7 @@ class CredentialDefinitionStore {
     }
   }
 
-  public findBySchema(schemaId: string, tenantId?: string): CredentialDefinitionRecord[] {
+  public findBySchema(schemaId: string, tenantId?: string): CredentialDefinitionStoreRecord[] {
     const db = DatabaseManager.getDatabase()
     const query = tenantId
       ? db.prepare('SELECT * FROM credential_definitions WHERE schema_id = ? AND tenant_id = ?')
@@ -213,7 +213,7 @@ class CredentialDefinitionStore {
     version: string,
     issuerDid: string,
     tenantId: string,
-  ): CredentialDefinitionRecord | undefined {
+  ): CredentialDefinitionStoreRecord | undefined {
     const db = DatabaseManager.getDatabase()
     const row = db
       .prepare(

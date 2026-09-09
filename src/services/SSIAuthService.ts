@@ -18,7 +18,7 @@
  */
 
 import { injectable, inject } from 'tsyringe'
-import { Agent, KeyType } from '@credo-ts/core'
+import { Agent } from '@credo-ts/core'
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
 import { DatabaseManager } from '../persistence/DatabaseManager'
@@ -451,7 +451,7 @@ export class SSIAuthService {
     const existingDids = await tenantAgent.dids.getCreatedDids({ method: 'key' })
     let userDid: string
     if (existingDids.length === 0) {
-      const result = await tenantAgent.dids.create({ method: 'key', options: { keyType: KeyType.Ed25519 } })
+      const result = await tenantAgent.dids.create({ method: 'key', options: { keyType: 'Ed25519' as any } })
       userDid = result.didState.did!
     } else {
       userDid = existingDids[0].did
@@ -682,9 +682,9 @@ export class SSIAuthService {
           // Check if already exists? (by ID)
           // W3cCredentialService doesn't strictly enforce ID uniqueness across wallets, but good to check?
           // Just try store, if it fails it fails.
-          await targetW3c.storeCredential(targetAgent.context, {
-            credential: record.credential,
-          })
+          await (targetW3c as any).storeCredential(targetAgent.context, {
+            credential: (record as any).credential,
+          } as any)
         } catch (e: any) {
           // Ignore duplicates
           logger.debug({ id: record.id, error: e.message }, 'Skipping credential migration (likely duplicate)')

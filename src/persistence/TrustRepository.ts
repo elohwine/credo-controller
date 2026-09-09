@@ -24,7 +24,7 @@ import { v4 as uuid } from 'uuid'
 
 const logger = rootLogger.child({ module: 'TrustRepository' })
 
-export interface TrustEvent {
+export interface TrustPersistenceEvent {
   id?: string
   subjectDid: string
   event: string
@@ -36,7 +36,7 @@ export interface TrustEvent {
   createdAt?: Date
 }
 
-export interface TrustScore {
+export interface TrustPersistenceScore {
   subjectDid: string
   score: number
   level: 'new' | 'bronze' | 'silver' | 'gold' | 'platinum'
@@ -71,7 +71,7 @@ export class TrustRepository {
   /**
    * Record a trust event for a subject
    */
-  async recordEvent(event: TrustEvent): Promise<TrustEvent> {
+  async recordEvent(event: TrustPersistenceEvent): Promise<TrustPersistenceEvent> {
     const db = DatabaseManager.getDatabase()
     const id = event.id || uuid()
 
@@ -105,7 +105,7 @@ export class TrustRepository {
   /**
    * Calculate trust score for a subject
    */
-  async calculateScore(subjectDid: string): Promise<TrustScore> {
+  async calculateScore(subjectDid: string): Promise<TrustPersistenceScore> {
     const db = DatabaseManager.getDatabase()
 
     // Get aggregated stats
@@ -157,7 +157,7 @@ export class TrustRepository {
     score = Math.round(score)
 
     // Determine level
-    let level: TrustScore['level'] = 'new'
+    let level: TrustPersistenceScore['level'] = 'new'
     if (score >= 90) level = 'platinum'
     else if (score >= 75) level = 'gold'
     else if (score >= 60) level = 'silver'
@@ -177,7 +177,7 @@ export class TrustRepository {
   /**
    * Get trust events for a subject
    */
-  async getEvents(subjectDid: string, limit = 50): Promise<TrustEvent[]> {
+  async getEvents(subjectDid: string, limit = 50): Promise<TrustPersistenceEvent[]> {
     const db = DatabaseManager.getDatabase()
 
     const rows = db
@@ -203,7 +203,7 @@ export class TrustRepository {
   /**
    * Get leaderboard of top-scored subjects
    */
-  async getLeaderboard(tenantId: string, limit = 20): Promise<TrustScore[]> {
+  async getLeaderboard(tenantId: string, limit = 20): Promise<TrustPersistenceScore[]> {
     const db = DatabaseManager.getDatabase()
 
     // Get distinct subjects with their scores
@@ -218,7 +218,7 @@ export class TrustRepository {
       .all(tenantId) as any[]
 
     // Calculate score for each
-    const scores: TrustScore[] = []
+    const scores: TrustPersistenceScore[] = []
     for (const { subject_did } of subjects) {
       const score = await this.calculateScore(subject_did)
       scores.push(score)
@@ -233,7 +233,7 @@ export class TrustRepository {
   /**
    * Update or create a trust score snapshot (for caching)
    */
-  async updateScoreSnapshot(subjectDid: string, tenantId: string): Promise<TrustScore> {
+  async updateScoreSnapshot(subjectDid: string, tenantId: string): Promise<TrustPersistenceScore> {
     const db = DatabaseManager.getDatabase()
     const score = await this.calculateScore(subjectDid)
 

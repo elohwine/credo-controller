@@ -1,38 +1,43 @@
-import type { InitConfig } from '@credo-ts/core'
-import { Router } from 'express'
-import type { WalletConfig } from '@credo-ts/core/build/types'
-import type { TenantsModule } from '@credo-ts/tenants'
-
-import { OpenId4VcHolderModule, OpenId4VcVerifierModule, OpenId4VcIssuerModule } from '@credo-ts/openid4vc'
-
-import { AskarModule, AskarMultiWalletDatabaseScheme } from '@credo-ts/askar'
 import {
   Agent,
-  AutoAcceptCredential,
-  AutoAcceptProof,
   CacheModule,
-  ConnectionsModule,
-  CredentialsModule,
+  ClaimFormat,
   DidsModule,
-  HttpOutboundTransport,
   InMemoryLruCache,
   KeyDidRegistrar,
   KeyDidResolver,
   LogLevel,
-  ProofsModule,
-  WebDidResolver,
   W3cCredentialsModule,
-  ClaimFormat,
+  WebDidResolver,
+  type InitConfig,
 } from '@credo-ts/core'
-import { agentDependencies } from '@credo-ts/node'
+import { askar } from '@openwallet-foundation/askar-nodejs'
+import type { DidCommAutoAcceptProof } from '@credo-ts/didcomm'
+import { DidCommModule } from '@credo-ts/didcomm'
+import { AskarModule, AskarMultiWalletDatabaseScheme } from '@credo-ts/askar'
+import { OpenId4VcModule } from '@credo-ts/openid4vc'
+import { agentDependencies, DidCommHttpInboundTransport } from '@credo-ts/node'
+import { DidCommHttpOutboundTransport } from '@credo-ts/didcomm'
 import { QuestionAnswerModule } from '@credo-ts/question-answer'
-import { TenantsModule as TenantsModuleClass } from '@credo-ts/tenants'
-import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
+import { TenantsModule as TenantsModuleClass, type TenantsModule } from '@credo-ts/tenants'
+import express, { type Express } from 'express'
 import { readFile } from 'fs/promises'
 
 import { setupServer } from './server'
 import { generateSecretKey } from './utils/helpers'
 import { TsLogger } from './utils/logger'
+
+type WalletConfig = {
+  id: string
+  key: string
+  storage?: {
+    type: string
+    config?: Record<string, unknown>
+    credentials?: Record<string, unknown>
+  }
+}
+
+export type CliAutoAcceptProof = DidCommAutoAcceptProof
 
 export interface AriesRestConfig {
   label: string
@@ -40,8 +45,7 @@ export interface AriesRestConfig {
   adminPort: number
   endpoints?: string[]
   autoAcceptConnections?: boolean
-  autoAcceptCredentials?: AutoAcceptCredential
-  autoAcceptProofs?: AutoAcceptProof
+  autoAcceptProofs?: CliAutoAcceptProof
   logLevel?: LogLevel
   inboundTransports?: { transport: 'http'; port: number }[]
   outboundTransports?: 'http'[]
@@ -64,153 +68,156 @@ export async function readRestConfig(path: string) {
 }
 
 export const buildModules = (cfg: {
+  app: Express
   didRegistryContractAddress?: string
   schemaManagerContractAddress?: string
   fileServerToken?: string
   fileServerUrl?: string
   rpcUrl?: string
   autoAcceptConnections?: boolean
-  autoAcceptCredentials?: AutoAcceptCredential
-  autoAcceptProofs?: AutoAcceptProof
   walletScheme?: AskarMultiWalletDatabaseScheme
+  walletConfig?: WalletConfig
+  endpoints?: string[]
+  inboundTransports?: { transport: 'http'; port: number }[]
+  outboundTransports?: 'http'[]
 }) => {
   const publicBaseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000'
   const normalizedBaseUrl = publicBaseUrl.replace(/\/$/, '')
-  const oidcIssuerBaseUrl = `${normalizedBaseUrl}/oidc/issuer`
-  const oidcVerifierBaseUrl = `${normalizedBaseUrl}/oidc/verifier`
+
+  const walletId = cfg.walletConfig?.id || process.env.WALLET_ID || 'default-wallet'
+  const walletKey = cfg.walletConfig?.key || process.env.WALLET_KEY || 'default-wallet-key'
+  const didcommInboundTransports = (cfg.inboundTransports || []).flatMap((transport) =>
+    transport.transport === 'http' ? [new DidCommHttpInboundTransport({ port: transport.port })] : [],
+  )
+  const didcommOutboundTransports = (cfg.outboundTransports || []).flatMap((transport) =>
+    transport === 'http' ? [new DidCommHttpOutboundTransport()] : [],
+  )
 
   return {
     askar: new AskarModule({
-      ariesAskar,
+      askar,
+      store: {
+        id: walletId,
+        key: walletKey,
+      },
       multiWalletDatabaseScheme: cfg.walletScheme || AskarMultiWalletDatabaseScheme.ProfilePerWallet,
+    }),
+    didcomm: new DidCommModule({
+      endpoints: cfg.endpoints || [normalizedBaseUrl],
+      transports: {
+        inbound: didcommInboundTransports,
+        outbound: didcommOutboundTransports,
+      },
+      connections: {
+        autoAcceptConnections: cfg.autoAcceptConnections ?? true,
+      },
     }),
     dids: new DidsModule({
       registrars: [new KeyDidRegistrar()],
       resolvers: [new KeyDidResolver(), new WebDidResolver()],
-    }),
-    connections: new ConnectionsModule({ autoAcceptConnections: cfg.autoAcceptConnections ?? true }),
-    proofs: new ProofsModule({
-      autoAcceptProofs: cfg.autoAcceptProofs || AutoAcceptProof.ContentApproved,
-      proofProtocols: [],
-    }),
-    credentials: new CredentialsModule({
-      autoAcceptCredentials: cfg.autoAcceptCredentials ?? AutoAcceptCredential.ContentApproved,
     }),
     w3cCredentials: new W3cCredentialsModule({}),
     cache: new CacheModule({
       cache: new InMemoryLruCache({ limit: Number(process.env.INMEMORY_LRU_CACHE_LIMIT) || Infinity }),
     }),
     questionAnswer: new QuestionAnswerModule(),
-    // OpenID4VC Issuer module - for issuing credentials via OIDC4VCI
-    openId4VcIssuer: new OpenId4VcIssuerModule({
-      baseUrl: oidcIssuerBaseUrl,
-      router: Router(),
-      endpoints: {
-        credentialOffer: {},
-        accessToken: {},
-        credential: {
-          credentialRequestToCredentialMapper: async ({
-            agentContext,
-            issuanceSession,
-            holderBinding,
-            credentialConfigurationIds,
-          }) => {
-            const credentialConfigurationId = credentialConfigurationIds[0]
+    openid4vc: new OpenId4VcModule({
+      app: cfg.app,
+      issuer: {
+        baseUrl: `${normalizedBaseUrl}/oidc/issuer`,
+        credentialRequestToCredentialMapper: async ({
+          agentContext,
+          issuanceSession,
+          holderBinding,
+          credentialConfigurationId,
+          credentialConfiguration,
+        }) => {
+          const metadata = (issuanceSession.issuanceMetadata as any) ?? {}
+          const claims = metadata?.claims || {}
 
-            const metadata = (issuanceSession.issuanceMetadata as any) ?? {}
-            const claims = metadata?.claims || {}
+          let subjectDid = metadata?.subjectDid || 'did:example:unknown'
+          if (holderBinding && typeof holderBinding === 'object' && 'did' in holderBinding) {
+            subjectDid = (holderBinding as any).did
+          }
 
-            let subjectDid = metadata?.subjectDid || 'did:example:unknown'
-            if (holderBinding && typeof holderBinding === 'object' && 'did' in holderBinding) {
-              subjectDid = (holderBinding as any).did
+          const { credentialDefinitionStore } = await import('./utils/credentialDefinitionStore')
+          const credDef = credentialDefinitionStore.get(credentialConfigurationId)
+          if (!credDef) {
+            throw new Error(`Credential definition not found for: ${credentialConfigurationId}`)
+          }
+
+          const { DidsApi } = await import('@credo-ts/core')
+          const didsApi = agentContext.dependencyManager.resolve(DidsApi)
+          const [didRecord] = await didsApi.getCreatedDids({ method: 'key' })
+          const issuerDid = credDef.issuerDid || didRecord?.did || 'did:example:issuer'
+
+          const verificationMethod = `${issuerDid}#${issuerDid.split(':').pop()}`
+          const credentialId = metadata?.credentialId || `urn:uuid:${issuanceSession.id}`
+          const tenantId = metadata?.tenantId || 'default'
+
+          const credentialPayload: Record<string, unknown> = {
+            id: credentialId,
+            '@context': ['https://www.w3.org/2018/credentials/v1'],
+            type: credDef.credentialType || ['VerifiableCredential', credentialConfigurationId],
+            issuer: issuerDid,
+            issuanceDate: new Date().toISOString(),
+            credentialSubject: {
+              id: subjectDid,
+              ...claims,
+            },
+          }
+
+          try {
+            const { statusListAllocatorService } = await import('./services/ssi/StatusListAllocatorService')
+            const allocation = statusListAllocatorService.allocateForTenant(
+              tenantId,
+              issuerDid,
+              'revocation',
+              credentialId,
+            )
+            if (allocation) {
+              credentialPayload.credentialStatus = allocation.entry
             }
+          } catch (statusErr: any) {
+            agentContext.config.logger.warn(
+              `Status list allocation failed — credential issued without credentialStatus: ${statusErr?.message}`,
+            )
+          }
 
-            const { credentialDefinitionStore } = await import('./utils/credentialDefinitionStore')
-            const credDef = credentialDefinitionStore.get(credentialConfigurationId)
-            if (!credDef) {
-              throw new Error(`Credential definition not found for: ${credentialConfigurationId}`)
-            }
-
-            const { DidsApi } = await import('@credo-ts/core')
-            const didsApi = agentContext.dependencyManager.resolve(DidsApi)
-            const [didRecord] = await didsApi.getCreatedDids({ method: 'key' })
-            const issuerDid = credDef.issuerDid || didRecord?.did || 'did:example:issuer'
-
-            const verificationMethod = `${issuerDid}#${issuerDid.split(':').pop()}`
-
-            const credentialId = metadata?.credentialId || `urn:uuid:${issuanceSession.id}`
-            const tenantId = metadata?.tenantId || 'default'
-
-            const credentialPayload: Record<string, unknown> = {
-              id: credentialId,
-              '@context': ['https://www.w3.org/2018/credentials/v1'],
-              type: credDef.credentialType || ['VerifiableCredential', credentialConfigurationId],
-              issuer: issuerDid,
-              issuanceDate: new Date().toISOString(),
-              credentialSubject: {
-                id: subjectDid,
-                ...claims,
-              },
-            }
-
-            // Allocate a W3C BitstringStatusList entry so the credential can be
-            // revoked or suspended after issuance. Failure is non-fatal — the
-            // credential is still issued, but without a status capability.
-            try {
-              const { statusListAllocatorService } = await import('./services/ssi/StatusListAllocatorService')
-              const allocation = statusListAllocatorService.allocateForTenant(
-                tenantId,
-                issuerDid,
-                'revocation',
-                credentialId,
-              )
-              if (allocation) {
-                credentialPayload.credentialStatus = allocation.entry
-              }
-            } catch (statusErr: any) {
-              agentContext.config.logger.warn(
-                `Status list allocation failed — credential issued without credentialStatus: ${statusErr?.message}`,
-              )
-            }
-
-            try {
-              const { IssuedCredentialRepository } = await import('./persistence/IssuedCredentialRepository')
-              const issuedCredentialRepository = new IssuedCredentialRepository()
-              issuedCredentialRepository.save({
-                id: issuanceSession.id,
-                tenantId,
-                credentialId,
-                holderDid: subjectDid,
-                credentialDefinitionId: metadata?.credentialDefinitionId || credentialConfigurationId,
-                credentialData: credentialPayload,
-                format: ClaimFormat.JwtVc,
-                revoked: false,
-              })
-            } catch (err: any) {
-              console.warn('[CredentialMapper] Failed to persist issued credential:', err?.message)
-            }
-
-            return {
-              credentialSupportedId: credentialConfigurationId,
+          try {
+            const { IssuedCredentialRepository } = await import('./persistence/IssuedCredentialRepository')
+            const issuedCredentialRepository = new IssuedCredentialRepository()
+            issuedCredentialRepository.save({
+              id: issuanceSession.id,
+              tenantId,
+              credentialId,
+              holderDid: subjectDid,
+              credentialDefinitionId: metadata?.credentialDefinitionId || credentialConfigurationId,
+              credentialData: credentialPayload,
               format: ClaimFormat.JwtVc,
-              verificationMethod,
-              credential: credentialPayload as any,
-            }
-          },
+              revoked: false,
+            })
+          } catch (err: any) {
+            console.warn('[CredentialMapper] Failed to persist issued credential:', err?.message)
+          }
+
+          return {
+            type: 'credentials',
+            format: ClaimFormat.JwtVc,
+            credentials: [
+              {
+                credentialSupportedId: credentialConfigurationId,
+                verificationMethod,
+                credential: credentialPayload as any,
+              },
+            ],
+          } as any
         },
       },
-    }),
-    // OpenID4VC Verifier module - for verifying credentials via OIDC4VP
-    openId4VcVerifier: new OpenId4VcVerifierModule({
-      baseUrl: oidcVerifierBaseUrl,
-      router: Router(),
-      endpoints: {
-        authorizationRequest: {},
-        authorization: {},
+      verifier: {
+        baseUrl: `${normalizedBaseUrl}/oidc/verifier`,
       },
     }),
-    // OpenID4VC Holder module - for wallets to receive and present credentials
-    openId4VcHolder: new OpenId4VcHolderModule(),
   }
 }
 
@@ -229,61 +236,49 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
     schemaManagerContractAddress,
     walletConfig,
     autoAcceptConnections,
-    autoAcceptCredentials,
     autoAcceptProofs,
     walletScheme,
     apiKey,
     updateJwtSecret,
     tenancy,
+    endpoints,
     ...afjConfig
   } = restConfig
 
-  const logger = new TsLogger(logLevel ?? LogLevel.error)
+  const logger = new TsLogger(logLevel ?? LogLevel.Error)
+  const appInstance = express()
   const agentConfig: InitConfig = {
-    walletConfig: { id: walletConfig.id, key: walletConfig.key, storage: walletConfig.storage },
     ...afjConfig,
     logger,
     autoUpdateStorageOnStartup: true,
-    backupBeforeStorageUpdate: false,
-    processDidCommMessagesConcurrently: true,
   }
 
   const baseModules = buildModules({
+    app: appInstance,
     didRegistryContractAddress,
     schemaManagerContractAddress,
     fileServerToken,
     fileServerUrl,
     rpcUrl,
     autoAcceptConnections,
-    autoAcceptCredentials,
-    autoAcceptProofs,
     walletScheme,
+    walletConfig,
+    endpoints,
+    inboundTransports,
+    outboundTransports,
   })
-
-  // Node.js timers use 32-bit signed integers. Using Infinity will clamp to 1ms and emit warnings.
-  const maxTimerMs = 2_147_483_647
 
   const tenantModules = tenancy
     ? {
         tenants: new TenantsModuleClass<typeof baseModules>({
-          sessionAcquireTimeout: Number(process.env.SESSION_ACQUIRE_TIMEOUT) || maxTimerMs,
-          sessionLimit: Number(process.env.SESSION_LIMIT) || maxTimerMs,
+          sessionAcquireTimeout: Number(process.env.SESSION_ACQUIRE_TIMEOUT) || 2_147_483_647,
+          sessionLimit: Number(process.env.SESSION_LIMIT) || 2_147_483_647,
         }),
         ...baseModules,
       }
     : baseModules
 
   const agent = new Agent({ config: agentConfig, modules: tenantModules as any, dependencies: agentDependencies })
-
-  for (const ot of outboundTransports) {
-    if (ot === 'http') agent.registerOutboundTransport(new HttpOutboundTransport())
-  }
-  for (const it of inboundTransports) {
-    if (it.transport === 'http') {
-      const { HttpInboundTransport } = await import('@credo-ts/node')
-      agent.registerInboundTransport(new HttpInboundTransport({ port: it.port }))
-    }
-  }
 
   await agent.initialize()
 
@@ -330,28 +325,30 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
     ]
 
     // Check for existing issuers first
-    const existingIssuers = await agent.modules.openId4VcIssuer.getAllIssuers()
+    const existingIssuers = await agent.openid4vc.issuer.getAllIssuers()
 
     if (existingIssuers && existingIssuers.length > 0) {
-      // Reuse existing issuer - just update its metadata with all credentials
       const issuer = existingIssuers[0]
       agent.config.logger.info(
         `Reusing existing issuer: ${issuer.issuerId}. Updating metadata with ${credentialsSupported.length} credentials...`,
       )
 
-      await agent.modules.openId4VcIssuer.updateIssuerMetadata({
+      await agent.openid4vc.issuer.updateIssuerMetadata({
         issuerId: issuer.issuerId,
-        credentialsSupported,
+        credentialConfigurationsSupported: Object.fromEntries(
+          credentialsSupported.map((credentialSupported) => [credentialSupported.id, credentialSupported]),
+        ),
         display: displayMetadata,
       })
 
       agent.config.logger.info(`OpenID4VC Issuer ${issuer.issuerId} updated successfully`)
     } else {
-      // Create new issuer only if none exists
-      const openId4VcIssuer = await agent.modules.openId4VcIssuer.createIssuer({
+      const openId4VcIssuer = await agent.openid4vc.issuer.createIssuer({
         issuerId: 'default-platform-issuer',
+        credentialConfigurationsSupported: Object.fromEntries(
+          credentialsSupported.map((credentialSupported) => [credentialSupported.id, credentialSupported]),
+        ),
         display: displayMetadata,
-        credentialsSupported,
       })
       agent.config.logger.info(`OpenID4VC Issuer created with ID: ${openId4VcIssuer.issuerId}`)
     }
@@ -369,7 +366,17 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
     // Create a root DID if none exists
     if (!rootIssuerDid) {
       agent.config.logger.info('No root DID found, creating one for platform credentials...')
-      const didResult = await agent.dids.create({ method: 'key', options: { keyType: 'ed25519' } })
+      const didResult = await agent.dids.create({
+        method: 'key',
+        options: {
+          createKey: {
+            type: {
+              kty: 'OKP',
+              crv: 'Ed25519',
+            },
+          },
+        },
+      })
       rootIssuerDid = didResult.didState.did!
     }
 
@@ -395,11 +402,11 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
 
   if (process.env.DEBUG_AGENT_MODULES === 'true') {
     console.log('[cliAgent] Agent modules before setupServer:', Object.keys((agent.modules as any) || {}))
-    console.log('[cliAgent] Has openId4VcIssuer?', !!(agent.modules as any)?.openId4VcIssuer)
+    console.log('[cliAgent] Has openid4vc?', !!(agent as any)?.openid4vc)
     console.log('[cliAgent] Has tenants?', !!(agent.modules as any)?.tenants)
   }
 
-  const app = await setupServer(agent, { webhookUrl, port: adminPort, schemaFileServerURL }, apiKey)
+  const app = await setupServer(agent, { webhookUrl, port: adminPort, schemaFileServerURL, app: appInstance }, apiKey)
   logger.info(`*** API Key: ${apiKey}`)
   app.listen(adminPort, () => logger.info(`Server started on ${adminPort}`))
 }

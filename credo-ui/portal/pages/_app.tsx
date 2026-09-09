@@ -96,7 +96,11 @@ export default function App({ Component, pageProps }: AppProps) {
           const createRes = await axios.post(
             `${holderBackend}/multi-tenancy/create-tenant`,
             {
-              config: { label: 'Portal Default Tenant', tenantType: 'USER' },
+              config: {
+                label: 'Portal Default Tenant',
+                tenantType: 'USER',
+                connectionImageUrl: `${window.location.origin}/favicon.ico`,
+              },
               baseUrl: holderBackend
             },
             { headers: { Authorization: `Bearer ${rootToken}` } }

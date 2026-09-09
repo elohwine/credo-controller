@@ -2,7 +2,7 @@ import type { Request as ExRequest } from 'express'
 
 import { Body, Path, Post, Request, Route, Security, Tags } from 'tsoa'
 
-import { ssiTrustService, type PresentationQueryLanguage } from '../../services/SsiTrustService'
+import { ssiTrustService } from '../../services/SsiTrustService'
 import { ssiPresentationService } from '../../services/ssi/SsiPresentationService'
 
 type AuthenticatedClaims = {
@@ -32,13 +32,13 @@ export class SsiTrustController {
       verifierRef: string
       purposeCode: string
       purposeTextRef?: string
-      queryLanguage?: PresentationQueryLanguage
-      dcqlQuery?: unknown
-      presentationDefinition?: unknown
+      queryLanguage?: 'dcql' | 'pex_v2'
+      dcqlQuery?: any
+      presentationDefinition?: any
       transactionRef?: string
       expiresAt: string
     },
-  ) {
+  ): Promise<any> {
     const p = principal(request)
     return ssiPresentationService.createPresentationRequest({
       ...body,
@@ -62,7 +62,7 @@ export class SsiTrustController {
       verificationSessionId: string
       verifierClientIdRef?: string
     },
-  ) {
+  ): Promise<any> {
     const p = principal(request)
     return ssiTrustService.bindCredoVerificationSession({
       tenantId: p.tenantId,
@@ -85,7 +85,7 @@ export class SsiTrustController {
       privacyNoticeRef?: string
       consentVersion: string
     },
-  ) {
+  ): Promise<any> {
     const p = principal(request)
     return ssiTrustService.recordConsent({
       ...body,

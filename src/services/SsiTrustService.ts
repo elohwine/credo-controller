@@ -5,15 +5,13 @@ import { DatabaseManager } from '../persistence/DatabaseManager'
 
 import { authorizationService } from './AuthorizationService'
 
-export type PresentationQueryLanguage = 'dcql' | 'pex_v2'
-
 export interface PresentationRequestInput {
   tenantId: string
   requesterSubjectRef: string
   verifierRef: string
   purposeCode: string
   purposeTextRef?: string
-  queryLanguage?: PresentationQueryLanguage
+  queryLanguage?: 'dcql' | 'pex_v2'
   queryRef: string
   transactionRef?: string
   expiresAt: string
@@ -31,6 +29,13 @@ export interface PresentationConsentInput {
   disclosedCategories?: string[]
   privacyNoticeRef?: string
   consentVersion: string
+}
+
+export interface PresentationConsentResult {
+  consentId: string
+  requestId: string
+  decision: 'approved' | 'declined'
+  disclosedCategories: string[]
 }
 
 export interface PresentationVerificationInput {
@@ -55,7 +60,7 @@ export interface PresentationProtocolContext {
   tenantId: string
   verifierRef: string
   protocol: string
-  queryLanguage: PresentationQueryLanguage
+  queryLanguage: 'dcql' | 'pex_v2'
   queryRef: string
   credoVerificationSessionId?: string
   verifierClientIdRef?: string
@@ -289,7 +294,7 @@ export class SsiTrustService {
     return this.getProtocolContext(input.tenantId, input.requestId)
   }
 
-  public recordConsent(input: PresentationConsentInput) {
+  public recordConsent(input: PresentationConsentInput): PresentationConsentResult {
     const { organizationId, personId } = this.resolvePerson(input.tenantId, input.holderSubjectRef)
     const db = DatabaseManager.getDatabase()
     const request = db

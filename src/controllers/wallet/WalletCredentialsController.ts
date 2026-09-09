@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Route, Tags, Body, Request, Security } from 'tsoa'
 import type { Request as ExRequest } from 'express'
 import { container } from 'tsyringe'
-import { Agent, W3cCredentialService } from '@credo-ts/core'
+import { Agent, W3cCredentialRecord, W3cCredentialService } from '@credo-ts/core'
 import type { RestMultiTenantAgentModules } from '../../cliAgent'
 import { SCOPES } from '../../enums'
 import { getWalletUserByWalletId } from '../../persistence/UserRepository'
@@ -238,12 +238,12 @@ export class WalletCredentialsController extends Controller {
       let resolvedOffer: any
       try {
         if (!wrapper) throw new Error('Missing offer URI')
-        resolvedOffer = await (baseAgent.modules as any).openId4VcHolder.resolveCredentialOffer(wrapper)
+        resolvedOffer = await (baseAgent as any).openid4vc?.holder?.resolveCredentialOffer(wrapper)
       } catch (err: any) {
         // Try rebuilt wrapper (in case of malformed encoding)
         if (rebuiltWrapper && rebuiltWrapper !== wrapper) {
           try {
-            resolvedOffer = await (baseAgent.modules as any).openId4VcHolder.resolveCredentialOffer(rebuiltWrapper)
+            resolvedOffer = await (baseAgent as any).openid4vc?.holder?.resolveCredentialOffer(rebuiltWrapper)
             console.log('[acceptOffer] Resolved offer using rebuilt wrapper')
           } catch (errRebuilt: any) {
             err = errRebuilt
@@ -253,7 +253,7 @@ export class WalletCredentialsController extends Controller {
         // If wrapper attempts fail, try resolving the inner HTTP URL directly (common fallback)
         if (!resolvedOffer && inner) {
           try {
-            resolvedOffer = await (baseAgent.modules as any).openId4VcHolder.resolveCredentialOffer(inner)
+            resolvedOffer = await (baseAgent as any).openid4vc?.holder?.resolveCredentialOffer(inner)
             console.log('[acceptOffer] Resolved offer using inner URL')
           } catch (err2: any) {
             err = err2
@@ -293,7 +293,7 @@ export class WalletCredentialsController extends Controller {
       }
 
       // Accept using pre-authorized code with base agent
-      const credentials = await (baseAgent.modules as any).openId4VcHolder.acceptCredentialOfferUsingPreAuthorizedCode(
+      const credentials = await (baseAgent as any).openid4vc?.holder?.acceptCredentialOfferUsingPreAuthorizedCode(
         resolvedOffer,
         {
           userPin: undefined,
@@ -315,9 +315,9 @@ export class WalletCredentialsController extends Controller {
       for (const credentialRecord of credentials) {
         try {
           // Store in tenant wallet
-          const storedRecord = await w3cService.storeCredential(tenantAgent.context, {
-            credential: credentialRecord,
-          })
+              const storedRecord = await w3cService.storeCredential(tenantAgent.context, {
+                record: W3cCredentialRecord.fromCredential(credentialRecord),
+              })
           savedCredentialId = storedRecord.id
           console.log('[acceptOffer] Stored credential in tenant wallet:', storedRecord.id)
         } catch (storeError: any) {

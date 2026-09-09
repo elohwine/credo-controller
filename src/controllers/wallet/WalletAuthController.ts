@@ -4,7 +4,7 @@ import type { Request as ExRequest } from 'express'
 import { Controller, Post, Get, Route, Tags, Body, Request } from 'tsoa'
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
-import { Agent, Key, KeyType, TypedArrayEncoder, W3cCredentialService } from '@credo-ts/core'
+import { Agent, W3cCredentialService, getPublicJwkFromVerificationMethod } from '@credo-ts/core'
 import { container, inject, injectable } from 'tsyringe'
 import { SSIAuthService } from '../../services/SSIAuthService'
 import { saveWalletCredential, getWalletCredentialsByWalletId } from '../../persistence/WalletCredentialRepository'
@@ -23,7 +23,7 @@ import {
 import { UnauthorizedError } from '../../errors/errors'
 import { AgentRole } from '../../enums'
 import type { RestMultiTenantAgentModules } from '../../cliAgent'
-import type { VerifyPresentationRequestBody } from '../../types/api'
+// import type { VerifyPresentationRequestBody } from '../../types/api'
 
 interface LoginRequest {
   username?: string
@@ -230,7 +230,8 @@ export class WalletAuthController extends Controller {
     }
 
     // Create Authorization Request
-    const result = await (baseAgent.modules as any).openId4VcVerifier.createAuthorizationRequest({
+    const verifierModule = (baseAgent as any)?.openid4vc?.verifier || (baseAgent.modules as any).openId4VcVerifier
+    const result = await verifierModule.createAuthorizationRequest({
       requestSigner: {
         method: 'did',
         did: await (baseAgent.dids as any).getCreatedDids({ method: 'key' }).then((dids: any[]) => dids[0].did),
@@ -252,12 +253,13 @@ export class WalletAuthController extends Controller {
   @Post('/login-wallet/verify')
   public async verifyWalletLogin(
     @Request() request: ExRequest,
-    @Body() body: VerifyPresentationRequestBody,
+    @Body() body: any,
   ): Promise<{ token: string }> {
     const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
 
     try {
-      const verificationResult = await (baseAgent.modules as any).openId4VcVerifier.verifyAuthorizationResponse({
+      const verifierModule = (baseAgent as any)?.openid4vc?.verifier || (baseAgent.modules as any).openId4VcVerifier
+      const verificationResult = await verifierModule.verifyAuthorizationResponse({
         authorizationResponse: {
           vp_token: body.verifiablePresentation,
           presentation_submission: body.presentationSubmission,
@@ -407,21 +409,21 @@ export class WalletAuthController extends Controller {
 
       // 4. Extract the public key
       const verificationMethod = resolvedDid.didDocument.verificationMethod[0]
-      const publicKeyBase58 = verificationMethod.publicKeyBase58
-      if (!publicKeyBase58) {
+      if (!verificationMethod.publicKeyBase58) {
         this.setStatus(401)
         throw new Error('Invalid DID: No public key found')
       }
 
       // 5. Verify the signature
-      const key = Key.fromPublicKeyBase58(publicKeyBase58, KeyType.Ed25519)
       const signatureBytes = new Uint8Array(Buffer.from(signature, 'base64'))
-      const messageBytes = TypedArrayEncoder.fromString(nonce)
+      const messageBytes = new TextEncoder().encode(nonce)
+      const publicJwk = getPublicJwkFromVerificationMethod(verificationMethod as any) as any
 
-      const isValid = await baseAgent.context.wallet.verify({
+      const isValid = await baseAgent.kms.verify({
+        key: { publicJwk },
+        algorithm: 'EdDSA',
         data: messageBytes,
-        key,
-        signature: Buffer.from(signature, 'base64') as any,
+        signature: signatureBytes,
       })
 
       if (!isValid) {

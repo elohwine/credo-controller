@@ -1,13 +1,12 @@
 import type { ServerConfig } from '../utils/ServerConfig'
-import type { Agent, HandshakeReusedEvent } from '@credo-ts/core'
-
-import { OutOfBandEventTypes } from '@credo-ts/core'
+import type { Agent } from '@credo-ts/core'
 
 import { sendWebSocketEvent } from './WebSocketEvents'
 import { sendWebhookEvent } from './WebhookEvent'
 
 export const reuseConnectionEvents = async (agent: Agent, config: ServerConfig) => {
-  agent.events.on(OutOfBandEventTypes.HandshakeReused, async (event: HandshakeReusedEvent) => {
+  ;(agent.events as any).on('HandshakeReused', async (event: any) => {
+    if (!event?.payload?.connectionRecord || !event?.payload?.outOfBandRecord) return
     const body = {
       ...event.payload.connectionRecord.toJSON(),
       outOfBandRecord: event.payload.outOfBandRecord.toJSON(),

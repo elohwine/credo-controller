@@ -1,10 +1,4 @@
 import 'reflect-metadata'
-import type {
-  CreatePresentationRequestBody,
-  CreatePresentationRequestResponse,
-  VerifyPresentationRequestBody,
-  VerifyPresentationResponse,
-} from '../../types/api'
 import type { Request as ExRequest } from 'express'
 
 import { Controller, Post, Route, Tags, Body, SuccessResponse, Security, Request, Get } from 'tsoa'
@@ -33,8 +27,8 @@ export class OidcVerifierController extends Controller {
   @Security('jwt', ['tenant'])
   public async createPresentationRequest(
     @Request() request: ExRequest,
-    @Body() body: CreatePresentationRequestBody,
-  ): Promise<CreatePresentationRequestResponse> {
+    @Body() body: any,
+  ): Promise<any> {
     const queryLanguage = body.queryLanguage ?? 'dcql'
     const agent = request.agent
     const user = (request as any).user as { tenantId?: string; sub?: string } | undefined
@@ -52,7 +46,7 @@ export class OidcVerifierController extends Controller {
       verifierId = registration.credoVerifierIdRef
       signerDidUrl = registration.signerDidUrlRef
     } else {
-      const verifiers = await (agent.modules as any).openId4VcVerifier.getAllVerifiers()
+      const verifiers = await agent.openid4vc.verifier.getAllVerifiers()
       verifierId = verifiers[0]?.verifierId
       signerDidUrl = body.verifierDid
     }
@@ -66,7 +60,7 @@ export class OidcVerifierController extends Controller {
       throw new Error('A verifier signing DID URL is required')
     }
 
-    const verifierModule = (agent.modules as any).openId4VcVerifier
+    const verifierModule = agent.openid4vc.verifier
     const common = {
       verifierId,
       requestSigner: {
@@ -87,7 +81,7 @@ export class OidcVerifierController extends Controller {
 
       result = await verifierModule.createAuthorizationRequest({
         ...common,
-        dcql: { query: dcqlQuery },
+        dcql: { query: dcqlQuery as any },
       })
     } else if (queryLanguage === 'pex_v2') {
       if (!body.presentationDefinition) {
@@ -143,8 +137,8 @@ export class OidcVerifierController extends Controller {
   public async verifyPresentation(
     @Request() request: ExRequest,
     @Body()
-    body: VerifyPresentationRequestBody,
-  ): Promise<VerifyPresentationResponse> {
+    body: any,
+  ): Promise<any> {
     const { state, verifiablePresentation } = body || {}
     if (!state || !verifiablePresentation) {
       this.setStatus(400)

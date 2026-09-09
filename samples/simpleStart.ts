@@ -207,3 +207,8 @@ async function seedCredentialModels() {
     }
   }
 }
+
+run().catch((error) => {
+  console.error('Failed to start sample backend:', error)
+  process.exit(1)
+})

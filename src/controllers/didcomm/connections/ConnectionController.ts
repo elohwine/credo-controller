@@ -1,8 +1,7 @@
-import type { ConnectionRecordProps } from '@credo-ts/core'
+import type { DidCommConnectionRecordProps, DidCommDidExchangeState } from '@credo-ts/didcomm'
 
-import { DidExchangeState } from '@credo-ts/core'
 import { Request as Req } from 'express'
-import { Controller, Delete, Example, Get, Path, Post, Query, Route, Tags, Security, Request } from 'tsoa'
+import { Controller, Delete, Get, Path, Post, Query, Route, Tags, Security, Request } from 'tsoa'
 import { injectable } from 'tsyringe'
 
 import { SCOPES } from '../../../enums'
@@ -23,20 +22,19 @@ export class ConnectionController extends Controller {
    * @param theirLabel Their label
    * @returns ConnectionRecord[]
    */
-  @Example<ConnectionRecordProps[]>([ConnectionRecordExample])
   @Security('jwt', [SCOPES.TENANT_AGENT, SCOPES.DEDICATED_AGENT])
   @Get('/didcomm/connections')
   public async getAllConnections(
     @Request() request: Req,
     @Query('outOfBandId') outOfBandId?: string,
     @Query('alias') alias?: string,
-    @Query('state') state?: DidExchangeState,
+    @Query('state') state?: DidCommDidExchangeState,
     @Query('myDid') myDid?: string,
     @Query('theirDid') theirDid?: string,
     @Query('theirLabel') theirLabel?: string,
-  ) {
+  ): Promise<any> {
     try {
-      const connections = await request.agent.connections.findAllByQuery({
+      const connections = await request.agent.didcomm.connections.findAllByQuery({
         outOfBandId,
         alias,
         myDid,
@@ -56,12 +54,11 @@ export class ConnectionController extends Controller {
    * @param connectionId Connection identifier
    * @returns ConnectionRecord
    */
-  @Example<ConnectionRecordProps>(ConnectionRecordExample)
   @Security('jwt', [SCOPES.TENANT_AGENT, SCOPES.DEDICATED_AGENT])
   @Get('/didcomm/connections/:connectionId')
-  public async getConnectionById(@Request() request: Req, @Path('connectionId') connectionId: RecordId) {
+  public async getConnectionById(@Request() request: Req, @Path('connectionId') connectionId: RecordId): Promise<any> {
     try {
-      const connection = await request.agent.connections.findById(connectionId)
+      const connection = await request.agent.didcomm.connections.findById(connectionId)
 
       if (!connection) throw new NotFoundError(`Connection with connection id "${connectionId}" not found.`)
 
@@ -78,10 +75,10 @@ export class ConnectionController extends Controller {
    */
   @Delete('/didcomm/connections/:connectionId')
   @Security('jwt', [SCOPES.TENANT_AGENT, SCOPES.DEDICATED_AGENT])
-  public async deleteConnection(@Request() request: Req, @Path('connectionId') connectionId: RecordId) {
+  public async deleteConnection(@Request() request: Req, @Path('connectionId') connectionId: RecordId): Promise<any> {
     try {
       this.setStatus(204)
-      await request.agent.connections.deleteById(connectionId)
+      await request.agent.didcomm.connections.deleteById(connectionId)
     } catch (error) {
       throw ErrorHandlingService.handle(error)
     }
@@ -96,12 +93,11 @@ export class ConnectionController extends Controller {
    * @param connectionId Connection identifier
    * @returns ConnectionRecord
    */
-  @Example<ConnectionRecordProps>(ConnectionRecordExample)
   @Security('jwt', [SCOPES.TENANT_AGENT, SCOPES.DEDICATED_AGENT])
   @Post('/didcomm/connections/:connectionId/accept-request')
-  public async acceptRequest(@Request() request: Req, @Path('connectionId') connectionId: RecordId) {
+  public async acceptRequest(@Request() request: Req, @Path('connectionId') connectionId: RecordId): Promise<any> {
     try {
-      const connection = await request.agent.connections.acceptRequest(connectionId)
+      const connection = await request.agent.didcomm.connections.acceptRequest(connectionId)
       return connection.toJSON()
     } catch (error) {
       throw ErrorHandlingService.handle(error)
@@ -117,12 +113,11 @@ export class ConnectionController extends Controller {
    * @param connectionId Connection identifier
    * @returns ConnectionRecord
    */
-  @Example<ConnectionRecordProps>(ConnectionRecordExample)
   @Security('jwt', [SCOPES.TENANT_AGENT, SCOPES.DEDICATED_AGENT])
   @Post('/didcomm/connections/:connectionId/accept-response')
-  public async acceptResponse(@Request() request: Req, @Path('connectionId') connectionId: RecordId) {
+  public async acceptResponse(@Request() request: Req, @Path('connectionId') connectionId: RecordId): Promise<any> {
     try {
-      const connection = await request.agent.connections.acceptResponse(connectionId)
+      const connection = await request.agent.didcomm.connections.acceptResponse(connectionId)
       return connection.toJSON()
     } catch (error) {
       throw ErrorHandlingService.handle(error)
@@ -130,9 +125,9 @@ export class ConnectionController extends Controller {
   }
 
   @Get('/didcomm/url/:invitationId')
-  public async getInvitation(@Request() request: Req, @Path('invitationId') invitationId: string) {
+  public async getInvitation(@Request() request: Req, @Path('invitationId') invitationId: string): Promise<any> {
     try {
-      const outOfBandRecord = await request.agent.oob.findByCreatedInvitationId(invitationId)
+      const outOfBandRecord = await request.agent.didcomm.oob.findByCreatedInvitationId(invitationId)
 
       if (!outOfBandRecord || outOfBandRecord.state !== 'await-response')
         throw new NotFoundError(`connection with invitationId "${invitationId}" not found.`)

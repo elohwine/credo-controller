@@ -62,7 +62,7 @@ export interface WorkflowStep {
   createdAt?: Date
 }
 
-export interface WorkflowTrigger {
+export interface WorkflowTriggerPersistenceRecord {
   id: string
   workflowId: string
   tenantId: string
@@ -332,8 +332,8 @@ export class WorkflowRunRepository {
   // ==================== Workflow Triggers ====================
 
   saveTrigger(
-    trigger: Partial<WorkflowTrigger> & { workflowId: string; tenantId: string; triggerType: string },
-  ): WorkflowTrigger {
+    trigger: Partial<WorkflowTriggerPersistenceRecord> & { workflowId: string; tenantId: string; triggerType: string },
+  ): WorkflowTriggerPersistenceRecord {
     const db = DatabaseManager.getDatabase()
     const id = trigger.id || uuid()
 
@@ -361,7 +361,7 @@ export class WorkflowRunRepository {
     return this.findTriggerById(id)!
   }
 
-  findTriggerById(id: string): WorkflowTrigger | undefined {
+  findTriggerById(id: string): WorkflowTriggerPersistenceRecord | undefined {
     const db = DatabaseManager.getDatabase()
     const row = db
       .prepare(
@@ -385,7 +385,7 @@ export class WorkflowRunRepository {
     }
   }
 
-  listTriggers(tenantId: string, workflowId?: string): WorkflowTrigger[] {
+  listTriggers(tenantId: string, workflowId?: string): WorkflowTriggerPersistenceRecord[] {
     const db = DatabaseManager.getDatabase()
 
     let query = `

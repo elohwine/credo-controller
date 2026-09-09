@@ -1,5 +1,5 @@
 import { Controller, Post, Get, Route, Tags, Body, Path, Query } from 'tsoa'
-import { trustEngine, TrustScore, TrustEvent } from '../../services/TrustEngine'
+import { trustEngine, TrustEngineScore, TrustEngineEvent } from '../../services/TrustEngine'
 
 export interface RecordEventRequest {
   eventType: 'payment' | 'dispute' | 'refund' | 'kyc_attestation' | 'review' | 'delivery'
@@ -15,7 +15,7 @@ export class TrustController extends Controller {
    * Returns cached score if fresh, otherwise recomputes.
    */
   @Get('{merchantId}')
-  public async getTrustScore(@Path() merchantId: string, @Query() maxAgeMinutes?: number): Promise<TrustScore> {
+  public async getTrustScore(@Path() merchantId: string, @Query() maxAgeMinutes?: number): Promise<TrustEngineScore> {
     const score = trustEngine.getScore(merchantId, maxAgeMinutes || 60)
 
     if (!score) {
@@ -30,7 +30,7 @@ export class TrustController extends Controller {
    * Force recompute trust score for a merchant.
    */
   @Post('{merchantId}/compute')
-  public async computeTrustScore(@Path() merchantId: string): Promise<TrustScore> {
+  public async computeTrustScore(@Path() merchantId: string): Promise<TrustEngineScore> {
     return trustEngine.computeScore(merchantId)
   }
 
@@ -39,7 +39,7 @@ export class TrustController extends Controller {
    * This affects the merchant's trust score on next computation.
    */
   @Post('{merchantId}/events')
-  public async recordEvent(@Path() merchantId: string, @Body() body: RecordEventRequest): Promise<TrustEvent> {
+  public async recordEvent(@Path() merchantId: string, @Body() body: RecordEventRequest): Promise<TrustEngineEvent> {
     const event = trustEngine.recordEvent(merchantId, body.eventType, body.eventData, body.impact)
 
     this.setStatus(201)

@@ -1,6 +1,7 @@
-import type { TenantAgent } from '@credo-ts/tenants/build/TenantAgent'
+import type { TenantAgent } from '@credo-ts/tenants'
 import type { Request } from 'express'
 
+import './types/express'
 import { Agent, LogLevel } from '@credo-ts/core'
 import jwt, { decode } from 'jsonwebtoken'
 import { container } from 'tsyringe'
@@ -49,7 +50,7 @@ function getJwtFromRequest(request: Request): string | undefined {
 }
 
 export async function expressAuthentication(request: Request, securityName: string, scopes?: string[]) {
-  const logger = new TsLogger(LogLevel.info)
+  const logger = new TsLogger(LogLevel.Info)
   const agent = container.resolve(Agent as unknown as new (...args: any[]) => Agent)
 
   if (scopes && scopes.includes(SCOPES.UNPROTECTED)) {

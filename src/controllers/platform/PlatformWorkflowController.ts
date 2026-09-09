@@ -43,7 +43,7 @@ export class PlatformWorkflowController {
   }
 
   @Get('/{requestId}/workflow/status')
-  public async status(@Request() request: ExRequest, @Path() requestId: string) {
+  public async status(@Request() request: ExRequest, @Path() requestId: string): Promise<any> {
     const principal = getPrincipal(request)
     return platformWorkflowService.getRunStatus(requestId, principal.tenantId, principal.subjectRef)
   }
