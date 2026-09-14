@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
+import Link from 'next/link'
 import Layout from '@/components/Layout'
 import {
   getOrgScopedToken,
@@ -7,6 +8,7 @@ import {
 } from '@/utils/organizationContext'
 import {
   Alert,
+  Anchor,
   Badge,
   Box,
   Button,
@@ -16,9 +18,11 @@ import {
   Group,
   Paper,
   Progress,
+  Select,
   Stack,
   Table,
   Text,
+  TextInput,
   Title,
 } from '@mantine/core'
 import {
@@ -79,12 +83,22 @@ const DOMAIN_LABELS: Record<ReadinessDomain, string> = {
   integrations: 'Integrations',
 }
 
+const READINESS_ACTION_LINKS: Record<string, { href: string; label: string }> = {
+  active_members:        { href: '/organization/people', label: 'Invite members' },
+  primary_admin:         { href: '/organization/people', label: 'Manage team' },
+  roles:                 { href: '/organization/people', label: 'Create roles' },
+  workflow_configuration:{ href: '/organization/setup#configure', label: 'Configure workflows' },
+  authorities:           { href: '/organization/people', label: 'Grant authority' },
+  departments:           { href: '/organization/people', label: 'Add departments' },
+  trusted_issuers:       { href: '/organization/setup#configure', label: 'Configure trust' },
+  payment_provider:      { href: '/organization/setup#configure', label: 'Connect payment' },
+}
+
 const STATE_BADGE: Record<ReadinessResponse['readinessState'], { color: string; label: string }> = {
   ready: { color: 'teal', label: 'Ready' },
   in_progress: { color: 'yellow', label: 'In progress' },
   blocked: { color: 'red', label: 'Blocked' },
 }
-
 
 export default function OrganizationSetupPage() {
   const [orgTenantId, setOrgTenantId] = useState('')
@@ -268,7 +282,7 @@ export default function OrganizationSetupPage() {
                   <Select
                     label="Sector"
                     value={sector}
-                    onChange={(value) => setSector((value as ConfigureWorkflowBody['sector']) || 'ecommerce')}
+                      onChange={(value: string | null) => setSector((value as ConfigureWorkflowBody['sector']) || 'ecommerce')}
                     data={[
                       { value: 'ecommerce', label: 'E-Commerce' },
                       { value: 'education', label: 'Education' },
@@ -283,7 +297,7 @@ export default function OrganizationSetupPage() {
                     label="Additional Workflow Types"
                     placeholder="accounts_receivable, internal_requisitions"
                     value={workflowTypes}
-                    onChange={(event) => setWorkflowTypes(event.currentTarget.value)}
+                      onChange={(event: React.ChangeEvent<HTMLInputElement>) => setWorkflowTypes(event.currentTarget.value)}
                     style={{ minWidth: 380 }}
                   />
 
@@ -329,11 +343,13 @@ export default function OrganizationSetupPage() {
                         <Table.Th>Setup Item</Table.Th>
                         <Table.Th>Requirement</Table.Th>
                         <Table.Th>Status</Table.Th>
-                        <Table.Th>Reason</Table.Th>
+                        <Table.Th>Action</Table.Th>
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                      {group.items.map((item) => (
+                      {group.items.map((item) => {
+                        const actionLink = item.status === 'needs_attention' ? READINESS_ACTION_LINKS[item.key] : undefined
+                        return (
                         <Table.Tr key={item.key}>
                           <Table.Td>
                             <Text fw={600} size="sm">{item.title}</Text>
@@ -371,17 +387,19 @@ export default function OrganizationSetupPage() {
                             </Badge>
                           </Table.Td>
                           <Table.Td>
-                            {item.reason ? (
-                              <Group gap={6}>
-                                <IconInfoCircle size={14} />
-                                <Text size="xs" c="dimmed">{item.reason}</Text>
-                              </Group>
+                            {actionLink ? (
+                              <Anchor component={Link} href={actionLink.href} size="xs" fw={500}>
+                                {actionLink.label} →
+                              </Anchor>
+                            ) : item.reason ? (
+                              <Text size="xs" c="dimmed">{item.reason}</Text>
                             ) : (
                               <Text size="xs" c="dimmed">-</Text>
                             )}
                           </Table.Td>
                         </Table.Tr>
-                      ))}
+                        )
+                      })}
                     </Table.Tbody>
                   </Table>
                 </Card>

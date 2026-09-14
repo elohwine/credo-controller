@@ -85,6 +85,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
             label: 'Organization',
             items: [
                 { label: 'Setup & Readiness', href: '/organization/setup', icon: <IconBuildingStore size={16} />, description: 'Capability-driven setup center' },
+                { label: 'People', href: '/organization/people', icon: <IconCertificate size={16} />, description: 'Members, roles, invitations' },
                 { label: 'Credentials', href: '/credential-models', icon: <IconCertificate size={16} />, description: 'Credential definitions' },
                 { label: 'Issue / Verify', href: '/select-credentials', icon: <IconFileCheck size={16} />, description: 'Manual credential ops' },
             ],
