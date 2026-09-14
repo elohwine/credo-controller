@@ -17,6 +17,8 @@ import {
     IconCertificate,
     IconFileCheck,
     IconBuildingStore,
+    IconBuilding,
+    IconShieldCheck,
     IconReceipt,
 } from '@tabler/icons-react';
 import OrgSwitcher from '@/components/OrgSwitcher';
@@ -86,11 +88,13 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
             items: [
                 { label: 'Setup & Readiness', href: '/organization/setup', icon: <IconBuildingStore size={16} />, description: 'Capability-driven setup center' },
                 { label: 'People', href: '/organization/people', icon: <IconCertificate size={16} />, description: 'Members, roles, invitations' },
+                { label: 'Departments', href: '/organization/departments', icon: <IconBuilding size={16} />, description: 'Departments and cost centres' },
+                { label: 'Authorities', href: '/organization/authorities', icon: <IconShieldCheck size={16} />, description: 'Approval authorities and thresholds' },
                 { label: 'Credentials', href: '/credential-models', icon: <IconCertificate size={16} />, description: 'Credential definitions' },
                 { label: 'Issue / Verify', href: '/select-credentials', icon: <IconFileCheck size={16} />, description: 'Manual credential ops' },
             ],
         },
-        
+
         /* PHASE 2+ - DEFERRED
         {
             label: 'Commerce',

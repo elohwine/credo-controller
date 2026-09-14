@@ -84,14 +84,14 @@ const DOMAIN_LABELS: Record<ReadinessDomain, string> = {
 }
 
 const READINESS_ACTION_LINKS: Record<string, { href: string; label: string }> = {
-  active_members:        { href: '/organization/people', label: 'Invite members' },
-  primary_admin:         { href: '/organization/people', label: 'Manage team' },
-  roles:                 { href: '/organization/people', label: 'Create roles' },
-  workflow_configuration:{ href: '/organization/setup#configure', label: 'Configure workflows' },
-  authorities:           { href: '/organization/people', label: 'Grant authority' },
-  departments:           { href: '/organization/people', label: 'Add departments' },
-  trusted_issuers:       { href: '/organization/setup#configure', label: 'Configure trust' },
-  payment_provider:      { href: '/organization/setup#configure', label: 'Connect payment' },
+  active_members: { href: '/organization/people', label: 'Invite members' },
+  primary_admin: { href: '/organization/people', label: 'Manage team' },
+  roles: { href: '/organization/authorities', label: 'Configure roles' },
+  workflow_configuration: { href: '/organization/setup#configure', label: 'Configure workflows' },
+  authorities: { href: '/organization/authorities', label: 'Grant authority' },
+  departments: { href: '/organization/departments', label: 'Add departments' },
+  trusted_issuers: { href: '/organization/setup#configure', label: 'Configure trust' },
+  payment_provider: { href: '/organization/setup#configure', label: 'Connect payment' },
 }
 
 const STATE_BADGE: Record<ReadinessResponse['readinessState'], { color: string; label: string }> = {
@@ -287,7 +287,7 @@ export default function OrganizationSetupPage() {
                   <Select
                     label="Sector"
                     value={sector}
-                      onChange={(value: string | null) => setSector((value as ConfigureWorkflowBody['sector']) || 'ecommerce')}
+                    onChange={(value: string | null) => setSector((value as ConfigureWorkflowBody['sector']) || 'ecommerce')}
                     data={[
                       { value: 'ecommerce', label: 'E-Commerce' },
                       { value: 'education', label: 'Education' },
@@ -302,7 +302,7 @@ export default function OrganizationSetupPage() {
                     label="Additional Workflow Types"
                     placeholder="accounts_receivable, internal_requisitions"
                     value={workflowTypes}
-                      onChange={(event: React.ChangeEvent<HTMLInputElement>) => setWorkflowTypes(event.currentTarget.value)}
+                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => setWorkflowTypes(event.currentTarget.value)}
                     style={{ minWidth: 380 }}
                   />
 
@@ -355,54 +355,54 @@ export default function OrganizationSetupPage() {
                       {group.items.map((item) => {
                         const actionLink = item.status === 'needs_attention' ? READINESS_ACTION_LINKS[item.key] : undefined
                         return (
-                        <Table.Tr key={item.key}>
-                          <Table.Td>
-                            <Text fw={600} size="sm">{item.title}</Text>
-                            {item.requiredFor && item.requiredFor.length > 0 && (
-                              <Text size="xs" c="dimmed" mt={2}>
-                                Required for: {item.requiredFor.join(', ')}
-                              </Text>
-                            )}
-                          </Table.Td>
-                          <Table.Td>
-                            <Badge
-                              color={
-                                item.requirement === 'mandatory'
-                                  ? 'red'
-                                  : item.requirement === 'conditional'
-                                    ? 'yellow'
-                                    : 'gray'
-                              }
-                              variant="light"
-                            >
-                              {item.requirement}
-                            </Badge>
-                          </Table.Td>
-                          <Table.Td>
-                            <Badge
-                              color={
-                                item.status === 'ready'
-                                  ? 'teal'
-                                  : item.status === 'needs_attention'
-                                    ? 'orange'
-                                    : 'gray'
-                              }
-                            >
-                              {item.status}
-                            </Badge>
-                          </Table.Td>
-                          <Table.Td>
-                            {actionLink ? (
-                              <Anchor component={Link} href={actionLink.href} size="xs" fw={500}>
-                                {actionLink.label} →
-                              </Anchor>
-                            ) : item.reason ? (
-                              <Text size="xs" c="dimmed">{item.reason}</Text>
-                            ) : (
-                              <Text size="xs" c="dimmed">-</Text>
-                            )}
-                          </Table.Td>
-                        </Table.Tr>
+                          <Table.Tr key={item.key}>
+                            <Table.Td>
+                              <Text fw={600} size="sm">{item.title}</Text>
+                              {item.requiredFor && item.requiredFor.length > 0 && (
+                                <Text size="xs" c="dimmed" mt={2}>
+                                  Required for: {item.requiredFor.join(', ')}
+                                </Text>
+                              )}
+                            </Table.Td>
+                            <Table.Td>
+                              <Badge
+                                color={
+                                  item.requirement === 'mandatory'
+                                    ? 'red'
+                                    : item.requirement === 'conditional'
+                                      ? 'yellow'
+                                      : 'gray'
+                                }
+                                variant="light"
+                              >
+                                {item.requirement}
+                              </Badge>
+                            </Table.Td>
+                            <Table.Td>
+                              <Badge
+                                color={
+                                  item.status === 'ready'
+                                    ? 'teal'
+                                    : item.status === 'needs_attention'
+                                      ? 'orange'
+                                      : 'gray'
+                                }
+                              >
+                                {item.status}
+                              </Badge>
+                            </Table.Td>
+                            <Table.Td>
+                              {actionLink ? (
+                                <Anchor component={Link} href={actionLink.href} size="xs" fw={500}>
+                                  {actionLink.label} →
+                                </Anchor>
+                              ) : item.reason ? (
+                                <Text size="xs" c="dimmed">{item.reason}</Text>
+                              ) : (
+                                <Text size="xs" c="dimmed">-</Text>
+                              )}
+                            </Table.Td>
+                          </Table.Tr>
                         )
                       })}
                     </Table.Tbody>
