@@ -673,12 +673,12 @@ export default function OrgSettingsPage() {
     }
   };
 
-  // ── Activate workflows ──
+  // ── Configure workflows ──
 
-  const handleActivate = async () => {
+  const handleConfigure = async () => {
     if (!activeId) {
       notifications.show({
-        title: 'Activation Failed',
+        title: 'Configuration Failed',
         message: 'No active organization selected. Switch to an organization first.',
         color: 'red',
       });
@@ -687,7 +687,7 @@ export default function OrgSettingsPage() {
 
     if (templates.length === 0) {
       notifications.show({
-        title: 'Activation Failed',
+        title: 'Configuration Failed',
         message: 'No workflow templates selected for activation.',
         color: 'red',
       });
@@ -774,8 +774,8 @@ export default function OrgSettingsPage() {
       if (firstEnabled?.id) localStorage.setItem('credoActiveTemplateId', firstEnabled.id);
 
       notifications.show({
-        title: 'Infrastructure Active',
-        message: `${templates.length} workflow(s) activated.`,
+        title: 'Capabilities Configured',
+        message: `${templates.length} workflow(s) configured.`,
         color: 'green',
       });
 
@@ -783,8 +783,8 @@ export default function OrgSettingsPage() {
       setSelectedCapabilities([]);
     } catch (err: any) {
       notifications.show({
-        title: 'Activation Failed',
-        message: err.response?.data?.message ?? err.message ?? 'Failed to activate',
+        title: 'Configuration Failed',
+        message: err.response?.data?.message ?? err.message ?? 'Failed to configure workflows',
         color: 'red',
       });
     } finally {
@@ -799,7 +799,7 @@ export default function OrgSettingsPage() {
     [templates]
   );
 
-  const setupStepCount = 4; // review → payments → credentials → activate
+  const setupStepCount = 4; // review → payments → credentials → configure
 
   return (
     <AppShellMobile>
@@ -1370,10 +1370,10 @@ export default function OrgSettingsPage() {
               </Stack>
             )}
 
-            {/* Step 3: Activate */}
+            {/* Step 3: Configure */}
             {setupStep === 3 && (
               <Stack gap="sm">
-                <Text size="sm" fw={600}>Review & Activate</Text>
+                <Text size="sm" fw={600}>Review & Configure</Text>
 
                 <Paper p="xs" radius="sm" withBorder>
                   <Text size="xs" fw={700} c="dimmed" mb={4}>WORKFLOWS</Text>
@@ -1449,7 +1449,7 @@ export default function OrgSettingsPage() {
               color="green"
               leftSection={<IconCheck size={14} />}
               loading={activating}
-              onClick={handleActivate}
+              onClick={handleConfigure}
             >
               Configure
             </Button>

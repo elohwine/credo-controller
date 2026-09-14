@@ -1042,6 +1042,12 @@ function describeRequisitionEvent(event: NonNullable<RequisitionDetail['events']
 
 export default function FinancePage() {
     const router = useRouter();
+    useEffect(() => {
+        if (getContextMode() !== 'org') {
+            router.replace('/inbox');
+        }
+    }, [router]);
+
     const invoiceResumeRef = useRef<string | null>(null);
     const arPlanResumeRef = useRef<string | null>(null);
     const arTransactionResumeRef = useRef<string | null>(null);
