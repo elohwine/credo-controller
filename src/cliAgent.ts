@@ -1,3 +1,8 @@
+/* eslint-disable no-console */
+/* eslint-disable import/no-extraneous-dependencies */
+import type { DidCommAutoAcceptProof } from '@credo-ts/didcomm'
+
+import { AskarModule, AskarMultiWalletDatabaseScheme } from '@credo-ts/askar'
 import {
   Agent,
   CacheModule,
@@ -11,15 +16,13 @@ import {
   WebDidResolver,
   type InitConfig,
 } from '@credo-ts/core'
-import { askar } from '@openwallet-foundation/askar-nodejs'
-import type { DidCommAutoAcceptProof } from '@credo-ts/didcomm'
 import { DidCommModule } from '@credo-ts/didcomm'
-import { AskarModule, AskarMultiWalletDatabaseScheme } from '@credo-ts/askar'
-import { OpenId4VcModule } from '@credo-ts/openid4vc'
-import { agentDependencies, DidCommHttpInboundTransport } from '@credo-ts/node'
 import { DidCommHttpOutboundTransport } from '@credo-ts/didcomm'
+import { agentDependencies, DidCommHttpInboundTransport } from '@credo-ts/node'
+import { OpenId4VcModule } from '@credo-ts/openid4vc'
 import { QuestionAnswerModule } from '@credo-ts/question-answer'
 import { TenantsModule as TenantsModuleClass, type TenantsModule } from '@credo-ts/tenants'
+import { askar } from '@openwallet-foundation/askar-nodejs'
 import express, { type Express } from 'express'
 import { readFile } from 'fs/promises'
 

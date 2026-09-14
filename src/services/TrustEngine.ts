@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * Trust Engine Service
  *
@@ -10,8 +11,9 @@
  * - Tenure
  */
 
-import { DatabaseManager } from '../persistence/DatabaseManager'
 import { randomUUID } from 'crypto'
+
+import { DatabaseManager } from '../persistence/DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'TrustEngine' })

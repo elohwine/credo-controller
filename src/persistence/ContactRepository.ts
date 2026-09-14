@@ -1,4 +1,5 @@
 import crypto from 'crypto'
+
 import { DatabaseManager } from './DatabaseManager'
 
 export interface OrgContact {
@@ -56,20 +57,20 @@ function toContact(row: ContactRow): OrgContact {
 export function listContacts(orgTenantId: string, contactScope?: 'internal' | 'external'): OrgContact[] {
   const db = DatabaseManager.getDatabase()
   const rows = contactScope
-    ? db
-      .prepare('SELECT * FROM org_contacts WHERE org_tenant_id = ? AND contact_scope = ? ORDER BY name ASC')
-      .all(orgTenantId, contactScope) as ContactRow[]
-    : db
-      .prepare('SELECT * FROM org_contacts WHERE org_tenant_id = ? ORDER BY name ASC')
-      .all(orgTenantId) as ContactRow[]
+    ? (db
+        .prepare('SELECT * FROM org_contacts WHERE org_tenant_id = ? AND contact_scope = ? ORDER BY name ASC')
+        .all(orgTenantId, contactScope) as ContactRow[])
+    : (db
+        .prepare('SELECT * FROM org_contacts WHERE org_tenant_id = ? ORDER BY name ASC')
+        .all(orgTenantId) as ContactRow[])
   return rows.map(toContact)
 }
 
 export function getContactById(id: string, orgTenantId: string): OrgContact | undefined {
   const db = DatabaseManager.getDatabase()
-  const row = db
-    .prepare('SELECT * FROM org_contacts WHERE id = ? AND org_tenant_id = ?')
-    .get(id, orgTenantId) as ContactRow | undefined
+  const row = db.prepare('SELECT * FROM org_contacts WHERE id = ? AND org_tenant_id = ?').get(id, orgTenantId) as
+    | ContactRow
+    | undefined
   return row ? toContact(row) : undefined
 }
 
@@ -79,9 +80,7 @@ export function findContactById(contactId: string, orgTenantId: string): OrgCont
 
 export function findContactByIdGlobal(contactId: string): OrgContact | undefined {
   const db = DatabaseManager.getDatabase()
-  const row = db
-    .prepare('SELECT * FROM org_contacts WHERE id = ?')
-    .get(contactId) as ContactRow | undefined
+  const row = db.prepare('SELECT * FROM org_contacts WHERE id = ?').get(contactId) as ContactRow | undefined
   return row ? toContact(row) : undefined
 }
 
@@ -96,7 +95,9 @@ export function findContactByDid(orgTenantId: string, did: string): OrgContact |
 export function findContactByWalletTenantId(orgTenantId: string, walletTenantId: string): OrgContact | undefined {
   const db = DatabaseManager.getDatabase()
   const row = db
-    .prepare('SELECT * FROM org_contacts WHERE org_tenant_id = ? AND wallet_tenant_id = ? ORDER BY updated_at DESC LIMIT 1')
+    .prepare(
+      'SELECT * FROM org_contacts WHERE org_tenant_id = ? AND wallet_tenant_id = ? ORDER BY updated_at DESC LIMIT 1',
+    )
     .get(orgTenantId, walletTenantId) as ContactRow | undefined
   return row ? toContact(row) : undefined
 }
@@ -118,7 +119,8 @@ export function upsertContact(input: UpsertContactInput): OrgContact {
   const db = DatabaseManager.getDatabase()
   const id = input.id ?? crypto.randomUUID()
   const now = new Date().toISOString()
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO org_contacts (
       id, org_tenant_id, contact_scope, name, phone, email, did, notes,
       wallet_tenant_id, linked_at, created_at, updated_at
@@ -134,7 +136,8 @@ export function upsertContact(input: UpsertContactInput): OrgContact {
       wallet_tenant_id = excluded.wallet_tenant_id,
       linked_at   = excluded.linked_at,
       updated_at = excluded.updated_at
-  `).run(
+  `,
+  ).run(
     id,
     input.orgTenantId,
     input.contactScope ?? 'external',
@@ -154,13 +157,15 @@ export function upsertContact(input: UpsertContactInput): OrgContact {
 export function getContactByLinkToken(token: string): OrgContact | undefined {
   const db = DatabaseManager.getDatabase()
   const row = db
-    .prepare(`
+    .prepare(
+      `
       SELECT * FROM org_contacts
       WHERE link_token = ?
         AND link_token_expires_at IS NOT NULL
         AND link_token_expires_at > ?
       LIMIT 1
-    `)
+    `,
+    )
     .get(token, new Date().toISOString()) as ContactRow | undefined
   return row ? toContact(row) : undefined
 }
@@ -168,13 +173,15 @@ export function getContactByLinkToken(token: string): OrgContact | undefined {
 export function createContactLinkToken(contactId: string, orgTenantId: string, expiresAt: string): string {
   const db = DatabaseManager.getDatabase()
   const token = crypto.randomUUID()
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE org_contacts
     SET link_token = ?,
         link_token_expires_at = ?,
         updated_at = ?
     WHERE id = ? AND org_tenant_id = ?
-  `).run(token, expiresAt, new Date().toISOString(), contactId, orgTenantId)
+  `,
+  ).run(token, expiresAt, new Date().toISOString(), contactId, orgTenantId)
   return token
 }
 
@@ -186,18 +193,21 @@ export function claimContactLink(params: {
   const db = DatabaseManager.getDatabase()
   const now = new Date().toISOString()
   const row = db
-    .prepare(`
+    .prepare(
+      `
       SELECT * FROM org_contacts
       WHERE link_token = ?
         AND link_token_expires_at IS NOT NULL
         AND link_token_expires_at > ?
       LIMIT 1
-    `)
+    `,
+    )
     .get(params.token, now) as ContactRow | undefined
 
   if (!row) return undefined
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE org_contacts
     SET wallet_tenant_id = ?,
         did = COALESCE(?, did),
@@ -206,7 +216,8 @@ export function claimContactLink(params: {
         link_token_expires_at = NULL,
         updated_at = ?
     WHERE id = ? AND org_tenant_id = ?
-  `).run(params.walletTenantId, params.did ?? null, now, now, row.id, row.org_tenant_id)
+  `,
+  ).run(params.walletTenantId, params.did ?? null, now, now, row.id, row.org_tenant_id)
 
   return getContactById(row.id, row.org_tenant_id)
 }
@@ -228,5 +239,5 @@ export const contactRepository = {
   getByLinkToken: getContactByLinkToken,
   createLinkToken: createContactLinkToken,
   claimLink: claimContactLink,
-  delete: deleteContact
+  delete: deleteContact,
 }

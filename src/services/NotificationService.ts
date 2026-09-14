@@ -12,8 +12,9 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
-import nodemailer from 'nodemailer'
 import axios from 'axios'
+import nodemailer from 'nodemailer'
+
 import { rootLogger } from '../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'NotificationService' })
@@ -50,7 +51,7 @@ export interface WalletPushPayload {
 }
 
 export class NotificationService {
-  async sendEmail(payload: EmailPayload): Promise<{ success: boolean; messageId?: string }> {
+  public async sendEmail(payload: EmailPayload): Promise<{ success: boolean; messageId?: string }> {
     const host = process.env.SMTP_HOST
     const port = Number(process.env.SMTP_PORT || 587)
     const user = process.env.SMTP_USER
@@ -82,7 +83,7 @@ export class NotificationService {
     return { success: true, messageId: result.messageId }
   }
 
-  async sendWhatsAppText(payload: WhatsAppTextPayload): Promise<any> {
+  public async sendWhatsAppText(payload: WhatsAppTextPayload): Promise<any> {
     const phoneNumberId = process.env.WABA_PHONE_NUMBER_ID || ''
     const accessToken = process.env.WABA_TOKEN || ''
     const apiVersion = process.env.WABA_API_VERSION || 'v21.0'
@@ -116,7 +117,7 @@ export class NotificationService {
     return response.data
   }
 
-  async sendWhatsAppCta(payload: WhatsAppCtaPayload): Promise<any> {
+  public async sendWhatsAppCta(payload: WhatsAppCtaPayload): Promise<any> {
     const phoneNumberId = process.env.WABA_PHONE_NUMBER_ID || ''
     const accessToken = process.env.WABA_TOKEN || ''
     const apiVersion = process.env.WABA_API_VERSION || 'v21.0'
@@ -158,7 +159,7 @@ export class NotificationService {
     return response.data
   }
 
-  async sendWalletPush(payload: WalletPushPayload): Promise<any> {
+  public async sendWalletPush(payload: WalletPushPayload): Promise<any> {
     const pushUrl = process.env.WALLET_PUSH_URL || process.env.OFFER_PUSH_URL
     const pushApiKey = process.env.WALLET_PUSH_API_KEY || process.env.OFFER_PUSH_API_KEY
 

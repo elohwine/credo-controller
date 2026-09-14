@@ -72,6 +72,7 @@ export function buildIssuerMetadata(input: IssuerMetadataInput) {
         })
       })
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.warn('Failed to load credential definitions for metadata:', error)
     }
   }

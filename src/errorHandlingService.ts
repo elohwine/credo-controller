@@ -1,11 +1,6 @@
 import type { BaseError } from './errors/errors'
 
-import {
-  CredoError,
-  RecordNotFoundError,
-  RecordDuplicateError,
-  ClassValidationError,
-} from '@credo-ts/core'
+import { CredoError, RecordNotFoundError, RecordDuplicateError, ClassValidationError } from '@credo-ts/core'
 
 import { RecordDuplicateError as CustomRecordDuplicateError, NotFoundError, InternalServerError } from './errors/errors'
 import convertError from './utils/errorConverter'

@@ -1,18 +1,6 @@
 import type { RecordId } from './examples'
 import type { CustomHandshakeProtocol } from '../enums'
-import type {
-  DidCommAttachment,
-  DidCommAutoAcceptCredential,
-  DidCommAutoAcceptProof,
-  DidCommCredentialFormat,
-  DidCommCredentialFormatPayload,
-  DidCommHandshakeProtocol,
-  DidCommMessage,
-  DidCommProofFormat,
-  DidCommRouting,
-  OutOfBandDidCommService,
-  ReceiveOutOfBandInvitationConfig,
-} from '@credo-ts/didcomm'
+import type { AnonCredsCredential } from '@credo-ts/anoncreds'
 import type {
   DidResolutionMetadata,
   DidDocumentMetadata,
@@ -26,7 +14,20 @@ import type {
   W3cCredential,
   W3cCredentialSubject,
 } from '@credo-ts/core'
-import type { AnonCredsCredential } from '@credo-ts/anoncreds'
+import type {
+  DidCommAttachment,
+  DidCommAutoAcceptCredential,
+  DidCommAutoAcceptProof,
+  DidCommCredentialFormat,
+  DidCommCredentialFormatPayload,
+  DidCommHandshakeProtocol,
+  DidCommMessage,
+  DidCommProofFormat,
+  DidCommRouting,
+  OutOfBandDidCommService,
+  ReceiveOutOfBandInvitationConfig,
+} from '@credo-ts/didcomm'
+import type { DIDDocument } from 'did-resolver'
 
 type ProofExchangeRecord = unknown
 type CredentialExchangeRecord = unknown
@@ -41,8 +42,6 @@ type LegacyIndyCredentialFormat = unknown
 type AnonCredsCredentialFormat = unknown
 
 export type SupportedKeyType = 'Ed25519' | 'Bls12381g2' | 'P-256'
-import type { DIDDocument } from 'did-resolver'
-
 type TsoaSingleOrArray<T> = T | T[]
 
 export type AutoAcceptProof = DidCommAutoAcceptProof

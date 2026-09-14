@@ -3,8 +3,9 @@
  * Replaces in-memory didStore with SQLite-backed persistence
  */
 
-import { DatabaseManager } from './DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
+
+import { DatabaseManager } from './DatabaseManager'
 
 export interface DidRecord {
   id: string
@@ -24,7 +25,7 @@ export class DidRepository {
   /**
    * Save or update DID record
    */
-  save(record: DidRecord): void {
+  public save(record: DidRecord): void {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -34,11 +35,11 @@ export class DidRepository {
         @id, @tenantId, @did, @publicKeyBase58, @keyType, @keyRef, @method, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
       )
       ON CONFLICT(id) DO UPDATE SET
-        public_key_base58 = @publicKeyBase58,
-        key_type = @keyType,
-        key_ref = @keyRef,
-        method = @method,
-        updated_at = CURRENT_TIMESTAMP
+        public public_key_base58 = @publicKeyBase58,
+        public key_type = @keyType,
+        public key_ref = @keyRef,
+        public method = @method,
+        public updated_at = CURRENT_TIMESTAMP
     `)
 
     try {
@@ -62,7 +63,7 @@ export class DidRepository {
   /**
    * Find DID by DID string
    */
-  findByDid(did: string): DidRecord | undefined {
+  public findByDid(did: string): DidRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -85,7 +86,7 @@ export class DidRepository {
   /**
    * Find DID by ID
    */
-  findById(id: string): DidRecord | undefined {
+  public findById(id: string): DidRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -102,7 +103,7 @@ export class DidRepository {
   /**
    * Find all DIDs for a tenant
    */
-  findByTenantId(tenantId: string): DidRecord[] {
+  public findByTenantId(tenantId: string): DidRecord[] {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -120,7 +121,7 @@ export class DidRepository {
   /**
    * Delete DID by ID
    */
-  deleteById(id: string): boolean {
+  public deleteById(id: string): boolean {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('DELETE FROM dids WHERE id = ?')
@@ -137,7 +138,7 @@ export class DidRepository {
   /**
    * Delete all DIDs for a tenant
    */
-  deleteByTenantId(tenantId: string): number {
+  public deleteByTenantId(tenantId: string): number {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('DELETE FROM dids WHERE tenant_id = ?')
@@ -151,7 +152,7 @@ export class DidRepository {
   /**
    * Get count of DIDs for a tenant
    */
-  countByTenantId(tenantId: string): number {
+  public countByTenantId(tenantId: string): number {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('SELECT COUNT(*) as count FROM dids WHERE tenant_id = ?')
@@ -163,7 +164,7 @@ export class DidRepository {
   /**
    * Check if DID exists
    */
-  exists(did: string): boolean {
+  public exists(did: string): boolean {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('SELECT 1 FROM dids WHERE did = ? LIMIT 1')
@@ -175,7 +176,7 @@ export class DidRepository {
   /**
    * Get all DIDs (use with caution in production)
    */
-  findAll(): DidRecord[] {
+  public findAll(): DidRecord[] {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`

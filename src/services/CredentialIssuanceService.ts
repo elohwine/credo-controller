@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * CredentialIssuanceService - Unified credential offer creation
  *
@@ -5,10 +6,12 @@
  * to create consistent OIDC4VC pre-authorized offers with deeplinks.
  */
 
+import type { RestMultiTenantAgentModules } from '../cliAgent'
+
+import { Agent } from '@credo-ts/core'
 import { randomUUID } from 'crypto'
 import { container } from 'tsyringe'
-import { Agent } from '@credo-ts/core'
-import type { RestMultiTenantAgentModules } from '../cliAgent'
+
 import { rootLogger } from '../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'CredentialIssuanceService' })

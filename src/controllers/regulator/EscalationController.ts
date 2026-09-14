@@ -1,5 +1,6 @@
-import { Controller, Post, Get, Route, Tags, Body, Path, Query } from 'tsoa'
 import { randomUUID } from 'crypto'
+import { Controller, Post, Get, Route, Tags, Body, Path, Query } from 'tsoa'
+
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { trustEngine } from '../../services/TrustEngine'
 import { rootLogger } from '../../utils/pinoLogger'

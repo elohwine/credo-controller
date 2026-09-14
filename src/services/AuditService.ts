@@ -1,8 +1,11 @@
-import { DatabaseManager } from '../persistence/DatabaseManager'
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
+import type { AuditLog } from '../types/trust'
+
 import { randomUUID, createHash } from 'crypto'
-import { rootLogger } from '../utils/pinoLogger'
-import { AuditLog } from '../types/trust'
 import jwt from 'jsonwebtoken'
+
+import { DatabaseManager } from '../persistence/DatabaseManager'
+import { rootLogger } from '../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'AuditService' })
 

@@ -1,12 +1,13 @@
+import { Request as ExRequest } from 'express'
 import { Body, Controller, Get, Path, Post, Put, Route, Tags, Request, Header } from 'tsoa'
-import { rootLogger } from '../../utils/pinoLogger'
+
 import {
   OnboardingService,
   onboardingService,
   OnboardingRequest,
   OnboardingData,
 } from '../../services/OnboardingService'
-import { Request as ExRequest } from 'express'
+import { rootLogger } from '../../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'OnboardingController' })
 

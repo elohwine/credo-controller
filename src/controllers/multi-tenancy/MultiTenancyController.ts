@@ -8,11 +8,10 @@ import { Body, Controller, Delete, Post, Route, Tags, Path, Security, Request, R
 
 import { AgentRole, SCOPES } from '../../enums'
 import ErrorHandlingService from '../../errorHandlingService'
-import { CreateTenantOptions, CreateTenantResponse, TenantMetadataResponse } from '../types'
-import { provisionTenantResources } from '../../services/TenantProvisioningService'
 import { getTenantById } from '../../persistence/TenantRepository'
-
 import { listTenants as listPersistenceTenants } from '../../persistence/TenantRepository'
+import { provisionTenantResources } from '../../services/TenantProvisioningService'
+import { CreateTenantOptions, CreateTenantResponse, TenantMetadataResponse } from '../types'
 
 @Tags('MultiTenancy')
 @Security('apiKey')

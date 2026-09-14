@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * Interface for Statutory Deduction Plugins
  */
@@ -15,7 +16,7 @@ export class NSSACalculator implements StatutoryCalculator {
   private readonly RATE = 0.045
   private readonly CEILING = 700 // USD max insurable earnings
 
-  calculate(grossAmount: number): number {
+  public calculate(grossAmount: number): number {
     const insurable = Math.min(grossAmount, this.CEILING)
     // Return rounded to 2 decimals
     return Math.round(insurable * this.RATE * 100) / 100
@@ -30,7 +31,7 @@ export class PAYECalculator implements StatutoryCalculator {
   readonly name = 'PAYE'
   private readonly AIDS_LEVY_RATE = 0.03
 
-  calculate(taxableIncome: number): number {
+  public calculate(taxableIncome: number): number {
     let paye = 0
 
     if (taxableIncome > 1000) {
@@ -44,7 +45,7 @@ export class PAYECalculator implements StatutoryCalculator {
     return Math.round(paye * 100) / 100
   }
 
-  calculateAidsLevy(paye: number): number {
+  public calculateAidsLevy(paye: number): number {
     return Math.round(paye * this.AIDS_LEVY_RATE * 100) / 100
   }
 }

@@ -64,7 +64,10 @@ export function getCachedVerifierBundle(tenantId?: string): VerifierBundleCacheE
   const resolvedTenantId = resolveTenantId(tenantId)
   if (!resolvedTenantId) return null
 
-  return getOfflineStorageAdapter().get<VerifierBundleCacheEntry>('verifier_bundle', `${resolvedTenantId}:${VERIFIER_BUNDLE_CACHE_KEY}`)
+  return getOfflineStorageAdapter().get<VerifierBundleCacheEntry>(
+    'verifier_bundle',
+    `${resolvedTenantId}:${VERIFIER_BUNDLE_CACHE_KEY}`,
+  )
 }
 
 export function cacheVerifierBundle(entry: VerifierBundleCacheEntry): void {

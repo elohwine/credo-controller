@@ -13,7 +13,9 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
+import { Request as ExRequest } from 'express'
 import { Controller, Get, Post, Put, Delete, Route, Tags, Body, Path, Query, Request, Security, Header } from 'tsoa'
+
 import {
   triggerService,
   WorkflowTriggerModel,
@@ -21,7 +23,6 @@ import {
   ScheduleTriggerConfig,
   EventTriggerConfig,
 } from '../../services/TriggerService'
-import { Request as ExRequest } from 'express'
 import { rootLogger } from '../../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'TriggerController' })

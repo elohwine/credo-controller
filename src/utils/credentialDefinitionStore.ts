@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+
 import { DatabaseManager } from '../persistence/DatabaseManager'
 
 export interface RegisterCredentialDefinitionRequest {
@@ -112,6 +113,7 @@ class CredentialDefinitionStore {
       }
     }
 
+    // eslint-disable-next-line no-console
     console.log(`[CredDefStore] Looking up credential definition - original: "${id}", base: "${baseId}"`)
 
     // First try to find by credential_definition_id (UUID)
@@ -163,10 +165,12 @@ class CredentialDefinitionStore {
     }
 
     if (!row) {
+      // eslint-disable-next-line no-console
       console.log(`[CredDefStore] No credential definition found for: "${id}" (base: "${baseId}")`)
       return undefined
     }
 
+    // eslint-disable-next-line no-console
     console.log(`[CredDefStore] Found credential definition: ${row.credential_definition_id}`)
 
     const data = JSON.parse(row.definition_data)

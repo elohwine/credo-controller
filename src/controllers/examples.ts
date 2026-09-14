@@ -1,3 +1,4 @@
+/* eslint-disable import/no-extraneous-dependencies */
 import type {
   DidCommCredentialRole,
   DidCommCredentialState,
@@ -8,6 +9,7 @@ import type {
   DidCommProofState,
   DidCommProofRole,
 } from '@credo-ts/didcomm'
+
 import { DidCommAutoAcceptProof } from '@credo-ts/didcomm'
 
 type ProofRole = any

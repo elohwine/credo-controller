@@ -1,8 +1,11 @@
-import { Controller, Post, Get, Route, Tags, Body, Path, Request, Security } from 'tsoa'
+/* eslint-disable no-console */
 import type { Request as ExRequest } from 'express'
-import { container } from 'tsyringe'
+
 import { Agent } from '@credo-ts/core'
 import { randomUUID, createHash } from 'crypto'
+import { Controller, Post, Get, Route, Tags, Body, Path, Request, Security } from 'tsoa'
+import { container } from 'tsyringe'
+
 import { SCOPES } from '../../enums'
 import { inventoryService } from '../../services/InventoryService'
 

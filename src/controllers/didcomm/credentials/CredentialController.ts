@@ -1,3 +1,4 @@
+import type { Routing } from '../../types'
 import type { PeerDidNumAlgo2CreateOptions } from '@credo-ts/core'
 import type {
   CredentialProtocolVersionType,
@@ -5,13 +6,8 @@ import type {
   DidCommCredentialRole,
   DidCommCredentialState,
 } from '@credo-ts/didcomm'
-import type { Routing } from '../../types'
 
-import {
-  W3cCredentialService,
-  createPeerDidDocumentFromServices,
-  PeerDidNumAlgo,
-} from '@credo-ts/core'
+import { W3cCredentialService, createPeerDidDocumentFromServices, PeerDidNumAlgo } from '@credo-ts/core'
 import { Request as Req } from 'express'
 import { Body, Controller, Get, Path, Post, Route, Tags, Query, Security, Request } from 'tsoa'
 import { injectable } from 'tsyringe'
@@ -99,7 +95,10 @@ export class CredentialController extends Controller {
    * @returns CredentialExchangeRecord
    */
   @Get('/:credentialRecordId')
-  public async getCredentialById(@Request() request: Req, @Path('credentialRecordId') credentialRecordId: RecordId): Promise<any> {
+  public async getCredentialById(
+    @Request() request: Req,
+    @Path('credentialRecordId') credentialRecordId: RecordId,
+  ): Promise<any> {
     try {
       return { id: credentialRecordId, state: 'unknown' }
     } catch (error) {
@@ -115,7 +114,10 @@ export class CredentialController extends Controller {
    * @returns CredentialExchangeRecord
    */
   @Post('/propose-credential')
-  public async proposeCredential(@Request() request: Req, @Body() proposeCredentialOptions: ProposeCredentialOptions): Promise<any> {
+  public async proposeCredential(
+    @Request() request: Req,
+    @Body() proposeCredentialOptions: ProposeCredentialOptions,
+  ): Promise<any> {
     try {
       this.setStatus(501)
       return { message: 'Not implemented in W3C-only build' }
@@ -235,7 +237,10 @@ export class CredentialController extends Controller {
    * @returns CredentialExchangeRecord
    */
   @Post('/accept-offer')
-  public async acceptOffer(@Request() request: Req, @Body() acceptCredentialOfferOptions: CredentialOfferOptions): Promise<any> {
+  public async acceptOffer(
+    @Request() request: Req,
+    @Body() acceptCredentialOfferOptions: CredentialOfferOptions,
+  ): Promise<any> {
     try {
       // Link secret is not applicable in W3C-only build
       this.setStatus(501)
@@ -290,7 +295,10 @@ export class CredentialController extends Controller {
    * @returns credentialRecord
    */
   @Get('/:credentialRecordId/form-data')
-  public async credentialFormData(@Request() request: Req, @Path('credentialRecordId') credentialRecordId: string): Promise<any> {
+  public async credentialFormData(
+    @Request() request: Req,
+    @Path('credentialRecordId') credentialRecordId: string,
+  ): Promise<any> {
     try {
       this.setStatus(501)
       return { message: 'Not implemented in W3C-only build' }

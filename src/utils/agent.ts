@@ -1,6 +1,5 @@
 import type { InitConfig } from '@credo-ts/core'
 
-import { askar } from '@openwallet-foundation/askar-nodejs'
 import { AskarModule, AskarMultiWalletDatabaseScheme } from '@credo-ts/askar'
 import {
   DidsModule,
@@ -13,6 +12,7 @@ import {
 } from '@credo-ts/core'
 import { agentDependencies } from '@credo-ts/node'
 import { TenantsModule } from '@credo-ts/tenants'
+import { askar } from '@openwallet-foundation/askar-nodejs'
 
 import { TsLogger } from './logger'
 

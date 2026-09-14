@@ -1,6 +1,7 @@
 import { Controller, Post, Get, Route, Tags, Body, Path, Query } from 'tsoa'
-import { payrollService, Employee, PayrollRun, Payslip, TaxCompliance } from '../../services/PayrollService'
+
 import { payoutService } from '../../services/PayoutService'
+import { payrollService, Employee, PayrollRun, Payslip, TaxCompliance } from '../../services/PayrollService'
 
 export interface CreateEmployeeRequest {
   firstName: string

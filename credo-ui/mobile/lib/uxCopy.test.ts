@@ -1,4 +1,4 @@
-import { getFriendlyActivityActionLabel, getInboxDisplayTitle } from './uxCopy';
+import { getFriendlyActivityActionLabel, getInboxDisplayTitle } from './uxCopy'
 
 describe('ux copy helpers', () => {
   it('derives a field-stage title from the workflow stage instead of a generic fallback', () => {
@@ -8,8 +8,8 @@ describe('ux copy helpers', () => {
         workflowStage: 'ACKNOWLEDGED',
         actionLabel: 'Open',
       }),
-    ).toBe('Acknowledged');
-  });
+    ).toBe('Acknowledged')
+  })
 
   it('derives a payment-oriented label from the action and flow context', () => {
     expect(
@@ -17,6 +17,6 @@ describe('ux copy helpers', () => {
         workflowType: 'field_execution',
         providerRef: 'paylink-123',
       }),
-    ).toBe('Payment ready');
-  });
-});
+    ).toBe('Payment ready')
+  })
+})

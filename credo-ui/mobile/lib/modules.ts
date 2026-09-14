@@ -1,21 +1,15 @@
-import {
-  IconShoppingCart,
-  IconFileInvoice,
-  IconSchool,
-  IconCash,
-  IconTruck,
-} from '@tabler/icons-react';
-import type { TablerIcon } from '@tabler/icons-react';
+import { IconShoppingCart, IconFileInvoice, IconSchool, IconCash, IconTruck } from '@tabler/icons-react'
+import type { TablerIcon } from '@tabler/icons-react'
 
 export interface ModuleConfig {
-  featureKey: string;
-  label: string;
-  description: string;
-  icon: TablerIcon;
-  color: string;
-  accentColor: string;
-  inboxFilter: string;
-  actions: string[];
+  featureKey: string
+  label: string
+  description: string
+  icon: TablerIcon
+  color: string
+  accentColor: string
+  inboxFilter: string
+  actions: string[]
 }
 
 export const MODULE_REGISTRY: ModuleConfig[] = [
@@ -69,13 +63,13 @@ export const MODULE_REGISTRY: ModuleConfig[] = [
     inboxFilter: 'field',
     actions: ['My tasks', 'Capture evidence'],
   },
-];
+]
 
 export function getEnabledModules(features: string[]): ModuleConfig[] {
-  if (!features || features.length === 0) return [];
-  return MODULE_REGISTRY.filter((m) => features.includes(m.featureKey));
+  if (!features || features.length === 0) return []
+  return MODULE_REGISTRY.filter((m) => features.includes(m.featureKey))
 }
 
 export function getModuleByFeature(featureKey: string): ModuleConfig | undefined {
-  return MODULE_REGISTRY.find((m) => m.featureKey === featureKey);
+  return MODULE_REGISTRY.find((m) => m.featureKey === featureKey)
 }

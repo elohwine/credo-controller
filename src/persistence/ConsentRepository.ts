@@ -17,9 +17,11 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
-import { DatabaseManager } from './DatabaseManager'
-import { rootLogger } from '../utils/pinoLogger'
 import { v4 as uuid } from 'uuid'
+
+import { rootLogger } from '../utils/pinoLogger'
+
+import { DatabaseManager } from './DatabaseManager'
 
 const logger = rootLogger.child({ module: 'ConsentRepository' })
 
@@ -42,7 +44,7 @@ export class ConsentRepository {
   /**
    * Record a new consent
    */
-  async recordConsent(consent: Omit<ConsentRecord, 'status' | 'createdAt'>): Promise<ConsentRecord> {
+  public async recordConsent(consent: Omit<ConsentRecord, 'status' | 'createdAt'>): Promise<ConsentRecord> {
     const db = DatabaseManager.getDatabase()
     const id = consent.id || uuid()
 
@@ -75,7 +77,11 @@ export class ConsentRepository {
   /**
    * Find active consent for a subject and purpose
    */
-  async findActiveConsent(subjectDid: string, purpose: string, tenantId: string): Promise<ConsentRecord | undefined> {
+  public async findActiveConsent(
+    subjectDid: string,
+    purpose: string,
+    tenantId: string,
+  ): Promise<ConsentRecord | undefined> {
     const db = DatabaseManager.getDatabase()
 
     const row = db
@@ -112,7 +118,7 @@ export class ConsentRepository {
   /**
    * Get all consents for a subject
    */
-  async getConsentsForSubject(subjectDid: string, tenantId: string): Promise<ConsentRecord[]> {
+  public async getConsentsForSubject(subjectDid: string, tenantId: string): Promise<ConsentRecord[]> {
     const db = DatabaseManager.getDatabase()
 
     const rows = db
@@ -140,7 +146,7 @@ export class ConsentRepository {
   /**
    * Revoke a consent
    */
-  async revokeConsent(consentId: string, reason?: string): Promise<void> {
+  public async revokeConsent(consentId: string, reason?: string): Promise<void> {
     const db = DatabaseManager.getDatabase()
 
     db.prepare(
@@ -157,7 +163,7 @@ export class ConsentRepository {
   /**
    * Expire consents that have passed retention date
    */
-  async expireConsents(): Promise<number> {
+  public async expireConsents(): Promise<number> {
     const db = DatabaseManager.getDatabase()
 
     const result = db

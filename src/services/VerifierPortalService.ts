@@ -1,8 +1,10 @@
 import { injectable } from 'tsyringe'
+
+import { VerificationPolicy, TrustVerificationResult } from '../types/trust'
+import { rootLogger } from '../utils/pinoLogger'
+
 import { auditService } from './AuditService'
 import { revocationService } from './RevocationService'
-import { rootLogger } from '../utils/pinoLogger'
-import { VerificationPolicy, TrustVerificationResult } from '../types/trust'
 
 const logger = rootLogger.child({ module: 'VerifierPortalService' })
 

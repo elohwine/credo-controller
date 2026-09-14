@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import 'reflect-metadata'
 import type { Request as ExRequest } from 'express'
 
@@ -124,10 +125,7 @@ export class OidcMetadataController extends Controller {
    * Implements: https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#name-credential-issuer-metadata
    */
   @Get('tenants/{tenantId}/.well-known/openid-credential-issuer')
-  public async getIssuerMetadata(
-    @Request() request: ExRequest,
-    @Path() tenantId: string,
-  ): Promise<any> {
+  public async getIssuerMetadata(@Request() request: ExRequest, @Path() tenantId: string): Promise<any> {
     const tenant = getTenantById(tenantId)
     if (!tenant) {
       this.setStatus(404)
@@ -198,10 +196,7 @@ export class OidcMetadataController extends Controller {
    * Implements verifier discovery for OIDC4VP flows
    */
   @Get('tenants/{tenantId}/.well-known/openid-verifier')
-  public async getVerifierMetadata(
-    @Request() request: ExRequest,
-    @Path() tenantId: string,
-  ): Promise<any> {
+  public async getVerifierMetadata(@Request() request: ExRequest, @Path() tenantId: string): Promise<any> {
     const tenant = getTenantById(tenantId)
     if (!tenant) {
       this.setStatus(404)

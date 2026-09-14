@@ -23,7 +23,7 @@ class IssuerMetadataCacheClass {
   /**
    * Store issuer metadata keyed by origin (e.g., "http://127.0.0.1:3000")
    */
-  set(issuerUrl: string, metadata: any, did: string, kid: string, tenantId?: string): void {
+  public set(issuerUrl: string, metadata: any, did: string, kid: string, tenantId?: string): void {
     try {
       const origin = new URL(issuerUrl).origin.replace(/localhost/g, '127.0.0.1')
       this.cache.set(origin, {
@@ -34,8 +34,10 @@ class IssuerMetadataCacheClass {
         tenantId,
         cachedAt: new Date(),
       })
+      // eslint-disable-next-line no-console
       console.log(`[IssuerMetadataCache] Cached metadata for ${origin}`)
     } catch (e) {
+      // eslint-disable-next-line no-console
       console.warn('[IssuerMetadataCache] Failed to cache:', (e as any)?.message)
     }
   }
@@ -43,7 +45,7 @@ class IssuerMetadataCacheClass {
   /**
    * Get cached metadata by origin
    */
-  get(issuerUrl: string): CachedIssuerMetadata | undefined {
+  public get(issuerUrl: string): CachedIssuerMetadata | undefined {
     try {
       const origin = new URL(issuerUrl).origin.replace(/localhost/g, '127.0.0.1')
       return this.cache.get(origin)
@@ -55,7 +57,7 @@ class IssuerMetadataCacheClass {
   /**
    * Check if we have cached metadata for an origin
    */
-  has(issuerUrl: string): boolean {
+  public has(issuerUrl: string): boolean {
     try {
       const origin = new URL(issuerUrl).origin.replace(/localhost/g, '127.0.0.1')
       return this.cache.has(origin)
@@ -67,7 +69,7 @@ class IssuerMetadataCacheClass {
   /**
    * Get metadata for any localhost/127.0.0.1 origin (for local issuers)
    */
-  getLocalIssuer(): CachedIssuerMetadata | undefined {
+  public getLocalIssuer(): CachedIssuerMetadata | undefined {
     for (const [origin, data] of this.cache.entries()) {
       if (origin.includes('127.0.0.1') || origin.includes('localhost')) {
         return data
@@ -79,7 +81,7 @@ class IssuerMetadataCacheClass {
   /**
    * Clear cache for an origin
    */
-  delete(issuerUrl: string): boolean {
+  public delete(issuerUrl: string): boolean {
     try {
       const origin = new URL(issuerUrl).origin.replace(/localhost/g, '127.0.0.1')
       return this.cache.delete(origin)
@@ -91,14 +93,14 @@ class IssuerMetadataCacheClass {
   /**
    * Clear all cached metadata
    */
-  clear(): void {
+  public clear(): void {
     this.cache.clear()
   }
 
   /**
    * List all cached origins (for debugging)
    */
-  list(): string[] {
+  public list(): string[] {
     return Array.from(this.cache.keys())
   }
 }

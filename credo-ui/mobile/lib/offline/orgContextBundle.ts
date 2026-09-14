@@ -100,7 +100,10 @@ export function getCachedOrgContextBundle(tenantId?: string): OrgContextBundleCa
   const resolvedTenantId = resolveTenantId(tenantId)
   if (!resolvedTenantId) return null
 
-  return getOfflineStorageAdapter().get<OrgContextBundleCacheEntry>('org_capability_bundle', `${resolvedTenantId}:${ORG_CONTEXT_BUNDLE_CACHE_KEY}`)
+  return getOfflineStorageAdapter().get<OrgContextBundleCacheEntry>(
+    'org_capability_bundle',
+    `${resolvedTenantId}:${ORG_CONTEXT_BUNDLE_CACHE_KEY}`,
+  )
 }
 
 export function cacheOrgContextBundle(entry: OrgContextBundleCacheEntry): void {

@@ -3,8 +3,9 @@
  * Replaces in-memory issuedVcStore with SQLite-backed persistence
  */
 
-import { DatabaseManager } from './DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
+
+import { DatabaseManager } from './DatabaseManager'
 
 export interface IssuedCredentialPersistenceRecord {
   id: string
@@ -27,7 +28,7 @@ export class IssuedCredentialRepository {
   /**
    * Save or update issued credential
    */
-  save(record: IssuedCredentialPersistenceRecord): void {
+  public save(record: IssuedCredentialPersistenceRecord): void {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -39,10 +40,10 @@ export class IssuedCredentialRepository {
         @schemaId, @credentialData, @format, @revoked, CURRENT_TIMESTAMP
       )
       ON CONFLICT(id) DO UPDATE SET
-        holder_did = @holderDid,
-        credential_data = @credentialData,
-        format = @format,
-        revoked = @revoked
+        public holder_did = @holderDid,
+        public credential_data = @credentialData,
+        public format = @format,
+        public revoked = @revoked
     `)
 
     try {
@@ -68,7 +69,7 @@ export class IssuedCredentialRepository {
   /**
    * Find credential by credential ID
    */
-  findByCredentialId(credentialId: string): IssuedCredentialPersistenceRecord | undefined {
+  public findByCredentialId(credentialId: string): IssuedCredentialPersistenceRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -99,7 +100,7 @@ export class IssuedCredentialRepository {
   /**
    * Find credential by ID
    */
-  findById(id: string): IssuedCredentialPersistenceRecord | undefined {
+  public findById(id: string): IssuedCredentialPersistenceRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -130,7 +131,7 @@ export class IssuedCredentialRepository {
   /**
    * Find all credentials for a tenant
    */
-  findByTenantId(tenantId: string): IssuedCredentialPersistenceRecord[] {
+  public findByTenantId(tenantId: string): IssuedCredentialPersistenceRecord[] {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -158,7 +159,7 @@ export class IssuedCredentialRepository {
   /**
    * Find credentials by holder DID
    */
-  findByHolderDid(holderDid: string): IssuedCredentialPersistenceRecord[] {
+  public findByHolderDid(holderDid: string): IssuedCredentialPersistenceRecord[] {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -186,7 +187,7 @@ export class IssuedCredentialRepository {
   /**
    * Revoke a credential
    */
-  revoke(credentialId: string, reason?: string): boolean {
+  public revoke(credentialId: string, reason?: string): boolean {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -208,7 +209,7 @@ export class IssuedCredentialRepository {
   /**
    * Check if credential is revoked
    */
-  isRevoked(credentialId: string): boolean {
+  public isRevoked(credentialId: string): boolean {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('SELECT revoked FROM issued_credentials WHERE credential_id = ?')
@@ -220,7 +221,7 @@ export class IssuedCredentialRepository {
   /**
    * Delete credential by ID
    */
-  deleteById(id: string): boolean {
+  public deleteById(id: string): boolean {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('DELETE FROM issued_credentials WHERE id = ?')
@@ -237,7 +238,7 @@ export class IssuedCredentialRepository {
   /**
    * Delete all credentials for a tenant
    */
-  deleteByTenantId(tenantId: string): number {
+  public deleteByTenantId(tenantId: string): number {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('DELETE FROM issued_credentials WHERE tenant_id = ?')
@@ -251,7 +252,7 @@ export class IssuedCredentialRepository {
   /**
    * Get count of issued credentials for a tenant
    */
-  countByTenantId(tenantId: string): number {
+  public countByTenantId(tenantId: string): number {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('SELECT COUNT(*) as count FROM issued_credentials WHERE tenant_id = ?')
@@ -263,7 +264,7 @@ export class IssuedCredentialRepository {
   /**
    * Get count of revoked credentials for a tenant
    */
-  countRevokedByTenantId(tenantId: string): number {
+  public countRevokedByTenantId(tenantId: string): number {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('SELECT COUNT(*) as count FROM issued_credentials WHERE tenant_id = ? AND revoked = 1')

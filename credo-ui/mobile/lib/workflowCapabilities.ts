@@ -74,9 +74,11 @@ function matchesCapabilityToken(capability: WorkflowCapability, token: string): 
   if (allowed.includes(token)) return true
 
   if (capability === 'internal_requisitions') {
-    return /^tpl-(internal-)?requisitions?([-.].*)?$/.test(token)
-      || /(^|[-.])internal-requisitions?([-.]|$)/.test(token)
-      || /(^|[-.])requisitions?([-.]|$)/.test(token)
+    return (
+      /^tpl-(internal-)?requisitions?([-.].*)?$/.test(token) ||
+      /(^|[-.])internal-requisitions?([-.]|$)/.test(token) ||
+      /(^|[-.])requisitions?([-.]|$)/.test(token)
+    )
   }
 
   return false
@@ -142,7 +144,7 @@ export function getWorkflowCapabilityFlags(templates: WorkflowTemplateLike[]) {
 
 export function findTemplateForCapability(
   templates: WorkflowTemplateLike[],
-  capability: WorkflowCapability
+  capability: WorkflowCapability,
 ): WorkflowTemplateLike | undefined {
   if (!Array.isArray(templates) || templates.length === 0) return undefined
 

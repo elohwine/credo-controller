@@ -25,10 +25,7 @@ export class OidcVerifierController extends Controller {
   @Post('verifier/presentation-requests')
   @SuccessResponse('201', 'Created')
   @Security('jwt', ['tenant'])
-  public async createPresentationRequest(
-    @Request() request: ExRequest,
-    @Body() body: any,
-  ): Promise<any> {
+  public async createPresentationRequest(@Request() request: ExRequest, @Body() body: any): Promise<any> {
     const queryLanguage = body.queryLanguage ?? 'dcql'
     const agent = request.agent
     const user = (request as any).user as { tenantId?: string; sub?: string } | undefined

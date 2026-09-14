@@ -201,28 +201,24 @@
         "present": false,
         "evidence": [
           "No test harness covering onboard/issue/verify/revoke.",
-          "which-flows": []
+          {
+            "which-flows": []
+          }
         ]
       },
       "e2e": {
         "present": false,
-        "evidence": [
-          "No e2e or smoke tests for tenant lifecycle."
-        ]
+        "evidence": ["No e2e or smoke tests for tenant lifecycle."]
       }
     },
     "infra": {
       "dns_and_subdomain_provision": {
         "present": false,
-        "evidence": [
-          "No IaC or scripting for subdomains or routing under scripts/."
-        ]
+        "evidence": ["No IaC or scripting for subdomains or routing under scripts/."]
       },
       "tls_cert_setup": {
         "present": false,
-        "evidence": [
-          "Dockerfile/docker-compose omit certbot/ACME or TLS configuration."
-        ]
+        "evidence": ["Dockerfile/docker-compose omit certbot/ACME or TLS configuration."]
       },
       "did_web_support": {
         "present": true,
@@ -262,20 +258,14 @@
       "why": "Credential revocation is a local boolean; no status list per tenant.",
       "severity": "high",
       "suggestedFix": "// src/controllers/oidc/OidcIssuerController.ts\nconst statusList = await ensureStatusList(request.agent)\npayload.credentialStatus = statusList.entry\nawait publishStatusList(request.agent, statusList)",
-      "filesToChange": [
-        "src/controllers/oidc/OidcIssuerController.ts",
-        "src/services/statusList.ts"
-      ]
+      "filesToChange": ["src/controllers/oidc/OidcIssuerController.ts", "src/services/statusList.ts"]
     },
     {
       "item": "tenant-deletion-cleanup",
       "why": "Deleting a tenant leaves credentials and Askar profile intact.",
       "severity": "high",
       "suggestedFix": "// src/controllers/multi-tenancy/MultiTenancyController.ts\nawait agent.modules.tenants.withTenantAgent({ tenantId }, async (tenantAgent) => {\n  await revokeIssuedCredentials(tenantAgent)\n  await tenantAgent.wallet.deleteProfile()\n})",
-      "filesToChange": [
-        "src/controllers/multi-tenancy/MultiTenancyController.ts",
-        "src/services/revocation.ts"
-      ]
+      "filesToChange": ["src/controllers/multi-tenancy/MultiTenancyController.ts", "src/services/revocation.ts"]
     }
   ],
   "actionPlan": [
@@ -304,11 +294,7 @@
         "Implement status list revocation + publication per tenant",
         "Wire deleteTenant to revoke issued credentials and destroy Askar profile"
       ],
-      "codeRefs": [
-        "src/authentication.ts",
-        "src/utils/kms.ts",
-        "src/controllers/oidc/OidcIssuerController.ts"
-      ],
+      "codeRefs": ["src/authentication.ts", "src/utils/kms.ts", "src/controllers/oidc/OidcIssuerController.ts"],
       "testToAdd": "tests/multiTenancy/revocation.spec.ts"
     },
     {
@@ -319,11 +305,7 @@
         "Add integration/e2e tests: onboard → issue → verify → revoke",
         "Document DNS/TLS automation or wildcard routing strategy"
       ],
-      "codeRefs": [
-        "src/middleware/auditLogger.ts",
-        "package.json",
-        "docs/tenancy-operations.md"
-      ],
+      "codeRefs": ["src/middleware/auditLogger.ts", "package.json", "docs/tenancy-operations.md"],
       "testToAdd": "tests/e2e/tenantLifecycle.spec.ts"
     }
   ],

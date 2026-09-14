@@ -42,9 +42,10 @@ function resolveWalletId(token?: string | null): string | null {
 export function getCachedWalletSnapshot(walletId?: string | null): WalletOfflineSnapshot | null {
   const storage = getOfflineStorageAdapter()
 
-  const resolvedWalletId = walletId && walletId.trim().length > 0
-    ? walletId.trim()
-    : storage.get<string>('sync_state', WALLET_CACHE_LAST_ID_KEY)
+  const resolvedWalletId =
+    walletId && walletId.trim().length > 0
+      ? walletId.trim()
+      : storage.get<string>('sync_state', WALLET_CACHE_LAST_ID_KEY)
 
   if (!resolvedWalletId) return null
 
@@ -61,26 +62,35 @@ function normalizeCredentialRows(items: any[]): WalletSnapshotCredential[] {
     const subject = item?.parsedDocument?.credentialSubject || item?.credentialSubject || {}
     const baseKey = subject.transactionId || subject.invoiceHash || subject.invoiceId || subject.cartId || item.id
     const type = Array.isArray(item?.type) ? item.type : [item?.type]
-    const isReceipt = type.filter(Boolean).map(String).some((t: string) => t.includes('Receipt'))
+    const isReceipt = type
+      .filter(Boolean)
+      .map(String)
+      .some((t: string) => t.includes('Receipt'))
     const key = isReceipt ? `receipt-${item.id}` : `${baseKey}-${String(type.find(Boolean) || 'Credential')}`
     if (!dedupedMap.has(key) || new Date(item.addedOn || 0) > new Date(dedupedMap.get(key)?.addedOn || 0)) {
       dedupedMap.set(key, item)
     }
   })
 
-  return Array.from(dedupedMap.values()).map((item) => ({
-    id: item.vc_id || item.id,
-    type: item.vc_type || item.type || 'VerifiableCredential',
-    issuerDid: item.issuerDid,
-    addedOn: item.issued_at || item.addedOn,
-    revoked: !!item.revoked || item.status === 'REVOKED',
-    archived: !!item.archived,
-    revocationReason: item.revocation_reason,
-    parsedDocument: item.parsedDocument || item.parsed_document,
-  } as WalletSnapshotCredential))
+  return Array.from(dedupedMap.values()).map(
+    (item) =>
+      ({
+        id: item.vc_id || item.id,
+        type: item.vc_type || item.type || 'VerifiableCredential',
+        issuerDid: item.issuerDid,
+        addedOn: item.issued_at || item.addedOn,
+        revoked: !!item.revoked || item.status === 'REVOKED',
+        archived: !!item.archived,
+        revocationReason: item.revocation_reason,
+        parsedDocument: item.parsedDocument || item.parsed_document,
+      }) as WalletSnapshotCredential,
+  )
 }
 
-export async function syncWalletSnapshot(options?: { token?: string; walletId?: string }): Promise<WalletOfflineSnapshot | null> {
+export async function syncWalletSnapshot(options?: {
+  token?: string
+  walletId?: string
+}): Promise<WalletOfflineSnapshot | null> {
   const storage = getOfflineStorageAdapter()
 
   const token = options?.token || getWalletToken()
@@ -95,14 +105,10 @@ export async function syncWalletSnapshot(options?: { token?: string; walletId?: 
     try {
       let authToken = token
       try {
-        const sessionRes = await api.post(
-          '/api/ssi/auth/session',
-          { expiresInSeconds: 900 },
-          {
-            headers: { Authorization: `Bearer ${token}` },
-            skipAuthRedirect: true as any,
-          } as any,
-        )
+        const sessionRes = await api.post('/api/ssi/auth/session', { expiresInSeconds: 900 }, {
+          headers: { Authorization: `Bearer ${token}` },
+          skipAuthRedirect: true as any,
+        } as any)
         if (sessionRes.data?.token) authToken = sessionRes.data.token
       } catch {
         // Fall back to primary token

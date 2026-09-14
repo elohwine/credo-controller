@@ -4,9 +4,11 @@
  *
  * Exposes health checks and metrics for monitoring systems.
  */
-import { Controller, Get, Route, Tags, Response, Request } from 'tsoa'
-import { metricsService } from '../../services/MetricsService'
 import type { Request as ExRequest } from 'express'
+
+import { Controller, Get, Route, Tags, Response, Request } from 'tsoa'
+
+import { metricsService } from '../../services/MetricsService'
 
 interface HealthResponse {
   status: 'healthy' | 'degraded' | 'unhealthy'

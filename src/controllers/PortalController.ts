@@ -1,7 +1,9 @@
+import type { RestMultiTenantAgentModules } from '../cliAgent'
+
+import { Agent } from '@credo-ts/core'
 import { Controller, Get, Route, Tags, Path } from 'tsoa'
 import { injectable, container } from 'tsyringe'
-import { Agent } from '@credo-ts/core'
-import type { RestMultiTenantAgentModules } from '../cliAgent'
+
 import { credentialDefinitionStore } from '../utils/credentialDefinitionStore'
 
 @Route('api')

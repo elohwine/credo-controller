@@ -19,7 +19,10 @@ export class EndorserTransactionController extends Controller {
    * Can be extended for different blockchain backends (Hyperledger Fabric, etc.)
    */
   @Post('/endorse')
-  public async endorserTransaction(@Request() request: Req, @Body() endorserTransaction: EndorserTransaction): Promise<any> {
+  public async endorserTransaction(
+    @Request() request: Req,
+    @Body() endorserTransaction: EndorserTransaction,
+  ): Promise<any> {
     try {
       // TODO: Implement blockchain-agnostic endorsement logic
       // This can be extended to support multiple blockchain types

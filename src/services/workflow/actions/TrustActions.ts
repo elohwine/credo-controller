@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * IdenEx Credentis - Trust Scoring Actions
  *
@@ -19,7 +20,8 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
-import { WorkflowActionContext } from '../ActionRegistry'
+import type { WorkflowActionContext } from '../ActionRegistry'
+
 import { rootLogger } from '../../../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'TrustActions' })

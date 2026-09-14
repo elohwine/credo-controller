@@ -1,13 +1,8 @@
+/* eslint-disable no-console */
 // src/controllers/wallet/WalletController.ts
-import { Controller, Post, Get, Route, Tags, Body, Request, Path, Query, Security } from 'tsoa'
+import type { RestMultiTenantAgentModules } from '../../cliAgent'
 import type { Request as ExRequest } from 'express'
-import { injectable } from 'tsyringe'
-import { getTenantById } from '../../persistence/TenantRepository'
-import {
-  getWalletCredentialsByWalletId,
-  getWalletCredentialById,
-  saveWalletCredential,
-} from '../../persistence/WalletCredentialRepository'
+
 import {
   Agent,
   W3cCredentialService,
@@ -16,14 +11,22 @@ import {
   ClaimFormat,
   JsonTransformer,
 } from '@credo-ts/core'
-import { container } from 'tsyringe'
-import { getWalletUserByWalletId } from '../../persistence/UserRepository'
-import { UnauthorizedError } from '../../errors/errors'
-import type { RestMultiTenantAgentModules } from '../../cliAgent'
-import * as jwt from 'jsonwebtoken'
-import { SCOPES } from '../../enums'
-import { issuerMetadataCache } from '../../utils/issuerMetadataCache'
 import { OpenId4VcIssuerService } from '@credo-ts/openid4vc'
+import * as jwt from 'jsonwebtoken'
+import { Controller, Post, Get, Route, Tags, Body, Request, Path, Query, Security } from 'tsoa'
+import { injectable } from 'tsyringe'
+import { container } from 'tsyringe'
+
+import { SCOPES } from '../../enums'
+import { UnauthorizedError } from '../../errors/errors'
+import { getTenantById } from '../../persistence/TenantRepository'
+import { getWalletUserByWalletId } from '../../persistence/UserRepository'
+import {
+  getWalletCredentialsByWalletId,
+  getWalletCredentialById,
+  saveWalletCredential,
+} from '../../persistence/WalletCredentialRepository'
+import { issuerMetadataCache } from '../../utils/issuerMetadataCache'
 
 /**
  * Full WalletController with scoped fetch interception for local issuer well-known metadata.
@@ -1103,9 +1106,7 @@ export class WalletController extends Controller {
     const agent = this.getBaseAgentForHolder()
     try {
       console.log('[usePresentationRequest] Resolving request for submission...')
-      const resolved = await (agent as any).openid4vc?.holder?.resolveOpenId4VpAuthorizationRequest(
-        presentationRequest,
-      )
+      const resolved = await (agent as any).openid4vc?.holder?.resolveOpenId4VpAuthorizationRequest(presentationRequest)
 
       console.log('[usePresentationRequest] Accepting request...')
       const inputDescriptors = resolved.authorizationRequest.presentationDefinition?.inputDescriptors || []

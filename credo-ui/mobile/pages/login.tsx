@@ -78,7 +78,7 @@ export default function LoginPage() {
       // Org context is NEVER set on login — user must manually switch via the org selector.
 
       const returnTo = router.query.returnTo as string | undefined;
-      router.replace(returnTo ?? '/');
+      router.replace(returnTo ?? '/inbox');
     } catch (err: any) {
       const msg = err.response?.data?.message ?? err.message ?? 'Login failed';
       setError(msg);

@@ -118,7 +118,10 @@ export async function flushOfflineQueueToServer(): Promise<OfflineQueueFlushSumm
       }
 
       if (result.state === 'conflict') {
-        queue.markConflict(item.idempotencyKey, result.errorMessage || result.errorCode || 'Conflict during reconciliation')
+        queue.markConflict(
+          item.idempotencyKey,
+          result.errorMessage || result.errorCode || 'Conflict during reconciliation',
+        )
         conflicted += 1
         return
       }

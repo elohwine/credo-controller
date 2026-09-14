@@ -70,7 +70,10 @@ function getSecureOfflineStoragePlugin(): SecureOfflineStoragePlugin | null {
   return plugins.SecureOfflineStorage || null
 }
 
-function hasNativeRecordApis(plugin: SecureOfflineStoragePlugin | null): plugin is Required<Pick<SecureOfflineStoragePlugin, 'putRecord' | 'removeRecord' | 'listRecords'>> & SecureOfflineStoragePlugin {
+function hasNativeRecordApis(
+  plugin: SecureOfflineStoragePlugin | null,
+): plugin is Required<Pick<SecureOfflineStoragePlugin, 'putRecord' | 'removeRecord' | 'listRecords'>> &
+  SecureOfflineStoragePlugin {
   return Boolean(plugin?.putRecord && plugin?.removeRecord && plugin?.listRecords)
 }
 
@@ -97,9 +100,10 @@ function getOrCreateInstallationId(storage?: Storage): string | null {
     const existing = resolvedStorage.getItem(OFFLINE_STORAGE_INSTALLATION_ID)
     if (existing) return existing
 
-    const nextId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `offline-install-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
+    const nextId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `offline-install-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
 
     resolvedStorage.setItem(OFFLINE_STORAGE_INSTALLATION_ID, nextId)
     return nextId
@@ -267,7 +271,10 @@ function collectLegacyOfflineRecords(storage?: Storage): Array<{ key: string; va
 class NativeSecureOfflineAdapter implements OfflineStorageAdapter {
   private readonly cache = new Map<string, string>()
 
-  public constructor(private readonly plugin: SecureOfflineStoragePlugin, seed: Array<{ key: string; value: string }> = []) {
+  public constructor(
+    private readonly plugin: SecureOfflineStoragePlugin,
+    seed: Array<{ key: string; value: string }> = [],
+  ) {
     for (const row of seed) {
       if (!row.key) continue
       this.cache.set(row.key, row.value)
@@ -379,7 +386,7 @@ export async function initializeOfflineStorage(storage?: Storage): Promise<void>
 export function createLocalStorageOfflineAdapter(storage?: Storage): OfflineStorageAdapter {
   const resolvedStorage = resolveStorage(storage)
 
-  const safeGet = <T,>(domain: OfflineStorageDomain, key: string): T | null => {
+  const safeGet = <T>(domain: OfflineStorageDomain, key: string): T | null => {
     if (!resolvedStorage || !key) return null
     try {
       const raw = resolvedStorage.getItem(buildStorageKey(domain, key))
@@ -390,7 +397,7 @@ export function createLocalStorageOfflineAdapter(storage?: Storage): OfflineStor
     }
   }
 
-  const safeSet = <T,>(domain: OfflineStorageDomain, key: string, value: T): void => {
+  const safeSet = <T>(domain: OfflineStorageDomain, key: string, value: T): void => {
     if (!resolvedStorage || !key) return
     try {
       resolvedStorage.setItem(buildStorageKey(domain, key), JSON.stringify(value))
@@ -408,7 +415,7 @@ export function createLocalStorageOfflineAdapter(storage?: Storage): OfflineStor
     }
   }
 
-  const safeList = <T,>(domain: OfflineStorageDomain): Array<{ key: string; value: T }> => {
+  const safeList = <T>(domain: OfflineStorageDomain): Array<{ key: string; value: T }> => {
     if (!resolvedStorage) return []
 
     const prefix = domainPrefix(domain)
@@ -468,7 +475,7 @@ export function createEncryptedOfflineAdapter(storage?: Storage): OfflineStorage
     }
   }
 
-  const safeGet = <T,>(domain: OfflineStorageDomain, key: string): T | null => {
+  const safeGet = <T>(domain: OfflineStorageDomain, key: string): T | null => {
     if (!resolvedStorage || !key) return null
     try {
       const raw = resolvedStorage.getItem(buildStorageKey(domain, key))
@@ -481,7 +488,7 @@ export function createEncryptedOfflineAdapter(storage?: Storage): OfflineStorage
     }
   }
 
-  const safeSet = <T,>(domain: OfflineStorageDomain, key: string, value: T): void => {
+  const safeSet = <T>(domain: OfflineStorageDomain, key: string, value: T): void => {
     if (!resolvedStorage || !key) return
     try {
       const encrypted = encrypt(JSON.stringify(value))
@@ -501,7 +508,7 @@ export function createEncryptedOfflineAdapter(storage?: Storage): OfflineStorage
     }
   }
 
-  const safeList = <T,>(domain: OfflineStorageDomain): Array<{ key: string; value: T }> => {
+  const safeList = <T>(domain: OfflineStorageDomain): Array<{ key: string; value: T }> => {
     if (!resolvedStorage) return []
 
     const prefix = domainPrefix(domain)
@@ -544,9 +551,10 @@ let defaultAdapter: OfflineStorageAdapter | null = null
 
 export function getOfflineStorageAdapter(): OfflineStorageAdapter {
   if (!defaultAdapter) {
-    defaultAdapter = getConfiguredOfflineStorageMode() === 'encrypted'
-      ? createEncryptedOfflineAdapter()
-      : createLocalStorageOfflineAdapter()
+    defaultAdapter =
+      getConfiguredOfflineStorageMode() === 'encrypted'
+        ? createEncryptedOfflineAdapter()
+        : createLocalStorageOfflineAdapter()
   }
   return defaultAdapter
 }

@@ -2349,8 +2349,6 @@ BUSINESS EXECUTION
 VERIFIABLE ORGANIZATIONAL OPERATIONS
 ```
 
-
-
 UI
 
 Credentis Platform Remodel — UI & Inbox Workflow Guide
@@ -2399,7 +2397,7 @@ INBOX
 
 School Fees
 └── Review fee payment
-    └── Approve / Pay / Provide information
+└── Approve / Pay / Provide information
 
     Requisition
     └── Approve requisition
@@ -3661,6 +3659,7 @@ School Fees
                                                                                                                                                                                                                                                                                                                                                                                             }
 
                                                                                                                                                                                                                                                                                                                                                                         org onbparding
+                                                                                                                                                                                                                                                                                                                                                             ORG ONBOARDONG STARTS HERE
                                                                                                                                                                                                                                                                                                                                                                         Exactly. After reviewing the remodel direction and the current Git branch, I would **not bring back the old “activate features → activate workflow” onboarding model**.
 
 The better model is:
@@ -3669,7 +3668,7 @@ The better model is:
 
 The critical distinction is that **you are configuring an organization, not switching product features on and off**.
 
-The current backend already points in this direction. Creating a tenant provisions the technical SSI foundation — tenant wallet/profile, issuer DID, verifier DID, OpenID issuer/verifier records and default VC models for an ORG tenant.  The organizational foundation is then a separate layer involving memberships, roles, authorities, requests and policy. Your new `PlatformRequestService` and authorization layer are already designed around that model.
+The current backend already points in this direction. Creating a tenant provisions the technical SSI foundation — tenant wallet/profile, issuer DID, verifier DID, OpenID issuer/verifier records and default VC models for an ORG tenant. The organizational foundation is then a separate layer involving memberships, roles, authorities, requests and policy. Your new `PlatformRequestService` and authorization layer are already designed around that model.
 
 ## The onboarding model I recommend
 

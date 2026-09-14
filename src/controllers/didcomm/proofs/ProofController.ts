@@ -1,12 +1,12 @@
-import type { PeerDidNumAlgo2CreateOptions } from '@credo-ts/core'
 import type { Routing } from '../../types'
-
-import { PeerDidNumAlgo, createPeerDidDocumentFromServices } from '@credo-ts/core'
+import type { PeerDidNumAlgo2CreateOptions } from '@credo-ts/core'
 import type {
   AcceptProofRequestOptions,
   DidCommProofExchangeRecordProps,
   ProofsProtocolVersionType,
 } from '@credo-ts/didcomm'
+
+import { PeerDidNumAlgo, createPeerDidDocumentFromServices } from '@credo-ts/core'
 import { Request as Req } from 'express'
 import { Body, Controller, Get, Path, Post, Query, Route, Tags, Security, Request } from 'tsoa'
 import { injectable } from 'tsyringe'
@@ -69,7 +69,10 @@ export class ProofController extends Controller {
    * @returns ProofRecord
    */
   @Post('/propose-proof')
-  public async proposeProof(@Request() request: Req, @Body() requestProofProposalOptions: RequestProofProposalOptions): Promise<any> {
+  public async proposeProof(
+    @Request() request: Req,
+    @Body() requestProofProposalOptions: RequestProofProposalOptions,
+  ): Promise<any> {
     try {
       const proof = await request.agent.didcomm.proofs.proposeProof({
         connectionId: requestProofProposalOptions.connectionId,
@@ -140,7 +143,10 @@ export class ProofController extends Controller {
    * Creates a presentation request not bound to any proposal or existing connection
    */
   @Post('create-request-oob')
-  public async createRequest(@Request() request: Req, @Body() createRequestOptions: CreateProofRequestOobOptions): Promise<any> {
+  public async createRequest(
+    @Request() request: Req,
+    @Body() createRequestOptions: CreateProofRequestOobOptions,
+  ): Promise<any> {
     try {
       let routing: Routing
       let invitationDid: string | undefined

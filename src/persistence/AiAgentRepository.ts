@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * AI Agent Repository
  *
@@ -7,10 +8,12 @@
  * Reference: https://www.agentcommercekit.com/ack-id
  */
 
+import type { AiAgentRecord, AiAgentStatus, AiAgentScope, ProvisionAiAgentParams } from '../ai/types/ack-types'
+
 import { injectable } from 'tsyringe'
 import { v4 as uuidv4 } from 'uuid'
+
 import { DatabaseManager } from './DatabaseManager'
-import type { AiAgentRecord, AiAgentStatus, AiAgentScope, ProvisionAiAgentParams } from '../ai/types/ack-types'
 
 @injectable()
 export class AiAgentRepository {

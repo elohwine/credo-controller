@@ -4,6 +4,7 @@
  * Phase 9A: Production Hardening - Observability
  */
 import type { Request, Response, NextFunction } from 'express'
+
 import { auditService } from '../services/AuditService'
 import { rootLogger } from '../utils/pinoLogger'
 

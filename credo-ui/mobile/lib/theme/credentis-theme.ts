@@ -1,7 +1,7 @@
 /**
  * Credentis Mantine Theme — shared between portal and mobile
  */
-import { createTheme, MantineColorsTuple } from '@mantine/core';
+import { createTheme, MantineColorsTuple } from '@mantine/core'
 
 const credentis: MantineColorsTuple = [
   '#e8f4fa',
@@ -14,22 +14,46 @@ const credentis: MantineColorsTuple = [
   '#1b6fa6',
   '#155782',
   '#0f3f5e',
-];
+]
 
 const success: MantineColorsTuple = [
-  '#e6fbf4', '#c3f5e3', '#9cedd0', '#75e5bc', '#4edda9',
-  '#27d595', '#1fb87e', '#199a69', '#137c54', '#0d5e3f',
-];
+  '#e6fbf4',
+  '#c3f5e3',
+  '#9cedd0',
+  '#75e5bc',
+  '#4edda9',
+  '#27d595',
+  '#1fb87e',
+  '#199a69',
+  '#137c54',
+  '#0d5e3f',
+]
 
 const warning: MantineColorsTuple = [
-  '#fff8e6', '#ffecb8', '#ffe08a', '#ffd45c', '#ffc82e',
-  '#ffbc00', '#d9a000', '#b38400', '#8c6800', '#664c00',
-];
+  '#fff8e6',
+  '#ffecb8',
+  '#ffe08a',
+  '#ffd45c',
+  '#ffc82e',
+  '#ffbc00',
+  '#d9a000',
+  '#b38400',
+  '#8c6800',
+  '#664c00',
+]
 
 const danger: MantineColorsTuple = [
-  '#ffeaea', '#ffcaca', '#ffaaaa', '#ff8a8a', '#ff6a6a',
-  '#ff4a4a', '#e03030', '#c01818', '#a00000', '#800000',
-];
+  '#ffeaea',
+  '#ffcaca',
+  '#ffaaaa',
+  '#ff8a8a',
+  '#ff6a6a',
+  '#ff4a4a',
+  '#e03030',
+  '#c01818',
+  '#a00000',
+  '#800000',
+]
 
 export const credentisTheme = createTheme({
   colors: { credentis, brand: credentis, blue: credentis, success, warning, danger },
@@ -93,13 +117,13 @@ export const credentisTheme = createTheme({
     },
     animation: { fast: '150ms', normal: '300ms', slow: '500ms' },
   },
-});
+})
 
 export const credentisColors = {
   curious: '#2188CA',
   linkWater: '#D0E6F3',
   viking: '#6FB4DC',
   cornflower: '#88C4E3',
-} as const;
+} as const
 
-export default credentisTheme;
+export default credentisTheme

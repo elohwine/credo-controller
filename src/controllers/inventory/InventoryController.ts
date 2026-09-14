@@ -10,9 +10,11 @@
  * Integrates with existing catalog and finance flows.
  */
 
-import { Controller, Post, Get, Route, Tags, Body, Path, Query, Security, Request } from 'tsoa'
 import type { Request as ExRequest } from 'express'
+
 import { randomUUID } from 'crypto'
+import { Controller, Post, Get, Route, Tags, Body, Path, Query, Security, Request } from 'tsoa'
+
 import { SCOPES } from '../../enums'
 import {
   inventoryService,

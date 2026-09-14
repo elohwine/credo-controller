@@ -1,8 +1,11 @@
-import { Controller, Post, Get, Route, Tags, Body, Request, Security } from 'tsoa'
-import type { Request as ExRequest } from 'express'
-import { container } from 'tsyringe'
-import { Agent, W3cCredentialRecord, W3cCredentialService } from '@credo-ts/core'
+/* eslint-disable no-console */
 import type { RestMultiTenantAgentModules } from '../../cliAgent'
+import type { Request as ExRequest } from 'express'
+
+import { Agent, W3cCredentialRecord, W3cCredentialService } from '@credo-ts/core'
+import { Controller, Post, Get, Route, Tags, Body, Request, Security } from 'tsoa'
+import { container } from 'tsyringe'
+
 import { SCOPES } from '../../enums'
 import { getWalletUserByWalletId } from '../../persistence/UserRepository'
 
@@ -315,9 +318,9 @@ export class WalletCredentialsController extends Controller {
       for (const credentialRecord of credentials) {
         try {
           // Store in tenant wallet
-              const storedRecord = await w3cService.storeCredential(tenantAgent.context, {
-                record: W3cCredentialRecord.fromCredential(credentialRecord),
-              })
+          const storedRecord = await w3cService.storeCredential(tenantAgent.context, {
+            record: W3cCredentialRecord.fromCredential(credentialRecord),
+          })
           savedCredentialId = storedRecord.id
           console.log('[acceptOffer] Stored credential in tenant wallet:', storedRecord.id)
         } catch (storeError: any) {

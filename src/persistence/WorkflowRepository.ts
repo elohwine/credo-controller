@@ -1,5 +1,6 @@
-import { DatabaseManager } from './DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
+
+import { DatabaseManager } from './DatabaseManager'
 
 export interface WorkflowRecord {
   id: string
@@ -16,7 +17,7 @@ export interface WorkflowRecord {
 export class WorkflowRepository {
   private logger = rootLogger.child({ module: 'WorkflowRepository' })
 
-  save(record: WorkflowRecord): void {
+  public save(record: WorkflowRecord): void {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -28,12 +29,12 @@ export class WorkflowRepository {
         @inputSchema, @actions, CURRENT_TIMESTAMP
       )
       ON CONFLICT(id) DO UPDATE SET
-        name = @name,
-        category = @category,
-        provider = @provider,
-        description = @description,
-        input_schema = @inputSchema,
-        actions = @actions
+        public name = @name,
+        public category = @category,
+        public provider = @provider,
+        public description = @description,
+        public input_schema = @inputSchema,
+        public actions = @actions
     `)
 
     try {
@@ -55,7 +56,7 @@ export class WorkflowRepository {
     }
   }
 
-  findById(id: string): WorkflowRecord | undefined {
+  public findById(id: string): WorkflowRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -80,7 +81,7 @@ export class WorkflowRepository {
     return undefined
   }
 
-  list(tenantId?: string, category?: string): WorkflowRecord[] {
+  public list(tenantId?: string, category?: string): WorkflowRecord[] {
     const db = DatabaseManager.getDatabase()
 
     let query = `
@@ -118,7 +119,7 @@ export class WorkflowRepository {
     }))
   }
 
-  deleteById(id: string): boolean {
+  public deleteById(id: string): boolean {
     const db = DatabaseManager.getDatabase()
     const stmt = db.prepare('DELETE FROM workflows WHERE id = ?')
     const result = stmt.run(id)

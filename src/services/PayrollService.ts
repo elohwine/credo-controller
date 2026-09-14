@@ -1,12 +1,15 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * Payroll Service
  * Handles employee management, payroll calculation, and payslip generation.
  * Supports plugin architecture for statutory deductions (NSSA, PAYE).
  */
 
-import { DatabaseManager } from '../persistence/DatabaseManager'
 import { randomUUID } from 'crypto'
+
+import { DatabaseManager } from '../persistence/DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
+
 import { credentialIssuanceService } from './CredentialIssuanceService'
 import { NSSACalculator, PAYECalculator } from './payroll/plugins/StatutoryPlugins'
 

@@ -4,8 +4,8 @@ import type { Request as ExRequest } from 'express'
 
 import { Controller, Get, Post, Route, Tags, Body, SuccessResponse, Path, Security, Request } from 'tsoa'
 
-import { schemaStore, RegisterSchemaRequest, RegisteredSchema } from '../../utils/schemaStore'
 import { BadRequestError, ConflictError } from '../../errors/errors'
+import { schemaStore, RegisterSchemaRequest, RegisteredSchema } from '../../utils/schemaStore'
 
 // Controller delegates to shared schemaStore so other modules (issuance) can validate claims.
 

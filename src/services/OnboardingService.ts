@@ -1,8 +1,11 @@
-import { DatabaseManager } from '../persistence/DatabaseManager'
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 import { randomUUID } from 'crypto'
+
+import { DatabaseManager } from '../persistence/DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
-import { payrollService } from './PayrollService'
+
 import { credentialIssuanceService } from './CredentialIssuanceService'
+import { payrollService } from './PayrollService'
 
 const logger = rootLogger.child({ module: 'OnboardingService' })
 

@@ -1,4 +1,5 @@
 import { Controller, Post, Get, Route, Tags, Body, Path, Query } from 'tsoa'
+
 import { trustEngine, TrustEngineScore, TrustEngineEvent } from '../../services/TrustEngine'
 
 export interface RecordEventRequest {

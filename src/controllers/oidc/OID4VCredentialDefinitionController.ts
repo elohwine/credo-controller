@@ -1,8 +1,9 @@
+/* eslint-disable no-console */
 import 'reflect-metadata' // MUST be first import before any decorated controllers
 import type { Request as ExRequest } from 'express'
 
-import { Body, Controller, Get, Path, Post, Route, Security, Tags, Request } from 'tsoa'
 import jwt from 'jsonwebtoken'
+import { Body, Controller, Get, Path, Post, Route, Security, Tags, Request } from 'tsoa'
 
 import { credentialDefinitionStore } from '../../utils/credentialDefinitionStore'
 import { schemaStore } from '../../utils/schemaStore'

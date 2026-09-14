@@ -2,6 +2,7 @@ import type { ErrorObject } from 'ajv'
 
 import Ajv2020 from 'ajv/dist/2020'
 import { randomUUID } from 'crypto'
+
 import { DatabaseManager } from '../persistence/DatabaseManager'
 
 export interface RegisterSchemaRequest {

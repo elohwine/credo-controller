@@ -1,4 +1,5 @@
 import type { Database } from 'better-sqlite3'
+
 import { DatabaseManager } from './DatabaseManager'
 
 export interface LoginChallenge {

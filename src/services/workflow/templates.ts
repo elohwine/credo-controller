@@ -17,7 +17,7 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
-import { WorkflowRecord } from '../../persistence/WorkflowRepository'
+import type { WorkflowRecord } from '../../persistence/WorkflowRepository'
 
 export interface WorkflowTemplate {
   id: string

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * IdenEx Credentis - External Integration Actions
  *
@@ -13,9 +14,11 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
-import { WorkflowActionContext } from '../ActionRegistry'
-import { rootLogger } from '../../../utils/pinoLogger'
+import type { WorkflowActionContext } from '../ActionRegistry'
+
 import { v4 as uuid } from 'uuid'
+
+import { rootLogger } from '../../../utils/pinoLogger'
 import { notificationService } from '../../NotificationService'
 
 const logger = rootLogger.child({ module: 'ExternalActions' })

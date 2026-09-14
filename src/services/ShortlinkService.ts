@@ -1,4 +1,6 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 import { randomBytes } from 'crypto'
+
 import { DatabaseManager } from '../persistence/DatabaseManager'
 
 /**

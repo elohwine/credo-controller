@@ -2,6 +2,7 @@
  * Ngrok tunnel manager for development
  * Starts ngrok tunnel and sets NGROK_URL environment variable
  */
+// eslint-disable-next-line import/no-extraneous-dependencies
 import * as ngrok from 'ngrok'
 
 export interface NgrokConfig {
@@ -14,6 +15,7 @@ let tunnelUrl: string | null = null
 
 export async function startNgrokTunnel(config: NgrokConfig): Promise<string> {
   if (tunnelUrl) {
+    // eslint-disable-next-line no-console
     console.log(`Ngrok tunnel already running: ${tunnelUrl}`)
     return tunnelUrl
   }
@@ -35,29 +37,41 @@ export async function startNgrokTunnel(config: NgrokConfig): Promise<string> {
   }
 
   try {
+    // eslint-disable-next-line no-console
     console.log(`Starting ngrok tunnel on port ${config.port}...`)
     tunnelUrl = await ngrok.connect(ngrokConfig)
 
     // Set environment variable for the application to use
     process.env.NGROK_URL = tunnelUrl
 
+    // eslint-disable-next-line no-console
     console.log(`\n🌐 Ngrok tunnel established!`)
+    // eslint-disable-next-line no-console
     console.log(`   Public URL: ${tunnelUrl}`)
+    // eslint-disable-next-line no-console
     console.log(`   Inspect:    http://127.0.0.1:4040`)
+    // eslint-disable-next-line no-console
     console.log(`   Webhooks:`)
+    // eslint-disable-next-line no-console
     console.log(`     - WhatsApp: ${tunnelUrl}/webhooks/whatsapp`)
+    // eslint-disable-next-line no-console
     console.log(`     - EcoCash:  ${tunnelUrl}/webhooks/ecocash`)
 
     return tunnelUrl
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error)
+    // eslint-disable-next-line no-console
     console.error(`Failed to start ngrok tunnel: ${errorMessage}`)
 
     // Check for common errors
     if (errorMessage.includes('authtoken')) {
+      // eslint-disable-next-line no-console
       console.log('\n💡 To fix this:')
+      // eslint-disable-next-line no-console
       console.log('   1. Get your authtoken from https://dashboard.ngrok.com/get-started/your-authtoken')
+      // eslint-disable-next-line no-console
       console.log('   2. Set NGROK_AUTHTOKEN environment variable')
+      // eslint-disable-next-line no-console
       console.log('   3. Or run: ngrok config add-authtoken YOUR_TOKEN')
     }
 
@@ -70,6 +84,7 @@ export async function stopNgrokTunnel(): Promise<void> {
     await ngrok.disconnect(tunnelUrl)
     await ngrok.kill()
     tunnelUrl = null
+    // eslint-disable-next-line no-console
     console.log('Ngrok tunnel stopped')
   }
 }

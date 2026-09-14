@@ -1,3 +1,5 @@
+/* eslint-disable no-console */
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * SSI Auth Service - Self-Sovereign Identity Authentication
  *
@@ -17,16 +19,18 @@
  * - PlatformIdentityVC issued → temp record deleted
  */
 
-import { injectable, inject } from 'tsyringe'
+import type { SSIUserRecord, PlatformIdentityClaims } from '../config/credentials/PlatformIdentityVC'
+
 import { Agent } from '@credo-ts/core'
+import { W3cCredentialService } from '@credo-ts/core'
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
-import { DatabaseManager } from '../persistence/DatabaseManager'
-import type { SSIUserRecord, PlatformIdentityClaims } from '../config/credentials/PlatformIdentityVC'
-import { PLATFORM_IDENTITY_VC_TYPE } from '../config/credentials/PlatformIdentityVC'
+import { injectable, inject } from 'tsyringe'
+
 import { RestMultiTenantAgentModules } from '../cliAgent'
+import { PLATFORM_IDENTITY_VC_TYPE } from '../config/credentials/PlatformIdentityVC'
+import { DatabaseManager } from '../persistence/DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
-import { W3cCredentialService } from '@credo-ts/core'
 
 const logger = rootLogger.child({ module: 'SSIAuthService' })
 

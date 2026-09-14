@@ -1,8 +1,11 @@
-import { Controller, Post, Get, Route, Tags, Body, Path, Query, Security, Request } from 'tsoa'
+/* eslint-disable no-console */
 import type { Request as ExRequest } from 'express'
+
 import { randomUUID } from 'crypto'
-import { DatabaseManager } from '../../persistence/DatabaseManager'
+import { Controller, Post, Get, Route, Tags, Body, Path, Query, Security, Request } from 'tsoa'
+
 import { SCOPES } from '../../enums'
+import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { credentialIssuanceService } from '../../services/CredentialIssuanceService'
 
 export interface CreateCatalogItemRequest {

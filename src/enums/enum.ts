@@ -55,9 +55,7 @@ export enum HttpStatusCode {
   InternalServerError = 500,
 }
 
-export type CustomHandshakeProtocol =
-  | 'https://didcomm.org/didexchange/1.1'
-  | 'https://didcomm.org/connections/1.0'
+export type CustomHandshakeProtocol = 'https://didcomm.org/didexchange/1.1' | 'https://didcomm.org/connections/1.0'
 
 export enum AgentRole {
   RestRootAgentWithTenants = 'RestRootAgentWithTenants',

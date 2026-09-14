@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * IdenEx Credentis - Credential Issuance Actions
  *
@@ -15,10 +16,12 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
-import { WorkflowActionContext } from '../ActionRegistry'
-import { rootLogger } from '../../../utils/pinoLogger'
-import { OidcIssuerController } from '../../../controllers/oidc/OidcIssuerController'
+import type { WorkflowActionContext } from '../ActionRegistry'
+
 import { container } from 'tsyringe'
+
+import { OidcIssuerController } from '../../../controllers/oidc/OidcIssuerController'
+import { rootLogger } from '../../../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'CredentialActions' })
 

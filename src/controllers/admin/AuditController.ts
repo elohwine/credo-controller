@@ -1,5 +1,7 @@
-import { Controller, Get, Route, Tags, Query, Request, Security } from 'tsoa'
 import type { Request as ExRequest } from 'express'
+
+import { Controller, Get, Route, Tags, Query, Request, Security } from 'tsoa'
+
 import { auditService } from '../../services/AuditService'
 import { AuditLog } from '../../types/trust'
 

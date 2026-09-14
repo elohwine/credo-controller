@@ -3,8 +3,9 @@
  * Replaces in-memory credentialOfferStore with SQLite-backed persistence
  */
 
-import { DatabaseManager } from './DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
+
+import { DatabaseManager } from './DatabaseManager'
 
 export interface CredentialOfferRecord {
   id: string
@@ -25,7 +26,7 @@ export class CredentialOfferRepository {
   /**
    * Save or update credential offer
    */
-  save(record: CredentialOfferRecord): void {
+  public save(record: CredentialOfferRecord): void {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -37,11 +38,11 @@ export class CredentialOfferRepository {
         @attributes, @userPinRequired, @txCode, CURRENT_TIMESTAMP, @expiresAt
       )
       ON CONFLICT(id) DO UPDATE SET
-        credential_definition_id = @credentialDefinitionId,
-        attributes = @attributes,
-        user_pin_required = @userPinRequired,
-        tx_code = @txCode,
-        expires_at = @expiresAt
+        public credential_definition_id = @credentialDefinitionId,
+        public attributes = @attributes,
+        public user_pin_required = @userPinRequired,
+        public tx_code = @txCode,
+        public expires_at = @expiresAt
     `)
 
     try {
@@ -66,7 +67,7 @@ export class CredentialOfferRepository {
   /**
    * Find offer by pre-authorized code
    */
-  findByCode(code: string): CredentialOfferRecord | undefined {
+  public findByCode(code: string): CredentialOfferRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -98,7 +99,7 @@ export class CredentialOfferRepository {
   /**
    * Find offer by ID
    */
-  findById(id: string): CredentialOfferRecord | undefined {
+  public findById(id: string): CredentialOfferRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -130,7 +131,7 @@ export class CredentialOfferRepository {
   /**
    * Mark offer as redeemed
    */
-  markRedeemed(code: string): boolean {
+  public markRedeemed(code: string): boolean {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -152,7 +153,7 @@ export class CredentialOfferRepository {
   /**
    * Find all offers for a tenant
    */
-  findByTenantId(tenantId: string): CredentialOfferRecord[] {
+  public findByTenantId(tenantId: string): CredentialOfferRecord[] {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -181,7 +182,7 @@ export class CredentialOfferRepository {
   /**
    * Find unredeemed offers
    */
-  findUnredeemed(tenantId?: string): CredentialOfferRecord[] {
+  public findUnredeemed(tenantId?: string): CredentialOfferRecord[] {
     const db = DatabaseManager.getDatabase()
 
     const sql = tenantId
@@ -218,7 +219,7 @@ export class CredentialOfferRepository {
   /**
    * Delete offer by ID
    */
-  deleteById(id: string): boolean {
+  public deleteById(id: string): boolean {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('DELETE FROM credential_offers WHERE id = ?')
@@ -235,7 +236,7 @@ export class CredentialOfferRepository {
   /**
    * Delete all offers for a tenant
    */
-  deleteByTenantId(tenantId: string): number {
+  public deleteByTenantId(tenantId: string): number {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('DELETE FROM credential_offers WHERE tenant_id = ?')
@@ -249,7 +250,7 @@ export class CredentialOfferRepository {
   /**
    * Clean up expired offers
    */
-  deleteExpired(): number {
+  public deleteExpired(): number {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`

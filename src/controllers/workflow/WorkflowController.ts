@@ -14,10 +14,11 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
+import { Request as ExRequest } from 'express'
 import { Controller, Post, Get, Delete, Route, Tags, Body, Path, Query, Request, Security } from 'tsoa'
+
 import { workflowService, ExecuteWorkflowOptions, WorkflowExecutionResult } from '../../services/WorkflowService'
 import { ActionRegistry } from '../../services/workflow/ActionRegistry'
-import { Request as ExRequest } from 'express'
 
 interface RegisterWorkflowRequest {
   id: string

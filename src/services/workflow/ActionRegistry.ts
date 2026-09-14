@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * IdenEx Credentis - Workflow Action Registry
  *
@@ -13,8 +14,9 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
+import type { ProviderConfig } from '../../persistence/ProviderRepository'
+
 import { rootLogger } from '../../utils/pinoLogger'
-import { ProviderConfig } from '../../persistence/ProviderRepository'
 
 export type WorkflowActionContext = {
   input: any

@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { EnvContext } from '@/pages/_app';
+import { switchOrganizationContext, persistOrganizationsToCache, readOrganizationsFromCache } from '@/utils/organizationContext';
 import axios from 'axios';
 import {
     Container,
@@ -29,14 +30,16 @@ export default function RegisterPage() {
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
     const [claimedCredentials, setClaimedCredentials] = useState<number>(0);
+    const [createdOrgName, setCreatedOrgName] = useState<string | null>(null);
 
     const [form, setForm] = useState({
         username: '',
+        organizationName: '',
         email: '',
         phone: '',
         password: '',
         confirmPassword: '',
-        tenantType: 'USER',
+        tenantType: 'USER' as 'USER' | 'ORG',
     });
 
     const holderBackend = env.NEXT_PUBLIC_HOLDER_URL || 'http://localhost:7000';
@@ -50,6 +53,15 @@ export default function RegisterPage() {
             }
         }
     }, []);
+
+    useEffect(() => {
+        if (!router.isReady) return;
+
+        const requestedTenantType = router.query.tenantType;
+        if (requestedTenantType === 'ORG' || requestedTenantType === 'USER') {
+            setForm((prev) => ({ ...prev, tenantType: requestedTenantType }));
+        }
+    }, [router.isReady, router.query.tenantType]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -71,6 +83,11 @@ export default function RegisterPage() {
             return;
         }
 
+        if (form.tenantType === 'ORG' && form.organizationName.trim().length < 2) {
+            setError('Organization name must be at least 2 characters');
+            return;
+        }
+
         setLoading(true);
         try {
             console.log('[Register] Payload:', {
@@ -89,6 +106,60 @@ export default function RegisterPage() {
                 pin: form.password, // PIN for Web2 fallback login
                 claimExistingTenantId: localStorage.getItem('credoTenantId') || undefined, // Claim checkout VCs
             });
+
+            const sessionToken = response.data.token as string | undefined;
+            const walletId = response.data.walletId as string | undefined;
+
+            if (walletId) {
+                localStorage.setItem('credoTenantId', walletId);
+                localStorage.setItem('tenantId', walletId);
+            }
+            if (sessionToken) {
+                localStorage.setItem('credoTenantToken', sessionToken);
+                localStorage.setItem('walletToken', sessionToken);
+                localStorage.setItem('tenantToken', sessionToken);
+            }
+
+            if (form.tenantType === 'ORG') {
+                if (!sessionToken) {
+                    throw new Error('Registration succeeded but no personal session token was returned');
+                }
+
+                const createOrgResponse = await axios.post(
+                    `${holderBackend}/api/organizations`,
+                    {
+                        name: form.organizationName.trim(),
+                        sector: 'custom',
+                    },
+                    { headers: { Authorization: `Bearer ${sessionToken}` } },
+                );
+
+                const orgTenantId = createOrgResponse.data?.orgTenantId as string | undefined;
+                if (!orgTenantId) {
+                    throw new Error('Organization creation succeeded but no org tenant ID was returned');
+                }
+
+                await switchOrganizationContext({
+                    backendUrl: holderBackend,
+                    orgTenantId,
+                    orgName: form.organizationName.trim(),
+                    personalToken: sessionToken,
+                });
+
+                const cachedOrgs = readOrganizationsFromCache();
+                const nextOrgs = [
+                    ...cachedOrgs.filter((org) => org.orgTenantId !== orgTenantId),
+                    {
+                        orgTenantId,
+                        name: form.organizationName.trim(),
+                        role: createOrgResponse.data?.role || 'owner',
+                    },
+                ];
+                persistOrganizationsToCache(nextOrgs);
+                localStorage.setItem('credoContextMode', 'org');
+                localStorage.setItem('credoOrgName', form.organizationName.trim());
+                setCreatedOrgName(form.organizationName.trim());
+            }
 
             console.log('[Register] Success:', response.data);
             setSuccess(true);
@@ -114,21 +185,11 @@ export default function RegisterPage() {
                 });
             }
 
-            // Store wallet ID and token
-            if (response.data.walletId) {
-                localStorage.setItem('credoTenantId', response.data.walletId);
-                localStorage.setItem('tenantId', response.data.walletId);
-            }
-            if (response.data.token) {
-                localStorage.setItem('credoTenantToken', response.data.token);
-                // Also set walletToken for WalletPage compatibility
-                localStorage.setItem('walletToken', response.data.token);
-                localStorage.setItem('tenantToken', response.data.token);
-            }
-
             // Redirect after showing success
             setTimeout(() => {
-                if (response.data.claimedExisting) {
+                if (form.tenantType === 'ORG') {
+                    router.push('/organization/setup');
+                } else if (response.data.claimedExisting) {
                     router.push('/wallet'); // Go to wallet to see claimed VCs
                 } else {
                     router.push('/auth/login');
@@ -161,7 +222,15 @@ export default function RegisterPage() {
 
                     {success ? (
                         <Alert icon={<IconCheck size={16} />} title="Registration Successful!" color="green">
-                            {claimedCredentials > 0 ? (
+                            {form.tenantType === 'ORG' ? (
+                                <>
+                                    <Text>Your personal account and organization have been created.</Text>
+                                    <Badge color="teal" mt="xs">
+                                        {createdOrgName || form.organizationName || 'Organization'} ready for setup
+                                    </Badge>
+                                    <Text size="sm" mt="xs">Redirecting to Organization Setup Center...</Text>
+                                </>
+                            ) : claimedCredentials > 0 ? (
                                 <>
                                     <Text>Your account has been created!</Text>
                                     <Badge color="blue" leftSection={<IconReceipt size={14} />} mt="xs">
@@ -189,6 +258,16 @@ export default function RegisterPage() {
                                     value={form.username}
                                     onChange={(e) => setForm({ ...form, username: e.target.value })}
                                 />
+
+                                {form.tenantType === 'ORG' && (
+                                    <TextInput
+                                        label="Organization Name"
+                                        placeholder="Acme Holdings"
+                                        required
+                                        value={form.organizationName}
+                                        onChange={(e) => setForm({ ...form, organizationName: e.target.value })}
+                                    />
+                                )}
 
                                 <TextInput
                                     label="Phone Number"
@@ -235,7 +314,7 @@ export default function RegisterPage() {
                                         { value: 'ORG', label: 'Organization (Merchant)' },
                                     ]}
                                     value={form.tenantType}
-                                    onChange={(value) => setForm({ ...form, tenantType: value as 'USER' | 'ORG' })}
+                                    onChange={(value) => setForm({ ...form, tenantType: (value as 'USER' | 'ORG') || 'USER' })}
                                 />
 
                                 <Button 

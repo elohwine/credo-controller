@@ -15,13 +15,15 @@
  */
 
 import 'reflect-metadata'
-import type { Request as ExRequest } from 'express'
-import { Controller, Post, Get, Route, Tags, Body, Request, Security } from 'tsoa'
-import { StatusException } from '../../errors'
-import { container } from 'tsyringe'
-import { SSIAuthService } from '../../services/SSIAuthService'
 import type { PlatformIdentityClaims } from '../../config/credentials/PlatformIdentityVC'
+import type { Request as ExRequest } from 'express'
+
+import { Controller, Post, Get, Route, Tags, Body, Request, Security } from 'tsoa'
+import { container } from 'tsyringe'
+
 import { SCOPES } from '../../enums'
+import { StatusException } from '../../errors'
+import { SSIAuthService } from '../../services/SSIAuthService'
 
 // Request/Response interfaces
 

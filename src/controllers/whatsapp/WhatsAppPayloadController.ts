@@ -1,10 +1,13 @@
-import { Controller, Post, Get, Route, Tags, Body, Path, Query } from 'tsoa'
+/* eslint-disable no-console */
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
+import axios from 'axios'
 import { randomUUID, createHash } from 'crypto'
+import { Controller, Post, Get, Route, Tags, Body, Path, Query } from 'tsoa'
+import { container } from 'tsyringe'
+
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { inventoryService } from '../../services/InventoryService'
-import { container } from 'tsyringe'
 import { SSIAuthService } from '../../services/SSIAuthService'
-import axios from 'axios'
 import { rootLogger } from '../../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'WhatsAppPayloadController' })

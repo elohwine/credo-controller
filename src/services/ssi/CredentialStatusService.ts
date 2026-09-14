@@ -1,9 +1,8 @@
+import type { CredentialStatus } from './SsiTypes'
 import type { Request as ExRequest } from 'express'
 
 import { JsonTransformer, W3cJsonLdVerifiableCredential } from '@credo-ts/core'
 import { gunzipSync } from 'zlib'
-
-import type { CredentialStatus } from './SsiTypes'
 
 const MINIMUM_STATUS_LIST_ENTRIES = 131_072
 const MAX_STATUS_LIST_BYTES = 4 * 1024 * 1024

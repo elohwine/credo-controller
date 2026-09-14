@@ -29,18 +29,17 @@ import { credentialEvents } from './events/CredentialEvents'
 import { proofEvents } from './events/ProofEvents'
 import { questionAnswerEvents } from './events/QuestionAnswerEvents'
 import { reuseConnectionEvents } from './events/ReuseConnectionEvents'
-import { RegisterRoutes } from './routes/routes'
-import { SecurityMiddleware } from './securityMiddleware'
+import { auditMiddleware } from './middleware/auditMiddleware'
+import { DatabaseManager } from './persistence/DatabaseManager'
 import { initTenantStore } from './persistence/TenantRepository'
 import { initWalletUserStore } from './persistence/UserRepository'
+import { RegisterRoutes } from './routes/routes'
+import { SecurityMiddleware } from './securityMiddleware'
+import { ShortlinkService } from './services/ShortlinkService'
+import { triggerService } from './services/TriggerService'
+import { startNgrokTunnel, getNgrokUrl } from './utils/ngrokTunnel'
 import { rootLogger } from './utils/pinoLogger'
 import { runWithContext } from './utils/requestContext'
-import { DatabaseManager } from './persistence/DatabaseManager'
-import { auditMiddleware } from './middleware/auditMiddleware'
-import { triggerService } from './services/TriggerService'
-import { ShortlinkService } from './services/ShortlinkService'
-
-import { startNgrokTunnel, getNgrokUrl } from './utils/ngrokTunnel'
 
 dotenv.config()
 
@@ -94,13 +93,16 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
 
   if (process.env.DEBUG_AGENT_MODULES === 'true') {
     // DEBUG: Log agent modules before and after registration
+    // eslint-disable-next-line no-console
     console.log('[server.ts] Agent modules before container registration:', Object.keys((agent.modules as any) || {}))
+    // eslint-disable-next-line no-console
     console.log('[server.ts] Has openid4vc issuer?', !!(agent as any)?.openid4vc?.issuer)
   }
 
   container.registerInstance(Agent, agent as Agent)
 
   if (process.env.DEBUG_AGENT_MODULES === 'true') {
+    // eslint-disable-next-line no-console
     console.log('[server.ts] Agent modules after container registration:', Object.keys((agent.modules as any) || {}))
   }
 
@@ -360,7 +362,8 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     // Add a lightweight logger around the issuer credential endpoint to capture
     // the incoming credential request and the issuer response for debugging.
     app.use('/oidc/issuer', async (req: ExRequest, res: ExResponse, next: NextFunction) => {
-      const requestPath = typeof req.path === 'string' ? req.path : typeof req.originalUrl === 'string' ? req.originalUrl : ''
+      const requestPath =
+        typeof req.path === 'string' ? req.path : typeof req.originalUrl === 'string' ? req.originalUrl : ''
       const isCredentialEndpoint = req.method === 'POST' && requestPath.endsWith('/credential')
       if (isCredentialEndpoint) {
         try {
@@ -416,7 +419,8 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   }
   if ((agent as any)?.openid4vc?.verifier?.config?.router || modules?.openId4VcVerifier?.config?.router) {
     agent.config.logger.info('Mounting OpenID4VC Verifier routes at /oidc/verifier')
-    const verifierRouter = (agent as any)?.openid4vc?.verifier?.config?.router || modules.openId4VcVerifier?.config?.router
+    const verifierRouter =
+      (agent as any)?.openid4vc?.verifier?.config?.router || modules.openId4VcVerifier?.config?.router
     app.use('/oidc/verifier', verifierRouter)
   }
 

@@ -18,9 +18,10 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
-import { Controller, Get, Post, Put, Delete, Route, Tags, Body, Path, Query, Request, Security } from 'tsoa'
-import { providerRepository, ServiceProvider, ProviderConfig } from '../../persistence/ProviderRepository'
 import { Request as ExRequest } from 'express'
+import { Controller, Get, Post, Put, Delete, Route, Tags, Body, Path, Query, Request, Security } from 'tsoa'
+
+import { providerRepository, ServiceProvider, ProviderConfig } from '../../persistence/ProviderRepository'
 
 interface CreateProviderRequest {
   name: string

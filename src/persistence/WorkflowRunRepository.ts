@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * IdenEx Credentis - Workflow Run Repository
  *
@@ -19,9 +20,11 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
-import { DatabaseManager } from './DatabaseManager'
-import { rootLogger } from '../utils/pinoLogger'
 import { v4 as uuid } from 'uuid'
+
+import { rootLogger } from '../utils/pinoLogger'
+
+import { DatabaseManager } from './DatabaseManager'
 
 const logger = rootLogger.child({ module: 'WorkflowRunRepository' })
 

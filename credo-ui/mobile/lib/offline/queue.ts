@@ -72,13 +72,15 @@ function hasEvidence(payload: Record<string, unknown>): boolean {
     payload.proof,
   ]
 
-  if (directCandidates.some((value) => {
-    if (typeof value === 'string') return value.trim().length > 0
-    if (typeof value === 'number') return Number.isFinite(value)
-    if (Array.isArray(value)) return value.length > 0
-    if (value && typeof value === 'object') return Object.keys(value).length > 0
-    return value === true
-  })) {
+  if (
+    directCandidates.some((value) => {
+      if (typeof value === 'string') return value.trim().length > 0
+      if (typeof value === 'number') return Number.isFinite(value)
+      if (Array.isArray(value)) return value.length > 0
+      if (value && typeof value === 'object') return Object.keys(value).length > 0
+      return value === true
+    })
+  ) {
     return true
   }
 

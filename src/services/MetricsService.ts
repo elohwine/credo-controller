@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * Metrics Service for Production Observability
  * Phase 9C: Production Hardening - Metrics & Monitoring

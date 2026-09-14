@@ -1,10 +1,12 @@
-import { Controller, Post, Get, Route, Tags, Path, Request } from 'tsoa'
 import type { Request as ExRequest } from 'express'
+
+import { Agent } from '@credo-ts/core'
 import { randomUUID } from 'crypto'
+import { Controller, Post, Get, Route, Tags, Path, Request } from 'tsoa'
+import { container } from 'tsyringe'
+
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { rootLogger } from '../../utils/pinoLogger'
-import { container } from 'tsyringe'
-import { Agent } from '@credo-ts/core'
 
 const logger = rootLogger.child({ module: 'VCVerifierController' })
 

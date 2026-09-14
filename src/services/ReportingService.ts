@@ -1,7 +1,10 @@
-import { DatabaseManager } from '../persistence/DatabaseManager'
-import { credentialIssuanceService } from './CredentialIssuanceService'
-import { rootLogger } from '../utils/pinoLogger'
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 import { randomUUID } from 'crypto'
+
+import { DatabaseManager } from '../persistence/DatabaseManager'
+import { rootLogger } from '../utils/pinoLogger'
+
+import { credentialIssuanceService } from './CredentialIssuanceService'
 
 const logger = rootLogger.child({ module: 'ReportingService' })
 

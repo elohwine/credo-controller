@@ -235,7 +235,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
 
           <Divider my="xs" />
 
-          <Menu.Item leftSection={<IconPlus size={16} />} component="a" href="/auth?tab=register&tenantType=ORG">
+          <Menu.Item leftSection={<IconPlus size={16} />} component="a" href="/auth/register?tenantType=ORG">
             Create Organization
           </Menu.Item>
         </ScrollArea.Autosize>

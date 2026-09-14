@@ -52,9 +52,7 @@ export function resolveMobileApiBaseUrl(): string {
     return 'http://localhost:3000'
   }
 
-  const runtimeUrl = typeof window !== 'undefined'
-    ? (window as any).__CAPACITOR_CONFIG__?.server?.url
-    : undefined
+  const runtimeUrl = typeof window !== 'undefined' ? (window as any).__CAPACITOR_CONFIG__?.server?.url : undefined
   const candidates = [
     // Prefer an explicit runtime override when Capacitor provides one.
     // The baked NEXT_PUBLIC_API_URL is still the normal release path, but it
@@ -81,7 +79,5 @@ export function resolveMobileApiBaseUrl(): string {
     return 'http://localhost:3000'
   }
 
-  throw new Error(
-    'NEXT_PUBLIC_API_URL must be configured with a non-loopback https:// URL for the mobile app build.'
-  )
+  throw new Error('NEXT_PUBLIC_API_URL must be configured with a non-loopback https:// URL for the mobile app build.')
 }

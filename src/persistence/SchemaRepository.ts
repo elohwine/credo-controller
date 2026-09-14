@@ -3,8 +3,9 @@
  * Replaces in-memory schemaStore with SQLite-backed persistence
  */
 
-import { DatabaseManager } from './DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
+
+import { DatabaseManager } from './DatabaseManager'
 
 export interface SchemaRecord {
   id: string
@@ -22,7 +23,7 @@ export class SchemaRepository {
   /**
    * Save or update schema
    */
-  save(record: SchemaRecord): void {
+  public save(record: SchemaRecord): void {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -32,9 +33,9 @@ export class SchemaRepository {
         @id, @tenantId, @schemaId, @schemaData, @name, @version, CURRENT_TIMESTAMP
       )
       ON CONFLICT(id) DO UPDATE SET
-        schema_data = @schemaData,
-        name = @name,
-        version = @version
+        public schema_data = @schemaData,
+        public name = @name,
+        public version = @version
     `)
 
     try {
@@ -57,7 +58,7 @@ export class SchemaRepository {
   /**
    * Find schema by schema ID
    */
-  findBySchemaId(schemaId: string): SchemaRecord | undefined {
+  public findBySchemaId(schemaId: string): SchemaRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -84,7 +85,7 @@ export class SchemaRepository {
   /**
    * Find schema by ID
    */
-  findById(id: string): SchemaRecord | undefined {
+  public findById(id: string): SchemaRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -111,7 +112,7 @@ export class SchemaRepository {
   /**
    * Find all schemas for a tenant
    */
-  findByTenantId(tenantId: string): SchemaRecord[] {
+  public findByTenantId(tenantId: string): SchemaRecord[] {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -135,7 +136,7 @@ export class SchemaRepository {
   /**
    * Find schema by tenant and schema ID (unique combination)
    */
-  findByTenantAndSchemaId(tenantId: string, schemaId: string): SchemaRecord | undefined {
+  public findByTenantAndSchemaId(tenantId: string, schemaId: string): SchemaRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -162,7 +163,7 @@ export class SchemaRepository {
   /**
    * Search schemas by name (case-insensitive)
    */
-  searchByName(tenantId: string, namePattern: string): SchemaRecord[] {
+  public searchByName(tenantId: string, namePattern: string): SchemaRecord[] {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
@@ -186,7 +187,7 @@ export class SchemaRepository {
   /**
    * Delete schema by ID
    */
-  deleteById(id: string): boolean {
+  public deleteById(id: string): boolean {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('DELETE FROM json_schemas WHERE id = ?')
@@ -203,7 +204,7 @@ export class SchemaRepository {
   /**
    * Delete all schemas for a tenant
    */
-  deleteByTenantId(tenantId: string): number {
+  public deleteByTenantId(tenantId: string): number {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('DELETE FROM json_schemas WHERE tenant_id = ?')
@@ -217,7 +218,7 @@ export class SchemaRepository {
   /**
    * Get count of schemas for a tenant
    */
-  countByTenantId(tenantId: string): number {
+  public countByTenantId(tenantId: string): number {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('SELECT COUNT(*) as count FROM json_schemas WHERE tenant_id = ?')
@@ -229,7 +230,7 @@ export class SchemaRepository {
   /**
    * Check if schema exists
    */
-  exists(schemaId: string): boolean {
+  public exists(schemaId: string): boolean {
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare('SELECT 1 FROM json_schemas WHERE schema_id = ? LIMIT 1')

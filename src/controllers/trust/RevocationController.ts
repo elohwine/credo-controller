@@ -10,10 +10,11 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
-import { Body, Controller, Post, Route, Tags, Request } from 'tsoa'
-import { rootLogger } from '../../utils/pinoLogger'
-import { revocationService } from '../../services/RevocationService'
 import { Request as ExRequest } from 'express'
+import { Body, Controller, Post, Route, Tags, Request } from 'tsoa'
+
+import { revocationService } from '../../services/RevocationService'
+import { rootLogger } from '../../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'RevocationController' })
 

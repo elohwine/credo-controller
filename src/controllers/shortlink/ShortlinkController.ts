@@ -1,6 +1,8 @@
+/* eslint-disable no-console */
 import { Body, Controller, Get, Path, Post, Route, Tags, Query, Produces, Response } from 'tsoa'
-import { ShortlinkService } from '../../services/ShortlinkService'
+
 import { DatabaseManager } from '../../persistence/DatabaseManager'
+import { ShortlinkService } from '../../services/ShortlinkService'
 
 interface CreateShortlinkRequest {
   type: 'credential' | 'receipt' | 'verification'

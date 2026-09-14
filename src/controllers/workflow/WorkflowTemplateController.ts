@@ -12,6 +12,8 @@
  */
 
 import { Controller, Get, Path, Query, Route, Tags, Security, Post, Body } from 'tsoa'
+
+import { workflowRepository } from '../../persistence/WorkflowRepository'
 import {
   workflowTemplates,
   getTemplateById,
@@ -20,7 +22,6 @@ import {
   instantiateTemplate,
   WorkflowTemplate,
 } from '../../services/workflow/templates'
-import { workflowRepository } from '../../persistence/WorkflowRepository'
 
 interface TemplateListItem {
   id: string

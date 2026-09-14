@@ -6,6 +6,7 @@ import { upsertTenant } from '../persistence/TenantRepository'
 import { didStore } from '../utils/didStore'
 import { issuerMetadataCache } from '../utils/issuerMetadataCache'
 import { buildIssuerMetadata, buildVerifierMetadata } from '../utils/openidMetadata'
+
 import { registerDefaultModelsForTenant } from './modelRegistry'
 
 export interface TenantProvisioningParams {
@@ -59,6 +60,7 @@ export async function provisionTenantResources({
       const tenantType = (tenantRecord.config as any)?.tenantType || 'ORG'
       const domain = (tenantRecord.config as any)?.domain
 
+      // eslint-disable-next-line no-console
       console.log(`[Provisioning] Tenant ${tenantRecord.id} type: ${tenantType}`)
 
       if (tenantType === 'USER') {
@@ -73,6 +75,7 @@ export async function provisionTenantResources({
           throw new Error(`Failed to create Holder DID: missing DID in state=${holderDidResult.didState.state}`)
         }
 
+        // eslint-disable-next-line no-console
         console.log(`[Provisioning] Created Holder DID: ${holderDid}`)
 
         // 2. Return result properly
@@ -114,8 +117,10 @@ export async function provisionTenantResources({
       if (tenantType === 'ORG') {
         try {
           await registerDefaultModelsForTenant({ issuerDid, tenantId: tenantRecord.id })
+          // eslint-disable-next-line no-console
           console.log(`[Provisioning] Default models registered for ORG tenant ${tenantRecord.id}`)
         } catch (e) {
+          // eslint-disable-next-line no-console
           console.warn('Failed to seed default VC models for tenant', { err: (e as Error).message })
         }
       }
@@ -141,7 +146,9 @@ export async function provisionTenantResources({
 
       // Create or Update native OpenID4VC Issuer record in the tenant wallet
       try {
-        const existingIssuers = await (tenantAgent as any).openid4vc?.issuer?.getAllIssuers?.() ?? (tenantAgent.modules as any).openId4VcIssuer.getAllIssuers()
+        const existingIssuers =
+          (await (tenantAgent as any).openid4vc?.issuer?.getAllIssuers?.()) ??
+          (tenantAgent.modules as any).openId4VcIssuer.getAllIssuers()
 
         const newCredentialsSupported = (issuerMetadata as any).credentials_supported || []
         const newDisplay = (issuerMetadata as any).display || []
@@ -149,6 +156,7 @@ export async function provisionTenantResources({
         if (existingIssuers && existingIssuers.length > 0) {
           // Reuse the first issuer found
           const existingIssuer = existingIssuers[0]
+          // eslint-disable-next-line no-console
           console.log(
             `[Provisioning] Reuse existing OpenID4VC issuer ${existingIssuer.issuerId} for tenant ${tenantRecord.id}`,
           )
@@ -164,21 +172,27 @@ export async function provisionTenantResources({
             credentialsSupported: newCredentialsSupported,
             display: newDisplay,
           })
+          // eslint-disable-next-line no-console
           console.log(`[Provisioning] Created new native OpenID4VC issuer for tenant ${tenantRecord.id}`)
         }
 
         // Create or Update native OpenID4VC Verifier record in the tenant wallet
-        const existingVerifiers = await (tenantAgent as any).openid4vc?.verifier?.getAllVerifiers?.() ?? (tenantAgent.modules as any).openId4VcVerifier.getAllVerifiers()
+        const existingVerifiers =
+          (await (tenantAgent as any).openid4vc?.verifier?.getAllVerifiers?.()) ??
+          (tenantAgent.modules as any).openId4VcVerifier.getAllVerifiers()
         if (existingVerifiers && existingVerifiers.length > 0) {
+          // eslint-disable-next-line no-console
           console.log(`[Provisioning] Reuse existing OpenID4VC verifier for tenant ${tenantRecord.id}`)
         } else {
           await (tenantAgent as any).openid4vc?.verifier?.createVerifier?.({
             // Verifier doesn't have complex metadata in this version of Credo,
             // but we initialize the record so it's ready.
           })
+          // eslint-disable-next-line no-console
           console.log(`[Provisioning] Created new native OpenID4VC verifier for tenant ${tenantRecord.id}`)
         }
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.warn('[Provisioning] Failed to create/update native OpenID4VC issuer/verifier', {
           err: (e as Error).message,
         })
@@ -314,9 +328,7 @@ async function createKeyDidForTenant(tenantAgent: TenantAgent<any>, role: 'holde
 
   if (didResult.didState.state !== 'finished') {
     const reason = didResult.didState.state === 'failed' ? didResult.didState.reason : 'unknown'
-    throw new Error(
-      `Failed to create ${role} DID for tenant: state=${didResult.didState.state}, reason=${reason}`,
-    )
+    throw new Error(`Failed to create ${role} DID for tenant: state=${didResult.didState.state}, reason=${reason}`)
   }
 
   return didResult

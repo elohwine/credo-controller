@@ -1,6 +1,7 @@
 import type { IDatabaseAdapter } from './IDatabaseAdapter'
 
 import { DatabaseManager } from '../DatabaseManager'
+
 import { PostgresDatabaseAdapter } from './PostgresDatabaseAdapter'
 import { SqliteDatabaseAdapter } from './SqliteDatabaseAdapter'
 

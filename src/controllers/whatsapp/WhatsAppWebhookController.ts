@@ -1,9 +1,10 @@
-import { Controller, Post, Get, Route, Tags, Body, Request, Query } from 'tsoa'
-import { Request as ExRequest } from 'express'
-import { rootLogger } from '../../utils/pinoLogger'
-import { DatabaseManager } from '../../persistence/DatabaseManager'
-import { randomUUID } from 'crypto'
 import axios from 'axios'
+import { randomUUID } from 'crypto'
+import { Request as ExRequest } from 'express'
+import { Controller, Post, Get, Route, Tags, Body, Request, Query } from 'tsoa'
+
+import { DatabaseManager } from '../../persistence/DatabaseManager'
+import { rootLogger } from '../../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'WhatsAppWebhookController' })
 

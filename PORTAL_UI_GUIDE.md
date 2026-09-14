@@ -102,12 +102,14 @@ Access portal at: `http://localhost:5000`
 1. Open **Organization Setup** from Admin menu
 2. Enter `orgTenantId` and click **Load Readiness**
 3. Review readiness by domain:
-  - Core
-  - People
-  - Authority
-  - Operations
-  - Trust
-  - Integrations
+
+- Core
+- People
+- Authority
+- Operations
+- Trust
+- Integrations
+
 4. Use **Configure Workflow Capabilities** to set sector + optional workflow types
 5. Re-load readiness and resolve **needs_attention** items progressively
 

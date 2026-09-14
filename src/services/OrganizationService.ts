@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * OrganizationService — manages org tenants and memberships.
  *
@@ -9,22 +10,28 @@
  *   - "Switch org" means operating as that org's tenant agent
  */
 
-import { injectable, inject } from 'tsyringe'
+import type { SectorType, WorkflowTemplateDefinition } from '../types/WorkflowTemplate'
+
 import { Agent } from '@credo-ts/core'
 import crypto from 'crypto'
-import { DatabaseManager } from '../persistence/DatabaseManager'
-import { getTenantById, upsertTenant, type TenantPersistenceRecord } from '../persistence/TenantRepository'
+import { injectable, inject } from 'tsyringe'
+
 import { RestMultiTenantAgentModules } from '../cliAgent'
-import { provisionTenantResources } from './TenantProvisioningService'
+import { upsertContact } from '../persistence/ContactRepository'
+import { DatabaseManager } from '../persistence/DatabaseManager'
+import {
+  organizationRegistryRepository,
+  type OrganizationCategory,
+} from '../persistence/OrganizationRegistryRepository'
+import { getTenantById, upsertTenant, type TenantPersistenceRecord } from '../persistence/TenantRepository'
+import { getWalletCredentialsByWalletId } from '../persistence/WalletCredentialRepository'
+import { WorkflowTemplateRepository } from '../persistence/WorkflowTemplateRepository'
 import { signToken } from '../utils/jwt'
 import { rootLogger } from '../utils/pinoLogger'
-import { WorkflowTemplateRepository } from '../persistence/WorkflowTemplateRepository'
-import type { SectorType, WorkflowTemplateDefinition } from '../types/WorkflowTemplate'
+
+import { provisionTenantResources } from './TenantProvisioningService'
 import { getWorkflowTypeCandidates } from './workflow/initiation'
 import { getTemplateById, type WorkflowTemplate } from './workflow/templates'
-import { upsertContact } from '../persistence/ContactRepository'
-import { getWalletCredentialsByWalletId } from '../persistence/WalletCredentialRepository'
-import { organizationRegistryRepository, type OrganizationCategory } from '../persistence/OrganizationRegistryRepository'
 
 const logger = rootLogger.child({ module: 'OrganizationService' })
 
@@ -153,9 +160,7 @@ function parseJsonColumn<T>(value: string | null | undefined, fallback: T): T {
 }
 
 function normalizePaymentRails(input?: string[]): string[] {
-  const normalized = (input || [])
-    .map((rail) => String(rail || '').trim())
-    .filter(Boolean)
+  const normalized = (input || []).map((rail) => String(rail || '').trim()).filter(Boolean)
 
   return Array.from(new Set(normalized))
 }
@@ -209,7 +214,9 @@ function buildTemplateFromInMemory(params: {
 function mapPaymentModesToRails(paymentModes?: string[]): string[] {
   const rails = new Set<string>()
   for (const mode of paymentModes || []) {
-    const normalized = String(mode || '').trim().toLowerCase()
+    const normalized = String(mode || '')
+      .trim()
+      .toLowerCase()
     switch (normalized) {
       case 'mobile_money':
       case 'ecocash':
@@ -259,13 +266,19 @@ function inferWorkflowTypesForOrg(params: {
   additionalWorkflowTypes?: string[]
 }): string[] {
   const requested = (params.additionalWorkflowTypes ?? [])
-    .map((value) => String(value || '').trim().toLowerCase())
+    .map((value) =>
+      String(value || '')
+        .trim()
+        .toLowerCase(),
+    )
     .filter(Boolean)
 
   const workflowTypes = new Set<string>(requested)
 
   const isFinanceOrg = params.category === 'finance' || params.paymentRails?.some((rail) => /eco|bank|cash/i.test(rail))
-  const hasCreditRole = params.additionalWorkflowTypes?.some((entry) => /ar|receivable|collection|credit/i.test(String(entry || '').toLowerCase()))
+  const hasCreditRole = params.additionalWorkflowTypes?.some((entry) =>
+    /ar|receivable|collection|credit/i.test(String(entry || '').toLowerCase()),
+  )
 
   if (isFinanceOrg || hasCreditRole) {
     workflowTypes.add('accounts_receivable')
@@ -290,9 +303,9 @@ export class OrganizationService {
 
   private ensurePlatformOrganizationRecord(orgTenantId: string, orgName?: string): { id: string; name: string } {
     const db = DatabaseManager.getDatabase()
-    const existing = db
-      .prepare('SELECT id, name FROM organizations WHERE tenant_id = ? LIMIT 1')
-      .get(orgTenantId) as { id: string; name: string } | undefined
+    const existing = db.prepare('SELECT id, name FROM organizations WHERE tenant_id = ? LIMIT 1').get(orgTenantId) as
+      | { id: string; name: string }
+      | undefined
 
     if (existing?.id) {
       return existing
@@ -305,7 +318,7 @@ export class OrganizationService {
 
     db.prepare(
       `INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at)
-       VALUES (?, ?, ?, 'active', ?, ?)`
+       VALUES (?, ?, ?, 'active', ?, ?)`,
     ).run(organizationId, orgTenantId, resolvedName, new Date().toISOString(), new Date().toISOString())
 
     logger.info({ organizationId, orgTenantId }, 'Created platform organization record during onboarding')
@@ -324,9 +337,7 @@ export class OrganizationService {
     activatedWorkflowTypes?: string[]
   }): Promise<void> {
     const existing = organizationRegistryRepository.findOrganizationByTenantId(params.orgTenantId)
-    const normalizedRails = params.paymentRails === undefined
-      ? undefined
-      : normalizePaymentRails(params.paymentRails)
+    const normalizedRails = params.paymentRails === undefined ? undefined : normalizePaymentRails(params.paymentRails)
 
     if (!existing) {
       if (!params.issuerDid) {
@@ -368,15 +379,24 @@ export class OrganizationService {
     if (normalizedRails !== undefined) {
       try {
         const db = DatabaseManager.getDatabase()
-        db.prepare(`UPDATE organization_registry SET payment_rails = ?, updated_at = ? WHERE id = ?`)
-          .run(JSON.stringify(normalizedRails), new Date().toISOString(), current.id)
+        db.prepare(`UPDATE organization_registry SET payment_rails = ?, updated_at = ? WHERE id = ?`).run(
+          JSON.stringify(normalizedRails),
+          new Date().toISOString(),
+          current.id,
+        )
       } catch (error: any) {
         logger.warn({ error: error.message, orgTenantId: params.orgTenantId }, 'Failed to persist payment rails')
       }
     }
 
     await this.ensureInitialTrustBadges(current.id, params.orgTenantId)
-    await this.ensureDefaultServiceCatalogEntries(current.id, params.orgTenantId, params.sector, params.category, params.activatedWorkflowTypes)
+    await this.ensureDefaultServiceCatalogEntries(
+      current.id,
+      params.orgTenantId,
+      params.sector,
+      params.category,
+      params.activatedWorkflowTypes,
+    )
   }
 
   private async ensureDefaultServiceCatalogEntries(
@@ -384,12 +404,14 @@ export class OrganizationService {
     orgTenantId: string,
     sector?: SectorType,
     category?: OrganizationCategory,
-    activatedWorkflowTypes: string[] = []
+    activatedWorkflowTypes: string[] = [],
   ): Promise<void> {
     try {
       const existing = organizationRegistryRepository.listServicesByOrganization(orgId, false)
       const existingVcTypes = new Set(existing.map((service) => service.vcType).filter(Boolean))
-      const explicitArActivation = activatedWorkflowTypes.some((workflowType) => /ar|receivable|collection|credit/i.test(workflowType))
+      const explicitArActivation = activatedWorkflowTypes.some((workflowType) =>
+        /ar|receivable|collection|credit/i.test(workflowType),
+      )
 
       if (!explicitArActivation) {
         return
@@ -484,9 +506,9 @@ export class OrganizationService {
       const issuanceService = new CredentialIssuanceService()
 
       for (const badge of seedBadges) {
-        const existing = db.prepare(
-          `SELECT id FROM org_trust_badges WHERE org_id = ? AND badge_type = ? AND revoked = 0 LIMIT 1`
-        ).get(orgId, badge.badgeType) as { id: string } | undefined
+        const existing = db
+          .prepare(`SELECT id FROM org_trust_badges WHERE org_id = ? AND badge_type = ? AND revoked = 0 LIMIT 1`)
+          .get(orgId, badge.badgeType) as { id: string } | undefined
 
         if (existing) continue
 
@@ -500,7 +522,10 @@ export class OrganizationService {
             subjectDid: org.issuerDid, // Issue to the org's own DID
           })
           vcLogId = offer.offerId
-          logger.info({ orgId, badgeType: badge.badgeType, offerId: offer.offerId }, 'Created trust badge credential offer')
+          logger.info(
+            { orgId, badgeType: badge.badgeType, offerId: offer.offerId },
+            'Created trust badge credential offer',
+          )
         } catch (error: any) {
           logger.warn({ error: error.message, orgId, badgeType: badge.badgeType }, 'Failed to create trust badge offer')
         }
@@ -508,7 +533,7 @@ export class OrganizationService {
         // Store badge record with VC reference
         db.prepare(
           `INSERT INTO org_trust_badges (id, org_id, tenant_id, badge_type, label, vc_log_id, issued_at, revoked)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 0)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
         ).run(crypto.randomUUID(), orgId, orgTenantId, badge.badgeType, badge.label, vcLogId, now)
 
         logger.info({ orgId, badgeType: badge.badgeType }, 'Trust badge record created')
@@ -540,7 +565,8 @@ export class OrganizationService {
     try {
       const creds = getWalletCredentialsByWalletId(walletTenantId)
       for (const cred of creds) {
-        const isPlatformIdentity = cred.type.includes('PlatformIdentityVC') || cred.type.includes('PlatformIdentityCredential')
+        const isPlatformIdentity =
+          cred.type.includes('PlatformIdentityVC') || cred.type.includes('PlatformIdentityCredential')
         if (!isPlatformIdentity) continue
 
         const parsed = JSON.parse(cred.credentialData || '{}')
@@ -570,14 +596,16 @@ export class OrganizationService {
     const orgName = req.name.trim()
 
     // Deduplication check: see if an ORG with this name already exists
-    const existingOrg = db.prepare("SELECT id FROM tenants WHERE label = ? AND tenant_type = 'ORG' COLLATE NOCASE").get(orgName) as { id: string } | undefined
+    const existingOrg = db
+      .prepare("SELECT id FROM tenants WHERE label = ? AND tenant_type = 'ORG' COLLATE NOCASE")
+      .get(orgName) as { id: string } | undefined
 
-    let orgTenantId: string;
-    let tenantRecord: any = null;
+    let orgTenantId: string
+    let tenantRecord: any = null
 
     if (existingOrg?.id) {
-      orgTenantId = existingOrg.id;
-      logger.info({ orgTenantId, name: orgName }, 'Deduplication: reusing existing organization tenant');
+      orgTenantId = existingOrg.id
+      logger.info({ orgTenantId, name: orgName }, 'Deduplication: reusing existing organization tenant')
     } else {
       // Create the Credo tenant for this org since it doesn't exist
       tenantRecord = await this.agent.modules.tenants.createTenant({
@@ -611,7 +639,8 @@ export class OrganizationService {
       })
 
       // Sync to persistence.db (local application tenant cache used for SQL joins)
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO tenants (
           id, label, status, created_at, issuer_did, issuer_kid, verifier_did, verifier_kid, askar_profile, metadata, tenant_type, domain, phone
         ) VALUES (
@@ -621,7 +650,8 @@ export class OrganizationService {
           label = excluded.label,
           domain = excluded.domain,
           status = excluded.status
-      `).run({
+      `,
+      ).run({
         id: tenant.id,
         label: req.name,
         status: tenant.status,
@@ -642,15 +672,19 @@ export class OrganizationService {
     this.ensurePlatformOrganizationRecord(orgTenantId, req.name)
 
     // Create ownership membership if one doesn't exist
-    const existingMembership = db.prepare('SELECT id FROM org_memberships WHERE user_id = ? AND org_tenant_id = ?').get(userId, orgTenantId) as { id: string } | undefined
+    const existingMembership = db
+      .prepare('SELECT id FROM org_memberships WHERE user_id = ? AND org_tenant_id = ?')
+      .get(userId, orgTenantId) as { id: string } | undefined
     const now = new Date().toISOString()
 
     if (!existingMembership) {
       const membershipId = crypto.randomUUID()
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO org_memberships (id, user_id, org_tenant_id, role, status, created_at, updated_at)
         VALUES (?, ?, ?, 'owner', 'active', ?, ?)
-      `).run(membershipId, userId, orgTenantId, now, now)
+      `,
+      ).run(membershipId, userId, orgTenantId, now, now)
 
       logger.info({ membershipId, userId, orgTenantId, role: 'owner' }, 'Created org ownership membership')
     }
@@ -715,7 +749,7 @@ export class OrganizationService {
   async updateOrganizationPaymentRails(
     userId: string,
     orgTenantId: string,
-    paymentRails: string[]
+    paymentRails: string[],
   ): Promise<OrgPaymentRailsUpdateResult> {
     const role = this.getUserOrgRole(userId, orgTenantId)
     if (!role) {
@@ -745,7 +779,7 @@ export class OrganizationService {
   async updateOrganizationDiscoveryVisibility(
     userId: string,
     orgTenantId: string,
-    isPublic: boolean
+    isPublic: boolean,
   ): Promise<OrgDiscoveryVisibilityUpdateResult> {
     const role = this.getUserOrgRole(userId, orgTenantId)
     if (!role) {
@@ -777,7 +811,9 @@ export class OrganizationService {
   async listUserOrganizations(userId: string): Promise<OrgSummary[]> {
     const db = DatabaseManager.getDatabase()
 
-    const rows = db.prepare(`
+    const rows = db
+      .prepare(
+        `
       SELECT 
         m.org_tenant_id,
         m.role,
@@ -786,35 +822,48 @@ export class OrganizationService {
       FROM org_memberships m
       WHERE m.user_id = ? AND m.status = 'active'
       ORDER BY m.updated_at DESC, m.created_at DESC
-    `).all(userId) as Array<{ org_tenant_id: string; role: string; status: string; updated_at: string }>
+    `,
+      )
+      .all(userId) as Array<{ org_tenant_id: string; role: string; status: string; updated_at: string }>
 
-    const orgs: Array<OrgSummary> = await Promise.all(rows.map(async (row): Promise<OrgSummary> => {
-      const tenant = getTenantById(row.org_tenant_id)
+    const orgs: Array<OrgSummary> = await Promise.all(
+      rows.map(async (row): Promise<OrgSummary> => {
+        const tenant = getTenantById(row.org_tenant_id)
 
-      // Do not hide memberships if runtime tenant lookup is stale.
-      // UI must still show linked orgs so users can recover/switch context.
-      try {
-        const tenantRecord = await (this.agent.modules as any).tenants.getTenantById(row.org_tenant_id)
-        if (!tenantRecord) {
-          logger.warn({ userId, orgTenantId: row.org_tenant_id }, 'Org membership references missing runtime tenant record')
+        // Do not hide memberships if runtime tenant lookup is stale.
+        // UI must still show linked orgs so users can recover/switch context.
+        try {
+          const tenantRecord = await (this.agent.modules as any).tenants.getTenantById(row.org_tenant_id)
+          if (!tenantRecord) {
+            logger.warn(
+              { userId, orgTenantId: row.org_tenant_id },
+              'Org membership references missing runtime tenant record',
+            )
+          }
+        } catch {
+          logger.warn(
+            { userId, orgTenantId: row.org_tenant_id },
+            'Org membership runtime lookup failed; returning persisted org summary',
+          )
         }
-      } catch {
-        logger.warn({ userId, orgTenantId: row.org_tenant_id }, 'Org membership runtime lookup failed; returning persisted org summary')
-      }
 
-      const memberCount = (db.prepare(
-        'SELECT COUNT(*) as cnt FROM org_memberships WHERE org_tenant_id = ? AND status = ?'
-      ).get(row.org_tenant_id, 'active') as any)?.cnt || 0
+        const memberCount =
+          (
+            db
+              .prepare('SELECT COUNT(*) as cnt FROM org_memberships WHERE org_tenant_id = ? AND status = ?')
+              .get(row.org_tenant_id, 'active') as any
+          )?.cnt || 0
 
-      return {
-        orgTenantId: row.org_tenant_id,
-        name: tenant?.label || 'Unknown',
-        role: row.role,
-        domain: tenant?.domain ?? undefined,
-        issuerDid: tenant?.issuerDid,
-        memberCount,
-      }
-    }))
+        return {
+          orgTenantId: row.org_tenant_id,
+          name: tenant?.label || 'Unknown',
+          role: row.role,
+          domain: tenant?.domain ?? undefined,
+          issuerDid: tenant?.issuerDid,
+          memberCount,
+        }
+      }),
+    )
 
     return orgs
   }
@@ -825,35 +874,44 @@ export class OrganizationService {
   listOrgMembers(orgTenantId: string): Array<{ userId: string; role: string; status: string; createdAt: string }> {
     const db = DatabaseManager.getDatabase()
 
-    const rows = db.prepare(`
+    const rows = db
+      .prepare(
+        `
       SELECT user_id, role, status, created_at
       FROM org_memberships
       WHERE org_tenant_id = ? AND status IN ('active', 'invited')
       ORDER BY created_at ASC
-    `).all(orgTenantId) as Array<{ user_id: string; role: string; status: string; created_at: string }>
+    `,
+      )
+      .all(orgTenantId) as Array<{ user_id: string; role: string; status: string; created_at: string }>
 
-    return rows.map(r => ({ userId: r.user_id, role: r.role, status: r.status, createdAt: r.created_at }))
+    return rows.map((r) => ({ userId: r.user_id, role: r.role, status: r.status, createdAt: r.created_at }))
   }
 
   /**
    * Invite a user to an organization by their ssi_users.id.
    */
-  async inviteMember(orgTenantId: string, targetUserId: string, role: 'admin' | 'member', invitedBy: string): Promise<{ membershipId: string }> {
+  async inviteMember(
+    orgTenantId: string,
+    targetUserId: string,
+    role: 'admin' | 'member',
+    invitedBy: string,
+  ): Promise<{ membershipId: string }> {
     const db = DatabaseManager.getDatabase()
 
     // Check the inviter is owner/admin of this org
-    const inviterMembership = db.prepare(
-      'SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ? AND status = ?'
-    ).get(invitedBy, orgTenantId, 'active') as { role: string } | undefined
+    const inviterMembership = db
+      .prepare('SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ? AND status = ?')
+      .get(invitedBy, orgTenantId, 'active') as { role: string } | undefined
 
     if (!inviterMembership || (inviterMembership.role !== 'owner' && inviterMembership.role !== 'admin')) {
       throw new Error('Only org owners/admins can invite members')
     }
 
     // Check target isn't already a member
-    const existing = db.prepare(
-      'SELECT id FROM org_memberships WHERE user_id = ? AND org_tenant_id = ?'
-    ).get(targetUserId, orgTenantId) as { id: string } | undefined
+    const existing = db
+      .prepare('SELECT id FROM org_memberships WHERE user_id = ? AND org_tenant_id = ?')
+      .get(targetUserId, orgTenantId) as { id: string } | undefined
 
     if (existing) {
       throw new Error('User is already a member of this organization')
@@ -861,10 +919,12 @@ export class OrganizationService {
 
     const membershipId = crypto.randomUUID()
     const now = new Date().toISOString()
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO org_memberships (id, user_id, org_tenant_id, role, invited_by, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
-    `).run(membershipId, targetUserId, orgTenantId, role, invitedBy, now, now)
+    `,
+    ).run(membershipId, targetUserId, orgTenantId, role, invitedBy, now, now)
 
     logger.info({ membershipId, targetUserId, orgTenantId, role, invitedBy }, 'Member added to org')
 
@@ -878,26 +938,29 @@ export class OrganizationService {
     const db = DatabaseManager.getDatabase()
 
     // Check the remover is owner/admin
-    const removerMembership = db.prepare(
-      'SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ? AND status = ?'
-    ).get(removedBy, orgTenantId, 'active') as { role: string } | undefined
+    const removerMembership = db
+      .prepare('SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ? AND status = ?')
+      .get(removedBy, orgTenantId, 'active') as { role: string } | undefined
 
     if (!removerMembership || (removerMembership.role !== 'owner' && removerMembership.role !== 'admin')) {
       throw new Error('Only org owners/admins can remove members')
     }
 
     // Cannot remove the owner
-    const target = db.prepare(
-      'SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ?'
-    ).get(targetUserId, orgTenantId) as { role: string } | undefined
+    const target = db
+      .prepare('SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ?')
+      .get(targetUserId, orgTenantId) as { role: string } | undefined
 
     if (target?.role === 'owner' && removedBy !== targetUserId) {
       throw new Error('Cannot remove the org owner')
     }
 
-    db.prepare(
-      'UPDATE org_memberships SET status = ?, updated_at = ? WHERE user_id = ? AND org_tenant_id = ?'
-    ).run('suspended', new Date().toISOString(), targetUserId, orgTenantId)
+    db.prepare('UPDATE org_memberships SET status = ?, updated_at = ? WHERE user_id = ? AND org_tenant_id = ?').run(
+      'suspended',
+      new Date().toISOString(),
+      targetUserId,
+      orgTenantId,
+    )
 
     logger.info({ targetUserId, orgTenantId, removedBy }, 'Member removed from org')
   }
@@ -937,68 +1000,84 @@ export class OrganizationService {
             SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as activeCount,
             SUM(CASE WHEN status = 'active' AND role IN ('owner', 'admin') THEN 1 ELSE 0 END) as adminCount
          FROM org_memberships
-         WHERE org_tenant_id = ?`
+         WHERE org_tenant_id = ?`,
       )
       .get(orgTenantId) as { activeCount?: number; adminCount?: number } | undefined
 
     const peopleCount =
-      ((db
-        .prepare(`SELECT COUNT(*) as cnt FROM people WHERE organization_id = ? AND status = 'active'`)
-        .get(org.id) as { cnt?: number } | undefined)?.cnt ?? 0)
+      (
+        db.prepare(`SELECT COUNT(*) as cnt FROM people WHERE organization_id = ? AND status = 'active'`).get(org.id) as
+          | { cnt?: number }
+          | undefined
+      )?.cnt ?? 0
 
     const departmentCount =
-      ((db
-        .prepare(`SELECT COUNT(*) as cnt FROM departments WHERE organization_id = ? AND status = 'active'`)
-        .get(org.id) as { cnt?: number } | undefined)?.cnt ?? 0)
+      (
+        db
+          .prepare(`SELECT COUNT(*) as cnt FROM departments WHERE organization_id = ? AND status = 'active'`)
+          .get(org.id) as { cnt?: number } | undefined
+      )?.cnt ?? 0
 
     const roleCount =
-      ((db
-        .prepare(`SELECT COUNT(*) as cnt FROM roles WHERE organization_id = ?`)
-        .get(org.id) as { cnt?: number } | undefined)?.cnt ?? 0)
+      (
+        db.prepare(`SELECT COUNT(*) as cnt FROM roles WHERE organization_id = ?`).get(org.id) as
+          | { cnt?: number }
+          | undefined
+      )?.cnt ?? 0
 
     const authorityGrantCount =
-      ((db
-        .prepare(
-          `SELECT COUNT(*) as cnt
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) as cnt
            FROM authority_grants
            WHERE organization_id = ?
              AND status = 'active'
              AND (valid_from IS NULL OR valid_from <= ?)
-             AND (valid_until IS NULL OR valid_until >= ?)`
-        )
-        .get(org.id, nowIso, nowIso) as { cnt?: number } | undefined)?.cnt ?? 0)
+             AND (valid_until IS NULL OR valid_until >= ?)`,
+          )
+          .get(org.id, nowIso, nowIso) as { cnt?: number } | undefined
+      )?.cnt ?? 0
 
     const delegationCount =
-      ((db
-        .prepare(
-          `SELECT COUNT(*) as cnt
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) as cnt
            FROM delegations
            WHERE organization_id = ?
              AND status = 'active'
              AND valid_from <= ?
-             AND (valid_until IS NULL OR valid_until >= ?)`
-        )
-        .get(org.id, nowIso, nowIso) as { cnt?: number } | undefined)?.cnt ?? 0)
+             AND (valid_until IS NULL OR valid_until >= ?)`,
+          )
+          .get(org.id, nowIso, nowIso) as { cnt?: number } | undefined
+      )?.cnt ?? 0
 
     const trustedIssuerCount =
-      ((db
-        .prepare(`SELECT COUNT(*) as cnt FROM trust_anchors WHERE organization_id = ? AND status = 'active'`)
-        .get(org.id) as { cnt?: number } | undefined)?.cnt ?? 0)
+      (
+        db
+          .prepare(`SELECT COUNT(*) as cnt FROM trust_anchors WHERE organization_id = ? AND status = 'active'`)
+          .get(org.id) as { cnt?: number } | undefined
+      )?.cnt ?? 0
 
     const verifierRegistrationCount =
-      ((db
-        .prepare(`SELECT COUNT(*) as cnt FROM verifier_registrations WHERE organization_id = ? AND status = 'active'`)
-        .get(org.id) as { cnt?: number } | undefined)?.cnt ?? 0)
+      (
+        db
+          .prepare(`SELECT COUNT(*) as cnt FROM verifier_registrations WHERE organization_id = ? AND status = 'active'`)
+          .get(org.id) as { cnt?: number } | undefined
+      )?.cnt ?? 0
 
     const paymentServiceCount =
-      ((db
-        .prepare(
-          `SELECT COUNT(*) as cnt
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) as cnt
            FROM service_catalog sc
            JOIN organization_registry o ON o.id = sc.org_id
-           WHERE o.tenant_id = ? AND sc.service_type = 'payment' AND sc.is_active = 1`
-        )
-        .get(orgTenantId) as { cnt?: number } | undefined)?.cnt ?? 0)
+           WHERE o.tenant_id = ? AND sc.service_type = 'payment' AND sc.is_active = 1`,
+          )
+          .get(orgTenantId) as { cnt?: number } | undefined
+      )?.cnt ?? 0
 
     const templates = workflowTemplateRepository.listByTenantId(orgTenantId)
     const activeTemplates = templates.filter((template) => template.enabled)
@@ -1006,13 +1085,13 @@ export class OrganizationService {
 
     const usesApprovalOrAuthority = activeWorkflowTypes.length > 0
     const usesStructuredOrg = activeWorkflowTypes.some((workflowType) =>
-      /(requisition|procure|hr|payroll|field|operations|approval)/i.test(workflowType)
+      /(requisition|procure|hr|payroll|field|operations|approval)/i.test(workflowType),
     )
     const usesVerification = activeWorkflowTypes.some((workflowType) =>
-      /(verify|verification|trust|credential|vp|openid)/i.test(workflowType)
+      /(verify|verification|trust|credential|vp|openid)/i.test(workflowType),
     )
     const usesPayments = activeWorkflowTypes.some((workflowType) =>
-      /(payment|invoice|cash|receivable|payable|education|delivery|ecommerce)/i.test(workflowType)
+      /(payment|invoice|cash|receivable|payable|education|delivery|ecommerce)/i.test(workflowType),
     )
 
     const items: OrganizationSetupReadinessItem[] = [
@@ -1076,12 +1155,11 @@ export class OrganizationService {
         domain: 'authority',
         requirement: 'conditional',
         status: !usesApprovalOrAuthority ? 'optional' : authorityGrantCount > 0 ? 'ready' : 'needs_attention',
-        reason:
-          !usesApprovalOrAuthority
-            ? 'No active workflows currently require approval authority'
-            : authorityGrantCount > 0
-              ? undefined
-              : 'No active authority grants found for enabled workflows',
+        reason: !usesApprovalOrAuthority
+          ? 'No active workflows currently require approval authority'
+          : authorityGrantCount > 0
+            ? undefined
+            : 'No active authority grants found for enabled workflows',
         requiredFor: usesApprovalOrAuthority ? activeWorkflowTypes : undefined,
       },
       {
@@ -1090,12 +1168,11 @@ export class OrganizationService {
         domain: 'people',
         requirement: 'conditional',
         status: !usesStructuredOrg ? 'optional' : departmentCount > 0 ? 'ready' : 'needs_attention',
-        reason:
-          !usesStructuredOrg
-            ? 'Current workflows do not require department routing'
-            : departmentCount > 0
-              ? undefined
-              : 'Create at least one active department for structured request routing',
+        reason: !usesStructuredOrg
+          ? 'Current workflows do not require department routing'
+          : departmentCount > 0
+            ? undefined
+            : 'Create at least one active department for structured request routing',
         requiredFor: usesStructuredOrg ? activeWorkflowTypes : undefined,
       },
       {
@@ -1103,13 +1180,16 @@ export class OrganizationService {
         title: 'Trusted issuers and verifier registrations',
         domain: 'trust',
         requirement: 'conditional',
-        status: !usesVerification ? 'optional' : trustedIssuerCount > 0 && verifierRegistrationCount > 0 ? 'ready' : 'needs_attention',
-        reason:
-          !usesVerification
-            ? 'Verification-heavy workflows are not currently enabled'
-            : trustedIssuerCount > 0 && verifierRegistrationCount > 0
-              ? undefined
-              : 'Configure trust anchors and verifier registration before strict credential verification flows',
+        status: !usesVerification
+          ? 'optional'
+          : trustedIssuerCount > 0 && verifierRegistrationCount > 0
+            ? 'ready'
+            : 'needs_attention',
+        reason: !usesVerification
+          ? 'Verification-heavy workflows are not currently enabled'
+          : trustedIssuerCount > 0 && verifierRegistrationCount > 0
+            ? undefined
+            : 'Configure trust anchors and verifier registration before strict credential verification flows',
         requiredFor: usesVerification ? activeWorkflowTypes : undefined,
       },
       {
@@ -1118,12 +1198,11 @@ export class OrganizationService {
         domain: 'integrations',
         requirement: 'conditional',
         status: !usesPayments ? 'optional' : paymentServiceCount > 0 ? 'ready' : 'needs_attention',
-        reason:
-          !usesPayments
-            ? 'No payment-intensive workflows currently enabled'
-            : paymentServiceCount > 0
-              ? undefined
-              : 'Add an active payment service entry (for example EcoCash) for payment flows',
+        reason: !usesPayments
+          ? 'No payment-intensive workflows currently enabled'
+          : paymentServiceCount > 0
+            ? undefined
+            : 'Add an active payment service entry (for example EcoCash) for payment flows',
         requiredFor: usesPayments ? activeWorkflowTypes : undefined,
       },
       {
@@ -1149,7 +1228,8 @@ export class OrganizationService {
 
     const assessable = items.filter((item) => item.status !== 'optional')
     const readyAssessable = assessable.filter((item) => item.status === 'ready')
-    const readinessPercent = assessable.length === 0 ? 100 : Math.round((readyAssessable.length / assessable.length) * 100)
+    const readinessPercent =
+      assessable.length === 0 ? 100 : Math.round((readyAssessable.length / assessable.length) * 100)
 
     const domainNames: OrganizationSetupDomainProgress['domain'][] = [
       'core',
@@ -1196,7 +1276,11 @@ export class OrganizationService {
     }
   }
 
-  async configureOrganizationWorkflows(userId: string, orgTenantId: string, req: ActivateOrgWorkflowRequest): Promise<OrgWorkflowConfiguration> {
+  async configureOrganizationWorkflows(
+    userId: string,
+    orgTenantId: string,
+    req: ActivateOrgWorkflowRequest,
+  ): Promise<OrgWorkflowConfiguration> {
     this.assertOrgAdmin(userId, orgTenantId)
 
     const tenant = getTenantById(orgTenantId)
@@ -1239,7 +1323,7 @@ export class OrganizationService {
         reconciliationPolicy: {
           mode: 'automatic',
           events: [],
-          ...req.reconciliationPolicy
+          ...req.reconciliationPolicy,
         } as WorkflowTemplateDefinition['reconciliationPolicy'],
         evidencePolicy: {
           ...defaultTemplate.evidencePolicy,
@@ -1270,11 +1354,17 @@ export class OrganizationService {
       this.provisionAdditionalWorkflowTemplates(orgTenantId, inferredWorkflowTypes, req.sector)
     }
 
-    const activatedWorkflowTypes = Array.from(new Set(
-      (req.additionalWorkflowTypes ?? [])
-        .map((value) => String(value || '').trim().toLowerCase())
-        .filter(Boolean)
-    ))
+    const activatedWorkflowTypes = Array.from(
+      new Set(
+        (req.additionalWorkflowTypes ?? [])
+          .map((value) =>
+            String(value || '')
+              .trim()
+              .toLowerCase(),
+          )
+          .filter(Boolean),
+      ),
+    )
 
     await this.ensureDiscoveryProfile({
       orgTenantId,
@@ -1289,20 +1379,30 @@ export class OrganizationService {
     return this.getOrganizationWorkflowConfiguration(userId, orgTenantId)
   }
 
-  async activateOrganizationWorkflows(userId: string, orgTenantId: string, req: ActivateOrgWorkflowRequest): Promise<OrgWorkflowConfiguration> {
+  async activateOrganizationWorkflows(
+    userId: string,
+    orgTenantId: string,
+    req: ActivateOrgWorkflowRequest,
+  ): Promise<OrgWorkflowConfiguration> {
     return this.configureOrganizationWorkflows(userId, orgTenantId, req)
   }
 
   private provisionAdditionalWorkflowTemplates(
     orgTenantId: string,
     requestedWorkflowTypes?: string[],
-    fallbackSector?: SectorType
+    fallbackSector?: SectorType,
   ): void {
-    const workflowTypes = Array.from(new Set(
-      (requestedWorkflowTypes ?? [])
-        .map((value) => String(value || '').trim().toLowerCase())
-        .filter(Boolean)
-    ))
+    const workflowTypes = Array.from(
+      new Set(
+        (requestedWorkflowTypes ?? [])
+          .map((value) =>
+            String(value || '')
+              .trim()
+              .toLowerCase(),
+          )
+          .filter(Boolean),
+      ),
+    )
 
     if (workflowTypes.length === 0) {
       return
@@ -1314,7 +1414,9 @@ export class OrganizationService {
     workflowTypes.forEach((workflowType, index) => {
       const workflowTypeCandidates = getWorkflowTypeCandidates(workflowType)
       const existingTemplate = existingTemplates.find((template) => {
-        const templateType = String(template.workflowType || '').trim().toLowerCase()
+        const templateType = String(template.workflowType || '')
+          .trim()
+          .toLowerCase()
         return workflowTypeCandidates.includes(templateType)
       })
       if (existingTemplate) {
@@ -1353,7 +1455,7 @@ export class OrganizationService {
         if (!inMemoryTemplate) {
           logger.warn(
             { orgTenantId, workflowType, candidates: workflowTypeCandidates },
-            'Requested additional workflow has no global default template'
+            'Requested additional workflow has no global default template',
           )
           return
         }
@@ -1369,7 +1471,7 @@ export class OrganizationService {
         existingTemplates.push(tenantTemplateFromMemory)
         logger.info(
           { orgTenantId, workflowType, source: 'in-memory-template' },
-          'Provisioned workflow template from in-memory fallback'
+          'Provisioned workflow template from in-memory fallback',
         )
         return
       }
@@ -1384,17 +1486,26 @@ export class OrganizationService {
         version: defaultTemplate.version,
         steps: parseJsonColumn(defaultTemplate.steps, []),
         paymentModes: parseJsonColumn(defaultTemplate.paymentModes, []),
-        credentialPolicy: parseJsonColumn<WorkflowTemplateDefinition['credentialPolicy']>(defaultTemplate.credentialPolicy, {
-          outputVCs: [],
-          autoIssue: false,
-        }),
-        reconciliationPolicy: parseJsonColumn<WorkflowTemplateDefinition['reconciliationPolicy']>(defaultTemplate.reconciliationPolicy, {
-          mode: 'manual_close',
-          events: [],
-        }),
+        credentialPolicy: parseJsonColumn<WorkflowTemplateDefinition['credentialPolicy']>(
+          defaultTemplate.credentialPolicy,
+          {
+            outputVCs: [],
+            autoIssue: false,
+          },
+        ),
+        reconciliationPolicy: parseJsonColumn<WorkflowTemplateDefinition['reconciliationPolicy']>(
+          defaultTemplate.reconciliationPolicy,
+          {
+            mode: 'manual_close',
+            events: [],
+          },
+        ),
         evidencePolicy: parseJsonColumn(defaultTemplate.evidencePolicy, {}),
         brandingPolicy: parseJsonColumn(defaultTemplate.brandingPolicy, {}),
-        initiation: parseJsonColumn<WorkflowTemplateDefinition['initiation'] | undefined>(defaultTemplate.initiationSchema, undefined),
+        initiation: parseJsonColumn<WorkflowTemplateDefinition['initiation'] | undefined>(
+          defaultTemplate.initiationSchema,
+          undefined,
+        ),
       }
 
       workflowTemplateRepository.save(tenantTemplate)
@@ -1418,9 +1529,9 @@ export class OrganizationService {
    */
   getUserOrgRole(userId: string, orgTenantId: string): string | null {
     const db = DatabaseManager.getDatabase()
-    const row = db.prepare(
-      'SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ? AND status = ?'
-    ).get(userId, orgTenantId, 'active') as { role: string } | undefined
+    const row = db
+      .prepare('SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ? AND status = ?')
+      .get(userId, orgTenantId, 'active') as { role: string } | undefined
     return row?.role ?? null
   }
 
@@ -1430,9 +1541,12 @@ export class OrganizationService {
    */
   markOrgAsActive(userId: string, orgTenantId: string): void {
     const db = DatabaseManager.getDatabase()
-    db.prepare(
-      'UPDATE org_memberships SET updated_at = ? WHERE user_id = ? AND org_tenant_id = ? AND status = ?'
-    ).run(new Date().toISOString(), userId, orgTenantId, 'active')
+    db.prepare('UPDATE org_memberships SET updated_at = ? WHERE user_id = ? AND org_tenant_id = ? AND status = ?').run(
+      new Date().toISOString(),
+      userId,
+      orgTenantId,
+      'active',
+    )
   }
 
   /**
@@ -1452,7 +1566,9 @@ export class OrganizationService {
     }
 
     const db = DatabaseManager.getDatabase()
-    const user = db.prepare('SELECT tenant_id, did FROM ssi_users WHERE id = ?').get(userId) as { tenant_id?: string; did?: string } | undefined
+    const user = db.prepare('SELECT tenant_id, did FROM ssi_users WHERE id = ?').get(userId) as
+      | { tenant_id?: string; did?: string }
+      | undefined
 
     // Always keep the owner/member contact row in sync with their current wallet tenant.
     // This self-heals stale wallet_tenant_id caused by re-registration or wallet migration.
@@ -1470,7 +1586,10 @@ export class OrganizationService {
           notes: 'Auto-linked from organization member account',
         })
       } catch (err: any) {
-        logger.warn({ error: err.message, orgTenantId, userId }, 'generateOrgToken: failed to sync member contact (non-critical)')
+        logger.warn(
+          { error: err.message, orgTenantId, userId },
+          'generateOrgToken: failed to sync member contact (non-critical)',
+        )
       }
     }
 

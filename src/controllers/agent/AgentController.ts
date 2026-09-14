@@ -1,10 +1,6 @@
+/* eslint-disable no-console */
 import type { RestAgentModules } from '../../cliAgent'
-import type {
-  AgentInfo,
-  AgentToken,
-  SignDataOptions,
-  VerifyDataOptions,
-} from '../types'
+import type { AgentInfo, AgentToken, SignDataOptions, VerifyDataOptions } from '../types'
 
 import {
   Agent,
@@ -196,10 +192,7 @@ export class AgentController extends Controller {
 
   @Security('jwt', [SCOPES.TENANT_AGENT, SCOPES.DEDICATED_AGENT])
   @Post('/credential/verify')
-  public async verifyCredential(
-    @Request() request: Req,
-    @Body() credentialToVerify: any,
-  ) {
+  public async verifyCredential(@Request() request: Req, @Body() credentialToVerify: any) {
     try {
       const { credential, ...credentialOptions } = credentialToVerify
       const transformedCredential = JsonTransformer.fromJSON(

@@ -15,8 +15,9 @@
  * until they want to view their purchase history.
  */
 
-import { DatabaseManager } from '../persistence/DatabaseManager'
 import { randomUUID } from 'crypto'
+
+import { DatabaseManager } from '../persistence/DatabaseManager'
 
 export interface BrowserSessionTenant {
   sessionId: string

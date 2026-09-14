@@ -1,13 +1,17 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
+/* eslint-disable no-console */
 import 'reflect-metadata'
+import type { RestMultiTenantAgentModules } from '../../cliAgent'
 import type { Request as ExRequest } from 'express'
 
-import { Controller, Post, Get, Route, Tags, Body, Request } from 'tsoa'
+import { Agent, W3cCredentialService, getPublicJwkFromVerificationMethod } from '@credo-ts/core'
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
-import { Agent, W3cCredentialService, getPublicJwkFromVerificationMethod } from '@credo-ts/core'
+import { Controller, Post, Get, Route, Tags, Body, Request } from 'tsoa'
 import { container, inject, injectable } from 'tsyringe'
-import { SSIAuthService } from '../../services/SSIAuthService'
-import { saveWalletCredential, getWalletCredentialsByWalletId } from '../../persistence/WalletCredentialRepository'
+
+import { AgentRole } from '../../enums'
+import { UnauthorizedError } from '../../errors/errors'
 import {
   saveLoginChallenge,
   getLoginChallenge,
@@ -15,14 +19,13 @@ import {
   cleanupExpiredChallenges,
 } from '../../persistence/LoginChallengeRepository'
 import { getWalletUserByWalletId } from '../../persistence/UserRepository'
+import { saveWalletCredential, getWalletCredentialsByWalletId } from '../../persistence/WalletCredentialRepository'
 import {
   findTenantByPhone,
   claimTenantForUser,
   getTenantCredentialCount,
 } from '../../services/PhoneTenantLinkingService'
-import { UnauthorizedError } from '../../errors/errors'
-import { AgentRole } from '../../enums'
-import type { RestMultiTenantAgentModules } from '../../cliAgent'
+import { SSIAuthService } from '../../services/SSIAuthService'
 // import type { VerifyPresentationRequestBody } from '../../types/api'
 
 interface LoginRequest {
@@ -251,10 +254,7 @@ export class WalletAuthController extends Controller {
    * Verify VC-Based Login
    */
   @Post('/login-wallet/verify')
-  public async verifyWalletLogin(
-    @Request() request: ExRequest,
-    @Body() body: any,
-  ): Promise<{ token: string }> {
+  public async verifyWalletLogin(@Request() request: ExRequest, @Body() body: any): Promise<{ token: string }> {
     const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
 
     try {

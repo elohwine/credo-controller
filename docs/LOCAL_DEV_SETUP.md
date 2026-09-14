@@ -288,10 +288,12 @@ sqlite3 data/tenants.db < migrations/001_create_stores.sql
 ## IDE Setup
 
 ## Node.js Setup
+
 Ensure you have Node.js 24+ installed (project baseline):
 
 Install recommended extensions:
-node --version  # Should be >= 24.0.0
+node --version # Should be >= 24.0.0
+
 ```bash
 # Install Node.js 24
 nvm install 24
@@ -300,11 +302,16 @@ code --install-extension esbenp.prettier-vscode
 # Or specifically rebuild Askar
 npm rebuild @openwallet-foundation/askar-nodejs
 ```
+
 # Or rebuild with verbose logging
+
 npm rebuild @openwallet-foundation/askar-nodejs --verbose
 Settings (`.vscode/settings.json`):
+
 # Check if Askar loads correctly
+
 node -e "const { askarNodeJS } = require('@openwallet-foundation/askar-nodejs'); console.log('Askar loaded:', !!askarNodeJS)"
+
 ```json
 Askar loaded: true
    # Should be 24.x

@@ -24,10 +24,11 @@ function sanitizeAction(input: unknown): RunningAction | null {
   if (!isRecord(input)) return null
 
   const id = typeof input.id === 'string' ? input.id.trim() : ''
-  const type = typeof input.type === 'string' ? input.type.trim() as RunningActionType : 'workflow'
+  const type = typeof input.type === 'string' ? (input.type.trim() as RunningActionType) : 'workflow'
   const title = typeof input.title === 'string' ? input.title.trim() : ''
   const route = typeof input.route === 'string' ? input.route.trim() : ''
-  const createdAt = typeof input.createdAt === 'string' && input.createdAt.trim() ? input.createdAt : new Date().toISOString()
+  const createdAt =
+    typeof input.createdAt === 'string' && input.createdAt.trim() ? input.createdAt : new Date().toISOString()
   const updatedAt = typeof input.updatedAt === 'string' && input.updatedAt.trim() ? input.updatedAt : createdAt
 
   if (!id || !title || !route) return null
@@ -77,7 +78,9 @@ function writeActions(actions: RunningAction[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized))
 }
 
-export function upsertRunningAction(input: Omit<RunningAction, 'createdAt' | 'updatedAt'> & { createdAt?: string }): void {
+export function upsertRunningAction(
+  input: Omit<RunningAction, 'createdAt' | 'updatedAt'> & { createdAt?: string },
+): void {
   const now = new Date().toISOString()
   const next: RunningAction = {
     ...input,

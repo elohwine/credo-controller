@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * EcoCash ACK-Pay Adapter
  *
@@ -7,11 +8,13 @@
  * Reference: https://www.agentcommercekit.com/ack-pay
  */
 
+import type { AckPaymentOption, AckPaymentRequest } from '../../types/ack-types'
+
 import { injectable, inject } from 'tsyringe'
 import { v4 as uuidv4 } from 'uuid'
-import { BaseAckPayAdapter } from '../AckPayAdapter'
-import type { AckPaymentOption, AckPaymentRequest } from '../../types/ack-types'
+
 import { DatabaseManager } from '../../../persistence/DatabaseManager'
+import { BaseAckPayAdapter } from '../AckPayAdapter'
 
 // Note: Import from @agentcommercekit/ack-pay when installed
 // import { createPaymentReceipt, createSignedPaymentRequest } from '@agentcommercekit/ack-pay'

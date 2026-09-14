@@ -115,7 +115,8 @@ export const SECTORS: SectorInfo[] = [
   {
     id: 'field_execution',
     name: 'Field Execution',
-    description: 'Mobile workforce operations with assignment, evidence capture, acknowledgement, payment, and reconciliation.',
+    description:
+      'Mobile workforce operations with assignment, evidence capture, acknowledgement, payment, and reconciliation.',
     icon: 'IconRoute',
     examples: ['Deliveries', 'Inspections', 'Service teams'],
     defaultTemplateId: 'default-field-execution',

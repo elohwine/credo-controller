@@ -1,8 +1,10 @@
+import { randomUUID } from 'crypto'
+
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
-import { payrollService } from './PayrollService'
+
 import { credentialIssuanceService } from './CredentialIssuanceService'
-import { randomUUID } from 'crypto'
+import { payrollService } from './PayrollService'
 
 const logger = rootLogger.child({ module: 'PayoutService' })
 
@@ -19,7 +21,7 @@ export class PayoutService {
    * Process salary disbursements for a payroll run.
    * Simulates EcoCash Bulk Payment.
    */
-  async processRunPayout(runId: string): Promise<PayoutResult> {
+  public async processRunPayout(runId: string): Promise<PayoutResult> {
     const db = DatabaseManager.getDatabase()
     // 1. Get Run and Payslips
     const { run, payslips } = await payrollService.getRunDetails(runId)

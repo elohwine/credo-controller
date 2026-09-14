@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * Organization Controller — CRUD + membership management for org tenants.
  *
@@ -10,22 +11,19 @@
  */
 
 import 'reflect-metadata'
+import type { OrganizationCategory } from '../../persistence/OrganizationRegistryRepository'
+import type { OrganizationSetupReadiness } from '../../services/OrganizationService'
+import type { SectorType, WorkflowTemplateDefinition } from '../../types/WorkflowTemplate'
 import type { Request as ExRequest } from 'express'
+
 import { Controller, Post, Get, Patch, Delete, Route, Tags, Body, Request, Security, Path } from 'tsoa'
+import { container } from 'tsyringe'
+
 import { AuthContext } from '../../enums'
 import { StatusException } from '../../errors'
 import { WorkflowTemplateRepository } from '../../persistence/WorkflowTemplateRepository'
-import { container } from 'tsyringe'
 import { OrganizationService } from '../../services/OrganizationService'
-import type {
-  OrganizationSetupReadiness,
-} from '../../services/OrganizationService'
-import {
-  getOrCreateOrgProofVcPolicy,
-  updateOrgProofVcPolicy,
-} from '../../services/ProofVcPolicyService'
-import type { SectorType, WorkflowTemplateDefinition } from '../../types/WorkflowTemplate'
-import type { OrganizationCategory } from '../../persistence/OrganizationRegistryRepository'
+import { getOrCreateOrgProofVcPolicy, updateOrgProofVcPolicy } from '../../services/ProofVcPolicyService'
 
 // ─── Request/Response interfaces ───
 
@@ -188,7 +186,7 @@ export class OrganizationController extends Controller {
   @Security('jwt')
   public async createOrganization(
     @Request() request: ExRequest,
-    @Body() body: CreateOrgRequest
+    @Body() body: CreateOrgRequest,
   ): Promise<CreateOrgResponse> {
     const user = (request as any).user
     if (!user?.id) {
@@ -230,7 +228,7 @@ export class OrganizationController extends Controller {
   public async updatePaymentRails(
     @Request() request: ExRequest,
     @Path() orgTenantId: string,
-    @Body() body: UpdateOrgPaymentRailsRequest
+    @Body() body: UpdateOrgPaymentRailsRequest,
   ): Promise<UpdateOrgPaymentRailsResponse> {
     const user = (request as any).user
     if (!user?.id) {
@@ -278,7 +276,7 @@ export class OrganizationController extends Controller {
   public async updateDiscoveryVisibility(
     @Request() request: ExRequest,
     @Path() orgTenantId: string,
-    @Body() body: UpdateOrgDiscoveryVisibilityRequest
+    @Body() body: UpdateOrgDiscoveryVisibilityRequest,
   ): Promise<UpdateOrgDiscoveryVisibilityResponse> {
     const user = (request as any).user
     if (!user?.id) {
@@ -380,7 +378,10 @@ export class OrganizationController extends Controller {
       throw new StatusException('defaultAcceptedVcTypes must be an array of VC type strings', 400)
     }
 
-    if (body.actionOverrides !== undefined && (typeof body.actionOverrides !== 'object' || body.actionOverrides === null || Array.isArray(body.actionOverrides))) {
+    if (
+      body.actionOverrides !== undefined &&
+      (typeof body.actionOverrides !== 'object' || body.actionOverrides === null || Array.isArray(body.actionOverrides))
+    ) {
       this.setStatus(400)
       throw new StatusException('actionOverrides must be an object map of action -> vc type array', 400)
     }
@@ -403,9 +404,7 @@ export class OrganizationController extends Controller {
    */
   @Get('/')
   @Security('jwt')
-  public async listMyOrganizations(
-    @Request() request: ExRequest
-  ): Promise<OrgListItem[]> {
+  public async listMyOrganizations(@Request() request: ExRequest): Promise<OrgListItem[]> {
     const user = (request as any).user
     if (!user?.id) {
       this.setStatus(401)
@@ -416,13 +415,13 @@ export class OrganizationController extends Controller {
   }
 
   /**
-    * Get configured workflow capabilities for an organization.
+   * Get configured workflow capabilities for an organization.
    */
   @Get('/{orgTenantId}/workflows')
   @Security('jwt')
   public async getOrganizationWorkflows(
     @Request() request: ExRequest,
-    @Path() orgTenantId: string
+    @Path() orgTenantId: string,
   ): Promise<OrganizationWorkflowConfigurationResponse> {
     const user = (request as any).user
     if (!user?.id) {
@@ -450,7 +449,7 @@ export class OrganizationController extends Controller {
   public async configureOrganizationWorkflows(
     @Request() request: ExRequest,
     @Path() orgTenantId: string,
-    @Body() body: ConfigureOrgWorkflowsRequest
+    @Body() body: ConfigureOrgWorkflowsRequest,
   ): Promise<OrganizationWorkflowConfigurationResponse> {
     const user = (request as any).user
     if (!user?.id) {
@@ -488,7 +487,7 @@ export class OrganizationController extends Controller {
   public async activateOrganizationWorkflows(
     @Request() request: ExRequest,
     @Path() orgTenantId: string,
-    @Body() body: ActivateOrgWorkflowsRequest
+    @Body() body: ActivateOrgWorkflowsRequest,
   ): Promise<OrganizationWorkflowConfigurationResponse> {
     const user = (request as any).user
     if (!user?.id) {
@@ -553,7 +552,7 @@ export class OrganizationController extends Controller {
   @Security('jwt')
   public async switchToOrganization(
     @Request() request: ExRequest,
-    @Path() orgTenantId: string
+    @Path() orgTenantId: string,
   ): Promise<SwitchOrgResponse> {
     const authContext = (request as any).authContext as string | undefined
     if (authContext === AuthContext.Org) {
@@ -576,9 +575,9 @@ export class OrganizationController extends Controller {
 
       const wtRepo = new WorkflowTemplateRepository()
       const templates = wtRepo.listByTenantId(orgTenantId)
-      const activeTemplate = templates.find(t => t.enabled)
+      const activeTemplate = templates.find((t) => t.enabled)
       const sector = activeTemplate?.sector
-      const workflowTypes = templates.filter(t => t.enabled).map(t => t.workflowType)
+      const workflowTypes = templates.filter((t) => t.enabled).map((t) => t.workflowType)
 
       return { token, orgTenantId, orgName: activeOrg?.name, orgRole, sector, workflowTypes }
     } catch (error: any) {
@@ -598,10 +597,7 @@ export class OrganizationController extends Controller {
    */
   @Get('/{orgTenantId}/members')
   @Security('jwt')
-  public async listMembers(
-    @Request() request: ExRequest,
-    @Path() orgTenantId: string
-  ): Promise<OrgMemberItem[]> {
+  public async listMembers(@Request() request: ExRequest, @Path() orgTenantId: string): Promise<OrgMemberItem[]> {
     const user = (request as any).user
     if (!user?.id) {
       this.setStatus(401)
@@ -632,7 +628,7 @@ export class OrganizationController extends Controller {
   public async inviteMember(
     @Request() request: ExRequest,
     @Path() orgTenantId: string,
-    @Body() body: InviteMemberRequest
+    @Body() body: InviteMemberRequest,
   ): Promise<{ membershipId: string; message: string }> {
     const user = (request as any).user
     if (!user?.id) {
@@ -680,7 +676,7 @@ export class OrganizationController extends Controller {
   public async removeMember(
     @Request() request: ExRequest,
     @Path() orgTenantId: string,
-    @Path() targetUserId: string
+    @Path() targetUserId: string,
   ): Promise<{ message: string }> {
     const user = (request as any).user
     if (!user?.id) {

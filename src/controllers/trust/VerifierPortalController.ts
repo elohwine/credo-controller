@@ -1,7 +1,8 @@
-import { Body, Controller, Post, Get, Route, Tags, Request, Query } from 'tsoa'
-import { rootLogger } from '../../utils/pinoLogger'
-import { verifierPortalService } from '../../services/VerifierPortalService'
 import { Request as ExRequest } from 'express'
+import { Body, Controller, Post, Get, Route, Tags, Request, Query } from 'tsoa'
+
+import { verifierPortalService } from '../../services/VerifierPortalService'
+import { rootLogger } from '../../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'VerifierPortalController' })
 

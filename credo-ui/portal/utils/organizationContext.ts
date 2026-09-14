@@ -127,7 +127,7 @@ export async function fetchOrganizations(backendUrl: string, personalToken: stri
       name: entry?.name || entry?.label || 'Organization',
       role: entry?.role || 'member',
     }))
-    .filter((entry) => !!entry.orgTenantId)
+    .filter((entry: OrganizationMembership) => !!entry.orgTenantId)
 
   if (normalized.length > 0) {
     persistOrganizationsToCache(normalized)

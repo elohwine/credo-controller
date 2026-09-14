@@ -1,11 +1,7 @@
-import { DatabaseManager } from '../persistence/DatabaseManager'
 import { PLATFORM_IDENTITY_VC_TYPE } from '../config/credentials/PlatformIdentityVC'
+import { DatabaseManager } from '../persistence/DatabaseManager'
 
-export type ProofVcActionKey =
-  | 'requisition_approval'
-  | 'requisition_release'
-  | 'requisition_ack'
-  | 'ap_workflow_proof'
+export type ProofVcActionKey = 'requisition_approval' | 'requisition_release' | 'requisition_ack' | 'ap_workflow_proof'
 
 export interface OrgProofVcPolicy {
   orgTenantId: string
@@ -24,9 +20,7 @@ const DEFAULT_POLICY_TYPES = [PLATFORM_IDENTITY_VC_TYPE]
 
 function uniqueVcTypes(input: unknown): string[] {
   if (!Array.isArray(input)) return []
-  return [...new Set(input
-    .map((entry) => String(entry || '').trim())
-    .filter((entry) => entry.length > 0))]
+  return [...new Set(input.map((entry) => String(entry || '').trim()).filter((entry) => entry.length > 0))]
 }
 
 function withPlatformFallback(vcTypes: string[]): string[] {
@@ -75,28 +69,36 @@ function parseJsonArray(raw: string | null | undefined): unknown[] {
 
 export function getOrCreateOrgProofVcPolicy(orgTenantId: string): OrgProofVcPolicy {
   const db = DatabaseManager.getDatabase()
-  const row = db.prepare(`
+  const row = db
+    .prepare(
+      `
     SELECT org_tenant_id, default_vc_types, action_overrides, created_at, updated_at
     FROM org_proof_vc_policies
     WHERE org_tenant_id = ?
     LIMIT 1
-  `).get(orgTenantId) as {
-    org_tenant_id: string
-    default_vc_types: string
-    action_overrides: string
-    created_at?: string
-    updated_at?: string
-  } | undefined
+  `,
+    )
+    .get(orgTenantId) as
+    | {
+        org_tenant_id: string
+        default_vc_types: string
+        action_overrides: string
+        created_at?: string
+        updated_at?: string
+      }
+    | undefined
 
   if (!row) {
     const now = new Date().toISOString()
     const defaultTypes = withPlatformFallback(DEFAULT_POLICY_TYPES)
     const actionOverrides: Record<string, string[]> = {}
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO org_proof_vc_policies (
         org_tenant_id, default_vc_types, action_overrides, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?)
-    `).run(orgTenantId, JSON.stringify(defaultTypes), JSON.stringify(actionOverrides), now, now)
+    `,
+    ).run(orgTenantId, JSON.stringify(defaultTypes), JSON.stringify(actionOverrides), now, now)
 
     return {
       orgTenantId,
@@ -123,20 +125,22 @@ export function updateOrgProofVcPolicy(orgTenantId: string, updates: OrgProofVcP
   const db = DatabaseManager.getDatabase()
   const current = getOrCreateOrgProofVcPolicy(orgTenantId)
 
-  const defaultAcceptedVcTypes = updates.defaultAcceptedVcTypes !== undefined
-    ? withPlatformFallback(uniqueVcTypes(updates.defaultAcceptedVcTypes))
-    : current.defaultAcceptedVcTypes
+  const defaultAcceptedVcTypes =
+    updates.defaultAcceptedVcTypes !== undefined
+      ? withPlatformFallback(uniqueVcTypes(updates.defaultAcceptedVcTypes))
+      : current.defaultAcceptedVcTypes
 
-  const actionOverrides = updates.actionOverrides !== undefined
-    ? parseActionOverrides(updates.actionOverrides)
-    : current.actionOverrides
+  const actionOverrides =
+    updates.actionOverrides !== undefined ? parseActionOverrides(updates.actionOverrides) : current.actionOverrides
 
   const now = new Date().toISOString()
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE org_proof_vc_policies
     SET default_vc_types = ?, action_overrides = ?, updated_at = ?
     WHERE org_tenant_id = ?
-  `).run(JSON.stringify(defaultAcceptedVcTypes), JSON.stringify(actionOverrides), now, orgTenantId)
+  `,
+  ).run(JSON.stringify(defaultAcceptedVcTypes), JSON.stringify(actionOverrides), now, orgTenantId)
 
   return {
     orgTenantId,

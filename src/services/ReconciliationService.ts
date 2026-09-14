@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * ReconciliationService — Lean MVP Auto-Reconciliation Engine
  *
@@ -16,9 +17,10 @@
  * @module services/ReconciliationService
  */
 
+import { randomUUID } from 'crypto'
+
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
-import { randomUUID } from 'crypto'
 
 const logger = rootLogger.child({ module: 'ReconciliationService' })
 

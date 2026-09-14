@@ -1,10 +1,12 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * Credential Definition Repository - Persistent storage for credential definitions
  * Replaces in-memory credentialDefinitionStore with SQLite-backed persistence
  */
 
-import { DatabaseManager } from './DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
+
+import { DatabaseManager } from './DatabaseManager'
 
 export interface CredentialDefinitionPersistenceRecord {
   id: string

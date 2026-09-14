@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * IdenEx Credentis - Workflow Trigger Service
  *
@@ -12,13 +13,15 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
-import { workflowRunRepository, TriggerType } from '../persistence/WorkflowRunRepository'
-import { workflowRepository } from '../persistence/WorkflowRepository'
-import { workflowService } from './WorkflowService'
-import { DatabaseManager } from '../persistence/DatabaseManager'
-import { rootLogger } from '../utils/pinoLogger'
-import { v4 as uuid } from 'uuid'
 import * as cron from 'node-cron'
+import { v4 as uuid } from 'uuid'
+
+import { DatabaseManager } from '../persistence/DatabaseManager'
+import { workflowRepository } from '../persistence/WorkflowRepository'
+import { workflowRunRepository, TriggerType } from '../persistence/WorkflowRunRepository'
+import { rootLogger } from '../utils/pinoLogger'
+
+import { workflowService } from './WorkflowService'
 
 const logger = rootLogger.child({ module: 'TriggerService' })
 
@@ -422,7 +425,7 @@ class TriggerService {
   }
 
   /**
-    * Convert database row to workflow trigger model
+   * Convert database row to workflow trigger model
    */
   private rowToTrigger(row: any): WorkflowTriggerModel {
     return {

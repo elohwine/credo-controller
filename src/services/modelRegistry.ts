@@ -1,5 +1,6 @@
 import { Agent } from '@credo-ts/core'
 import { container } from 'tsyringe'
+
 import {
   PLATFORM_IDENTITY_VC_TYPE,
   PLATFORM_IDENTITY_CREDENTIAL_DEFINITION,
@@ -71,6 +72,7 @@ export async function seedPlatformCredentialDefinitions(rootIssuerDid: string): 
       format: 'jwt_vc_json',
       // Global - no tenantId means root agent scope
     })
+    // eslint-disable-next-line no-console
     console.log(`[ModelRegistry] Seeded PlatformIdentityCredential definition for root agent`)
   }
 }
@@ -80,20 +82,41 @@ export async function seedPlatformCredentialDefinitions(rootIssuerDid: string): 
 export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: SeedParams) {
   // Resolve tenant agent from container root agent modules
   const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent)
+  // eslint-disable-next-line no-console
   console.log(`[ModelRegistry] Starting registration for tenant ${tenantId}`)
   await (baseAgent.modules as any).tenants.withTenantAgent({ tenantId }, async (tenantAgent: any) => {
+    // eslint-disable-next-line no-console
     console.log(`[ModelRegistry] Acquired tenant agent for ${tenantId}`)
     const { schemaStore } = await import('../utils/schemaStore')
     const { credentialDefinitionStore } = await import('../utils/credentialDefinitionStore')
 
+    const isDuplicateError = (message?: string) =>
+      typeof message === 'string' && message.toLowerCase().includes('already exists')
+
     const ensureSchema = (name: string, version: string, jsonSchema: Record<string, any>) => {
       const existing = schemaStore.find(name, version, tenantId)
       if (existing) {
+        // eslint-disable-next-line no-console
         console.log(`[ModelRegistry] Schema ${name}@${version} already exists: ${existing.schemaId}`)
         return existing.schemaId
       }
       const registered: any = schemaStore.register({ name, version, jsonSchema, tenantId })
-      if ('error' in registered) throw new Error(`Schema registration failed: ${registered.error}`)
+      if ('error' in registered) {
+        // Handle duplicate registrations caused by retries/races during local dev provisioning.
+        if (isDuplicateError(registered.error)) {
+          const existingAfterConflict = schemaStore.find(name, version, tenantId)
+          if (existingAfterConflict) {
+            // eslint-disable-next-line no-console
+            console.log(
+              `[ModelRegistry] Reusing existing schema after duplicate conflict ${name}@${version}: ${existingAfterConflict.schemaId}`,
+            )
+            return existingAfterConflict.schemaId
+          }
+        }
+
+        throw new Error(`Schema registration failed: ${registered.error}`)
+      }
+      // eslint-disable-next-line no-console
       console.log(`[ModelRegistry] Registered schema ${name}@${version}: ${registered.schemaId}`)
       return registered.schemaId
     }
@@ -144,6 +167,7 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
         .list(tenantId)
         .find((d) => d.name === name && d.version === version && d.schemaId === schemaId && d.issuerDid === issuerDid)
       if (existing) {
+        // eslint-disable-next-line no-console
         console.log(`[ModelRegistry] CredDef ${name} already exists: ${existing.credentialDefinitionId}`)
         return existing.credentialDefinitionId
       }
@@ -157,7 +181,26 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
         format: format as any,
         tenantId,
       })
-      if ('error' in res) throw new Error(`CredDef registration failed: ${res.error}`)
+      if ('error' in res) {
+        if (isDuplicateError(res.error)) {
+          const existingAfterConflict = credentialDefinitionStore
+            .list(tenantId)
+            .find(
+              (d) => d.name === name && d.version === version && d.schemaId === schemaId && d.issuerDid === issuerDid,
+            )
+
+          if (existingAfterConflict) {
+            // eslint-disable-next-line no-console
+            console.log(
+              `[ModelRegistry] Reusing existing CredDef after duplicate conflict ${name}: ${existingAfterConflict.credentialDefinitionId}`,
+            )
+            return existingAfterConflict.credentialDefinitionId
+          }
+        }
+
+        throw new Error(`CredDef registration failed: ${res.error}`)
+      }
+      // eslint-disable-next-line no-console
       console.log(`[ModelRegistry] Registered CredDef ${name} with ID ${res.credentialDefinitionId}`)
       return res.credentialDefinitionId
     }

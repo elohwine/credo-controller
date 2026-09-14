@@ -1,4 +1,5 @@
 import type { WorkflowInitiationDefinition } from '../../types/WorkflowTemplate'
+
 import { getTemplateById } from './templates'
 
 const WORKFLOW_TYPE_ALIASES: Record<string, string> = {
@@ -14,14 +15,15 @@ const WORKFLOW_TYPE_ALIASES: Record<string, string> = {
   field_execution_fept: 'tpl-fept-field-execution',
 }
 
-const REVERSE_WORKFLOW_TYPE_ALIASES: Record<string, string[]> = Object.entries(WORKFLOW_TYPE_ALIASES)
-  .reduce<Record<string, string[]>>((acc, [alias, canonical]) => {
-    if (!acc[canonical]) {
-      acc[canonical] = []
-    }
-    acc[canonical].push(alias)
-    return acc
-  }, {})
+const REVERSE_WORKFLOW_TYPE_ALIASES: Record<string, string[]> = Object.entries(WORKFLOW_TYPE_ALIASES).reduce<
+  Record<string, string[]>
+>((acc, [alias, canonical]) => {
+  if (!acc[canonical]) {
+    acc[canonical] = []
+  }
+  acc[canonical].push(alias)
+  return acc
+}, {})
 
 function asObject(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -32,7 +34,9 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
 }
 
 function normalizeWorkflowTypeValue(workflowType: string): string {
-  return String(workflowType || '').trim().toLowerCase()
+  return String(workflowType || '')
+    .trim()
+    .toLowerCase()
 }
 
 export function normalizeWorkflowTypeAlias(workflowType: string): string {
@@ -56,9 +60,7 @@ export function getWorkflowTypeCandidates(workflowType: string): string[] {
   return Array.from(new Set([normalized, canonical, ...reverseAliases]))
 }
 
-export function deriveInitiationForWorkflow(
-  workflowType: string
-): WorkflowInitiationDefinition | undefined {
+export function deriveInitiationForWorkflow(workflowType: string): WorkflowInitiationDefinition | undefined {
   const resolvedTemplateId = normalizeWorkflowTypeAlias(workflowType)
   const template = getTemplateById(resolvedTemplateId)
 

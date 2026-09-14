@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * InventoryService - Secure inventory management with hash-chained event ledger
  *
@@ -12,9 +13,11 @@
  */
 
 import { createHash, randomUUID } from 'crypto'
+
 import { DatabaseManager } from '../persistence/DatabaseManager'
-import { credentialIssuanceService } from './CredentialIssuanceService'
 import { rootLogger } from '../utils/pinoLogger'
+
+import { credentialIssuanceService } from './CredentialIssuanceService'
 
 const logger = rootLogger.child({ module: 'InventoryService' })
 

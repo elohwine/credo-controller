@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * Database connection and migration management
  * Uses better-sqlite3 for synchronous, type-safe SQLite operations
@@ -6,6 +7,7 @@
 import Database from 'better-sqlite3'
 import { readFileSync, existsSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
+
 import { rootLogger } from '../utils/pinoLogger'
 
 export interface DbConfig {

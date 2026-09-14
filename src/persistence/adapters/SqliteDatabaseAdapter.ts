@@ -1,5 +1,4 @@
 import type { IDatabaseAdapter, IPreparedStatement, TransactionFn } from './IDatabaseAdapter'
-
 import type Database from 'better-sqlite3'
 
 /**

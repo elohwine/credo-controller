@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /**
  * IdenEx Credentis - Revocation Service
  *
@@ -12,11 +13,12 @@
  */
 
 import { injectable, container } from 'tsyringe'
-import { CredentialIssuanceService } from './CredentialIssuanceService'
-import { auditService } from './AuditService'
-// @ts-ignore
 import { gzipSync, gunzipSync } from 'zlib'
+
 import { rootLogger } from '../utils/pinoLogger'
+
+import { auditService } from './AuditService'
+import { CredentialIssuanceService } from './CredentialIssuanceService'
 
 const logger = rootLogger.child({ module: 'RevocationService' })
 
