@@ -1,0 +1,49 @@
+{
+  "name": "credentis-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "dev:android": "next dev -p 3001",
+    "tunnel:api": "bash ./scripts/start-ngrok-tunnel.sh 3000",
+    "cap:copy": "npm run build && npx cap copy android",
+    "cap:sync": "npm run build && npx cap sync android",
+    "cap:open": "npx cap open android",
+    "android:release": "bash ./build-mobile.sh",
+    "native:gen": "npx @capacitor/assets generate android"
+  },
+  "dependencies": {
+    "@capacitor-mlkit/barcode-scanning": "^7.5.0",
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/camera": "^7.0.0",
+    "@capacitor/cli": "^7.4.3",
+    "@capacitor/core": "^7.4.3",
+    "@capacitor/geolocation": "^7.0.0",
+    "@capacitor/haptics": "^7.0.0",
+    "@capacitor/push-notifications": "^7.0.0",
+    "@mantine/core": "^8.3.10",
+    "@mantine/form": "^8.3.10",
+    "@mantine/hooks": "^8.3.10",
+    "@mantine/notifications": "^8.3.10",
+    "@tabler/icons-react": "^3.36.1",
+    "@types/crypto-js": "^4.2.2",
+    "axios": "^1.7.2",
+    "crypto-js": "^4.2.0",
+    "dayjs": "^1.11.19",
+    "next": "14.2.32",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-qr-code": "^2.0.18",
+    "typescript": "5.4.5"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.0",
+    "@types/node": "20.14.5",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "postcss": "8.4.38",
+    "postcss-preset-mantine": "^1.18.0",
+    "postcss-simple-vars": "^7.0.1"
+  }
+}
