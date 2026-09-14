@@ -88,6 +88,13 @@ export default function WorkflowsPage() {
     const role = getUserRole();
     const isIssuer = getContextMode() === 'org' && ['owner', 'admin', 'issuer'].includes(role ?? '');
 
+    // Guard: workflow administration is org-context only.
+    useEffect(() => {
+        if (getContextMode() !== 'org') {
+            router.replace('/');
+        }
+    }, [router]);
+
     const [tab, setTab] = useState<string>('templates');
     const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
     const [runs, setRuns] = useState<WorkflowRun[]>([]);

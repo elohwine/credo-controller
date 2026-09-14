@@ -66,22 +66,27 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
         );
     }
 
-    // Primary nav items (MVP Fastlane only)
+    // Primary nav items
     const primaryNav: NavItem[] = [
         { label: 'Home', href: '/', icon: <IconHome size={16} /> },
-        { label: 'Shop', href: '/shop', icon: <IconBuildingStore size={16} /> },
-        { label: 'My Receipts', href: '/wallet', icon: <IconReceipt size={16} /> },
+        { label: 'My Wallet', href: '/wallet', icon: <IconReceipt size={16} /> },
         { label: 'Verify', href: '/verify', icon: <IconFileCheck size={16} /> },
     ];
 
-    // MVP Fastlane - Categorized menus
+    // Categorized menus
     const categories: NavCategory[] = [
         {
-            label: 'Admin',
+            label: 'Work',
             items: [
+                { label: 'Shop', href: '/shop', icon: <IconBuildingStore size={16} />, description: 'Browse and buy' },
+            ],
+        },
+        {
+            label: 'Organization',
+            items: [
+                { label: 'Setup & Readiness', href: '/organization/setup', icon: <IconBuildingStore size={16} />, description: 'Capability-driven setup center' },
                 { label: 'Credentials', href: '/credential-models', icon: <IconCertificate size={16} />, description: 'Credential definitions' },
                 { label: 'Issue / Verify', href: '/select-credentials', icon: <IconFileCheck size={16} />, description: 'Manual credential ops' },
-                { label: 'Organization Setup', href: '/organization/setup', icon: <IconBuildingStore size={16} />, description: 'Readiness and capability setup' },
             ],
         },
         

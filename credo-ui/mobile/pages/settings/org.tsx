@@ -190,6 +190,28 @@ interface WorkflowActorDefault {
   enabled: boolean;
 }
 
+type ReadinessRequirement = 'mandatory' | 'conditional' | 'recommended';
+type ReadinessStatus = 'ready' | 'needs_attention' | 'optional';
+type ReadinessDomain = 'core' | 'people' | 'authority' | 'operations' | 'trust' | 'integrations';
+
+interface ReadinessItem {
+  key: string;
+  title: string;
+  domain: ReadinessDomain;
+  requirement: ReadinessRequirement;
+  status: ReadinessStatus;
+  reason?: string;
+}
+
+interface OrganizationReadiness {
+  orgTenantId: string;
+  orgName: string;
+  readinessPercent: number;
+  readinessState: 'ready' | 'in_progress' | 'blocked';
+  items: ReadinessItem[];
+  nextActions: string[];
+}
+
 const STORE_PAYMENT_RAIL_OPTIONS = [
   { value: 'AcceptsEcoCash', label: 'EcoCash' },
   { value: 'AcceptsZipit', label: 'ZIPIT' },
@@ -290,6 +312,8 @@ export default function OrgSettingsPage() {
   const [branding, setBranding] = useState({ orgName: '', primaryColor: '#228be6' });
   const [activating, setActivating] = useState(false);
   const [activeWorkflowTypes, setActiveWorkflowTypes] = useState<string[]>([]);
+  const [readiness, setReadiness] = useState<OrganizationReadiness | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
 
   const loadActiveWorkflowTypes = useCallback(async (orgId?: string | null) => {
     const targetOrgId = orgId || getActiveOrgId();
@@ -313,6 +337,27 @@ export default function OrgSettingsPage() {
     }
   }, []);
 
+  const loadReadiness = useCallback(async (orgId?: string | null) => {
+    const targetOrgId = orgId || getActiveOrgId();
+    if (!targetOrgId) {
+      setReadiness(null);
+      return;
+    }
+
+    setReadinessLoading(true);
+    try {
+      const token = getPreferredToken() || getWalletToken();
+      const res = await api.get(`/api/organizations/${targetOrgId}/setup/readiness`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      setReadiness(res.data ?? null);
+    } catch {
+      setReadiness(null);
+    } finally {
+      setReadinessLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     setActiveId(getActiveOrgId());
     setActiveLabel(getActiveOrgLabel());
@@ -326,7 +371,8 @@ export default function OrgSettingsPage() {
     void loadWorkflowActorDefaults();
     void fetchMembers(activeId);
     void loadActiveWorkflowTypes(activeId);
-  }, [activeId, fetchMembers, loadActiveWorkflowTypes]);
+    void loadReadiness(activeId);
+  }, [activeId, fetchMembers, loadActiveWorkflowTypes, loadReadiness]);
 
   // ── Data loading (reused from original) ──
 
@@ -523,6 +569,7 @@ export default function OrgSettingsPage() {
       setActiveId(orgId);
       setActiveLabel(orgLabel);
       void loadActiveWorkflowTypes(orgId);
+      void loadReadiness(orgId);
       notifications.show({ title: 'Organisation switched', message: orgLabel, color: 'green' });
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Switch failed');
@@ -571,6 +618,7 @@ export default function OrgSettingsPage() {
       setActiveId(orgTenantId);
       setActiveLabel(newOrgName.trim());
       void loadActiveWorkflowTypes(orgTenantId);
+      void loadReadiness(orgTenantId);
       setBranding({ ...branding, orgName: newOrgName.trim() });
       setShowCreate(false);
       setNewOrgName('');
@@ -720,6 +768,7 @@ export default function OrgSettingsPage() {
       localStorage.setItem('credoActiveWorkflowTypes', JSON.stringify(updatedWorkflowTypes));
       setActiveWorkflowTypes(updatedWorkflowTypes);
       await loadActiveWorkflowTypes(activeId);
+      await loadReadiness(activeId);
 
       const firstEnabled = result.templates?.find((t: any) => t.enabled);
       if (firstEnabled?.id) localStorage.setItem('credoActiveTemplateId', firstEnabled.id);
@@ -835,6 +884,52 @@ export default function OrgSettingsPage() {
 
         {activeId && (
           <Stack gap="md">
+            <Paper p="md" radius="md" withBorder>
+              <Stack gap="xs">
+                <Group justify="space-between" align="start">
+                  <Box>
+                    <Text fw={700}>Setup Readiness</Text>
+                    <Text size="xs" c="dimmed" mt={4}>
+                      Capability-driven onboarding status for this organisation.
+                    </Text>
+                  </Box>
+                  {readiness ? (
+                    <Badge color={readiness.readinessState === 'ready' ? 'green' : readiness.readinessState === 'blocked' ? 'red' : 'yellow'}>
+                      {readiness.readinessState.replace(/_/g, ' ')}
+                    </Badge>
+                  ) : null}
+                </Group>
+
+                {readinessLoading ? (
+                  <Center py="xs"><Loader size="sm" /></Center>
+                ) : readiness ? (
+                  <>
+                    <Group justify="space-between" align="center">
+                      <Text size="sm" fw={600}>{readiness.orgName || activeLabel || 'Organisation'}</Text>
+                      <Badge variant="light" color="blue">{readiness.readinessPercent}% ready</Badge>
+                    </Group>
+
+                    {readiness.nextActions.length > 0 ? (
+                      <Paper p="xs" radius="sm" withBorder>
+                        <Text size="xs" fw={700} c="dimmed" mb={4}>NEXT ACTIONS</Text>
+                        <Stack gap={4}>
+                          {readiness.nextActions.slice(0, 3).map((action) => (
+                            <Text key={action} size="xs">• {action}</Text>
+                          ))}
+                        </Stack>
+                      </Paper>
+                    ) : (
+                      <Alert variant="light" color="green" icon={<IconCheck size={14} />}>
+                        <Text size="xs">No critical setup blockers detected.</Text>
+                      </Alert>
+                    )}
+                  </>
+                ) : (
+                  <Text size="xs" c="dimmed">Readiness will appear after selecting or creating an organisation.</Text>
+                )}
+              </Stack>
+            </Paper>
+
             <Paper p="md" radius="md" withBorder>
               <Stack gap="sm">
                 <Group justify="space-between" align="start">
@@ -1176,7 +1271,7 @@ export default function OrgSettingsPage() {
       <BottomSheet
         opened={setupOpen}
         onClose={() => setSetupOpen(false)}
-        title={`Setup · Step ${setupStep + 1} of ${setupStepCount}`}
+        title={`Configure · Step ${setupStep + 1} of ${setupStepCount}`}
       >
         <ScrollArea.Autosize mah="65vh" offsetScrollbars>
           <Stack gap="md" pb="lg" px="xs">
@@ -1356,7 +1451,7 @@ export default function OrgSettingsPage() {
               loading={activating}
               onClick={handleActivate}
             >
-              Activate
+              Configure
             </Button>
           )}
         </Group>
