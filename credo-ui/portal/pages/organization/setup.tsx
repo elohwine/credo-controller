@@ -130,6 +130,11 @@ export default function OrganizationSetupPage() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!orgTenantId) return
+    void loadReadiness()
+  }, [orgTenantId])
+
   const loadReadiness = async () => {
     setError(null)
     const activeOrg = readActiveOrganization()
