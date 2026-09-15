@@ -80,6 +80,8 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
         {
             label: 'Work',
             items: [
+                { label: 'Inbox', href: '/inbox', icon: <IconFileCheck size={16} />, description: 'Actions awaiting attention' },
+                { label: 'Requests', href: '/requests', icon: <IconReceipt size={16} />, description: 'Organizational requests' },
                 { label: 'Shop', href: '/shop', icon: <IconBuildingStore size={16} />, description: 'Browse and buy' },
             ],
         },

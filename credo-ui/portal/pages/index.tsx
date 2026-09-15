@@ -219,6 +219,12 @@ export default function DashboardPage() {
                                 icon={<IconReceipt size={20} />}
                             />
                             <QuickLinkCard
+                                label="Requests"
+                                description="Browse organizational requests in your current context"
+                                href="/requests"
+                                icon={<IconGitBranch size={20} />}
+                            />
+                            <QuickLinkCard
                                 label="Verify"
                                 description="Verify a credential or presentation"
                                 href="/verify"
