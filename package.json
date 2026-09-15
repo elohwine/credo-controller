@@ -44,7 +44,8 @@
     "validate": "yarn lint && yarn check-types && yarn check-format",
     "dev:all": "concurrently -k \"yarn dev\" \"(cd credo-ui/waltid-identity/waltid-applications/waltid-web-wallet/apps/waltid-demo-wallet && yarn dev)\"",
     "rebuild": "npm rebuild",
-    "seed:models": "tsnd --transpile-only scripts/seed-vc-models.ts"
+    "seed:models": "tsnd --transpile-only scripts/seed-vc-models.ts",
+    "smoke:askar": "fnm exec --using=24 npx ts-node test_askar.ts"
   },
   "dependencies": {
     "@credo-ts/anoncreds": "0.7.0",
