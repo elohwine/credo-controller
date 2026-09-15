@@ -808,7 +808,17 @@ export class WalletController extends Controller {
       if (baseAgentDids.length === 0) {
         console.log('[useOfferRequest] No DID in base agent, creating one...')
         try {
-          const createdDid = await agent.dids.create({ method: 'key', options: { keyType: 'Ed25519' as any } })
+          const createdDid = await agent.dids.create({
+            method: 'key',
+            options: {
+              createKey: {
+                type: {
+                  kty: 'OKP',
+                  crv: 'Ed25519',
+                },
+              },
+            },
+          })
           holderDid = createdDid.didState.did as string
           console.log('[useOfferRequest] Created DID in base agent:', holderDid)
         } catch (didError: any) {

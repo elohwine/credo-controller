@@ -20,7 +20,14 @@ export class DidAutomationController extends Controller {
     const req = request as ExRequest & { agent: any }
     const didResult = await req.agent.dids.create({
       method: 'key',
-      options: { keyType: 'Ed25519' as any },
+      options: {
+        createKey: {
+          type: {
+            kty: 'OKP',
+            crv: 'Ed25519',
+          },
+        },
+      },
     })
     if (didResult.didState.state !== 'finished' || !didResult.didState.did) {
       this.setStatus(500)

@@ -22,7 +22,7 @@ import { agentDependencies, DidCommHttpInboundTransport } from '@credo-ts/node'
 import { OpenId4VcModule } from '@credo-ts/openid4vc'
 import { QuestionAnswerModule } from '@credo-ts/question-answer'
 import { TenantsModule as TenantsModuleClass, type TenantsModule } from '@credo-ts/tenants'
-import { askar } from '@openwallet-foundation/askar-nodejs'
+import { askarNodeJS } from '@openwallet-foundation/askar-nodejs'
 import express, { type Express } from 'express'
 import { readFile } from 'fs/promises'
 
@@ -98,7 +98,7 @@ export const buildModules = (cfg: {
 
   return {
     askar: new AskarModule({
-      askar,
+      askar: askarNodeJS,
       store: {
         id: walletId,
         key: walletKey,
@@ -273,12 +273,12 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
 
   const tenantModules = tenancy
     ? {
-        tenants: new TenantsModuleClass<typeof baseModules>({
-          sessionAcquireTimeout: Number(process.env.SESSION_ACQUIRE_TIMEOUT) || 2_147_483_647,
-          sessionLimit: Number(process.env.SESSION_LIMIT) || 2_147_483_647,
-        }),
-        ...baseModules,
-      }
+      tenants: new TenantsModuleClass<typeof baseModules>({
+        sessionAcquireTimeout: Number(process.env.SESSION_ACQUIRE_TIMEOUT) || 2_147_483_647,
+        sessionLimit: Number(process.env.SESSION_LIMIT) || 2_147_483_647,
+      }),
+      ...baseModules,
+    }
     : baseModules
 
   const agent = new Agent({ config: agentConfig, modules: tenantModules as any, dependencies: agentDependencies })

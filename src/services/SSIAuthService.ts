@@ -21,8 +21,7 @@
 
 import type { SSIUserRecord, PlatformIdentityClaims } from '../config/credentials/PlatformIdentityVC'
 
-import { Agent } from '@credo-ts/core'
-import { W3cCredentialService } from '@credo-ts/core'
+import { Agent, W3cCredentialService } from '@credo-ts/core'
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
 import { injectable, inject } from 'tsyringe'
@@ -455,7 +454,17 @@ export class SSIAuthService {
     const existingDids = await tenantAgent.dids.getCreatedDids({ method: 'key' })
     let userDid: string
     if (existingDids.length === 0) {
-      const result = await tenantAgent.dids.create({ method: 'key', options: { keyType: 'Ed25519' as any } })
+      const result = await tenantAgent.dids.create({
+        method: 'key',
+        options: {
+          createKey: {
+            type: {
+              kty: 'OKP',
+              crv: 'Ed25519',
+            },
+          },
+        },
+      })
       userDid = result.didState.did!
     } else {
       userDid = existingDids[0].did

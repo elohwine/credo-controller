@@ -46,10 +46,10 @@ export async function provisionTenantResources({
   const displayLabel = displayName ?? tenantRecord.config?.label ?? tenantRecord.id
   const display = displayLabel
     ? {
-        name: displayLabel,
-        description: `${displayLabel} OpenID endpoints`,
-        locale: 'en-US',
-      }
+      name: displayLabel,
+      description: `${displayLabel} OpenID endpoints`,
+      locale: 'en-US',
+    }
     : undefined
 
   const result = await agent.modules.tenants.withTenantAgent(

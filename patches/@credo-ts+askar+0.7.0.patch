@@ -1,0 +1,47 @@
+diff --git a/node_modules/@credo-ts/askar/build/kms/AskarKeyManagementService.mjs b/node_modules/@credo-ts/askar/build/kms/AskarKeyManagementService.mjs
+--- a/node_modules/@credo-ts/askar/build/kms/AskarKeyManagementService.mjs
++++ b/node_modules/@credo-ts/askar/build/kms/AskarKeyManagementService.mjs
+@@
+-import { CryptoBox, Jwk, Key, KeyAlgorithm, KeyEntryList, SignatureAlgorithm, askar } from "@openwallet-foundation/askar-shared";
++import { CryptoBox, Jwk, Key, KeyAlgorithm, KeyEntryList, NativeAskar, SignatureAlgorithm } from "@openwallet-foundation/askar-shared";
+@@
+ 	keyFromJwk(jwk) {
+-		return new Key(askar.keyFromJwk({ jwk: new Uint8Array(JsonEncoder.toUint8Array(jwk)) }));
++		return new Key(NativeAskar.instance.keyFromJwk({ jwk: new Uint8Array(JsonEncoder.toUint8Array(jwk)) }));
+ 	}
+@@
+ 	privateJwkFromKey(key, partialJwkPrivate) {
+-		const { alg, ...jwkSecret } = JsonEncoder.fromUint8Array(askar.keyGetJwkSecret({ localKeyHandle: key.handle }));
++		const { alg, ...jwkSecret } = JsonEncoder.fromUint8Array(NativeAskar.instance.keyGetJwkSecret({ localKeyHandle: key.handle }));
+ 		return {
+ 			...partialJwkPrivate,
+ 			...jwkSecret
+ 		};
+ 	}
+@@
+ 		return await this.withSession(agentContext, async (session) => {
+ 			if (!session.handle) throw Error("Cannot fetch a key with a closed session");
+-			const handle = await askar.sessionFetchKey({
++			const handle = await NativeAskar.instance.sessionFetchKey({
+ 				forUpdate: false,
+ 				name: keyId,
+ 				sessionHandle: session.handle
+ 			});
+diff --git a/node_modules/@credo-ts/askar/build/kms/crypto/deriveKey.mjs b/node_modules/@credo-ts/askar/build/kms/crypto/deriveKey.mjs
+--- a/node_modules/@credo-ts/askar/build/kms/crypto/deriveKey.mjs
++++ b/node_modules/@credo-ts/askar/build/kms/crypto/deriveKey.mjs
+@@
+-import { Key, askar } from "@openwallet-foundation/askar-shared";
++import { Key, NativeAskar } from "@openwallet-foundation/askar-shared";
+@@
+-	const derivedKey = new Key(askar.keyDeriveEcdhEs({
++	const derivedKey = new Key(NativeAskar.instance.keyDeriveEcdhEs({
+ 		algId: TypedArrayEncoder.fromUtf8String(keyAgreement.algorithm === "ECDH-ES" ? encryption.algorithm : keyAgreement.algorithm),
+ 		receive: false,
+ 		apv: keyAgreement.apv ? new Uint8Array(keyAgreement.apv) : new Uint8Array([]),
+@@
+-	const derivedKey = new Key(askar.keyDeriveEcdhEs({
++	const derivedKey = new Key(NativeAskar.instance.keyDeriveEcdhEs({
+ 		algId: TypedArrayEncoder.fromUtf8String(keyAgreement.algorithm === "ECDH-ES" ? decryption.algorithm : keyAgreement.algorithm),
+ 		receive: true,
+ 		apv: keyAgreement.apv ? new Uint8Array(keyAgreement.apv) : new Uint8Array(),

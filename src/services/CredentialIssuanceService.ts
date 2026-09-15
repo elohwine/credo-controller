@@ -193,7 +193,17 @@ export class CredentialIssuanceService {
     if (dids.length > 0) return dids[0].did
 
     // Create one if missing
-    const did = await agent.dids.create({ method: 'key', options: { keyType: 'Ed25519' as any } })
+    const did = await agent.dids.create({
+      method: 'key',
+      options: {
+        createKey: {
+          type: {
+            kty: 'OKP',
+            crv: 'Ed25519',
+          },
+        },
+      },
+    })
     return did.didState.did as string
   }
 }

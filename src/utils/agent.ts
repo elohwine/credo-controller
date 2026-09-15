@@ -12,7 +12,7 @@ import {
 } from '@credo-ts/core'
 import { agentDependencies } from '@credo-ts/node'
 import { TenantsModule } from '@credo-ts/tenants'
-import { askar } from '@openwallet-foundation/askar-nodejs'
+import { askarNodeJS } from '@openwallet-foundation/askar-nodejs'
 
 import { TsLogger } from './logger'
 
@@ -29,7 +29,7 @@ export const setupAgent = async ({ name, endpoints, port }: { name: string; endp
     config: config,
     modules: {
       askar: new AskarModule({
-        askar,
+        askar: askarNodeJS,
         store: {
           id: name,
           key: name,
