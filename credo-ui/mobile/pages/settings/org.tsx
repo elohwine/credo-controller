@@ -273,7 +273,7 @@ export default function OrgSettingsPage() {
     if (!token || !activeId || !invitePhone.trim()) return;
     setInviting(true);
     try {
-      await api.post(`/api/organizations/${activeId}/members/invite`, { phone: invitePhone.trim(), role: inviteRole || 'approver' }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.post(`/api/organizations/${activeId}/members/invite`, { phone: invitePhone.trim(), role: inviteRole || 'member' }, { headers: { Authorization: `Bearer ${token}` } });
       notifications.show({ title: 'Invite sent', message: `${invitePhone.trim()} invited as ${inviteRole}.`, color: 'green' });
       setInvitePhone(''); setShowInvite(false);
       void fetchMembers(activeId);

@@ -49,6 +49,26 @@ export interface OrgMembership {
   issuerDid?: string
 }
 
+export interface DepartmentRecord {
+  id: string
+  name: string
+  code: string
+  description?: string
+  memberCount?: number
+  createdAt: string
+}
+
+export interface AuthorityGrantRecord {
+  id: string
+  userId: string
+  role: string
+  domain: string
+  thresholdAmount?: number
+  currency?: string
+  status: string
+  createdAt: string
+}
+
 export interface CreateOrgRequest {
   name: string
   domain?: string
@@ -888,6 +908,183 @@ export class OrganizationService {
     return rows.map((r) => ({ userId: r.user_id, role: r.role, status: r.status, createdAt: r.created_at }))
   }
 
+  listDepartments(orgTenantId: string): DepartmentRecord[] {
+    const db = DatabaseManager.getDatabase()
+    const org = this.ensurePlatformOrganizationRecord(orgTenantId, getTenantById(orgTenantId)?.label)
+
+    const rows = db
+      .prepare(
+        `
+        SELECT d.id, d.name, COALESCE(d.code, '') as code, d.created_at,
+               COUNT(om.person_id) as memberCount
+        FROM departments d
+        LEFT JOIN organization_memberships om
+          ON om.department_id = d.id AND om.membership_status = 'active'
+        WHERE d.organization_id = ? AND d.status = 'active'
+        GROUP BY d.id, d.name, d.code, d.created_at
+        ORDER BY d.created_at ASC
+      `,
+      )
+      .all(org.id) as Array<{
+      id: string
+      name: string
+      code: string
+      created_at: string
+      memberCount: number
+    }>
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      code: row.code,
+      createdAt: row.created_at,
+      memberCount: row.memberCount,
+    }))
+  }
+
+  createDepartment(
+    orgTenantId: string,
+    createdBy: string,
+    input: { name: string; code?: string; description?: string },
+  ): DepartmentRecord {
+    this.assertOrgAdmin(createdBy, orgTenantId)
+
+    const db = DatabaseManager.getDatabase()
+    const org = this.ensurePlatformOrganizationRecord(orgTenantId, getTenantById(orgTenantId)?.label)
+    const id = crypto.randomUUID()
+    const createdAt = new Date().toISOString()
+
+    db.prepare(
+      `
+      INSERT INTO departments (id, organization_id, name, code, status, created_at)
+      VALUES (?, ?, ?, ?, 'active', ?)
+    `,
+    ).run(id, org.id, input.name.trim(), input.code?.trim() || null, createdAt)
+
+    return {
+      id,
+      name: input.name.trim(),
+      code: input.code?.trim() || '',
+      description: input.description?.trim() || undefined,
+      memberCount: 0,
+      createdAt,
+    }
+  }
+
+  deleteDepartment(orgTenantId: string, departmentId: string, removedBy: string): void {
+    this.assertOrgAdmin(removedBy, orgTenantId)
+
+    const db = DatabaseManager.getDatabase()
+    const org = this.ensurePlatformOrganizationRecord(orgTenantId, getTenantById(orgTenantId)?.label)
+
+    db.prepare(`UPDATE departments SET status = 'archived' WHERE id = ? AND organization_id = ?`).run(departmentId, org.id)
+  }
+
+  listAuthorities(orgTenantId: string): AuthorityGrantRecord[] {
+    const db = DatabaseManager.getDatabase()
+    const org = this.ensurePlatformOrganizationRecord(orgTenantId, getTenantById(orgTenantId)?.label)
+
+    const rows = db
+      .prepare(
+        `
+        SELECT ag.id, p.subject_ref as userId, ag.authority_type as role, ag.scope_json, ag.status, ag.created_at
+        FROM authority_grants ag
+        JOIN people p ON p.id = ag.person_id
+        WHERE ag.organization_id = ? AND ag.status = 'active'
+        ORDER BY ag.created_at ASC
+      `,
+      )
+      .all(org.id) as Array<{
+      id: string
+      userId: string
+      role: string
+      scope_json: string
+      status: string
+      created_at: string
+    }>
+
+    return rows.map((row) => {
+      const scope = safeJsonParse(row.scope_json)
+      return {
+        id: row.id,
+        userId: row.userId,
+        role: row.role,
+        domain: typeof scope.domain === 'string' ? scope.domain : 'general',
+        thresholdAmount: typeof scope.thresholdAmount === 'number' ? scope.thresholdAmount : undefined,
+        currency: typeof scope.currency === 'string' ? scope.currency : undefined,
+        status: row.status,
+        createdAt: row.created_at,
+      }
+    })
+  }
+
+  grantAuthority(
+    orgTenantId: string,
+    grantedBy: string,
+    input: { userId: string; role: string; domain: string; thresholdAmount?: number; currency?: string },
+  ): AuthorityGrantRecord {
+    this.assertOrgAdmin(grantedBy, orgTenantId)
+
+    const db = DatabaseManager.getDatabase()
+    const org = this.ensurePlatformOrganizationRecord(orgTenantId, getTenantById(orgTenantId)?.label)
+    const personId = this.getOrCreatePersonIdForUser(org.id, input.userId)
+    const id = crypto.randomUUID()
+    const createdAt = new Date().toISOString()
+    const scope = JSON.stringify({
+      domain: input.domain,
+      thresholdAmount: input.thresholdAmount,
+      currency: input.currency,
+    })
+
+    db.prepare(
+      `
+      INSERT INTO authority_grants (id, organization_id, person_id, authority_type, scope_json, status, created_at)
+      VALUES (?, ?, ?, ?, ?, 'active', ?)
+    `,
+    ).run(id, org.id, personId, input.role.trim(), scope, createdAt)
+
+    return {
+      id,
+      userId: input.userId,
+      role: input.role.trim(),
+      domain: input.domain,
+      thresholdAmount: input.thresholdAmount,
+      currency: input.currency,
+      status: 'active',
+      createdAt,
+    }
+  }
+
+  revokeAuthority(orgTenantId: string, authorityId: string, revokedBy: string): void {
+    this.assertOrgAdmin(revokedBy, orgTenantId)
+
+    const db = DatabaseManager.getDatabase()
+    const org = this.ensurePlatformOrganizationRecord(orgTenantId, getTenantById(orgTenantId)?.label)
+
+    db.prepare(`UPDATE authority_grants SET status = 'revoked' WHERE id = ? AND organization_id = ?`).run(authorityId, org.id)
+  }
+
+  async inviteMemberByPhone(
+    orgTenantId: string,
+    phone: string,
+    role: string,
+    invitedBy: string,
+  ): Promise<{ membershipId: string; targetUserId: string; role: 'admin' | 'member' }> {
+    const db = DatabaseManager.getDatabase()
+
+    const normalizedPhone = this.normalizePhone(phone)
+    const phoneHash = this.hashData(normalizedPhone)
+    const row = db.prepare('SELECT id FROM ssi_users WHERE phone_hash = ?').get(phoneHash) as { id: string } | undefined
+
+    if (!row?.id) {
+      throw new Error('No registered user found for that phone number')
+    }
+
+    const membershipRole: 'admin' | 'member' = role === 'admin' ? 'admin' : 'member'
+    const result = await this.inviteMember(orgTenantId, row.id, membershipRole, invitedBy)
+    return { ...result, targetUserId: row.id, role: membershipRole }
+  }
+
   /**
    * Invite a user to an organization by their ssi_users.id.
    */
@@ -1600,5 +1797,47 @@ export class OrganizationService {
       role: 'RestTenantAgent',
       orgRole: role,
     })
+  }
+
+  private getOrCreatePersonIdForUser(organizationId: string, userId: string): string {
+    const db = DatabaseManager.getDatabase()
+
+    const existing = db
+      .prepare('SELECT id FROM people WHERE organization_id = ? AND subject_ref = ?')
+      .get(organizationId, userId) as { id: string } | undefined
+
+    if (existing?.id) return existing.id
+
+    const personId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.prepare(
+      `
+      INSERT INTO people (id, organization_id, subject_ref, status, created_at, updated_at)
+      VALUES (?, ?, ?, 'active', ?, ?)
+    `,
+    ).run(personId, organizationId, userId, now, now)
+
+    return personId
+  }
+
+  private normalizePhone(phone: string): string {
+    const digits = phone.replace(/\D/g, '')
+    if (digits.startsWith('0') && digits.length === 10) {
+      return `263${digits.slice(1)}`
+    }
+    return digits
+  }
+
+  private hashData(value: string): string {
+    return crypto.createHash('sha256').update(value).digest('hex')
+  }
+}
+
+function safeJsonParse(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
   }
 }

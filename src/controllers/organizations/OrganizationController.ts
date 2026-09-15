@@ -109,6 +109,45 @@ interface OrgMemberItem {
   createdAt: string
 }
 
+interface DepartmentItem {
+  id: string
+  name: string
+  code: string
+  description?: string
+  memberCount?: number
+  createdAt: string
+}
+
+interface CreateDepartmentRequest {
+  name: string
+  code?: string
+  description?: string
+}
+
+interface AuthorityItem {
+  id: string
+  userId: string
+  role: string
+  domain: string
+  thresholdAmount?: number
+  currency?: string
+  status: string
+  createdAt: string
+}
+
+interface GrantAuthorityRequest {
+  userId: string
+  role: string
+  domain: string
+  thresholdAmount?: number
+  currency?: string
+}
+
+interface InviteMemberByPhoneRequest {
+  phone: string
+  role?: string
+}
+
 interface ActivateOrgWorkflowsRequest {
   sector?: SectorType
   additionalWorkflowTypes?: string[]
@@ -700,6 +739,203 @@ export class OrganizationController extends Controller {
       } else {
         this.setStatus(500)
       }
+      throw error
+    }
+  }
+
+  @Post('/{orgTenantId}/members/invite')
+  @Security('jwt')
+  public async inviteMemberByPhone(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Body() body: InviteMemberByPhoneRequest,
+  ): Promise<{ membershipId: string; targetUserId: string; role: 'admin' | 'member'; message: string }> {
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+
+    if (user.tenantId !== orgTenantId) {
+      this.setStatus(403)
+      throw new StatusException('Token scope does not match organization', 403)
+    }
+
+    if (!body.phone) {
+      this.setStatus(400)
+      throw new StatusException('phone is required', 400)
+    }
+
+    try {
+      const result = await this.orgService.inviteMemberByPhone(orgTenantId, body.phone, body.role || 'member', user.id)
+      this.setStatus(201)
+      return { ...result, message: 'Member added successfully' }
+    } catch (error: any) {
+      if (error.message.includes('Only org owners')) {
+        this.setStatus(403)
+      } else if (error.message.includes('No registered user found')) {
+        this.setStatus(404)
+      } else if (error.message.includes('already a member')) {
+        this.setStatus(409)
+      } else {
+        this.setStatus(500)
+      }
+      throw error
+    }
+  }
+
+  @Get('/{orgTenantId}/departments')
+  @Security('jwt')
+  public async listDepartments(@Request() request: ExRequest, @Path() orgTenantId: string): Promise<DepartmentItem[]> {
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+
+    if (user.tenantId !== orgTenantId) {
+      this.setStatus(403)
+      throw new StatusException('Token scope does not match organization', 403)
+    }
+
+    return this.orgService.listDepartments(orgTenantId)
+  }
+
+  @Post('/{orgTenantId}/departments')
+  @Security('jwt')
+  public async createDepartment(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Body() body: CreateDepartmentRequest,
+  ): Promise<DepartmentItem> {
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+
+    if (user.tenantId !== orgTenantId) {
+      this.setStatus(403)
+      throw new StatusException('Token scope does not match organization', 403)
+    }
+
+    if (!body.name?.trim()) {
+      this.setStatus(400)
+      throw new StatusException('name is required', 400)
+    }
+
+    try {
+      this.setStatus(201)
+      return this.orgService.createDepartment(orgTenantId, user.id, body)
+    } catch (error: any) {
+      if (error.message.includes('Only org owners')) this.setStatus(403)
+      else this.setStatus(500)
+      throw error
+    }
+  }
+
+  @Delete('/{orgTenantId}/departments/{departmentId}')
+  @Security('jwt')
+  public async deleteDepartment(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Path() departmentId: string,
+  ): Promise<{ message: string }> {
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+
+    if (user.tenantId !== orgTenantId) {
+      this.setStatus(403)
+      throw new StatusException('Token scope does not match organization', 403)
+    }
+
+    try {
+      this.orgService.deleteDepartment(orgTenantId, departmentId, user.id)
+      return { message: 'Department removed' }
+    } catch (error: any) {
+      if (error.message.includes('Only org owners')) this.setStatus(403)
+      else this.setStatus(500)
+      throw error
+    }
+  }
+
+  @Get('/{orgTenantId}/authorities')
+  @Security('jwt')
+  public async listAuthorities(@Request() request: ExRequest, @Path() orgTenantId: string): Promise<AuthorityItem[]> {
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+
+    if (user.tenantId !== orgTenantId) {
+      this.setStatus(403)
+      throw new StatusException('Token scope does not match organization', 403)
+    }
+
+    return this.orgService.listAuthorities(orgTenantId)
+  }
+
+  @Post('/{orgTenantId}/authorities')
+  @Security('jwt')
+  public async grantAuthority(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Body() body: GrantAuthorityRequest,
+  ): Promise<AuthorityItem> {
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+
+    if (user.tenantId !== orgTenantId) {
+      this.setStatus(403)
+      throw new StatusException('Token scope does not match organization', 403)
+    }
+
+    if (!body.userId?.trim() || !body.role?.trim() || !body.domain?.trim()) {
+      this.setStatus(400)
+      throw new StatusException('userId, role, and domain are required', 400)
+    }
+
+    try {
+      this.setStatus(201)
+      return this.orgService.grantAuthority(orgTenantId, user.id, body)
+    } catch (error: any) {
+      if (error.message.includes('Only org owners')) this.setStatus(403)
+      else this.setStatus(500)
+      throw error
+    }
+  }
+
+  @Delete('/{orgTenantId}/authorities/{authorityId}')
+  @Security('jwt')
+  public async revokeAuthority(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Path() authorityId: string,
+  ): Promise<{ message: string }> {
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+
+    if (user.tenantId !== orgTenantId) {
+      this.setStatus(403)
+      throw new StatusException('Token scope does not match organization', 403)
+    }
+
+    try {
+      this.orgService.revokeAuthority(orgTenantId, authorityId, user.id)
+      return { message: 'Authority revoked' }
+    } catch (error: any) {
+      if (error.message.includes('Only org owners')) this.setStatus(403)
+      else this.setStatus(500)
       throw error
     }
   }
