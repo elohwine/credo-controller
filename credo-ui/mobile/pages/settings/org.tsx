@@ -254,9 +254,13 @@ const SECTION_FOR_FIX: Record<ReadinessFixTarget, OrgSection> = {
   actors: 'actors',
   payments: 'payments',
   partners: 'payments',
-  profile: 'store',
-  store: 'store',
+  // SGK demo branch: there is no public store screen here, so these land on Team.
+  profile: 'team',
+  store: 'team',
 };
+
+/** SGK demo branch: the Store section stays in the code but is not offered. */
+const SHOW_STORE_SECTION = false;
 
 const SECTION_LABELS: Array<{ id: OrgSection; label: string }> = [
   { id: 'team', label: 'Team' },
@@ -264,7 +268,7 @@ const SECTION_LABELS: Array<{ id: OrgSection; label: string }> = [
   { id: 'payments', label: 'Payments' },
   { id: 'departments', label: 'Departments' },
   { id: 'handoffs', label: 'What happens next' },
-  { id: 'store', label: 'Store' },
+  ...(SHOW_STORE_SECTION ? [{ id: 'store' as OrgSection, label: 'Store' }] : []),
 ];
 
 const QUESTION_FOR_STEP: Partial<Record<SetupStepId, 1 | 2 | 3>> = { kinds: 1, money: 2, payments: 3 };
@@ -1280,7 +1284,7 @@ export default function OrgSettingsPage() {
                   </Text>
                   {orgDone === 'all' && (
                     <Text size="xs" c="dimmed" ta="center">
-                      Open now: {['Purchase requests', 'Supplier bills', 'Customer payments', ...orgKinds.map((kind) => OPEN_FOR_KIND[kind]).filter(Boolean)].join(', ')}.
+                      Open now: {['Purchase requests', 'Supplier bills', ...orgKinds.map((kind) => OPEN_FOR_KIND[kind]).filter(Boolean)].join(', ')}.
                       {orgKinds.includes('field') ? ' You pick who goes out on the first job.' : ''}
                     </Text>
                   )}
@@ -1869,7 +1873,7 @@ export default function OrgSettingsPage() {
             </Paper>
             )}
 
-            {section === 'store' && (
+            {SHOW_STORE_SECTION && section === 'store' && (
             <>
             <Paper id="org-card-store" p="md" radius="md" withBorder>
               <Stack gap="md">

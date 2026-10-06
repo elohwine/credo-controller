@@ -21,7 +21,6 @@ import {
   IconChartBar,
   IconReceipt,
   IconRefresh,
-  IconSchool,
   IconUsers,
 } from '@tabler/icons-react'
 
@@ -131,7 +130,8 @@ export default function FinanceModulesPage() {
     const has = (hints: string[]) => !joined || includesAny(joined, hints)
     return {
       ar: has(['receivable', 'collect', 'payment', 'cash']),
-      invoices: has(['education', 'school', 'fee']),
+      // SGK demo branch: school fee invoices are not offered here, whatever the org answered.
+      invoices: false,
       requisitions: has(['requisition']),
       field: has(['field', 'fept']),
       ap: has(['payable', 'ap_']),
@@ -162,7 +162,7 @@ export default function FinanceModulesPage() {
   useEffect(() => {
     if (!router.isReady) return
     const queryTab = String(router.query.tab || '').toLowerCase() as FinanceTab
-    if (TAB_ORDER.includes(queryTab)) setTab(queryTab)
+    if (TAB_ORDER.includes(queryTab) && queryTab !== 'invoices') setTab(queryTab)
 
     const requisitionId = String(router.query.requisitionId || '')
     const runId = String(router.query.runId || '')
@@ -244,7 +244,7 @@ export default function FinanceModulesPage() {
     }
   }, [selected, actorReports, people])
 
-  const visibleTabs = TAB_ORDER.filter((key) => enabled[key] || key === tab)
+  const visibleTabs = TAB_ORDER.filter((key) => key !== 'invoices' && (enabled[key] || key === tab))
 
   return (
     <Layout title="Finance">
@@ -253,7 +253,7 @@ export default function FinanceModulesPage() {
           <div>
             <Title order={3}>Finance Modules</Title>
             <Text size="sm" c="dimmed">
-              Same workflows as the mobile finance tabs. Each item shows its SSI stage, proof, and the actor configured for that stage.
+              The same lists as the phone app. Each item shows where it is, what has been checked and who handles the next step.
             </Text>
           </div>
           <Group>
@@ -275,7 +275,6 @@ export default function FinanceModulesPage() {
         <Tabs value={tab} onChange={(value) => setTab((value as FinanceTab) || 'requisitions')}>
           <Tabs.List>
             {visibleTabs.includes('ar') && <Tabs.Tab value="ar" leftSection={<IconReceipt size={14} />}>Payments</Tabs.Tab>}
-            {visibleTabs.includes('invoices') && <Tabs.Tab value="invoices" leftSection={<IconSchool size={14} />}>Invoices</Tabs.Tab>}
             {visibleTabs.includes('requisitions') && <Tabs.Tab value="requisitions" leftSection={<IconUsers size={14} />}>Requisitions</Tabs.Tab>}
             {visibleTabs.includes('field') && <Tabs.Tab value="field" leftSection={<IconReceipt size={14} />}>Jobs</Tabs.Tab>}
             {visibleTabs.includes('ap') && <Tabs.Tab value="ap" leftSection={<IconCash size={14} />}>Supplier bills</Tabs.Tab>}

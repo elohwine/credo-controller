@@ -114,6 +114,10 @@ Status legend:
   unresolvable entries skipped, stage default beats chains / clearing restores chain, built-in order and
   owner fallback switches (→ `unassigned`, readiness reason), chain sanitising and role options.
 
+## 2026-10-06 — `sgk` demo branch hides non-SGK surfaces
+
+- [x] Branch `sgk` cut from `platform-remodel` (f310880) and pushed. School fees, shop and store screens are hidden on the website and the phone (constants, not deletions). Setup offers two answers. Request tabs read Jobs and Purchase requests. SGK's own organisation answers are written up in `docs/SGK_FEPT_GAP_MAP.md`.
+
 ## 2026-10-06 — The four workflow-shaped setup gaps are closed
 
 - [x] Saving setup answers no longer writes a workflow catalog. Readiness no longer blocks on non-money people. Who does what does not assign job stages up front; the job form asks who goes out and who checks the work. The onboarding write-up no longer describes choosing a workflow.

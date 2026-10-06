@@ -14,7 +14,6 @@ import {
     Text,
     Alert,
     Stack,
-    Divider,
     Badge,
     Anchor,
 } from '@mantine/core';
@@ -342,15 +341,6 @@ export default function AuthPage() {
                         </Tabs.Panel>
                     </Tabs>
 
-                    <Divider my="lg" label="Or continue as guest" labelPosition="center" />
-
-                    <Button
-                        variant="light"
-                        fullWidth
-                        onClick={() => router.push('/shop')}
-                    >
-                        Browse Shop (Guest)
-                    </Button>
                 </Paper>
             </Container>
         </Layout>

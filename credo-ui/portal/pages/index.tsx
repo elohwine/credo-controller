@@ -306,12 +306,6 @@ export default function DashboardPage() {
                                 href="/select-credentials"
                                 icon={<IconFileCheck size={20} />}
                             />
-                            <QuickLinkCard
-                                label="Shop"
-                                description="Browse and verify products"
-                                href="/shop"
-                                icon={<IconBuildingStore size={20} />}
-                            />
                         </SimpleGrid>
                     </Box>
 

@@ -13,6 +13,7 @@ This supersedes Screen 3 ("Choose First Workflow") and the "Add a workflow" entr
 - The money answer is set once, on purchase requests. Releasing a job payout, paying a supplier bill, confirming a remittance and issuing a receipt all use the same people (`shared_finance` in `OrgWorkflowActorService`) unless the organization picks someone else for that step. Who does what is one window per category: **Money**, then each kind of request, then **If nobody is chosen**, then **Role cards**, with Back and Next. A money step that still needs a chosen person says who is standing in for now.
 - Steps such as who goes out on a job are asked the first time that request is used. They do not block the checklist.
 - Portal: `pages/organization/onboarding.tsx`, `setup.tsx`, `actors.tsx`, `utils/orgProfile.ts`. Phone: `pages/settings/org.tsx`, `lib/orgProfile.ts`. Server: `OrgSetupProfileService`, `OrgWorkflowActorService.SHARED_FINANCE_STAGES`.
+- 2026-10-06, `sgk` branch only: the first window offers two answers (buys things and pays suppliers · sends people out to do jobs). School fees, counter sales, the shop and the store screens stay in the code but are not shown on the website or the phone. The server still accepts the other answers; the main branch keeps the full list.
 
 ---
 

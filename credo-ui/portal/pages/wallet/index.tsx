@@ -36,7 +36,6 @@ import {
     IconDownload,
     IconShieldCheck,
     IconAlertCircle,
-    IconShoppingCart,
     IconUser,
     IconBrandWhatsapp,
 } from '@tabler/icons-react';
@@ -762,13 +761,6 @@ export default function WalletPage() {
                         </Group>
                         <Group>
                             <Button
-                                variant="light"
-                                leftSection={<IconShoppingCart size={18} />}
-                                onClick={() => router.push('/shop')}
-                            >
-                                Shop
-                            </Button>
-                            <Button
                                 variant="subtle"
                                 leftSection={<IconRefresh size={18} />}
                                 onClick={fetchCredentials}
@@ -840,15 +832,8 @@ export default function WalletPage() {
                         <IconReceipt size={64} color="#ccc" style={{ margin: '0 auto' }} />
                         <Title order={3} mt="md">No Saved Items Yet</Title>
                         <Text c="dimmed" mt="sm">
-                            Your receipts and invoices will appear here after you make purchases.
+                            Receipts, job sign-offs and other documents you are given will appear here.
                         </Text>
-                        <Button
-                            mt="lg"
-                            leftSection={<IconShoppingCart size={18} />}
-                            onClick={() => router.push('/shop')}
-                        >
-                            Start Shopping
-                        </Button>
                     </Paper>
                 )}
 

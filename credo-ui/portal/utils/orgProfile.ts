@@ -18,11 +18,10 @@ export type OrgKindOption = {
   detail: string
 }
 
+/** This branch is the SGK demo. School fees and counter sales stay in the product code, but they are not offered here. */
 export const ORG_KIND_OPTIONS: OrgKindOption[] = [
   { id: 'office', label: 'Buys things and pays suppliers', detail: 'Purchase requests and supplier bills' },
   { id: 'field', label: 'Sends people out to do jobs', detail: 'Jobs with photos, sign-off and payment' },
-  { id: 'school', label: 'Teaches students', detail: 'School fees and receipts' },
-  { id: 'shop', label: 'Sells to customers', detail: 'Payments and receipts' },
 ]
 
 /**

@@ -840,6 +840,10 @@ export {}
 - Readiness does not block on people who are not the money person. Who goes out and who checks the work is asked when a job is created, on the website and the phone. Who does what shows the money people once, and says the job people are asked on the job.
 - The onboarding write-up no longer describes a "choose a workflow" screen.
 
+## 2026-10-06 — The `sgk` branch hides non-SGK surfaces rather than deleting them
+
+- `sgk` is a demo branch for the real SGK organisation. School fees, counter sales, the shop and the store screens are hidden on the website and the phone by constants in the UI; the server, templates and request types are unchanged. The setup question offers two answers. Request tabs read Jobs and Purchase requests. The full product stays on `platform-remodel`.
+
 ## 2026-10-05 — Setup is one question per window
 
 - On the website and the phone, setup is a checklist of four steps: Say what you do, Choose who handles money, Pick how you take payments, Invite your team. Start opens that one question on its own, with which question of 3 you are on. On the phone the organisation list steps aside until you save or cancel. Change opens a question again. After a save, Next continues and Finish later returns to the checklist. The page says how many of the four are done.

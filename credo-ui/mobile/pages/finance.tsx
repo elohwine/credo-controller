@@ -1396,7 +1396,8 @@ export default function FinancePage() {
     const capabilityFlags = useMemo(() => getWorkflowCapabilityFlags(activeTemplates), [activeTemplates]);
     const hasPaymentCollection = capabilityFlags.paymentCollection;
     const hasArCollections = capabilityFlags.arCollections;
-    const hasEducation = capabilityFlags.educationFees;
+    // SGK demo branch: school fee invoices are not offered here, whatever the org answered.
+    const hasEducation = false;
     const hasInternalRequisitions = capabilityFlags.internalRequisitions;
     const hasFieldExecutionConfigured = capabilityFlags.fieldExecution;
     const hasFieldExecution = hasFieldExecutionConfigured && isEmployeeOrgRole();

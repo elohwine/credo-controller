@@ -107,7 +107,7 @@ export default function LoginPage() {
             }
 
             // Redirect to shop or dashboard
-            const returnUrl = router.query.returnUrl as string || '/shop';
+            const returnUrl = router.query.returnUrl as string || '/wallet';
             setTimeout(() => {
                 router.push(returnUrl);
             }, 1000);
@@ -165,7 +165,7 @@ export default function LoginPage() {
                     setSuccess(true);
                     setSsiModalOpen(false);
                     
-                    const returnUrl = router.query.returnUrl as string || '/shop';
+                    const returnUrl = router.query.returnUrl as string || '/wallet';
                     setTimeout(() => router.push(returnUrl), 1000);
                     return;
                 }

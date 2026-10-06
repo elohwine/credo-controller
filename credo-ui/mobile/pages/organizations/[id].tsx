@@ -169,6 +169,9 @@ function ServiceCard({ service, onRequest }: { service: Service; onRequest: () =
   );
 }
 
+/** SGK demo branch: the public store stays in the code but is not offered. */
+const SHOW_STORE = false;
+
 export default function OrganizationDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -499,6 +502,7 @@ export default function OrganizationDetailPage() {
 
           {source === 'discover' && (
             <Stack mt="md" gap="sm">
+              {SHOW_STORE && (
               <Button
                 fullWidth
                 variant="filled"
@@ -510,6 +514,7 @@ export default function OrganizationDetailPage() {
               >
                 Open Mini Store
               </Button>
+              )}
 
               <Button
                 fullWidth
@@ -549,7 +554,7 @@ export default function OrganizationDetailPage() {
             </Stack>
           )}
 
-          {source === 'my-orgs' && (
+          {SHOW_STORE && source === 'my-orgs' && (
             <Paper m="md" p="md" radius="md" withBorder style={{ background: 'linear-gradient(135deg, rgba(14,165,233,0.08), rgba(13,148,136,0.06))' }}>
               <Stack gap="sm">
                 <Group justify="space-between" align="start">
@@ -686,6 +691,7 @@ export default function OrganizationDetailPage() {
             )}
           </Paper>
 
+          {SHOW_STORE && (
           <Paper p="md" radius="md" withBorder>
             <Group justify="space-between" mb="xs">
               <Text size="sm" fw={600}>
@@ -765,6 +771,7 @@ export default function OrganizationDetailPage() {
               </Box>
             </Stack>
           </Paper>
+          )}
 
           {(qrCodeUrl || didDocumentUrl) && (
             <Paper p="md" radius="md" withBorder>

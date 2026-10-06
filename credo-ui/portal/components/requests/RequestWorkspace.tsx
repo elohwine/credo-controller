@@ -21,7 +21,7 @@ import {
   Textarea,
   Title,
 } from '@mantine/core'
-import { IconActivity, IconAlertCircle, IconArrowRight, IconChevronRight, IconInbox, IconListDetails, IconReceipt, IconRefresh, IconSchool, IconShieldCheck, IconUsers } from '@tabler/icons-react'
+import { IconActivity, IconAlertCircle, IconArrowRight, IconChevronRight, IconInbox, IconListDetails, IconReceipt, IconRefresh, IconShieldCheck, IconUsers } from '@tabler/icons-react'
 import {
   getOrgScopedToken,
   getPersonalToken,
@@ -790,9 +790,7 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
     const requestTypeFromQuery = String(router.query?.requestType || '').trim().toLowerCase()
     if (requestTypeFromQuery) {
       if (requestTypeFromQuery.includes('requis')) setRequestCategoryTab('requisitions')
-      else if (requestTypeFromQuery.includes('school') || requestTypeFromQuery.includes('education') || requestTypeFromQuery.includes('fees')) setRequestCategoryTab('school_fees')
       else if (requestTypeFromQuery.includes('field') || requestTypeFromQuery.includes('fept')) setRequestCategoryTab('fept')
-      else if (requestTypeFromQuery.includes('rtc') || requestTypeFromQuery.includes('collection') || requestTypeFromQuery.includes('ar')) setRequestCategoryTab('rtc')
       else setRequestCategoryTab('all')
     }
 
@@ -1438,10 +1436,9 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
         <Tabs value={requestCategoryTab} onChange={(value) => setRequestCategoryTab((value as RequestCategoryTab) || 'all')}>
           <Tabs.List grow>
             <Tabs.Tab value="all" leftSection={<IconListDetails size={14} />}>All ({requestCategoryCounts.all})</Tabs.Tab>
-            <Tabs.Tab value="school_fees" leftSection={<IconSchool size={14} />}>School Fees ({requestCategoryCounts.school_fees})</Tabs.Tab>
-            <Tabs.Tab value="fept" leftSection={<IconActivity size={14} />}>FEPT ({requestCategoryCounts.fept})</Tabs.Tab>
-            <Tabs.Tab value="requisitions" leftSection={<IconUsers size={14} />}>Requisitions ({requestCategoryCounts.requisitions})</Tabs.Tab>
-            <Tabs.Tab value="rtc" leftSection={<IconReceipt size={14} />}>RTC ({requestCategoryCounts.rtc})</Tabs.Tab>
+            {/* SGK demo branch: school fees and customer collections are not offered here. */}
+            <Tabs.Tab value="fept" leftSection={<IconActivity size={14} />}>Jobs ({requestCategoryCounts.fept})</Tabs.Tab>
+            <Tabs.Tab value="requisitions" leftSection={<IconUsers size={14} />}>Purchase requests ({requestCategoryCounts.requisitions})</Tabs.Tab>
           </Tabs.List>
         </Tabs>
       </Card>

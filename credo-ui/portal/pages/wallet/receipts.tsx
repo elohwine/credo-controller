@@ -284,9 +284,8 @@ export default function MyReceiptsPage() {
                         <IconReceipt size={48} color="#adb5bd" />
                         <Text mt="md" c="dimmed">No credentials yet</Text>
                         <Text size="sm" c="dimmed" mb="lg">
-                            Make a purchase to receive your first receipt
+                            Receipts you are given will appear here
                         </Text>
-                        <Button onClick={() => router.push('/shop')}>Go to Shop</Button>
                     </Paper>
                 )}
 

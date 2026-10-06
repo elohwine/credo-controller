@@ -196,6 +196,12 @@ The phone inbox keeps each person's field jobs separate. A platform identity car
 
 Organisation payments offer Click n Pay, EcoCash, then Simulated pay, on the portal and the phone. Simulated pay is its own method.
 
+## 2026-10-06 — The `sgk` branch is a demo that hides what SGK does not use
+
+The `sgk` branch was cut from `platform-remodel` at f310880 so the real SGK organisation can use the job flow on its own. Nothing is deleted: the school-fee, shop and store surfaces are hidden behind constants (`SHOW_STORE`, `SHOW_STORE_SECTION`, `hasEducation = false`, `invoices: false`) and the setup question offers only "Buys things and pays suppliers" and "Sends people out to do jobs". Request tabs read **Jobs** and **Purchase requests**. The main product keeps the full list on `platform-remodel`.
+
+What SGK answers at setup: both kinds of work (jobs plus supplier purchases); who approves and releases money (owner handles money, or manager then finance); a payment method (Click n Pay or EcoCash, Practice payments for a dry run); then invite the office staff and the field staff from Team. Who goes out and who checks the work is asked on each job. Do not reuse the Harare trial organisation for SGK; create SGK's own.
+
 ## Reference docs
 
 - [SGK_FLOW.md](../SGK_FLOW.md)

@@ -98,7 +98,6 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
               { label: 'My Wallet', href: '/wallet', icon: <IconWallet size={16} /> },
               { label: 'Activity', href: '/inbox', icon: <IconInbox size={16} /> },
               { label: 'Verify', href: '/verify', icon: <IconFileCheck size={16} /> },
-              { label: 'Shop', href: '/shop', icon: <IconBuildingStore size={16} /> },
           ];
 
     // Categorized menus — organization context only
@@ -111,7 +110,6 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                 { label: 'Finance', href: '/finance', icon: <IconCoin size={16} />, description: 'AR, AP, requisitions, invoices, and field ops' },
                 { label: 'Requisitions', href: '/finance/requisitions', icon: <IconReceipt size={16} />, description: 'Internal approval and release workflow' },
                 { label: 'Job Cards', href: '/finance/job-cards', icon: <IconBriefcase size={16} />, description: 'Field Operations & Execution Jobs' },
-                { label: 'School Fees', href: '/finance/school-fees', icon: <IconSchool size={16} />, description: 'Fee invoices and school payment flows' },
                 { label: 'Approvals', href: '/approvals', icon: <IconShieldCheck size={16} />, description: 'Approval trails and decisions' },
                 { label: 'Tasks', href: '/tasks', icon: <IconChecklist size={16} />, description: 'Open workflow tasks' },
             ],
