@@ -19,6 +19,7 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
+import { randomUUID } from 'crypto'
 import { v4 as uuid } from 'uuid'
 
 import { rootLogger } from '../utils/pinoLogger'
@@ -60,7 +61,7 @@ export class ProviderRepository {
 
   saveProvider(provider: Partial<ServiceProvider> & { name: string; type: string; tenantId: string }): ServiceProvider {
     const db = DatabaseManager.getDatabase()
-    const id = provider.id || uuid()
+    const id = provider.id || randomUUID()
 
     const stmt = db.prepare(`
             INSERT INTO service_providers (
@@ -159,7 +160,7 @@ export class ProviderRepository {
     config: Partial<ProviderConfig> & { tenantId: string; providerId: string; name: string; config: any },
   ): ProviderConfig {
     const db = DatabaseManager.getDatabase()
-    const id = config.id || uuid()
+    const id = config.id || randomUUID()
 
     // If setting as default, unset other defaults for this provider+tenant
     if (config.isDefault) {

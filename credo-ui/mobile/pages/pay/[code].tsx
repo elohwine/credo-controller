@@ -69,17 +69,27 @@ interface RefreshedPaymentLink {
   expiresAt: string;
 }
 
+const METHOD_ORDER = ['clicknpay', 'ecocash', 'simulated'];
+
 const METHOD_LABELS: Record<string, string> = {
+  clicknpay: 'Click n Pay',
   ecocash: 'EcoCash',
-  clicknpay: 'ClicknPay',
-  simulated: 'Demo Payment (instant)',
+  simulated: 'Simulated pay',
 };
 
 const METHOD_DESCRIPTIONS: Record<string, string> = {
-  ecocash: 'Pay via EcoCash mobile money',
-  clicknpay: 'Pay with card via ClicknPay',
-  simulated: 'Simulated payment for testing - instant confirmation',
+  clicknpay: 'Pay with card',
+  ecocash: 'Pay via EcoCash',
+  simulated: 'Practice payment. No real money moves.',
 };
+
+function orderedMethods(methods: string[]): string[] {
+  return [...methods].sort((a, b) => {
+    const left = METHOD_ORDER.indexOf(a.toLowerCase());
+    const right = METHOD_ORDER.indexOf(b.toLowerCase());
+    return (left < 0 ? 99 : left) - (right < 0 ? 99 : right);
+  });
+}
 
 function formatAmount(amount: number, currency: string): string {
   return new Intl.NumberFormat('en-US', {
@@ -448,7 +458,7 @@ export default function MobilePayPage() {
             )}
             <Radio.Group value={selectedMethod} onChange={setSelectedMethod}>
               <Stack gap={8}>
-                {payment.availableMethods.map((method) => (
+                {orderedMethods(payment.availableMethods).map((method) => (
                   <Radio
                     key={method}
                     value={method}

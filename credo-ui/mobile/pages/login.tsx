@@ -138,7 +138,7 @@ export default function LoginPage() {
             Credentis
           </Title>
           <Text size="sm" c="dimmed" ta="center">
-            Verifiable Commerce Platform
+            Sign in with your phone and PIN
           </Text>
         </Stack>
 
@@ -252,7 +252,7 @@ export default function LoginPage() {
         </Paper>
 
         <Text size="xs" c="dimmed" ta="center" mt="md">
-          Manage your org and workflows at{' '}
+          Organization setup is also on the website at{' '}
           <Anchor size="xs" href="#" c="credentis.6">
             credentis.app
           </Anchor>

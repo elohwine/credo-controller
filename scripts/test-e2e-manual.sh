@@ -5,8 +5,8 @@
 set -e
 
 ISSUER="http://localhost:3000"
-HOLDER="http://localhost:7000"
-HOLDER_KEY="holder-api-key-12345"
+API="http://localhost:3000"
+API_KEY="test-api-key-12345"
 WEBHOOK_KEY="test-webhook-secret"
 
 echo "╔═════════════════════════════════════════════════════════╗"
@@ -36,9 +36,9 @@ echo "   Invoice Offer: ${INVOICE_OFFER:0:80}..."
 # 3. MANUAL Accept Invoice VC
 echo ""
 echo "━━━ STEP 3: MANUAL Accept Invoice VC ━━━"
-INVOICE_RESULT=$(curl -s -X POST "$HOLDER/api/wallet/holder-wallet/exchange/useOfferRequest" \
+INVOICE_RESULT=$(curl -s -X POST "$API/api/wallet/holder-wallet/exchange/useOfferRequest" \
   -H "Content-Type: application/json" \
-  -H "x-api-key: $HOLDER_KEY" \
+  -H "x-api-key: $API_KEY" \
   -d "{\"credential_offer_uri\":\"$INVOICE_OFFER\"}")
 INVOICE_ID=$(echo $INVOICE_RESULT | jq -r '.id // "error"')
 if [ "$INVOICE_ID" != "error" ] && [ "$INVOICE_ID" != "null" ]; then
@@ -76,9 +76,9 @@ if [ -n "$RECEIPT_OFFER" ] && [ "$RECEIPT_OFFER" != "null" ]; then
   echo ""
   echo "━━━ STEP 5: MANUAL Accept Receipt VC ━━━"
   echo "   Receipt Offer: ${RECEIPT_OFFER:0:80}..."
-  RECEIPT_RESULT=$(curl -s -X POST "$HOLDER/api/wallet/holder-wallet/exchange/useOfferRequest" \
+  RECEIPT_RESULT=$(curl -s -X POST "$API/api/wallet/holder-wallet/exchange/useOfferRequest" \
     -H "Content-Type: application/json" \
-    -H "x-api-key: $HOLDER_KEY" \
+    -H "x-api-key: $API_KEY" \
     -d "{\"credential_offer_uri\":\"$RECEIPT_OFFER\"}")
   RECEIPT_ID=$(echo $RECEIPT_RESULT | jq -r '.id // "error"')
   if [ "$RECEIPT_ID" != "error" ] && [ "$RECEIPT_ID" != "null" ]; then
@@ -94,7 +94,7 @@ fi
 # 6. Verify Wallet Contents
 echo ""
 echo "━━━ STEP 6: Verify Credentials in Wallet ━━━"
-CREDS=$(curl -s "$HOLDER/api/wallet/holder-wallet/credentials" -H "x-api-key: $HOLDER_KEY")
+CREDS=$(curl -s "$API/api/wallet/holder-wallet/credentials" -H "x-api-key: $API_KEY")
 COUNT=$(echo $CREDS | jq 'length')
 echo "   Total Credentials: $COUNT"
 echo ""

@@ -49,6 +49,54 @@ export interface BrandingPolicy {
   supportContact?: string
 }
 
+/**
+ * Organizational prerequisite keys a workflow template can declare.
+ *
+ * These are the same keys the Setup Center readiness API reports, so a
+ * template's declaration and the readiness dashboard speak one vocabulary.
+ * `stage_actor:<stageAction>` keys are also accepted (see WorkflowPrerequisite.stageAction).
+ */
+export type WorkflowPrerequisiteKey =
+  | 'organization_profile'
+  | 'primary_admin'
+  | 'active_members'
+  | 'ssi_identity'
+  | 'roles'
+  | 'authorities'
+  | 'departments'
+  | 'trusted_issuers'
+  | 'verifier_registration'
+  | 'payment_provider'
+  | 'delegations'
+  | 'people_records'
+  | 'stage_actor'
+
+export type WorkflowPrerequisiteRequirement = 'mandatory' | 'conditional' | 'recommended'
+
+/**
+ * Simple data-only condition so a prerequisite can be persisted with the template.
+ * The prerequisite applies only when the referenced template field matches.
+ */
+export interface WorkflowPrerequisiteCondition {
+  /** Dot path on the template definition, e.g. `evidencePolicy.requireApproval` or `paymentModes`. */
+  field: string
+  /** Applies when the field strictly equals this value. */
+  equals?: unknown
+  /** Applies when the field is a non-empty array / string. */
+  nonEmpty?: boolean
+}
+
+export interface WorkflowPrerequisite {
+  key: WorkflowPrerequisiteKey
+  /** Required when key is `stage_actor`; the stage action that needs a non-owner actor. */
+  stageAction?: string
+  requirement: WorkflowPrerequisiteRequirement
+  /** Human-readable explanation shown in the Setup Center and inbox setup tasks. */
+  title?: string
+  /** Optional condition; when absent the prerequisite always applies. */
+  when?: WorkflowPrerequisiteCondition
+}
+
 export type WorkflowInitiationMode = 'none' | 'optional' | 'required'
 
 export interface WorkflowInitiationDefinition {
@@ -73,6 +121,11 @@ export interface WorkflowTemplateDefinition {
   evidencePolicy: EvidencePolicy
   brandingPolicy: BrandingPolicy
   initiation?: WorkflowInitiationDefinition
+  /**
+   * Organizational prerequisites this template needs before it is operational.
+   * When absent, the code-side registry in services/workflow/prerequisites.ts applies.
+   */
+  prerequisites?: WorkflowPrerequisite[]
   createdAt?: Date
   updatedAt?: Date
 }

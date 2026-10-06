@@ -16,7 +16,7 @@
 
 import type { WorkflowActionContext } from '../ActionRegistry'
 
-import { v4 as uuid } from 'uuid'
+import { randomUUID } from 'crypto'
 
 import { rootLogger } from '../../../utils/pinoLogger'
 import { notificationService } from '../../NotificationService'
@@ -159,8 +159,35 @@ export class ExternalActions {
    * - callbackUrl: string (webhook URL for payment status updates)
    */
   static async initiateEcoCashPayment(context: WorkflowActionContext, config: any = {}) {
-    const { apiKey, sandboxMode = true, callbackUrl } = config
+    const { apiKey, sandboxMode = true, simulatedMode = false, callbackUrl } = config
     const { customerMsisdn, amount, currency = 'USD', reason, sourceReference } = context.input
+
+    const shouldSimulate = simulatedMode || sandboxMode || process.env.ECOCASH_SIMULATED_PAYMENTS === 'true'
+
+    if (!apiKey && shouldSimulate) {
+      const simulatedReference = sourceReference || `SIM-${Date.now()}`
+      const timestamp = new Date().toISOString()
+      context.state.ecocashPayment = {
+        status: 'completed',
+        sourceReference: simulatedReference,
+        webhookUrl: callbackUrl || null,
+        ecocashResponse: {
+          simulated: true,
+          customerMsisdn,
+          amount,
+          currency,
+          reason: reason || `Payment for ${simulatedReference}`,
+          paidAt: timestamp,
+        },
+      }
+      context.state.payment = {
+        status: 'completed',
+        reference: simulatedReference,
+        timestamp,
+      }
+      logger.info({ simulatedReference, amount, currency }, 'Simulated EcoCash payment completed')
+      return
+    }
 
     if (!apiKey) {
       throw new Error('EcoCash API key is required')
@@ -192,7 +219,7 @@ export class ExternalActions {
           amount: Number(amount.toFixed(2)), // Ensure 2 decimal places
           reason: reason || `Payment for ${sourceReference}`,
           currency,
-          sourceReference: sourceReference || uuid(),
+          sourceReference: sourceReference || randomUUID(),
         }),
       })
 
@@ -208,6 +235,11 @@ export class ExternalActions {
         sourceReference: sourceReference || `PAY-${Date.now()}`,
         webhookUrl,
         ecocashResponse: responseData,
+      }
+      context.state.payment = {
+        status: 'pending',
+        reference: context.state.ecocashPayment.sourceReference,
+        timestamp: new Date().toISOString(),
       }
 
       logger.info({ sourceReference, webhookUrl }, 'EcoCash payment initiated')
@@ -277,9 +309,26 @@ export class ExternalActions {
 
     let providerResponse: any
 
-    if (type === 'whatsapp') {
-      if (!recipient) throw new Error('WhatsApp notification requires recipient')
+    // A courtesy message must never fail the run: jobs created from the portal often have no
+    // receiver phone/email on the input. Record the skip and move on.
+    const needsRecipient = type === 'whatsapp' || type === 'email'
+    if (needsRecipient && !recipient) {
+      logger.warn({ type, to, runId: context.runId }, 'Notification skipped: no recipient on this run')
+      context.state.notification = {
+        type,
+        recipient: null,
+        subject,
+        template,
+        message: resolvedMessage,
+        data: templateData,
+        status: 'skipped',
+        reason: 'no_recipient',
+        timestamp: new Date().toISOString(),
+      }
+      return
+    }
 
+    if (type === 'whatsapp') {
       if (resolvedMessage) {
         await notificationService.sendWhatsAppText({
           to: recipient,
@@ -298,7 +347,7 @@ export class ExternalActions {
         })
       }
     } else if (type === 'email') {
-      if (!recipient || !subject) throw new Error('Email notification requires recipient and subject')
+      if (!subject) throw new Error('Email notification requires subject')
       providerResponse = await notificationService.sendEmail({
         to: recipient,
         subject,

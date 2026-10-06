@@ -95,6 +95,8 @@ export class WalletAuthController extends Controller {
     holderDid?: string
     claimedExistingTenant?: boolean
     existingCredentialsCount?: number
+    vcOfferUrl?: string
+    vcOfferAutoAccepted?: boolean
   }> {
     let claimExistingTenantId: string | undefined
     let existingCredentialsCount = 0
@@ -156,6 +158,8 @@ export class WalletAuthController extends Controller {
         walletId: result.walletId,
         claimedExistingTenant: !!claimExistingTenantId,
         existingCredentialsCount,
+        vcOfferUrl: result.vcOfferUrl,
+        vcOfferAutoAccepted: result.vcOfferAutoAccepted,
       }
     } catch (e: any) {
       if (e.message.includes('already exists')) {

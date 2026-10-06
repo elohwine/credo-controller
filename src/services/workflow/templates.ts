@@ -18,6 +18,9 @@
  */
 
 import type { WorkflowRecord } from '../../persistence/WorkflowRepository'
+import type { WorkflowPrerequisite } from '../../types/WorkflowTemplate'
+
+import { TEMPLATE_PREREQUISITES } from './prerequisites'
 
 export interface WorkflowTemplate {
   id: string
@@ -40,6 +43,12 @@ export interface WorkflowTemplate {
     options?: string[]
     default?: any
   }[]
+  /**
+   * Organizational prerequisites (people, authority, trust, providers, stage actors)
+   * that must exist before this workflow is operational. Replaces feature activation:
+   * a workflow runs when these are satisfied, not when a flag is flipped.
+   */
+  prerequisites?: WorkflowPrerequisite[]
 }
 
 // =============================================================================
@@ -712,13 +721,725 @@ export const PolicyIssuanceTemplate: WorkflowTemplate = {
 }
 
 // =============================================================================
+// EDUCATION TEMPLATES
+// =============================================================================
+
+export const EducationFeeTemplate: WorkflowTemplate = {
+  id: 'tpl-education-fee',
+  name: 'Education Fee Payment',
+  description: 'School/university fee collection: invoice → payment → verifiable receipt. No delivery step.',
+  category: 'education',
+  industry: ['education', 'training'],
+  triggerTypes: ['manual', 'webhook', 'schedule'],
+  inputSchema: {
+    type: 'object',
+    properties: {
+      studentId: { type: 'string', title: 'Student ID' },
+      studentName: { type: 'string', title: 'Student Name' },
+      term: { type: 'string', title: 'Term / Semester' },
+      feeType: { type: 'string', title: 'Fee Type', enum: ['tuition', 'boarding', 'exam', 'levy', 'other'] },
+      amount: { type: 'number', title: 'Amount' },
+      currency: { type: 'string', title: 'Currency', default: 'USD' },
+      schoolName: { type: 'string', title: 'School / Institution Name' },
+      payerPhone: { type: 'string', title: 'Payer Phone Number' },
+    },
+    required: ['studentId', 'studentName', 'term', 'feeType', 'amount', 'schoolName'],
+  },
+  outputVCs: ['InvoiceVC', 'SchoolFeeReceiptVC'],
+  steps: [
+    {
+      action: 'finance.calculate_invoice',
+      config: { taxRate: 0, taxInclusive: true },
+      description: 'Generate fee invoice for student/term',
+    },
+    {
+      action: 'credential.issue',
+      config: {
+        type: 'InvoiceVC',
+        mapping: {
+          invoiceId: 'state.offer.offerId',
+          amount: 'input.amount',
+          currency: 'input.currency',
+          metadata: {
+            type: 'education_fees',
+            studentId: 'input.studentId',
+            studentName: 'input.studentName',
+            term: 'input.term',
+            feeType: 'input.feeType',
+            schoolName: 'input.schoolName',
+          },
+        },
+      },
+      description: 'Issue generalized InvoiceVC with education metadata',
+    },
+    {
+      action: 'external.ecocash_payment',
+      config: { provider: 'ecocash-zw' },
+      description: 'Capture fee payment via EcoCash / mobile money',
+    },
+    {
+      action: 'credential.issue',
+      config: {
+        type: 'SchoolFeeReceiptVC',
+        mapping: {
+          receiptId: 'state.payment.receiptId',
+          amount: 'input.amount',
+          currency: 'input.currency',
+          paymentRef: 'state.payment.providerRef',
+          paidAt: 'state.payment.timestamp',
+          metadata: {
+            type: 'education_fees',
+            studentId: 'input.studentId',
+            studentName: 'input.studentName',
+            term: 'input.term',
+            feeType: 'input.feeType',
+            schoolName: 'input.schoolName',
+          },
+        },
+      },
+      description: 'Issue SchoolFeeReceiptVC with education metadata',
+    },
+    {
+      action: 'trust.update_score',
+      config: { event: 'fee_payment_completed', weight: 1 },
+      description: 'Update institution trust score',
+    },
+  ],
+  configurable: [
+    {
+      field: 'paymentMethods',
+      label: 'Accepted Payment Methods',
+      type: 'select',
+      options: ['ecocash', 'bank_transfer', 'cash'],
+      default: 'ecocash',
+    },
+    { field: 'autoReconcile', label: 'Auto-reconcile Payments', type: 'boolean', default: true },
+    { field: 'notifyPayer', label: 'SMS Notify Payer on Receipt', type: 'boolean', default: true },
+  ],
+}
+
+// =============================================================================
+// CASH / POS TEMPLATES
+// =============================================================================
+
+export const CashCounterTemplate: WorkflowTemplate = {
+  id: 'tpl-cash-counter',
+  name: 'Cash Counter Payment',
+  description: 'Walk-in point-of-sale with cash/mobile capture, receipt VC, and daily batch reconciliation.',
+  category: 'finance',
+  industry: ['retail', 'services', 'pharmacy'],
+  triggerTypes: ['manual', 'webhook'],
+  inputSchema: {
+    type: 'object',
+    properties: {
+      items: { type: 'array', title: 'Line Items' },
+      amount: { type: 'number', title: 'Total Amount' },
+      currency: { type: 'string', title: 'Currency', default: 'USD' },
+      paymentMethod: { type: 'string', title: 'Payment Method', enum: ['cash', 'ecocash', 'pos'] },
+      cashierRef: { type: 'string', title: 'Cashier Reference' },
+      buyerPhone: { type: 'string', title: 'Buyer Phone (optional)' },
+    },
+    required: ['amount', 'paymentMethod'],
+  },
+  outputVCs: ['InvoiceVC', 'PaymentReceiptVC'],
+  steps: [
+    {
+      action: 'finance.calculate_invoice',
+      config: { taxRate: 15, taxInclusive: true },
+      description: 'Generate point-of-sale invoice',
+    },
+    {
+      action: 'credential.issue',
+      config: {
+        type: 'InvoiceVC',
+        mapping: {
+          invoiceId: 'state.offer.offerId',
+          items: 'input.items',
+          amount: 'input.amount',
+          currency: 'input.currency',
+          cashierRef: 'input.cashierRef',
+        },
+      },
+      description: 'Issue InvoiceVC',
+    },
+    {
+      action: 'external.cash_capture',
+      config: {},
+      description: 'Record cash or POS payment',
+    },
+    {
+      action: 'credential.issue',
+      config: {
+        type: 'PaymentReceiptVC',
+        mapping: {
+          receiptId: 'state.payment.receiptId',
+          amount: 'input.amount',
+          currency: 'input.currency',
+          paymentMethod: 'input.paymentMethod',
+          cashierRef: 'input.cashierRef',
+          paidAt: 'state.payment.timestamp',
+        },
+      },
+      description: 'Issue PaymentReceiptVC',
+    },
+    {
+      action: 'trust.update_score',
+      config: { event: 'counter_sale_completed', weight: 1 },
+      description: 'Update merchant trust score',
+    },
+  ],
+  configurable: [
+    { field: 'requireCashierRef', label: 'Require Cashier Reference', type: 'boolean', default: true },
+    {
+      field: 'reconciliationMode',
+      label: 'Reconciliation Mode',
+      type: 'select',
+      options: ['manual_close', 'daily_batch', 'automatic'],
+      default: 'manual_close',
+    },
+  ],
+}
+
+// =============================================================================
+// FIELD EXECUTION / FEPT TEMPLATES
+// =============================================================================
+
+export const FieldExecutionProofTemplate: WorkflowTemplate = {
+  id: 'tpl-fept-field-execution',
+  name: 'Field Execution & Proof (FEPT)',
+  description:
+    'Mobile field workflow: assignment, pre-job site inspection, field worker risk assessment, start, arrival proof, BEFORE evidence, work, AFTER evidence, receipts, completion review, customer sign-off, payout trigger, and reconciliation.',
+  category: 'utilities',
+  industry: ['delivery', 'field-service', 'procurement', 'operations'],
+  triggerTypes: ['manual', 'webhook'],
+  inputSchema: {
+    type: 'object',
+    properties: {
+      reference: { type: 'string', title: 'Workflow Reference' },
+      requestId: { type: 'string', title: 'Request ID' },
+      requesterId: { type: 'string', title: 'Requester ID' },
+      assigneeId: { type: 'string', title: 'Field Worker ID' },
+      receiverId: { type: 'string', title: 'Receiver / Customer ID' },
+      amount: { type: 'number', title: 'Amount' },
+      currency: { type: 'string', title: 'Currency', default: 'USD' },
+      customerMsisdn: { type: 'string', title: 'Payout Mobile Number' },
+      providerReference: { type: 'string', title: 'Provider Reference' },
+      evidenceHash: { type: 'string', title: 'Evidence Hash' },
+      approvalRef: { type: 'string', title: 'Approval Reference' },
+      approvalPresentation: { type: 'object', title: 'Approval VP (OID4VP response payload)' },
+      approvalSignature: { type: 'string', title: 'Approval Signature (fallback)' },
+      requireSiteInspection: { type: 'boolean', title: 'Require pre-job site inspection', default: true },
+      requireRiskAssessment: { type: 'boolean', title: 'Require field worker risk assessment', default: true },
+      requireArrivalProof: { type: 'boolean', title: 'Require arrival proof (GPS / site code)', default: true },
+      requireCompletionReview: { type: 'boolean', title: 'Require completion review before sign-off', default: true },
+      requireCustomerSignoff: { type: 'boolean', title: 'Require customer sign-off before payout', default: true },
+    },
+    required: ['reference', 'requestId', 'assigneeId', 'amount'],
+  },
+  // SGK reuse matrix: job card = RequisitionVC (job profile), material receipt = ReceiptVC
+  // (material profile), completion = ExecutionAckVC. Invoice / payment receipt are
+  // issued by the follow-on payment workflow started via `workflow.start`.
+  outputVCs: ['RequisitionVC', 'ReceiptVC', 'ExecutionAckVC'],
+  steps: [
+    {
+      action: 'field.transition',
+      config: { to: 'REQUEST_CREATED' },
+      description: 'Move workflow to request created state',
+    },
+    {
+      action: 'field.assign',
+      config: {
+        assigneeId: 'input.assigneeId',
+      },
+      description: 'Assign work to a field worker and wait for them to start the job',
+    },
+    {
+      action: 'credential.issue',
+      config: {
+        type: 'RequisitionVC',
+        recipientStage: 'assign_field_worker',
+        mapping: {
+          requisitionId: 'input.requestId',
+          jobId: 'runId',
+          reference: 'input.reference',
+          requesterId: 'input.requesterId',
+          assignment: 'state.assignment',
+          location: 'input.location',
+          description: 'input.description',
+          scheduledDate: 'input.scheduledDate',
+          approvedAmount: 'input.amount',
+          currency: 'input.currency',
+          workflowRunId: 'runId',
+        },
+      },
+      description: 'Issue job card (RequisitionVC job profile) to the assigned field worker',
+    },
+    {
+      action: 'field.pause',
+      config: { reason: 'await_site_inspection', checkpoint: 'site_inspection' },
+      description: 'Pause until the pre-job site inspection is submitted (waivable per job with requireSiteInspection=false)',
+    },
+    {
+      action: 'field.checkpoint',
+      config: { checkpoint: 'site_inspection' },
+      description: 'Record the pre-job site inspection (outcome, access, findings) before work is allowed to start',
+    },
+    {
+      action: 'field.pause',
+      config: { reason: 'await_risk_assessment', checkpoint: 'risk_assessment' },
+      description: 'Pause until the field worker completes the risk assessment before starting',
+    },
+    {
+      action: 'field.checkpoint',
+      config: { checkpoint: 'risk_assessment' },
+      description: 'Record the field worker risk assessment (hazards, controls, PPE, safe to proceed)',
+    },
+    {
+      action: 'field.pause',
+      config: { reason: 'await_worker_start' },
+      description: 'Pause until the worker starts the job from the mobile inbox',
+    },
+    {
+      action: 'field.transition',
+      config: { to: 'IN_PROGRESS' },
+      description: 'Move workflow to in progress state once the worker starts the job',
+    },
+    {
+      action: 'field.pause',
+      config: { reason: 'await_arrival', checkpoint: 'arrival' },
+      description: 'Pause until the worker proves arrival on site (location or site code)',
+    },
+    {
+      action: 'field.checkpoint',
+      config: { checkpoint: 'arrival' },
+      description: 'Record arrival proof (GPS or QR) in the run output',
+    },
+    {
+      action: 'field.pause',
+      config: { reason: 'await_evidence_before' },
+      description: 'Pause until the worker captures BEFORE-work evidence from the mobile app',
+    },
+    {
+      action: 'field.capture_evidence',
+      config: { phase: 'before' },
+      description: 'Capture BEFORE evidence (site state prior to work)',
+    },
+    {
+      action: 'field.pause',
+      config: { reason: 'await_evidence_after' },
+      description: 'Pause until the worker captures AFTER-work evidence from the mobile app',
+    },
+    {
+      action: 'field.capture_evidence',
+      config: { phase: 'after' },
+      description: 'Capture AFTER evidence (post-work proof)',
+    },
+    {
+      action: 'field.pause',
+      config: { reason: 'await_evidence_receipt' },
+      description:
+        'Pause until the worker captures RECEIPT evidence (parts, materials or physical receipts) from the mobile app',
+    },
+    {
+      action: 'field.capture_evidence',
+      config: { phase: 'receipt' },
+      description: 'Capture RECEIPT evidence (manual receipts / photos)',
+    },
+    {
+      action: 'credential.issue',
+      config: {
+        type: 'ReceiptVC',
+        recipientStage: 'trigger_payout',
+        mapping: {
+          receiptId: 'state.evidenceReceipt.evidenceHash',
+          jobId: 'runId',
+          workflowRunId: 'runId',
+          requisitionId: 'input.requestId',
+          evidenceHash: 'state.evidenceReceipt.evidenceHash',
+          photoUri: 'state.evidenceReceipt.photoUri',
+          capturedBy: 'state.evidenceReceipt.capturedBy',
+          capturedAt: 'state.evidenceReceipt.capturedAt',
+          notes: 'state.evidenceReceipt.notes',
+          linkedEvidenceIds: ['state.evidenceBefore.evidenceHash', 'state.evidenceAfter.evidenceHash'],
+        },
+      },
+      description: 'Issue material receipt (ReceiptVC material profile) linked to the job evidence chain',
+    },
+    {
+      action: 'field.pause',
+      config: { reason: 'await_completion_review', checkpoint: 'completion_review' },
+      description: 'Pause until a reviewer checks the finished work (AFTER evidence, receipts) before customer sign-off',
+    },
+    {
+      action: 'field.checkpoint',
+      config: { checkpoint: 'completion_review' },
+      description: 'Record the completion review (approved / approved with notes; rework holds the job)',
+    },
+    {
+      action: 'field.pause',
+      config: { reason: 'await_acknowledgement', requireFlag: 'requireCustomerSignoff' },
+      description: 'Pause until the customer / receiver signs off the completed work',
+    },
+    {
+      action: 'field.acknowledge',
+      config: {
+        receiverId: 'input.receiverId',
+        requireProof: true,
+      },
+      description: 'Capture receiver acknowledgement (wallet proof from the sign-off person)',
+    },
+    {
+      action: 'credential.issue',
+      config: {
+        type: 'ExecutionAckVC',
+        recipientStage: 'acknowledge_execution',
+        mapping: {
+          requisitionId: 'input.requestId',
+          jobId: 'runId',
+          workflowRunId: 'runId',
+          receiverId: 'state.ack.receiverId',
+          acknowledgedAt: 'state.ack.acknowledgedAt',
+          completionStatus: 'state.ack.status',
+          customerSignoff: 'state.ack.isVerifiable',
+          evidenceRefs: [
+            'state.evidenceBefore.evidenceHash',
+            'state.evidenceAfter.evidenceHash',
+            'state.evidenceReceipt.evidenceHash',
+          ],
+        },
+      },
+      description: 'Issue completion acknowledgement (ExecutionAckVC completion profile)',
+    },
+    {
+      action: 'field.pause',
+      config: { reason: 'await_payout_release', requireFlag: 'requirePayoutRelease' },
+      description: 'Pause until the payout person releases payment for the signed-off work',
+    },
+    {
+      action: 'field.trigger_payment',
+      config: { requireProof: true },
+      description: 'Trigger payout/payment state and log reconciliation payment event (wallet proof from the payout person)',
+    },
+    {
+      action: 'workflow.start',
+      config: {
+        workflow: 'tpl-payment-collection',
+        onNotReady: 'skip',
+        when: 'has_customer_charge',
+        inputMapping: {
+          payerName: 'input.clientName',
+          payerDescription: 'input.reference',
+          amount: 'input.amount',
+          currency: 'input.currency',
+          payerPhone: 'input.customerMsisdn',
+          reference: 'input.reference',
+          requestId: 'input.requestId',
+        },
+      },
+      description: 'Start payment collection (InvoiceVC + PaymentReceiptVC) when the org has payments configured',
+    },
+    {
+      action: 'field.mark_receipt_issued',
+      config: {},
+      description: 'Mark receipt issued and log reconciliation receipt event',
+    },
+    {
+      action: 'field.reconcile',
+      config: { mode: 'automatic' },
+      description: 'Finalize reconciliation for this workflow run',
+    },
+    {
+      action: 'external.send_notification',
+      config: {
+        type: 'whatsapp',
+        to: 'input.receiverId',
+        template: 'field_execution_completed',
+      },
+      description: 'Notify receiver or requester about workflow completion',
+    },
+    {
+      action: 'trust.update_score',
+      config: { event: 'field_execution_completed', weight: 1 },
+      description: 'Update trust score on successful FEPT completion',
+    },
+  ],
+  configurable: [
+    {
+      field: 'walletPolicy',
+      label: 'Wallet Policy',
+      type: 'select',
+      options: ['wallet_required', 'wallet_offered', 'wallet_not_applicable'],
+      default: 'wallet_offered',
+    },
+    { field: 'requireApproval', label: 'Require Approval Step', type: 'boolean', default: true },
+    { field: 'requireGps', label: 'Require GPS Evidence', type: 'boolean', default: true },
+    { field: 'requirePhoto', label: 'Require Photo Evidence', type: 'boolean', default: true },
+    { field: 'requireAcknowledgementSignature', label: 'Require Ack Signature', type: 'boolean', default: false },
+    {
+      field: 'reconciliationMode',
+      label: 'Reconciliation Mode',
+      type: 'select',
+      options: ['automatic', 'daily_batch', 'manual_close'],
+      default: 'automatic',
+    },
+  ],
+}
+
+export const PaymentCollectionTemplate: WorkflowTemplate = {
+  id: 'tpl-payment-collection',
+  name: 'General Payment Collection',
+  description:
+    'Universal payment collection flow: request payment → capture → verifiable receipt. Ideal for services, subscriptions, and simple billing.',
+  category: 'finance',
+  industry: ['all'],
+  triggerTypes: ['manual', 'webhook', 'agent-intent'],
+  inputSchema: {
+    type: 'object',
+    properties: {
+      payerName: { type: 'string', title: 'Payer Name' },
+      payerDescription: { type: 'string', title: 'Payment Description / Reason' },
+      amount: { type: 'number', title: 'Amount' },
+      currency: { type: 'string', title: 'Currency', default: 'USD' },
+      payerPhone: { type: 'string', title: 'Payer Phone Number' },
+      reference: { type: 'string', title: 'External Reference / Account Number' },
+    },
+    required: ['amount', 'payerDescription'],
+  },
+  outputVCs: ['InvoiceVC', 'PaymentReceiptVC'],
+  steps: [
+    {
+      action: 'finance.calculate_invoice',
+      config: { taxRate: 0, taxInclusive: true },
+      description: 'Generate payment request / invoice',
+    },
+    {
+      action: 'credential.issue',
+      config: {
+        type: 'InvoiceVC',
+        recipientStage: 'trigger_payout',
+        mapping: {
+          invoiceId: 'state.offer.offerId',
+          payerName: 'input.payerName',
+          description: 'input.payerDescription',
+          amount: 'input.amount',
+          currency: 'input.currency',
+          reference: 'input.reference',
+        },
+      },
+      description: 'Issue InvoiceVC as a payment request',
+    },
+    {
+      action: 'external.ecocash_payment',
+      config: { provider: 'ecocash-zw' },
+      description: 'Capture payment via mobile money or digital wallet',
+    },
+    {
+      action: 'credential.issue',
+      config: {
+        type: 'PaymentReceiptVC',
+        recipientStage: 'trigger_payout',
+        mapping: {
+          receiptId: 'state.payment.receiptId',
+          amount: 'input.amount',
+          currency: 'input.currency',
+          paymentRef: 'state.payment.providerRef',
+          paidAt: 'state.payment.timestamp',
+        },
+      },
+      description: 'Issue Verifiable Payment Receipt',
+    },
+    {
+      action: 'trust.update_score',
+      config: { event: 'payment_collection_completed', weight: 1 },
+      description: 'Update trust score on successful collection',
+    },
+  ],
+  configurable: [
+    {
+      field: 'paymentMethods',
+      label: 'Accepted Payment Methods',
+      type: 'select',
+      options: ['ecocash', 'bank_transfer', 'cash'],
+      default: 'ecocash',
+    },
+    { field: 'autoIssueReceipt', label: 'Auto-issue Receipt on Payment', type: 'boolean', default: true },
+    { field: 'notifyPayer', label: 'Notify Payer via SMS/WhatsApp', type: 'boolean', default: true },
+  ],
+}
+
+// =============================================================================
+// ACCOUNTS PAYABLE TEMPLATE
+// =============================================================================
+
+export const AccountsPayableTemplate: WorkflowTemplate = {
+  id: 'tpl-ap-payables',
+  name: 'Accounts Payable',
+  description:
+    'Buyer-side supplier management: onboard suppliers, record invoices, pay with verifiable remittance credentials, and reconcile balances with suppliers.',
+  category: 'finance',
+  industry: ['all'],
+  triggerTypes: ['manual', 'webhook'],
+  inputSchema: {
+    type: 'object',
+    properties: {
+      supplierName: { type: 'string', title: 'Supplier Name' },
+      invoiceRef: { type: 'string', title: 'Supplier Invoice Reference' },
+      amount: { type: 'number', title: 'Invoice Amount' },
+      currency: { type: 'string', title: 'Currency', default: 'USD' },
+      dueDate: { type: 'string', title: 'Due Date (ISO8601)' },
+      amountPaid: { type: 'number', title: 'Payment Amount' },
+      paymentMethod: { type: 'string', title: 'Payment Method', enum: ['ecocash', 'bank_transfer', 'cash', 'cheque'] },
+      reference: { type: 'string', title: 'Payment Reference' },
+    },
+    required: ['supplierName', 'invoiceRef', 'amount'],
+  },
+  outputVCs: ['RemittanceAdviceVC'],
+  steps: [
+    {
+      action: 'ap.record_invoice',
+      config: {},
+      description: 'Record supplier invoice into AP ledger',
+    },
+    {
+      action: 'ap.record_payment',
+      config: {},
+      description: 'Record payment and deduct from invoice balance',
+    },
+    {
+      action: 'credential.issue',
+      config: {
+        type: 'RemittanceAdviceVC',
+        mapping: {
+          paymentId: 'state.payment.id',
+          invoiceRef: 'input.invoiceRef',
+          buyerName: 'state.tenant.label',
+          supplierName: 'input.supplierName',
+          amountPaid: 'input.amountPaid',
+          currency: 'input.currency',
+          remainingBalance: 'state.payment.remainingBalance',
+          paymentMethod: 'input.paymentMethod',
+          paidAt: 'state.payment.paidAt',
+          acknowledgeUrl: 'state.payment.acknowledgeUrl',
+        },
+      },
+      description: 'Issue RemittanceAdviceVC to supplier wallet',
+    },
+    {
+      action: 'notification.send',
+      config: { type: 'remittance', channels: ['whatsapp', 'email'] },
+      description: 'Notify supplier with payment amount and remaining balance',
+    },
+  ],
+  configurable: [
+    {
+      field: 'defaultCurrency',
+      label: 'Default Currency',
+      type: 'select',
+      options: ['USD', 'ZWL', 'ZAR', 'BWP'],
+      default: 'USD',
+    },
+    {
+      field: 'paymentMethods',
+      label: 'Allowed Payment Methods',
+      type: 'select',
+      options: ['ecocash', 'bank_transfer', 'cash', 'cheque'],
+      default: 'ecocash',
+    },
+    { field: 'requireAcknowledge', label: 'Require Supplier Acknowledgment', type: 'boolean', default: true },
+    { field: 'autoAgeing', label: 'Auto-flag Overdue Invoices', type: 'boolean', default: true },
+  ],
+}
+
+// =============================================================================
+// ACCOUNTS RECEIVABLE (AR) — COLLECTIONS TEMPLATE
+// =============================================================================
+
+export const AccountsReceivableTemplate: WorkflowTemplate = {
+  id: 'tpl-ar-collections',
+  name: 'Accounts Receivable — Collections',
+  description:
+    'Collect payments from customers via one-time links, instalment plans, or recurring billing. Issue ReceiptVCs for every payment received.',
+  category: 'finance',
+  industry: ['all'],
+  triggerTypes: ['manual', 'schedule', 'payment'],
+  inputSchema: {
+    type: 'object',
+    properties: {
+      collectionType: { type: 'string', title: 'Collection Type', enum: ['one_time', 'instalment', 'recurring'] },
+      payerName: { type: 'string', title: 'Payer / Customer Name' },
+      payerPhone: { type: 'string', title: 'Payer Phone' },
+      payerEmail: { type: 'string', title: 'Payer Email' },
+      description: { type: 'string', title: 'Description' },
+      totalAmount: { type: 'number', title: 'Total Amount' },
+      currency: { type: 'string', title: 'Currency', default: 'USD' },
+      instalments: { type: 'number', title: 'Number of Instalments', default: 1 },
+      cadence: { type: 'string', title: 'Billing Cadence (recurring)', enum: ['weekly', 'monthly', 'quarterly'] },
+      firstDueDate: { type: 'string', title: 'First Due Date (YYYY-MM-DD)' },
+    },
+    required: ['collectionType', 'description', 'totalAmount'],
+  },
+  outputVCs: ['ReceiptVC'],
+  steps: [
+    {
+      action: 'ar.create_plan',
+      config: {},
+      description: 'Create AR payment plan and generate payment links for each instalment',
+    },
+    {
+      action: 'notification.send',
+      config: { type: 'payment_request', channels: ['whatsapp', 'email'] },
+      description: 'Notify payer with payment link(s)',
+    },
+    {
+      action: 'credential.issue',
+      config: {
+        type: 'ReceiptVC',
+        trigger: 'on_payment',
+        mapping: {
+          payerName: 'input.payerName',
+          amount: 'state.payment.amount',
+          currency: 'input.currency',
+          instalmentNumber: 'state.instalment.number',
+          totalInstalments: 'input.instalments',
+          paidAt: 'state.payment.paidAt',
+        },
+      },
+      description: 'Issue ReceiptVC to payer wallet on each payment',
+    },
+  ],
+  configurable: [
+    {
+      field: 'defaultCurrency',
+      label: 'Default Currency',
+      type: 'select',
+      options: ['USD', 'ZWL', 'ZIG', 'ZAR', 'BWP'],
+      default: 'USD',
+    },
+    {
+      field: 'defaultCollectionType',
+      label: 'Default Collection Type',
+      type: 'select',
+      options: ['one_time', 'instalment', 'recurring'],
+      default: 'one_time',
+    },
+    { field: 'sendReceiptVC', label: 'Issue ReceiptVC on Payment', type: 'boolean', default: true },
+    { field: 'notifyOnPayment', label: 'Notify Collector on Payment', type: 'boolean', default: true },
+  ],
+}
+
+// =============================================================================
 // TEMPLATE REGISTRY
 // =============================================================================
 
 export const workflowTemplates: WorkflowTemplate[] = [
-  // Finance
+  // Finance — AR
+  AccountsReceivableTemplate,
+  // Finance — AP
+  AccountsPayableTemplate,
+  // Finance — General
   ReceiptTrailTemplate,
   CreditEligibilityTemplate,
+  PaymentCollectionTemplate,
   // E-commerce
   QuoteInvoiceReceiptTemplate,
   DeliveryEscrowTemplate,
@@ -730,7 +1451,21 @@ export const workflowTemplates: WorkflowTemplate[] = [
   DigitalTwinTemplate,
   // Insurance
   PolicyIssuanceTemplate,
+  // Education
+  EducationFeeTemplate,
+  // Cash / POS
+  CashCounterTemplate,
+  // Field execution / FEPT
+  FieldExecutionProofTemplate,
 ]
+
+// Attach organizational prerequisites from the registry so every in-memory
+// template carries its own readiness declaration (no activation flags).
+for (const template of workflowTemplates) {
+  if (!template.prerequisites) {
+    template.prerequisites = TEMPLATE_PREREQUISITES[template.id] ?? []
+  }
+}
 
 export function getTemplateById(id: string): WorkflowTemplate | undefined {
   return workflowTemplates.find((t) => t.id === id)

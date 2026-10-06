@@ -2,7 +2,6 @@ import axios from 'axios'
 import { randomUUID } from 'crypto'
 
 const BASE_URL = 'http://localhost:3000'
-const HOLDER_URL = 'http://localhost:6000'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -55,14 +54,14 @@ async function testPushFlow() {
     console.log('3. Waiting 20s for Push Notification & Auto-Acceptance...')
     await sleep(20000)
 
-    console.log('4. Checking Holder Wallet for Credentials...')
+    console.log('4. Checking Wallet for Credentials...')
 
-    // For the Base Agent (Holder), we can use the x-api-key to access the base wallet directly
-    // The base wallet ID is 'holder-wallet' as configured in startHolderServer.js
+    // Unified startup uses the same API host for all wallet operations
+    // The base wallet ID remains 'holder-wallet' for this push-flow test path
     // Correct URL structure: /api/wallet/{walletId}/credentials
-    const credsRes = await axios.get(`${HOLDER_URL}/api/wallet/holder-wallet/credentials`, {
+    const credsRes = await axios.get(`${BASE_URL}/api/wallet/holder-wallet/credentials`, {
       headers: {
-        'x-api-key': 'holder-api-key-12345',
+        'x-api-key': 'test-api-key-12345',
       },
     })
 

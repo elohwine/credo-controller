@@ -5,7 +5,7 @@
 set -e
 
 API_URL="${API_URL:-http://localhost:3000}"
-HOLDER_API_KEY="holder-api-key-12345"
+API_KEY="test-api-key-12345"
 PHONE="+263774183277"
 EMAIL="test@example.com"
 USERNAME="testuser_$(date +%s)"
@@ -34,10 +34,10 @@ else
 fi
 echo ""
 
-echo -e "${BLUE}Step 1: Create anonymous tenant (on Holder API 7000 to ensure wallet availability)${NC}"
-TENANT_RESPONSE=$(curl -s -X POST "http://localhost:7000/multi-tenancy/create-tenant" \
+echo -e "${BLUE}Step 1: Create anonymous tenant on unified API${NC}"
+TENANT_RESPONSE=$(curl -s -X POST "${API_URL}/multi-tenancy/create-tenant" \
   -H "Content-Type: application/json" \
-  -H "x-api-key: $HOLDER_API_KEY" \
+  -H "x-api-key: $API_KEY" \
   -d '{"config": {"label": "Anonymous Shopper"}}')
 
 TENANT_ID=$(echo "$TENANT_RESPONSE" | jq -r '.tenantId')
@@ -96,7 +96,7 @@ INVOICE_OFFER_URL=$(echo "$CHECKOUT_RESPONSE" | jq -r '.invoiceOfferUrl')
 
 if [ "$INVOICE_OFFER_URL" != "null" ]; then
     echo "  Accepting Invoice Offer: ${INVOICE_OFFER_URL:0:40}..."
-    ACCEPT_RESPONSE=$(curl -s -X POST "http://localhost:7000/api/wallet/credentials/accept-offer" \
+    ACCEPT_RESPONSE=$(curl -s -X POST "${API_URL}/api/wallet/credentials/accept-offer" \
       -H "Content-Type: application/json" \
       -H "Authorization: Bearer $TENANT_TOKEN" \
       -d "{ \"offerUri\": \"$INVOICE_OFFER_URL\" }")
@@ -108,7 +108,7 @@ fi
 echo ""
 
 echo -e "${BLUE}Step 3: Register with same phone (claims existing tenant + VCs)${NC}"
-REGISTER_RESPONSE=$(curl -s -X POST "http://localhost:7000/api/ssi/auth/register" \
+REGISTER_RESPONSE=$(curl -s -X POST "${API_URL}/api/ssi/auth/register" \
   -H "Content-Type: application/json" \
   -d "{
     \"username\": \"$USERNAME\",
@@ -144,7 +144,7 @@ else
 fi
 
 echo -e "${BLUE}Step 5: Login with PIN (Web2 fallback)${NC}"
-LOGIN_RESPONSE=$(curl -s -X POST "http://localhost:7000/api/ssi/auth/login/pin" \
+LOGIN_RESPONSE=$(curl -s -X POST "${API_URL}/api/ssi/auth/login/pin" \
   -H "Content-Type: application/json" \
   -d "{
     \"phone\": \"$PHONE\",
@@ -160,7 +160,7 @@ echo "  Tenant ID: $LOGIN_TENANT_ID"
 echo ""
 
 echo -e "${BLUE}Step 6: Get session info (no PII exposed)${NC}"
-SESSION_RESPONSE=$(curl -s -X GET "http://localhost:7000/api/ssi/auth/session" \
+SESSION_RESPONSE=$(curl -s -X GET "${API_URL}/api/ssi/auth/session" \
   -H "Authorization: Bearer $LOGIN_TOKEN")
 
 echo -e "${GREEN}✓ Session retrieved${NC}"
@@ -168,7 +168,7 @@ echo "$SESSION_RESPONSE" | jq '.'
 echo ""
 
 echo -e "${BLUE}Step 7: Create login challenge for VC-based auth${NC}"
-CHALLENGE_RESPONSE=$(curl -s -X POST "http://localhost:7000/api/ssi/auth/login/challenge")
+CHALLENGE_RESPONSE=$(curl -s -X POST "${API_URL}/api/ssi/auth/login/challenge")
 
 NONCE=$(echo "$CHALLENGE_RESPONSE" | jq -r '.nonce')
 EXPIRES_AT=$(echo "$CHALLENGE_RESPONSE" | jq -r '.expiresAt')
@@ -186,7 +186,7 @@ echo ""
 echo -e "${BLUE}Step 9: Verify VC Migration (Check Registered Wallet)${NC}"
 # Use the Token from Login (Step 5) to check credentials in the NOW REGISTERED wallet
 # We expect to see the Invoice VC we accepted in Step 2.5
-CREDENTIALS_RESPONSE=$(curl -s -X GET "http://localhost:7000/api/wallet/$TENANT_ID/credentials" \
+CREDENTIALS_RESPONSE=$(curl -s -X GET "${API_URL}/api/wallet/$TENANT_ID/credentials" \
   -H "Authorization: Bearer $LOGIN_TOKEN")
 
 VC_COUNT=$(echo "$CREDENTIALS_RESPONSE" | jq '. | length')

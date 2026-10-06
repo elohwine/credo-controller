@@ -29,12 +29,12 @@ export class WorkflowRepository {
         @inputSchema, @actions, CURRENT_TIMESTAMP
       )
       ON CONFLICT(id) DO UPDATE SET
-        public name = @name,
-        public category = @category,
-        public provider = @provider,
-        public description = @description,
-        public input_schema = @inputSchema,
-        public actions = @actions
+        name = @name,
+        category = @category,
+        provider = @provider,
+        description = @description,
+        input_schema = @inputSchema,
+        actions = @actions
     `)
 
     try {

@@ -6,6 +6,9 @@ export type OrganizationMembership = {
   role?: string
 }
 
+/** Older builds stored a "first workflow" choice here; onboarding now stores answers in orgProfile.ts. */
+const LEGACY_ONBOARDING_FOCUS_KEY = 'credoOnboardingWorkflowFocus'
+
 function decodeJwtPayload(token: string): Record<string, any> | null {
   try {
     const parts = token.split('.')
@@ -26,8 +29,8 @@ export function getOrgScopedToken(): string | null {
   if (typeof window === 'undefined') return null
   return (
     window.localStorage.getItem('credoOrgToken') ||
-    window.localStorage.getItem('tenantToken') ||
     window.localStorage.getItem('credoTenantToken') ||
+    window.localStorage.getItem('tenantToken') ||
     window.localStorage.getItem('walletToken') ||
     null
   )
@@ -106,6 +109,16 @@ export function persistActiveOrganization(org: OrganizationMembership) {
   window.localStorage.setItem('credoActiveOrg', JSON.stringify(org))
 }
 
+/** Drop the previous organisation so a new sign-in does not keep acting as it. */
+export function clearStoredOrganizationContext() {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem('credoActiveOrg')
+  window.localStorage.removeItem('credoOrganizations')
+  window.localStorage.removeItem('credoOrgToken')
+  window.localStorage.removeItem(LEGACY_ONBOARDING_FOCUS_KEY)
+  window.localStorage.removeItem('credoOrgProfile')
+}
+
 export async function fetchOrganizations(backendUrl: string, personalToken: string): Promise<OrganizationMembership[]> {
   if (!personalToken) return readOrganizationsFromCache()
 
@@ -157,16 +170,45 @@ export async function switchOrganizationContext(params: {
   }
 
   if (typeof window !== 'undefined') {
+    const resolvedName = response.data?.orgName || response.data?.name || orgName || orgTenantId
+    const role = response.data?.role || response.data?.orgRole || 'member'
+
+    // Same keys the header account picker writes, so every page sees the org session.
     window.localStorage.setItem('credoOrgToken', orgToken)
     window.localStorage.setItem('tenantToken', orgToken)
     window.localStorage.setItem('credoTenantToken', orgToken)
+    window.localStorage.setItem('credoContextMode', 'org')
+    window.localStorage.setItem('credoTenantId', orgTenantId)
+    window.localStorage.setItem('tenantId', orgTenantId)
+    window.localStorage.setItem('credoOrgName', resolvedName)
+    if (response.data?.sector) window.localStorage.setItem('credoTenantSector', response.data.sector)
+    else window.localStorage.removeItem('credoTenantSector')
+    if (response.data?.workflowTypes) window.localStorage.setItem('credoActiveWorkflowTypes', JSON.stringify(response.data.workflowTypes))
+    else window.localStorage.removeItem('credoActiveWorkflowTypes')
 
-    persistActiveOrganization({
-      orgTenantId,
-      name: response.data?.orgName || orgName || orgTenantId,
-      role: response.data?.role || 'member',
-    })
+    persistActiveOrganization({ orgTenantId, name: resolvedName, role })
+    const cached = readOrganizationsFromCache()
+    persistOrganizationsToCache([
+      { orgTenantId, name: resolvedName, role },
+      ...cached.filter((org) => org.orgTenantId !== orgTenantId),
+    ])
+    window.dispatchEvent(new Event('credo:workflow-context-updated'))
   }
 
   return orgToken
+}
+
+/** True when the session is already acting as this organization. */
+export function isActingAsOrganization(orgTenantId: string): boolean {
+  if (typeof window === 'undefined' || !orgTenantId) return false
+  if (window.localStorage.getItem('credoContextMode') !== 'org') return false
+  const active = readActiveOrganization()
+  if (active?.orgTenantId !== orgTenantId) return false
+  const orgToken = window.localStorage.getItem('credoOrgToken')
+  return Boolean(orgToken && decodeJwtPayload(orgToken)?.tenantId === orgTenantId)
+}
+
+/** Display name for an organization the person belongs to, from the cached list. */
+export function organizationNameFor(orgTenantId: string): string | undefined {
+  return readOrganizationsFromCache().find((org) => org.orgTenantId === orgTenantId)?.name
 }

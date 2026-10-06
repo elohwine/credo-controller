@@ -37,7 +37,7 @@ import AppShellMobile from '@/components/layout/AppShellMobile'
 import ErrorAlert from '@/components/shared/ErrorAlert'
 import api, { safeArray } from '@/lib/api'
 import { getActiveOrgId, getContextMode, getUserRole, getPreferredToken, getWalletToken, getOrgToken } from '@/lib/auth'
-import { getFriendlyActivityActionLabel, getFriendlyActivitySummary } from '@/lib/uxCopy'
+import { getFriendlyActivityActionLabel, getFriendlyActivitySummary, toFeptStageLabel } from '@/lib/uxCopy'
 import { evaluateOrgActionPolicy, getCachedOrgContextBundle, refreshOrgContextBundle } from '@/lib/offline/orgContextBundle'
 import { getRunningActions, RunningAction, upsertRunningAction } from '@/lib/runningActions'
 import dayjs from 'dayjs'
@@ -92,6 +92,7 @@ interface AuditItem {
 }
 
 type AuditContext = 'organization' | 'personal' | 'guest' | 'service'
+type EvidencePhase = 'before' | 'after' | 'receipt' | 'acknowledgement'
 
 interface AuditLogEntry {
   id: string
@@ -206,29 +207,6 @@ function normalizeStage(value: unknown): string {
 function isFeptWorkflowType(value: unknown): boolean {
   const normalized = String(value ?? '').trim().toLowerCase()
   return normalized.includes('field') || normalized.includes('fept')
-}
-
-function toFeptStageLabel(stage: string): string {
-  const labels: Record<string, string> = {
-    DRAFT: 'Draft',
-    REQUEST_CREATED: 'Request created',
-    APPROVAL_PENDING: 'Approval pending',
-    APPROVED: 'Approved',
-    RELEASE_AUTHORIZED: 'Release authorized',
-    ASSIGNED: 'Task assigned',
-    IN_PROGRESS: 'Work in progress',
-    EVIDENCE_CAPTURED: 'Evidence captured',
-    ACKNOWLEDGED: 'Execution acknowledged',
-    PAYMENT_TRIGGERED: 'Payment triggered',
-    RECEIPT_ISSUED: 'Receipt issued',
-    RECONCILED: 'Reconciled',
-    COMPLETED: 'Completed',
-    DISPUTED: 'Disputed',
-    CANCELLED: 'Cancelled',
-    REVOKED: 'Revoked',
-  }
-
-  return labels[stage] || stage.toLowerCase().replace(/_/g, ' ')
 }
 
 function extractFeptStage(details?: Record<string, any>, entry?: any): string {
@@ -789,6 +767,40 @@ export default function ActivityPage() {
 
   const [evidenceMode, setEvidenceMode] = useState(false)
   const [evidenceLoading, setEvidenceLoading] = useState(false)
+  // Which photo step the job is waiting on, read from the job itself when the link does not say.
+  const [runPhase, setRunPhase] = useState<EvidencePhase | null>(null)
+
+  const resolveEvidencePhase = useCallback((): EvidencePhase => {
+    const fromQuery = typeof router.query.phase === 'string' ? router.query.phase.trim().toLowerCase() : ''
+    if (fromQuery === 'after' || fromQuery === 'receipt' || fromQuery === 'acknowledgement') return fromQuery
+    if (fromQuery === 'before') return 'before'
+    return runPhase || 'before'
+  }, [router.query.phase, runPhase])
+
+  const loadRunPhase = useCallback(async (ref: string) => {
+    const tokens = [getContextMode() === 'org' ? getOrgToken() : null, getWalletToken(), getPreferredToken()]
+      .filter((token): token is string => typeof token === 'string' && token.length > 0)
+      .filter((token, index, list) => list.indexOf(token) === index)
+    for (const token of tokens) {
+      try {
+        const res = await api.get(`/workflows/runs/${encodeURIComponent(ref)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const output = res.data?.output || {}
+        const reason = String(output.pauseReason || '').toLowerCase()
+        if (reason === 'await_evidence_after') { setRunPhase('after'); return }
+        if (reason === 'await_evidence_receipt') { setRunPhase('receipt'); return }
+        if (reason === 'await_acknowledgement') { setRunPhase('acknowledgement'); return }
+        if (reason === 'await_evidence_before') { setRunPhase('before'); return }
+        const beforeHash = output?.evidenceBefore?.evidenceHash || output?.evidence?.before?.evidenceHash
+        setRunPhase(beforeHash ? 'after' : 'before')
+        return
+      } catch {
+        // try the next session token
+      }
+    }
+    setRunPhase(null)
+  }, [])
   const resumeKeyByRunRef = useRef<Record<string, string>>({})
   const auditLoadMoreRef = useRef<HTMLDivElement | null>(null)
 
@@ -904,8 +916,7 @@ export default function ActivityPage() {
         }
       }
 
-      const phaseFromQuery = typeof router.query.phase === 'string' ? router.query.phase.trim().toLowerCase() : ''
-      const phase = phaseFromQuery === 'after' ? 'after' : 'before'
+      const phase = resolveEvidencePhase()
 
       const resumeRes = await api.post(
         `/workflows/runs/${selectedRef}/resume`,
@@ -914,6 +925,18 @@ export default function ActivityPage() {
           photoUri: payload.imageBase64 ? `data:${payload.mimeType};base64,${payload.imageBase64}` : undefined,
           gps: payload.gpsLat ? { lat: payload.gpsLat, lng: payload.gpsLng } : undefined,
           notes: payload.notes,
+          // Device time at the moment the live photo was taken; the server adds its own sealed time.
+          deviceCapturedAt: payload.timestamp,
+          attachments: (payload.attachments || [])
+            .filter((item) => item.imageBase64)
+            .map((item) => ({
+              photoUri: `data:${item.mimeType || 'image/jpeg'};base64,${item.imageBase64}`,
+              evidenceHash: item.sha256,
+              gps: item.gpsLat != null ? { lat: item.gpsLat, lng: item.gpsLng } : undefined,
+              deviceCapturedAt: item.timestamp,
+              notes: item.notes,
+              kind: 'photo',
+            })),
           phase,
           performanceVc: payload.performanceVc,
           receiptVc: payload.receiptVc,
@@ -932,7 +955,7 @@ export default function ActivityPage() {
 
       delete resumeKeyByRunRef.current[`${selectedRef}:capture_evidence`]
       import('@mantine/notifications').then((n) => {
-        n.notifications.show({ title: 'Task Updated', message: 'Evidence captured successfully.', color: 'green' })
+        n.notifications.show({ title: 'Photo saved', message: phase === 'receipt' ? 'Receipt added to this job.' : `${phase === 'after' ? 'After' : 'Before'} photo added to this job.`, color: 'green' })
       })
       setEvidenceMode(false)
       if (router.query.capture === '1') {
@@ -1383,6 +1406,8 @@ export default function ActivityPage() {
 
   const handleSelectRef = async (ref: string, tokenOverride?: string) => {
     setSelectedRef(ref)
+    setRunPhase(null)
+    void loadRunPhase(ref)
     setEventsLoading(true)
     try {
       // In org context prefer the org token so the activity endpoint returns org-scoped events.
@@ -1449,12 +1474,16 @@ export default function ActivityPage() {
                 evidenceImage: parsedOutput?.evidenceImage,
               },
               friendlyDetails: [
-                { label: 'Summary', value: stage ? `Current stage: ${toFeptStageLabel(stage)}` : 'Workflow run exists and is awaiting next action.' },
-                { label: 'Run ID', value: String(run.id || ref) },
+                { label: 'Summary', value: stage ? `Current step: ${toFeptStageLabel(stage)}` : 'This job is waiting for its next step.' },
+                { label: 'Job reference', value: String(run.id || ref).slice(0, 8).toUpperCase() },
               ],
+              // Before, after and receipt photos in the order they were taken.
               evidenceImages: Array.from(
                 new Set(
                   [
+                    parsedOutput?.evidenceBefore?.photoUri,
+                    parsedOutput?.evidenceAfter?.photoUri,
+                    parsedOutput?.evidenceReceipt?.photoUri,
                     parsedOutput?.evidence?.photoUri,
                     parsedOutput?.photoUri,
                     parsedOutput?.evidenceImage,
@@ -2072,7 +2101,8 @@ export default function ActivityPage() {
         <Stack gap="md" pb="lg">
           {evidenceMode ? (
             <EvidenceCapture
-              workflowLabel={`${selectedRef || 'Task'} (${typeof router.query.phase === 'string' ? router.query.phase.toUpperCase() : 'BEFORE'} evidence)`}
+              evidenceStage={resolveEvidencePhase()}
+              workflowLabel={`Job ${selectedRef || ''}`.trim()}
               onCapture={handleEvidenceCapture}
               onCancel={() => setEvidenceMode(false)}
             />
@@ -2198,7 +2228,7 @@ export default function ActivityPage() {
               leftSection={<IconActivity size={18} />}
               onClick={() => setEvidenceMode(true)}
             >
-              Capture Evidence
+              Add photos
             </Button>
           )}
         </Stack>

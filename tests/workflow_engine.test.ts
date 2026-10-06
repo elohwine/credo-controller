@@ -1,10 +1,11 @@
 import 'reflect-metadata'
-import { describe, test, expect, beforeAll, afterAll } from 'vitest'
+import { afterAll, beforeAll, describe, expect, test } from '@jest/globals'
+import { unlinkSync, existsSync } from 'fs'
+
+import { DatabaseManager } from '../src/persistence/DatabaseManager'
 import { workflowService } from '../src/services/WorkflowService'
 import { ActionRegistry } from '../src/services/workflow/ActionRegistry'
 import { FinanceActions } from '../src/services/workflow/actions/FinanceActions'
-import { DatabaseManager } from '../src/persistence/DatabaseManager'
-import { unlinkSync, existsSync } from 'fs'
 
 // Mock CredentialActions to avoid DB/Controller dependencies in unit test
 ActionRegistry.register('credential.issue', async (context) => {
@@ -62,7 +63,9 @@ describe('Workflow Engine', () => {
       discount: 10, // Fixed $10 discount
     }
 
-    const result = await workflowService.executeWorkflow('finance-quote-test', input)
+    const execution = await workflowService.executeWorkflow('finance-quote-test', input)
+    expect(execution.status).toBe('completed')
+    const result = execution.output as any
 
     // 3. Verify Calculation
     // Subtotal: 250

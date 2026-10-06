@@ -14,7 +14,7 @@ import { injectable } from 'tsyringe'
 import { SCOPES } from '../../../enums'
 import ErrorHandlingService from '../../../errorHandlingService'
 import { ProofRecordExample, RecordId } from '../../examples'
-import {
+import type {
   AcceptProofProposal,
   CreateProofRequestOobOptions,
   RequestProofOptions,

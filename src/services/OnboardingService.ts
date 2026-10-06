@@ -200,6 +200,18 @@ export class OnboardingService {
       })
       credentialOffer = offer
       logger.info({ offerId: offer.offerId, employeeId: employee.id }, 'Employment contract VC issued')
+      void import('./OrgMembershipCredentialService')
+        .then(({ orgMembershipCredentialService }) => {
+          orgMembershipCredentialService.queueEmploymentContractOffer({
+            orgTenantId: req.tenantId,
+            offerUri: offer.credential_offer_uri || offer.credential_offer_deeplink,
+            employeeName: req.fullName,
+            phone: req.candidatePhone,
+            email: req.candidateEmail,
+            onboardingRequestId: id,
+          })
+        })
+        .catch(() => undefined)
 
       // Store offer URI for reoffer functionality
       const db = DatabaseManager.getDatabase()

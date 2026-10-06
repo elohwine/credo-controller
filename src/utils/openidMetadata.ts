@@ -4,6 +4,25 @@ interface DisplayMapping {
   description?: string
 }
 
+/**
+ * DID the holder bound a credential request to, across Credo versions:
+ * - 0.7: `{ bindingMethod: 'did', keys: [{ didUrl }] }`
+ * - 0.5: `{ method: 'did', did, didUrl }`
+ * Returns the bare DID (fragment stripped) or undefined for jwk / attestation bindings.
+ */
+export function holderBindingDid(holderBinding: unknown): string | undefined {
+  if (!holderBinding || typeof holderBinding !== 'object') return undefined
+  const binding = holderBinding as Record<string, any>
+  const candidates: unknown[] = [
+    binding.did,
+    binding.didUrl,
+    Array.isArray(binding.didUrls) ? binding.didUrls[0] : undefined,
+    Array.isArray(binding.keys) ? binding.keys[0]?.didUrl : undefined,
+  ]
+  const found = candidates.find((value) => typeof value === 'string' && value.startsWith('did:')) as string | undefined
+  return found ? found.split('#')[0] : undefined
+}
+
 export interface IssuerMetadataInput {
   issuerDid: string
   issuerUrl: string

@@ -70,7 +70,7 @@ export default function MyReceiptsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const holderBackend = env.NEXT_PUBLIC_HOLDER_URL || 'http://localhost:7000';
+    const holderBackend = env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000';
 
     const fetchCredentials = async () => {
         setLoading(true);
@@ -130,7 +130,7 @@ export default function MyReceiptsPage() {
     };
 
     useEffect(() => {
-        if (env.NEXT_PUBLIC_HOLDER_URL || env.NEXT_PUBLIC_VC_REPO) {
+        if (env.NEXT_PUBLIC_VC_REPO) {
             fetchCredentials();
         }
     }, [env]);

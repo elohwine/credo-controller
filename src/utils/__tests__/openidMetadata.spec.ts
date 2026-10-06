@@ -7,6 +7,7 @@ describe('openidMetadata helpers', () => {
       credentialEndpoint: 'https://api.example.com/credentials',
       tokenEndpoint: 'https://api.example.com/token',
       baseUrl: 'https://issuer.example.com',
+      issuerUrl: 'https://issuer.example.com',
       display: {
         name: 'Example Issuer',
         description: 'Issue example credentials',

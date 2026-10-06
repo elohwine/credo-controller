@@ -21,10 +21,20 @@ class SchemaStore {
   private ajv = new Ajv2020({ allErrors: true, strict: false })
 
   public register(input: RegisterSchemaRequest): RegisteredSchema | { error: string } {
+    const schemaKey = typeof input.jsonSchema?.$id === 'string' ? input.jsonSchema.$id : undefined
+
     try {
-      this.ajv.compile(input.jsonSchema)
+      if (!schemaKey || !this.ajv.getSchema(schemaKey)) {
+        this.ajv.compile(input.jsonSchema)
+      }
     } catch (e: any) {
-      return { error: 'Invalid JSON Schema: ' + e.message }
+      if (typeof e?.message === 'string' && e.message.toLowerCase().includes('already exists') && schemaKey) {
+        // Reuse the previously compiled schema. Provisioning may register the same
+        // platform schema for multiple tenants, which is safe when the schema body
+        // is identical.
+      } else {
+        return { error: 'Invalid JSON Schema: ' + e.message }
+      }
     }
 
     const tenantId = input.tenantId || 'global'

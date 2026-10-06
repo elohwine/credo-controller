@@ -95,29 +95,21 @@ Access portal at: `http://localhost:5000`
 
 ---
 
-### 🏢 Organization Setup Center (`/organization/setup`)
+### 🏢 Organization Setup (`/organization/setup`)
 
-**Use Case**: Configure organization readiness using capability prerequisites (not feature toggles)
+**Use Case**: Finish setup one question at a time. The phone Settings → Organisation page uses the same checklist.
 
-1. Open **Organization Setup** from Admin menu
-2. Enter `orgTenantId` and click **Load Readiness**
-3. Review readiness by domain:
-
-- Core
-- People
-- Authority
-- Operations
-- Trust
-- Integrations
-
-4. Use **Configure Workflow Capabilities** to set sector + optional workflow types
-5. Re-load readiness and resolve **needs_attention** items progressively
+1. Open **Organization → Setup**
+2. The checklist has four steps: Say what you do, Choose who handles money, Pick how you take payments, Invite your team. **Start** opens that one question. **Change** opens it again.
+3. After a save, **Next** continues and **Finish later** returns here. The page says how many of the four are done.
+4. **Kinds of requests** lists what is open and what still needs a person.
+5. **Who does what** (`/organization/actors`) is one category per window: Money, then each kind of request, then If nobody is chosen, then Role cards.
 
 **API Endpoints**:
 
+- `GET /api/organizations/{orgTenantId}/setup/profile`
+- `PUT /api/organizations/{orgTenantId}/setup/profile`
 - `GET /api/organizations/{orgTenantId}/setup/readiness`
-- `POST /api/organizations/{orgTenantId}/workflows/configure`
-- `POST /api/organizations/{orgTenantId}/workflows/activate` (legacy compatibility alias)
 
 ---
 

@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Badge, Box, Button, Card, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
-import { IconActivity, IconArrowLeft, IconCamera, IconCheck, IconPlayerPlay, IconRefresh } from '@tabler/icons-react';
+import { Badge, Button, Card, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core';
+import { IconActivity, IconArrowLeft, IconCamera, IconPlayerPlay, IconRefresh } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
 import AppShellMobile from '@/components/layout/AppShellMobile';
 import api from '@/lib/api';
-import { getActiveOrgId, getContextMode, getOrgToken, getPreferredToken, getWalletToken, isEmployeeOrgRole } from '@/lib/auth';
+import { getActiveOrgId, getContextMode, getPreferredToken, getWalletToken, isEmployeeOrgRole } from '@/lib/auth';
 
 type RunRow = {
   id: string;
@@ -16,20 +15,20 @@ type RunRow = {
 };
 
 const FEPT_LABELS: Record<string, string> = {
-  REQUEST_CREATED: 'Request Created',
-  APPROVAL_PENDING: 'Approval Pending',
+  REQUEST_CREATED: 'New',
+  APPROVAL_PENDING: 'Waiting for approval',
   APPROVED: 'Approved',
-  ASSIGNED: 'Assigned',
-  IN_PROGRESS: 'In Progress',
-  EVIDENCE_CAPTURED: 'Evidence Captured',
-  ACKNOWLEDGED: 'Acknowledged',
-  PAYMENT_TRIGGERED: 'Payment Triggered',
-  RECEIPT_ISSUED: 'Receipt Issued',
-  RECONCILED: 'Reconciled',
+  ASSIGNED: 'Ready to start',
+  IN_PROGRESS: 'In progress',
+  EVIDENCE_CAPTURED: 'Waiting for sign-off',
+  ACKNOWLEDGED: 'Signed off',
+  PAYMENT_TRIGGERED: 'Payment released',
+  RECEIPT_ISSUED: 'Receipt issued',
+  RECONCILED: 'Closed',
   COMPLETED: 'Completed',
-  DISPUTED: 'Disputed',
+  DISPUTED: 'Under review',
   CANCELLED: 'Cancelled',
-  REVOKED: 'Revoked',
+  REVOKED: 'Cancelled',
 };
 
 function toStage(run: RunRow): string {
@@ -54,7 +53,6 @@ function normalizeRunId(value: unknown): string | null {
 export default function FieldJobsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [hasAccess, setHasAccess] = useState(true);
   const [accessReason, setAccessReason] = useState('');
@@ -82,28 +80,28 @@ export default function FieldJobsPage() {
 
       if (contextMode !== 'org' || !activeOrgId) {
         setHasAccess(false);
-        setAccessReason('Switch to an organization context to access assigned FEPT jobs.');
+        setAccessReason('Switch to your organization to see the jobs assigned to you.');
         setRuns([]);
         return;
       }
 
       if (!isEmployeeOrgRole()) {
         setHasAccess(false);
-        setAccessReason('FEPT jobs are available to organization employees only.');
+        setAccessReason('Jobs are available to team members of the organization.');
         setRuns([]);
         return;
       }
 
       if (!hasFeptEnabled) {
         setHasAccess(false);
-        setAccessReason('This organization does not have FEPT flow activated.');
+        setAccessReason('This organization has not set up field jobs yet.');
         setRuns([]);
         return;
       }
 
       if (!walletToken || !preferredToken) {
         setHasAccess(false);
-        setAccessReason('Missing active session. Please refresh your org session.');
+        setAccessReason('Your session has expired. Please sign in to the organization again.');
         setRuns([]);
         return;
       }
@@ -125,7 +123,7 @@ export default function FieldJobsPage() {
 
       if (assignedRunIds.size === 0) {
         setHasAccess(true);
-        setAccessReason('No assigned FEPT jobs right now.');
+        setAccessReason('No jobs assigned to you right now.');
         setRuns([]);
         return;
       }
@@ -145,7 +143,7 @@ export default function FieldJobsPage() {
       setRuns(assignedRuns);
     } catch (err: any) {
       setHasAccess(false);
-      setAccessReason(err.response?.data?.message || err.message || 'Failed to load assigned FEPT jobs.');
+      setAccessReason(err.response?.data?.message || err.message || 'Could not load your jobs.');
       setRuns([]);
     } finally {
       setLoading(false);
@@ -157,52 +155,11 @@ export default function FieldJobsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const startAssignedJob = async (run: RunRow) => {
-    const runId = String(run.id || '');
+  const openJob = (run: RunRow) => {
+    const runId = normalizeRunId(run.id);
     if (!runId) return;
-
-    setActionLoading(runId);
-    try {
-      const tokenCandidates = [getWalletToken(), getOrgToken(), getPreferredToken()]
-        .filter((token): token is string => typeof token === 'string' && token.length > 0)
-        .filter((token, index, list) => list.indexOf(token) === index);
-
-      let completed = false;
-      let lastError: any = null;
-      for (const token of tokenCandidates) {
-        try {
-          await api.post(`/workflows/runs/${encodeURIComponent(runId)}/resume`, {}, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'x-idempotency-key': `start-job:${runId}`,
-            },
-          });
-          completed = true;
-          break;
-        } catch (err: any) {
-          lastError = err;
-        }
-      }
-
-      if (!completed) throw lastError || new Error('Unable to start this job with current credentials');
-
-      notifications.show({
-        title: 'Job Updated',
-        message: 'Field workflow step was resumed successfully.',
-        color: 'green',
-        icon: <IconCheck size={16} />,
-      });
-
-      await loadAssignedRuns();
-    } catch (err: any) {
-      notifications.show({
-        title: 'Action failed',
-        message: err.response?.data?.error || err.response?.data?.message || err.message,
-        color: 'red',
-      });
-    } finally {
-      setActionLoading(null);
-    }
+    const orgId = getActiveOrgId();
+    router.push(`/finance?tab=field&runId=${encodeURIComponent(runId)}${orgId ? `&orgTenantId=${encodeURIComponent(orgId)}` : ''}`);
   };
 
   return (
@@ -213,7 +170,7 @@ export default function FieldJobsPage() {
             <Button variant="subtle" size="xs" leftSection={<IconArrowLeft size={14} />} onClick={() => router.push('/')}>
               Back
             </Button>
-            <Title order={3}>My Assigned FEPT Jobs</Title>
+            <Title order={3}>My jobs</Title>
           </Group>
           <Button variant="light" size="xs" leftSection={<IconRefresh size={14} />} onClick={() => void loadAssignedRuns()} loading={loading}>
             Refresh
@@ -233,8 +190,8 @@ export default function FieldJobsPage() {
 
         {hasAccess && !loading && runs.length === 0 && (
           <Paper p="md" withBorder radius="md">
-            <Text fw={600}>No active assignments</Text>
-            <Text size="sm" c="dimmed" mt={4}>{accessReason || 'You are not currently assigned to any FEPT job in this organization.'}</Text>
+            <Text fw={600}>No jobs yet</Text>
+            <Text size="sm" c="dimmed" mt={4}>{accessReason || 'When a job is assigned to you, it will show up here.'}</Text>
           </Paper>
         )}
 
@@ -245,8 +202,8 @@ export default function FieldJobsPage() {
           const location = input.location || 'Field site';
           const summary = input.description || input.reference || run.id;
           const runId = normalizeRunId(run.id);
-          const canStart = new Set(['ASSIGNED', 'REQUEST_CREATED', 'APPROVED']).has(stage);
-          const canCaptureEvidence = runId && new Set(['IN_PROGRESS', 'EVIDENCE_CAPTURED']).has(stage);
+          const canStart = Boolean(runId) && new Set(['ASSIGNED', 'REQUEST_CREATED', 'APPROVED']).has(stage);
+          const canCaptureEvidence = Boolean(runId) && new Set(['IN_PROGRESS']).has(stage);
 
           return (
             <Card key={run.id} withBorder radius="md" p="md">
@@ -259,28 +216,29 @@ export default function FieldJobsPage() {
                   <Badge color="blue" variant="light">{stageLabel}</Badge>
                 </Group>
                 <Text size="sm" c="dimmed">Location: {location}</Text>
-                <Text size="xs" c="dimmed">Run ID: {run.id}</Text>
+                <Text size="xs" c="dimmed">Job ID: {run.id}</Text>
 
                 <Group grow mt="xs">
                   {canStart && (
                     <Button
                       leftSection={<IconPlayerPlay size={14} />}
-                      loading={actionLoading === run.id}
-                      onClick={() => void startAssignedJob(run)}
+                      onClick={() => openJob(run)}
                     >
-                      Start Job
+                      Start job
                     </Button>
                   )}
                   {canCaptureEvidence && (
                     <Button
                       variant="light"
                       leftSection={<IconCamera size={14} />}
-                      onClick={() => {
-                        if (!runId) return;
-                        router.push(`/finance?tab=field&runId=${encodeURIComponent(runId)}`);
-                      }}
+                      onClick={() => openJob(run)}
                     >
-                      Capture Evidence
+                      Add photos
+                    </Button>
+                  )}
+                  {runId && !canStart && !canCaptureEvidence && (
+                    <Button variant="light" onClick={() => openJob(run)}>
+                      Open job
                     </Button>
                   )}
                 </Group>

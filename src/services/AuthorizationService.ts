@@ -81,14 +81,33 @@ export class AuthorizationService {
       SELECT p.id AS personId, p.organization_id AS organizationId
       FROM people p
       JOIN organizations o ON o.id = p.organization_id
-      JOIN organization_memberships m
-        ON m.person_id = p.id
-       AND m.organization_id = p.organization_id
       WHERE o.tenant_id = ?
         AND o.status = 'active'
         AND p.id = ?
         AND p.status = 'active'
-        AND m.membership_status = 'active'
+        AND (
+          EXISTS (
+            SELECT 1
+            FROM organization_memberships m
+            WHERE m.organization_id = p.organization_id
+              AND m.person_id = p.id
+              AND m.membership_status = 'active'
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM org_memberships om
+            WHERE om.org_tenant_id = o.tenant_id
+              AND om.user_id = p.subject_ref
+              AND om.status = 'active'
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM org_memberships om
+            WHERE om.org_tenant_id = o.tenant_id
+              AND om.user_id = p.id
+              AND om.status = 'active'
+          )
+        )
       LIMIT 1
     `,
       )
@@ -215,6 +234,32 @@ export class AuthorizationService {
         reasonCode: 'active_delegation_scope_match',
         authorityRef: delegated.authorityRef,
         credentialReferences: [...delegated.credentialReferences, ...ssiCheck.credentialRefs],
+        policyVersion,
+        evaluatedAt,
+      })
+    }
+
+    const orgRole = db
+      .prepare(
+        `
+      SELECT om.role
+      FROM org_memberships om
+      JOIN people p ON p.organization_id = ?
+      WHERE om.org_tenant_id = ?
+        AND om.status = 'active'
+        AND p.id = ?
+        AND (om.user_id = p.subject_ref OR om.user_id = p.id)
+      LIMIT 1
+    `,
+      )
+      .get(actor.organizationId, input.tenantId, input.personId) as { role?: string } | undefined
+
+    if (orgRole && ['owner', 'admin'].includes(orgRole.role || '') && permission.startsWith('request.')) {
+      return this.persistDecision(input, {
+        decisionId,
+        decision: 'allow',
+        reasonCode: 'org_role_permission_match',
+        credentialReferences: [],
         policyVersion,
         evaluatedAt,
       })

@@ -63,6 +63,7 @@ export class SSIAuthService {
     walletId: string
     claimedExisting: boolean
     vcOfferUrl?: string
+    vcOfferAutoAccepted?: boolean
     retroactiveReceiptsQueued?: number
   }> {
     const db = DatabaseManager.getDatabase()
@@ -218,6 +219,20 @@ export class SSIAuthService {
       new Date().toISOString(),
     )
 
+    if (vcOfferUrl && tenantId) {
+      void import('./OrgMembershipCredentialService')
+        .then(({ orgMembershipCredentialService }) => {
+          orgMembershipCredentialService.queuePlatformIdentityOffer({
+            walletTenantId: tenantId!,
+            offerUri: vcOfferUrl,
+            displayName: claims.username,
+          })
+        })
+        .catch((error: any) => {
+          logger.warn({ error: error?.message }, 'Could not queue platform identity offer')
+        })
+    }
+
     // 6. Retroactive Issuance: Source-of-Truth Re-Issuance (Fastlane Fix)
     // We check the immutable payment ledger for past transactions and issue fresh receipts
     // This removes dependency on fragile Guest Wallet migration
@@ -240,12 +255,17 @@ export class SSIAuthService {
     // Generate Auth Token
     const token = await this.generateSessionToken(userId, tenantId!, userDid)
 
+    const vcOfferAutoAccepted = vcOfferUrl
+      ? await this.acceptCredentialOfferForWallet(tenantId!, token, vcOfferUrl)
+      : undefined
+
     return {
       tenantId: tenantId!,
       walletId: tenantId!,
       token,
       claimedExisting,
       vcOfferUrl,
+      vcOfferAutoAccepted,
       retroactiveReceiptsQueued,
     }
   }
@@ -514,6 +534,66 @@ export class SSIAuthService {
     } catch (err: any) {
       logger.error({ error: err.message }, 'Error issuing PlatformIdentityVC')
       return undefined
+    }
+  }
+
+  /** A fresh platform identity offer when the inbox card can no longer be accepted. */
+  public async reissuePlatformIdentityOffer(walletTenantId: string, displayName?: string): Promise<string | undefined> {
+    const offerUri = await this.issuePlatformIdentityVC(walletTenantId, {
+      displayName: displayName || 'Member',
+      registeredAt: new Date().toISOString(),
+      platformTenantId: walletTenantId,
+      platformName: process.env.PLATFORM_NAME || 'Credentis',
+      verificationLevel: 'unverified',
+    })
+    if (!offerUri) return undefined
+    const { orgMembershipCredentialService } = await import('./OrgMembershipCredentialService')
+    orgMembershipCredentialService.queuePlatformIdentityOffer({
+      walletTenantId,
+      offerUri,
+      displayName,
+    })
+    return offerUri
+  }
+
+  private async acceptCredentialOfferForWallet(
+    tenantId: string,
+    sessionToken: string,
+    offerUri: string,
+  ): Promise<boolean> {
+    const holderApiUrl =
+      process.env.HOLDER_API_URL ||
+      process.env.HOLDER_BASE_URL ||
+      process.env.PUBLIC_BASE_URL ||
+      'http://localhost:3000'
+
+    try {
+      const response = await fetch(`${holderApiUrl.replace(/\/+$/, '')}/api/wallet/credentials/accept-offer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({ offerUri }),
+      })
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '')
+        logger.warn(
+          { tenantId, status: response.status, body: body.slice(0, 300) },
+          'Platform identity VC offer was created but auto-accept failed',
+        )
+        return false
+      }
+
+      logger.info({ tenantId }, 'Platform identity VC auto-accepted into wallet')
+      return true
+    } catch (error: any) {
+      logger.warn(
+        { tenantId, error: error?.message || String(error) },
+        'Platform identity VC offer was created but auto-accept threw an error',
+      )
+      return false
     }
   }
 

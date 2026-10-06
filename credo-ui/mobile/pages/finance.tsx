@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
     Stack, Title, Text, Box, Group, Badge, Card, Center, Loader, Alert,
     ThemeIcon, Drawer, Divider, Button, TextInput, Select, ActionIcon,
-    Tabs, Paper, CopyButton, Tooltip, Modal, Code, HoverCard, List,
-    Textarea, Grid, Timeline, Progress, SegmentedControl, NumberInput,
+    Tabs, Paper, CopyButton, Tooltip, Modal, Code, HoverCard, List, Image,
+    Textarea, Grid, Timeline, Progress, SegmentedControl, NumberInput, Checkbox,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -11,10 +11,13 @@ import {
     IconCopy, IconBrandWhatsapp, IconClock, IconCash, IconX,
     IconSchool, IconUsers, IconChevronRight, IconTrash,
     IconExternalLink, IconQrcode, IconShieldCheck, IconWallet, IconReceipt,
-    IconPlayerPlay, IconCamera, IconCircleFilled, IconInfoCircle
+    IconPlayerPlay, IconCamera, IconCircleFilled, IconInfoCircle, IconFileText, IconHistory
 } from '@tabler/icons-react';
 import AppShellMobile from '@/components/layout/AppShellMobile';
 import ErrorAlert from '@/components/shared/ErrorAlert';
+import JobHandoffsPanel from '@/components/shared/JobHandoffsPanel';
+import JobAuditTrailPanel from '@/components/shared/JobAuditTrailPanel';
+import { buildJobAuditTrail } from '@/lib/jobAuditTrail';
 import api, { safeArray } from '@/lib/api';
 import {
     applyOrgContext,
@@ -23,8 +26,9 @@ import {
     getPersonalWalletTenantId,
     getPreferredToken,
     isEmployeeOrgRole,
+    getOrgRoleClaim,
     getWalletToken,
-    isOrgActionRole,
+    decodeJwtPayload,
     isReleaseRole,
 } from '@/lib/auth';
 import {
@@ -42,6 +46,7 @@ import {
 import dayjs from 'dayjs';
 import { useRouter } from 'next/router';
 import QRCode from 'react-qr-code';
+import { FEPT_STAGE_LABEL, REQUISITION_STEPS, fieldJobStatusLabel, requisitionEventTitle, requisitionNextStep, requisitionStatusLabel } from '@/lib/uxCopy';
 
 /* ── Types ── */
 
@@ -77,7 +82,7 @@ interface OrgContact {
 }
 
 type AssigneeResolution = {
-    assigneeId: string;
+    assigneeId?: string;
     assigneeUserId?: string;
 };
 
@@ -98,6 +103,8 @@ interface RequisitionRow {
 interface RequisitionDetail {
     status?: string;
     currentStatus?: string;
+    /** 'one' when a single person confirms a request; 'both' when manager and finance each confirm. */
+    approvalSignMode?: 'one' | 'both';
     timeline?: Array<{
         id?: string;
         eventType?: string;
@@ -140,6 +147,8 @@ interface OrgMemberLite {
     userId: string;
     role: string;
     status: string;
+    displayName?: string;
+    phone?: string;
 }
 
 interface ApWorkflowActionItem {
@@ -468,7 +477,7 @@ function WorkflowDetailBody({
                     {section.content}
                 </DetailSectionCard>
             ))}
-            <Divider label="Audit Timeline" labelPosition="left" />
+            <Divider label="History" labelPosition="left" />
             <DetailTimelineList
                 items={auditItems}
                 emptyText={auditEmptyText}
@@ -610,22 +619,6 @@ function ContactSelectField({
     );
 }
 
-const FEPT_STAGE_LABEL: Record<string, string> = {
-    REQUEST_CREATED: 'Request Created',
-    ASSIGNED: 'Assigned to Worker',
-    APPROVAL_PENDING: 'Approval Pending',
-    APPROVED: 'Approved',
-    IN_PROGRESS: 'Work In Progress',
-    EVIDENCE_CAPTURED: 'Evidence Captured',
-    ACKNOWLEDGED: 'Delivery Acknowledged',
-    PAYMENT_TRIGGERED: 'Payment Triggered',
-    RECEIPT_ISSUED: 'Receipt Issued',
-    RECONCILED: 'Reconciled',
-    COMPLETED: 'Completed',
-    DISPUTED: 'Disputed',
-    CANCELLED: 'Cancelled',
-    REVOKED: 'Revoked',
-};
 
 const FEPT_STAGE_ORDER = [
     'REQUEST_CREATED',
@@ -641,7 +634,7 @@ const FEPT_STAGE_ORDER = [
     'COMPLETED',
 ];
 
-function buildFieldRunAuditItems(run: any): DetailTimelineItem[] {
+function buildFieldRunAuditItems(run: any, memberNames: Record<string, string> = {}): DetailTimelineItem[] {
     const input = run?.output?.workflowInput || run?.input || {};
     const output = run?.output || {};
     const stage = String(output.workflowStage || output.stage || run?.status || '').toUpperCase();
@@ -661,7 +654,8 @@ function buildFieldRunAuditItems(run: any): DetailTimelineItem[] {
     }
 
     if (assignment?.assignedAt) {
-        const assigneeLabel = String(assignment.assigneeId || assignment.assigneeUserId || 'assigned worker');
+        const assigneeId = String(assignment.assigneeId || assignment.assigneeUserId || '');
+        const assigneeLabel = (assigneeId && memberNames[assigneeId]) || (assigneeId ? `Team member · ${assigneeId.slice(0, 6)}` : 'a team member');
         items.push({
             id: `${run.id}-assigned`,
             title: 'ASSIGNED',
@@ -686,28 +680,99 @@ function buildFieldRunAuditItems(run: any): DetailTimelineItem[] {
     return items;
 }
 
-function buildFieldRunLifecycleItems(run: any): DetailTimelineItem[] {
-    const input = run?.output?.workflowInput || run?.input || {};
-    const currentStage = String(run?.output?.workflowStage || run?.output?.stage || run?.status || '').toUpperCase();
-    const currentIndex = FEPT_STAGE_ORDER.indexOf(currentStage);
+const FIELD_PAUSE_LABEL: Record<string, string> = {
+    await_site_inspection: 'Site inspection before the job starts',
+    await_risk_assessment: 'Your safety check before starting',
+    await_worker_start: 'You to start the job',
+    await_arrival: 'You to confirm arrival (location or site code)',
+    await_evidence_before: 'Before photos (take them before any work)',
+    await_evidence_after: 'Finish the work, then take after photos',
+    await_evidence_receipt: 'Receipts for parts and materials',
+    await_completion_review: 'A review of the finished work',
+    await_acknowledgement: 'Sign-off by the sign-off person',
+    await_payout_release: 'Payment release by the payout person',
+};
 
-    return FEPT_STAGE_ORDER.map((stage, index) => {
-        const status = currentIndex < 0 ? (index === 0 ? 'active' : 'pending') : index < currentIndex ? 'done' : index === currentIndex ? 'active' : 'pending';
+/** Steps that are not the worker's: the chosen person confirms them from their wallet. */
+type FieldProofStage = 'acknowledgement' | 'payout';
+const FIELD_PROOF_COPY: Record<FieldProofStage, { title: string; description: string; done: string }> = {
+    acknowledgement: {
+        title: 'Sign off this job',
+        description: 'Review what your wallet will share, then confirm you are the person chosen to sign off the finished work.',
+        done: 'Job signed off. Payment is now waiting for release.',
+    },
+    payout: {
+        title: 'Release payment',
+        description: 'Review what your wallet will share, then confirm you are the person chosen to release payment for this job.',
+        done: 'Payment released. The job is being closed.',
+    },
+};
+
+/** The signed-in person's user id (same claim on personal and organization tokens). */
+function currentUserId(): string {
+    if (typeof window === 'undefined') return '';
+    for (const key of ['credoOrgToken', 'walletToken']) {
+        const token = localStorage.getItem(key);
+        const payload = token ? decodeJwtPayload(token) : null;
+        const id = String(payload?.id || payload?.userId || payload?.sub || '').trim();
+        if (id) return id;
+    }
+    return '';
+}
+
+const FIELD_CHECKPOINT_PAUSES = new Set(['await_site_inspection', 'await_risk_assessment', 'await_arrival', 'await_completion_review']);
+
+function getFieldPauseReason(run: any): string {
+    if (String(run?.status || '').toLowerCase() !== 'paused') return '';
+    return String(run?.output?.pauseReason || '').toLowerCase();
+}
+
+function fieldCheckpointDone(output: any, name: string): boolean {
+    const status = output?.checkpoints?.[name]?.status;
+    return status === 'completed' || status === 'waived';
+}
+
+/**
+ * SGK lifecycle: inspection and risk assessment happen before the job starts; arrival proof, BEFORE
+ * evidence, work, AFTER evidence and customer sign-off follow. The engine keeps `workflowStage` at ASSIGNED
+ * and IN_PROGRESS through those checkpoints, so each milestone is derived from the run output.
+ */
+function buildFieldRunLifecycleItems(run: any, memberNames: Record<string, string> = {}): DetailTimelineItem[] {
+    const output = run?.output || {};
+    const input = output.workflowInput || run?.input || {};
+    const stage = String(output.workflowStage || output.stage || run?.status || '').toUpperCase();
+    const idx = FEPT_STAGE_ORDER.indexOf(stage);
+    const started = idx >= FEPT_STAGE_ORDER.indexOf('IN_PROGRESS');
+    const afterDone = idx >= FEPT_STAGE_ORDER.indexOf('EVIDENCE_CAPTURED') || Boolean(output?.evidenceAfter?.evidenceHash);
+    const beforeDone = Boolean(output?.evidenceBefore?.evidenceHash) || afterDone;
+    const reached = (key: string) => idx >= FEPT_STAGE_ORDER.indexOf(key);
+
+    const milestones: Array<{ id: string; title: string; description: string; done: boolean }> = [
+        { id: 'REQUEST_CREATED', title: 'Job created', description: input.reference ? `Job ${input.reference} was created.` : 'Job request created.', done: reached('REQUEST_CREATED') },
+        { id: 'ASSIGNED', title: 'Assigned', description: input.assigneeId ? `Assigned to ${memberNames[String(input.assigneeId)] || `Team member · ${String(input.assigneeId).slice(0, 6)}`}.` : 'Assigned to a field worker.', done: reached('ASSIGNED') },
+        { id: 'SITE_INSPECTION', title: 'Site inspection', description: 'The site is checked before the job can start.', done: fieldCheckpointDone(output, 'site_inspection') || started },
+        { id: 'RISK_ASSESSMENT', title: 'Safety check', description: 'The field worker checks hazards and safety gear before starting.', done: fieldCheckpointDone(output, 'risk_assessment') || started },
+        { id: 'IN_PROGRESS', title: 'Job started', description: 'The worker started the job.', done: started },
+        { id: 'ARRIVAL', title: 'Arrived on site', description: 'The worker confirmed arrival (location or site code).', done: fieldCheckpointDone(output, 'arrival') || beforeDone },
+        { id: 'BEFORE', title: 'Before photos', description: 'Photos of the site before any work.', done: beforeDone },
+        { id: 'WORK', title: 'Work in progress', description: 'The work happens between the before and after photos.', done: afterDone },
+        { id: 'AFTER', title: 'After photos', description: 'Photos of the finished work.', done: afterDone },
+        { id: 'REVIEW', title: 'Work review', description: 'A reviewer checks the finished work before sign-off.', done: fieldCheckpointDone(output, 'completion_review') || reached('ACKNOWLEDGED') },
+        { id: 'ACKNOWLEDGED', title: 'Sign-off', description: output?.ack?.isVerifiable ? 'The sign-off person confirmed the finished work from their wallet.' : 'The sign-off person confirms the finished work.', done: reached('ACKNOWLEDGED') },
+        { id: 'PAYMENT_TRIGGERED', title: 'Payment released', description: output?.payment?.isVerifiable ? 'The payout person released payment from their wallet.' : 'The payout person releases payment for this job.', done: reached('PAYMENT_TRIGGERED') },
+        { id: 'RECEIPT_ISSUED', title: 'Receipt issued', description: 'A payment receipt record was issued.', done: reached('RECEIPT_ISSUED') },
+        { id: 'RECONCILED', title: 'Job closed', description: 'Work, payment and records are all matched up.', done: reached('RECONCILED') },
+    ];
+
+    let activeAssigned = false;
+    return milestones.map((milestone) => {
+        const status = milestone.done ? 'done' : !activeAssigned ? 'active' : 'pending';
+        if (status === 'active') activeAssigned = true;
         return {
-            id: `${run?.id || 'run'}-${stage}`,
-            title: FEPT_STAGE_LABEL[stage] || stage,
+            id: `${run?.id || 'run'}-${milestone.id}`,
+            title: milestone.title,
             source: 'field workflow',
-            description: stage === 'REQUEST_CREATED' && input.reference
-                ? `Workflow initialized for ${input.reference}.`
-                : stage === 'ASSIGNED' && input.assigneeId
-                    ? `Assigned to ${input.assigneeId}.`
-                    : stage === 'EVIDENCE_CAPTURED'
-                        ? 'Before/after proof capture completed for this run.'
-                        : stage === 'PAYMENT_TRIGGERED'
-                            ? 'Payment release flow was triggered for this run.'
-                            : stage === 'RECONCILED'
-                                ? 'Workflow outputs and payment trail reconciled.'
-                                : `${FEPT_STAGE_LABEL[stage] || stage} stage for this workflow.`,
+            description: milestone.description,
             timestamp: status === 'done' || status === 'active'
                 ? dayjs(run?.updatedAt || run?.updated_at || run?.createdAt || run?.created_at).format('D MMM YYYY HH:mm')
                 : '—',
@@ -943,28 +1008,71 @@ function normalizeRunId(value: unknown): string | null {
     return runId;
 }
 
-function resolveAssigneeSelection(value: string | null | undefined, ownerUserId: string | null): AssigneeResolution {
-    const raw = String(value || 'owner').trim();
-    if (!raw || raw === 'owner') {
-        return { assigneeId: 'owner', assigneeUserId: ownerUserId || undefined };
+function resolveAssigneeSelection(value: string | null | undefined, _ownerUserId: string | null): AssigneeResolution {
+    const raw = String(value || '').trim();
+    // Blank or the stage-actor choice means the org's configured field worker, not the owner.
+    if (!raw || raw === 'owner' || raw === 'stage-actor') {
+        return {};
     }
 
     if (raw.startsWith('member:')) {
         const userId = raw.slice('member:'.length).trim();
-        return { assigneeId: userId || 'owner', assigneeUserId: userId || ownerUserId || undefined };
+        return userId ? { assigneeId: userId, assigneeUserId: userId } : {};
     }
 
     if (raw.startsWith('contact:')) {
         const phone = raw.slice('contact:'.length).trim();
-        return { assigneeId: phone || 'owner' };
+        return phone ? { assigneeId: phone } : {};
     }
 
     return { assigneeId: raw, assigneeUserId: raw };
 }
 
-function inferNextEvidencePhase(run: any): 'before' | 'after' {
+/** A stored "Organization owner" label is a role, not a person's name. */
+function personName(member: { userId: string; role?: string; displayName?: string; phone?: string }): string {
+    const name = String(member.displayName || '').trim();
+    const generic = !name || /^organization owner$/i.test(name);
+    if (!generic) return name;
+    if (member.phone) return member.phone;
+    if (String(member.role || '').toLowerCase() === 'owner') return 'Organization owner';
+    return `Team member · ${member.userId.slice(0, 6)}`;
+}
+
+function memberOptionLabel(member: OrgMemberLite, duplicate: boolean): string {
+    const role = String(member.role || 'member').replace(/_/g, ' ');
+    const base = `${personName(member)} (${role})`;
+    return duplicate ? `${base} · ${member.userId.slice(0, 4)}` : base;
+}
+
+function memberSelectData(members: OrgMemberLite[], valuePrefix = ''): Array<{ value: string; label: string }> {
+    const active = members.filter((member) => member.status === 'active');
+    const bases = active.map((member) => memberOptionLabel(member, false));
+    const counts = new Map<string, number>();
+    bases.forEach((label) => counts.set(label, (counts.get(label) || 0) + 1));
+    return active.map((member, index) => ({
+        value: `${valuePrefix}${member.userId}`,
+        label: memberOptionLabel(member, (counts.get(bases[index]) || 0) > 1),
+    }));
+}
+
+async function ensureOnTeam(selection: string | null | undefined, role: string): Promise<AssigneeResolution> {
+    const resolved = resolveAssigneeSelection(selection, null);
+    if (!String(selection || '').startsWith('contact:') || !resolved.assigneeId) return resolved;
+    const orgId = getActiveOrgId();
+    if (!orgId) return {};
+    const res = await api.post(`/api/organizations/${encodeURIComponent(orgId)}/members/invite`, {
+        phone: resolved.assigneeId,
+        role,
+    });
+    const userId = String(res.data?.targetUserId || '').trim();
+    return userId ? { assigneeId: userId, assigneeUserId: userId } : {};
+}
+
+function inferNextEvidencePhase(run: any): 'before' | 'after' | 'receipt' {
     const output = run?.output || {};
     const beforeHash = output?.evidenceBefore?.evidenceHash || output?.evidence?.before?.evidenceHash;
+    const afterHash = output?.evidenceAfter?.evidenceHash || output?.evidence?.after?.evidenceHash;
+    if (afterHash) return 'receipt';
     return beforeHash ? 'after' : 'before';
 }
 
@@ -1000,6 +1108,27 @@ function deriveRequestedAmount(detail: RequisitionDetail | null, row?: Requisiti
     );
 
     return { amount, currency };
+}
+
+/**
+ * Notify about a failed wallet confirmation in plain words. When the wallet has no role card for
+ * the organization yet, point to the inbox where the card is waiting (same hint as the portal modal).
+ */
+function notifyWalletStepFailed(title: string, err: any) {
+    const raw = String(err?.response?.data?.error || err?.message || 'Please try again.');
+    const cleaned = raw.replace(/\s*\(missing:[^)]*\)\s*$/i, '').trim();
+    // Raw technical dumps (JSON, stack traces, credential ids) are not for end users.
+    const message =
+        cleaned.length > 240 || /[{}"]|_jwt_vc|Error:/.test(cleaned)
+            ? 'This step could not be completed right now. Please try again, or ask your administrator for help.'
+            : cleaned;
+    const missingRoleCard = /role card/i.test(message);
+    notifications.show({
+        title,
+        message: missingRoleCard ? `${message} Open Inbox and tap Accept on your role card.` : message,
+        color: 'red',
+        autoClose: missingRoleCard ? 10000 : 5000,
+    });
 }
 
 function describeRequisitionEvent(event: NonNullable<RequisitionDetail['events']>[number]): string | null {
@@ -1099,10 +1228,29 @@ export default function FinancePage() {
     const [fieldRuns, setFieldRuns] = useState<any[]>([]);
     const [fieldRunsLoading, setFieldRunsLoading] = useState(false);
     const [selectedFieldRun, setSelectedFieldRun] = useState<any | null>(null);
+    // Full history sheet for the open job: who did each step, when, with what proof.
+    const [fieldHistoryOpen, setFieldHistoryOpen] = useState(false);
     const [orgMembers, setOrgMembers] = useState<OrgMemberLite[]>([]);
     const [ownerUserId, setOwnerUserId] = useState<string | null>(null);
-    const [fieldReassignAssigneeId, setFieldReassignAssigneeId] = useState<string>('owner');
-    const [feptPresentationRef, setFeptPresentationRef] = useState('');
+    const [fieldReassignAssigneeId, setFieldReassignAssigneeId] = useState<string>('');
+    // Pre-work checkpoints: site inspection, field worker risk assessment, arrival proof.
+    const [checkpointRun, setCheckpointRun] = useState<any | null>(null);
+    // Jobs currently waiting on related work (a purchase or quote); their step buttons are disabled.
+    const [heldRuns, setHeldRuns] = useState<Record<string, boolean>>({});
+    const markRunHeld = useCallback((runId: string, held: boolean) => {
+        setHeldRuns((current) => (Boolean(current[runId]) === held ? current : { ...current, [runId]: held }));
+    }, []);
+    const [cpOutcome, setCpOutcome] = useState<string>('passed');
+    const [cpFindings, setCpFindings] = useState('');
+    const [cpHazards, setCpHazards] = useState('');
+    const [cpControls, setCpControls] = useState('');
+    const [cpPpe, setCpPpe] = useState(false);
+    const [cpSafe, setCpSafe] = useState(false);
+    const [cpSiteCode, setCpSiteCode] = useState('');
+    const [fieldProofStage, setFieldProofStage] = useState<FieldProofStage | null>(null);
+    const [fieldProofRunId, setFieldProofRunId] = useState<string | null>(null);
+    const [fieldProofRequest, setFieldProofRequest] = useState<{ requestId: string; presentationRequestUrl: string } | null>(null);
+    const [fieldProofCreating, setFieldProofCreating] = useState(false);
     const [feptActionLoading, setFeptActionLoading] = useState(false);
     const [requisitionLifecycleNote, setRequisitionLifecycleNote] = useState('Goods/services received and confirmed.');
     const [orgContextBundle, setOrgContextBundle] = useState<OrgContextBundleCacheEntry | null>(null);
@@ -1114,9 +1262,21 @@ export default function FinancePage() {
         currency: 'USD',
         location: '',
         scheduledDate: dayjs().add(1, 'day').format('YYYY-MM-DD'),
-        assigneeId: 'owner',
+        assigneeId: 'stage-actor',
+        receiverId: 'stage-actor',
     });
     const [requisitionActionLoading, setRequisitionActionLoading] = useState(false);
+    const [requisitionStageActors, setRequisitionStageActors] = useState<Array<{
+        stageAction: string;
+        actorDescription?: string;
+        credential?: { state?: string; stale?: boolean };
+        actor?: { userId?: string; walletTenantId?: string; role?: string; mode?: string };
+    }>>([]);
+    // Who does what for field jobs (reviewer, inspector, sign-off, payout), from the organization's setup.
+    const [fieldStageActors, setFieldStageActors] = useState<Array<{
+        stageAction: string;
+        actor?: { userId?: string; walletTenantId?: string; role?: string; mode?: string };
+    }>>([]);
     const [contextSwitching, setContextSwitching] = useState(false);
     const [showApprovalModal, setShowApprovalModal] = useState(false);
     const [approvalRequestId, setApprovalRequestId] = useState<string | null>(null);
@@ -1139,6 +1299,7 @@ export default function FinancePage() {
     const [showAckConfirm, setShowAckConfirm] = useState(false);
     const [requisitionForm, setRequisitionForm] = useState({
         department: 'Operations',
+        payWith: 'supplier' as 'supplier' | 'cash',
         vendor: '',
         amount: '',
         currency: 'USD',
@@ -1486,6 +1647,17 @@ export default function FinancePage() {
         } catch {
             setOrgMembers([]);
             setOwnerUserId(null);
+        }
+
+        try {
+            const actorRes = await api.get(`/api/organizations/${encodeURIComponent(orgId)}/workflows/actors`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            const workflows = safeArray<any>(actorRes.data?.workflows);
+            const match = workflows.find((workflow) => /field|fept/i.test(String(workflow.workflowType || '')));
+            setFieldStageActors(safeArray(match?.stages));
+        } catch {
+            setFieldStageActors([]);
         }
     }, []);
 
@@ -1883,7 +2055,7 @@ export default function FinancePage() {
 
             notifications.show({
                 title: 'Organization context active',
-                message: 'Switched to the organization for this requisition request.',
+                message: 'Switched to the organization.',
                 color: 'blue',
             });
             return true;
@@ -1939,6 +2111,16 @@ export default function FinancePage() {
             });
             setSelectedRequisition(res.data || null);
             setRequisitionDecisionReason('');
+            const actorOrgId = orgTenantId || getActiveOrgId();
+            if (actorOrgId) {
+                api.get(`/api/organizations/${encodeURIComponent(actorOrgId)}/workflows/actors`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+                }).then((actorRes) => {
+                    const workflows = safeArray<any>(actorRes.data?.workflows);
+                    const match = workflows.find((workflow) => String(workflow.workflowType || '').toLowerCase().includes('requis'));
+                    setRequisitionStageActors(safeArray(match?.stages));
+                }).catch(() => setRequisitionStageActors([]));
+            }
         } catch (err: any) {
             notifications.show({
                 title: 'Unable to load requisition details',
@@ -1958,7 +2140,7 @@ export default function FinancePage() {
             if (!switched) {
                 notifications.show({
                     title: 'Context switch required',
-                    message: 'Switch to the target organization context to open this FEPT run.',
+                    message: 'Switch to that organization to open this job.',
                     color: 'yellow',
                 });
             }
@@ -2351,10 +2533,10 @@ export default function FinancePage() {
         const assigned = String(
             selectedFieldRun?.output?.assignment?.assigneeId
             || selectedFieldRun?.input?.assigneeId
-            || 'owner'
+            || ''
         ).trim();
-        if (!assigned || assigned === 'owner') {
-            setFieldReassignAssigneeId('owner');
+        if (!assigned || assigned === 'owner' || assigned === 'stage-actor') {
+            setFieldReassignAssigneeId('');
             return;
         }
 
@@ -2694,7 +2876,8 @@ export default function FinancePage() {
             const body = {
                 orgTenantId: orgId || undefined,
                 department: requisitionForm.department,
-                vendor: requisitionForm.vendor || undefined,
+                vendor: requisitionForm.payWith === 'cash' ? undefined : (requisitionForm.vendor || undefined),
+                paymentMethod: requisitionForm.payWith === 'cash' ? 'cash' : 'supplier',
                 currency: requisitionForm.currency,
                 notes: requisitionForm.notes || undefined,
                 items: [
@@ -2711,8 +2894,10 @@ export default function FinancePage() {
             await api.post('/api/finance/requisitions/request', body);
 
             notifications.show({
-                title: 'Requisition Submitted',
-                message: 'Request created and routed into requisition workflow.',
+                title: 'Request sent',
+                message: requisitionForm.payWith === 'cash'
+                    ? 'Your cash request is with the approvers. It is paid out when released.'
+                    : 'Your request is with the approvers. A purchase order is created when it is approved.',
                 color: 'green',
                 icon: <IconCheck size={16} />,
             });
@@ -2720,6 +2905,7 @@ export default function FinancePage() {
             setShowRequisition(false);
             setRequisitionForm({
                 department: 'Operations',
+                payWith: 'supplier',
                 vendor: '',
                 amount: '',
                 currency: 'USD',
@@ -2728,7 +2914,7 @@ export default function FinancePage() {
             fetchRequisitions();
         } catch (err: any) {
             notifications.show({
-                title: 'Create Requisition Failed',
+                title: 'Could not send this request',
                 message: err.response?.data?.message ?? err.message,
                 color: 'red',
             });
@@ -2744,11 +2930,10 @@ export default function FinancePage() {
         try {
             const amount = parseFloat(fieldRunForm.amount);
             const template = findTemplateForCapability(activeTemplates, 'field_execution');
+            const workflowId = template?.id || 'field_execution_fept';
 
-            if (!template) {
-                throw new Error('Field execution template not found or not enabled for this organisation.');
-            }
-
+            const assignee = await ensureOnTeam(fieldRunForm.assigneeId, 'field_worker');
+            const receiver = await ensureOnTeam(fieldRunForm.receiverId, 'member');
             const body = {
                 amount,
                 currency: fieldRunForm.currency,
@@ -2757,16 +2942,16 @@ export default function FinancePage() {
                 scheduledDate: fieldRunForm.scheduledDate,
                 reference: `FR-${Date.now()}`,
                 requestId: `FR-${Date.now()}`, // Required by template
-                // FEPT test default: assign to owner/admin fallback.
-                ...resolveAssigneeSelection(fieldRunForm.assigneeId, ownerUserId),
+                ...assignee,
+                ...(receiver.assigneeUserId ? { receiverId: receiver.assigneeUserId } : {}),
                 triggerRef: `manual-finance-${Date.now()}`,
             };
 
-            const res = await api.post(`/workflows/${template.id}/execute`, body);
+            const res = await api.post(`/workflows/${workflowId}/execute`, body);
 
             notifications.show({
-                title: 'Field Run Started',
-                message: `Workflow ${res.data?.runId || ''} initiated and registered in Finance.`,
+                title: 'Job created',
+                message: 'The job has been created and sent to the assigned worker.',
                 color: 'teal',
                 icon: <IconCheck size={16} />,
             });
@@ -2778,14 +2963,15 @@ export default function FinancePage() {
                 currency: 'USD',
                 location: '',
                 scheduledDate: dayjs().add(1, 'day').format('YYYY-MM-DD'),
-                assigneeId: 'owner',
+                assigneeId: 'stage-actor',
+                receiverId: 'stage-actor',
             });
 
             // Refresh FEPT runs after a short delay to allow background event processing
             setTimeout(fetchFieldRuns, 1000);
         } catch (err: any) {
             notifications.show({
-                title: 'Start Field Run Failed',
+                title: 'Could not create the job',
                 message: err.response?.data?.message ?? err.message,
                 color: 'red',
             });
@@ -2794,79 +2980,98 @@ export default function FinancePage() {
         }
     };
 
-    const handleFeptStageAction = async (runId: string, action: 'approve' | 'ack' | 'trigger_payment' | 'reconcile') => {
-        if (!runId) return;
-
-        const policyActionByStage: Record<typeof action, { actionType: string; evidenceProvided: boolean }> = {
-            approve: { actionType: 'workflow.approve_requisition', evidenceProvided: true },
-            ack: { actionType: 'workflow.acknowledge_completion', evidenceProvided: true },
-            trigger_payment: { actionType: 'finance.reconcile_offline', evidenceProvided: true },
-            reconcile: { actionType: 'finance.reconcile_offline', evidenceProvided: true },
-        };
-
-        const policyConfig = policyActionByStage[action];
-        const isAllowedByPolicy = await enforceOrgActionPolicy({
-            actionType: policyConfig.actionType,
-            evidenceProvided: policyConfig.evidenceProvided,
+    // Sign-off and payment release: the chosen person confirms from their wallet; the server then moves the job.
+    const openFieldProof = async (runId: string, stage: FieldProofStage) => {
+        const normalizedRunId = normalizeRunId(runId);
+        if (!normalizedRunId) return;
+        const token = getPreferredToken();
+        if (!token) {
+            notifications.show({ title: 'Switch to your organization', message: 'This step is done as the organization.', color: 'red' });
+            return;
+        }
+        const allowed = await enforceOrgActionPolicy({
+            actionType: stage === 'acknowledgement' ? 'workflow.acknowledge_completion' : 'finance.reconcile_offline',
+            evidenceProvided: true,
         });
-        if (!isAllowedByPolicy) return;
+        if (!allowed) return;
 
-        if (!feptPresentationRef.trim()) {
+        setFieldProofStage(stage);
+        setFieldProofRunId(normalizedRunId);
+        setFieldProofRequest(null);
+        setFieldProofCreating(true);
+        try {
+            const { data } = await api.post(
+                `/workflows/runs/${encodeURIComponent(normalizedRunId)}/proof/request`,
+                { stage },
+                { headers: { Authorization: `Bearer ${token}` } },
+            );
+            if (data?.error) throw new Error(String(data.error));
+            setFieldProofRequest({ requestId: String(data.requestId), presentationRequestUrl: String(data.presentationRequestUrl) });
+        } catch (err: any) {
             notifications.show({
-                title: 'VC Proof Required',
-                message: 'Provide a VC presentation reference before advancing this FEPT stage.',
+                title: 'Not ready',
+                message: err.response?.data?.error || err.response?.data?.message || err.message,
+                color: 'red',
+            });
+            setFieldProofStage(null);
+            setFieldProofRunId(null);
+        } finally {
+            setFieldProofCreating(false);
+        }
+    };
+
+    const openFieldProofInApp = () => {
+        if (!fieldProofStage || !fieldProofRunId || !fieldProofRequest?.presentationRequestUrl) {
+            notifications.show({
+                title: 'Not ready',
+                message: 'Close this and open the step again.',
                 color: 'red',
             });
             return;
         }
+        const params = new URLSearchParams({
+            request_uri: fieldProofRequest.presentationRequestUrl,
+            requestId: fieldProofRequest.requestId,
+            mode: fieldProofStage === 'payout' ? 'field-payout' : 'field-signoff',
+            workflowRunId: fieldProofRunId,
+            stage: fieldProofStage,
+        });
+        const orgId = getActiveOrgId();
+        if (orgId) params.set('orgTenantId', String(orgId));
+        void router.push(`/present?${params.toString()}`);
+    };
 
+    // A job that stopped on an error can be run again from the step that failed (admins only).
+    const handleRetryFieldRun = async (runId: string) => {
+        const normalizedRunId = normalizeRunId(runId);
+        if (!normalizedRunId) return;
         const token = getPreferredToken();
         if (!token) {
-            notifications.show({ title: 'Session Required', message: 'Switch to organization context first.', color: 'red' });
+            notifications.show({ title: 'Organization profile needed', message: 'Switch to your organization profile first.', color: 'red' });
             return;
         }
-
         setFeptActionLoading(true);
         try {
-            const stagePayloadByAction: Record<string, Record<string, unknown>> = {
-                approve: {
-                    approvalPresentation: { id: feptPresentationRef.trim(), type: 'ApprovalVP' },
-                    approvalSignature: feptPresentationRef.trim(),
-                },
-                ack: {
-                    acknowledgementPresentation: { id: feptPresentationRef.trim(), type: 'AcknowledgeVP' },
-                    ackNotes: 'VC-verified acknowledgement',
-                },
-                trigger_payment: {
-                    releasePresentation: { id: feptPresentationRef.trim(), type: 'ReleaseVP' },
-                },
-                reconcile: {
-                    reconciliationPresentation: { id: feptPresentationRef.trim(), type: 'ReconciliationVP' },
-                },
-            };
-
-            await api.post(
-                `/workflows/runs/${encodeURIComponent(runId)}/resume`,
-                stagePayloadByAction[action],
+            const res = await api.post(
+                `/workflows/runs/${encodeURIComponent(normalizedRunId)}/retry`,
+                {},
                 { headers: { Authorization: `Bearer ${token}` } },
             );
-
-            notifications.show({ title: 'FEPT Step Updated', message: 'Stage action completed with VC guard payload.', color: 'green' });
-            setFeptPresentationRef('');
+            if (res.data?.error) throw new Error(String(res.data.error));
+            notifications.show({ title: 'Job resumed', message: 'The job carried on from where it stopped.', color: 'teal' });
             await fetchFieldRuns();
-            // Refresh the detail drawer in-place so the new stage is immediately visible.
             try {
-                const refreshedRun = await api.get(`/workflows/runs/${encodeURIComponent(runId)}`, {
+                const refreshed = await api.get(`/workflows/runs/${encodeURIComponent(normalizedRunId)}`, {
                     headers: { Authorization: `Bearer ${token}` },
                 });
-                setSelectedFieldRun(refreshedRun.data);
+                setSelectedFieldRun(refreshed.data);
             } catch {
-                // Non-fatal — list is already refreshed via fetchFieldRuns.
+                // Keep existing drawer state if refresh fails.
             }
         } catch (err: any) {
             notifications.show({
-                title: 'FEPT Action Failed',
-                message: err.response?.data?.error || err.response?.data?.message || err.message,
+                title: 'Could not resume this job',
+                message: String(err?.response?.data?.error || err?.message || 'Please try again.'),
                 color: 'red',
             });
         } finally {
@@ -2880,13 +3085,13 @@ export default function FinancePage() {
 
         const token = getPreferredToken();
         if (!token) {
-            notifications.show({ title: 'Session Required', message: 'Switch to organization context first.', color: 'red' });
+            notifications.show({ title: 'Organization profile needed', message: 'Switch to your organization profile first.', color: 'red' });
             return;
         }
 
         setFeptActionLoading(true);
         try {
-            await api.post(
+            const startRes = await api.post(
                 `/workflows/runs/${encodeURIComponent(normalizedRunId)}/resume`,
                 {},
                 {
@@ -2941,41 +3146,119 @@ export default function FinancePage() {
             return;
         }
 
-        const phase = inferNextEvidencePhase(run);
+        const pausePhase = getFieldPauseReason(run).replace('await_evidence_', '');
+        const phase = ['before', 'after', 'receipt'].includes(pausePhase) ? pausePhase : inferNextEvidencePhase(run);
         setSelectedFieldRun(null);
         void router.push(`/activity?ref=${encodeURIComponent(normalizedRunId)}&capture=1&phase=${encodeURIComponent(phase)}`);
     };
 
-    const handleReassignFieldTask = async (runId: string, assigneeId?: string | null) => {
-        if (!runId) return;
-        const resolved = resolveAssigneeSelection(assigneeId || fieldReassignAssigneeId || 'owner', ownerUserId);
-        if (!resolved.assigneeId) {
-            notifications.show({ title: 'Assignee Required', message: 'Select a target assignee first.', color: 'red' });
-            return;
-        }
+    const openFieldCheckpoint = (run: any) => {
+        setCpOutcome(getFieldPauseReason(run) === 'await_completion_review' ? 'approved' : 'passed');
+        setCpFindings('');
+        setCpHazards('');
+        setCpControls('');
+        setCpPpe(false);
+        setCpSafe(false);
+        setCpSiteCode('');
+        setCheckpointRun(run);
+    };
+
+    const handleSubmitFieldCheckpoint = async () => {
+        const run = checkpointRun;
+        if (!run) return;
+        const normalizedRunId = normalizeRunId(String(run.id || ''));
+        const reason = getFieldPauseReason(run);
+        if (!normalizedRunId || !FIELD_CHECKPOINT_PAUSES.has(reason)) return;
 
         const token = getPreferredToken();
         if (!token) {
-            notifications.show({ title: 'Session Required', message: 'Switch to organization context first.', color: 'red' });
+            notifications.show({ title: 'Organization profile needed', message: 'Switch to your organization profile first.', color: 'red' });
             return;
         }
 
         setFeptActionLoading(true);
         try {
+            let payload: Record<string, unknown> = {};
+            if (reason === 'await_site_inspection') {
+                payload = { siteInspection: { outcome: cpOutcome, accessConfirmed: cpOutcome !== 'failed', findings: cpFindings.trim() } };
+            } else if (reason === 'await_risk_assessment') {
+                const hazards = cpHazards.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+                payload = { riskAssessment: { hazards, controls: cpControls.trim(), ppeConfirmed: cpPpe, safeToProceed: cpSafe } };
+            } else if (reason === 'await_completion_review') {
+                payload = { completionReview: { outcome: cpOutcome, notes: cpFindings.trim() } };
+            } else {
+                const siteCode = cpSiteCode.trim();
+                let gps: { lat: number; lng: number; accuracy?: number } | undefined;
+                if (!siteCode && typeof navigator !== 'undefined' && navigator.geolocation) {
+                    gps = await new Promise((resolve) => {
+                        navigator.geolocation.getCurrentPosition(
+                            (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+                            () => resolve(undefined),
+                            { enableHighAccuracy: true, timeout: 10000 },
+                        );
+                    });
+                }
+                if (!siteCode && !gps) {
+                    notifications.show({ title: 'Location Needed', message: 'Allow location access or enter the site code to prove arrival.', color: 'orange' });
+                    return;
+                }
+                payload = { arrival: siteCode ? { qrToken: siteCode } : { gps } };
+            }
+
+            await api.post(`/workflows/runs/${encodeURIComponent(normalizedRunId)}/resume`, payload, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            notifications.show({ title: 'Step saved', message: 'This step is now on the job.', color: 'green' });
+            setCheckpointRun(null);
+        } catch (err: any) {
+            notifications.show({
+                title: 'Could not save this step',
+                message: err.response?.data?.error || err.response?.data?.message || err.message,
+                color: 'red',
+            });
+        } finally {
+            setFeptActionLoading(false);
+        }
+
+        await fetchFieldRuns();
+        try {
+            const refreshed = await api.get(`/workflows/runs/${encodeURIComponent(normalizedRunId)}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            setSelectedFieldRun(refreshed.data);
+        } catch {
+            // The list refresh above keeps the drawer usable.
+        }
+    };
+
+    const handleReassignFieldTask = async (runId: string, assigneeId?: string | null) => {
+        if (!runId) return;
+        const resolved = resolveAssigneeSelection(assigneeId || fieldReassignAssigneeId, ownerUserId);
+        if (!resolved.assigneeUserId && !resolved.assigneeId) {
+            notifications.show({ title: 'Assignee Required', message: 'Choose an available member. The owner is not the default.', color: 'red' });
+            return;
+        }
+
+        const token = getPreferredToken();
+        if (!token) {
+            notifications.show({ title: 'Organization profile needed', message: 'Switch to your organization profile first.', color: 'red' });
+            return;
+        }
+
+        setFeptActionLoading(true);
+        try {
+            const onTeam = await ensureOnTeam(assigneeId || fieldReassignAssigneeId, 'field_worker');
+            const nextUserId = onTeam.assigneeUserId || onTeam.assigneeId;
+            if (!nextUserId) {
+                throw new Error('Choose a team member or a saved contact with a phone number.');
+            }
             await api.post(
-                `/workflows/runs/${encodeURIComponent(runId)}/resume`,
-                {
-                    assigneeId: resolved.assigneeId,
-                    assigneeUserId: resolved.assigneeUserId,
-                    assignmentPresentation: {
-                        id: feptPresentationRef.trim() || `owner-reassign-${Date.now()}`,
-                        type: 'AssignmentVP',
-                    },
-                },
+                `/workflows/runs/${encodeURIComponent(runId)}/reassign`,
+                { assigneeUserId: nextUserId },
                 { headers: { Authorization: `Bearer ${token}` } },
             );
 
-            notifications.show({ title: 'Reassigned', message: 'Task reassignment applied for this FEPT run.', color: 'teal' });
+            notifications.show({ title: 'Job moved', message: 'The job now belongs to the selected team member.', color: 'teal' });
             await fetchFieldRuns();
 
             try {
@@ -3006,6 +3289,8 @@ export default function FinancePage() {
         }
     };
 
+    /** QR codes hold ~2.9 KB; local-dev requests are sent by value and can be far larger. */
+    const MAX_QR_LINK_LENGTH = 2500;
     const buildWalletInteropQrValue = (requestUrl: string): string => {
         try {
             const parsed = new URL(requestUrl);
@@ -3053,8 +3338,8 @@ export default function FinancePage() {
         const token = getPreferredToken();
         if (!token) {
             notifications.show({
-                title: 'Session Required',
-                message: 'Ensure you have an active organization session.',
+                title: 'Organization profile needed',
+                message: 'Switch to your organization profile to approve.',
                 color: 'red',
             });
             setShowApprovalModal(false);
@@ -3131,7 +3416,7 @@ export default function FinancePage() {
 
             notifications.show({
                 title: 'Approved',
-                message: 'Requisition has been approved.',
+                message: 'This requisition is approved.',
                 color: 'green',
             });
             setShowApprovalModal(false);
@@ -3141,11 +3426,7 @@ export default function FinancePage() {
             setSelectedRequisition(null);
             await fetchRequisitions();
         } catch (err: any) {
-            notifications.show({
-                title: 'Approval Failed',
-                message: err.response?.data?.error || err.message,
-                color: 'red',
-            });
+            notifyWalletStepFailed('Approval did not go through', err);
         } finally {
             setApproving(false);
         }
@@ -3326,7 +3607,7 @@ export default function FinancePage() {
         setReleaseRequestUrl(null);
         const token = getPreferredToken();
         if (!token) {
-            notifications.show({ title: 'Session Required', message: 'Switch to your organization profile to release funds.', color: 'red' });
+            notifications.show({ title: 'Organization profile needed', message: 'Switch to your organization profile to release funds.', color: 'red' });
             setShowReleaseModal(false);
             setCreatingReleaseRequest(false);
             return;
@@ -3381,7 +3662,7 @@ export default function FinancePage() {
                 { headers: { Authorization: `Bearer ${token}` } },
             );
             if (releaseRes.data?.error) throw new Error(releaseRes.data.error);
-            notifications.show({ title: 'Funds Released', message: 'Payment release was recorded for this requisition.', color: 'green' });
+            notifications.show({ title: 'Money released', message: 'The release is recorded for this requisition.', color: 'green' });
             setShowReleaseModal(false);
             setReleaseRequestId(null);
             setReleaseRequestUrl(null);
@@ -3389,7 +3670,7 @@ export default function FinancePage() {
             setSelectedRequisition(null);
             await fetchRequisitions();
         } catch (err: any) {
-            notifications.show({ title: 'Release Failed', message: err.response?.data?.error || err.message, color: 'red' });
+            notifyWalletStepFailed('Release did not go through', err);
         } finally {
             setReleasing(false);
         }
@@ -3403,7 +3684,7 @@ export default function FinancePage() {
         setAckRequestUrl(null);
         const token = getPreferredToken();
         if (!token) {
-            notifications.show({ title: 'Session Required', message: 'Switch to your organization profile to acknowledge execution.', color: 'red' });
+            notifications.show({ title: 'Organization profile needed', message: 'Switch to your organization profile to confirm delivery.', color: 'red' });
             setShowAckModal(false);
             setCreatingAckRequest(false);
             return;
@@ -3463,7 +3744,7 @@ export default function FinancePage() {
                 { headers: { Authorization: `Bearer ${token}` } },
             );
             if (ackRes.data?.error) throw new Error(ackRes.data.error);
-            notifications.show({ title: 'Execution Acknowledged', message: 'Delivery acknowledgment was recorded.', color: 'teal' });
+            notifications.show({ title: 'Delivery confirmed', message: 'This requisition is now closed.', color: 'teal' });
             setShowAckModal(false);
             setAckRequestId(null);
             setAckRequestUrl(null);
@@ -3471,7 +3752,7 @@ export default function FinancePage() {
             setSelectedRequisition(null);
             await fetchRequisitions();
         } catch (err: any) {
-            notifications.show({ title: 'Acknowledge Failed', message: err.response?.data?.error || err.message, color: 'red' });
+            notifyWalletStepFailed('Confirmation did not go through', err);
         } finally {
             setAcking(false);
         }
@@ -3550,8 +3831,8 @@ export default function FinancePage() {
                 {/* Header */}
                 <Group justify="space-between" align="center">
                     <Box>
-                        <Title order={3}>Finance Modules</Title>
-                        <Text size="sm" c="dimmed">Distinct AR/AP modules with separate tabs, plus workflow operations for invoices, requisitions, and field execution</Text>
+                        <Title order={3}>Money</Title>
+                        <Text size="sm" c="dimmed">Payments you collect, requisitions, jobs and supplier bills for your organization.</Text>
                     </Box>
                     <ActionIcon variant="subtle" color="gray" size="lg" onClick={fetchLinks} loading={loading}>
                         <IconRefresh size={18} />
@@ -3578,7 +3859,7 @@ export default function FinancePage() {
                     <Tabs.List grow>
                         {(hasArCollections || hasPaymentCollection || links.length > 0) && (
                             <Tabs.Tab value="ar" leftSection={<IconReceipt size={14} />}>
-                                AR Collections
+                                Payments
                             </Tabs.Tab>
                         )}
                         {hasEducation && (
@@ -3588,17 +3869,17 @@ export default function FinancePage() {
                             <Tabs.Tab value="requisitions" leftSection={<IconUsers size={14} />}>Requisitions</Tabs.Tab>
                         )}
                         {hasFieldExecution && (
-                            <Tabs.Tab value="field" leftSection={<IconReceipt size={14} />}>Field Ops</Tabs.Tab>
+                            <Tabs.Tab value="field" leftSection={<IconReceipt size={14} />}>Jobs</Tabs.Tab>
                         )}
                         {hasApPayables && (
-                            <Tabs.Tab value="ap" leftSection={<IconCash size={14} />}>AP Payables</Tabs.Tab>
+                            <Tabs.Tab value="ap" leftSection={<IconCash size={14} />}>Supplier bills</Tabs.Tab>
                         )}
                     </Tabs.List>
 
                     {/* ── AR Collections Tab ── */}
                     <Tabs.Panel value="ar" pt="md">
                         <Group justify="space-between" align="center" mb="md">
-                            <Text size="sm" fw={600}>AR Collections Actions</Text>
+                            <Text size="sm" fw={600}>Payments to collect</Text>
                             <FinanceTabGuide
                                 title="Accounts Receivable"
                                 points={[
@@ -3684,7 +3965,7 @@ export default function FinancePage() {
                                 </Group>
                             ) : inboundObligations.length === 0 ? (
                                 <Text size="xs" c="dimmed">
-                                    No inbound AR obligations assigned to this organization.
+                                    Nothing is owed to your organization right now.
                                 </Text>
                             ) : (
                                 <Stack gap={6}>
@@ -3728,7 +4009,7 @@ export default function FinancePage() {
                                         <IconLink size={28} />
                                     </ThemeIcon>
                                     <Text fw={600} c="dimmed">No payment links yet</Text>
-                                    <Text size="sm" c="dimmed" ta="center">Create a link or publish checkout flows to start tracking payments here</Text>
+                                    <Text size="sm" c="dimmed" ta="center">Create a payment link to start tracking payments here.</Text>
                                 </Stack>
                             </Center>
                         ) : (
@@ -3928,7 +4209,7 @@ export default function FinancePage() {
                     {hasInternalRequisitions && (
                         <Tabs.Panel value="requisitions" pt="md">
                             <Group justify="space-between" align="center" mb="md">
-                                <Text size="sm" fw={600}>Requisition Actions</Text>
+                                <Text size="sm" fw={600}>Requisitions</Text>
                                 <FinanceTabGuide
                                     title="Internal Requisitions"
                                     points={[
@@ -4000,9 +4281,8 @@ export default function FinancePage() {
                                                             {req.metadata?.department ? `Requisition · ${req.metadata.department}` : `Requisition · ${req.id}`}
                                                         </Text>
                                                         <Group gap={6} mt={4}>
-                                                            <Badge size="xs" color="indigo" variant="light">REQUISITION FLOW</Badge>
                                                             <Badge size="sm" color={statusColorMap[status] || 'gray'} variant="light">
-                                                                {status}
+                                                                {requisitionStatusLabel(status)}
                                                             </Badge>
                                                             <Text size="xs" c="dimmed">{dayjs(req.updatedAt).format('D MMM YYYY')}</Text>
                                                         </Group>
@@ -4028,17 +4308,18 @@ export default function FinancePage() {
                     {hasFieldExecution && (
                         <Tabs.Panel value="field" pt="md">
                             <Group justify="space-between" align="center" mb="md">
-                                <Text size="sm" fw={600}>Field Ops Actions</Text>
+                                <Text size="sm" fw={600}>Jobs</Text>
                                 <FinanceTabGuide
-                                    title="Field Execution (FEPT)"
+                                    title="Jobs"
                                     points={[
-                                        'Field ops are isolated from AR/AP and requisition modules.',
-                                        'Runs move through assignment, evidence capture, acknowledgement, and reconciliation.',
-                                        'Only enabled FEPT templates can start new field execution runs.',
+                                        'Each job moves through: assigned, in progress, photos, sign-off, payment and receipt.',
+                                        'Workers start the job and add photos. The sign-off and payout people confirm from their wallet.',
+                                        'Tap a job to see its steps and what is waiting on whom.',
                                     ]}
                                 />
                             </Group>
 
+                            {['owner', 'admin', 'manager', 'dispatcher', 'supervisor'].includes(String(getOrgRoleClaim() || '').toLowerCase()) && (
                             <Button
                                 fullWidth
                                 size="lg"
@@ -4048,8 +4329,9 @@ export default function FinancePage() {
                                 mb="md"
                                 color="teal"
                             >
-                                New Field Execution Run
+                                New job
                             </Button>
+                            )}
 
                             {fieldRunsLoading ? (
                                 <Center py="xl"><Loader /></Center>
@@ -4059,9 +4341,9 @@ export default function FinancePage() {
                                         <ThemeIcon size={56} radius="xl" variant="light" color="teal">
                                             <IconReceipt size={28} />
                                         </ThemeIcon>
-                                        <Text fw={600} c="dimmed">No field runs yet</Text>
+                                        <Text fw={600} c="dimmed">No jobs yet</Text>
                                         <Text size="sm" c="dimmed" ta="center">
-                                            Start a field run to track FEPT stages: assignment, evidence capture, acknowledgement, and reconciliation.
+                                            Jobs assigned to you, or created by your organization, will show up here.
                                         </Text>
                                     </Stack>
                                 </Center>
@@ -4081,19 +4363,6 @@ export default function FinancePage() {
                                             COMPLETED: 'dark',
                                             DISPUTED: 'red',
                                             CANCELLED: 'gray',
-                                        };
-                                        const FEPT_STAGE_LABEL: Record<string, string> = {
-                                            REQUEST_CREATED: 'Request created',
-                                            ASSIGNED: 'Assigned',
-                                            IN_PROGRESS: 'In progress',
-                                            EVIDENCE_CAPTURED: 'Evidence captured',
-                                            ACKNOWLEDGED: 'Acknowledged',
-                                            PAYMENT_TRIGGERED: 'Payment triggered',
-                                            RECEIPT_ISSUED: 'Receipt issued',
-                                            RECONCILED: 'Reconciled',
-                                            COMPLETED: 'Completed',
-                                            DISPUTED: 'Disputed',
-                                            CANCELLED: 'Cancelled',
                                         };
                                         const input = run.output?.workflowInput || run.input || {};
                                         const runRef = input.poNumber || input.reference || run.id;
@@ -4118,12 +4387,12 @@ export default function FinancePage() {
                                                 <Group justify="space-between" wrap="nowrap">
                                                     <Box style={{ flex: 1, minWidth: 0 }}>
                                                         <Text fw={600} size="sm" truncate>
-                                                            {`Field Run · ${runRef}`}
+                                                            {`Job · ${runRef}`}
                                                         </Text>
                                                         <Group gap={6} mt={4}>
-                                                            <Badge size="xs" color="teal" variant="light">FEPT</Badge>
+                                                            <Badge size="xs" color="teal" variant="light">Job</Badge>
                                                             <Badge size="sm" color={FEPT_STAGE_COLOR[stage] || 'gray'} variant="light">
-                                                                {FEPT_STAGE_LABEL[stage] || stage || run.status}
+                                                                {fieldJobStatusLabel(run.status, stage, run.output?.pauseReason)}
                                                             </Badge>
                                                             <Text size="xs" c="dimmed">{dayjs(run.createdAt || run.created_at).format('D MMM YYYY')}</Text>
                                                         </Group>
@@ -4149,7 +4418,7 @@ export default function FinancePage() {
                     {hasApPayables && (
                         <Tabs.Panel value="ap" pt="md">
                             <Group justify="space-between" align="center" mb="md">
-                                <Text size="sm" fw={600}>AP Payables Actions</Text>
+                                <Text size="sm" fw={600}>Supplier bills</Text>
                                 <FinanceTabGuide
                                     title="Accounts Payable"
                                     points={[
@@ -4272,7 +4541,7 @@ export default function FinancePage() {
                                         </ThemeIcon>
                                         <Text fw={600} c="dimmed">No suppliers onboarded</Text>
                                         <Text size="sm" c="dimmed" ta="center">
-                                            Onboard suppliers and record invoices from the buyer portal
+                                            Add suppliers and record their bills from the web portal.
                                         </Text>
                                     </Stack>
                                 </Center>
@@ -5177,7 +5446,7 @@ export default function FinancePage() {
                 <Stack gap="md" pb="lg">
                     <Alert color="blue" variant="light" icon={<IconAlertCircle size={16} />}>
                         {hasArCollections
-                            ? 'Create a one-time link, instalment plan, or recurring billing schedule — all tracked in AR Collections.'
+                            ? 'Create a one-time link, instalment plan, or recurring billing schedule — all tracked under Payments.'
                             : 'Active links support in-app checkout, copy, and WhatsApp share actions.'}
                     </Alert>
 
@@ -5444,12 +5713,27 @@ export default function FinancePage() {
                         data={['HR', 'IT', 'Operations', 'Procurement', 'Finance', 'Marketing'].map((value) => ({ value, label: value }))}
                     />
 
-                    <TextInput
-                        label="Vendor (optional)"
-                        placeholder="ABC Supplies"
-                        value={requisitionForm.vendor}
-                        onChange={(e) => setRequisitionForm({ ...requisitionForm, vendor: e.currentTarget.value })}
+                    <Select
+                        label="How will this be paid?"
+                        data={[
+                            { value: 'supplier', label: 'Buy from a supplier (purchase order on approval)' },
+                            { value: 'cash', label: 'Cash or petty cash (paid out on release, no purchase order)' },
+                        ]}
+                        value={requisitionForm.payWith}
+                        onChange={(val) => setRequisitionForm({ ...requisitionForm, payWith: val === 'cash' ? 'cash' : 'supplier' })}
+                        allowDeselect={false}
+                        required
                     />
+
+                    {requisitionForm.payWith === 'supplier' && (
+                        <TextInput
+                            label="Supplier"
+                            placeholder="e.g. BuildMart"
+                            description="Who you are buying from. Leave empty if you do not know yet."
+                            value={requisitionForm.vendor}
+                            onChange={(e) => setRequisitionForm({ ...requisitionForm, vendor: e.currentTarget.value })}
+                        />
+                    )}
 
                     <Group grow>
                         <TextInput
@@ -5470,8 +5754,8 @@ export default function FinancePage() {
                     </Group>
 
                     <TextInput
-                        label="Notes"
-                        placeholder="Reason and context for this requisition"
+                        label="What is it for?"
+                        placeholder="Say what you need and why"
                         value={requisitionForm.notes}
                         onChange={(e) => setRequisitionForm({ ...requisitionForm, notes: e.currentTarget.value })}
                     />
@@ -5495,18 +5779,18 @@ export default function FinancePage() {
                 onClose={() => setShowFieldRun(false)}
                 position="bottom"
                 size="auto"
-                title="New Field Execution Run"
+                title="New job"
                 radius="lg"
                 styles={{ content: { borderRadius: '16px 16px 0 0' } }}
             >
                 <Stack gap="md" pb="xl" px="xs">
                     <Text size="sm" c="dimmed">
-                        Initiate a new operational run. This will create a job card and notify assigned team members.
+                        Create a job and send it to the worker. The sign-off person is notified when the work is done.
                     </Text>
 
                     <TextInput
-                        label="Description / Title"
-                        placeholder="e.g. SGK Construction - Site Maintenance"
+                        label="What is the job?"
+                        placeholder="e.g. Site maintenance at SGK Construction"
                         value={fieldRunForm.description}
                         onChange={(e) => setFieldRunForm({ ...fieldRunForm, description: e.currentTarget.value })}
                         required
@@ -5515,7 +5799,7 @@ export default function FinancePage() {
                     <Grid gutter="sm">
                         <Grid.Col span={8}>
                             <TextInput
-                                label="Estimated Budget"
+                                label="Amount to pay"
                                 placeholder="0.00"
                                 type="number"
                                 value={fieldRunForm.amount}
@@ -5535,29 +5819,44 @@ export default function FinancePage() {
                     </Grid>
 
                     <TextInput
-                        label="Site / Location"
+                        label="Location"
                         placeholder="e.g. 123 Samora Machel Ave"
                         value={fieldRunForm.location}
                         onChange={(e) => setFieldRunForm({ ...fieldRunForm, location: e.currentTarget.value })}
                     />
 
                     <TextInput
-                        label="Scheduled Date"
+                        label="Date"
                         type="date"
                         value={fieldRunForm.scheduledDate}
                         onChange={(e) => setFieldRunForm({ ...fieldRunForm, scheduledDate: e.currentTarget.value })}
                     />
 
                     <Select
-                        label="Assign To"
-                        description="Default for tests is owner/admin"
+                        label="Who goes out"
+                        description="The person who does this job. A saved contact is added to the team first."
                         value={fieldRunForm.assigneeId}
-                        onChange={(val) => setFieldRunForm({ ...fieldRunForm, assigneeId: val || 'owner' })}
+                        onChange={(val) => setFieldRunForm({ ...fieldRunForm, assigneeId: val || 'stage-actor' })}
                         data={[
-                            { value: 'owner', label: 'Owner (default test route)' },
-                            ...orgMembers
-                                .filter((m) => m.status === 'active')
-                                .map((m) => ({ value: m.userId, label: `${m.userId} (${m.role})` })),
+                            { value: 'stage-actor', label: 'Use the person already chosen' },
+                            ...memberSelectData(orgMembers),
+                            ...contacts
+                                .filter((contact) => contact.phone)
+                                .map((contact) => ({ value: `contact:${contact.phone}`, label: `${contact.name} (saved contact)` })),
+                        ]}
+                    />
+
+                    <Select
+                        label="Who checks the work"
+                        description="They review the finished work. Not the person who does the job."
+                        value={fieldRunForm.receiverId}
+                        onChange={(val) => setFieldRunForm({ ...fieldRunForm, receiverId: val || 'stage-actor' })}
+                        data={[
+                            { value: 'stage-actor', label: 'Use the person already chosen' },
+                            ...memberSelectData(orgMembers),
+                            ...contacts
+                                .filter((contact) => contact.phone)
+                                .map((contact) => ({ value: `contact:${contact.phone}`, label: `${contact.name} (saved contact)` })),
                         ]}
                     />
 
@@ -5570,18 +5869,74 @@ export default function FinancePage() {
                         onClick={handleCreateFieldRun}
                         disabled={!fieldRunForm.amount || !fieldRunForm.description}
                     >
-                        Start Field Run
+                        Create job
                     </Button>
                 </Stack>
             </Drawer>
 
+            <Modal
+                opened={Boolean(checkpointRun)}
+                onClose={() => setCheckpointRun(null)}
+                title={(() => {
+                    const reason = getFieldPauseReason(checkpointRun);
+                    return reason === 'await_site_inspection' ? 'Site Inspection'
+                        : reason === 'await_risk_assessment' ? 'Risk Assessment'
+                            : reason === 'await_arrival' ? 'Confirm Arrival'
+                                : 'Review Finished Work';
+                })()}
+                centered
+                zIndex={400}
+            >
+                {checkpointRun && (() => {
+                    const reason = getFieldPauseReason(checkpointRun);
+                    return (
+                        <Stack gap="sm">
+                            {reason === 'await_site_inspection' && (
+                                <>
+                                    <Text size="sm" c="dimmed">Inspect the site before the job starts. A failed inspection keeps the job on hold.</Text>
+                                    <Select label="Outcome" value={cpOutcome} onChange={(v) => setCpOutcome(v || 'passed')}
+                                        data={[{ value: 'passed', label: 'Passed' }, { value: 'passed_with_notes', label: 'Passed with notes' }, { value: 'failed', label: 'Failed - hold the job' }]} />
+                                    <Textarea label="Findings" value={cpFindings} onChange={(e) => setCpFindings(e.currentTarget.value)} />
+                                </>
+                            )}
+                            {reason === 'await_risk_assessment' && (
+                                <>
+                                    <Text size="sm" c="dimmed">Check the hazards before you start. The job cannot start until this is safe.</Text>
+                                    <Textarea label="Hazards (one per line, leave empty if none)" value={cpHazards} onChange={(e) => setCpHazards(e.currentTarget.value)} />
+                                    <Textarea label="How the hazards are controlled" value={cpControls} onChange={(e) => setCpControls(e.currentTarget.value)} />
+                                    <Checkbox label="I have the protective equipment this job needs" checked={cpPpe} onChange={(e) => setCpPpe(e.currentTarget.checked)} />
+                                    <Checkbox label="It is safe to start" checked={cpSafe} onChange={(e) => setCpSafe(e.currentTarget.checked)} />
+                                </>
+                            )}
+                            {reason === 'await_arrival' && (
+                                <>
+                                    <Text size="sm" c="dimmed">Share your location to confirm you are on site, or enter the site code.</Text>
+                                    <TextInput label="Site code (optional)" value={cpSiteCode} onChange={(e) => setCpSiteCode(e.currentTarget.value)} />
+                                </>
+                            )}
+                            {reason === 'await_completion_review' && (
+                                <>
+                                    <Text size="sm" c="dimmed">Check the AFTER photos and receipts. Approve to release customer sign-off.</Text>
+                                    <Select label="Outcome" value={cpOutcome} onChange={(v) => setCpOutcome(v || 'approved')}
+                                        data={[{ value: 'approved', label: 'Approved' }, { value: 'approved_with_notes', label: 'Approved with notes' }, { value: 'rework_required', label: 'Rework required - hold the job' }]} />
+                                    <Textarea label="Notes" value={cpFindings} onChange={(e) => setCpFindings(e.currentTarget.value)} />
+                                </>
+                            )}
+                            <Button fullWidth loading={feptActionLoading} onClick={handleSubmitFieldCheckpoint}>
+                                {reason === 'await_arrival' ? 'Share location & confirm' : 'Submit'}
+                            </Button>
+                        </Stack>
+                    );
+                })()}
+            </Modal>
+
             {/* ── FEPT Field Run Detail Drawer (independent from requisitions) ── */}
             <Drawer
                 opened={Boolean(selectedFieldRun)}
-                onClose={() => setSelectedFieldRun(null)}
+                onClose={() => { setSelectedFieldRun(null); setFieldHistoryOpen(false); }}
                 position="bottom"
                 size="auto"
-                title="Field Run Details"
+                title="Job details"
                 radius="lg"
                 styles={{ content: { borderRadius: '16px 16px 0 0' } }}
             >
@@ -5589,26 +5944,58 @@ export default function FinancePage() {
                     const run = selectedFieldRun;
                     const stage = String(run.output?.workflowStage || run.output?.stage || run.status || '').toUpperCase();
                     const input = run.output?.workflowInput || run.input || {};
-                    const stageLabel = FEPT_STAGE_LABEL[stage] || stage || run.status;
+                    const stageLabel = fieldJobStatusLabel(run.status, stage, run.output?.pauseReason);
                     const runRef = input.poNumber || input.reference || run.id;
                     const isTerminal = new Set(['COMPLETED', 'CANCELLED', 'REVOKED', 'DISPUTED']).has(stage);
-                    const canReassign = !isTerminal;
+                    const pauseReason = getFieldPauseReason(run);
+                    const knownPause = Boolean(FIELD_PAUSE_LABEL[pauseReason]);
+                    const myRole = String(getOrgRoleClaim() || '').toLowerCase();
+                    const isOrgAdmin = ['owner', 'admin'].includes(myRole);
+                    const myUserId = currentUserId();
+                    const assigneeId = String(run.output?.assignment?.assigneeId || input.assigneeId || '');
+                    // The worker does the field steps; a different person signs off and releases payment.
+                    const isWorker = Boolean(myUserId) && assigneeId === myUserId;
+                    const canDoFieldSteps = isWorker || (!assigneeId && isOrgAdmin);
+                    const canSignOff = isOrgAdmin || (Boolean(myUserId) && String(input.receiverId || '') === myUserId);
+                    const canReleasePayout = isOrgAdmin || ['finance_manager', 'accountant', 'approver'].includes(myRole);
+                    // The people chosen under "Who does what" may do their own step from their phone.
+                    const isChosenFor = (stageAction: string) => {
+                        const actor = fieldStageActors.find((item) => item.stageAction === stageAction)?.actor;
+                        if (!actor || !myUserId) return false;
+                        if (actor.userId) return actor.userId === myUserId;
+                        return Boolean(actor.role) && String(actor.role).toLowerCase() === myRole;
+                    };
+                    const canReview = isOrgAdmin || canSignOff || isChosenFor('review_completion');
+                    const canInspect = canDoFieldSteps || isOrgAdmin || isChosenFor('inspect_site');
+                    const canReassign = !isTerminal && String(run.status || '').toLowerCase() === 'paused' && isOrgAdmin;
+                    const checkpointBlocks: any[] = Array.isArray(run.output?.checkpointBlocks) ? run.output.checkpointBlocks : [];
+                    // A hold is only live while the checkpoint that raised it is still open.
+                    const lastBlock = checkpointBlocks[checkpointBlocks.length - 1];
+                    const lastBlockStatus = lastBlock ? String(run.output?.checkpoints?.[String(lastBlock.checkpoint || '')]?.status || '') : '';
+                    const activeHold = lastBlock && !['completed', 'waived'].includes(lastBlockStatus) ? lastBlock : null;
+                    const stepsHeld = Boolean(heldRuns[String(run.id)]);
+                    const issuedRecords = Object.keys(run.output?.issuedCredentials || {});
+                    const recordLabel: Record<string, string> = {
+                        RequisitionVC: 'Job card',
+                        ReceiptVC: 'Material receipt record',
+                        ExecutionAckVC: 'Completion record',
+                        InvoiceVC: 'Invoice',
+                        PaymentReceiptVC: 'Payment receipt',
+                    };
                     const amount = Number.isFinite(Number(input.amount))
                         ? Number(input.amount)
                         : Number.isFinite(Number(input.budget))
                             ? Number(input.budget)
                             : 0;
                     const currency = String(input.currency || 'USD').trim() || 'USD';
-                    const lifecycleItems = buildFieldRunLifecycleItems(run);
-                    const auditItems = buildFieldRunAuditItems(run);
+                    const memberNames = Object.fromEntries(orgMembers.map((member) => [member.userId, personName(member)]));
+                    const lifecycleItems = buildFieldRunLifecycleItems(run, memberNames);
+                    const auditItems = buildFieldRunAuditItems(run, memberNames);
                     const reassignOptions = [
-                        { value: 'owner', label: 'Owner (default)' },
-                        ...orgMembers
-                            .filter((m) => m.status === 'active')
-                            .map((m) => ({ value: `member:${m.userId}`, label: `${m.userId} (${m.role})` })),
+                        ...memberSelectData(orgMembers, 'member:'),
                         ...contacts
-                            .filter((c) => Boolean(c.phone))
-                            .map((c) => ({ value: `contact:${c.phone}`, label: `${c.name} (${c.phone})` })),
+                            .filter((contact) => contact.phone)
+                            .map((contact) => ({ value: `contact:${contact.phone}`, label: `${contact.name} (saved contact)` })),
                     ];
                     return (
                         <WorkflowDetailBody
@@ -5631,84 +6018,169 @@ export default function FinancePage() {
                                         <>
                                             {!isTerminal && (
                                                 <>
-                                                    <TextInput
-                                                        label="VC Guard Reference"
-                                                        placeholder="VP reference / proof id"
-                                                        value={feptPresentationRef}
-                                                        onChange={(e) => setFeptPresentationRef(e.currentTarget.value)}
-                                                    />
-                                                    <Text size="xs" c="dimmed">
-                                                        FEPT stage actions require VC evidence payloads and use workflow run resume.
-                                                    </Text>
+                                                    {knownPause && (
+                                                        <Alert color="blue" variant="light">
+                                                            Waiting for: {FIELD_PAUSE_LABEL[pauseReason]}
+                                                        </Alert>
+                                                    )}
+                                                    {activeHold && (
+                                                        <Alert color="orange" variant="light" title="Job on hold">
+                                                            {String(activeHold.reason || '')}
+                                                        </Alert>
+                                                    )}
+                                                    {String(run.status || '').toLowerCase() === 'failed' && (
+                                                        <Alert color="red" variant="light" title="This job stopped on an error">
+                                                            <Text size="sm">{String(run.error || 'Something went wrong on the last step.')}</Text>
+                                                            {isOrgAdmin && (
+                                                                <Button
+                                                                    size="xs"
+                                                                    mt="sm"
+                                                                    color="red"
+                                                                    variant="light"
+                                                                    loading={feptActionLoading}
+                                                                    onClick={() => void handleRetryFieldRun(String(run.id))}
+                                                                >
+                                                                    Try again from where it stopped
+                                                                </Button>
+                                                            )}
+                                                        </Alert>
+                                                    )}
                                                 </>
                                             )}
+                                            {run?.id && (
+                                                <JobHandoffsPanel
+                                                    runId={String(run.id)}
+                                                    refreshKey={`${run.status}:${pauseReason}:${String(run.updatedAt || '')}`}
+                                                    onChanged={() => void fetchFieldRuns()}
+                                                    onHoldChange={(held) => markRunHeld(String(run.id), held)}
+                                                />
+                                            )}
                                             {!isTerminal && (
-                                                <Group grow>
-                                                    {stage === 'ASSIGNED' && (
+                                                <Stack gap="xs">
+                                                    {canDoFieldSteps && stage === 'ASSIGNED' && (!knownPause || pauseReason === 'await_worker_start') && (
                                                         <Button
                                                             color="green"
                                                             leftSection={<IconPlayerPlay size={16} />}
                                                             loading={feptActionLoading}
+                                                            disabled={stepsHeld}
                                                             onClick={() => handleStartFieldRun(run.id)}
                                                         >
-                                                            Start Job
+                                                            Start job
                                                         </Button>
                                                     )}
-                                                    {stage === 'IN_PROGRESS' && (
+                                                    {FIELD_CHECKPOINT_PAUSES.has(pauseReason) && (pauseReason === 'await_completion_review' ? canReview : pauseReason === 'await_site_inspection' ? canInspect : canDoFieldSteps || isOrgAdmin) && (
+                                                        <Button
+                                                            color="violet"
+                                                            leftSection={<IconShieldCheck size={16} />}
+                                                            loading={feptActionLoading}
+                                                            disabled={stepsHeld}
+                                                            onClick={() => openFieldCheckpoint(run)}
+                                                        >
+                                                            {pauseReason === 'await_site_inspection' ? 'Record site inspection'
+                                                                : pauseReason === 'await_risk_assessment' ? 'Do the safety check'
+                                                                    : pauseReason === 'await_arrival' ? 'Confirm arrival'
+                                                                        : 'Review the finished work'}
+                                                        </Button>
+                                                    )}
+                                                    {canDoFieldSteps && (stage === 'IN_PROGRESS' || stage === 'EVIDENCE_CAPTURED') && (['await_evidence_before', 'await_evidence_after', 'await_evidence_receipt'].includes(pauseReason) || (stage === 'IN_PROGRESS' && !knownPause)) && (
                                                         <Button
                                                             color="orange"
                                                             leftSection={<IconCamera size={16} />}
                                                             loading={feptActionLoading}
+                                                            disabled={stepsHeld}
                                                             onClick={() => handleCaptureFieldEvidence(run)}
                                                         >
-                                                            {inferNextEvidencePhase(run) === 'before' ? 'Capture Before Evidence' : 'Capture After Evidence'}
+                                                            {pauseReason === 'await_evidence_receipt' ? 'Add receipts'
+                                                                : pauseReason === 'await_evidence_after' ? 'Work done – take after photos'
+                                                                    : pauseReason === 'await_evidence_before' ? 'Take before photos'
+                                                                        : inferNextEvidencePhase(run) === 'before' ? 'Take before photos' : inferNextEvidencePhase(run) === 'after' ? 'Take after photos' : 'Add receipts'}
                                                         </Button>
                                                     )}
-                                                    {stage === 'APPROVAL_PENDING' && (
-                                                        <Button
-                                                            color="indigo"
-                                                            leftSection={<IconShieldCheck size={16} />}
-                                                            loading={feptActionLoading}
-                                                            onClick={() => handleFeptStageAction(run.id, 'approve')}
-                                                        >
-                                                            Approve (VC)
-                                                        </Button>
-                                                    )}
-                                                    {stage === 'EVIDENCE_CAPTURED' && (
+                                                    {pauseReason === 'await_acknowledgement' && canSignOff && (
                                                         <Button
                                                             color="teal"
-                                                            leftSection={<IconShieldCheck size={16} />}
-                                                            loading={feptActionLoading}
-                                                            onClick={() => handleFeptStageAction(run.id, 'ack')}
+                                                            leftSection={<IconWallet size={16} />}
+                                                            loading={fieldProofCreating && fieldProofStage === 'acknowledgement'}
+                                                            disabled={stepsHeld}
+                                                            onClick={() => openFieldProof(run.id, 'acknowledgement')}
                                                         >
-                                                            Acknowledge (VC)
+                                                            Sign off job
                                                         </Button>
                                                     )}
-                                                    {stage === 'ACKNOWLEDGED' && (
+                                                    {pauseReason === 'await_payout_release' && canReleasePayout && (
                                                         <Button
                                                             color="yellow"
                                                             leftSection={<IconWallet size={16} />}
-                                                            loading={feptActionLoading}
-                                                            onClick={() => handleFeptStageAction(run.id, 'trigger_payment')}
+                                                            loading={fieldProofCreating && fieldProofStage === 'payout'}
+                                                            disabled={stepsHeld}
+                                                            onClick={() => openFieldProof(run.id, 'payout')}
                                                         >
-                                                            Trigger Payment (VC)
+                                                            Release payment
                                                         </Button>
                                                     )}
-                                                    {new Set(['PAYMENT_TRIGGERED', 'RECEIPT_ISSUED']).has(stage) && (
-                                                        <Button
-                                                            color="cyan"
-                                                            leftSection={<IconReceipt size={16} />}
-                                                            loading={feptActionLoading}
-                                                            onClick={() => handleFeptStageAction(run.id, 'reconcile')}
-                                                        >
-                                                            Reconcile (VC)
-                                                        </Button>
+                                                    {!canDoFieldSteps && ['await_worker_start', 'await_arrival', 'await_risk_assessment', 'await_evidence_before', 'await_evidence_after', 'await_evidence_receipt'].includes(pauseReason) && (
+                                                        <Text size="xs" c="dimmed">The assigned worker does this step from their phone.</Text>
                                                     )}
-                                                </Group>
+                                                    {pauseReason === 'await_acknowledgement' && !canSignOff && (
+                                                        <Text size="xs" c="dimmed">The sign-off person confirms this step from their wallet.</Text>
+                                                    )}
+                                                    {pauseReason === 'await_payout_release' && !canReleasePayout && (
+                                                        <Text size="xs" c="dimmed">The payout person releases payment from their wallet.</Text>
+                                                    )}
+                                                </Stack>
+                                            )}
+                                            {(() => {
+                                                const phases = [
+                                                    { label: 'Before', item: run.output?.evidenceBefore },
+                                                    { label: 'After', item: run.output?.evidenceAfter },
+                                                    { label: 'Receipt', item: run.output?.evidenceReceipt },
+                                                ];
+                                                const thumbs = phases.flatMap(({ label, item }) => {
+                                                    if (!item) return [];
+                                                    const main = item.photoUri
+                                                        ? [{ src: String(item.photoUri), label }]
+                                                        : item.vcType
+                                                            ? [{ label: item.notes || label, doc: true }]
+                                                            : [];
+                                                    const extras = Array.isArray(item.attachments)
+                                                        ? item.attachments.filter((extra: any) => extra?.photoUri).map((extra: any, index: number) => ({ src: String(extra.photoUri), label: `${label} ${index + 2}` }))
+                                                        : [];
+                                                    return [...main, ...extras];
+                                                });
+                                                if (thumbs.length === 0) return null;
+                                                return (
+                                                    <Paper p="sm" radius="md" withBorder>
+                                                        <Text size="xs" fw={600} mb={6}>Photos and documents</Text>
+                                                        <Group gap={8} wrap="wrap">
+                                                            {thumbs.map((thumb: any, index: number) => (
+                                                                thumb.src ? (
+                                                                    <Image key={index} src={thumb.src} w={72} h={72} radius="md" alt={thumb.label} fit="cover" />
+                                                                ) : (
+                                                                    <Paper key={index} withBorder radius="md" p={6} w={120}>
+                                                                        <Group gap={6} wrap="nowrap">
+                                                                            <IconFileText size={14} />
+                                                                            <Text size="xs" lineClamp={2}>{thumb.label}</Text>
+                                                                        </Group>
+                                                                    </Paper>
+                                                                )
+                                                            ))}
+                                                        </Group>
+                                                    </Paper>
+                                                );
+                                            })()}
+                                            {issuedRecords.length > 0 && (
+                                                <Paper p="sm" radius="md" withBorder>
+                                                    <Text size="xs" fw={600} mb={4}>Records issued for this job</Text>
+                                                    <Stack gap={2}>
+                                                        {issuedRecords.map((type) => (
+                                                            <Text key={type} size="xs" c="dimmed">• {recordLabel[type] || type.replace(/VC$/, '')}</Text>
+                                                        ))}
+                                                    </Stack>
+                                                </Paper>
                                             )}
                                             {isTerminal && (
                                                 <Alert color="gray" variant="light">
-                                                    This field workflow is in a terminal state. No further stage actions are available.
+                                                    This job is closed. There is nothing more to do here.
                                                 </Alert>
                                             )}
                                         </>
@@ -5723,11 +6195,12 @@ export default function FinancePage() {
                                                 <Paper p="sm" radius="md" withBorder>
                                                     <Stack gap="sm">
                                                         <Select
-                                                            label="Reassign Job"
+                                                            label="Move this job to someone else"
                                                             value={fieldReassignAssigneeId}
-                                                            onChange={(val) => setFieldReassignAssigneeId(val || 'owner')}
+                                                            onChange={(val) => setFieldReassignAssigneeId(val || '')}
                                                             data={reassignOptions}
-                                                            description="Owner/manager can reassign at any active stage"
+                                                            placeholder="Choose a team member"
+                                                            description="The job card moves to them; the current step stays where it is."
                                                         />
                                                         <Button
                                                             fullWidth
@@ -5737,7 +6210,7 @@ export default function FinancePage() {
                                                             loading={feptActionLoading}
                                                             onClick={() => handleReassignFieldTask(run.id, fieldReassignAssigneeId)}
                                                         >
-                                                            Reassign Job
+                                                            Move job
                                                         </Button>
                                                     </Stack>
                                                 </Paper>
@@ -5746,13 +6219,10 @@ export default function FinancePage() {
                                                 fullWidth
                                                 variant="light"
                                                 color="teal"
-                                                leftSection={<IconExternalLink size={16} />}
-                                                onClick={() => {
-                                                    setSelectedFieldRun(null);
-                                                    router.push(`/activity?ref=${encodeURIComponent(run.id)}`);
-                                                }}
+                                                leftSection={<IconHistory size={16} />}
+                                                onClick={() => setFieldHistoryOpen(true)}
                                             >
-                                                View Full Timeline in Activity
+                                                See the full history
                                             </Button>
                                         </>
                                     ),
@@ -5764,6 +6234,18 @@ export default function FinancePage() {
                     );
                 })()}
             </Drawer>
+
+            <Modal
+                opened={fieldHistoryOpen && Boolean(selectedFieldRun)}
+                onClose={() => setFieldHistoryOpen(false)}
+                fullScreen
+                title="Full history"
+                zIndex={1000}
+            >
+                {selectedFieldRun && (
+                    <JobAuditTrailPanel trail={buildJobAuditTrail(selectedFieldRun, orgMembers)} compact />
+                )}
+            </Modal>
 
             <Drawer
                 opened={Boolean(selectedRequisitionId)}
@@ -5827,7 +6309,7 @@ export default function FinancePage() {
                             {(() => {
                                 const requisitionAuditItems: DetailTimelineItem[] = requisitionEvents.map((event: any, index: number) => ({
                                     id: `${event.id || event.eventType || 'event'}-${index}`,
-                                    title: event.eventType || 'Event',
+                                    title: requisitionEventTitle(event.eventType),
                                     source: event.source || 'system',
                                     description: describeRequisitionEvent(event) || undefined,
                                     timestamp: event.occurredAt ? dayjs(event.occurredAt).format('D MMM YYYY HH:mm') : '—',
@@ -5837,7 +6319,7 @@ export default function FinancePage() {
                                     <WorkflowDetailBody
                                         statusCard={(
                                             <DetailStatusCard
-                                                status={requisitionStatus || 'UNKNOWN'}
+                                                status={requisitionStatusLabel(requisitionStatus)}
                                                 amount={requestedAmount.amount}
                                                 currency={requestedAmount.currency}
                                                 lines={[
@@ -5846,98 +6328,112 @@ export default function FinancePage() {
                                                 ]}
                                                 footer={approvalActionAllowed === false ? (
                                                     <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />} mt="sm">
-                                                        Your current org role cannot approve requisitions in offline policy mode.
+                                                        Your role in this organization cannot approve requisitions while offline.
                                                     </Alert>
                                                 ) : undefined}
                                             />
                                         )}
                                         sections={[
                                             {
-                                                title: 'APPROVAL ACTIONS',
-                                                content: (() => {
-                                                    const currentStatus = requisitionStatus;
-                                                    const isManagerApprovalStage = currentStatus === 'REQUISITION_CREATED';
-                                                    const isFinanceApprovalStage = currentStatus === 'MANAGER_APPROVED';
-                                                    const canApprove = isManagerApprovalStage || isFinanceApprovalStage;
-                                                    const approvalLabel = isManagerApprovalStage
-                                                        ? 'Manager Approve (Require Wallet VP)'
-                                                        : isFinanceApprovalStage
-                                                            ? 'Finance Approve (Require Wallet VP)'
-                                                            : 'Already Approved';
-
-                                                    return (
-                                                        <>
-                                                            <Button
-                                                                size="md"
-                                                                color="indigo"
-                                                                loading={creatingApprovalRequest}
-                                                                disabled={!canApprove || (selectedRequisition?.summary?.tenantId ? getActiveOrgId() !== selectedRequisition.summary.tenantId : false)}
-                                                                onClick={() => void handleOpenApprovalModal()}
-                                                            >
-                                                                {approvalLabel}
-                                                            </Button>
-                                                            {!canApprove && currentStatus && (
-                                                                <Alert color="gray" variant="light">
-                                                                    This requisition has already been approved.
-                                                                </Alert>
-                                                            )}
-                                                        </>
-                                                    );
-                                                })(),
+                                                title: 'STEP · WHO · STATUS',
+                                                content: (
+                                                    <Timeline active={Math.max(0, (selectedRequisition?.approvalSignMode === 'one'
+                                                        ? { REQUISITION_CREATED: 1, MANAGER_APPROVED: 1, APPROVED: 2, RELEASED: 3, PAID: 3, ACKNOWLEDGED: 3, EXECUTION_ACKNOWLEDGED: 3, RECONCILED: 3 }
+                                                        : { REQUISITION_CREATED: 1, MANAGER_APPROVED: 2, APPROVED: 3, RELEASED: 4, PAID: 4, ACKNOWLEDGED: 4, EXECUTION_ACKNOWLEDGED: 4, RECONCILED: 4 }
+                                                    )[requisitionStatus] ?? 0)} bulletSize={18} lineWidth={2}>
+                                                        {(selectedRequisition?.approvalSignMode === 'one'
+                                                            ? REQUISITION_STEPS.filter((step) => step.key !== 'finance').map((step) => step.key === 'manager' ? { ...step, label: 'Approval' } : step)
+                                                            : REQUISITION_STEPS
+                                                        ).map((step) => {
+                                                            const stageAction = step.key === 'finance'
+                                                                ? 'finance_approve_requisition'
+                                                                : step.key === 'manager'
+                                                                    ? 'approve_requisition'
+                                                                    : step.key === 'release'
+                                                                        ? 'release_funds'
+                                                                        : step.key === 'ack'
+                                                                            ? 'acknowledge_execution'
+                                                                            : '';
+                                                            const stageActor = requisitionStageActors.find((item) => item.stageAction === stageAction);
+                                                            const actor = stageActor?.actor;
+                                                            const who = stageActor?.actorDescription
+                                                                || (actor ? `${(actor.userId || actor.walletTenantId || actor.role || 'actor').slice(0, 12)} · ${actor.role || 'member'}` : 'Nobody chosen yet');
+                                                            const credentialState = stageActor?.credential?.stale
+                                                                ? 'their access record is out of date'
+                                                                : stageActor?.credential?.state && stageActor.credential.state !== 'not_applicable'
+                                                                    ? `access record ${stageActor.credential.state.replace(/_/g, ' ')}`
+                                                                    : '';
+                                                            return (
+                                                                <Timeline.Item key={step.key} title={<Text size="sm" fw={600}>{step.label}</Text>}>
+                                                                    <Text size="xs" c="dimmed" mt={4}>{step.confirmedBy}</Text>
+                                                                    {stageAction ? (
+                                                                        <Text size="xs" c={actor?.mode === 'owner_fallback' || actor?.mode === 'unassigned' ? 'orange' : 'dimmed'} mt={4}>
+                                                                            Who: {who}{credentialState ? ` · ${credentialState}` : ''}
+                                                                        </Text>
+                                                                    ) : null}
+                                                                </Timeline.Item>
+                                                            );
+                                                        })}
+                                                    </Timeline>
+                                                ),
                                             },
                                             {
-                                                title: 'LIFECYCLE ACTIONS',
+                                                title: 'NEXT STEP',
                                                 content: (() => {
                                                     const currentStatus = requisitionStatus;
-                                                    const canRelease = currentStatus === 'APPROVED';
-                                                    const canAck = ['RELEASED', 'PAID', 'RECEIPT_ISSUED'].includes(currentStatus);
-                                                    const canDecide = Boolean(selectedRequisition.workflowRequestId)
-                                                        && (selectedRequisition.workflowRequestStatus || 'pending') === 'pending';
+                                                    const nextStep = requisitionNextStep(currentStatus, selectedRequisition?.approvalSignMode === 'one' ? 'one' : 'both');
+                                                    const inThisOrg = selectedRequisition?.summary?.tenantId ? getActiveOrgId() === selectedRequisition.summary.tenantId : true;
+                                                    const canApprove = currentStatus === 'REQUISITION_CREATED' || currentStatus === 'MANAGER_APPROVED';
+                                                    const canRelease = currentStatus === 'APPROVED' && isReleaseRole();
+                                                    const canAck = ['RELEASED', 'PAID', 'RECEIPT_ISSUED'].includes(currentStatus) && isReleaseRole();
+                                                    const roleBlocked = (nextStep.action === 'release' || nextStep.action === 'ack') && !isReleaseRole();
+                                                    const busy = creatingApprovalRequest || creatingReleaseRequest || creatingAckRequest;
+                                                    const run = () => {
+                                                        if (nextStep.action === 'approval' && canApprove) { void handleOpenApprovalModal(); return; }
+                                                        if (nextStep.action === 'release' && canRelease) { void handleOpenReleaseModal(); return; }
+                                                        if (nextStep.action === 'ack' && canAck) { void handleOpenAckModal(); }
+                                                    };
 
                                                     return (
                                                         <>
-                                                            {!isOrgActionRole() && canDecide && (
+                                                            <Text size="sm" c="dimmed">{nextStep.helper}</Text>
+                                                            {nextStep.action === 'ack' && (
+                                                                <Textarea
+                                                                    label="Delivery note"
+                                                                    placeholder="Add a short note about what was delivered"
+                                                                    minRows={2}
+                                                                    autosize
+                                                                    value={requisitionLifecycleNote}
+                                                                    onChange={(e) => setRequisitionLifecycleNote(e.currentTarget.value)}
+                                                                />
+                                                            )}
+                                                            {!inThisOrg && nextStep.action && (
                                                                 <Alert color="yellow" variant="light">
-                                                                    Use an owner, admin, manager, or approver org profile for approval actions.
+                                                                    Switch to the organization this requisition belongs to before acting on it.
                                                                 </Alert>
                                                             )}
-
-                                                            <Button
-                                                                size="md"
-                                                                color="yellow"
-                                                                loading={creatingReleaseRequest}
-                                                                disabled={!canRelease || !isReleaseRole() || (selectedRequisition?.summary?.tenantId ? getActiveOrgId() !== selectedRequisition.summary.tenantId : false)}
-                                                                onClick={() => void handleOpenReleaseModal()}
-                                                            >
-                                                                Release Funds (Require Wallet VP)
-                                                            </Button>
-
-                                                            <Textarea
-                                                                label="Acknowledge note"
-                                                                placeholder="Add a short confirmation note"
-                                                                minRows={2}
-                                                                autosize
-                                                                value={requisitionLifecycleNote}
-                                                                onChange={(e) => setRequisitionLifecycleNote(e.currentTarget.value)}
-                                                            />
-
-                                                            <Button
-                                                                size="md"
-                                                                color="teal"
-                                                                variant="light"
-                                                                loading={creatingAckRequest}
-                                                                disabled={!canAck || !isReleaseRole() || (selectedRequisition?.summary?.tenantId ? getActiveOrgId() !== selectedRequisition.summary.tenantId : false)}
-                                                                onClick={() => void handleOpenAckModal()}
-                                                            >
-                                                                Acknowledge Delivery (Require Wallet VP)
-                                                            </Button>
+                                                            {roleBlocked && inThisOrg && (
+                                                                <Alert color="gray" variant="light">
+                                                                    Only the person chosen for this step in your organization can do it.
+                                                                </Alert>
+                                                            )}
+                                                            {nextStep.action && inThisOrg && !roleBlocked && (
+                                                                <Button
+                                                                    size="md"
+                                                                    color={nextStep.action === 'approval' ? 'indigo' : nextStep.action === 'release' ? 'yellow' : 'teal'}
+                                                                    loading={busy}
+                                                                    onClick={run}
+                                                                >
+                                                                    {nextStep.label}
+                                                                </Button>
+                                                            )}
                                                         </>
                                                     );
                                                 })(),
                                             },
                                         ]}
                                         auditItems={requisitionAuditItems}
-                                        auditEmptyText="No timeline events available yet."
+                                        auditEmptyText="No history yet."
                                     />
                                 );
                             })()}
@@ -5951,56 +6447,54 @@ export default function FinancePage() {
                 (() => {
                     const VPActionModal = ({
                         opened, onClose, title, description, requestUrl, creatingRequest,
-                        onOpenInApp, onScanPortal, onEmbeddedFallback, fallbackLoading, fallbackLabel
+                        onOpenInApp, onScanPortal,
                     }: {
                         opened: boolean, onClose: () => void, title: string, description: string,
                         requestUrl: string | null, creatingRequest: boolean, onOpenInApp: () => void,
-                        onScanPortal: () => void, onEmbeddedFallback: () => void,
-                        fallbackLoading: boolean, fallbackLabel: string
+                        onScanPortal?: () => void,
                     }) => (
-                        <Modal opened={opened} onClose={onClose} title={title} size="lg" centered>
+                        <Modal opened={opened} onClose={onClose} title={title} size="lg" centered zIndex={400}>
                             <Stack align="center" gap="md">
                                 <Text size="sm" ta="center">{description}</Text>
                                 {requestUrl ? (
                                     <>
-                                        <Paper p="md" radius="md" withBorder bg="white">
-                                            <QRCode value={buildWalletInteropQrValue(requestUrl)} size={160} />
-                                        </Paper>
+                                        <Button color="grape" size="md"
+                                            leftSection={<IconShieldCheck size={16} />}
+                                            onClick={onOpenInApp} disabled={creatingRequest} fullWidth>
+                                            Review and share in this app
+                                        </Button>
+                                        <Text size="xs" c="dimmed" ta="center">
+                                            You will see exactly what is shared before you confirm.
+                                        </Text>
+                                        {buildWalletInteropQrValue(requestUrl).length <= MAX_QR_LINK_LENGTH ? (
+                                            <>
+                                                <Text size="xs" c="dimmed" ta="center">Or scan with this app, or with any other wallet.</Text>
+                                                <Paper p="md" radius="md" withBorder bg="white">
+                                                    <QRCode value={buildWalletInteropQrValue(requestUrl)} size={160} />
+                                                </Paper>
+                                            </>
+                                        ) : (
+                                            <Text size="xs" c="dimmed" ta="center">Scanning is not available for this link. Use the button above, or open another wallet.</Text>
+                                        )}
                                         <Stack w="100%" gap="xs">
-                                            <Text size="xs" c="dimmed" ta="center">Request URL (fallback):</Text>
-                                            <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: '200px', overflowY: 'auto' }}>
-                                                {requestUrl}
-                                            </Code>
-                                        </Stack>
-                                        <Stack w="100%" gap="sm">
-                                            <Button color="indigo" size="sm" leftSection={<IconShieldCheck size={16} />}
-                                                onClick={onOpenInApp} disabled={creatingRequest} fullWidth>
-                                                Open In This App
-                                            </Button>
-                                            <Button variant="light" color="violet" size="sm" leftSection={<IconQrcode size={16} />}
-                                                onClick={onScanPortal} disabled={creatingRequest} fullWidth>
-                                                Scan Portal QR To Continue
-                                            </Button>
-                                            <Button variant="light" color="blue" size="sm" leftSection={<IconExternalLink size={16} />}
-                                                onClick={() => handleOpenExternalWallet(createExternalWalletLinks(requestUrl).openIdVc)} fullWidth>
-                                                Open External Wallet (openid-vc)
-                                            </Button>
-                                            <Button variant="light" color="cyan" size="sm" leftSection={<IconExternalLink size={16} />}
+                                            {onScanPortal && (
+                                                <Button variant="light" color="violet" size="sm" leftSection={<IconQrcode size={16} />}
+                                                    onClick={onScanPortal} disabled={creatingRequest} fullWidth>
+                                                    Scan a code from the portal
+                                                </Button>
+                                            )}
+                                            <Button variant="subtle" color="blue" size="sm" leftSection={<IconExternalLink size={16} />}
                                                 onClick={() => handleOpenExternalWallet(createExternalWalletLinks(requestUrl).openId4Vp)} fullWidth>
-                                                Open External Wallet (openid4vp)
+                                                Open another wallet
                                             </Button>
                                             <Button variant="subtle" color="gray" size="sm" leftSection={<IconCopy size={16} />}
                                                 onClick={() => handleCopyRequestUrl(requestUrl)} fullWidth>
-                                                Copy Request URL
-                                            </Button>
-                                            <Button loading={fallbackLoading || creatingRequest} color="grape" size="md"
-                                                onClick={onEmbeddedFallback} disabled={creatingRequest} fullWidth>
-                                                {fallbackLabel}
+                                                Copy link
                                             </Button>
                                         </Stack>
                                     </>
                                 ) : creatingRequest ? <Loader /> : (
-                                    <Alert color="red" variant="light">Failed to generate request. Try again.</Alert>
+                                    <Alert color="red" variant="light">We could not prepare this step. Close and try again.</Alert>
                                 )}
                             </Stack>
                         </Modal>
@@ -6011,43 +6505,44 @@ export default function FinancePage() {
                             <VPActionModal
                                 opened={showApprovalModal}
                                 onClose={() => setShowApprovalModal(false)}
-                                title="Approval Request (Wallet VP Required)"
-                                description="Use your wallet to provide proof via OIDC4VP, or use the embedded fallback."
+                                title="Approve this request"
+                                description="Review what your wallet will share, then confirm you are the person chosen to approve."
                                 requestUrl={approvalRequestUrl}
                                 creatingRequest={creatingApprovalRequest}
                                 onOpenInApp={handleOpenApprovalInApp}
                                 onScanPortal={handleScanPortalApproval}
-                                onEmbeddedFallback={() => void handleApprove()}
-                                fallbackLoading={approving}
-                                fallbackLabel="Approve Here (Server Embedded Fallback)"
                             />
 
                             <VPActionModal
                                 opened={showReleaseModal}
                                 onClose={() => setShowReleaseModal(false)}
-                                title="Release Request (Wallet VP Required)"
-                                description="Use your wallet to provide proof via OIDC4VP, or use the embedded fallback."
+                                title="Release funds"
+                                description="Review what your wallet will share, then confirm you are the person chosen to release the money."
                                 requestUrl={releaseRequestUrl}
                                 creatingRequest={creatingReleaseRequest}
                                 onOpenInApp={handleOpenReleaseInApp}
                                 onScanPortal={handleScanPortalRelease}
-                                onEmbeddedFallback={() => void handleRequisitionRelease()}
-                                fallbackLoading={releasing}
-                                fallbackLabel="Release Here (Server Embedded Fallback)"
                             />
 
                             <VPActionModal
                                 opened={showAckModal}
                                 onClose={() => setShowAckModal(false)}
-                                title="Acknowledge Delivery (Wallet VP Required)"
-                                description="Use your wallet to provide proof via OIDC4VP, or use the embedded fallback."
+                                title="Confirm delivery"
+                                description="Review what your wallet will share, then confirm you received the goods or services."
                                 requestUrl={ackRequestUrl}
                                 creatingRequest={creatingAckRequest}
                                 onOpenInApp={handleOpenAckInApp}
                                 onScanPortal={handleScanPortalAck}
-                                onEmbeddedFallback={() => void handleRequisitionAcknowledge()}
-                                fallbackLoading={acking}
-                                fallbackLabel="Acknowledge Here (Server Embedded Fallback)"
+                            />
+
+                            <VPActionModal
+                                opened={Boolean(fieldProofStage)}
+                                onClose={() => { setFieldProofStage(null); setFieldProofRunId(null); setFieldProofRequest(null); }}
+                                title={fieldProofStage ? FIELD_PROOF_COPY[fieldProofStage].title : ''}
+                                description={fieldProofStage ? FIELD_PROOF_COPY[fieldProofStage].description : ''}
+                                requestUrl={fieldProofRequest?.presentationRequestUrl || null}
+                                creatingRequest={fieldProofCreating}
+                                onOpenInApp={openFieldProofInApp}
                             />
                         </>
                     );
@@ -6346,8 +6841,9 @@ export default function FinancePage() {
             <Modal
                 opened={Boolean(selectedCredentialArtifact)}
                 onClose={() => setSelectedCredentialArtifact(null)}
-                title={selectedCredentialArtifact?.title || 'Credential Artifact'}
+                title={selectedCredentialArtifact?.title || 'Record'}
                 centered
+                zIndex={400}
             >
                 {selectedCredentialArtifact && (
                     <Stack gap="sm">

@@ -82,7 +82,6 @@ export default function IntakePage() {
                 requestId: item.id,
                 amount: item.amount,
                 currency: item.currency,
-                assigneeId: 'agent-farai', // Default as per notification text
                 description: `Promoted from ${item.source}: ${item.subject}`,
             }, {
                 headers: { Authorization: `Bearer ${orgToken}` }
@@ -90,7 +89,7 @@ export default function IntakePage() {
 
             notifications.show({
                 title: 'Job Started',
-                message: 'Order converted to secured job card and assigned to Farai.',
+                message: 'Order converted to a job card and assigned to the field worker configured for this organization.',
                 color: 'teal',
                 icon: <IconShieldCheck size={18} />
             });

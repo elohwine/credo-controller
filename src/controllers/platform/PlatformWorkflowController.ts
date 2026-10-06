@@ -7,12 +7,13 @@ import { platformWorkflowService } from '../../services/PlatformWorkflowService'
 type AuthenticatedClaims = {
   tenantId?: string
   sub?: string
+  id?: string
 }
 
 function getPrincipal(request: ExRequest): { tenantId: string; subjectRef: string } {
   const user = (request as any).user as AuthenticatedClaims | undefined
   const tenantId = user?.tenantId
-  const subjectRef = user?.sub
+  const subjectRef = user?.sub || user?.id
 
   if (!tenantId || !subjectRef) {
     throw new Error('Authenticated tenant and subject are required')

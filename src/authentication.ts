@@ -6,8 +6,9 @@ import { Agent, LogLevel } from '@credo-ts/core'
 import jwt, { decode } from 'jsonwebtoken'
 import { container } from 'tsyringe'
 
-import { AgentRole, ErrorMessages, SCOPES } from './enums'
+import { AgentRole, AuthContext, ErrorMessages, SCOPES } from './enums'
 import { StatusException } from './errors'
+import { DatabaseManager } from './persistence/DatabaseManager'
 import { TsLogger } from './utils/logger'
 
 let dynamicApiKey: string =
@@ -90,6 +91,22 @@ export async function expressAuthentication(request: Request, securityName: stri
     try {
       decodedToken = decode(token) as jwt.JwtPayload
       if (!decodedToken || !decodedToken.role) throw new Error('Token not decoded')
+
+      // Expose normalized claims to downstream controllers that require tenant + subject identity.
+      const fallbackSubject =
+        (decodedToken.id as string | undefined) ||
+        (decodedToken.sub as string | undefined) ||
+        (await resolveSubjectFromTenantId(decodedToken.tenantId as string | undefined)) ||
+        (decodedToken.tenantId as string | undefined)
+
+      ;(request as any).user = {
+        ...decodedToken,
+        id: fallbackSubject,
+        sub: (decodedToken.sub as string | undefined) || fallbackSubject,
+      }
+      ;(request as any).tenantId = decodedToken.tenantId as string | undefined
+      ;(request as any).userId = fallbackSubject
+      ;(request as any).authContext = decodedToken.orgRole ? AuthContext.Org : AuthContext.Personal
     } catch {
       agent.config.logger.error('Error decoding authentication token')
       return Promise.reject(new StatusException(`${ErrorMessages.Unauthorized}: Invalid token`, 401))
@@ -103,7 +120,10 @@ export async function expressAuthentication(request: Request, securityName: stri
         return Promise.reject(new StatusException('Unknown role', 401))
       }
       if (role === AgentRole.RestTenantAgent) {
-        if (scopes && scopes.length > 0 && !scopes.includes(SCOPES.TENANT_AGENT)) {
+        const acceptsTenantAgent =
+          !scopes || scopes.length === 0 || scopes.includes(SCOPES.TENANT_AGENT) || scopes.includes('wallet')
+
+        if (!acceptsTenantAgent) {
           logger.error('Missing required tenant scope')
           return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
         }
@@ -168,6 +188,20 @@ async function getSecretKey(agent: Agent | TenantAgent<any>): Promise<string> {
     setInCache('secret', cachedKey)
   }
   return cachedKey
+}
+
+async function resolveSubjectFromTenantId(tenantId?: string): Promise<string | undefined> {
+  if (!tenantId) return undefined
+
+  try {
+    const db = DatabaseManager.getDatabase()
+    const row = db.prepare('SELECT id FROM ssi_users WHERE tenant_id = ? LIMIT 1').get(tenantId) as
+      | { id?: string }
+      | undefined
+    return row?.id
+  } catch {
+    return undefined
+  }
 }
 
 export function setDynamicApiKey(newApiKey: string) {

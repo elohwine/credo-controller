@@ -24,7 +24,7 @@ import {
 import api from '@/lib/api';
 import { getRunningActions, RunningAction } from '@/lib/runningActions';
 import { formatCredentialType } from '@/lib/format';
-import { getFriendlyActivityActionLabel, getFriendlyActivitySummary } from '@/lib/uxCopy';
+import { getFriendlyActivityActionLabel, getFriendlyActivitySummary, toFeptStageLabel } from '@/lib/uxCopy';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 
@@ -129,28 +129,6 @@ function normalizeStage(value: unknown): string {
 function isFeptWorkflowType(value: unknown): boolean {
   const normalized = String(value ?? '').trim().toLowerCase();
   return normalized.includes('field') || normalized.includes('fept');
-}
-
-function toFeptStageLabel(stage: string): string {
-  const labels: Record<string, string> = {
-    DRAFT: 'Draft',
-    REQUEST_CREATED: 'Request created',
-    APPROVAL_PENDING: 'Approval pending',
-    APPROVED: 'Approved',
-    RELEASE_AUTHORIZED: 'Release authorized',
-    ASSIGNED: 'Task assigned',
-    IN_PROGRESS: 'Work in progress',
-    EVIDENCE_CAPTURED: 'Evidence captured',
-    ACKNOWLEDGED: 'Execution acknowledged',
-    PAYMENT_TRIGGERED: 'Payment triggered',
-    RECEIPT_ISSUED: 'Receipt issued',
-    RECONCILED: 'Reconciled',
-    COMPLETED: 'Completed',
-    DISPUTED: 'Disputed',
-    CANCELLED: 'Cancelled',
-    REVOKED: 'Revoked',
-  };
-  return labels[stage] || stage.toLowerCase().replace(/_/g, ' ');
 }
 
 function extractFeptStage(entry: any, all?: Record<string, any>): string {

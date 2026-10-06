@@ -33,6 +33,44 @@ import { issuerMetadataCache } from '../../utils/issuerMetadataCache'
  * Only minimal modifications applied to fix ECONNRESET / invalid fetch issues.
  */
 
+/** Plain details for the review screen. Class instances and signed tokens both reduce to strings. */
+function reviewDetails(credential: unknown): { type?: string; claims: Record<string, string> } {
+  let doc: any = credential
+  if (typeof credential === 'string') {
+    const trimmed = credential.trim()
+    if (trimmed.startsWith('{')) {
+      try { doc = JSON.parse(trimmed) } catch { doc = null }
+    } else if (trimmed.split('.').length >= 2) {
+      try {
+        const part = trimmed.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+        const payload = JSON.parse(Buffer.from(part, 'base64').toString('utf8'))
+        doc = payload?.vc || payload
+      } catch { doc = null }
+    }
+  } else if (credential && typeof credential === 'object') {
+    const direct = credential as any
+    if (direct.credentialSubject || direct.type) {
+      doc = direct
+    } else {
+      try { doc = JsonTransformer.toJSON(credential) } catch { doc = credential }
+      doc = doc?.vc || doc?.firstCredential || doc
+    }
+  }
+  const types = Array.isArray(doc?.type) ? doc.type : doc?.type ? [String(doc.type)] : []
+  const type = types.find((item: string) => item && item !== 'VerifiableCredential')
+  const subject = doc?.credentialSubject && typeof doc.credentialSubject === 'object' ? doc.credentialSubject : {}
+  const nested = subject.claims && typeof subject.claims === 'object' ? subject.claims : {}
+  const claims: Record<string, string> = {}
+  for (const [key, value] of Object.entries({ ...subject, ...nested })) {
+    if (key === 'claims' || /id$/i.test(key) || /^(workflowType|assignmentMode|requestType|stageAction|templateId)$/i.test(key) || value == null || value === '') continue
+    if (typeof value === 'object') continue
+    const text = String(value).trim()
+    if (!text || text.startsWith('did:')) continue
+    claims[key] = text
+  }
+  return { type, claims }
+}
+
 interface WalletListingItem {
   id: string
   name: string
@@ -841,37 +879,40 @@ export class WalletController extends Controller {
       }
       console.log('[useOfferRequest] Using holder DID URL for binding:', holderDidUrl)
 
-      // Use the correct API method: acceptCredentialOfferUsingPreAuthorizedCode
-      const acceptResult = await (agent as any).openid4vc?.holder?.acceptCredentialOfferUsingPreAuthorizedCode(
-        resolved,
-        {
-          credentialBindingResolver: async (options: any) => {
-            console.log(
-              '[useOfferRequest] Credential binding resolver called with options:',
-              JSON.stringify(options, null, 2),
-            )
-            const {
-              credentialFormat,
-              supportedDidMethods,
-              keyType,
-              supportsAllDidMethods,
-              supportsJwk,
-              supportedVerificationMethods,
-            } = options || {}
-            console.log('[useOfferRequest] Binding params:', {
-              credentialFormat,
-              supportedDidMethods,
-              keyType,
-              supportsAllDidMethods,
-              supportsJwk,
-            })
-            return { method: 'did', didUrl: holderDidUrl }
-          },
-        },
-      )
+      const holderApi = (agent as any).openid4vc?.holder
+      const credentialBindingResolver = async (options: any) => {
+        console.log('[useOfferRequest] Binding params:', {
+          credentialFormat: options?.credentialFormat,
+          supportedDidMethods: options?.supportedDidMethods,
+          supportsAllDidMethods: options?.supportsAllDidMethods,
+          supportsJwk: options?.supportsJwk,
+        })
+        return { method: 'did', didUrls: [holderDidUrl], didUrl: holderDidUrl }
+      }
 
-      // acceptCredentialOfferUsingPreAuthorizedCode returns an array of credential records directly
-      const credentials = Array.isArray(acceptResult) ? acceptResult : acceptResult?.credentials || []
+      // Credo 0.7: pre-authorized code -> access token -> credential request. The 0.5-era
+      // `acceptCredentialOfferUsingPreAuthorizedCode` is kept only as a fallback.
+      let acceptResult: any
+      if (typeof holderApi?.requestToken === 'function' && typeof holderApi?.requestCredentials === 'function') {
+        const tokenResponse = await holderApi.requestToken({ resolvedCredentialOffer: resolved })
+        acceptResult = await holderApi.requestCredentials({
+          resolvedCredentialOffer: resolved,
+          accessToken: tokenResponse.accessToken,
+          cNonce: tokenResponse.cNonce,
+          dpop: tokenResponse.dpop,
+          verifyCredentialStatus: false,
+          credentialBindingResolver,
+        })
+      } else {
+        acceptResult = await holderApi?.acceptCredentialOfferUsingPreAuthorizedCode(resolved, { credentialBindingResolver })
+      }
+
+      // 0.7 returns `{ credentials: [{ record }] }`; unwrap to the credential objects the code below expects.
+      const rawCredentials: any[] = Array.isArray(acceptResult) ? acceptResult : acceptResult?.credentials || []
+      const credentials = rawCredentials.map((item: any) => {
+        const record = item?.record ?? item
+        return record?.firstCredential ?? record?.credential ?? record
+      })
 
       console.log('[useOfferRequest] Credo accept result:', {
         credentialCount: credentials.length,
@@ -1049,7 +1090,27 @@ export class WalletController extends Controller {
     @Body() body: any,
   ): Promise<any[]> {
     const agent = this.getAgent(request)
-    const presentationDefinition = typeof body === 'string' ? JSON.parse(body) : body
+    const holderAgent = this.getBaseAgentForHolder()
+    const presentationRequest =
+      typeof body === 'string'
+        ? body
+        : typeof body?.presentationRequest === 'string'
+          ? body.presentationRequest
+          : typeof body?.presentationRequestUrl === 'string'
+            ? body.presentationRequestUrl
+            : typeof body?.request_uri === 'string'
+              ? body.request_uri
+              : null
+
+    const presentationDefinition =
+      presentationRequest && typeof presentationRequest === 'string' && presentationRequest.includes('openid4vp')
+        ? await (holderAgent as any).openid4vc?.holder
+            ?.resolveOpenId4VpAuthorizationRequest(presentationRequest)
+            .then((resolved: any) => resolved?.presentationExchange?.definition)
+        : typeof body === 'string'
+          ? JSON.parse(body)
+          : body?.presentationDefinition || body
+
     try {
       const difPexService = agent.dependencyManager.resolve(DifPresentationExchangeService)
       const credentialsForRequest = await difPexService.getCredentialsForRequest(agent.context, presentationDefinition)
@@ -1061,25 +1122,34 @@ export class WalletController extends Controller {
             const credRecord = verifiableCredential.credentialRecord
             const vcAny = verifiableCredential as any
 
+            const readable = (credRecord as any).firstCredential || (credRecord as any).credential || credRecord
             if ('claimFormat' in verifiableCredential && verifiableCredential.claimFormat === ClaimFormat.SdJwtDc) {
               const sdJwtRecord = credRecord as any
+              const source = vcAny.disclosedPayload || sdJwtRecord.compactSdJwtVc || readable
+              const review = reviewDetails(source)
               matchedCredentials.push({
                 id: sdJwtRecord.id,
-                document: sdJwtRecord.compactSdJwtVc || sdJwtRecord.credential,
+                document: typeof sdJwtRecord.compactSdJwtVc === 'string' ? sdJwtRecord.compactSdJwtVc : undefined,
+                type: review.type,
+                claims: review.claims,
                 parsedDocument: JSON.stringify(vcAny.disclosedPayload || {}),
                 disclosures: vcAny.disclosedPayload || null,
               })
-            } else if ('credential' in credRecord) {
+            } else if ('credential' in credRecord || (credRecord as any).firstCredential) {
+              const review = reviewDetails(readable)
               matchedCredentials.push({
                 id: credRecord.id,
-                document: (credRecord as any).credential,
+                type: review.type,
+                claims: review.claims,
                 parsedDocument: null,
                 disclosures: null,
               })
             } else {
+              const review = reviewDetails(credRecord)
               matchedCredentials.push({
                 id: credRecord.id,
-                document: JSON.stringify(credRecord),
+                type: review.type,
+                claims: review.claims,
                 parsedDocument: null,
                 disclosures: null,
               })
@@ -1101,8 +1171,8 @@ export class WalletController extends Controller {
     @Path() walletId: string,
     @Body() body: any,
   ): Promise<any> {
-    console.log('[usePresentationRequest] Body:', JSON.stringify(body))
     const { presentationRequest, selectedCredentials } = body
+    console.log('[usePresentationRequest] start', { selected: Array.isArray(selectedCredentials) ? selectedCredentials.length : 0 })
     if (
       !presentationRequest ||
       !selectedCredentials ||
@@ -1112,30 +1182,85 @@ export class WalletController extends Controller {
       this.setStatus(400)
       throw new Error('Missing presentationRequest or selectedCredentials')
     }
-    // Use BASE agent (not tenant agent) for OID4VC holder operations
-    const agent = this.getBaseAgentForHolder()
+    const holderAgent = this.getBaseAgentForHolder()
     try {
       console.log('[usePresentationRequest] Resolving request for submission...')
-      const resolved = await (agent as any).openid4vc?.holder?.resolveOpenId4VpAuthorizationRequest(presentationRequest)
+      const resolved = await (holderAgent as any).openid4vc?.holder?.resolveOpenId4VpAuthorizationRequest(
+        presentationRequest,
+      )
 
-      console.log('[usePresentationRequest] Accepting request...')
-      const inputDescriptors = resolved.authorizationRequest.presentationDefinition?.inputDescriptors || []
-      const submissionInput: Record<string, string> = {}
-      if (inputDescriptors.length > 0) {
-        const credId = selectedCredentials[0]
-        inputDescriptors.forEach((d: any) => {
-          submissionInput[d.id] = credId
-        })
+      // The review screen ticks record ids. Those records live in the person's wallet
+      // (the tenant), while the holder module that submits the proof runs on the base agent.
+      const selectedIds = new Set(
+        (Array.isArray(selectedCredentials) ? selectedCredentials : [])
+          .filter((value: unknown) => typeof value === 'string')
+          .map((value: string) => value),
+      )
+      const holder = (holderAgent as any).openid4vc?.holder
+      const definition = resolved?.presentationExchange?.definition
+      let credentialsForRequest = resolved?.presentationExchange?.credentialsForRequest
+      const tenants = (holderAgent as any).modules?.tenants
+      let tenantAgent: any
+      try {
+        if (walletId && tenants?.getTenantAgent && definition) {
+          tenantAgent = await tenants.getTenantAgent({ tenantId: walletId })
+          const difPexService = holderAgent.dependencyManager.resolve(DifPresentationExchangeService)
+          const inTenant = await difPexService.getCredentialsForRequest(tenantAgent.context, definition)
+          const hasMatch = (inTenant?.requirements || []).some((requirement: any) =>
+            (requirement.submissionEntry || []).some((entry: any) => (entry.verifiableCredentials || []).length > 0),
+          )
+          if (hasMatch) credentialsForRequest = inTenant
+        }
+      } finally {
+        await tenantAgent?.endSession?.()
       }
-
-      console.log('[usePresentationRequest] Submission Input:', submissionInput)
-      const response = await (agent as any).openid4vc?.holder?.acceptOpenId4VpAuthorizationRequest({
-        authorizationRequest: resolved.authorizationRequest,
-        submissionInput,
+      const pexCredentials: Record<string, any[]> = {}
+      for (const requirement of credentialsForRequest?.requirements || []) {
+        const needed = Math.max(1, Number(requirement?.needsCount) || 1)
+        let taken = 0
+        for (const entry of requirement?.submissionEntry || []) {
+          if (taken >= needed) break
+          const candidates: any[] = entry?.verifiableCredentials || []
+          const ticked = candidates.filter((vc) => selectedIds.has(String(vc?.credentialRecord?.id || '')))
+          const pick = ticked[0] || candidates[0]
+          if (pick && entry?.inputDescriptorId) {
+            pexCredentials[entry.inputDescriptorId] = [pick]
+            taken += 1
+          }
+        }
+      }
+      const dcqlCredentials = resolved?.dcql?.queryResult
+        ? holder?.selectCredentialsForDcqlRequest?.(resolved.dcql.queryResult)
+        : undefined
+      console.log('[usePresentationRequest] selection', {
+        selected: selectedIds.size,
+        requirements: credentialsForRequest?.requirements?.length ?? 0,
+        descriptors: Object.keys(pexCredentials).length,
+        dcql: Boolean(dcqlCredentials),
       })
 
-      console.log('[usePresentationRequest] Success. Redirect URI:', response.redirectUri)
-      return { redirectUri: response.redirectUri }
+      console.log('[usePresentationRequest] Accepting request...')
+      const response = await (holderAgent as any).openid4vc?.holder?.acceptOpenId4VpAuthorizationRequest({
+        authorizationRequestPayload: resolved.authorizationRequestPayload,
+        presentationExchange:
+          resolved.presentationExchange && pexCredentials && Object.keys(pexCredentials).length > 0
+            ? { credentials: pexCredentials }
+            : undefined,
+        dcql: resolved.dcql && dcqlCredentials ? { credentials: dcqlCredentials } : undefined,
+      })
+
+      if (response?.ok === false) {
+        const detail = response?.serverResponse?.body
+        const message =
+          (typeof detail === 'object' && detail && (detail.error_description || detail.message || detail.error)) ||
+          (typeof detail === 'string' ? detail : '') ||
+          'The verifier did not accept this share. Start the step again.'
+        throw new Error(String(message))
+      }
+      // direct_post sends the share to the verifier inside accept. There is no redirect to parse.
+      const directPost = Boolean(response?.ok) && !response?.redirectUri
+      console.log('[usePresentationRequest] accepted', { directPost, redirect: Boolean(response?.redirectUri) })
+      return { redirectUri: response?.redirectUri, directPost }
     } catch (error: any) {
       console.error('[usePresentationRequest] Error:', error.message)
       this.setStatus(500)

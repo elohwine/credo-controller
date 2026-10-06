@@ -8,9 +8,9 @@ import { injectable } from 'tsyringe'
 import { DidMethod, SCOPES } from '../../enums'
 import ErrorHandlingService from '../../errorHandlingService'
 import { BadRequestError, InternalServerError } from '../../errors'
-import { AgentType } from '../../types'
+import type { AgentType } from '../../types'
 import { CreateDidResponse, Did, DidRecordExample } from '../examples'
-import { DidCreate } from '../types'
+import type { DidCreate } from '../types'
 
 @Tags('Dids')
 @Route('/dids')

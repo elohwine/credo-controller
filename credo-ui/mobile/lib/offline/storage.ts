@@ -55,7 +55,13 @@ function resolveStorage(storage?: Storage): Storage | undefined {
 
 function isCapacitorNativeRuntime(): boolean {
   if (typeof window === 'undefined') return false
-  return Boolean((window as any).Capacitor)
+  // Loading a Capacitor plugin in a desktop browser also defines window.Capacitor; only the
+  // native shell reports a non-web platform.
+  const cap = (window as any).Capacitor
+  if (!cap) return false
+  if (typeof cap.isNativePlatform === 'function') return cap.isNativePlatform() === true
+  if (typeof cap.getPlatform === 'function') return cap.getPlatform() !== 'web'
+  return false
 }
 
 function isAndroidNativeRuntime(): boolean {

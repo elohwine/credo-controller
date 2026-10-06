@@ -23,6 +23,13 @@ const SCHEMA = `
     person_id TEXT NOT NULL,
     membership_status TEXT NOT NULL
   );
+  CREATE TABLE org_memberships (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    org_tenant_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    status TEXT NOT NULL
+  );
   CREATE TABLE authority_grants (
     id TEXT PRIMARY KEY,
     organization_id TEXT NOT NULL,
@@ -67,6 +74,7 @@ function seed(db: Database.Database) {
   db.prepare("INSERT INTO organizations VALUES ('org-1','tenant-1','Org','active')").run()
   db.prepare("INSERT INTO people VALUES ('person-1','org-1','sub:user1','active')").run()
   db.prepare("INSERT INTO organization_memberships VALUES ('mem-1','org-1','person-1','active')").run()
+  db.prepare("INSERT INTO org_memberships VALUES ('org-mem-1','sub:user1','tenant-1','owner','active')").run()
   db.prepare(
     `
     INSERT INTO authority_grants (id, organization_id, person_id, authority_type, scope_json, status)
@@ -196,5 +204,18 @@ describe('AuthorizationService – SSI evidence conditions', () => {
 
     expect(result.decision).toBe('deny')
     expect(result.reasonCode).toBe('no_matching_authority')
+  })
+
+  it('allows request actions for active org owners without explicit authority grants', () => {
+    const result = svc.decide({
+      tenantId: 'tenant-1',
+      personId: 'person-1',
+      action: 'request.execute',
+      resourceType: 'request',
+      resourceId: 'request-1',
+    })
+
+    expect(result.decision).toBe('allow')
+    expect(result.reasonCode).toBe('org_role_permission_match')
   })
 })

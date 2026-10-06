@@ -1,35 +1,39 @@
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') })
+
 const { startServer } = require('../build/index')
 const express = require('express')
-const { Router } = require('express')
 const {
   Agent,
-  AutoAcceptCredential,
-  AutoAcceptProof,
-  ConnectionsModule,
-  CredentialsModule,
   DidsModule,
-  HttpOutboundTransport,
   KeyDidRegistrar,
   KeyDidResolver,
   LogLevel,
-  ProofsModule,
   WebDidResolver,
   W3cCredentialsModule,
-  W3cCredential,
-  W3cCredentialSubject,
-  W3cIssuer,
   ClaimFormat,
-  JsonTransformer,
 } = require('@credo-ts/core')
 const { AskarModule, AskarMultiWalletDatabaseScheme } = require('@credo-ts/askar')
+const { DidCommModule, DidCommHttpOutboundTransport } = require('@credo-ts/didcomm')
 const { TenantsModule } = require('@credo-ts/tenants')
-const { OpenId4VcIssuerModule, OpenId4VcVerifierModule, OpenId4VcHolderModule } = require('@credo-ts/openid4vc')
-const { agentDependencies, HttpInboundTransport } = require('@credo-ts/node')
-const { ariesAskar } = require('@hyperledger/aries-askar-nodejs')
+const { OpenId4VcModule } = require('@credo-ts/openid4vc')
+const { agentDependencies, DidCommHttpInboundTransport } = require('@credo-ts/node')
+const { askarNodeJS } = require('@openwallet-foundation/askar-nodejs')
 const { TsLogger } = require('../build/utils/logger')
 
 async function run() {
   const logger = new TsLogger(LogLevel.info)
+  const walletId = process.env.WALLET_ID || 'shared-controller-agent'
+  const walletKey = process.env.WALLET_KEY || 'shared-controller-key'
+  // Askar store location. docker-compose.full.yml sets ASKAR_STORAGE_PATH=/home/credo/.afj and bind-mounts
+  // ./data/askar-issuer there. Honouring the same variable locally (ASKAR_STORAGE_PATH=./data/askar-issuer)
+  // means a non-docker start opens exactly the same wallet file as the compose stack instead of ~/.afj.
+  const askarStoragePath = process.env.ASKAR_STORAGE_PATH
+    ? require('path').resolve(process.env.ASKAR_STORAGE_PATH)
+    : undefined
+  const askarDatabase = askarStoragePath
+    ? { type: 'sqlite', config: { path: `${askarStoragePath}/data/wallet/${walletId}/sqlite.db` } }
+    : undefined
+  console.log(`ℹ️ Askar store: ${askarDatabase ? askarDatabase.config.path : '~/.afj (credo default)'}`)
 
   // Node.js timers use 32-bit signed integers. Using Infinity will clamp to 1ms and emit warnings.
   const maxTimerMs = 2147483647
@@ -41,8 +45,6 @@ async function run() {
 
   // Use a single Express app instance that is shared
   const app = express()
-  const issuerRouter = Router()
-  const verifierRouter = Router()
 
   // DEBUG ENDPOINT TO INSPECT ISSUER CONFIG
   app.get('/debug/issuer', async (req, res) => {
@@ -50,12 +52,12 @@ async function run() {
       if (!agent.isInitialized) {
         return res.status(503).json({ error: 'Agent not initialized' })
       }
-      const issuers = await agent.modules.openId4VcIssuer.getAllIssuers()
+      const issuers = await agent.openid4vc.issuer.getAllIssuers()
       res.json({
         count: issuers.length,
         issuers: issuers.map((i) => ({
           id: i.issuerId,
-          credentialsSupported: i.credentialsSupported,
+          credentialConfigurationsSupported: i.credentialConfigurationsSupported,
           display: i.display,
         })),
       })
@@ -64,25 +66,35 @@ async function run() {
     }
   })
 
+  // Credo >= 0.6 (@openid4vc/*) rejects http:// credential_issuer URLs unless the agent
+  // opts in. Local dev runs on plain http (localhost / LAN IP); production and ngrok-wrapped
+  // deployments expose https and keep the strict check.
+  const publicBaseUrl = process.env.PUBLIC_BASE_URL || 'http://api:3000'
+  const allowInsecureHttpUrls =
+    process.env.ALLOW_INSECURE_HTTP_URLS === 'true' ||
+    (process.env.ALLOW_INSECURE_HTTP_URLS !== 'false' && !publicBaseUrl.startsWith('https://'))
   const agent = new Agent({
     config: {
       walletConfig: {
-        id: 'shared-controller-agent',
-        key: 'shared-controller-key',
+        id: walletId,
+        key: walletKey,
       },
       label: 'Multi-Tenant Test Agent',
       endpoints: ['http://127.0.0.1:3001'],
       logger,
       autoUpdateStorageOnStartup: true,
       backupBeforeStorageUpdate: false,
+      allowInsecureHttpUrls,
     },
     modules: {
       askar: new AskarModule({
-        ariesAskar,
-        multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.ProfilePerWallet,
-        config: {
-          storagePath: process.env.ASKAR_STORAGE_PATH || './data/askar-issuer',
+        askar: askarNodeJS,
+        store: {
+          id: walletId,
+          key: walletKey,
+          ...(askarDatabase ? { database: askarDatabase } : {}),
         },
+        multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.ProfilePerWallet,
       }),
       tenants: new TenantsModule({
         sessionAcquireTimeout: maxTimerMs,
@@ -92,107 +104,110 @@ async function run() {
         registrars: [new KeyDidRegistrar()],
         resolvers: [new KeyDidResolver(), new WebDidResolver()],
       }),
-      connections: new ConnectionsModule({ autoAcceptConnections: true }),
-      credentials: new CredentialsModule({ autoAcceptCredentials: AutoAcceptCredential.Always }),
-      proofs: new ProofsModule({ autoAcceptProofs: AutoAcceptProof.Always }),
-      w3cCredentials: new W3cCredentialsModule(),
-      // OpenID4VC modules (Issuer & Verifier)
-      openId4VcIssuer: new OpenId4VcIssuerModule({
-        baseUrl: `${process.env.PUBLIC_BASE_URL || 'http://api:3000'}/oidc/issuer`,
-        router: issuerRouter,
-        endpoints: {
-          credentialOffer: {},
-          accessToken: {},
-          credential: {
-            credentialRequestToCredentialMapper: async ({
-              agentContext,
-              issuanceSession,
-              holderBinding,
-              credentialConfigurationIds,
-            }) => {
-              console.log('[startServer] === CREDENTIAL MAPPER START ===')
-              console.log('[startServer] issuanceSession keys:', Object.keys(issuanceSession || {}))
-              const metadata = issuanceSession?.issuanceMetadata || {}
-              console.log('[startServer] metadata:', JSON.stringify(metadata))
-              const claims = metadata?.claims || {}
-              console.log('[startServer] extracted claims:', JSON.stringify(claims))
-              console.log('[startServer] credentialConfigurationIds:', credentialConfigurationIds)
-
-              const credentialConfigurationId = credentialConfigurationIds[0]
-
-              let subjectDid = metadata?.subjectDid || 'did:example:unknown'
-              if (holderBinding && typeof holderBinding === 'object' && 'did' in holderBinding) {
-                subjectDid = holderBinding.did
-              }
-
-              // Get or create an issuer DID from the agent
-              const { DidsApi, KeyType } = require('@credo-ts/core')
-              const didsApi = agentContext.dependencyManager.resolve(DidsApi)
-              let issuerDids = await didsApi.getCreatedDids({ method: 'key' })
-              let issuerDid
-
-              if (issuerDids.length === 0) {
-                // Create a did:key for the issuer with Ed25519 key
-                const created = await didsApi.create({
-                  method: 'key',
-                  options: {
-                    keyType: KeyType.Ed25519,
-                  },
-                })
-                issuerDid = created.didState.did
-              } else {
-                issuerDid = issuerDids[0].did
-              }
-
-              // Get the verification method (key reference) for signing
-              const issuerDidDocument = await didsApi.resolveDidDocument(issuerDid)
-              const verificationMethod =
-                issuerDidDocument.verificationMethod?.[0]?.id || `${issuerDid}#${issuerDid.replace('did:key:', '')}`
-
-              // Normalize claims - ensure we have a flat object
-              let normalizedClaims = claims || {}
-              if (normalizedClaims.claims && typeof normalizedClaims.claims === 'object') {
-                normalizedClaims = { ...normalizedClaims, ...normalizedClaims.claims }
-              }
-
-              const credentialType = credentialConfigurationId.replace(/_jwt_vc_json$/, '')
-              const credentialJson = {
-                '@context': ['https://www.w3.org/2018/credentials/v1'],
-                type: ['VerifiableCredential', credentialType],
-                issuer: issuerDid,
-                issuerId: issuerDid,
-                issuanceDate: new Date().toISOString(),
-                credentialSubject: {
-                  id: subjectDid,
-                  ...normalizedClaims,
-                },
-                credentialSubjectIds: [subjectDid],
-              }
-
-              console.log('[startServer] Constructed Credential (Plain):', JSON.stringify(credentialJson))
-
-              return {
-                credentialSupportedId: credentialConfigurationId,
-                format: ClaimFormat.JwtVc,
-                credential: credentialJson,
-                verificationMethod,
-              }
-            },
-          },
+      didcomm: new DidCommModule({
+        endpoints: ['http://127.0.0.1:3001'],
+        transports: {
+          inbound: [new DidCommHttpInboundTransport({ port: 3001 })],
+          outbound: [new DidCommHttpOutboundTransport()],
+        },
+        connections: {
+          autoAcceptConnections: true,
         },
       }),
-      openId4VcVerifier: new OpenId4VcVerifierModule({
-        baseUrl: `${process.env.PUBLIC_BASE_URL || 'http://api:3000'}/oidc/verifier`,
-        router: verifierRouter,
+      w3cCredentials: new W3cCredentialsModule(),
+      openid4vc: new OpenId4VcModule({
+        app,
+        issuer: {
+          baseUrl: `${process.env.PUBLIC_BASE_URL || 'http://api:3000'}/oidc/issuer`,
+          // Inbox offers (role cards, job records) are accepted at the holder's convenience, not
+          // within Credo's 3-minute default. Keep the pre-authorized offer alive for 30 days.
+          statefulCredentialOfferExpirationInSeconds:
+            Number(process.env.OID4VCI_OFFER_EXPIRES_IN_SECONDS) || 30 * 24 * 60 * 60,
+          credentialRequestToCredentialMapper: async ({
+            agentContext,
+            issuanceSession,
+            holderBinding,
+            credentialConfigurationId,
+            credentialConfigurationIds,
+          }) => {
+            console.log('[startServer] === CREDENTIAL MAPPER START ===')
+            console.log('[startServer] issuanceSession keys:', Object.keys(issuanceSession || {}))
+            const metadata = issuanceSession?.issuanceMetadata || {}
+            console.log('[startServer] metadata:', JSON.stringify(metadata))
+            const claims = metadata?.claims || {}
+            console.log('[startServer] extracted claims:', JSON.stringify(claims))
+            console.log('[startServer] credentialConfigurationIds:', credentialConfigurationIds)
+
+            const supportedId = credentialConfigurationId || credentialConfigurationIds?.[0]
+
+            let subjectDid = metadata?.subjectDid || 'did:example:unknown'
+            // Credo 0.7: `{ bindingMethod: 'did', keys: [{ didUrl }] }`; 0.5: `{ method: 'did', did }`.
+            const { holderBindingDid } = require('../build/utils/openidMetadata')
+            const boundDid = holderBindingDid(holderBinding)
+            if (boundDid) subjectDid = boundDid
+
+            const { DidsApi, KeyType } = require('@credo-ts/core')
+            const didsApi = agentContext.dependencyManager.resolve(DidsApi)
+            let issuerDids = await didsApi.getCreatedDids({ method: 'key' })
+            let issuerDid
+
+            if (issuerDids.length === 0) {
+              const created = await didsApi.create({
+                method: 'key',
+                options: {
+                  keyType: KeyType.Ed25519,
+                },
+              })
+              issuerDid = created.didState.did
+            } else {
+              issuerDid = issuerDids[0].did
+            }
+
+            const issuerDidDocument = await didsApi.resolveDidDocument(issuerDid)
+            const verificationMethod =
+              issuerDidDocument.verificationMethod?.[0]?.id || `${issuerDid}#${issuerDid.replace('did:key:', '')}`
+
+            let normalizedClaims = claims || {}
+            if (normalizedClaims.claims && typeof normalizedClaims.claims === 'object') {
+              normalizedClaims = { ...normalizedClaims, ...normalizedClaims.claims }
+            }
+
+            const credentialType = (supportedId || 'GenericIDCredential').replace(/_jwt_vc_json$/, '')
+            const credentialJson = {
+              '@context': ['https://www.w3.org/2018/credentials/v1'],
+              type: ['VerifiableCredential', credentialType],
+              issuer: issuerDid,
+              issuerId: issuerDid,
+              issuanceDate: new Date().toISOString(),
+              credentialSubject: {
+                id: subjectDid,
+                ...normalizedClaims,
+              },
+              credentialSubjectIds: [subjectDid],
+            }
+
+            console.log('[startServer] Constructed Credential (Plain):', JSON.stringify(credentialJson))
+
+            return {
+              type: 'credentials',
+              format: ClaimFormat.JwtVc,
+              credentials: [
+                {
+                  credentialSupportedId: supportedId,
+                  verificationMethod,
+                  credential: credentialJson,
+                },
+              ],
+            }
+          },
+        },
+        verifier: {
+          baseUrl: `${process.env.PUBLIC_BASE_URL || 'http://api:3000'}/oidc/verifier`,
+        },
       }),
-      // OpenID4VC Holder module - for wallets to receive credentials
-      openId4VcHolder: new OpenId4VcHolderModule(),
     },
     dependencies: agentDependencies,
   })
-
-  agent.registerOutboundTransport(new HttpOutboundTransport())
-  agent.registerInboundTransport(new HttpInboundTransport({ port: 3001 }))
 
   await agent.initialize()
   console.log('✅ Agent initialized')
@@ -220,6 +235,19 @@ async function run() {
     const credentialsSupported = []
     const credentialConfigurationsSupported = {}
 
+    // Seed platform-level definitions (PlatformIdentityCredential, OrgWorkflowActorCredential)
+    // so the root issuer advertises them and the definition store stays consistent.
+    try {
+      const { seedPlatformCredentialDefinitions } = require('../build/services/modelRegistry')
+      const rootDids = await agent.dids.getCreatedDids({ method: 'key' })
+      const rootIssuerDid = rootDids[0]?.did
+      if (rootIssuerDid) {
+        await seedPlatformCredentialDefinitions(rootIssuerDid)
+      }
+    } catch (seedErr) {
+      console.warn('Platform credential definition seeding skipped:', seedErr.message)
+    }
+
     // Load ALL types from credentialDefinitionStore dynamically
     // This ensures QuoteVC, ReceiptVC etc are all registered correctly.
     const { credentialDefinitionStore } = require('../build/utils/credentialDefinitionStore')
@@ -233,6 +261,11 @@ async function run() {
         'EmploymentContractVC',
         'QuoteVC',
         'ApprovalVC',
+        // Identity + org actor credentials used by workflow stage OIDC4VP presentations
+        'PlatformIdentityCredential',
+        'OrgWorkflowActorCredential',
+        'EmployeeCredential',
+        'DelegationCredential',
         ...allDefinitions.map((d) => d.name),
       ]),
     )
@@ -284,7 +317,7 @@ async function run() {
       },
     ]
 
-    const existingIssuers = await agent.modules.openId4VcIssuer.getAllIssuers()
+    const existingIssuers = await agent.openid4vc.issuer.getAllIssuers()
 
     let issuerToUse = null
 
@@ -294,10 +327,9 @@ async function run() {
       console.log(`ℹ️ Reusing existing issuer: ${issuerToUse.issuerId} (found ${existingIssuers.length} total)`)
 
       try {
-        await agent.modules.openId4VcIssuer.updateIssuerMetadata({
+        await agent.openid4vc.issuer.updateIssuerMetadata({
           issuerId: issuerToUse.issuerId,
           display,
-          credentialsSupported,
           credentialConfigurationsSupported,
         })
         console.log(`✅ OpenID4VC Issuer metadata updated: ${issuerToUse.issuerId}`)
@@ -307,10 +339,9 @@ async function run() {
     } else {
       // Create a new issuer only if none exist
       try {
-        issuerToUse = await agent.modules.openId4VcIssuer.createIssuer({
+        issuerToUse = await agent.openid4vc.issuer.createIssuer({
           issuerId: 'default-platform-issuer',
           display,
-          credentialsSupported,
           credentialConfigurationsSupported,
         })
         console.log(`✅ OpenID4VC Issuer created: ${issuerToUse.issuerId}`)
@@ -344,12 +375,12 @@ async function run() {
   // DEBUG ENDPOINT MOVED HERE (after agent is init)
   app.get('/debug/issuer', async (req, res) => {
     try {
-      const issuers = await agent.modules.openId4VcIssuer.getAllIssuers()
+      const issuers = await agent.openid4vc.issuer.getAllIssuers()
       res.json({
         count: issuers.length,
         issuers: issuers.map((i) => ({
           id: i.issuerId,
-          credentialsSupported: i.credentialsSupported,
+          credentialConfigurationsSupported: i.credentialConfigurationsSupported,
           issuerUrl: `${process.env.PUBLIC_BASE_URL || 'http://api:3000'}/oidc/issuer/${i.issuerId}`, // Debug helper
         })),
       })
@@ -363,7 +394,7 @@ async function run() {
   // NOTE: Push URL is disabled by default - offers should be manually accepted by users
   // Set OFFER_PUSH_URL env var to enable auto-accept (e.g., for testing)
   // process.env.OFFER_PUSH_URL = process.env.OFFER_PUSH_URL || 'http://localhost:6000/api/wallet/holder-wallet/exchange/useOfferRequest'
-  process.env.OFFER_PUSH_API_KEY = process.env.OFFER_PUSH_API_KEY || 'holder-api-key-12345'
+  process.env.OFFER_PUSH_API_KEY = process.env.OFFER_PUSH_API_KEY || 'test-api-key-12345'
 
   const server = await startServer(
     agent,

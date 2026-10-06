@@ -1,7 +1,5 @@
 import type { Agent } from '@credo-ts/core'
 
-import { ClaimFormat } from '@credo-ts/core'
-
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { rootLogger } from '../../utils/pinoLogger'
 
@@ -80,7 +78,7 @@ export class StatusListPublisherService {
     let signedVcJson: string
     try {
       const signResult = await (agent.w3cCredentials as any).signCredential({
-        format: ClaimFormat.JwtVc,
+        format: 'jwt_vc',
         credential: credentialPayload,
         verificationMethod,
         alg: 'EdDSA',

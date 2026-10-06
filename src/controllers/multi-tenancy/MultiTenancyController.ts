@@ -1,6 +1,7 @@
 import type { TenantPersistenceRecord } from '../../persistence/TenantRepository'
 import type { TenantRecord } from '@credo-ts/tenants'
 
+import '../../types/express'
 import { Agent, JsonTransformer, injectable, RecordNotFoundError } from '@credo-ts/core'
 import { Request as Req } from 'express'
 import jwt from 'jsonwebtoken'
@@ -8,10 +9,11 @@ import { Body, Controller, Delete, Post, Route, Tags, Path, Security, Request, R
 
 import { AgentRole, SCOPES } from '../../enums'
 import ErrorHandlingService from '../../errorHandlingService'
+import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { getTenantById } from '../../persistence/TenantRepository'
 import { listTenants as listPersistenceTenants } from '../../persistence/TenantRepository'
 import { provisionTenantResources } from '../../services/TenantProvisioningService'
-import { CreateTenantOptions, CreateTenantResponse, TenantMetadataResponse } from '../types'
+import type { CreateTenantOptions, CreateTenantResponse, TenantMetadataResponse } from '../types'
 
 @Tags('MultiTenancy')
 @Security('apiKey')
@@ -108,16 +110,10 @@ export class MultiTenancyController extends Controller {
       //   secretKey = records?.content.secretKey as string
       // })
 
-      // Note: logic to store generate token for tenant using BW's secertKey
-
-      const genericRecord = await agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
-      const secretKey = genericRecord[0]?.content.secretKey as string
-
-      if (!secretKey) {
-        throw new Error('secretKey does not exist in wallet')
-      }
-
-      const token = await this.createToken(agent, tenantId, secretKey)
+      // Ensure token signing uses the same secret precedence as verification (env first, wallet fallback)
+      const requester = (request as any)?.user as { sub?: string; id?: string } | undefined
+      const subjectRef = requester?.sub || requester?.id || tenantId
+      const token = await this.createToken(agent, tenantId, undefined, subjectRef)
 
       return { token: token }
     } catch (error) {
@@ -217,7 +213,7 @@ export class MultiTenancyController extends Controller {
     }
   }
 
-  private async createToken(agent: Agent<any>, tenantId: string, secretKey?: string) {
+  private async createToken(agent: Agent<any>, tenantId: string, secretKey?: string, subjectRef?: string) {
     let key: string
     if (!secretKey) {
       // Option1: logic to use tenant's secret key to generate token for tenant
@@ -245,8 +241,21 @@ export class MultiTenancyController extends Controller {
     } else {
       key = secretKey
     }
-    const token = jwt.sign({ role: AgentRole.RestTenantAgent, tenantId }, key)
+    const subject = subjectRef || this.resolveUserIdByTenantId(tenantId) || tenantId
+    const token = jwt.sign({ role: AgentRole.RestTenantAgent, tenantId, sub: subject, id: subject }, key)
     return token
+  }
+
+  private resolveUserIdByTenantId(tenantId: string): string | undefined {
+    try {
+      const db = DatabaseManager.getDatabase()
+      const row = db.prepare('SELECT id FROM ssi_users WHERE tenant_id = ? LIMIT 1').get(tenantId) as
+        | { id?: string }
+        | undefined
+      return row?.id
+    } catch {
+      return undefined
+    }
   }
 }
 

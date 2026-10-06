@@ -25,6 +25,10 @@ export type WorkflowActionContext = {
   state: Record<string, any> // Shared state between actions
   runId?: string // Set when using run tracking
   getProviderConfig?: (providerId: string) => Promise<ProviderConfig> // Helper to get provider config
+  /** The action name for the currently executing step (e.g. 'credential.issue'). Set by WorkflowService. */
+  stageAction?: string
+  /** The workflow_type from the WorkflowRecord being executed. Set by WorkflowService. */
+  workflowType?: string
 }
 
 export type WorkflowActionFunction = (context: WorkflowActionContext, config?: any) => Promise<void>

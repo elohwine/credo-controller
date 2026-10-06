@@ -1,5 +1,5 @@
 /* eslint-disable no-console */
-/* eslint-disable import/no-extraneous-dependencies */
+
 import type { DidCommAutoAcceptProof } from '@credo-ts/didcomm'
 
 import { AskarModule, AskarMultiWalletDatabaseScheme } from '@credo-ts/askar'
@@ -29,6 +29,7 @@ import { readFile } from 'fs/promises'
 import { setupServer } from './server'
 import { generateSecretKey } from './utils/helpers'
 import { TsLogger } from './utils/logger'
+import { holderBindingDid } from './utils/openidMetadata'
 
 type WalletConfig = {
   id: string
@@ -86,6 +87,22 @@ export const buildModules = (cfg: {
 }) => {
   const publicBaseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000'
   const normalizedBaseUrl = publicBaseUrl.replace(/\/$/, '')
+  const oid4vcBaseUrl = (() => {
+    const configured = (process.env.OID4VC_BASE_URL || normalizedBaseUrl).replace(/\/$/, '')
+    try {
+      const parsed = new URL(configured)
+      const isLoopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1'
+
+      // OpenID4VP requires HTTPS for response_uri. Keep this scoped to OID4VC only.
+      if (isLoopback && parsed.protocol === 'http:') {
+        parsed.protocol = 'https:'
+      }
+
+      return parsed.toString().replace(/\/$/, '')
+    } catch {
+      return configured
+    }
+  })()
 
   const walletId = cfg.walletConfig?.id || process.env.WALLET_ID || 'default-wallet'
   const walletKey = cfg.walletConfig?.key || process.env.WALLET_KEY || 'default-wallet-key'
@@ -127,7 +144,11 @@ export const buildModules = (cfg: {
     openid4vc: new OpenId4VcModule({
       app: cfg.app,
       issuer: {
-        baseUrl: `${normalizedBaseUrl}/oidc/issuer`,
+        baseUrl: `${oid4vcBaseUrl}/oidc/issuer`,
+        // Inbox offers (role cards, job records) are accepted at the holder's convenience, not
+        // within Credo's 3-minute default. Keep the pre-authorized offer alive for 30 days.
+        statefulCredentialOfferExpirationInSeconds:
+          Number(process.env.OID4VCI_OFFER_EXPIRES_IN_SECONDS) || 30 * 24 * 60 * 60,
         credentialRequestToCredentialMapper: async ({
           agentContext,
           issuanceSession,
@@ -139,9 +160,8 @@ export const buildModules = (cfg: {
           const claims = metadata?.claims || {}
 
           let subjectDid = metadata?.subjectDid || 'did:example:unknown'
-          if (holderBinding && typeof holderBinding === 'object' && 'did' in holderBinding) {
-            subjectDid = (holderBinding as any).did
-          }
+          const boundDid = holderBindingDid(holderBinding)
+          if (boundDid) subjectDid = boundDid
 
           const { credentialDefinitionStore } = await import('./utils/credentialDefinitionStore')
           const credDef = credentialDefinitionStore.get(credentialConfigurationId)
@@ -218,7 +238,7 @@ export const buildModules = (cfg: {
         },
       },
       verifier: {
-        baseUrl: `${normalizedBaseUrl}/oidc/verifier`,
+        baseUrl: `${oid4vcBaseUrl}/oidc/verifier`,
       },
     }),
   }
@@ -273,12 +293,12 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
 
   const tenantModules = tenancy
     ? {
-      tenants: new TenantsModuleClass<typeof baseModules>({
-        sessionAcquireTimeout: Number(process.env.SESSION_ACQUIRE_TIMEOUT) || 2_147_483_647,
-        sessionLimit: Number(process.env.SESSION_LIMIT) || 2_147_483_647,
-      }),
-      ...baseModules,
-    }
+        tenants: new TenantsModuleClass<typeof baseModules>({
+          sessionAcquireTimeout: Number(process.env.SESSION_ACQUIRE_TIMEOUT) || 2_147_483_647,
+          sessionLimit: Number(process.env.SESSION_LIMIT) || 2_147_483_647,
+        }),
+        ...baseModules,
+      }
     : baseModules
 
   const agent = new Agent({ config: agentConfig, modules: tenantModules as any, dependencies: agentDependencies })
@@ -363,6 +383,7 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
   // Seed platform-level credential definitions (PlatformIdentityVC for SSI auth)
   try {
     const { seedPlatformCredentialDefinitions } = await import('./services/modelRegistry')
+    const { credentialDefinitionStore } = await import('./utils/credentialDefinitionStore')
     const rootDids = await agent.dids.getCreatedDids({ method: 'key' })
     let rootIssuerDid = rootDids[0]?.did
 
@@ -385,6 +406,40 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
 
     await seedPlatformCredentialDefinitions(rootIssuerDid)
     agent.config.logger.info(`Platform credentials seeded with root DID: ${rootIssuerDid}`)
+
+    const platformDef = credentialDefinitionStore.get('PlatformIdentityCredential')
+    const existingIssuers = await agent.openid4vc.issuer.getAllIssuers()
+    if (platformDef && existingIssuers?.length) {
+      const platformSupported = {
+        format: 'jwt_vc_json',
+        id: 'PlatformIdentityCredential_jwt_vc_json',
+        cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
+        cryptographic_suites_supported: ['EdDSA', 'ES256'],
+        types: platformDef.credentialType || ['VerifiableCredential', 'PlatformIdentityCredential'],
+        credential_signing_alg_values_supported: ['EdDSA'],
+        proof_types_supported: {
+          jwt: { proof_signing_alg_values_supported: ['EdDSA'] },
+        },
+        credential_definition: {
+          type: platformDef.credentialType || ['VerifiableCredential', 'PlatformIdentityCredential'],
+        },
+      }
+
+      await Promise.all(
+        existingIssuers.map((issuer: any) =>
+          agent.openid4vc.issuer.updateIssuerMetadata({
+            issuerId: issuer.issuerId,
+            credentialConfigurationsSupported: {
+              ...(issuer.credentialConfigurationsSupported || {}),
+              [platformSupported.id]: platformSupported,
+            },
+            display: issuer.display || [],
+          }),
+        ),
+      )
+
+      agent.config.logger.info('Registered PlatformIdentityCredential in OpenID4VC issuer metadata')
+    }
   } catch (e: any) {
     agent.config.logger.warn(`Failed to seed platform credentials: ${e.message}`)
   }

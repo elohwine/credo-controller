@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Stack, Title, Text, Box, Divider, Button, Group, Checkbox, TextInput, Alert, Loader, Center,
   Paper, Badge, Collapse, Stepper, SimpleGrid, ThemeIcon, Card, ColorInput, ScrollArea, Select,
-  Modal,
+  SegmentedControl, Modal, Radio, Chip, Progress,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -16,149 +16,16 @@ import { useRouter } from 'next/router';
 import AppShellMobile from '@/components/layout/AppShellMobile';
 import BottomSheet from '@/components/shared/BottomSheet';
 import ErrorAlert from '@/components/shared/ErrorAlert';
+import HandoffSettingsCard from '@/components/shared/HandoffSettingsCard';
 import api, { safeArray } from '@/lib/api';
-import { getActiveOrgLabel, getActiveOrgId, getWalletToken, getPreferredToken, applyOrgContext } from '@/lib/auth';
-
-// ── Capability & template types ──
-
-interface CapabilityInfo {
-  id: string;
-  label: string;
-  description: string;
-  icon: string;
-  category: string;
-  templates: string[];
-}
-
-interface TemplateDefinition {
-  id: string;
-  name: string;
-  workflowType: string;
-  sector: string;
-  enabled?: boolean;
-  steps?: { description: string }[];
-  paymentModes: string[];
-  credentialPolicy: { outputVCs: string[] };
-  reconciliationPolicy: { mode: string };
-  evidencePolicy?: any;
-  description?: string;
-}
-
-function inferTemplateSector(raw: any): string {
-  const explicit = String(raw?.sector || '').trim().toLowerCase();
-  if (['ecommerce', 'education', 'cash', 'field_execution', 'custom'].includes(explicit)) {
-    return explicit;
-  }
-
-  const id = String(raw?.id || raw?.workflowType || '').toLowerCase();
-  if (id.includes('education')) return 'education';
-  if (id.includes('cash-counter') || id.includes('cash_counter')) return 'cash';
-  if (id.includes('field') || id.includes('fept')) return 'field_execution';
-
-  const category = String(raw?.category || '').toLowerCase();
-  if (category === 'ecommerce') return 'ecommerce';
-  return 'custom';
-}
-
-function normalizeCapability(raw: any): CapabilityInfo {
-  const templates = Array.isArray(raw?.templates)
-    ? raw.templates
-    : Array.isArray(raw?.associatedTemplates)
-      ? raw.associatedTemplates
-      : [];
-
-  return {
-    id: String(raw?.id || ''),
-    label: String(raw?.label || raw?.name || raw?.id || 'Capability'),
-    description: String(raw?.description || ''),
-    icon: String(raw?.icon || 'settings'),
-    category: String(raw?.category || 'general').toLowerCase(),
-    templates: templates.filter((value: unknown): value is string => typeof value === 'string'),
-  };
-}
-
-function normalizeTemplate(raw: any): TemplateDefinition {
-  const paymentModes = Array.isArray(raw?.paymentModes)
-    ? raw.paymentModes.filter((value: unknown): value is string => typeof value === 'string')
-    : [];
-
-  const outputVCs = Array.isArray(raw?.credentialPolicy?.outputVCs)
-    ? raw.credentialPolicy.outputVCs
-    : Array.isArray(raw?.outputVCs)
-      ? raw.outputVCs
-      : [];
-
-  const steps = Array.isArray(raw?.steps)
-    ? raw.steps
-      .map((step: any) => ({ description: String(step?.description || step?.action || '') }))
-      .filter((step: { description: string }) => step.description.length > 0)
-    : [];
-
-  return {
-    id: String(raw?.id || ''),
-    name: String(raw?.name || raw?.id || 'Workflow Template'),
-    workflowType: String(raw?.workflowType || raw?.id || ''),
-    sector: inferTemplateSector(raw),
-    enabled: raw?.enabled !== false,
-    steps,
-    paymentModes,
-    credentialPolicy: {
-      outputVCs: outputVCs.filter((value: unknown): value is string => typeof value === 'string'),
-    },
-    reconciliationPolicy: {
-      mode: String(raw?.reconciliationPolicy?.mode || 'automatic'),
-    },
-    evidencePolicy: raw?.evidencePolicy || {},
-    description: typeof raw?.description === 'string' ? raw.description : undefined,
-  };
-}
-
-// ── Icon mapping (reuse Tabler icons already imported) ──
-
-const CAPABILITY_ICON_MAP: Record<string, React.ReactNode> = {
-  receipt: <IconReceipt size={22} />,
-  IconReceipt: <IconReceipt size={22} />,
-  cash: <IconCash size={22} />,
-  truck: <IconTruck size={22} />,
-  school: <IconSchool size={22} />,
-  users: <IconUsers size={22} />,
-  clipboard: <IconClipboardList size={22} />,
-  cart: <IconShoppingCart size={22} />,
-  credit_card: <IconCreditCard size={22} />,
-  IconCreditCard: <IconCreditCard size={22} />,
-  shield: <IconShieldCheck size={22} />,
-  building: <IconBuilding size={22} />,
-  IconBuilding: <IconBuilding size={22} />,
-  IconBuildingStore: <IconBuildingStore size={22} />,
-  IconBuildingBank: <IconBuildingBank size={22} />,
-};
-
-function resolveCapabilityIcon(iconKey: string) {
-  return CAPABILITY_ICON_MAP[iconKey] || <IconSettingsAutomation size={22} />;
-}
-
-const CATEGORY_COLORS: Record<string, string> = {
-  finance: 'teal',
-  operations: 'blue',
-  governance: 'violet',
-  commerce: 'orange',
-};
-
-// ── Payment method options (reuse from portal patterns) ──
-
-const PAYMENT_OPTIONS = [
-  { value: 'mobile_money', label: 'Mobile Money', icon: <IconDeviceMobile size={18} />, color: 'green' },
-  { value: 'bank_transfer', label: 'Bank Transfer', icon: <IconBuildingBank size={18} />, color: 'blue' },
-  { value: 'cash', label: 'Cash', icon: <IconCash size={18} />, color: 'orange' },
-  { value: 'qr_code', label: 'QR Code', icon: <IconQrcode size={18} />, color: 'violet' },
-];
+import { getActiveOrgLabel, getActiveOrgId, getWalletToken, getPreferredToken, applyOrgContext, getOrgRoleClaim } from '@/lib/auth';
+import { ORG_KIND_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, kindsFromRequestTypes, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, setupChecklist, type OrgKind, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
 
 // ── Org list types ──
 
 interface OrgOption {
   value: string;
   label: string;
-  sector?: string;
 }
 
 interface StorefrontSummary {
@@ -178,7 +45,48 @@ interface OrgMemberActor {
   userId: string;
   role: string;
   walletTenantId?: string;
+  displayName?: string;
+  phone?: string;
 }
+
+/** Show a person by name; fall back to phone, then "Owner"/"Team member". Never a raw ID. */
+function personName(member?: { displayName?: string; phone?: string; role?: string } | null, fallbackId?: string): string {
+  const name = String(member?.displayName || '').trim();
+  if (name && !/^(organization owner|team member)$/i.test(name)) return name;
+  if (member?.phone) return member.phone;
+  if (member?.role === 'owner') return 'Owner';
+  if (member?.role === 'field_worker') return 'Field worker';
+  if (member?.role === 'supervisor') return 'Supervisor';
+  if (member?.role === 'finance_manager') return 'Finance officer';
+  if (member) return 'Team member';
+  const id = String(fallbackId || '');
+  return id.length > 14 ? `${id.slice(0, 8)}…` : id || 'Team member';
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  owner: 'Owner',
+  admin: 'Admin',
+  member: 'Team member',
+  field_worker: 'Field worker',
+  supervisor: 'Supervisor',
+  dispatcher: 'Dispatcher',
+  approver: 'Approver',
+  manager: 'Manager',
+  finance_manager: 'Finance officer',
+  director: 'Director',
+};
+
+const MEMBER_ROLE_CHOICES = [
+  { value: 'member', label: 'Team member' },
+  { value: 'field_worker', label: 'Field worker' },
+  { value: 'supervisor', label: 'Supervisor' },
+  { value: 'dispatcher', label: 'Dispatcher' },
+  { value: 'approver', label: 'Approver' },
+  { value: 'manager', label: 'Manager' },
+  { value: 'finance_manager', label: 'Finance officer' },
+  { value: 'director', label: 'Director' },
+  { value: 'admin', label: 'Admin' },
+];
 
 interface WorkflowActorDefault {
   id: string;
@@ -190,8 +98,116 @@ interface WorkflowActorDefault {
   enabled: boolean;
 }
 
+interface ActorFallbackEntry {
+  type: 'user' | 'role' | 'wallet';
+  value: string;
+  label?: string;
+}
+
+interface StageActorCredential {
+  state: 'accepted' | 'offered' | 'not_offered' | 'not_applicable';
+  offeredAt?: string;
+  acceptedAt?: string;
+  stageActions?: string[];
+  stale?: boolean;
+}
+
+/** Mirrors OrganizationService.WorkflowActorsView (GET /api/organizations/{id}/workflows/actors). */
+interface WorkflowActorStageView {
+  stageAction: string;
+  title?: string;
+  requirement: string;
+  actor: {
+    userId?: string;
+    walletTenantId?: string;
+    role: string;
+    mode: string;
+    via?: ActorFallbackEntry;
+  };
+  actorDescription: string;
+  needsAssignment: boolean;
+  /** Approving, releasing, recording or receipting money. Shares the purchase-request people. */
+  moneyStep?: boolean;
+  /** Not a money step and nobody chosen: picked the first time the request is used. */
+  askedOnFirstUse?: boolean;
+  default?: WorkflowActorDefault;
+  builtInRoles: string[];
+  stageChain: ActorFallbackEntry[];
+  credential: StageActorCredential;
+}
+
+interface WorkflowActorsView {
+  orgTenantId: string;
+  workflows: Array<{ templateId?: string; workflowType: string; name?: string; stages: WorkflowActorStageView[] }>;
+  members: OrgMemberActor[];
+  roles: string[];
+  policy: {
+    useBuiltInRoleFallbacks: boolean;
+    ownerFallbackEnabled: boolean;
+    defaultChain: ActorFallbackEntry[];
+    stageChains: Record<string, ActorFallbackEntry[]>;
+    signGroups?: Record<string, 'one' | 'both'>;
+  };
+  presets?: Array<{ id: string; title: string; detail: string; signMode: 'one' | 'both' }>;
+  canEdit: boolean;
+}
+
+const ACTOR_USER_PREFIX = 'user:';
+const ACTOR_ROLE_PREFIX = 'role:';
+
+function actorSelectValue(def?: WorkflowActorDefault): string | null {
+  if (!def || !def.enabled) return null;
+  if (def.defaultUserId) return `${ACTOR_USER_PREFIX}${def.defaultUserId}`;
+  if (def.defaultRole) return `${ACTOR_ROLE_PREFIX}${def.defaultRole}`;
+  return null;
+}
+
+function humanizeKey(value?: string): string {
+  return String(value || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function shortStepTitle(stageAction: string, title?: string): string {
+  const action = stageAction.toLowerCase();
+  if (action.includes('assign_field')) return 'Who does the job';
+  if (action.includes('inspect')) return 'Site check';
+  if (action.includes('review')) return 'Work review';
+  if (action.includes('remittance')) return 'Money received';
+  if (action.includes('acknowledge')) return 'Customer sign-off';
+  if (action.includes('payout') || action.includes('release_funds')) return 'Payment release';
+  if (action.includes('record_payment')) return 'Recording the payment';
+  if (action.includes('receipt')) return 'Receipt';
+  if (action.includes('payment_proof')) return 'Proof of payment';
+  if (action.includes('finance_approve')) return 'Finance approval';
+  if (action.includes('approve')) return 'Approval';
+  return (title || '').replace(/\s*\([^)]*\)/g, '').trim() || 'Step';
+}
+
+function isPurchaseRequests(workflow: { workflowType: string }): boolean {
+  return workflow.workflowType.toLowerCase().includes('requisition');
+}
+
+function plainRequestName(workflow: { name?: string; workflowType: string }): string {
+  const type = workflow.workflowType.toLowerCase();
+  const name = workflow.name || '';
+  if (type.includes('field') || /fept/i.test(name)) return 'Jobs';
+  if (type.includes('requisition')) return 'Purchase requests';
+  if (type.includes('payable') || type.includes('ap_')) return 'Supplier bills';
+  if (/payment[_-]collection|collect_payments|accounts_receivable|ar_collections/.test(type)) return 'Customer payments';
+  if (type.includes('education') || type.includes('fee')) return 'School fees';
+  if (type.includes('cash')) return 'Counter sales';
+  return name || 'Requests';
+}
+
+function credentialLabel(credential?: StageActorCredential): { color: string; label: string } | null {
+  if (!credential || credential.state === 'not_applicable') return null;
+  if (credential.stale) return { color: 'yellow', label: 'Role card out of date' };
+  if (credential.state === 'accepted') return { color: 'teal', label: 'Role card in wallet' };
+  if (credential.state === 'offered') return { color: 'blue', label: 'Role card sent' };
+  return { color: 'orange', label: 'Role card not sent yet' };
+}
+
 type ReadinessRequirement = 'mandatory' | 'conditional' | 'recommended';
-type ReadinessStatus = 'ready' | 'needs_attention' | 'optional';
+type ReadinessStatus = 'ready' | 'needs_attention' | 'pending_external' | 'optional';
 type ReadinessDomain = 'core' | 'people' | 'authority' | 'operations' | 'trust' | 'integrations';
 
 interface ReadinessItem {
@@ -201,6 +217,19 @@ interface ReadinessItem {
   requirement: ReadinessRequirement;
   status: ReadinessStatus;
   reason?: string;
+  requiredFor?: string[];
+  stageAction?: string;
+  actionPath?: string;
+  /** Not a money step and nobody chosen: asked the first time the request is used. */
+  askedOnFirstUse?: boolean;
+}
+
+interface WorkflowReadinessSummary {
+  templateId?: string;
+  workflowType: string;
+  name?: string;
+  ready: boolean;
+  blocking: string[];
 }
 
 interface OrganizationReadiness {
@@ -210,6 +239,90 @@ interface OrganizationReadiness {
   readinessState: 'ready' | 'in_progress' | 'blocked';
   items: ReadinessItem[];
   nextActions: string[];
+  /** Per-workflow readiness derived from declared prerequisites. */
+  workflows?: WorkflowReadinessSummary[];
+}
+
+type ReadinessFixTarget = 'members' | 'actors' | 'payments' | 'partners' | 'profile' | 'store' | 'departments';
+
+/** One settings area per screen. `null` is the organisation home. */
+type OrgSection = 'team' | 'actors' | 'payments' | 'departments' | 'handoffs' | 'store';
+
+const SECTION_FOR_FIX: Record<ReadinessFixTarget, OrgSection> = {
+  members: 'team',
+  departments: 'departments',
+  actors: 'actors',
+  payments: 'payments',
+  partners: 'payments',
+  profile: 'store',
+  store: 'store',
+};
+
+const SECTION_LABELS: Array<{ id: OrgSection; label: string }> = [
+  { id: 'team', label: 'Team' },
+  { id: 'actors', label: 'Who does what' },
+  { id: 'payments', label: 'Payments' },
+  { id: 'departments', label: 'Departments' },
+  { id: 'handoffs', label: 'What happens next' },
+  { id: 'store', label: 'Store' },
+];
+
+const QUESTION_FOR_STEP: Partial<Record<SetupStepId, 1 | 2 | 3>> = { kinds: 1, money: 2, payments: 3 };
+const STEP_SAVED_LABEL: Record<1 | 2 | 3, string> = { 1: 'What you do', 2: 'Who handles money', 3: 'Payments' };
+const OPEN_FOR_KIND: Record<OrgKind, string> = { office: '', field: 'Jobs', school: 'School fees', shop: 'Counter sales' };
+
+/** Which card on this page fixes a checklist item. */
+function readinessFixTarget(item: ReadinessItem): ReadinessFixTarget | null {
+  const key = String(item.key || '').toLowerCase();
+  if (/stage_actor|actor/.test(key)) return 'actors';
+  if (/department/.test(key)) return 'departments';
+  if (/admin|member|people|role|authorit|delegat/.test(key)) return 'members';
+  if (/trusted|issuer|verifier|partner/.test(key)) return 'partners';
+  if (/payment|provider|rail/.test(key)) return 'payments';
+  if (/profile|organization_profile|name/.test(key)) return 'profile';
+  if (/store|catalog/.test(key)) return 'store';
+  return null;
+}
+
+const READINESS_TITLE_PLAIN: Record<string, string> = {
+  organization_profile: 'Organisation name',
+  primary_admin: 'An owner or admin',
+  active_members: 'At least one team member',
+  people_records: 'Team member details',
+  departments: 'Departments',
+  roles: 'Roles',
+  authorities: 'Who can approve what',
+  delegations: 'Stand-ins for approvers',
+  stage_actor: 'Who does each job step',
+  trusted_issuers: 'Trusted partners',
+  verifier_registration: 'Checking documents',
+  payment_provider: 'A way to pay',
+};
+
+const READINESS_FIX_CARD_ID: Record<ReadinessFixTarget, string> = {
+  members: 'org-card-members',
+  departments: 'org-card-departments',
+  actors: 'org-card-actors',
+  payments: 'org-card-payments',
+  partners: 'org-card-payments',
+  profile: 'org-card-store',
+  store: 'org-card-store',
+};
+
+
+function plainReadinessTitle(item: ReadinessItem): string {
+  return READINESS_TITLE_PLAIN[item.key] || item.title || item.key.replace(/_/g, ' ');
+}
+
+function plainReadinessReason(item: ReadinessItem): string {
+  return String(item.reason || '')
+    .replace(/\bVCs?\b/g, 'records')
+    .replace(/\bverifiable credentials?\b/gi, 'records')
+    .replace(/\bcredentials?\b/gi, 'records')
+    .replace(/\bissuers?\b/gi, 'partners')
+    .replace(/\bstage actors?\b/gi, 'the people for each step')
+    .replace(/\bworkflow actors?\b/gi, 'the people for each step')
+    .replace(/\bpeople records\b/gi, 'team member details');
 }
 
 const STORE_PAYMENT_RAIL_OPTIONS = [
@@ -217,15 +330,6 @@ const STORE_PAYMENT_RAIL_OPTIONS = [
   { value: 'AcceptsZipit', label: 'ZIPIT' },
   { value: 'AcceptsClicknPay', label: 'ClicknPay' },
   { value: 'AcceptsUsdCash', label: 'USD Cash' },
-];
-
-const AP_ACTOR_ACTIONS = [
-  { value: 'present_payment_proof', label: 'Present payment proof' },
-  { value: 'record_payment', label: 'Record payment' },
-  { value: 'acknowledge_remittance', label: 'Acknowledge remittance' },
-  { value: 'issue_receipt_vc', label: 'Issue receipt VC' },
-  { value: 'mark_disputed', label: 'Mark disputed' },
-  { value: 'resolve_dispute', label: 'Resolve dispute' },
 ];
 
 export default function OrgSettingsPage() {
@@ -251,12 +355,17 @@ export default function OrgSettingsPage() {
   const [storeIsPublic, setStoreIsPublic] = useState(true);
 
   // Member management
-  const [memberList, setMemberList] = useState<Array<{ userId: string; role: string; walletTenantId?: string; status: string }>>([]);
+  const [memberList, setMemberList] = useState<Array<{ userId: string; role: string; walletTenantId?: string; status: string; displayName?: string; phone?: string }>>([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [invitePhone, setInvitePhone] = useState('');
   const [inviteRole, setInviteRole] = useState<string | null>('approver');
   const [inviting, setInviting] = useState(false);
+  const [changingRole, setChangingRole] = useState<string | null>(null);
+  const [departments, setDepartments] = useState<Array<{ id: string; name: string; code?: string }>>([]);
+  const [deptName, setDeptName] = useState('');
+  const [deptBusy, setDeptBusy] = useState(false);
+  const [applyingPreset, setApplyingPreset] = useState<string | null>(null);
 
   const fetchMembers = useCallback(async (orgId: string) => {
     const token = getPreferredToken();
@@ -285,35 +394,54 @@ export default function OrgSettingsPage() {
   const handleRemoveMember = async (userId: string) => {
     const token = getPreferredToken();
     if (!token || !activeId) return;
+    const who = memberList.find((m) => m.userId === userId);
+    if (!window.confirm(`Remove ${personName(who, userId)} from the organization?`)) return;
     try {
       await api.delete(`/api/organizations/${activeId}/members/${encodeURIComponent(userId)}`, { headers: { Authorization: `Bearer ${token}` } });
-      notifications.show({ title: 'Member removed', message: '', color: 'gray' });
+      notifications.show({ title: 'Removed', message: personName(who, userId), color: 'gray' });
       void fetchMembers(activeId);
     } catch (err: any) {
       notifications.show({ title: 'Remove failed', message: err.response?.data?.message ?? err.message, color: 'red' });
     }
   };
 
-  const [apActorDefaults, setApActorDefaults] = useState<WorkflowActorDefault[]>([]);
-  const [orgActorMembers, setOrgActorMembers] = useState<OrgMemberActor[]>([]);
+  const [actorsView, setActorsView] = useState<WorkflowActorsView | null>(null);
+  const [savingActorPolicy, setSavingActorPolicy] = useState(false);
+  const [offeringCredentials, setOfferingCredentials] = useState(false);
+  const [chainPicker, setChainPicker] = useState<string | null>(null);
   const [actorsLoading, setActorsLoading] = useState(false);
   const [savingActorAction, setSavingActorAction] = useState<string | null>(null);
 
-  // Capability flow
-  const [capabilities, setCapabilities] = useState<CapabilityInfo[]>([]);
-  const [selectedCapabilities, setSelectedCapabilities] = useState<string[]>([]);
-  const [capabilitiesLoading, setCapabilitiesLoading] = useState(false);
-
-  // Setup bottom sheet
-  const [setupOpen, setSetupOpen] = useState(false);
-  const [setupStep, setSetupStep] = useState(0);
-  const [templates, setTemplates] = useState<TemplateDefinition[]>([]);
-  const [paymentModes, setPaymentModes] = useState<string[]>([]);
+  // What the organization does (prepares the kinds of requests it uses)
+  const [orgKinds, setOrgKinds] = useState<OrgKind[]>(['office']);
+  const [orgQuestion, setOrgQuestion] = useState<0 | 1 | 2 | 3>(0);
+  const [orgQuestionPreset, setOrgQuestionPreset] = useState('keep_current');
+  const [orgQuestionPay, setOrgQuestionPay] = useState<PaymentChoice>('simulated');
+  /** Answers saved on the server; null until the owner finishes the questions on any device. */
+  const [serverProfile, setServerProfile] = useState<OrgProfile | null>(null);
+  /** The settings area open on its own screen; null shows the organisation home. */
+  const [section, setSection] = useState<OrgSection | null>(null);
+  /** True when one question was opened from the checklist, not the first-run flow. */
+  const [orgSingle, setOrgSingle] = useState(false);
+  /** Checklist questions still to do after this one. */
+  const [orgThen, setOrgThen] = useState<Array<1 | 2 | 3>>([]);
+  /** Small "done" screen after saving: which question, or 'all' after the first run. */
+  const [orgDone, setOrgDone] = useState<null | 1 | 2 | 3 | 'all'>(null);
   const [branding, setBranding] = useState({ orgName: '', primaryColor: '#228be6' });
   const [activating, setActivating] = useState(false);
   const [activeWorkflowTypes, setActiveWorkflowTypes] = useState<string[]>([]);
   const [readiness, setReadiness] = useState<OrganizationReadiness | null>(null);
   const [readinessLoading, setReadinessLoading] = useState(false);
+  const [paymentMethods, setPaymentMethods] = useState<Array<{ id: string; name: string; detail: string; selected: boolean }>>([
+    { id: 'clicknpay', name: 'Click n Pay', detail: 'Pay with card', selected: false },
+    { id: 'ecocash', name: 'EcoCash', detail: 'Pay via EcoCash', selected: false },
+    { id: 'simulated', name: 'Simulated pay', detail: 'Practice payment. No real money moves.', selected: false },
+  ]);
+  const [setupPartners, setSetupPartners] = useState<Array<{ id: string; name: string; isOwnOrganization: boolean; status: string }>>([]);
+  const [partnerName, setPartnerName] = useState('');
+  const [partnerRef, setPartnerRef] = useState('');
+  const [setupBusy, setSetupBusy] = useState(false);
+  const canManageOrgSetup = ['owner', 'admin'].includes(String(getOrgRoleClaim() || '').toLowerCase());
 
   const loadActiveWorkflowTypes = useCallback(async (orgId?: string | null) => {
     const targetOrgId = orgId || getActiveOrgId();
@@ -327,11 +455,14 @@ export default function OrgSettingsPage() {
       const workflowsRes = await api.get(`/api/organizations/${targetOrgId}/workflows`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
-      const enabledTypes = (safeArray(workflowsRes.data?.templates))
-        .filter((t: any) => t.enabled)
-        .map((t: any) => String(t.workflowType || t.id || ''))
-        .filter((value: string) => value.length > 0);
-      setActiveWorkflowTypes(enabledTypes);
+      // Configured (not "enabled") workflows: the backend returns `workflowTypes`
+      // for everything the org has set up; readiness decides whether they run.
+      const configured: string[] = Array.isArray(workflowsRes.data?.workflowTypes)
+        ? workflowsRes.data.workflowTypes
+        : safeArray(workflowsRes.data?.templates).map((t: any) => String(t.workflowType || t.id || ''));
+      const types = configured.filter((value: string) => value.length > 0);
+      localStorage.setItem('credoActiveWorkflowTypes', JSON.stringify(types));
+      setActiveWorkflowTypes(types);
     } catch {
       setActiveWorkflowTypes([]);
     }
@@ -362,17 +493,93 @@ export default function OrgSettingsPage() {
     setActiveId(getActiveOrgId());
     setActiveLabel(getActiveOrgLabel());
     loadOrgs();
-    loadCapabilities();
+    void loadActiveWorkflowTypes();
   }, []);
+
+  const loadOrgSetupExtras = useCallback(async (orgId?: string | null) => {
+    const target = orgId || getActiveOrgId();
+    if (!target || !['owner', 'admin'].includes(String(getOrgRoleClaim() || '').toLowerCase())) return;
+    const token = getPreferredToken() || getWalletToken();
+    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+    try {
+      const [pay, partners] = await Promise.all([
+        api.get(`/api/organizations/${target}/setup/payments`, { headers }),
+        api.get(`/api/organizations/${target}/setup/trusted-partners`, { headers }),
+      ]);
+      if (Array.isArray(pay.data?.methods) && pay.data.methods.length > 0) setPaymentMethods(pay.data.methods);
+      setSetupPartners(partners.data?.partners || []);
+    } catch {
+      // Readiness still works if these setup endpoints are unavailable.
+    }
+  }, []);
+
+  const choosePaymentMethod = async (method: string) => {
+    if (!activeId || !method) return;
+    const token = getPreferredToken() || getWalletToken();
+    setSetupBusy(true);
+    try {
+      const res = await api.post(`/api/organizations/${activeId}/setup/payments`, { method }, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (Array.isArray(res.data?.methods) && res.data.methods.length > 0) setPaymentMethods(res.data.methods);
+      const chosen = (res.data?.methods || paymentMethods).find((item: { id: string; name: string }) => item.id === method);
+      notifications.show({ title: 'Payment method saved', message: chosen ? `${chosen.name} is how this organization takes and releases money.` : 'Saved.', color: 'green' });
+    } catch (err: any) {
+      notifications.show({ title: 'Could not save the payment method', message: err?.response?.data?.message || err?.message, color: 'red' });
+    } finally {
+      setSetupBusy(false);
+    }
+  };
+
+  const trustOwnOrganization = async () => {
+    if (!activeId) return;
+    const token = getPreferredToken() || getWalletToken();
+    setSetupBusy(true);
+    try {
+      const res = await api.post(`/api/organizations/${activeId}/setup/trusted-partners/own`, {}, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      setSetupPartners(res.data?.partners || []);
+      notifications.show({ title: 'This organization is trusted', message: 'Documents you issue here will be accepted.', color: 'green' });
+    } catch (err: any) {
+      notifications.show({ title: 'Could not update', message: err?.response?.data?.message || err?.message, color: 'red' });
+    } finally {
+      setSetupBusy(false);
+    }
+  };
+
+  const addTrustedPartner = async () => {
+    if (!activeId || !partnerRef.trim()) return;
+    const token = getPreferredToken() || getWalletToken();
+    setSetupBusy(true);
+    try {
+      const res = await api.post(`/api/organizations/${activeId}/setup/trusted-partners`, {
+        name: partnerName.trim() || undefined,
+        reference: partnerRef.trim(),
+      }, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      setSetupPartners(res.data?.partners || []);
+      setPartnerName('');
+      setPartnerRef('');
+      notifications.show({ title: 'Partner added', message: 'Documents from this partner can now be accepted.', color: 'green' });
+    } catch (err: any) {
+      notifications.show({ title: 'Could not add partner', message: err?.response?.data?.message || err?.message, color: 'red' });
+    } finally {
+      setSetupBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!activeId) return;
     void loadStoreBasics(activeId);
     void loadWorkflowActorDefaults();
     void fetchMembers(activeId);
+    void loadDepartments(activeId);
     void loadActiveWorkflowTypes(activeId);
     void loadReadiness(activeId);
-  }, [activeId, fetchMembers, loadActiveWorkflowTypes, loadReadiness]);
+    void loadOrgSetupExtras(activeId);
+  }, [activeId, fetchMembers, loadActiveWorkflowTypes, loadReadiness, loadOrgSetupExtras]);
 
   // ── Data loading (reused from original) ──
 
@@ -387,26 +594,11 @@ export default function OrgSettingsPage() {
       setOrgs(data.map((o) => ({
         value: o.orgTenantId ?? o.id,
         label: o.name ?? o.label ?? o.id,
-        sector: o.sector,
       })));
     } catch (err: any) {
       setError(err.response?.data?.message ?? err.message ?? 'Failed to load organisations');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadCapabilities = async () => {
-    setCapabilitiesLoading(true);
-    try {
-      const res = await api.get('/api/workflow-templates/capabilities');
-      const normalized = safeArray(res.data).map((item) => normalizeCapability(item));
-      setCapabilities(normalized);
-      await loadActiveWorkflowTypes();
-    } catch {
-      // Non-critical — legacy sector flow will remain available
-    } finally {
-      setCapabilitiesLoading(false);
     }
   };
 
@@ -442,40 +634,37 @@ export default function OrgSettingsPage() {
     setActorsLoading(true);
     try {
       const token = getPreferredToken();
-      const res = await api.get('/api/finance/ap/workflow-actors/defaults', {
-        params: { workflowType: 'ap_trust_workflow' },
+      // One view for every configured workflow: stage actors, members, role options and fallback policy.
+      const res = await api.get(`/api/organizations/${encodeURIComponent(activeId)}/workflows/actors`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
-      setApActorDefaults(safeArray(res.data?.defaults));
-      setOrgActorMembers(safeArray(res.data?.members));
+      setActorsView(res.data ?? null);
     } catch {
-      setApActorDefaults([]);
-      setOrgActorMembers([]);
+      setActorsView(null);
     } finally {
       setActorsLoading(false);
     }
   };
 
-  const saveActorDefault = async (stageAction: string, selectedUserId: string | null) => {
+  /** `selected` is `user:<id>`, `role:<key>` or null (clear → fallback policy applies). */
+  const saveActorDefault = async (workflowType: string, stageAction: string, selected: string | null) => {
     const token = getPreferredToken();
-    if (!token) return;
-    setSavingActorAction(stageAction);
+    if (!token || !activeId) return;
+    const key = `${workflowType}:${stageAction}`;
+    setSavingActorAction(key);
     try {
-      const member = orgActorMembers.find((m) => m.userId === selectedUserId);
-      await api.post('/api/finance/ap/workflow-actors/defaults', {
-        workflowType: 'ap_trust_workflow',
-        stageAction,
-        defaultUserId: selectedUserId || undefined,
-        defaultRole: member?.role,
-        defaultWalletTenantId: member?.walletTenantId,
-        enabled: true,
-      }, {
+      const body: Record<string, unknown> = { workflowType, stageAction };
+      if (!selected) body.enabled = false;
+      else if (selected.startsWith(ACTOR_USER_PREFIX)) body.defaultUserId = selected.slice(ACTOR_USER_PREFIX.length);
+      else if (selected.startsWith(ACTOR_ROLE_PREFIX)) body.defaultRole = selected.slice(ACTOR_ROLE_PREFIX.length);
+
+      await api.put(`/api/organizations/${encodeURIComponent(activeId)}/workflows/actors/defaults`, body, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       notifications.show({
-        title: 'Workflow actor updated',
-        message: `${stageAction.replace(/_/g, ' ')} assignment saved.`,
+        title: selected ? 'Person saved for this step' : 'Person cleared for this step',
+        message: `${humanizeKey(stageAction)} · ${humanizeKey(workflowType)}`,
         color: 'green',
       });
       await loadWorkflowActorDefaults();
@@ -490,6 +679,167 @@ export default function OrgSettingsPage() {
     }
   };
 
+  const saveActorPolicy = async (patch: {
+    useBuiltInRoleFallbacks?: boolean;
+    ownerFallbackEnabled?: boolean;
+    defaultChain?: ActorFallbackEntry[];
+    stageChains?: Record<string, ActorFallbackEntry[]>;
+    signGroups?: Record<string, 'one' | 'both'>;
+  }) => {
+    const token = getPreferredToken();
+    if (!token || !activeId) return;
+    setSavingActorPolicy(true);
+    try {
+      await api.patch(`/api/organizations/${encodeURIComponent(activeId)}/workflows/actors/policy`, patch, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await loadWorkflowActorDefaults();
+    } catch (err: any) {
+      notifications.show({
+        title: 'Policy update failed',
+        message: err?.response?.data?.message || err?.message || 'Could not update fallback policy.',
+        color: 'red',
+      });
+    } finally {
+      setSavingActorPolicy(false);
+    }
+  };
+
+  const loadDepartments = async (orgId: string) => {
+    const token = getPreferredToken();
+    if (!token || !orgId) return;
+    try {
+      const res = await api.get(`/api/organizations/${encodeURIComponent(orgId)}/departments`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const list = Array.isArray(res.data) ? res.data : safeArray(res.data?.departments);
+      setDepartments(list);
+    } catch {
+      setDepartments([]);
+    }
+  };
+
+  const addDepartment = async () => {
+    const token = getPreferredToken();
+    if (!token || !activeId || !deptName.trim()) return;
+    setDeptBusy(true);
+    try {
+      await api.post(`/api/organizations/${encodeURIComponent(activeId)}/departments`, { name: deptName.trim() }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setDeptName('');
+      notifications.show({ title: 'Department added', message: deptName.trim(), color: 'green' });
+      await loadDepartments(activeId);
+    } catch (err: any) {
+      notifications.show({ title: 'Could not add department', message: err?.response?.data?.message || err?.message, color: 'red' });
+    } finally {
+      setDeptBusy(false);
+    }
+  };
+
+  const applyActorPreset = async (presetId: string) => {
+    const token = getPreferredToken();
+    if (!token || !activeId) return;
+    setApplyingPreset(presetId);
+    try {
+      const res = await api.post(`/api/organizations/${encodeURIComponent(activeId)}/workflows/actors/presets`, { presetId }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setActorsView(res.data ?? null);
+      notifications.show({ title: 'Setup applied', message: 'Purchase-request steps now follow this setup.', color: 'green' });
+    } catch (err: any) {
+      notifications.show({ title: 'Could not apply setup', message: err?.response?.data?.message || err?.message, color: 'red' });
+    } finally {
+      setApplyingPreset(null);
+    }
+  };
+
+  const changeMemberRole = async (userId: string, role: string | null) => {
+    const token = getPreferredToken();
+    if (!token || !activeId || !role) return;
+    setChangingRole(userId);
+    try {
+      await api.patch(`/api/organizations/${encodeURIComponent(activeId)}/members/${encodeURIComponent(userId)}`, { role }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      notifications.show({ title: 'Role updated', message: ROLE_LABELS[role] || humanizeKey(role), color: 'green' });
+      await fetchMembers(activeId);
+    } catch (err: any) {
+      notifications.show({ title: 'Could not change role', message: err?.response?.data?.message || err?.message, color: 'red' });
+    } finally {
+      setChangingRole(null);
+    }
+  };
+
+
+  const offerActorCredentials = async () => {
+    const token = getPreferredToken();
+    if (!token || !activeId) return;
+    setOfferingCredentials(true);
+    try {
+      const res = await api.post(`/api/organizations/${encodeURIComponent(activeId)}/workflows/actors/offer-credentials`, {}, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const offered = safeArray(res.data?.offered).length;
+      const covered = safeArray(res.data?.alreadyCovered).length;
+      notifications.show({
+        title: 'Role cards',
+        message: offered > 0 ? `${offered} role card${offered === 1 ? '' : 's'} sent to team members' wallets.` : `${covered} ${covered === 1 ? 'person' : 'people'} already have theirs.`,
+        color: 'green',
+      });
+      await loadWorkflowActorDefaults();
+    } catch (err: any) {
+      notifications.show({
+        title: 'Could not offer credentials',
+        message: err?.response?.data?.message || err?.message || 'Offer failed.',
+        color: 'red',
+      });
+    } finally {
+      setOfferingCredentials(false);
+    }
+  };
+
+  const actorPickerOptions = useMemo(() => {
+    if (!actorsView) return [];
+    return [
+      {
+        group: 'People',
+        items: actorsView.members.map((member) => ({
+          value: `${ACTOR_USER_PREFIX}${member.userId}`,
+          label: `${personName(member)} · ${ROLE_LABELS[member.role] || humanizeKey(member.role)}${member.walletTenantId ? '' : ' (no wallet)'}`,
+          disabled: !member.walletTenantId,
+        })),
+      },
+      { group: 'Roles', items: actorsView.roles.map((role) => ({ value: `${ACTOR_ROLE_PREFIX}${role}`, label: humanizeKey(role) })) },
+    ];
+  }, [actorsView]);
+
+  const setupSteps = useMemo(
+    () => setupChecklist({ profile: serverProfile || readOrgProfile(), items: readiness?.items ?? [], memberCount: memberList.length }),
+    [serverProfile, readiness, memberList],
+  );
+  const moneyActorGapTitles = useMemo(() => {
+    const titles = new Set<string>();
+    for (const wf of actorsView?.workflows ?? []) {
+      for (const s of wf.stages) {
+        if (s.moneyStep && s.needsAssignment) titles.add(shortStepTitle(s.stageAction, s.title));
+      }
+    }
+    return [...titles];
+  }, [actorsView]);
+  const moneyActorGaps = moneyActorGapTitles.length > 0;
+  /** Request types where the owner opened "Use someone else" for the money steps. */
+  const [moneyOverrideOpen, setMoneyOverrideOpen] = useState<Record<string, boolean>>({});
+  /** One category per screen inside Who does what: money, each kind of request, backups, role cards. */
+  const [actorTab, setActorTab] = useState('money');
+  const actorTabs = useMemo(() => {
+    const requests = (actorsView?.workflows ?? [])
+      .filter((workflow) => !isPurchaseRequests(workflow) || workflow.stages.some((stage) => !stage.moneyStep))
+      .map((workflow) => ({ id: workflow.workflowType, label: plainRequestName(workflow) }));
+    return [{ id: 'money', label: 'Money' }, ...requests, { id: 'backups', label: 'If nobody is chosen' }, { id: 'cards', label: 'Role cards' }];
+  }, [actorsView]);
+  const actorTabIndex = Math.max(0, actorTabs.findIndex((tab) => tab.id === actorTab));
+  const currentActorTab = actorTabs[actorTabIndex]?.id;
   const saveStoreVisibility = async () => {
     if (!activeId) return;
     setSavingVisibility(true);
@@ -533,7 +883,7 @@ export default function OrgSettingsPage() {
 
       if (res.status >= 200 && res.status < 300) {
         notifications.show({
-          title: 'Payment rails saved',
+          title: 'Ways to pay saved',
           message: 'Store payment rails updated.',
           color: 'green',
         });
@@ -565,7 +915,7 @@ export default function OrgSettingsPage() {
       const org = orgs.find((e) => e.value === orgId);
       const orgLabel = orgName ?? org?.label ?? orgId;
 
-      applyOrgContext({ orgId, orgName: orgLabel, orgToken: token, sector, workflowTypes });
+      applyOrgContext({ orgId, orgName: orgLabel, orgToken: token, orgRole, sector, workflowTypes });
       setActiveId(orgId);
       setActiveLabel(orgLabel);
       void loadActiveWorkflowTypes(orgId);
@@ -578,7 +928,7 @@ export default function OrgSettingsPage() {
     }
   };
 
-  // ── Create org (simplified — no sector required upfront) ──
+  // ── Create org (name only — workflows are configured afterwards and gated by readiness) ──
 
   const createOrg = async () => {
     if (!newOrgName.trim()) return;
@@ -588,7 +938,7 @@ export default function OrgSettingsPage() {
       const token = getWalletToken();
       const res = await api.post(
         '/api/organizations',
-        { name: newOrgName.trim(), sector: 'custom' },
+        { name: newOrgName.trim() },
         { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
       );
       const { orgTenantId } = res.data;
@@ -630,68 +980,120 @@ export default function OrgSettingsPage() {
     }
   };
 
-  // ── Capability selection toggle ──
+  // ── What the organization does → which kinds of requests are prepared ──
 
-  const toggleCapability = (id: string) => {
-    setSelectedCapabilities((prev) =>
-      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
-    );
-  };
 
-  // ── Open setup flow (fetch templates for selected capabilities) ──
-
-  const openSetup = async () => {
-    if (selectedCapabilities.length === 0) return;
-    setSetupStep(0);
-    setSetupOpen(true);
-
-    const allTemplateIds = selectedCapabilities.flatMap((capId) => {
-      const cap = capabilities.find((c) => c.id === capId);
-      return cap?.templates ?? [];
-    });
-    const uniqueIds = Array.from(new Set(allTemplateIds));
-
-    if (uniqueIds.length === 0) {
-      notifications.show({
-        title: 'Workflow mapping missing',
-        message: 'Selected capability has no workflow templates configured yet.',
-        color: 'red',
-      });
-      setSetupOpen(false);
+  useEffect(() => {
+    if (serverProfile && serverProfile.kinds.length > 0) {
+      setOrgKinds(serverProfile.kinds);
       return;
     }
+    const kinds = new Set<OrgKind>(kindsFromRequestTypes(activeWorkflowTypes));
+    if (kinds.size === 0) kinds.add('office');
+    setOrgKinds(Array.from(kinds));
+  }, [activeWorkflowTypes, serverProfile]);
 
-    try {
-      const res = await api.post('/api/workflow-templates/bulk', { ids: uniqueIds });
-      const fetched = safeArray(res.data).map((item) => normalizeTemplate(item));
-      setTemplates(fetched);
-      const mergedPayments = Array.from(new Set(fetched.flatMap((t) => t.paymentModes || [])));
-      setPaymentModes(mergedPayments);
-    } catch {
-      notifications.show({ title: 'Error', message: 'Failed to load template details', color: 'red' });
-      setSetupOpen(false);
+  useEffect(() => {
+    if (!activeId) return;
+    const token = getPreferredToken() || getWalletToken();
+    let cancelled = false;
+    api
+      .get(`/api/organizations/${activeId}${SETUP_PROFILE_PATH}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      })
+      .then((res) => {
+        if (cancelled) return;
+        const server = profileFromServer(res.data);
+        setServerProfile(server);
+        if (server) {
+          persistOrgProfile(server);
+          setOrgQuestion(0);
+        }
+      })
+      .catch(() => {
+        /* the local copy decides */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId]);
+
+  useEffect(() => {
+    if (!canManageOrgSetup || !activeId) return;
+    if (readOrgProfile()) {
+      setOrgQuestion(0);
+      return;
     }
+    setOrgQuestion((current) => (current === 0 ? 1 : current));
+  }, [canManageOrgSetup, activeId]);
+
+  const finishOrgQuestions = async () => {
+    const profile: OrgProfile = {
+      kinds: orgKinds,
+      approvalPresetId: orgQuestionPreset === 'keep_current' ? serverProfile?.approvalPresetId || '' : orgQuestionPreset,
+      approvalTitle:
+        orgQuestionPreset === 'keep_current'
+          ? serverProfile?.approvalTitle || 'People chosen under Who does what'
+          : (actorsView?.presets || []).find((preset) => preset.id === orgQuestionPreset)?.title || '',
+      paymentChoice: orgQuestionPay,
+      completedAt: new Date().toISOString(),
+    };
+    const saved = await saveOrgKinds(profile);
+    if (!saved) return;
+    if (orgQuestionPreset && orgQuestionPreset !== 'keep_current') {
+      await applyActorPreset(orgQuestionPreset);
+    }
+    if (orgQuestionPay !== 'none') {
+      await choosePaymentMethod(orgQuestionPay);
+    }
+    persistOrgProfile(profile);
+    setOrgQuestion(0);
+    setOrgDone('all');
   };
 
-  // ── Configure workflows ──
+  /** Save the one question opened from the checklist, then show a small done screen. */
+  const saveSingleQuestion = async () => {
+    const question = orgQuestion;
+    if (question === 0) return;
+    let saved = false;
+    if (question === 1) {
+      saved = await saveOrgKinds(undefined, { kinds: orgKinds });
+    } else if (question === 2) {
+      if (orgQuestionPreset && orgQuestionPreset !== 'keep_current') await applyActorPreset(orgQuestionPreset);
+      saved = await saveOrgKinds(undefined, {
+        approvalPresetId: orgQuestionPreset === 'keep_current' ? serverProfile?.approvalPresetId : orgQuestionPreset,
+        approvalTitle:
+          orgQuestionPreset === 'keep_current'
+            ? serverProfile?.approvalTitle || 'People chosen under Who does what'
+            : (actorsView?.presets || []).find((preset) => preset.id === orgQuestionPreset)?.title || '',
+      });
+    } else {
+      if (orgQuestionPay !== 'none') await choosePaymentMethod(orgQuestionPay);
+      saved = await saveOrgKinds(undefined, { paymentChoice: orgQuestionPay });
+    }
+    if (!saved) return;
+    setOrgQuestion(0);
+    setOrgDone(question);
+  };
 
-  const handleConfigure = async () => {
+  const openChecklistStep = (id: SetupStepId, rest: SetupStepId[]) => {
+    setOrgDone(null);
+    if (id === 'team') {
+      setSection('team');
+      return;
+    }
+    const question = QUESTION_FOR_STEP[id];
+    if (!question) return;
+    setOrgSingle(true);
+    setOrgThen(rest.map((step) => QUESTION_FOR_STEP[step]).filter((value): value is 1 | 2 | 3 => Boolean(value)));
+    setOrgQuestion(question);
+  };
+
+  /** Save the answers. The server works out which kinds of request follow; nothing is named or switched on. */
+  const saveOrgKinds = async (profile?: OrgProfile, partial?: Record<string, unknown>): Promise<boolean> => {
     if (!activeId) {
-      notifications.show({
-        title: 'Configuration Failed',
-        message: 'No active organization selected. Switch to an organization first.',
-        color: 'red',
-      });
-      return;
-    }
-
-    if (templates.length === 0) {
-      notifications.show({
-        title: 'Configuration Failed',
-        message: 'No workflow templates selected for activation.',
-        color: 'red',
-      });
-      return;
+      notifications.show({ title: 'No organization', message: 'Switch to an organization first.', color: 'red' });
+      return false;
     }
 
     setActivating(true);
@@ -724,82 +1126,69 @@ export default function OrgSettingsPage() {
         throw new Error('Organization session expired. Switch organization and try again.');
       }
 
-      const preferredTemplate = templates.find((template) => template.sector && template.sector !== 'custom') || templates[0];
-      const primarySector = preferredTemplate?.sector || 'custom';
-      const allWorkflowTypes = templates.map((t) => t.workflowType);
+      const body = partial ?? (profile ? profileToServer(profile) : { kinds: orgKinds });
+      const res = await api.put(`/api/organizations/${activeId}${SETUP_PROFILE_PATH}`, body, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const server = profileFromServer(res.data);
+      setServerProfile(server);
+      if (server) persistOrgProfile(server);
 
-      // Merge with currently active workflow types so activating new capabilities
-      // does not deactivate the existing ones (e.g. adding school fees won't kill requisitions).
-      const merged: string[] = Array.from(new Set([...activeWorkflowTypes, ...allWorkflowTypes]));
-
-      // For custom-only selections (for example AR/AP templates), do not send `sector: custom`.
-      // Sending custom forces backend default-template resolution, which currently maps to
-      // internal requisitions and can activate the wrong module.
-      const activationPayload = primarySector === 'custom'
-        ? {
-            name: branding.orgName || activeLabel || templates[0].name,
-            additionalWorkflowTypes: merged,
-            paymentModes,
-            reconciliationPolicy: { mode: 'automatic' },
-            evidencePolicy: templates[0].evidencePolicy,
-            brandingPolicy: { orgName: branding.orgName || activeLabel, primaryColor: branding.primaryColor },
-          }
-        : {
-            sector: primarySector,
-            name: branding.orgName || activeLabel || templates[0].name,
-            additionalWorkflowTypes: merged.filter((t) => t !== primarySector),
-            paymentModes,
-            reconciliationPolicy: { mode: 'automatic' },
-            evidencePolicy: templates[0].evidencePolicy,
-            brandingPolicy: { orgName: branding.orgName || activeLabel, primaryColor: branding.primaryColor },
-          };
-
-      const res = await api.post(
-        `/api/organizations/${activeId}/workflows/configure`,
-        activationPayload,
-        { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
-      );
-
-      const result = res.data;
-      localStorage.setItem('credoTenantSector', primarySector);
-      const updatedWorkflowTypes = (result.templates ?? [])
-        .filter((t: any) => t.enabled)
-        .map((t: any) => t.workflowType);
-      localStorage.setItem('credoActiveWorkflowTypes', JSON.stringify(updatedWorkflowTypes));
-      setActiveWorkflowTypes(updatedWorkflowTypes);
       await loadActiveWorkflowTypes(activeId);
       await loadReadiness(activeId);
-
-      const firstEnabled = result.templates?.find((t: any) => t.enabled);
-      if (firstEnabled?.id) localStorage.setItem('credoActiveTemplateId', firstEnabled.id);
-
-      notifications.show({
-        title: 'Capabilities Configured',
-        message: `${templates.length} workflow(s) configured.`,
-        color: 'green',
-      });
-
-      setSetupOpen(false);
-      setSelectedCapabilities([]);
+      return true;
     } catch (err: any) {
       notifications.show({
-        title: 'Configuration Failed',
-        message: err.response?.data?.message ?? err.message ?? 'Failed to configure workflows',
+        title: 'Could not save',
+        message: err.response?.data?.message ?? err.message ?? 'Please try again.',
         color: 'red',
       });
+      return false;
     } finally {
       setActivating(false);
     }
   };
 
-  // ── Derived data ──
+  const renderActorStage = (workflow: { workflowType: string; name?: string }, stage: WorkflowActorStageView) => {
+    if (!actorsView) return null;
+    const key = `${workflow.workflowType}:${stage.stageAction}`;
+    const who = stage.actor.userId || stage.actor.walletTenantId;
+    const credential = credentialLabel(stage.credential);
+    const named = who ? personName(actorsView.members.find((m) => m.userId === who), who) : '';
+    const person = stage.askedOnFirstUse
+      ? plainRequestName(workflow) === 'Jobs' ? 'Picked on the first job' : 'Picked the first time'
+      : stage.actor.mode === 'shared_finance'
+        ? `Same as purchase requests${named ? ` · ${named}` : ''}`
+        : stage.needsAssignment
+          ? named ? `Needs a person · ${named} for now` : 'Needs a person'
+          : named || 'Owner is standing in';
+    const onlyHere = stage.moneyStep && !isPurchaseRequests(workflow) && stage.default?.enabled;
+    return (
+      <Box key={key}>
+        <Text size="sm" fw={500}>
+          {shortStepTitle(stage.stageAction, stage.title)}
+          {onlyHere ? ` · only for ${plainRequestName(workflow).toLowerCase()}` : ''}
+        </Text>
+        <Text size="xs" c="dimmed">
+          {person}
+          {credential && !stage.askedOnFirstUse ? ` · ${credential.label}` : ''}
+        </Text>
+        <Select
+          mt={4}
+          size="xs"
+          placeholder={stage.askedOnFirstUse ? 'Choose now (optional)' : 'Person or role'}
+          data={actorPickerOptions}
+          value={actorSelectValue(stage.default)}
+          clearable
+          searchable
+          onChange={(next) => saveActorDefault(workflow.workflowType, stage.stageAction, next)}
+          disabled={!actorsView.canEdit || savingActorAction === key}
+        />
+      </Box>
+    );
+  };
 
-  const allVCs = useMemo(
-    () => Array.from(new Set(templates.flatMap((t) => t.credentialPolicy?.outputVCs ?? []))),
-    [templates]
-  );
-
-  const setupStepCount = 4; // review → payments → credentials → configure
+  const answering = section === null && (orgQuestion > 0 || orgDone !== null);
 
   return (
     <AppShellMobile>
@@ -807,24 +1196,23 @@ export default function OrgSettingsPage() {
         {/* ── Header ── */}
         <Box>
           <Title order={3}>Organisation</Title>
-          <Text size="sm" c="dimmed" mt={2}>
-            Manage your organisations and configure capabilities.
-          </Text>
         </Box>
 
         <Divider />
         {error && <ErrorAlert message={error} />}
 
         {/* ── Create Org ── */}
+        {section === null && !answering && (
         <Button variant="light" leftSection={<IconPlus size={16} />} onClick={() => setShowCreate((c) => !c)} fullWidth>
           {showCreate ? 'Close' : 'Create Organisation'}
         </Button>
+        )}
 
-        <Collapse in={showCreate}>
+        {!answering && <Collapse in={showCreate}>
           <Paper p="md" radius="md" withBorder>
             <Stack gap="sm">
               <Title order={5}>New Organisation</Title>
-              <Text size="xs" c="dimmed">Name your organisation, then select capabilities below to configure it.</Text>
+              <Text size="xs" c="dimmed">Give it a name. You will answer a few questions about what it does next.</Text>
               <TextInput
                 label="Name"
                 placeholder="Acme Traders"
@@ -840,10 +1228,10 @@ export default function OrgSettingsPage() {
               </Group>
             </Stack>
           </Paper>
-        </Collapse>
+        </Collapse>}
 
         {/* ── Org List (reused from original) ── */}
-        {loading ? (
+        {section !== null || answering ? null : loading ? (
           <Center py="xl"><Loader color="credentis" /></Center>
         ) : (
           <Stack gap="sm">
@@ -866,7 +1254,6 @@ export default function OrgSettingsPage() {
                     </Box>
                     <Box>
                       <Text fw={600} size="sm">{org.label}</Text>
-                      {org.sector && <Text size="xs" c="dimmed" tt="capitalize">{org.sector}</Text>}
                     </Box>
                   </Group>
                   {org.value === activeId ? (
@@ -884,124 +1271,552 @@ export default function OrgSettingsPage() {
 
         {activeId && (
           <Stack gap="md">
+            {section === null && orgDone !== null && (
+              <Paper p="md" radius="md" withBorder>
+                <Stack gap="sm" align="center">
+                  <ThemeIcon color="teal" variant="light" radius="xl" size={44}><IconCheck size={22} /></ThemeIcon>
+                  <Text fw={700} ta="center">
+                    {orgDone === 'all' ? `${activeLabel || 'Your organisation'} is set up` : `${STEP_SAVED_LABEL[orgDone]} saved`}
+                  </Text>
+                  {orgDone === 'all' && (
+                    <Text size="xs" c="dimmed" ta="center">
+                      Open now: {['Purchase requests', 'Supplier bills', 'Customer payments', ...orgKinds.map((kind) => OPEN_FOR_KIND[kind]).filter(Boolean)].join(', ')}.
+                      {orgKinds.includes('field') ? ' You pick who goes out on the first job.' : ''}
+                    </Text>
+                  )}
+                  {orgDone !== 'all' && orgThen.length > 0 ? (
+                    <Button
+                      size="sm"
+                      fullWidth
+                      rightSection={<IconArrowRight size={14} />}
+                      onClick={() => {
+                        const [next, ...rest] = orgThen;
+                        setOrgThen(rest);
+                        setOrgDone(null);
+                        setOrgSingle(true);
+                        setOrgQuestion(next);
+                      }}
+                    >
+                      Next: {STEP_SAVED_LABEL[orgThen[0]]}
+                    </Button>
+                  ) : orgDone === 'all' ? (
+                    <Button size="sm" fullWidth rightSection={<IconArrowRight size={14} />} onClick={() => { setOrgDone(null); setSection('team'); }}>
+                      Invite your team
+                    </Button>
+                  ) : null}
+                  <Button size="xs" variant="subtle" onClick={() => { setOrgDone(null); setOrgThen([]); }}>
+                    {orgThen.length > 0 && orgDone !== 'all' ? 'Finish later' : 'Back to setup'}
+                  </Button>
+                </Stack>
+              </Paper>
+            )}
+            {section === null && canManageOrgSetup && orgQuestion > 0 && (
+              <Paper p="md" radius="md" withBorder>
+                <Stack gap="sm">
+                  <Progress value={(orgQuestion / 3) * 100} size="sm" radius="xl" aria-label="Progress" />
+                  <Text size="xs" c="dimmed">Question {orgQuestion} of 3</Text>
+                  <Text fw={700}>
+                    {orgQuestion === 1
+                      ? 'What does your organization do?'
+                      : orgQuestion === 2
+                        ? 'Who approves and releases money?'
+                        : 'How do you take payments?'}
+                  </Text>
+                  {orgQuestion === 1 && (
+                    <Chip.Group multiple value={orgKinds} onChange={(value) => setOrgKinds(value as OrgKind[])}>
+                      <Stack gap={6}>
+                        {ORG_KIND_OPTIONS.map((option) => (
+                          <Chip key={option.id} value={option.id} radius="md" variant="outline">
+                            {option.label}
+                          </Chip>
+                        ))}
+                      </Stack>
+                    </Chip.Group>
+                  )}
+                  {orgQuestion === 2 && (
+                    <Stack gap={6}>
+                      <Button size="sm" variant={orgQuestionPreset === 'keep_current' ? 'filled' : 'light'} onClick={() => setOrgQuestionPreset('keep_current')}>
+                        Keep what is set now
+                      </Button>
+                      {(actorsView?.presets || []).map((preset) => (
+                        <Button
+                          key={preset.id}
+                          size="sm"
+                          variant={orgQuestionPreset === preset.id ? 'filled' : 'light'}
+                          onClick={() => setOrgQuestionPreset(preset.id)}
+                        >
+                          {preset.title}
+                        </Button>
+                      ))}
+                    </Stack>
+                  )}
+                  {orgQuestion === 3 && (
+                    <Stack gap={6}>
+                      {PAYMENT_CHOICES.map((choice) => (
+                        <Button
+                          key={choice.id}
+                          size="sm"
+                          variant={orgQuestionPay === choice.id ? 'filled' : 'light'}
+                          onClick={() => setOrgQuestionPay(choice.id)}
+                        >
+                          {choice.label}
+                        </Button>
+                      ))}
+                    </Stack>
+                  )}
+                  {orgSingle ? (
+                    <Group justify="space-between">
+                      <Button size="xs" variant="subtle" color="gray" onClick={() => { setOrgQuestion(0); setOrgSingle(false); setOrgThen([]); }}>
+                        Cancel
+                      </Button>
+                      <Button size="xs" loading={activating || setupBusy} disabled={orgQuestion === 1 && orgKinds.length === 0} onClick={() => void saveSingleQuestion()}>
+                        Save
+                      </Button>
+                    </Group>
+                  ) : (
+                  <Group justify="space-between">
+                    <Button
+                      size="xs"
+                      variant="subtle"
+                      color="gray"
+                      onClick={() => {
+                        if (orgQuestion === 1) {
+                          persistOrgProfile({ kinds: orgKinds, approvalPresetId: '', approvalTitle: '', paymentChoice: 'none', completedAt: '' });
+                          setOrgQuestion(0);
+                          return;
+                        }
+                        setOrgQuestion((current) => (current - 1) as 1 | 2 | 3);
+                      }}
+                    >
+                      {orgQuestion === 1 ? "I'll answer later" : 'Back'}
+                    </Button>
+                    {orgQuestion < 3 ? (
+                      <Button size="xs" disabled={orgQuestion === 1 && orgKinds.length === 0} onClick={() => setOrgQuestion((current) => (current + 1) as 1 | 2 | 3)}>
+                        Continue
+                      </Button>
+                    ) : (
+                      <Button size="xs" loading={activating || setupBusy} onClick={() => void finishOrgQuestions()}>
+                        Finish
+                      </Button>
+                    )}
+                  </Group>
+                  )}
+                </Stack>
+              </Paper>
+            )}
+            {section === null && orgQuestion === 0 && orgDone === null && (
             <Paper p="md" radius="md" withBorder>
               <Stack gap="xs">
-                <Group justify="space-between" align="start">
-                  <Box>
-                    <Text fw={700}>Setup Readiness</Text>
-                    <Text size="xs" c="dimmed" mt={4}>
-                      Capability-driven onboarding status for this organisation.
-                    </Text>
-                  </Box>
-                  {readiness ? (
-                    <Badge color={readiness.readinessState === 'ready' ? 'green' : readiness.readinessState === 'blocked' ? 'red' : 'yellow'}>
-                      {readiness.readinessState.replace(/_/g, ' ')}
-                    </Badge>
-                  ) : null}
-                </Group>
-
+                <Text fw={700}>Setup</Text>
                 {readinessLoading ? (
                   <Center py="xs"><Loader size="sm" /></Center>
                 ) : readiness ? (
                   <>
-                    <Group justify="space-between" align="center">
-                      <Text size="sm" fw={600}>{readiness.orgName || activeLabel || 'Organisation'}</Text>
-                      <Badge variant="light" color="blue">{readiness.readinessPercent}% ready</Badge>
-                    </Group>
-
-                    {readiness.nextActions.length > 0 ? (
-                      <Paper p="xs" radius="sm" withBorder>
-                        <Text size="xs" fw={700} c="dimmed" mb={4}>NEXT ACTIONS</Text>
-                        <Stack gap={4}>
-                          {readiness.nextActions.slice(0, 3).map((action) => (
-                            <Text key={action} size="xs">• {action}</Text>
-                          ))}
+                    {(() => {
+                      const doneCount = setupSteps.filter((step) => step.done).length;
+                      const firstOpen = setupSteps.find((step) => !step.done);
+                      return (
+                        <Stack gap={8}>
+                          <Text size="sm" c={firstOpen ? 'dimmed' : 'teal'}>
+                            {firstOpen ? `${doneCount} of ${setupSteps.length} done` : 'You are set. Everything is in place.'}
+                          </Text>
+                          <Progress value={(doneCount / setupSteps.length) * 100} size="sm" radius="xl" aria-label="Setup progress" />
+                          {setupSteps.map((step) => {
+                            const isNext = firstOpen?.id === step.id;
+                            const rest = setupSteps.filter((other) => !other.done && other.id !== step.id).map((other) => other.id);
+                            return (
+                              <Group key={step.id} justify="space-between" wrap="nowrap">
+                                <Group gap="xs" wrap="nowrap">
+                                  <ThemeIcon radius="xl" size="sm" color={step.done ? 'teal' : 'gray'} variant={step.done ? 'filled' : 'light'}>
+                                    {step.done ? <IconCheck size={12} /> : null}
+                                  </ThemeIcon>
+                                  <Text size="sm" fw={isNext ? 600 : 400} c={step.done ? 'dimmed' : undefined}>{step.label}</Text>
+                                </Group>
+                                {canManageOrgSetup && (
+                                  <Button size="compact-xs" variant={isNext ? 'filled' : 'subtle'} onClick={() => openChecklistStep(step.id, rest)}>
+                                    {isNext ? 'Start' : step.done ? 'Change' : 'Open'}
+                                  </Button>
+                                )}
+                              </Group>
+                            );
+                          })}
+                          <Divider my={4} />
+                          <Text size="xs" fw={600}>Kinds of requests</Text>
                         </Stack>
-                      </Paper>
-                    ) : (
-                      <Alert variant="light" color="green" icon={<IconCheck size={14} />}>
-                        <Text size="xs">No critical setup blockers detected.</Text>
-                      </Alert>
-                    )}
+                      );
+                    })()}
+                    {(readiness.workflows ?? []).map((workflow) => {
+                      const gaps = readiness.items.filter(
+                        (item) =>
+                          item.status !== 'ready' &&
+                          item.status !== 'optional' &&
+                          item.key !== 'request_types_ready' &&
+      ((item.requiredFor ?? []).includes(workflow.workflowType) || workflow.blocking.includes(item.key)),
+                      );
+                      return (
+                        <Text key={workflow.templateId || workflow.workflowType} size="sm">
+                          {plainRequestName(workflow)}
+                          {workflow.ready
+                            ? readiness.items.some((item) => item.askedOnFirstUse && (item.requiredFor ?? []).includes(workflow.workflowType))
+                              ? plainRequestName(workflow) === 'Jobs' ? ' · Open · you pick who goes out on the first job' : ' · Open · the rest is asked the first time'
+                              : ' · Open'
+                            : gaps.length > 0 ? ` · ${gaps.map(plainReadinessTitle).join(', ')}` : ' · Still to do'}
+                        </Text>
+                      );
+                    })}
+                    {readiness.items
+                      .filter((item) => item.status === 'needs_attention' || item.status === 'pending_external')
+                      .filter((item) => !['workflow_configuration', 'payment_provider', 'active_members', 'request_types_ready'].includes(item.key) && !item.key.startsWith('stage_actor:'))
+                      .map((item) => {
+                        const target = readinessFixTarget(item);
+                        return (
+                          <Group key={item.key} justify="space-between" wrap="nowrap">
+                            <Text size="sm">{plainReadinessTitle(item)}</Text>
+                            {target && item.status !== 'pending_external' ? (
+                              <Button size="compact-xs" variant="subtle" onClick={() => setSection(SECTION_FOR_FIX[target])}>
+                                Open
+                              </Button>
+                            ) : (
+                              <Text size="xs" c="dimmed">Waiting</Text>
+                            )}
+                          </Group>
+                        );
+                      })}
                   </>
                 ) : (
-                  <Text size="xs" c="dimmed">Readiness will appear after selecting or creating an organisation.</Text>
+                  <Text size="xs" c="dimmed">Choose an organisation first.</Text>
                 )}
               </Stack>
             </Paper>
+            )}
 
-            <Paper p="md" radius="md" withBorder>
+            {section === null && orgQuestion === 0 && orgDone === null && (
+              <Paper p="md" radius="md" withBorder>
+                <Stack gap={4}>
+                  <Text fw={700}>Settings</Text>
+                  {SECTION_LABELS.filter((item) => canManageOrgSetup || !['payments', 'departments'].includes(item.id)).map((item) => (
+                    <Group key={item.id} justify="space-between" wrap="nowrap" style={{ cursor: 'pointer' }} onClick={() => setSection(item.id)}>
+                      <Text size="sm">{item.label}</Text>
+                      <IconArrowRight size={14} />
+                    </Group>
+                  ))}
+                </Stack>
+              </Paper>
+            )}
+
+            {section !== null && (
+              <Button variant="subtle" size="xs" leftSection={<IconArrowLeft size={14} />} onClick={() => setSection(null)} style={{ alignSelf: 'flex-start' }}>
+                Organisation
+              </Button>
+            )}
+
+            {section === 'payments' && canManageOrgSetup && (
+              <Paper id="org-card-payments" p="md" radius="md" withBorder>
+                <Stack gap="sm">
+                  <Text fw={700}>Payments</Text>
+                  <Radio.Group
+                    value={paymentMethods.find((method) => method.selected)?.id || ''}
+                    onChange={(value) => void choosePaymentMethod(value)}
+                  >
+                    <Stack gap={6}>
+                      {paymentMethods.map((method) => (
+                        <Radio
+                          key={method.id}
+                          value={method.id}
+                          disabled={setupBusy}
+                          label={method.name}
+                          description={method.detail}
+                        />
+                      ))}
+                    </Stack>
+                  </Radio.Group>
+                  <Button size="xs" variant="light" loading={setupBusy} disabled={setupPartners.some((item) => item.isOwnOrganization && item.status === 'active')} onClick={() => void trustOwnOrganization()}>
+                    {setupPartners.some((item) => item.isOwnOrganization && item.status === 'active') ? 'Our documents are accepted' : 'Accept our documents'}
+                  </Button>
+                  <TextInput size="xs" label="Partner name" value={partnerName} onChange={(e) => setPartnerName(e.currentTarget.value)} />
+                  <TextInput size="xs" label="Identifier they gave you" value={partnerRef} onChange={(e) => setPartnerRef(e.currentTarget.value)} />
+                  <Button size="xs" variant="light" disabled={!partnerRef.trim()} loading={setupBusy} onClick={() => void addTrustedPartner()}>
+                    Add partner
+                  </Button>
+                  {setupPartners.filter((item) => item.status === 'active').map((item) => (
+                    <Text key={item.id} size="xs">{item.name}{item.isOwnOrganization ? ' (this organization)' : ''}</Text>
+                  ))}
+                </Stack>
+              </Paper>
+            )}
+
+            {section === 'departments' && canManageOrgSetup && (
+              <Paper id="org-card-departments" p="md" radius="md" withBorder>
+                <Stack gap="sm">
+                  <Text fw={700}>Departments</Text>
+                  {departments.length === 0 ? (
+                    <Text size="xs" c="dimmed">No departments yet.</Text>
+                  ) : (
+                    departments.map((dept) => (
+                      <Text key={dept.id} size="xs">{dept.name}{dept.code ? ` · ${dept.code}` : ''}</Text>
+                    ))
+                  )}
+                  <Group gap="xs" wrap="nowrap">
+                    <TextInput
+                      style={{ flex: 1 }}
+                      size="xs"
+                      placeholder="Department name"
+                      value={deptName}
+                      onChange={(e) => setDeptName(e.currentTarget.value)}
+                    />
+                    <Button size="xs" loading={deptBusy} disabled={!deptName.trim()} onClick={() => void addDepartment()}>
+                      Add
+                    </Button>
+                  </Group>
+                </Stack>
+              </Paper>
+            )}
+
+            {section === 'actors' && (
+            <Paper id="org-card-actors" p="md" radius="md" withBorder>
               <Stack gap="sm">
-                <Group justify="space-between" align="start">
-                  <Box>
-                    <Text fw={700}>Workflow Actors (AP)</Text>
-                    <Text size="xs" c="dimmed" mt={4}>
-                      Choose who receives inbound AP workflow actions by stage. Owner/admin fallback remains active when not configured.
-                    </Text>
-                  </Box>
-                  <Badge variant="light" color="indigo">Configurable</Badge>
-                </Group>
-
-                {actorsLoading ? (
-                  <Center py="xs"><Loader size="sm" /></Center>
-                ) : (
+                <Text fw={700}>Who does what</Text>
+                {actorsView && (
+                  <Stack gap={6}>
+                    <Progress value={((actorTabIndex + 1) / actorTabs.length) * 100} size="sm" radius="xl" aria-label="Progress" />
+                    <Group gap={6}>
+                      {actorTabs.map((tab) => (
+                        <Button key={tab.id} size="compact-xs" radius="xl" variant={tab.id === currentActorTab ? 'filled' : 'light'} onClick={() => setActorTab(tab.id)}>
+                          {tab.label}
+                        </Button>
+                      ))}
+                    </Group>
+                  </Stack>
+                )}
+                {currentActorTab === 'cards' && (
+                  <Stack gap={6}>
+                    <Text size="xs" c="dimmed">Each person accepts a role card in the app.</Text>
+                    {actorsView?.canEdit && (
+                      <Button size="xs" variant="light" loading={offeringCredentials} onClick={offerActorCredentials}>
+                        Send role cards
+                      </Button>
+                    )}
+                  </Stack>
+                )}
+                {actorsView && currentActorTab === 'money' && (
                   <Stack gap="xs">
-                    {AP_ACTOR_ACTIONS.map((action) => {
-                      const current = apActorDefaults.find((row) => row.stageAction === action.value);
-                      const value = current?.defaultUserId || null;
+                    <Text size="xs" fw={600}>Who approves and releases money</Text>
+                    <Group gap="xs">
+                      {(actorsView.presets || []).map((preset) => (
+                        <Button
+                          key={preset.id}
+                          size="xs"
+                          variant="light"
+                          loading={applyingPreset === preset.id}
+                          disabled={!actorsView.canEdit || (applyingPreset !== null && applyingPreset !== preset.id)}
+                          onClick={() => void applyActorPreset(preset.id)}
+                        >
+                          {preset.title}
+                        </Button>
+                      ))}
+                    </Group>
+                    <SegmentedControl
+                      fullWidth
+                      size="xs"
+                      disabled={!actorsView.canEdit || savingActorPolicy}
+                      value={actorsView.policy.signGroups?.requisition_approval === 'one' ? 'one' : 'both'}
+                      onChange={(value) => void saveActorPolicy({ signGroups: { requisition_approval: value === 'one' ? 'one' : 'both' } })}
+                      data={[
+                        { value: 'one', label: 'One person confirms' },
+                        { value: 'both', label: 'Each confirms' },
+                      ]}
+                    />
+                    {(() => {
+                      const purchases = actorsView.workflows.find(isPurchaseRequests);
+                      return purchases ? purchases.stages.filter((stage) => stage.moneyStep).map((stage) => renderActorStage(purchases, stage)) : null;
+                    })()}
+                    <Text size="xs" c={moneyActorGaps ? 'orange' : 'dimmed'}>
+                      {moneyActorGaps ? `Still needs a person: ${moneyActorGapTitles.join(', ')}.` : 'Every request uses these people unless you change one on its own screen.'}
+                    </Text>
+                  </Stack>
+                )}
+
+                {actorsLoading && !actorsView ? (
+                  <Center py="xs"><Loader size="sm" /></Center>
+                ) : !actorsView ? (
+                  <Text size="xs" c="dimmed">Choose an organisation first.</Text>
+                ) : (
+                  <Stack gap="sm">
+                    {!actorsView.canEdit && (
+                      <Alert variant="light" color="yellow"><Text size="xs">Only an owner can change who does what.</Text></Alert>
+                    )}
+
+                    {actorsView.workflows.filter((workflow) => workflow.workflowType === currentActorTab).map((workflow) => {
+                      const own = workflow.stages.filter((stage) => !stage.moneyStep);
+                      const money = workflow.stages.filter((stage) => stage.moneyStep);
+                      const onTheJob = plainRequestName(workflow) === 'Jobs';
+                      const assignHere = onTheJob ? [] : own.filter((stage) => !stage.askedOnFirstUse);
+                      if (isPurchaseRequests(workflow) && assignHere.length === 0) return null;
+                      const namedOnTheJob = onTheJob
+                        ? own
+                            .filter((stage) => stage.actor.userId || stage.actor.walletTenantId)
+                            .map((stage) => {
+                              const who = stage.actor.userId || stage.actor.walletTenantId || '';
+                              return `${shortStepTitle(stage.stageAction, stage.title)}: ${personName(actorsView.members.find((member) => member.userId === who), who)}`;
+                            })
+                        : [];
+                      const overridden = money.some((stage) => stage.default?.enabled);
+                      const open = Boolean(moneyOverrideOpen[workflow.workflowType]) || overridden;
+                      const showMoney = !isPurchaseRequests(workflow) && money.length > 0;
                       return (
-                        <Paper key={action.value} p="xs" radius="sm" withBorder>
-                          <Group justify="space-between" align="center" wrap="wrap" gap="xs">
-                            <Box style={{ flex: 1, minWidth: 220 }}>
-                              <Text size="xs" fw={600}>{action.label}</Text>
-                              <Text size="10px" c="dimmed">Stage key: {action.value}</Text>
-                            </Box>
-                            <Group gap="xs" wrap="nowrap" style={{ minWidth: 280, flex: 1 }}>
-                              <Select
-                                style={{ flex: 1 }}
-                                size="xs"
-                                placeholder="Owner/Admin fallback"
-                                data={orgActorMembers.map((member) => ({
-                                  value: member.userId,
-                                  label: `${member.userId.slice(0, 10)}… · ${member.role}${member.walletTenantId ? ' · wallet' : ''}`,
-                                }))}
-                                value={value}
-                                clearable
-                                searchable
-                                onChange={(next) => saveActorDefault(action.value, next)}
-                                disabled={savingActorAction === action.value}
-                              />
-                              {savingActorAction === action.value && <Loader size="xs" />}
-                            </Group>
-                          </Group>
-                        </Paper>
+                        <Box key={workflow.templateId || workflow.workflowType}>
+                          <Text size="sm" fw={600} mb={4}>{plainRequestName(workflow)}</Text>
+                          <Stack gap="xs">
+                            {onTheJob && (
+                              <Text size="xs" c="dimmed">
+                                Who goes out and who checks the work is asked when you create a job.
+                                {namedOnTheJob.length > 0 ? ` Right now, ${namedOnTheJob.join('. ')}.` : ''}
+                              </Text>
+                            )}
+                            {!onTheJob && own.some((stage) => stage.askedOnFirstUse) && (
+                              <Text size="xs" c="dimmed">The other people are asked the first time you use this.</Text>
+                            )}
+                            {assignHere.map((stage) => renderActorStage(workflow, stage))}
+                            {showMoney && !open && (
+                              <Group justify="space-between" wrap="nowrap">
+                                <Text size="xs" c="dimmed">Money steps · same as purchase requests</Text>
+                                {actorsView.canEdit && (
+                                  <Button
+                                    size="compact-xs"
+                                    variant="subtle"
+                                    onClick={() => setMoneyOverrideOpen((current) => ({ ...current, [workflow.workflowType]: true }))}
+                                  >
+                                    Use someone else
+                                  </Button>
+                                )}
+                              </Group>
+                            )}
+                            {showMoney && open && money.map((stage) => renderActorStage(workflow, stage))}
+                          </Stack>
+                        </Box>
                       );
                     })}
+
+                    {currentActorTab === 'backups' && (
+                    <>
+                    <Text size="xs" fw={600}>If nobody is chosen</Text>
+                    <Checkbox
+                      size="xs"
+                      label="Use the usual role order"
+                      checked={actorsView.policy.useBuiltInRoleFallbacks}
+                      disabled={!actorsView.canEdit || savingActorPolicy}
+                      onChange={(e) => saveActorPolicy({ useBuiltInRoleFallbacks: e.currentTarget.checked })}
+                    />
+                    <Checkbox
+                      size="xs"
+                      label="Owner can stand in"
+                      checked={actorsView.policy.ownerFallbackEnabled}
+                      disabled={!actorsView.canEdit || savingActorPolicy}
+                      onChange={(e) => saveActorPolicy({ ownerFallbackEnabled: e.currentTarget.checked })}
+                    />
+                    <Stack gap={4}>
+                      {(actorsView.policy.defaultChain || []).length === 0 ? (
+                        <Text size="xs" c="dimmed">No backup list yet.</Text>
+                      ) : (
+                        actorsView.policy.defaultChain.map((entry, index) => (
+                          <Group key={`${entry.type}:${entry.value}`} justify="space-between" wrap="nowrap">
+                            <Text size="xs">
+                              {index + 1}. {entry.type === 'role' ? humanizeKey(entry.value) : personName(actorsView.members.find((m) => m.userId === entry.value), entry.value)}
+                            </Text>
+                            <Button
+                              size="compact-xs"
+                              variant="subtle"
+                              color="red"
+                              disabled={!actorsView.canEdit || savingActorPolicy}
+                              onClick={() => saveActorPolicy({
+                                defaultChain: actorsView.policy.defaultChain.filter((_, itemIndex) => itemIndex !== index),
+                              })}
+                            >
+                              Remove
+                            </Button>
+                          </Group>
+                        ))
+                      )}
+                      <Group gap="xs" wrap="nowrap">
+                        <Select
+                          style={{ flex: 1 }}
+                          size="xs"
+                          placeholder="Add a backup"
+                          data={actorPickerOptions}
+                          value={chainPicker}
+                          onChange={setChainPicker}
+                          searchable
+                          disabled={!actorsView.canEdit || savingActorPolicy}
+                        />
+                        <Button
+                          size="xs"
+                          variant="light"
+                          disabled={!actorsView.canEdit || savingActorPolicy || !chainPicker}
+                          onClick={() => {
+                            if (!chainPicker) return;
+                            const entry: ActorFallbackEntry = chainPicker.startsWith(ACTOR_USER_PREFIX)
+                              ? { type: 'user', value: chainPicker.slice(ACTOR_USER_PREFIX.length) }
+                              : { type: 'role', value: chainPicker.slice(ACTOR_ROLE_PREFIX.length) };
+                            const chain = actorsView.policy.defaultChain || [];
+                            if (chain.some((item) => item.type === entry.type && item.value === entry.value)) return;
+                            setChainPicker(null);
+                            void saveActorPolicy({ defaultChain: [...chain, entry] });
+                          }}
+                        >
+                          Add
+                        </Button>
+                      </Group>
+                    </Stack>
+                    </>
+                    )}
+                    <Group justify="space-between">
+                      <Button size="xs" variant="subtle" color="gray" disabled={actorTabIndex === 0} onClick={() => setActorTab(actorTabs[actorTabIndex - 1]?.id || 'money')}>
+                        Back
+                      </Button>
+                      {actorTabIndex < actorTabs.length - 1 ? (
+                        <Button size="xs" rightSection={<IconArrowRight size={12} />} onClick={() => setActorTab(actorTabs[actorTabIndex + 1].id)}>
+                          Next: {actorTabs[actorTabIndex + 1].label}
+                        </Button>
+                      ) : (
+                        <Button size="xs" onClick={() => setSection(null)}>Done</Button>
+                      )}
+                    </Group>
                   </Stack>
                 )}
               </Stack>
             </Paper>
 
+            )}
+
+            {section === 'handoffs' && <HandoffSettingsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />}
+
             {/* ── Member Management ── */}
-            <Paper p="md" radius="md" withBorder>
+            {section === 'team' && (
+            <Paper id="org-card-members" p="md" radius="md" withBorder>
               <Stack gap="sm">
                 <Group justify="space-between" align="start">
                   <Box>
                     <Group gap="xs"><IconUsers size={18} color="var(--mantine-color-indigo-6)" /><Text fw={700}>Team Members</Text></Group>
                     <Text size="xs" c="dimmed" mt={4}>Invite, manage roles, and remove members from this organisation.</Text>
                   </Box>
-                  <Button size="xs" leftSection={<IconUserPlus size={14} />} onClick={() => setShowInvite((s) => !s)}>Invite</Button>
+                  {canManageOrgSetup && (
+                    <Button size="xs" leftSection={<IconUserPlus size={14} />} onClick={() => setShowInvite((s) => !s)}>Invite</Button>
+                  )}
                 </Group>
 
-                <Collapse in={showInvite}>
+                <Collapse in={showInvite && canManageOrgSetup}>
                   <Paper p="sm" radius="sm" withBorder>
                     <Stack gap="xs">
                       <TextInput label="Phone number" placeholder="+263..." value={invitePhone} onChange={(e) => setInvitePhone(e.target.value)} size="xs" />
                       <Select label="Role" size="xs" value={inviteRole} onChange={setInviteRole} data={[
                         { value: 'approver', label: 'Approver' },
                         { value: 'manager', label: 'Manager' },
-                        { value: 'finance', label: 'Finance Officer' },
+                        { value: 'finance_manager', label: 'Finance Officer' },
+                        { value: 'director', label: 'Director' },
                         { value: 'field_worker', label: 'Field Worker' },
+                        { value: 'supervisor', label: 'Supervisor / Inspector' },
+                        { value: 'dispatcher', label: 'Dispatcher' },
+                        { value: 'member', label: 'Team member (sign-off, general)' },
                         { value: 'admin', label: 'Admin' },
                       ]} />
                       <Group justify="flex-end">
@@ -1015,18 +1830,31 @@ export default function OrgSettingsPage() {
                 {membersLoading ? (
                   <Center py="xs"><Loader size="sm" /></Center>
                 ) : memberList.length === 0 ? (
-                  <Text size="xs" c="dimmed">No members yet. Invite your team above.</Text>
+                  <Text size="xs" c="dimmed">{canManageOrgSetup ? 'No members yet. Invite your team above.' : 'No other members yet.'}</Text>
                 ) : (
                   <Stack gap="xs">
                     {memberList.map((m) => (
                       <Paper key={m.userId} p="xs" radius="sm" withBorder>
                         <Group justify="space-between" align="center" wrap="nowrap">
                           <Box style={{ flex: 1, minWidth: 0 }}>
-                            <Text size="xs" fw={600} truncate style={{ fontFamily: 'monospace' }}>{m.userId.substring(0, 16)}&hellip;</Text>
+                            <Text size="xs" fw={600} truncate>{personName(m)}</Text>
+                            {m.phone && personName(m) !== m.phone && <Text size="10px" c="dimmed">{m.phone}</Text>}
                             <Group gap={4} mt={2}>
-                              <Badge size="xs" variant="light" color="indigo">{m.role}</Badge>
-                              {m.walletTenantId && <Badge size="xs" variant="dot" color="teal">wallet</Badge>}
-                              <Badge size="xs" variant="light" color={m.status === 'active' ? 'green' : 'gray'}>{m.status}</Badge>
+                              {canManageOrgSetup && m.role !== 'owner' ? (
+                                <Select
+                                  size="xs"
+                                  data={MEMBER_ROLE_CHOICES.some((choice) => choice.value === m.role) ? MEMBER_ROLE_CHOICES : [...MEMBER_ROLE_CHOICES, { value: m.role, label: ROLE_LABELS[m.role] || humanizeKey(m.role) }]}
+                                  value={m.role}
+                                  disabled={changingRole === m.userId}
+                                  onChange={(value) => void changeMemberRole(m.userId, value)}
+                                  allowDeselect={false}
+                                  style={{ width: 150 }}
+                                />
+                              ) : (
+                                <Badge size="xs" variant="light" color="indigo">{ROLE_LABELS[m.role] || humanizeKey(m.role)}</Badge>
+                              )}
+                              {m.walletTenantId && <Badge size="xs" variant="dot" color="teal">App installed</Badge>}
+                              <Badge size="xs" variant="light" color={m.status === 'active' ? 'green' : 'gray'}>{m.status === 'active' ? 'Active' : m.status === 'suspended' ? 'Suspended' : 'Invited'}</Badge>
                             </Group>
                           </Box>
                           <Button size="xs" variant="subtle" color="red" leftSection={<IconTrash size={12} />} onClick={() => handleRemoveMember(m.userId)}>
@@ -1039,38 +1867,27 @@ export default function OrgSettingsPage() {
                 )}
               </Stack>
             </Paper>
+            )}
 
-            <Paper p="md" radius="md" withBorder>
+            {section === 'store' && (
+            <>
+            <Paper id="org-card-store" p="md" radius="md" withBorder>
               <Stack gap="md">
                 <Group justify="space-between" align="start">
                   <Box>
                     <Group gap="xs">
                       <IconBuildingStore size={18} color="var(--mantine-color-teal-6)" />
-                      <Text fw={700}>Store Basics</Text>
+                      <Text fw={700}>Store</Text>
                     </Group>
-                    <Text size="xs" c="dimmed" mt={4}>
-                      Keep simple store settings in the app. Portal is for the deeper publish and workflow work.
-                    </Text>
                   </Box>
-                  <Badge variant="light" color={storefront?.isPublic === false ? 'gray' : 'green'}>
-                    {storefront?.isPublic === false ? 'Private' : 'Public'}
-                  </Badge>
                 </Group>
 
                 {storeLoading ? (
                   <Center py="xs"><Loader size="sm" /></Center>
                 ) : (
                   <>
-                    <Group gap="xs" wrap="wrap">
-                      <Badge variant="light" color="teal">{storefront?.services?.length || 0} services</Badge>
-                      <Badge variant="light" color="blue">{storefront?.catalogItems?.length || 0} products</Badge>
-                      {typeof storefront?.trustScore === 'number' && (
-                        <Badge variant="light" color="violet">Trust {storefront.trustScore.toFixed(0)}</Badge>
-                      )}
-                    </Group>
-
                     <Stack gap={6}>
-                      <Text size="xs" fw={600}>Discovery visibility</Text>
+                      <Text size="xs" fw={600}>Who can find it</Text>
                       <Group gap="sm">
                         <Button
                           size="xs"
@@ -1087,13 +1904,13 @@ export default function OrgSettingsPage() {
                           Private
                         </Button>
                         <Button size="xs" loading={savingVisibility} onClick={saveStoreVisibility}>
-                          Save Visibility
+                          Save
                         </Button>
                       </Group>
                     </Stack>
 
                     <Stack gap={6}>
-                      <Text size="xs" fw={600}>Payment rails</Text>
+                      <Text size="xs" fw={600}>Ways to pay</Text>
                       <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs">
                         {STORE_PAYMENT_RAIL_OPTIONS.map((rail) => {
                           const selected = storePaymentRails.includes(rail.value);
@@ -1111,7 +1928,7 @@ export default function OrgSettingsPage() {
                       </SimpleGrid>
                       <Group>
                         <Button size="xs" loading={savingRails} onClick={saveStoreRails}>
-                          Save Rails
+                          Save
                         </Button>
                       </Group>
                     </Stack>
@@ -1138,7 +1955,7 @@ export default function OrgSettingsPage() {
                       <Text fw={700}>Store Preview</Text>
                     </Group>
                     <Text size="xs" c="dimmed" mt={4}>
-                      A compact mirror of the published mini store. The portal handles deeper configuration.
+                      How customers see this organization.
                     </Text>
                   </Box>
                   <Badge variant="light" color={storefront?.isPublic === false ? 'gray' : 'blue'}>
@@ -1146,35 +1963,10 @@ export default function OrgSettingsPage() {
                   </Badge>
                 </Group>
 
-                <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs">
-                  <Paper p="xs" radius="md" withBorder>
-                    <Text size="xs" c="dimmed">Visibility</Text>
-                    <Text size="sm" fw={700}>{storefront?.isPublic === false ? 'Private' : 'Public'}</Text>
-                  </Paper>
-                  <Paper p="xs" radius="md" withBorder>
-                    <Text size="xs" c="dimmed">Services</Text>
-                    <Text size="sm" fw={700}>{storefront?.services?.length || 0}</Text>
-                  </Paper>
-                  <Paper p="xs" radius="md" withBorder>
-                    <Text size="xs" c="dimmed">Products</Text>
-                    <Text size="sm" fw={700}>{storefront?.catalogItems?.length || 0}</Text>
-                  </Paper>
-                  <Paper p="xs" radius="md" withBorder>
-                    <Text size="xs" c="dimmed">Rails</Text>
-                    <Text size="sm" fw={700}>{storePaymentRails.length}</Text>
-                  </Paper>
-                </SimpleGrid>
-
-                <Group gap="xs" wrap="wrap">
-                  {storefront?.paymentRails?.slice(0, 4).map((rail) => (
-                    <Badge key={rail} variant="light" color="cyan">
-                      {rail}
-                    </Badge>
-                  ))}
-                  {(storefront?.paymentRails?.length || 0) === 0 && (
-                    <Text size="xs" c="dimmed">No rails declared yet.</Text>
-                  )}
-                </Group>
+                <Text size="sm">
+                  {storefront?.isPublic === false ? 'Private' : 'Public'}
+                  {` · ${storefront?.services?.length || 0} services · ${storefront?.catalogItems?.length || 0} products`}
+                </Text>
 
                 <Group gap="xs">
                   <Button size="xs" onClick={() => router.push(`/organizations/${activeId}?source=my-orgs`)}>
@@ -1186,276 +1978,13 @@ export default function OrgSettingsPage() {
                 </Group>
               </Stack>
             </Paper>
+            </>
+            )}
           </Stack>
         )}
 
-        {/* ── Workflow Selection Grid ── */}
-        {activeId && (
-          <>
-            <Divider label="What do you want to achieve?" labelPosition="center" />
-
-            {capabilitiesLoading ? (
-              <Center py="md"><Loader size="sm" /></Center>
-            ) : capabilities.length === 0 ? (
-              <Alert variant="light" color="gray">
-                Workflow discovery unavailable. Use the portal for advanced setup.
-              </Alert>
-            ) : (
-              <Stack gap="sm">
-                <Text size="xs" c="dimmed">
-                  Select the capabilities you need. Tap to toggle, then configure below.
-                </Text>
-
-                <SimpleGrid cols={2} spacing="sm">
-                  {capabilities.map((cap) => {
-                    const isActive = cap.templates.some(t => activeWorkflowTypes.includes(t));
-                    const selected = selectedCapabilities.includes(cap.id) || isActive;
-                    const color = isActive ? 'teal' : (CATEGORY_COLORS[cap.category] || 'gray');
-                    return (
-                      <Card
-                        key={cap.id}
-                        p="sm"
-                        radius="md"
-                        withBorder
-                        style={{
-                          cursor: isActive ? 'default' : 'pointer',
-                          borderColor: selected ? `var(--mantine-color-${color}-5)` : undefined,
-                          background: selected ? `var(--mantine-color-${color}-0)` : undefined,
-                          transition: 'all 0.15s ease',
-                          opacity: isActive ? 0.9 : 1,
-                        }}
-                        onClick={() => !isActive && toggleCapability(cap.id)}
-                      >
-                        <Stack gap={6} align="center">
-                          <ThemeIcon
-                            size={44}
-                            radius="md"
-                            variant={selected ? 'filled' : 'light'}
-                            color={color}
-                          >
-                            {resolveCapabilityIcon(cap.icon)}
-                          </ThemeIcon>
-                          <Text size="xs" fw={600} ta="center" lineClamp={1}>{cap.label}</Text>
-                          <Text size="xs" c="dimmed" ta="center" lineClamp={2}>{cap.description}</Text>
-                          {isActive ? (
-                            <Badge size="xs" variant="filled" color="teal">Active</Badge>
-                          ) : selected && (
-                            <Badge size="xs" variant="light" color={color}>
-                              {cap.templates.length} workflow{cap.templates.length !== 1 ? 's' : ''}
-                            </Badge>
-                          )}
-                        </Stack>
-                      </Card>
-                    );
-                  })}
-                </SimpleGrid>
-
-                {selectedCapabilities.length > 0 && (
-                  <Button
-                    fullWidth
-                    size="md"
-                    leftSection={<IconRocket size={18} />}
-                    onClick={openSetup}
-                    mt="xs"
-                  >
-                    Configure {selectedCapabilities.length} Workflow{selectedCapabilities.length > 1 ? 's' : ''}
-                  </Button>
-                )}
-              </Stack>
-            )}
-          </>
-        )}
       </Stack>
 
-      {/* ── Setup Bottom Sheet (reuses existing BottomSheet component) ── */}
-      <BottomSheet
-        opened={setupOpen}
-        onClose={() => setSetupOpen(false)}
-        title={`Configure · Step ${setupStep + 1} of ${setupStepCount}`}
-      >
-        <ScrollArea.Autosize mah="65vh" offsetScrollbars>
-          <Stack gap="md" pb="lg" px="xs">
-
-            {/* Step 0: Review */}
-            {setupStep === 0 && (
-              <Stack gap="sm">
-                <Text size="sm" fw={600}>Selected Workflows</Text>
-                {templates.length === 0 ? (
-                  <Center py="md"><Loader size="sm" /></Center>
-                ) : (
-                  <Stack gap="xs">
-                    {templates.map((t) => (
-                      <Paper key={t.id} p="xs" radius="sm" withBorder>
-                        <Group gap="xs" wrap="nowrap">
-                          <ThemeIcon size={28} radius="md" variant="light" color="blue">
-                            <IconSettingsAutomation size={14} />
-                          </ThemeIcon>
-                          <Box style={{ flex: 1, minWidth: 0 }}>
-                            <Text size="xs" fw={600} lineClamp={1}>{t.name}</Text>
-                            <Text size="xs" c="dimmed">{t.workflowType} · {t.steps?.length ?? 0} steps</Text>
-                          </Box>
-                          <Badge size="xs" variant="light">{t.sector}</Badge>
-                        </Group>
-                      </Paper>
-                    ))}
-                  </Stack>
-                )}
-              </Stack>
-            )}
-
-            {/* Step 1: Payment Methods */}
-            {setupStep === 1 && (
-              <Stack gap="sm">
-                <Text size="sm" fw={600}>Payment Methods</Text>
-                <Text size="xs" c="dimmed">Select which payment methods to accept across all workflows.</Text>
-                <Stack gap="xs">
-                  {PAYMENT_OPTIONS.map((opt) => {
-                    const sel = paymentModes.includes(opt.value);
-                    return (
-                      <Paper
-                        key={opt.value}
-                        p="xs"
-                        radius="sm"
-                        withBorder
-                        style={{
-                          cursor: 'pointer',
-                          borderColor: sel ? `var(--mantine-color-${opt.color}-5)` : undefined,
-                          background: sel ? `var(--mantine-color-${opt.color}-0)` : undefined,
-                        }}
-                        onClick={() => setPaymentModes((prev) =>
-                          prev.includes(opt.value) ? prev.filter((v) => v !== opt.value) : [...prev, opt.value]
-                        )}
-                      >
-                        <Group gap="sm" wrap="nowrap">
-                          <ThemeIcon size={32} radius="md" variant={sel ? 'filled' : 'light'} color={opt.color}>
-                            {opt.icon}
-                          </ThemeIcon>
-                          <Text size="sm" fw={500} style={{ flex: 1 }}>{opt.label}</Text>
-                          {sel && <IconCheck size={16} color="green" />}
-                        </Group>
-                      </Paper>
-                    );
-                  })}
-                </Stack>
-              </Stack>
-            )}
-
-            {/* Step 2: Credentials */}
-            {setupStep === 2 && (
-              <Stack gap="sm">
-                <Text size="sm" fw={600}>Credentials You'll Own</Text>
-                <Text size="xs" c="dimmed">Your organisation will issue these verifiable credentials.</Text>
-                {allVCs.map((vc) => (
-                  <Paper key={vc} p="xs" radius="sm" withBorder>
-                    <Group gap="sm" wrap="nowrap">
-                      <ThemeIcon size={32} radius="md" variant="gradient" gradient={{ from: 'indigo', to: 'blue' }}>
-                        <IconCertificate size={16} />
-                      </ThemeIcon>
-                      <Box style={{ flex: 1 }}>
-                        <Text size="xs" fw={600}>{vc}</Text>
-                        <Text size="xs" c="dimmed">Issuer-signed, portable credential</Text>
-                      </Box>
-                      <Badge size="xs" variant="light" color="blue">owner</Badge>
-                    </Group>
-                  </Paper>
-                ))}
-                <Paper p="xs" radius="sm" style={{ border: '1px dashed var(--mantine-color-default-border)' }}>
-                  <Group gap="xs">
-                    <IconShieldCheck size={14} color="var(--mantine-color-indigo-5)" />
-                    <Text size="xs" c="dimmed">
-                      Recipients get portable, verifiable proof — reducing reliance on manual audits.
-                    </Text>
-                  </Group>
-                </Paper>
-              </Stack>
-            )}
-
-            {/* Step 3: Configure */}
-            {setupStep === 3 && (
-              <Stack gap="sm">
-                <Text size="sm" fw={600}>Review & Configure</Text>
-
-                <Paper p="xs" radius="sm" withBorder>
-                  <Text size="xs" fw={700} c="dimmed" mb={4}>WORKFLOWS</Text>
-                  <Stack gap={2}>
-                    {templates.map((t) => <Text key={t.id} size="xs" fw={500}>• {t.name}</Text>)}
-                  </Stack>
-                </Paper>
-
-                <Paper p="xs" radius="sm" withBorder>
-                  <Text size="xs" fw={700} c="dimmed" mb={4}>PAYMENTS</Text>
-                  <Group gap={4}>
-                    {paymentModes.map((m) => <Badge key={m} size="xs" variant="outline">{m.replace(/_/g, ' ')}</Badge>)}
-                    {paymentModes.length === 0 && <Text size="xs" c="dimmed">None selected</Text>}
-                  </Group>
-                </Paper>
-
-                <Paper p="xs" radius="sm" withBorder>
-                  <Text size="xs" fw={700} c="dimmed" mb={4}>CREDENTIALS</Text>
-                  <Group gap={4}>
-                    {allVCs.map((vc) => <Badge key={vc} size="xs" variant="outline" color="blue">{vc}</Badge>)}
-                  </Group>
-                </Paper>
-
-                <TextInput
-                  label="Organisation Name"
-                  size="xs"
-                  placeholder={activeLabel || 'Your Organisation'}
-                  value={branding.orgName}
-                  onChange={(e) => setBranding({ ...branding, orgName: e.target.value })}
-                />
-                <ColorInput
-                  label="Brand Colour"
-                  size="xs"
-                  value={branding.primaryColor}
-                  onChange={(c) => setBranding({ ...branding, primaryColor: c })}
-                  swatches={['#228be6', '#12b886', '#fab005', '#fa5252', '#7950f2', '#0A3D5C']}
-                />
-
-                <Alert variant="light" color="blue" icon={<IconRocket size={14} />}>
-                  <Text size="xs">
-                    Activating defines your organisation as a trusted node. Your app adapts to these capabilities.
-                  </Text>
-                </Alert>
-              </Stack>
-            )}
-          </Stack>
-        </ScrollArea.Autosize>
-
-        {/* ── Navigation (thumb-zone) ── */}
-        <Divider />
-        <Group justify="space-between" p="sm">
-          <Button
-            variant="subtle"
-            size="sm"
-            leftSection={<IconArrowLeft size={14} />}
-            onClick={() => setupStep === 0 ? setSetupOpen(false) : setSetupStep((s) => s - 1)}
-          >
-            {setupStep === 0 ? 'Close' : 'Back'}
-          </Button>
-
-          {setupStep < setupStepCount - 1 ? (
-            <Button
-              size="sm"
-              rightSection={<IconArrowRight size={14} />}
-              onClick={() => setSetupStep((s) => s + 1)}
-              disabled={setupStep === 1 && paymentModes.length === 0}
-            >
-              Next
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              color="green"
-              leftSection={<IconCheck size={14} />}
-              loading={activating}
-              onClick={handleConfigure}
-            >
-              Configure
-            </Button>
-          )}
-        </Group>
-      </BottomSheet>
     </AppShellMobile>
   );
 }

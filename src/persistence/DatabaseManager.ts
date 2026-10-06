@@ -85,7 +85,9 @@ export class DatabaseManager {
     const currentVersion = currentVersionRow?.version || 0
     this.logger.info(`Current database version: ${currentVersion}`)
 
-    const migrationsDir = join(__dirname, '../../migrations')
+    // `__dirname` is unavailable under ESM test runners; fall back to the repo layout.
+    const migrationsDir =
+      typeof __dirname !== 'undefined' ? join(__dirname, '../../migrations') : join(process.cwd(), 'migrations')
     const migrationFiles = [
       { version: 1, file: '001_create_stores.sql', name: 'create_stores' },
       { version: 2, file: '002_wallet_auth_tables.sql', name: 'wallet_auth_tables' },
@@ -111,6 +113,34 @@ export class DatabaseManager {
       { version: 22, file: '022_create_ssi_trust_and_consent.sql', name: 'create_ssi_trust_and_consent' },
       { version: 23, file: '023_add_oid4vp_verification_session.sql', name: 'add_oid4vp_verification_session' },
       { version: 24, file: '024_add_verifier_registration_bindings.sql', name: 'add_verifier_registration_bindings' },
+      { version: 89, file: '089_create_platform_org_compat_schema.sql', name: 'create_platform_org_compat_schema' },
+      { version: 90, file: '090_create_ssi_trust_compat_schema.sql', name: 'create_ssi_trust_compat_schema' },
+      { version: 91, file: '091_create_integration_outbox.sql', name: 'create_integration_outbox' },
+      { version: 92, file: '092_create_workflow_requests.sql', name: 'create_workflow_requests' },
+      { version: 93, file: '093_create_org_workflow_actor_defaults.sql', name: 'create_org_workflow_actor_defaults' },
+      { version: 94, file: '094_seed_internal_requisitions_template.sql', name: 'seed_internal_requisitions_template' },
+      { version: 95, file: '095_create_workflow_idempotency_keys.sql', name: 'create_workflow_idempotency_keys' },
+      { version: 96, file: '096_add_workflow_template_prerequisites.sql', name: 'add_workflow_template_prerequisites' },
+      {
+        version: 97,
+        file: '097_create_workflow_runtime_compat_schema.sql',
+        name: 'create_workflow_runtime_compat_schema',
+      },
+      { version: 98, file: '098_create_org_workflow_actor_policies.sql', name: 'create_org_workflow_actor_policies' },
+      {
+        version: 99,
+        file: '099_create_wallet_pending_offers_compat_schema.sql',
+        name: 'create_wallet_pending_offers_compat_schema',
+      },
+      {
+        version: 100,
+        file: '100_create_org_proof_vc_policies_compat.sql',
+        name: 'create_org_proof_vc_policies_compat',
+      },
+      { version: 101, file: '101_request_handoffs.sql', name: 'request_handoffs' },
+      { version: 102, file: '102_org_workflow_handoffs.sql', name: 'org_workflow_handoffs' },
+      { version: 103, file: '103_payment_method_catalogue.sql', name: 'payment_method_catalogue' },
+      { version: 104, file: '104_org_setup_profiles.sql', name: 'org_setup_profiles' },
     ]
 
     for (const migration of migrationFiles) {
@@ -124,12 +154,25 @@ export class DatabaseManager {
       }
 
       const sql = readFileSync(migrationPath, 'utf-8')
-      const applyMigration = db.transaction(() => db.exec(sql))
+      const recordVersion = db.prepare('INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)')
+      const applyMigration = db.transaction(() => {
+        db.exec(sql)
+        // Not every migration file records itself; always record here so a migration
+        // that is not idempotent (e.g. ALTER TABLE ... ADD COLUMN) never re-runs.
+        recordVersion.run(migration.version, migration.name)
+      })
 
       try {
         applyMigration()
         this.logger.info(`Migration ${migration.version} applied successfully`)
       } catch (error) {
+        // A previous start applied this ALTER TABLE but crashed before the version was recorded
+        // (or the file never recorded itself). The column exists, so treat it as applied.
+        if (error instanceof Error && /duplicate column name/i.test(error.message)) {
+          this.logger.warn(`Migration ${migration.version} already applied (${error.message}); recording version`)
+          recordVersion.run(migration.version, migration.name)
+          continue
+        }
         this.logger.error({ error }, `Failed to apply migration ${migration.version}`)
         throw error
       }

@@ -65,7 +65,7 @@ export default function ShopPage() {
     const env = useContext(EnvContext);
     const router = useRouter();
     const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
-    const holderBackend = env.NEXT_PUBLIC_HOLDER_URL || 'http://localhost:7000';
+    const holderBackend = env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000';
 
     // Poll for receipt ONLY when invoice is saved (user has accepted offer)
     // Stop polling once paid/receipt is obtained to reduce server load

@@ -1,15 +1,25 @@
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1'])
 
+/**
+ * True only inside a native Capacitor shell (Android/iOS). Loading any Capacitor plugin in a
+ * desktop browser (for example the camera when a photo is taken) also defines `window.Capacitor`,
+ * so the presence of the global alone must not be read as "native".
+ */
+export function isCapacitorNativeRuntime(): boolean {
+  if (typeof window === 'undefined') return false
+  const cap = (window as any).Capacitor
+  if (!cap) return false
+  if (typeof cap.isNativePlatform === 'function') return cap.isNativePlatform() === true
+  if (typeof cap.getPlatform === 'function') return cap.getPlatform() !== 'web'
+  return false
+}
+
 function isProductionLikeRuntime(): boolean {
   if (process.env.NODE_ENV === 'production') {
     return true
   }
 
-  if (typeof window === 'undefined') {
-    return false
-  }
-
-  return !!(window as any).Capacitor
+  return isCapacitorNativeRuntime()
 }
 
 function normalizeBaseUrl(rawUrl?: string | null): string | null {
@@ -47,7 +57,7 @@ export function resolveMobileApiBaseUrl(): string {
   // IMPORTANT: On Android, Capacitor hosts the webview at http://localhost internally.
   // We must NOT short-circuit to localhost when running inside Capacitor native —
   // that would send every request to the device's loopback, causing network errors.
-  const isCapacitorNative = typeof window !== 'undefined' && !!(window as any).Capacitor
+  const isCapacitorNative = isCapacitorNativeRuntime()
   if (typeof window !== 'undefined' && !isCapacitorNative && isLoopbackHost(window.location.hostname)) {
     return 'http://localhost:3000'
   }

@@ -3,11 +3,26 @@ import type { Request as ExRequest } from 'express'
 
 import { Agent } from '@credo-ts/core'
 import { randomUUID, createHash } from 'crypto'
-import { Controller, Post, Get, Route, Tags, Body, Path, Request, Security } from 'tsoa'
+import { Controller, Post, Get, Route, Tags, Body, Path, Query, Request, Security } from 'tsoa'
 import { container } from 'tsyringe'
 
 import { SCOPES } from '../../enums'
+import { StatusException } from '../../errors'
 import { inventoryService } from '../../services/InventoryService'
+import {
+  orgWorkflowActorService,
+  type OrgMemberActor,
+  type WorkflowActorDefaultRecord,
+} from '../../services/OrgWorkflowActorService'
+
+interface WorkflowActorDefaultBody {
+  workflowType: string
+  stageAction: string
+  defaultUserId?: string
+  defaultRole?: string
+  defaultWalletTenantId?: string
+  enabled?: boolean
+}
 
 interface CartItem {
   id: string
@@ -139,6 +154,57 @@ export class FinanceController extends Controller {
       this.setStatus(500)
       return { error: error.message }
     }
+  }
+
+  /**
+   * Legacy list of stage-actor defaults.
+   *
+   * Current mobile and portal clients use
+   * `GET /api/organizations/{orgTenantId}/workflows/actors` instead. This route stays
+   * so older app builds keep working; it can be removed once those builds are gone.
+   */
+  @Get('ap/workflow-actors/defaults')
+  @Security('jwt')
+  public async listWorkflowActorDefaults(
+    @Request() request: ExRequest,
+    @Query() workflowType?: string,
+  ): Promise<{ defaults: WorkflowActorDefaultRecord[]; members: OrgMemberActor[] }> {
+    const orgTenantId = String((request as any).user?.tenantId || '').trim()
+    if (!orgTenantId) {
+      throw new StatusException('Organization context required', 403)
+    }
+    return {
+      defaults: orgWorkflowActorService.listDefaults(orgTenantId, workflowType),
+      members: orgWorkflowActorService.listOrgMembers(orgTenantId),
+    }
+  }
+
+  /**
+   * Legacy save for one stage-actor default.
+   * Current clients use `PUT /api/organizations/{orgTenantId}/workflows/actors/defaults`.
+   */
+  @Post('ap/workflow-actors/defaults')
+  @Security('jwt')
+  public async saveWorkflowActorDefault(
+    @Request() request: ExRequest,
+    @Body() body: WorkflowActorDefaultBody,
+  ): Promise<WorkflowActorDefaultRecord> {
+    const orgTenantId = String((request as any).user?.tenantId || '').trim()
+    if (!orgTenantId) {
+      throw new StatusException('Organization context required', 403)
+    }
+    if (!body?.workflowType || !body?.stageAction) {
+      throw new StatusException('workflowType and stageAction are required', 400)
+    }
+    return orgWorkflowActorService.upsertDefault({
+      orgTenantId,
+      workflowType: body.workflowType,
+      stageAction: body.stageAction,
+      defaultUserId: body.defaultUserId,
+      defaultRole: body.defaultRole,
+      defaultWalletTenantId: body.defaultWalletTenantId,
+      enabled: body.enabled,
+    })
   }
 
   /**

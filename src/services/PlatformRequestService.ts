@@ -58,22 +58,46 @@ export class PlatformRequestService {
 
     if (!organization?.id) throw new Error('Organization context not found')
 
+    const membership = db
+      .prepare(
+        `
+      SELECT id
+      FROM org_memberships
+      WHERE org_tenant_id = ? AND user_id = ? AND status = 'active'
+      LIMIT 1
+    `,
+      )
+      .get(tenantId, subjectRef) as { id?: string } | undefined
+
+    if (!membership?.id) {
+      throw new Error('Authenticated subject is not an active organization member')
+    }
+
     const person = db
       .prepare(
         `
       SELECT p.id
       FROM people p
-      JOIN organization_memberships m
-        ON m.person_id = p.id AND m.organization_id = p.organization_id
-      WHERE p.organization_id = ? AND p.subject_ref = ?
-        AND p.status = 'active' AND m.membership_status = 'active'
+      WHERE p.organization_id = ? AND p.subject_ref = ? AND p.status = 'active'
       LIMIT 1
     `,
       )
       .get(organization.id, subjectRef) as { id?: string } | undefined
 
-    if (!person?.id) throw new Error('Authenticated subject is not an active organization member')
-    return { organizationId: organization.id, personId: person.id }
+    if (person?.id) {
+      return { organizationId: organization.id, personId: person.id }
+    }
+
+    const now = new Date().toISOString()
+    const personId = randomUUID()
+    db.prepare(
+      `
+      INSERT INTO people (id, organization_id, subject_ref, status, created_at, updated_at)
+      VALUES (?, ?, ?, 'active', ?, ?)
+    `,
+    ).run(personId, organization.id, subjectRef, now, now)
+
+    return { organizationId: organization.id, personId }
   }
 
   public create(input: CreatePlatformRequestInput) {
@@ -174,6 +198,8 @@ export class PlatformRequestService {
         r.department_id AS departmentId,
         r.amount,
         r.currency,
+        r.request_type AS requestType,
+        r.title,
         r.context_json AS contextJson
       FROM requests r
       JOIN organizations o ON o.id = r.organization_id
@@ -188,6 +214,8 @@ export class PlatformRequestService {
           departmentId?: string
           amount?: number
           currency?: string
+          requestType?: string
+          title?: string
           contextJson?: string
         }
       | undefined
@@ -270,7 +298,60 @@ export class PlatformRequestService {
       ).run(toStatus, toStatus, now, toStatus, now, requestId)
 
       this.recordEvent(requestId, 'request.status_changed', actorPersonId, current.status ?? null, toStatus, payload)
+
+      // Once decided, the "waiting for your decision" cards leave every inbox.
+      if (['approved', 'rejected', 'cancelled', 'completed'].includes(toStatus)) {
+        db.prepare(
+          `UPDATE wallet_pending_offers SET resolved_at = ?
+           WHERE source_type = 'workflow_stage_action' AND resolved_at IS NULL
+             AND (source_id = ? OR source_id LIKE ?)`,
+        ).run(now, requestId, `${requestId}:delegation:%`)
+      }
     })()
+
+    if (toStatus === 'submitted' && current.requestType) {
+      void import('./WorkflowStageInboxService')
+        .then(({ routeWorkflowStageInbox }) => {
+          routeWorkflowStageInbox({
+            orgTenantId: tenantId,
+            requestType: current.requestType || 'platform.general',
+            sourceId: requestId,
+            title: current.title || current.requestType || 'Organization request',
+            body: `A ${String(current.requestType).replace(/[._]/g, ' ')} is waiting for the stage actor.`,
+            departmentId: current.departmentId,
+            amount: typeof current.amount === 'number' ? current.amount : undefined,
+          })
+        })
+        .catch((error: any) => {
+          // Inbox routing must not roll back a committed request transition.
+          void error
+        })
+    }
+
+    if (current.organizationId && current.requestType) {
+      void import('./RequestHandoffService')
+        .then(({ requestHandoffService }) => {
+          requestHandoffService.continueFromPlatformRequest({
+            tenantId,
+            organizationId: current.organizationId,
+            requestId,
+            requestType: current.requestType || '',
+            toStatus,
+            title: current.title,
+            amount: current.amount,
+            currency: current.currency,
+            departmentId: current.departmentId,
+            context: this.parseContext(current.contextJson),
+          })
+        })
+        .catch(() => undefined)
+    }
+
+    // A request raised from a running job (for example "Buy materials") hands control back
+    // to that job when it is approved, completed, rejected or cancelled.
+    void import('./workflow/WorkflowHandoffService')
+      .then(({ workflowHandoffService }) => workflowHandoffService.onRequestStatus(requestId, toStatus))
+      .catch(() => undefined)
 
     // The transition has already passed authorization and committed atomically;
     // do not require a separate read permission merely to return its new state.
@@ -418,6 +499,60 @@ export class PlatformRequestService {
     const nextCursor = hasMore ? (items[items.length - 1]?.created_at ?? null) : null
 
     return { items, nextCursor }
+  }
+
+  /**
+   * Open an organization setup task on a request when its workflow cannot start
+   * because organizational prerequisites are missing.
+   *
+   * Onboarding uses the same inbox / task primitives as business work: the task
+   * shows the administrator exactly which setup items block the workflow. It is
+   * idempotent per request while a pending setup task exists.
+   */
+  public openSetupTask(
+    requestId: string,
+    tenantId: string,
+    missing: Array<{ key: string; title: string; reason?: string; actionPath?: string; requiredFor?: string[] }>,
+    actorPersonId?: string,
+  ): { taskId: string; created: boolean } {
+    const db = DatabaseManager.getDatabase()
+
+    const existing = db
+      .prepare(
+        `SELECT id FROM request_tasks
+         WHERE request_id = ? AND task_type = 'organization.setup' AND status = 'pending'
+         LIMIT 1`,
+      )
+      .get(requestId) as { id?: string } | undefined
+    if (existing?.id) {
+      return { taskId: existing.id, created: false }
+    }
+
+    // Assign to an owner/admin person when one is mapped; otherwise leave unassigned.
+    const admin = db
+      .prepare(
+        `SELECT p.id AS personId
+         FROM org_memberships m
+         JOIN organizations o ON o.tenant_id = m.org_tenant_id
+         JOIN people p ON p.organization_id = o.id AND p.subject_ref = m.user_id
+         WHERE m.org_tenant_id = ? AND m.status = 'active' AND m.role IN ('owner', 'admin')
+         ORDER BY CASE m.role WHEN 'owner' THEN 0 ELSE 1 END
+         LIMIT 1`,
+      )
+      .get(tenantId) as { personId?: string } | undefined
+
+    const taskId = randomUUID()
+    db.prepare(
+      `INSERT INTO request_tasks (id, request_id, task_type, assignee_person_id, delegation_allowed, status, outcome_ref)
+       VALUES (?, ?, 'organization.setup', ?, 1, 'pending', ?)`,
+    ).run(taskId, requestId, admin?.personId ?? null, JSON.stringify({ missing }))
+
+    this.recordEvent(requestId, 'workflow.prerequisites_missing', actorPersonId, null, null, {
+      taskId,
+      missing: missing.map((item) => item.key),
+    })
+
+    return { taskId, created: true }
   }
 
   private hydrateRequest(requestId: string, request: any) {

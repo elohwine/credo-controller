@@ -20,7 +20,7 @@
 
 import type { WorkflowActionContext } from '../ActionRegistry'
 
-import { v4 as uuid } from 'uuid'
+import { randomUUID } from 'crypto'
 
 import { rootLogger } from '../../../utils/pinoLogger'
 
@@ -51,7 +51,7 @@ export class ConsentActions {
       throw new Error('Consent not given by subject')
     }
 
-    const consentId = uuid()
+    const consentId = randomUUID()
     const timestamp = new Date().toISOString()
 
     // Calculate retention end date

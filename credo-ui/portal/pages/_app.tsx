@@ -44,12 +44,8 @@ export default function App({ Component, pageProps }: AppProps) {
         if (!isMounted) return;
         setEnv(envRes.data);
 
-        const credoBackend = envRes.data.NEXT_PUBLIC_VC_REPO;
-        // Use Holder URL (Port 7000) for tenant/wallet operations if available
-        const holderBackend = envRes.data.NEXT_PUBLIC_HOLDER_URL || credoBackend;
-        // IMPORTANT: Different API keys for different backends!
-        const issuerApiKey = envRes.data.NEXT_PUBLIC_CREDO_API_KEY || 'test-api-key-12345';
-        const holderApiKey = envRes.data.NEXT_PUBLIC_HOLDER_API_KEY || 'holder-api-key-12345';
+        const apiBaseUrl = envRes.data.NEXT_PUBLIC_VC_REPO;
+        const apiKey = envRes.data.NEXT_PUBLIC_CREDO_API_KEY || 'test-api-key-12345';
 
         // 2. Check for cached tenant
         let tenantId = localStorage.getItem('credoTenantId');
@@ -65,19 +61,53 @@ export default function App({ Component, pageProps }: AppProps) {
           tenantToken = null;
         }
 
-        // 3. Validate existing tenant (single check)
-        let needsNewTenant = !tenantId || !tenantToken;
+        // If the stored context is an org context, keep the personal wallet token
+        // separately so the org session isn't overwritten.
+        const isOrgContext = localStorage.getItem('credoContextMode') === 'org';
+        const walletToken = localStorage.getItem('walletToken');
+        if (isOrgContext && walletToken && walletToken !== tenantToken) {
+          // Use the personal wallet token for app-level validation, but don't overwrite org token.
+          tenantToken = walletToken;
+          tenantId = null; // Let validation proceed with wallet token
+        }
 
-        if (tenantId && tenantToken) {
+        // 3. Validate existing tenant (single check)
+        let needsNewTenant = !isOrgContext && (!tenantId || !tenantToken);
+
+        if (tenantToken) {
           try {
-            // Validate against the HOLDER agent
-            await axios.get(`${holderBackend}/agent`, {
+            await axios.get(`${apiBaseUrl}/agent`, {
               headers: { Authorization: `Bearer ${tenantToken}` }
             });
+            // Only normalize keys when NOT in org context so we don't clobber org session.
+            if (!isOrgContext) {
+              localStorage.setItem('credoTenantId', tenantId || '');
+              localStorage.setItem('tenantId', tenantId || '');
+              localStorage.setItem('credoTenantToken', tenantToken);
+              localStorage.setItem('tenantToken', tenantToken);
+            }
             console.log('[App] Using cached portal tenant:', tenantId);
           } catch (e: any) {
-            console.warn('[App] Cached tenant invalid, will re-provision');
-            needsNewTenant = true;
+            const responseStatus = Number(e?.response?.status || 0);
+            const sessionRejected = responseStatus === 401 || responseStatus === 403;
+            if (isOrgContext && !sessionRejected) {
+              // The API was unreachable or had a hiccup (for example a restart). Keep the
+              // organization session; dropping it here would silently log the operator out.
+              console.warn('[App] Could not validate session right now; keeping organization context');
+            } else if (isOrgContext) {
+              // Org token expired — clear org context gracefully
+              localStorage.removeItem('credoOrgToken');
+              localStorage.removeItem('credoActiveOrg');
+              localStorage.setItem('credoContextMode', 'personal');
+              needsNewTenant = true;
+            } else {
+              console.warn('[App] Cached tenant invalid, will re-provision');
+              localStorage.removeItem('credoTenantToken');
+              localStorage.removeItem('tenantToken');
+              localStorage.removeItem('credoTenantId');
+              localStorage.removeItem('tenantId');
+              needsNewTenant = true;
+            }
           }
         }
 
@@ -85,39 +115,48 @@ export default function App({ Component, pageProps }: AppProps) {
         if (needsNewTenant) {
           console.log('[App] Initializing new portal tenant...');
 
-          // Use holderApiKey for Holder API (port 7000), not issuerApiKey (port 3000)
           const rootTokenRes = await axios.post(
-            `${holderBackend}/agent/token`,
+            `${apiBaseUrl}/agent/token`,
             {},
-            { headers: { Authorization: holderApiKey } }
+            { headers: { Authorization: apiKey } }
           );
           const rootToken = rootTokenRes.data.token;
 
           const createRes = await axios.post(
-            `${holderBackend}/multi-tenancy/create-tenant`,
+            `${apiBaseUrl}/multi-tenancy/create-tenant`,
             {
               config: {
                 label: 'Portal Default Tenant',
                 tenantType: 'USER',
                 connectionImageUrl: `${window.location.origin}/favicon.ico`,
               },
-              baseUrl: holderBackend
+              baseUrl: apiBaseUrl
             },
             { headers: { Authorization: `Bearer ${rootToken}` } }
           );
 
-          tenantId = createRes.data.tenantId;
+          tenantId = createRes.data.tenantId || createRes.data.id;
           tenantToken = createRes.data.token;
 
-          if (tenantId) localStorage.setItem('credoTenantId', tenantId);
-          if (tenantToken) localStorage.setItem('credoTenantToken', tenantToken);
+          if (tenantId && !isOrgContext) {
+            localStorage.setItem('credoTenantId', tenantId);
+            localStorage.setItem('tenantId', tenantId);
+          }
+          if (tenantToken && !isOrgContext) {
+            localStorage.setItem('credoTenantToken', tenantToken);
+            localStorage.setItem('tenantToken', tenantToken);
+          }
+          // Always store a personal wallet token reference for auth flows
+          if (tenantToken) {
+            localStorage.setItem('walletToken', walletToken || tenantToken);
+          }
           console.log('[App] New portal tenant initialized:', tenantId);
         }
 
         // 5. Fetch credentials (only if we have valid token)
         if (tenantToken) {
           try {
-            const defsRes = await axios.get(`${credoBackend}/oidc/credential-definitions`, {
+            const defsRes = await axios.get(`${apiBaseUrl}/oidc/credential-definitions`, {
               headers: { Authorization: `Bearer ${tenantToken}` },
             });
 

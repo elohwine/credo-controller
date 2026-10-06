@@ -151,7 +151,19 @@ export function upsertContact(input: UpsertContactInput): OrgContact {
     now,
     now,
   )
-  return getContactById(id, input.orgTenantId)!
+  const saved = getContactById(id, input.orgTenantId)!
+  if (saved.contactScope === 'internal' && saved.walletTenantId) {
+    void import('../services/OrgMembershipCredentialService')
+      .then(({ orgMembershipCredentialService }) => {
+        orgMembershipCredentialService.ensureEmployeeCredentialForWallet({
+          orgTenantId: saved.orgTenantId,
+          walletTenantId: saved.walletTenantId!,
+          displayName: saved.name,
+        })
+      })
+      .catch(() => undefined)
+  }
+  return saved
 }
 
 export function getContactByLinkToken(token: string): OrgContact | undefined {

@@ -189,7 +189,7 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
         },
         credentials: true,
         methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization', 'x-correlation-id', 'x-api-key', 'x-tenant-id'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'x-correlation-id', 'x-api-key', 'x-tenant-id', 'x-idempotency-key'],
         exposedHeaders: ['x-correlation-id'],
       }),
     )

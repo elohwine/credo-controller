@@ -8,7 +8,17 @@ describe('ux copy helpers', () => {
         workflowStage: 'ACKNOWLEDGED',
         actionLabel: 'Open',
       }),
-    ).toBe('Acknowledged')
+    ).toBe('Signed off')
+  })
+
+  it('uses Job Card wording for field execution items when there is no explicit stage label', () => {
+    expect(
+      getInboxDisplayTitle({
+        module: 'field',
+        workflowRunId: 'run-123',
+        actionLabel: 'Open',
+      }),
+    ).toBe('Job Card')
   })
 
   it('derives a payment-oriented label from the action and flow context', () => {

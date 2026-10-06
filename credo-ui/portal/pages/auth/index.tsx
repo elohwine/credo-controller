@@ -16,6 +16,7 @@ import {
     Stack,
     Divider,
     Badge,
+    Anchor,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -48,16 +49,32 @@ export default function AuthPage() {
     const [regEmail, setRegEmail] = useState('');
     const [regPassword, setRegPassword] = useState('');
     const [regConfirmPassword, setRegConfirmPassword] = useState('');
+    const [authChecked, setAuthChecked] = useState(false);
+    const [registrationVcOfferUrl, setRegistrationVcOfferUrl] = useState<string | null>(null);
+    const [registrationVcAutoAccepted, setRegistrationVcAutoAccepted] = useState<boolean | null>(null);
+    const [registrationWalletId, setRegistrationWalletId] = useState<string | null>(null);
 
-    // Check if already logged in
     useEffect(() => {
-        const token = localStorage.getItem('walletToken');
-        if (token) {
-            router.push('/wallet');
-        }
-    }, []);
+        if (!router.isReady || typeof window === 'undefined') return;
 
-    const holderBackend = env?.NEXT_PUBLIC_HOLDER_URL || 'http://localhost:7000';
+        const hasPersonalSession = Boolean(
+            localStorage.getItem('authToken') ||
+            localStorage.getItem('walletToken')
+        );
+
+        if (hasPersonalSession) {
+            router.replace('/wallet');
+            return;
+        }
+
+        setAuthChecked(true);
+    }, [router]);
+
+    if (!authChecked) {
+        return null;
+    }
+
+    const holderBackend = env?.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000';
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -110,6 +127,9 @@ export default function AuthPage() {
         }
 
         setLoading(true);
+        setRegistrationVcOfferUrl(null);
+        setRegistrationVcAutoAccepted(null);
+        setRegistrationWalletId(null);
 
         try {
             const response = await axios.post(`${holderBackend}/api/ssi/auth/register`, {
@@ -119,20 +139,28 @@ export default function AuthPage() {
                 pin: regPassword,
             });
 
-            const { walletId } = response.data;
+            const { walletId, vcOfferUrl, vcOfferAutoAccepted } = response.data;
+            setRegistrationWalletId(walletId || null);
+            setRegistrationVcOfferUrl(vcOfferUrl || null);
+            setRegistrationVcAutoAccepted(typeof vcOfferAutoAccepted === 'boolean' ? vcOfferAutoAccepted : null);
 
             notifications.show({
                 title: 'Account Created!',
-                message: `Your wallet (${walletId.slice(0, 8)}...) has been created. Please log in.`,
+                message: vcOfferAutoAccepted
+                    ? `Your wallet (${walletId.slice(0, 8)}...) has been created and the Platform VC was auto-added.`
+                    : `Your wallet (${walletId.slice(0, 8)}...) has been created. Claim the Platform VC to finish setup.`,
                 color: 'green',
                 icon: <IconCheck size={18} />,
             });
 
-            // Switch to login tab
-            setActiveTab('login');
             setLoginPhone(regPhone);
             setRegPassword('');
             setRegConfirmPassword('');
+            if (vcOfferUrl && !vcOfferAutoAccepted) {
+                setActiveTab('register');
+            } else {
+                setActiveTab('login');
+            }
         } catch (err: any) {
             const message = err.response?.data?.message || err.message || 'Registration failed';
             setError(message);
@@ -264,6 +292,42 @@ export default function AuthPage() {
                                             No app install required!
                                         </Text>
                                     </Alert>
+
+                                    {registrationWalletId && (
+                                        <Alert
+                                            color={registrationVcAutoAccepted ? 'green' : 'violet'}
+                                            variant="light"
+                                            icon={registrationVcAutoAccepted ? <IconCheck size={16} /> : <IconWallet size={16} />}
+                                        >
+                                            <Stack gap={6}>
+                                                <Text size="sm" fw={600}>
+                                                    {registrationVcAutoAccepted ? 'Platform VC added to your wallet' : 'Platform VC ready to claim'}
+                                                </Text>
+                                                <Text size="sm">
+                                                    {registrationVcAutoAccepted
+                                                        ? 'The Platform Identity VC was automatically issued and stored in your wallet.'
+                                                        : 'Open the VC offer to add your Platform Identity VC to the new wallet before signing in.'}
+                                                </Text>
+                                                {registrationVcOfferUrl && !registrationVcAutoAccepted && (
+                                                    <Group gap="sm">
+                                                        <Button
+                                                            size="xs"
+                                                            onClick={() => window.open(registrationVcOfferUrl, '_blank', 'noopener,noreferrer')}
+                                                        >
+                                                            Open VC Offer
+                                                        </Button>
+                                                        <Button
+                                                            size="xs"
+                                                            variant="light"
+                                                            onClick={() => navigator.clipboard?.writeText(registrationVcOfferUrl)}
+                                                        >
+                                                            Copy Offer URL
+                                                        </Button>
+                                                    </Group>
+                                                )}
+                                            </Stack>
+                                        </Alert>
+                                    )}
 
                                     <Button
                                         type="submit"

@@ -18,9 +18,13 @@ import {
   CurrencyDollarIcon,
 } from '@heroicons/react/24/outline';
 
+import { useRequireOrgContext } from '@/lib/portalContext';
 type StatementType = 'income' | 'balance' | 'cashflow';
 
 const FinanceReports = () => {
+  // Org-only surface: personal sessions are redirected (mirrors mobile /finance → /inbox).
+  useRequireOrgContext('/inbox');
+
   const [activeTab, setActiveTab] = useState<StatementType>('income');
   const [startDate, setStartDate] = useState('2026-01-01');
   const [endDate, setEndDate] = useState('2026-03-31');

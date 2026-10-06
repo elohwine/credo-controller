@@ -342,8 +342,11 @@ export function isReleaseRole(): boolean {
  * External org-interacting users (e.g. holder/member/guest) must not see FEPT ops UI.
  */
 export function isEmployeeOrgRole(): boolean {
-  const role = String(getOrgRoleClaim() || '').toLowerCase()
-  return ['owner', 'admin', 'manager', 'approver', 'issuer', 'field_worker', 'technician', 'dispatcher'].includes(role)
+  const role = String(getOrgRoleClaim() || '').toLowerCase().trim()
+  if (!role) return false
+  // Every membership role the organization hands out (built-in or added under Roles, e.g.
+  // supervisor, finance officer) is an internal role. Only clearly external parties are not.
+  return !['holder', 'guest', 'external', 'customer', 'supplier', 'contact'].includes(role)
 }
 
 export function isAuthenticated(): boolean {

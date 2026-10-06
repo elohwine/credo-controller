@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
@@ -39,6 +39,7 @@ export default function LoginPage() {
     const [ssiModalOpen, setSsiModalOpen] = useState(false);
     const [authRequest, setAuthRequest] = useState<string | null>(null);
     const [ssiState, setSsiState] = useState<string | null>(null);
+    const [authChecked, setAuthChecked] = useState(false);
 
     const [form, setForm] = useState({
         phone: '',
@@ -47,7 +48,27 @@ export default function LoginPage() {
         rememberMe: false,
     });
 
-    const holderBackend = env.NEXT_PUBLIC_HOLDER_URL || 'http://localhost:7000';
+    const holderBackend = env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000';
+
+    useEffect(() => {
+        if (!router.isReady || typeof window === 'undefined') return;
+
+        const hasPersonalSession = Boolean(
+            localStorage.getItem('authToken') ||
+            localStorage.getItem('walletToken')
+        );
+
+        if (hasPersonalSession) {
+            router.replace('/wallet');
+            return;
+        }
+
+        setAuthChecked(true);
+    }, [router]);
+
+    if (!authChecked) {
+        return null;
+    }
 
     // PIN-based login (Web2 fallback)
     const handleSubmit = async (e: React.FormEvent) => {

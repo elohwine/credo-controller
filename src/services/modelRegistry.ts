@@ -1,6 +1,9 @@
 import { Agent } from '@credo-ts/core'
 import { container } from 'tsyringe'
 
+import { DELEGATION_JSON_SCHEMA, DELEGATION_VC_TYPE } from '../config/credentials/DelegationVC'
+import { EMPLOYEE_JSON_SCHEMA, EMPLOYEE_VC_TYPE } from '../config/credentials/EmployeeVC'
+import { ORG_WORKFLOW_ACTOR_JSON_SCHEMA, ORG_WORKFLOW_ACTOR_VC_TYPE } from '../config/credentials/OrgWorkflowActorVC'
 import {
   PLATFORM_IDENTITY_VC_TYPE,
   PLATFORM_IDENTITY_CREDENTIAL_DEFINITION,
@@ -19,62 +22,131 @@ export async function seedPlatformCredentialDefinitions(rootIssuerDid: string): 
   const { credentialDefinitionStore } = require('../utils/credentialDefinitionStore')
   const { schemaStore } = require('../utils/schemaStore')
 
-  // --- PlatformIdentityVC Schema ---
-  const platformIdentitySchemaId = `PlatformIdentityCredential-schema-1.0.0`
-  const existingSchema = schemaStore.get(platformIdentitySchemaId)
-  if (!existingSchema) {
-    schemaStore.set(platformIdentitySchemaId, {
-      schemaId: platformIdentitySchemaId,
-      name: 'PlatformIdentityCredential',
-      version: '1.0.0',
-      schemaData: {
-        $id: 'PlatformIdentityCredential-1.0.0',
-        type: 'object',
-        required: ['credentialSubject'],
-        properties: {
-          credentialSubject: {
-            type: 'object',
-            required: ['phone', 'registeredAt', 'platformTenantId'],
-            properties: {
-              phone: { type: 'string', description: 'User phone number (E.164 format)' },
-              email: { type: 'string', description: 'Optional email address' },
-              displayName: { type: 'string', description: 'User display name' },
-              registeredAt: { type: 'string', format: 'date-time' },
-              platformTenantId: { type: 'string', description: 'Linked tenant ID on platform' },
-              platformName: { type: 'string', description: 'Platform issuer name' },
-              verificationLevel: { type: 'string', enum: ['unverified', 'phone_verified', 'kyc_verified'] },
-            },
-          },
-        },
-      },
-    })
+  const ensureGlobalSchema = (name: string, version: string, jsonSchema: Record<string, any>): string => {
+    const existing = schemaStore.find(name, version, 'global')
+    if (existing) return existing.schemaId
+    const registered: any = schemaStore.register({ name, version, jsonSchema })
+    if ('error' in registered) {
+      const afterConflict = schemaStore.find(name, version, 'global')
+      if (afterConflict) return afterConflict.schemaId
+      throw new Error(`Platform schema registration failed for ${name}: ${registered.error}`)
+    }
+    return registered.schemaId
   }
 
-  // --- PlatformIdentityVC Credential Definition (global) ---
-  const existingDef = credentialDefinitionStore.get(PLATFORM_IDENTITY_VC_TYPE)
-  if (!existingDef) {
-    credentialDefinitionStore.register({
-      name: PLATFORM_IDENTITY_VC_TYPE,
+  const ensureGlobalDefinition = (
+    name: string,
+    schemaId: string,
+    credentialType: string[],
+    claimsTemplate: Record<string, unknown>,
+  ): void => {
+    if (credentialDefinitionStore.get(name)) return
+    const res: any = credentialDefinitionStore.register({
+      name,
       version: '1.0.0',
-      schemaId: platformIdentitySchemaId,
+      schemaId,
       issuerDid: rootIssuerDid,
-      credentialType: ['VerifiableCredential', PLATFORM_IDENTITY_VC_TYPE],
-      claimsTemplate: {
-        credentialSubject: {
-          phone: '+263771234567',
-          displayName: 'Platform User',
-          registeredAt: new Date().toISOString(),
-          platformTenantId: 'tenant-id',
-          platformName: 'IdenEx Credentis',
-          verificationLevel: 'phone_verified',
-        },
-      },
+      credentialType,
+      claimsTemplate,
       format: 'jwt_vc_json',
       // Global - no tenantId means root agent scope
     })
+    if (res && 'error' in res && !String(res.error).toLowerCase().includes('already exists')) {
+      throw new Error(`Platform credential definition registration failed for ${name}: ${res.error}`)
+    }
     // eslint-disable-next-line no-console
-    console.log(`[ModelRegistry] Seeded PlatformIdentityCredential definition for root agent`)
+    console.log(`[ModelRegistry] Seeded ${name} definition for root agent`)
   }
+
+  // --- PlatformIdentityVC (SSI auth identity credential) ---
+  const platformIdentitySchemaId = ensureGlobalSchema(PLATFORM_IDENTITY_VC_TYPE, '1.0.0', {
+    $id: 'PlatformIdentityCredential-1.0.0',
+    type: 'object',
+    required: ['credentialSubject'],
+    properties: {
+      credentialSubject: {
+        type: 'object',
+        required: ['phone', 'registeredAt', 'platformTenantId'],
+        properties: {
+          phone: { type: 'string', description: 'User phone number (E.164 format)' },
+          email: { type: 'string', description: 'Optional email address' },
+          displayName: { type: 'string', description: 'User display name' },
+          registeredAt: { type: 'string', format: 'date-time' },
+          platformTenantId: { type: 'string', description: 'Linked tenant ID on platform' },
+          platformName: { type: 'string', description: 'Platform issuer name' },
+          verificationLevel: { type: 'string', enum: ['unverified', 'phone_verified', 'kyc_verified'] },
+        },
+      },
+    },
+  })
+
+  ensureGlobalDefinition(
+    PLATFORM_IDENTITY_VC_TYPE,
+    platformIdentitySchemaId,
+    PLATFORM_IDENTITY_CREDENTIAL_DEFINITION.credentialType,
+    {
+      credentialSubject: {
+        phone: '+263771234567',
+        displayName: 'Platform User',
+        registeredAt: new Date().toISOString(),
+        platformTenantId: 'tenant-id',
+        platformName: 'IdenEx Credentis',
+        verificationLevel: 'phone_verified',
+      },
+    },
+  )
+
+  // --- OrgWorkflowActorCredential (actor VC offered to configured workflow actors) ---
+  const actorSchemaId = ensureGlobalSchema(ORG_WORKFLOW_ACTOR_VC_TYPE, '1.0.0', ORG_WORKFLOW_ACTOR_JSON_SCHEMA)
+
+  ensureGlobalDefinition(ORG_WORKFLOW_ACTOR_VC_TYPE, actorSchemaId, ['VerifiableCredential', ORG_WORKFLOW_ACTOR_VC_TYPE], {
+    credentialSubject: {
+      orgTenantId: 'org-tenant-id',
+      orgName: 'Organization',
+      userId: 'user-id',
+      memberRole: 'approver',
+      role: 'approver',
+      workflowType: 'internal_requisitions',
+      stageActions: ['approve_requisition'],
+      assignmentMode: 'configured_user',
+      assignedAt: new Date().toISOString(),
+      issuedAt: new Date().toISOString(),
+      platformName: 'IdenEx Credentis',
+      fingerprint: 'sha256',
+    },
+  })
+
+  const employeeSchemaId = ensureGlobalSchema(EMPLOYEE_VC_TYPE, '1.0.0', EMPLOYEE_JSON_SCHEMA)
+  ensureGlobalDefinition(EMPLOYEE_VC_TYPE, employeeSchemaId, ['VerifiableCredential', EMPLOYEE_VC_TYPE], {
+    credentialSubject: {
+      orgTenantId: 'org-tenant-id',
+      orgName: 'Organization',
+      userId: 'user-id',
+      memberRole: 'employee',
+      role: 'employee',
+      employmentStatus: 'active',
+      source: 'membership',
+      issuedAt: new Date().toISOString(),
+      platformName: 'IdenEx Credentis',
+      fingerprint: 'sha256',
+    },
+  })
+
+  const delegationSchemaId = ensureGlobalSchema(DELEGATION_VC_TYPE, '1.0.0', DELEGATION_JSON_SCHEMA)
+  ensureGlobalDefinition(DELEGATION_VC_TYPE, delegationSchemaId, ['VerifiableCredential', DELEGATION_VC_TYPE], {
+    credentialSubject: {
+      orgTenantId: 'org-tenant-id',
+      orgName: 'Organization',
+      delegationId: 'delegation-id',
+      delegatorUserId: 'user-id',
+      delegateUserId: 'user-id',
+      permissions: ['request.approve'],
+      validFrom: new Date().toISOString(),
+      issuedAt: new Date().toISOString(),
+      platformName: 'IdenEx Credentis',
+      fingerprint: 'sha256',
+    },
+  })
 }
 
 // Simple internal seeding using in-memory stores directly (avoids HTTP roundtrip during provisioning)
@@ -263,6 +335,30 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
       },
     })
 
+    const schoolFeeReceiptSchemaId = ensureSchema('SchoolFeeReceiptVC', '1.0.0', {
+      $id: 'SchoolFeeReceiptVC-1.0.0',
+      type: 'object',
+      required: ['credentialSubject'],
+      properties: {
+        credentialSubject: {
+          type: 'object',
+          required: ['receiptId', 'amount', 'currency', 'paymentRef', 'paidAt'],
+          properties: {
+            receiptId: { type: 'string' },
+            amount: { type: 'number' },
+            currency: { type: 'string' },
+            paymentRef: { type: 'string' },
+            paidAt: { type: 'string', format: 'date-time' },
+            studentId: { type: 'string' },
+            studentName: { type: 'string' },
+            term: { type: 'string' },
+            feeType: { type: 'string' },
+            schoolName: { type: 'string' },
+          },
+        },
+      },
+    })
+
     const catalogItemSchemaId = ensureSchema('CatalogItemVC', '1.0.0', {
       $id: 'CatalogItemVC-1.0.0',
       type: 'object',
@@ -318,6 +414,15 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
     registerDef('InvoiceVC', '1.0.0', invoiceSchemaId, ['VerifiableCredential', 'InvoiceVC'], {}, 'jwt_vc_json')
 
     registerDef('ReceiptVC', '1.0.0', receiptSchemaId, ['VerifiableCredential', 'ReceiptVC'], {}, 'jwt_vc_json')
+
+    registerDef(
+      'SchoolFeeReceiptVC',
+      '1.0.0',
+      schoolFeeReceiptSchemaId,
+      ['VerifiableCredential', 'SchoolFeeReceiptVC'],
+      {},
+      'jwt_vc_json',
+    )
 
     registerDef(
       'CatalogItemVC',

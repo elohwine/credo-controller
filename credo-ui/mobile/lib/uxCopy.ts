@@ -83,27 +83,160 @@ function extractFeptStage(
   return ''
 }
 
-function toFeptStageLabel(stage: string): string {
-  const labels: Record<string, string> = {
-    REQUEST_CREATED: 'New request',
-    APPROVAL_PENDING: 'Awaiting approval',
-    APPROVED: 'Approved',
-    RELEASE_AUTHORIZED: 'Funds cleared',
-    ASSIGNED: 'Job assigned',
-    IN_PROGRESS: 'Work in progress',
-    EVIDENCE_CAPTURED: 'Evidence captured',
-    ACKNOWLEDGED: 'Acknowledged',
-    PAYMENT_TRIGGERED: 'Payment triggered',
-    RECEIPT_ISSUED: 'Receipt ready',
-    RECONCILED: 'Reconciled',
-    COMPLETED: 'Completed',
-    DISPUTED: 'Needs attention',
-    CANCELLED: 'Cancelled',
-    REVOKED: 'Revoked',
-  }
-
-  return labels[stage] || stage.toLowerCase().replace(/_/g, ' ')
+/**
+ * Plain stage names for a field job. Shared by the home, activity, inbox and finance screens
+ * and aligned with the portal (`credo-ui/portal/components/finance/financeStages.ts`).
+ */
+export const FEPT_STAGE_LABEL: Record<string, string> = {
+  DRAFT: 'Draft',
+  REQUEST_CREATED: 'New',
+  APPROVAL_PENDING: 'Waiting for approval',
+  APPROVED: 'Approved',
+  RELEASE_AUTHORIZED: 'Money cleared',
+  ASSIGNED: 'Assigned',
+  IN_PROGRESS: 'In progress',
+  EVIDENCE_CAPTURED: 'Waiting for sign-off',
+  ACKNOWLEDGED: 'Signed off',
+  PAYMENT_TRIGGERED: 'Payment released',
+  RECEIPT_ISSUED: 'Receipt issued',
+  RECONCILED: 'Closed',
+  COMPLETED: 'Completed',
+  DISPUTED: 'Under review',
+  CANCELLED: 'Cancelled',
+  REVOKED: 'Cancelled',
 }
+
+export function toFeptStageLabel(stage: string): string {
+  const key = normalizeStage(stage)
+  return FEPT_STAGE_LABEL[key] || key.toLowerCase().replace(/_/g, ' ')
+}
+
+/** What a paused field job is waiting for, in a few words. Same words as the portal job board. */
+export const FEPT_WAITING_LABEL: Record<string, string> = {
+  await_site_inspection: 'Site inspection',
+  await_risk_assessment: 'Worker safety check',
+  await_worker_start: 'Worker to start',
+  await_arrival: 'Worker arrival',
+  await_evidence_before: 'Before photos',
+  await_evidence_after: 'After photos',
+  await_evidence_receipt: 'Receipts',
+  await_completion_review: 'Work review',
+  await_acknowledgement: 'Sign-off',
+  await_payout_release: 'Payment release',
+}
+
+/**
+ * Badge text for a field job. A paused job says what it is waiting for (so "after photos
+ * taken" never reads as "waiting for sign-off" while receipts or the review are still due).
+ */
+export function fieldJobStatusLabel(status: unknown, stage: unknown, pauseReason?: unknown): string {
+  const runStatus = String(status || '').toLowerCase()
+  const pause = String(pauseReason || '').toLowerCase()
+  if (runStatus === 'paused' && FEPT_WAITING_LABEL[pause]) return `Waiting: ${FEPT_WAITING_LABEL[pause]}`
+  if (runStatus === 'failed') return 'Needs attention'
+  const key = normalizeStage(String(stage || ''))
+  if (key) return FEPT_STAGE_LABEL[key] || key.toLowerCase().replace(/_/g, ' ')
+  if (runStatus === 'completed') return 'Completed'
+  return runStatus || 'In progress'
+}
+
+/**
+ * Plain status names for an internal requisition (what the badge says), aligned with the portal
+ * requisition list and detail. The engine status stays as-is in the data; only the display changes.
+ */
+export const REQUISITION_STATUS_LABEL: Record<string, string> = {
+  REQUISITION_CREATED: 'Waiting for manager approval',
+  MANAGER_APPROVED: 'Waiting for finance approval',
+  APPROVED: 'Approved, waiting for money release',
+  RELEASED: 'Money released',
+  PAID: 'Paid',
+  RECEIPT_ISSUED: 'Receipt issued',
+  ACKNOWLEDGED: 'Delivery confirmed',
+  EXECUTION_ACKNOWLEDGED: 'Delivery confirmed',
+  RECONCILED: 'Closed',
+  REJECTED: 'Declined',
+  CANCELLED: 'Cancelled',
+}
+
+export function requisitionStatusLabel(status: unknown): string {
+  const key = normalizeStage(status)
+  if (!key) return 'Unknown'
+  return REQUISITION_STATUS_LABEL[key] || toSentenceCase(key.toLowerCase().replace(/_/g, ' '))
+}
+
+/** Plain titles for the requisition history ("Audit") entries. */
+export const REQUISITION_EVENT_TITLE: Record<string, string> = {
+  REQUISITION_CREATED: 'Requisition created',
+  REQUISITION_MANAGER_APPROVED: 'Approved by manager',
+  REQUISITION_FINANCE_APPROVED: 'Approved by finance',
+  REQUISITION_RELEASED: 'Money released',
+  REQUISITION_ACKNOWLEDGED: 'Delivery confirmed',
+  REQUISITION_APPROVED: 'Request approved',
+  MANAGER_APPROVED: 'Approved by manager',
+  APPROVED: 'Approved by finance',
+  REQUISITION_REJECTED: 'Declined',
+  REJECTED: 'Declined',
+  RELEASE_AUTHORIZED: 'Money released',
+  RELEASED: 'Money released',
+  FUNDS_RELEASED: 'Money released',
+  PAYMENT_LINK_CREATED: 'Payment link created',
+  PAID: 'Paid',
+  RECEIPT_ISSUED: 'Receipt issued',
+  EXECUTION_ACKNOWLEDGED: 'Delivery confirmed',
+  ACKNOWLEDGED: 'Delivery confirmed',
+  RECONCILED: 'Closed',
+  PURCHASE_ORDER_CREATED: 'Purchase order created',
+}
+
+export function requisitionEventTitle(eventType: unknown): string {
+  const key = normalizeStage(eventType)
+  if (!key) return 'Update'
+  return REQUISITION_EVENT_TITLE[key] || toSentenceCase(key.toLowerCase().replace(/_/g, ' '))
+}
+
+/**
+ * The one thing that can happen next on a requisition. Portal and mobile show a single
+ * primary action for this step (no stacked disabled buttons), with a plain explanation
+ * of who confirms it. Mirrors `requisitionNextStep` in credo-ui/portal/components/finance/financeStages.ts.
+ */
+export type RequisitionNextStep = {
+  action: 'approval' | 'release' | 'ack' | null
+  label: string
+  helper: string
+}
+
+export function requisitionNextStep(status: unknown, signMode?: 'one' | 'both'): RequisitionNextStep {
+  const key = String(status ?? '').trim().toUpperCase()
+  switch (key) {
+    case 'REQUISITION_CREATED':
+      return signMode === 'one'
+        ? { action: 'approval', label: 'Approve this request', helper: 'One confirmation from your wallet approves this request.' }
+        : { action: 'approval', label: 'Approve as manager', helper: 'A manager confirms from their wallet that this request can go ahead.' }
+    case 'MANAGER_APPROVED':
+      return { action: 'approval', label: 'Approve as finance', helper: 'Finance confirms from their wallet that the money is available.' }
+    case 'APPROVED':
+      return { action: 'release', label: 'Release funds', helper: 'Release the money and create the payment link. Confirmed from your wallet.' }
+    case 'RELEASED':
+    case 'PAID':
+    case 'RECEIPT_ISSUED':
+      return { action: 'ack', label: 'Confirm delivery', helper: 'Confirm the goods or services were received. This closes the requisition.' }
+    case 'REJECTED':
+      return { action: null, label: 'Declined', helper: 'This requisition was declined. Nothing more to do.' }
+    case 'CANCELLED':
+      return { action: null, label: 'Cancelled', helper: 'This requisition was cancelled. Nothing more to do.' }
+    default:
+      return { action: null, label: 'Closed', helper: 'All steps are done. Nothing more to do on this requisition.' }
+  }
+}
+
+/** The five requisition steps in plain words, in order. Shared by the portal stage table. */
+export const REQUISITION_STEPS = [
+  { key: 'created', label: 'Requisition created', confirmedBy: 'Automatic', record: 'Requisition record' },
+  { key: 'manager', label: 'Manager approval', confirmedBy: 'From wallet', record: 'Manager approval' },
+  { key: 'finance', label: 'Finance approval', confirmedBy: 'From wallet', record: 'Finance approval' },
+  { key: 'release', label: 'Money released', confirmedBy: 'From wallet', record: 'Release authorisation' },
+  { key: 'ack', label: 'Delivery confirmed', confirmedBy: 'From wallet', record: 'Delivery confirmation' },
+] as const
 
 function toSentenceCase(value: string): string {
   if (!value) return ''
@@ -232,7 +365,7 @@ export function getInboxDisplayTitle(item: InboxLikeItem): string {
   if (item.itemType === 'credential_offer')
     return rawTitle.includes('Credential') || rawTitle.includes('Offer') ? 'Document ready' : rawTitle
   if (stageLabel) return stageLabel
-  if (item.module === 'field' || item.workflowRunId) return 'Field job update'
+  if (item.module === 'field' || item.workflowRunId) return stageLabel ? `Job Card · ${stageLabel}` : 'Job Card'
   if (item.module === 'present' || item.itemType === 'workflow' || item.workflowRequestId) {
     if (actionLabel.includes('approve') || actionLabel.includes('review')) return 'Needs your review'
     if (actionLabel.includes('payment')) return 'Payment ready'
@@ -257,7 +390,7 @@ export function getInboxDisplayDescription(item: InboxLikeItem): string {
   if (item.itemType === 'receipt_offer') return 'Your receipt is ready to save.'
   if (item.itemType === 'credential_offer') return 'A document was shared with you.'
   if (stage) return `The latest update is ${toFeptStageLabel(stage).toLowerCase()}.`
-  if (item.module === 'field' || item.workflowRunId) return 'Open to continue this step.'
+  if (item.module === 'field' || item.workflowRunId) return 'Open this job card and complete the next required step.'
   if (item.module === 'present') return 'Open to share the requested information.'
   if (item.workflowRequestId || item.module === 'approvals') return 'Open to review and respond.'
   if (item.description) return item.description
@@ -278,7 +411,7 @@ export function getInboxPrimaryActionLabel(item: InboxLikeItem): string {
   if (item.itemType === 'invoice_offer') return 'Review'
   if (item.itemType === 'receipt_offer') return 'Save'
   if (stage) return 'Continue'
-  if (item.module === 'field' || item.workflowRunId) return 'Continue'
+  if (item.module === 'field' || item.workflowRunId) return 'Open job card'
   if (item.module === 'present' || item.workflowRequestId || item.module === 'approvals') return 'Review'
   return 'Open'
 }

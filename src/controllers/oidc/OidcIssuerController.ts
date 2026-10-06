@@ -66,18 +66,25 @@ export class OidcIssuerController extends Controller {
     const credentialConfigurations = [] as string[]
     // Map incoming templates to registered issuer credential configuration IDs.
     for (const template of body.credentials) {
-      // Attempt to resolve credential definition from store
-      const { credentialDefinitionStore } = require('../../utils/credentialDefinitionStore')
-      const def = credentialDefinitionStore.get(template.credentialDefinitionId as string)
-
       // Common formats advertised by issuer (should match CLI_COMMON_FORMATS)
       // Prefer jwt_vc_json first because holders commonly expect the JSON variant
       const COMMON_FORMATS = ['jwt_vc_json', 'jwt_vc_json-ld', 'vc+sd-jwt', 'ldp_vc', 'mso_mdoc', 'jwt_vc']
 
       // Always use the caller's credentialDefinitionId for building config IDs
       // This ensures we match what the issuer advertises (e.g., GenericIDCredential_jwt_vc_json)
-      // The def lookup is just for validation - the template ID controls the config ID name
-      const templateId = template.credentialDefinitionId as string
+      const templateId = String(template.credentialDefinitionId || '').trim()
+      if (!templateId) {
+        throw new Error('credentialDefinitionId required for each credential offer')
+      }
+
+      const credentialDefinitionStore = require('../../utils/credentialDefinitionStore').credentialDefinitionStore
+      const def = credentialDefinitionStore.get(templateId)
+      if (!def) {
+        request.logger?.warn(
+          { templateId },
+          'Credential definition missing from store; using requested template id directly',
+        )
+      }
 
       // If caller specified a desired format, prefer mapping to that format
       const requestedFormats = [] as string[]
@@ -108,21 +115,32 @@ export class OidcIssuerController extends Controller {
 
     const offeredSet = new Set(credentialConfigurations)
 
-    let issuerWithMatchingSupported = issuers.find((i: any) => {
-      const supported = (i?.credentialsSupported || []) as Array<{ id?: string }>
-      return supported.some((s) => !!s?.id && offeredSet.has(s.id))
-    })
+    const issuerOffersConfig = (issuer: any) => {
+      const listed = ((issuer?.credentialsSupported || []) as Array<{ id?: string }>).some(
+        (supported) => !!supported?.id && offeredSet.has(supported.id),
+      )
+      const configured = Object.keys(issuer?.credentialConfigurationsSupported || {}).some((id) => offeredSet.has(id))
+      return listed || configured
+    }
 
-    // If we can't find a matching issuer, try refreshing metadata from DB for this tenant.
+    let issuerWithMatchingSupported = issuers.find((issuer: any) => issuerOffersConfig(issuer))
+
+    // If we can't find a matching issuer, try refreshing metadata from the definition store.
     // This prevents common runtime failures when credential definition names and VC types differ
     // (e.g., FinancialStatementDef vs FinancialStatementCredential) or when models were seeded
     // after the issuer record was created.
-    if (!issuerWithMatchingSupported && tenantId) {
+    if (!issuerWithMatchingSupported) {
       try {
         const definitions = credentialDefinitionStore.list(tenantId)
+        const globalDefinitions = tenantId ? [] : credentialDefinitionStore.list()
+        const mergedDefinitions = tenantId
+          ? definitions
+          : Array.from(
+              new Map([...definitions, ...globalDefinitions].map((def) => [def.credentialDefinitionId, def])).values(),
+            )
 
         const formats = ['jwt_vc', 'jwt_vc_json']
-        const refreshedSupported = definitions.flatMap((def: any) => {
+        let refreshedSupported = mergedDefinitions.flatMap((def: any) => {
           const leafType =
             Array.isArray(def.credentialType) && def.credentialType.length
               ? def.credentialType[def.credentialType.length - 1]
@@ -136,24 +154,58 @@ export class OidcIssuerController extends Controller {
               types: def.credentialType || ['VerifiableCredential', base],
               cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
               cryptographic_suites_supported: ['EdDSA', 'ES256'],
+              credential_signing_alg_values_supported: ['EdDSA'],
+              proof_types_supported: {
+                jwt: { proof_signing_alg_values_supported: ['EdDSA'] },
+              },
+              credential_definition: {
+                type: def.credentialType || ['VerifiableCredential', base],
+              },
               display: [{ name: base }],
             })),
           )
         })
 
+        const platformTemplateId = String(body.credentials[0]?.credentialDefinitionId || '')
+        if (platformTemplateId === 'PlatformIdentityCredential' || platformTemplateId === 'PlatformIdentityVC') {
+          const platformConfig = {
+            id: 'PlatformIdentityCredential_jwt_vc_json',
+            format: 'jwt_vc_json',
+            types: ['VerifiableCredential', 'PlatformIdentityCredential'],
+            cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
+            cryptographic_suites_supported: ['EdDSA', 'ES256'],
+            credential_signing_alg_values_supported: ['EdDSA'],
+            proof_types_supported: {
+              jwt: { proof_signing_alg_values_supported: ['EdDSA'] },
+            },
+            credential_definition: {
+              type: ['VerifiableCredential', 'PlatformIdentityCredential'],
+            },
+            display: [{ name: 'PlatformIdentityCredential' }],
+          }
+
+          if (!refreshedSupported.some((supported: any) => supported?.id === platformConfig.id)) {
+            refreshedSupported = [...refreshedSupported, platformConfig]
+          }
+        }
+
         for (const i of issuers as any[]) {
+          const existing = { ...(i.credentialConfigurationsSupported || {}) }
+          for (const credentialSupported of refreshedSupported) {
+            const current = existing[credentialSupported.id]
+            if (!current?.proof_types_supported || !current?.credential_definition) {
+              existing[credentialSupported.id] = credentialSupported
+            }
+          }
           await issuerModule.updateIssuerMetadata({
             issuerId: i.issuerId,
-            credentialsSupported: refreshedSupported,
+            credentialConfigurationsSupported: existing,
             display: i.display || [],
           })
         }
 
         issuers = await issuerModule.getAllIssuers()
-        issuerWithMatchingSupported = issuers.find((i: any) => {
-          const supported = (i?.credentialsSupported || []) as Array<{ id?: string }>
-          return supported.some((s) => !!s?.id && offeredSet.has(s.id))
-        })
+        issuerWithMatchingSupported = issuers.find((issuer: any) => issuerOffersConfig(issuer))
       } catch (e: any) {
         request.logger?.warn({ err: e.message, tenantId }, 'Failed to refresh issuer metadata')
       }
@@ -186,7 +238,8 @@ export class OidcIssuerController extends Controller {
     // Note: ensure we cast to any if types aren't fully picked up yet
     const result = await issuerModule.createCredentialOffer({
       issuerId,
-      offeredCredentials: credentialConfigurations,
+      credentialConfigurationIds: credentialConfigurations,
+      version: 'v1.draft11-14',
       preAuthorizedCodeFlowConfig: {
         userPinRequired: false,
       },
@@ -195,15 +248,6 @@ export class OidcIssuerController extends Controller {
         claims: claims,
         tenantId: tenantId,
         credentialDefinitionId: body.credentials[0]?.credentialDefinitionId || credentialConfigurations[0],
-      },
-      grants: {
-        authorization_code: {
-          issuer_state: randomUUID(),
-        },
-        'urn:ietf:params:oauth:grant-type:pre-authorized_code': {
-          'pre-authorized_code': randomUUID(),
-          user_pin_required: false,
-        },
       },
     })
 

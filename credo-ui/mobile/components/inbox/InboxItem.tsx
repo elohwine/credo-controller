@@ -47,6 +47,8 @@ export interface InboxItemData {
   workflowRequestType?: string;
   requisitionId?: string;
   transactionId?: string;
+  /** For organization requests (purchases, quotes) the person approves or declines from the phone. */
+  platformRequestId?: string;
   requiredAction?: string;
   proofRequestId?: string;
   proofResponseId?: string;

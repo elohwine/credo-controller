@@ -1,4 +1,3 @@
-/* eslint-disable import/no-extraneous-dependencies */
 import type { OutOfBandInvitationProps, OutOfBandRecordWithInvitationProps } from '../../examples'
 import type { AgentMessageType, RecipientKeyOption, CreateInvitationOptions, Routing } from '../../types'
 import type { PeerDidNumAlgo2CreateOptions } from '@credo-ts/core'
@@ -14,7 +13,7 @@ import { SCOPES } from '../../../enums'
 import ErrorHandlingService from '../../../errorHandlingService'
 import { InternalServerError, NotFoundError } from '../../../errors'
 import { ConnectionRecordExample, outOfBandInvitationExample, outOfBandRecordExample, RecordId } from '../../examples'
-import { AcceptInvitationConfig, ReceiveInvitationByUrlProps, ReceiveInvitationProps } from '../../types'
+import type { AcceptInvitationConfig, ReceiveInvitationByUrlProps, ReceiveInvitationProps } from '../../types'
 
 @Tags('DIDComm - Out Of Band')
 @Security('jwt', [SCOPES.TENANT_AGENT, SCOPES.DEDICATED_AGENT])

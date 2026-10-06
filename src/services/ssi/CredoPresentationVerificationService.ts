@@ -79,12 +79,15 @@ export class CredoPresentationVerificationService {
       const verificationSession = verificationResult?.verificationSession
       const protocolVerified = verificationSession?.state === 'ResponseVerified'
       const verifierBound = verificationSession?.verifierId === registration.credoVerifierIdRef
-      const responseState = verificationSession?.authorizationResponsePayload?.state
-      const stateBound = typeof responseState === 'string' ? responseState === input.state : true
+      const responsePayload = verificationSession?.authorizationResponsePayload as Record<string, unknown> | undefined
+      const responseState = responsePayload?.state
+      const stateBound = typeof responseState === 'string' && responseState === input.state
 
       const requestPayload = this.decodeJwtPayload(verificationSession?.authorizationRequestJwt)
       const expectedAudience = typeof requestPayload?.client_id === 'string' ? requestPayload.client_id : undefined
       const expectedNonce = typeof requestPayload?.nonce === 'string' ? requestPayload.nonce : undefined
+      const responseIdToken = typeof responsePayload?.id_token === 'string' ? responsePayload.id_token : undefined
+      const responseIdTokenPayload = this.decodeJwtPayload(responseIdToken)
 
       const isDcql = context.queryLanguage === 'dcql'
       const verifiedResponse = isDcql ? verificationResult?.dcql : verificationResult?.presentationExchange
@@ -130,9 +133,22 @@ export class CredoPresentationVerificationService {
 
       const querySatisfied = this.isQuerySatisfied(verifiedResponse, isDcql)
       const schemaVerified = protocolVerified && querySatisfied
-      const holderBindingVerified = protocolVerified && verifierBound && stateBound && presentations.length > 0
-      const audienceVerified = protocolVerified && verifierBound && stateBound && !!expectedAudience
-      const nonceVerified = protocolVerified && verifierBound && stateBound && !!expectedNonce
+      const holderBindingVerified =
+        protocolVerified &&
+        verifierBound &&
+        stateBound &&
+        presentations.length > 0 &&
+        typeof responseIdTokenPayload?.sub === 'string'
+      const audienceVerified =
+        protocolVerified &&
+        verifierBound &&
+        stateBound &&
+        this.matchesExpectedAudience(expectedAudience, responseIdTokenPayload?.aud)
+      const nonceVerified =
+        protocolVerified &&
+        verifierBound &&
+        stateBound &&
+        this.matchesExpectedNonce(expectedNonce, responseIdTokenPayload?.nonce)
 
       const verified =
         protocolVerified &&
@@ -311,6 +327,25 @@ export class CredoPresentationVerificationService {
     } catch {
       return undefined
     }
+  }
+
+  private matchesExpectedAudience(expectedAudience?: string, responseAudience?: unknown): boolean {
+    if (!expectedAudience || typeof expectedAudience !== 'string') return false
+
+    if (typeof responseAudience === 'string') {
+      return responseAudience === expectedAudience
+    }
+
+    if (Array.isArray(responseAudience)) {
+      return responseAudience.some((value) => typeof value === 'string' && value === expectedAudience)
+    }
+
+    return false
+  }
+
+  private matchesExpectedNonce(expectedNonce?: string, responseNonce?: unknown): boolean {
+    if (!expectedNonce || typeof expectedNonce !== 'string') return false
+    return typeof responseNonce === 'string' && responseNonce === expectedNonce
   }
 
   private isQuerySatisfied(verifiedResponse: unknown, isDcql: boolean): boolean {

@@ -2,10 +2,27 @@ import type { WorkflowExecutionResult } from './WorkflowService'
 
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { workflowRepository } from '../persistence/WorkflowRepository'
+import { rootLogger } from '../utils/pinoLogger'
 
 import { authorizationService } from './AuthorizationService'
 import { platformRequestService } from './PlatformRequestService'
+import {
+  WorkflowPrerequisitesError,
+  workflowReadinessService,
+  type TemplateReadinessReport,
+} from './WorkflowReadinessService'
 import { WorkflowService } from './WorkflowService'
+
+interface WorkflowTemplateRow {
+  id: string
+  tenantId: string
+  workflowType: string
+  name: string
+  steps: string
+  initiationSchema?: string | null
+}
+
+const logger = rootLogger.child({ module: 'PlatformWorkflowService' })
 
 /**
  * Application boundary between organizational requests and the existing
@@ -17,6 +34,101 @@ import { WorkflowService } from './WorkflowService'
  */
 export class PlatformWorkflowService {
   public constructor(private readonly workflowService = new WorkflowService()) {}
+
+  /**
+   * Execution gate: a workflow runs when the organization's configuration satisfies
+   * the template's declared prerequisites. There is no `enabled` / activation flag.
+   *
+   * When prerequisites are missing an organization setup task is opened on the
+   * request (inbox/action model) and WorkflowPrerequisitesError is thrown.
+   */
+  private assertWorkflowOperational(
+    tenantId: string,
+    requestId: string,
+    workflowId: string,
+    workflowType: string | undefined,
+    actorPersonId?: string,
+  ): TemplateReadinessReport {
+    const templateRef = workflowType || workflowId
+    const report = workflowReadinessService.evaluateTemplate(tenantId, templateRef)
+    if (report.ready) {
+      return report
+    }
+
+    const task = platformRequestService.openSetupTask(
+      requestId,
+      tenantId,
+      report.blocking.map((item) => ({
+        key: item.key,
+        title: item.title,
+        reason: item.reason,
+        actionPath: item.actionPath,
+        requiredFor: item.requiredFor,
+      })),
+      actorPersonId,
+    )
+
+    logger.warn(
+      {
+        tenantId,
+        workflowId,
+        workflowType: workflowType || null,
+        taskId: task.taskId,
+        missing: report.blocking.map((i) => i.key),
+      },
+      'Workflow prerequisites missing; setup task opened instead of starting run',
+    )
+
+    throw new WorkflowPrerequisitesError(report)
+  }
+
+  private ensureExecutableWorkflow(workflowId: string, tenantId: string) {
+    const existing = workflowRepository.findById(workflowId)
+    if (existing) {
+      return existing
+    }
+
+    const db = DatabaseManager.getDatabase()
+    const template = db
+      .prepare(
+        `
+        SELECT
+          id,
+          tenant_id AS tenantId,
+          workflow_type AS workflowType,
+          name,
+          steps,
+          initiation_schema AS initiationSchema
+        FROM workflow_templates
+        WHERE id = ?
+          AND tenant_id = ?
+        LIMIT 1
+      `,
+      )
+      .get(workflowId, tenantId) as WorkflowTemplateRow | undefined
+
+    if (!template) {
+      return undefined
+    }
+
+    const parsedSteps = JSON.parse(template.steps) as Array<{ action: string; config?: Record<string, unknown> }>
+    const actions = parsedSteps.map((step) => ({ action: step.action, config: step.config || {} }))
+
+    const parsedInputSchema = template.initiationSchema ? JSON.parse(template.initiationSchema) : {}
+
+    workflowRepository.save({
+      id: template.id,
+      tenantId,
+      name: template.name || template.workflowType,
+      category: template.workflowType,
+      provider: 'workflow-template',
+      description: `Auto-materialized from template ${template.id}`,
+      inputSchema: parsedInputSchema,
+      actions,
+    })
+
+    return workflowRepository.findById(template.id)
+  }
 
   public async startForRequest(
     requestId: string,
@@ -72,9 +184,10 @@ export class PlatformWorkflowService {
       throw new Error(`Insufficient authority: ${decision.reasonCode}`)
     }
 
-    const workflow = workflowRepository.findById(workflowId)
+    const workflow = this.ensureExecutableWorkflow(workflowId, tenantId)
     if (!workflow) throw new Error('Workflow not found')
     if (workflow.tenantId !== tenantId) throw new Error('Workflow does not belong to authenticated tenant')
+    this.assertWorkflowOperational(tenantId, requestId, workflowId, workflow.category, principal.personId)
 
     const workflowInput = {
       requestId,

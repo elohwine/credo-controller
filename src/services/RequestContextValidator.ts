@@ -197,6 +197,21 @@ export class RequestContextValidator {
     return { valid: errors.length === 0, errors, warnings }
   }
 
+  /** Keys a known request type may store. Undefined when the type has no schema yet. */
+  public allowedKeys(requestType: string): ReadonlySet<string> | undefined {
+    return CONTEXT_SCHEMAS.get(requestType)
+  }
+
+  /** Drop credential, token, and key-material keys before a follow-on request is stored. */
+  public omitDeniedKeys(context: Record<string, unknown>): Record<string, unknown> {
+    const safe: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(context)) {
+      if (GLOBAL_DENIED_KEYS.has(key)) continue
+      safe[key] = value
+    }
+    return safe
+  }
+
   /**
    * Detects three-part base64url strings that look like JWTs.
    * Does NOT attempt JWT decoding — pattern matching is sufficient to block storage.

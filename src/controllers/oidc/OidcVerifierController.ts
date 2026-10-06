@@ -130,25 +130,30 @@ export class OidcVerifierController extends Controller {
    * @deprecated New callers should use POST /api/platform/ssi/verify directly.
    */
   @Post('verifier/verify')
-  @Security('jwt', ['tenant'])
   public async verifyPresentation(
     @Request() request: ExRequest,
     @Body()
     body: any,
   ): Promise<any> {
     const { state, verifiablePresentation } = body || {}
-    if (!state || !verifiablePresentation) {
+    if (!state || typeof state !== 'string') {
       this.setStatus(400)
-      throw new Error('state and verifiablePresentation are required')
+      throw new Error('state is required')
+    }
+
+    if (!verifiablePresentation) {
+      this.setStatus(400)
+      throw new Error('verifiablePresentation is required')
     }
 
     try {
       const context = ssiTrustService.getProtocolContextByState(state)
+      const effectiveState = context.protocolState || state
 
       const result = await credoPresentationVerificationService.verify({
         tenantId: context.tenantId,
         requestId: context.requestId,
-        state,
+        state: effectiveState,
         verifiablePresentation,
         presentationSubmission: body.presentationSubmission,
         request,

@@ -38,6 +38,11 @@ CREATE TABLE IF NOT EXISTS organization_memberships (
   department_id TEXT, membership_status TEXT NOT NULL DEFAULT 'active',
   joined_at DATETIME DEFAULT CURRENT_TIMESTAMP, left_at DATETIME
 );
+CREATE TABLE IF NOT EXISTS org_memberships (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL, org_tenant_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'member', status TEXT NOT NULL DEFAULT 'active',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_membership_person ON organization_memberships(organization_id, person_id);
 CREATE TABLE IF NOT EXISTS roles (
   id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, name TEXT NOT NULL,
@@ -142,6 +147,9 @@ function seedPrincipal(db: Database.Database): TestPrincipal {
   db.prepare(
     `INSERT INTO organization_memberships (id, organization_id, person_id, membership_status) VALUES (?, ?, ?, 'active')`,
   ).run(membershipId, organizationId, personId)
+  db.prepare(
+    `INSERT INTO org_memberships (id, user_id, org_tenant_id, role, status) VALUES (?, ?, ?, 'owner', 'active')`,
+  ).run(randomUUID(), subjectRef, tenantId)
 
   return { tenantId, subjectRef, organizationId, personId }
 }

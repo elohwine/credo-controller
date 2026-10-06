@@ -120,22 +120,30 @@ function consentLabelForMode(mode?: string): string {
     const normalizedMode = normalizePresentationMode(mode);
 
     if (mode === 'ar-collection-consent') {
-        return 'I confirm the selected Platform Identity claims can be shared for this AR collection proof request'
+        return 'I agree to share the selected details for this collection step'
     }
 
     if (mode === 'ap-workflow-transition') {
-        return 'I confirm the selected Platform Identity claims can be shared for this AP workflow proof request'
+        return 'I agree to share the selected details for this supplier-bill step'
+    }
+
+    if (mode === 'field-payout') {
+        return 'I agree to share the selected details to release payment for this job'
+    }
+
+    if (mode === 'field-signoff') {
+        return 'I agree to share the selected details to sign off this job'
     }
 
     if (normalizedMode === 'requisition-release') {
-        return 'I confirm the selected Platform Identity claims can be shared to authorize requisition fund release'
+        return 'I agree to share the selected details to release the money'
     }
 
     if (normalizedMode === 'requisition-ack') {
-        return 'I confirm the selected Platform Identity claims can be shared to acknowledge requisition execution'
+        return 'I agree to share the selected details to confirm delivery'
     }
 
-    return 'I confirm the selected Platform Identity claims can be shared for this requisition approval request'
+    return 'I agree to share the selected details to approve this request'
 }
 
 async function ensureRequisitionApprovalAllowed(requisitionId: string): Promise<void> {
@@ -178,17 +186,63 @@ function parseRedirectUri(redirectUri: string): {
     }
 }
 
+function decodeSignedRecord(token: string): any | null {
+    const parts = String(token || '').split('.');
+    if (parts.length < 2) return null;
+    try {
+        const padded = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const json = atob(padded.padEnd(padded.length + ((4 - (padded.length % 4)) % 4), '='));
+        return JSON.parse(json);
+    } catch {
+        return null;
+    }
+}
+
+/** The record as a plain object, whether it arrived as JSON or as a signed token. */
+function credentialDocument(match: any): any | null {
+    const raw = match?.document ?? match?.disclosures ?? null;
+    if (raw == null || raw === '') {
+        if (typeof match?.parsedDocument === 'string' && match.parsedDocument.trim().startsWith('{')) {
+            try { return JSON.parse(match.parsedDocument); } catch { return null; }
+        }
+        return null;
+    }
+    if (typeof raw === 'string') {
+        const trimmed = raw.trim();
+        if (trimmed.startsWith('{')) {
+            try { return JSON.parse(trimmed); } catch { return null; }
+        }
+        const payload = decodeSignedRecord(trimmed);
+        return payload?.vc || payload || null;
+    }
+    if (typeof raw === 'object') {
+        if (typeof raw.compact === 'string') return credentialDocument({ document: raw.compact });
+        if (typeof raw.jwt === 'string') return credentialDocument({ document: raw.jwt });
+        return raw.vc || raw;
+    }
+    return null;
+}
+
+function issuerLabel(issuer: unknown): string {
+    if (!issuer) return 'Your organization';
+    if (typeof issuer === 'string') {
+        return issuer.startsWith('did:') ? 'Your organization' : issuer;
+    }
+    if (typeof issuer === 'object') {
+        const named = (issuer as any).name || (issuer as any).id;
+        if (typeof named === 'string' && named && !named.startsWith('did:')) return named;
+    }
+    return 'Your organization';
+}
+
 function parseCredentialSummary(match: any): { type: unknown; issuer: string } {
-    if (!match?.document) {
-        return { type: 'Credential', issuer: 'Unknown issuer' };
-    }
-
-    if (typeof match.document === 'object') {
-        const issuer = match.document.issuerDid || match.document.issuer || 'Unknown issuer';
-        return { type: match.document.type || 'Credential', issuer };
-    }
-
-    return { type: 'Credential', issuer: 'Issuer hidden' };
+    if (match?.type) return { type: match.type, issuer: 'Your organization' };
+    const document = credentialDocument(match);
+    if (!document) return { type: 'Record', issuer: 'Your organization' };
+    return {
+        type: document.type || 'Record',
+        issuer: issuerLabel(document.issuer || document.issuerDid),
+    };
 }
 
 async function confirmRequisitionStatus(
@@ -209,24 +263,31 @@ async function confirmRequisitionStatus(
     }
 }
 
+function claimLabel(key: string): string {
+    return key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (char) => char.toUpperCase());
+}
+
 function extractCredentialClaims(match: any): Array<{ label: string; value: string }> {
-    const document = match?.document;
-    if (!document || typeof document !== 'object') {
-        return [];
+    if (match?.claims && typeof match.claims === 'object' && !Array.isArray(match.claims)) {
+        const rows = Object.entries(match.claims)
+            .filter(([key, value]) => !/^(workflowType|assignmentMode|requestType|stageAction|templateId)$/i.test(String(key)) && value != null && String(value).trim() !== '' && !String(value).startsWith('did:'))
+            .slice(0, 6)
+            .map(([key, value]) => ({ label: claimLabel(key), value: String(value) }));
+        if (rows.length > 0) return rows;
     }
+    const document = credentialDocument(match);
+    if (!document) return [];
 
     const subject = document.credentialSubject || document.vc?.credentialSubject;
-    if (!subject || typeof subject !== 'object') {
-        return [];
-    }
+    if (!subject || typeof subject !== 'object') return [];
+    const nested = subject.claims && typeof subject.claims === 'object' ? subject.claims : {};
+    const flat = { ...subject, ...nested };
 
-    return Object.entries(subject)
-        .filter(([key, value]) => key !== 'id' && value != null && value !== '')
-        .slice(0, 4)
-        .map(([key, value]) => ({
-            label: key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (char) => char.toUpperCase()),
-            value: typeof value === 'string' ? value : JSON.stringify(value),
-        }));
+    return Object.entries(flat)
+        .filter(([key, value]) => key !== 'id' && key !== 'claims' && !/id$/i.test(key) && !/^(workflowType|assignmentMode|requestType|stageAction|templateId)$/i.test(key) && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') && String(value).trim() !== '')
+        .filter(([, value]) => !String(value).startsWith('did:'))
+        .slice(0, 6)
+        .map(([key, value]) => ({ label: claimLabel(key), value: String(value) }));
 }
 
 function extractRequestedFields(matches: any[]): RequestedField[] {
@@ -419,6 +480,8 @@ export default function PresentPage() {
                 mode === 'requisition-approve'
                 || mode === 'requisition-release'
                 || mode === 'requisition-ack'
+                || mode === 'field-signoff'
+                || mode === 'field-payout'
                 || (mode === 'ar-collection-consent' && !!queryOrgTenantId && queryOrgTenantId !== personalTenantId);
 
             if (shouldSwitchOrgContext && queryOrgTenantId) {
@@ -444,6 +507,34 @@ export default function PresentPage() {
             }, { headers: { Authorization: `Bearer ${walletToken}` } });
 
             const matchedCredentials = Array.isArray(res.data) ? res.data : [];
+            const missingDetails = matchedCredentials.some((match: any) => !match?.claims || Object.keys(match.claims).length === 0);
+            if (missingDetails && matchedCredentials.length > 0) {
+                try {
+                    const listRes = await api.get(`/api/wallet/${wId}/credentials`, {
+                        headers: { Authorization: `Bearer ${walletToken}` },
+                    });
+                    const rows = Array.isArray(listRes.data) ? listRes.data : [];
+                    const byId = new Map(rows.map((row: any) => [String(row.id), row]));
+                    for (const match of matchedCredentials) {
+                        const row = byId.get(String(match.id));
+                        if (!row) continue;
+                        if (!match.type && row.type) match.type = row.type;
+                        const subject = row.parsedDocument?.credentialSubject || {};
+                        const nested = subject.claims && typeof subject.claims === 'object' ? subject.claims : {};
+                        const claims: Record<string, string> = {};
+                        for (const [key, value] of Object.entries({ ...subject, ...nested })) {
+                            // Internal references (ids, tenant keys) mean nothing to the person reviewing; keep readable facts.
+                            if (key === 'claims' || /id$/i.test(key) || /^(workflowType|assignmentMode|requestType|stageAction|templateId)$/i.test(key) || value == null || typeof value === 'object') continue;
+                            const text = String(value).trim();
+                            if (!text || text.startsWith('did:')) continue;
+                            claims[key] = text;
+                        }
+                        if (Object.keys(claims).length > 0) match.claims = claims;
+                    }
+                } catch {
+                    // The review still lists the records if the extra details cannot be loaded.
+                }
+            }
             setMatches(matchedCredentials);
             const initialSelection = matchedCredentials
                 .map((match: any) => resolveCredentialId(match))
@@ -494,12 +585,16 @@ export default function PresentPage() {
                 selectedCredentials: credentialsToSubmit
             }, { headers: { Authorization: `Bearer ${walletToken}` } });
 
+            const directPost = Boolean(submissionRes.data?.directPost);
             const redirectUri = submissionRes.data?.redirectUri;
-            if (!redirectUri) {
+            if (!directPost && !redirectUri) {
                 throw new Error('Wallet did not return a verifier submission payload.');
             }
 
-            const { vpToken, idToken, presentationSubmission, state } = parseRedirectUri(redirectUri);
+            const parsed = directPost
+                ? { vpToken: undefined, idToken: undefined, presentationSubmission: undefined, state: undefined }
+                : parseRedirectUri(redirectUri);
+            const { vpToken, idToken, presentationSubmission, state } = parsed;
             const mode = normalizePresentationMode(queryValue(router.query.mode));
             const requisitionId = queryValue(router.query.requisitionId);
             const orgTenantId = queryValue(router.query.orgTenantId);
@@ -509,10 +604,14 @@ export default function PresentPage() {
             const transition = queryValue(router.query.transition);
 
             const personalTenantIdForSubmit = getPersonalWalletTenantId();
-            const shouldSwitchOrgContextForSubmit =
+            const isOrgProofMode =
                 mode === 'requisition-approve'
                 || mode === 'requisition-release'
                 || mode === 'requisition-ack'
+                || mode === 'field-signoff'
+                || mode === 'field-payout';
+            const shouldSwitchOrgContextForSubmit =
+                isOrgProofMode
                 || (mode === 'ar-collection-consent' && !!orgTenantId && orgTenantId !== personalTenantIdForSubmit);
 
             if (shouldSwitchOrgContextForSubmit && orgTenantId) {
@@ -521,33 +620,36 @@ export default function PresentPage() {
 
             const requestId = queryValue(router.query.requestId) || parsePresentationRequestId(presentationRequestUrl) || state;
             const providerRef = queryValue(router.query.providerRef) || parseProviderRef(presentationRequestUrl) || undefined;
-            const verifierTenantId = (mode === 'requisition-approve' || mode === 'requisition-release' || mode === 'requisition-ack')
+            const verifierTenantId = isOrgProofMode
                 ? (orgTenantId || undefined)
                 : (parseVerifierTenantId(presentationRequestUrl) || undefined);
 
-            if ((!vpToken && !idToken) || !requestId) {
+            if (!directPost && ((!vpToken && !idToken) || !requestId)) {
                 throw new Error('Wallet submission is missing vp_token/id_token or request state.');
             }
 
-            const verifierToken = (mode === 'requisition-approve' || mode === 'requisition-release' || mode === 'requisition-ack')
+            const verifierToken = isOrgProofMode
                 ? (getOrgToken() ?? walletToken)
                 : mode === 'ar-collection-consent'
                     ? walletToken
                     : (getPreferredToken() ?? walletToken);
-            const verifyRes = await api.post('/oidc/verifier/verify', {
-                requestId,
-                verifiablePresentation: vpToken,
-                idToken,
-                presentationSubmission,
-                providerRef,
-                verifierTenantId,
-            }, { headers: { Authorization: `Bearer ${verifierToken}` } });
+            if (!directPost) {
+                const verifyRes = await api.post('/oidc/verifier/verify', {
+                    requestId,
+                    state: state || requestId,
+                    verifiablePresentation: vpToken,
+                    idToken,
+                    presentationSubmission,
+                    providerRef,
+                    verifierTenantId,
+                }, { headers: { Authorization: `Bearer ${verifierToken}` } });
 
-            if (!verifyRes?.data?.verified) {
-                const backendError = typeof verifyRes?.data?.error === 'string'
-                    ? verifyRes.data.error
-                    : 'Presentation verification failed on verifier.';
-                throw new Error(backendError);
+                if (!verifyRes?.data?.verified) {
+                    const backendError = typeof verifyRes?.data?.error === 'string'
+                        ? verifyRes.data.error
+                        : 'Presentation verification failed on verifier.';
+                    throw new Error(backendError);
+                }
             }
 
             // Handle requisition approval context return flow
@@ -644,6 +746,22 @@ export default function PresentPage() {
                 }
             }
 
+            if ((mode === 'field-signoff' || mode === 'field-payout') && workflowRunId) {
+                const orgToken = getOrgToken();
+                if (!orgToken) {
+                    throw new Error('Switch to the organization before finishing this step.');
+                }
+                const stage = queryValue(router.query.stage) || (mode === 'field-payout' ? 'payout' : 'acknowledgement');
+                const done = await api.post(
+                    `/workflows/runs/${encodeURIComponent(workflowRunId)}/proof/complete`,
+                    { stage, requestId },
+                    { headers: { Authorization: `Bearer ${orgToken}` } },
+                );
+                if (done.data?.status === 'failed' || done.data?.error) {
+                    throw new Error(String(done.data?.error || 'This step was not accepted.'));
+                }
+            }
+
             if (mode === 'ap-workflow-transition' && transactionId && transition) {
                 const orgToken = getOrgToken();
                 if (!orgToken) {
@@ -708,6 +826,15 @@ export default function PresentPage() {
                     });
                     router.push(`/finance?${params.toString()}`);
                 }, 2000); // 2s delay to show success state
+            } else if ((mode === 'field-signoff' || mode === 'field-payout') && workflowRunId) {
+                setTimeout(() => {
+                    const params = new URLSearchParams({
+                        tab: 'field',
+                        runId: workflowRunId,
+                        ...(orgTenantId && { orgTenantId }),
+                    });
+                    router.push(`/finance?${params.toString()}`);
+                }, 1500);
             } else if ((mode === 'requisition-release' || mode === 'requisition-ack') && requisitionId) {
                 setTimeout(() => {
                     const params = new URLSearchParams({
@@ -870,11 +997,29 @@ export default function PresentPage() {
                             const transactionId = queryValue(router.query.transactionId);
                             const transition = queryValue(router.query.transition);
 
+                            if (mode === 'field-signoff') {
+                                return (
+                                    <>
+                                        <Title order={3}>Sign off this job</Title>
+                                        <Text c="dimmed" size="sm">Review the details below, then share them to confirm you are the person chosen to sign off.</Text>
+                                    </>
+                                );
+                            }
+
+                            if (mode === 'field-payout') {
+                                return (
+                                    <>
+                                        <Title order={3}>Release payment</Title>
+                                        <Text c="dimmed" size="sm">Review the details below, then share them to confirm you are the person chosen to release payment.</Text>
+                                    </>
+                                );
+                            }
+
                             if (mode === 'requisition-approve' && requisitionId) {
                                 return (
                                     <>
-                                        <Title order={3}>Approve Requisition</Title>
-                                        <Text c="dimmed" size="sm">Prove your authority via wallet to approve requisition {requisitionId.slice(0, 8)}...</Text>
+                                        <Title order={3}>Approve this request</Title>
+                                        <Text c="dimmed" size="sm">Review the details below, then share them to confirm you are the person chosen to approve.</Text>
                                     </>
                                 );
                             }
@@ -959,13 +1104,13 @@ export default function PresentPage() {
                                 </Stack>
                             ) : (
                                 <>
-                                    <Text fw={600} size="sm">The following credentials will be shared:</Text>
+                                    <Text fw={600} size="sm">These records will be shared:</Text>
                                     {(() => {
                                         if (requestedFields.length === 0) return null;
 
                                         return (
                                             <Paper p="md" radius="md" withBorder>
-                                                <Text fw={600} size="sm">Requested claims</Text>
+                                                <Text fw={600} size="sm">Details being shared</Text>
                                                 <Stack gap={4} mt={6}>
                                                     {requestedFields.slice(0, 8).map((field, index) => {
                                                         const label = field.name || firstPathLeaf(field) || `Field ${index + 1}`;
@@ -1014,19 +1159,15 @@ export default function PresentPage() {
                                                             <IconShieldCheck size={24} />
                                                         </ThemeIcon>
                                                         <Box style={{ flex: 1 }}>
-                                                            <Text fw={600} size="sm" lineClamp={1}>{formatType(cred.type)}</Text>
+                                                            <Text fw={600} size="sm" lineClamp={1}>{formatType(cred.type) || 'Record'}</Text>
                                                             <Text size="xs" c="dimmed">From: {cred.issuer}</Text>
-                                                            <Group gap={6} mt={6}>
-                                                                <Badge color="violet" variant="light" size="xs">VC</Badge>
-                                                                <Badge color="gray" variant="light" size="xs">{selectionRef ? selectionRef.slice(0, 8) : 'record'}</Badge>
-                                                            </Group>
                                                             <Stack gap={2} mt={6}>
                                                                 {claims.length > 0 ? claims.map((claim) => (
                                                                     <Text key={`${selectionRef || idx}-${claim.label}`} size="xs" c="dimmed" lineClamp={1}>
                                                                         {claim.label}: {String(claim.value).length > 28 ? `${String(claim.value).substring(0, 12)}…${String(claim.value).slice(-6)}` : claim.value}
                                                                     </Text>
                                                                 )) : (
-                                                                    <Text size="xs" c="dimmed">No subject claims exposed in summary.</Text>
+                                                                    <Text size="xs" c="dimmed">No extra details on this record.</Text>
                                                                 )}
                                                             </Stack>
                                                         </Box>
@@ -1069,7 +1210,7 @@ export default function PresentPage() {
                                         disabled={selectedCredentials.length === 0 || !consentChecked}
                                         onClick={handleSubmit}
                                     >
-                                        Share Proof
+                                        Share and continue
                                     </Button>
                                 </>
                             )}
@@ -1080,7 +1221,7 @@ export default function PresentPage() {
                         <Center py="xl">
                             <Stack align="center">
                                 <Loader color="violet" />
-                                <Text size="sm" c="dimmed">Generating and sending zero-knowledge presentation...</Text>
+                                <Text size="sm" c="dimmed">Sharing the selected details...</Text>
                             </Stack>
                         </Center>
                     )}
@@ -1092,9 +1233,9 @@ export default function PresentPage() {
                                     <IconCheck size={32} />
                                 </ThemeIcon>
                             </Center>
-                            <Title order={4} ta="center" mb="xs">Proof Verified!</Title>
+                            <Title order={4} ta="center" mb="xs">Shared</Title>
                             <Text ta="center" size="sm" c="dimmed">
-                                Your credentials have been securely verified. You can now return to the relying party.
+                                The selected details were shared. You can go back to the job.
                             </Text>
                             <Button fullWidth variant="light" color="green" mt="xl" radius="md" onClick={() => router.push('/proofs')}>
                                 Return to Wallet

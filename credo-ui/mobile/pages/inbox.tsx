@@ -57,14 +57,30 @@ type InboxWorkflowSections = {
   ops: boolean;
 };
 
+function inboxScopeId(): string {
+  return getPersonalWalletTenantId() || 'signed-out';
+}
+
+function inboxItemCacheKey(): string {
+  return `${INBOX_ITEM_CACHE_KEY}:${inboxScopeId()}`;
+}
+
+function inboxMetaKey(): string {
+  return `${INBOX_META_KEY}:${inboxScopeId()}`;
+}
+
+function inboxSyncMetaKey(): string {
+  return `${INBOX_SYNC_META_KEY}:${inboxScopeId()}`;
+}
+
 function readInboxSyncMeta(): InboxSyncMeta {
   if (typeof window === 'undefined') return {};
-  return getOfflineStorageAdapter().get<InboxSyncMeta>('sync_state', INBOX_SYNC_META_KEY) || {};
+  return getOfflineStorageAdapter().get<InboxSyncMeta>('sync_state', inboxSyncMetaKey()) || {};
 }
 
 function writeInboxSyncMeta(meta: InboxSyncMeta): void {
   if (typeof window === 'undefined') return;
-  getOfflineStorageAdapter().set('sync_state', INBOX_SYNC_META_KEY, meta);
+  getOfflineStorageAdapter().set('sync_state', inboxSyncMetaKey(), meta);
 }
 
 function formatFreshnessLabel(lastSyncAt?: string): string {
@@ -105,7 +121,7 @@ function getFreshnessColor(lastSyncAt?: string): 'green' | 'yellow' | 'red' | 'g
 function readInboxItemCache(): CachedInboxEntry[] {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem(INBOX_ITEM_CACHE_KEY);
+    const raw = localStorage.getItem(inboxItemCacheKey());
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -124,7 +140,7 @@ function readInboxItemCache(): CachedInboxEntry[] {
 function writeInboxItemCache(entries: CachedInboxEntry[]): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(INBOX_ITEM_CACHE_KEY, JSON.stringify(entries.slice(0, INBOX_CACHE_MAX_ITEMS)));
+    localStorage.setItem(inboxItemCacheKey(), JSON.stringify(entries.slice(0, INBOX_CACHE_MAX_ITEMS)));
   } catch {
     // Best effort only.
   }
@@ -220,13 +236,13 @@ function normalizeRunId(value: unknown): string | null {
 
 function getFieldRunActionLabel(stage: string): string {
   const labels: Record<string, string> = {
-    ASSIGNED: 'Start Job',
-    IN_PROGRESS: 'Capture Evidence',
-    EVIDENCE_CAPTURED: 'Await Acknowledgement',
-    ACKNOWLEDGED: 'Await Payment',
-    PAYMENT_TRIGGERED: 'Await Receipt',
-    RECEIPT_ISSUED: 'Await Reconciliation',
-    RECONCILED: 'Reconciled',
+    ASSIGNED: 'Start job',
+    IN_PROGRESS: 'Add photos',
+    EVIDENCE_CAPTURED: 'Waiting for sign-off',
+    ACKNOWLEDGED: 'Waiting for payment',
+    PAYMENT_TRIGGERED: 'Waiting for receipt',
+    RECEIPT_ISSUED: 'Closing',
+    RECONCILED: 'Closed',
     COMPLETED: 'Closed',
     CANCELLED: 'Cancelled',
     REVOKED: 'Revoked',
@@ -282,6 +298,24 @@ function getAssignmentRequestUiCopy(requestTypeRaw: string): { title: string; ac
   const requestType = String(requestTypeRaw || '').toLowerCase();
   if (requestType.includes('requis')) {
     return { title: 'Requisition Approval Request', actionLabel: 'Open Requisition' };
+  }
+  if (requestType.includes('fee') || requestType.includes('school') || requestType.includes('tuition')) {
+    return { title: 'Fee Collection', actionLabel: 'Open Fees' };
+  }
+  if (requestType.includes('payable') || requestType.includes('ap_') || requestType.includes('expense') || requestType.includes('purchase')) {
+    return { title: 'Accounts Payable', actionLabel: 'Open AP' };
+  }
+  if (requestType.includes('receivable') || requestType.includes('ar_') || requestType.includes('invoice') || requestType.includes('quote')) {
+    return { title: 'Accounts Receivable', actionLabel: 'Open AR' };
+  }
+  if (requestType.includes('fept') || requestType.includes('field')) {
+    return { title: 'Field Assignment', actionLabel: 'Open Field Job' };
+  }
+  if (requestType.includes('onboarding') || requestType.includes('employee')) {
+    return { title: 'Employee Onboarding', actionLabel: 'Open Onboarding' };
+  }
+  if (requestType.includes('department') || requestType.includes('dept')) {
+    return { title: 'Department Request', actionLabel: 'Open Request' };
   }
   if (requestType.includes('invoice')) {
     return { title: 'Invoice Workflow Request', actionLabel: 'Open Invoice' };
@@ -881,6 +915,16 @@ async function fetchOrganizationBranding(orgTenantId: string): Promise<{ display
   }
 }
 
+type OrgSwitchPurpose = 'job' | 'requisition' | 'payable' | 'collection' | 'request';
+
+const ORG_SWITCH_COPY: Record<OrgSwitchPurpose, { banner: string; action: string }> = {
+  job: { banner: 'This job belongs to an organization you work with.', action: 'open this job' },
+  requisition: { banner: 'This approval is for an organization you work with.', action: 'open this request' },
+  payable: { banner: 'This payment is for an organization you work with.', action: 'open this payment' },
+  collection: { banner: 'This collection is for an organization you work with.', action: 'open this collection' },
+  request: { banner: 'This item is for an organization you work with.', action: 'open it' },
+};
+
 export default function InboxPage() {
   const router = useRouter();
   const filterParam = String((router.query.filter as string) ?? 'all').toLowerCase();
@@ -911,9 +955,8 @@ export default function InboxPage() {
   const [online, setOnline] = useState<boolean>(true);
   const [onlineReady, setOnlineReady] = useState(false);
   const [switchConsentOpen, setSwitchConsentOpen] = useState(false);
-  const [switchConsentTarget, setSwitchConsentTarget] = useState<{ orgTenantId: string; orgName: string } | null>(null);
+  const [switchConsentTarget, setSwitchConsentTarget] = useState<{ orgTenantId: string; orgName: string; purpose: OrgSwitchPurpose } | null>(null);
   const [expandedGroupKey, setExpandedGroupKey] = useState<string | null>(null);
-  const resumeKeyByActionRef = useRef<Record<string, string>>({});
   const switchConsentResolverRef = useRef<((approved: boolean) => void) | null>(null);
   const orgBrandingCacheRef = useRef<Record<string, { displayName?: string; logoUrl?: string }>>({});
 
@@ -925,7 +968,7 @@ export default function InboxPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      const raw = localStorage.getItem(INBOX_META_KEY);
+      const raw = localStorage.getItem(inboxMetaKey());
       if (!raw) return;
       const parsed = JSON.parse(raw);
       setMetaState({
@@ -940,7 +983,7 @@ export default function InboxPage() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    localStorage.setItem(INBOX_META_KEY, JSON.stringify(metaState));
+    localStorage.setItem(inboxMetaKey(), JSON.stringify(metaState));
   }, [metaState]);
 
   useEffect(() => {
@@ -980,7 +1023,7 @@ export default function InboxPage() {
     };
   }, []);
 
-  const ensureOrgContextForApproval = useCallback(async (orgTenantId?: string, orgNameHint?: string) => {
+  const ensureOrgContextForApproval = useCallback(async (orgTenantId?: string, orgNameHint?: string, purpose: OrgSwitchPurpose = 'request') => {
     if (!orgTenantId) return true;
 
     const currentMode = getContextMode();
@@ -990,7 +1033,7 @@ export default function InboxPage() {
     const orgName = orgNameHint || orgTenantId;
     const consentGranted = await new Promise<boolean>((resolve) => {
       switchConsentResolverRef.current = resolve;
-      setSwitchConsentTarget({ orgTenantId, orgName });
+      setSwitchConsentTarget({ orgTenantId, orgName, purpose });
       setSwitchConsentOpen(true);
     });
 
@@ -1152,7 +1195,8 @@ export default function InboxPage() {
       }
 
       if ((holderOffersFailed || holderReceiptsFailed) && holderToken) {
-        const cachedSnapshot = getCachedWalletSnapshot();
+        const walletId = getPersonalWalletTenantId();
+        const cachedSnapshot = walletId ? getCachedWalletSnapshot(walletId) : null;
         if (cachedSnapshot) {
           if (holderOffersFailed && offers.length === 0) {
             offers = offers.concat(
@@ -1353,6 +1397,90 @@ export default function InboxPage() {
             workflowRequestId,
             workflowRequestType: 'requisition',
             requisitionId,
+            actingOrgTenantId: targetOrgTenantId,
+            ownerOrgTenantId: targetOrgTenantId,
+            ownerDisplayName: claim.targetOrgName || claim.orgName || activeOrgLabel || undefined,
+            assignmentRole: claim.assigneeRole,
+            authContext: 'personal',
+            authToken: o._token || holderToken,
+          };
+        }
+
+        if (o.sourceType === 'workflow_stage_action' || String(o.credentialType || '').toLowerCase() === 'workflowstageaction') {
+          const claim = o.claims || {};
+          const requestType = String(claim.requestType || claim.workflowType || 'workflow');
+          const requestCopy = getAssignmentRequestUiCopy(requestType);
+          const delegated = String(claim.routedVia || '') === 'delegation';
+          const targetOrgTenantId = claim.targetOrgTenantId || claim.orgTenantId || undefined;
+          const workflowTypeLower = String(claim.workflowType || requestType).toLowerCase();
+          const isFieldStage = workflowTypeLower.includes('fept') || workflowTypeLower.includes('field');
+          const stageAction = String(claim.stageAction || '').toLowerCase();
+          const stageRunId = isFieldStage
+            ? normalizeRunId(
+              o.workflowRunId
+              || claim.workflowRunId
+              || String(o.sourceId || '').replace(/:(signoff|payout|review|inspection)(:delegation:.*)?$/i, ''),
+            )
+            : undefined;
+          if (isFieldStage && stageRunId) {
+            // Field stage cards open the assigned job instead of the generic approve/reject form.
+            const stage = String(runStageById.get(stageRunId) || claim.workflowStage || 'ASSIGNED').toUpperCase();
+            const stageActionLabel = stageAction === 'acknowledge_execution'
+              ? 'Sign off job'
+              : stageAction === 'trigger_payout'
+                ? 'Release payment'
+                : stageAction === 'review_completion'
+                  ? 'Review work'
+                  : stageAction === 'inspect_site'
+                    ? 'Site check'
+                    : null;
+            return {
+              id: o.id ?? o.offerId,
+              title: o.title || requestCopy.title,
+              description: delegated
+                ? `Passed to you. ${o.body || requestCopy.title}`
+                : (o.body || 'This job is assigned to you.'),
+              module: 'field',
+              flowType: 'WORKFLOW' as const,
+              status: 'pending' as const,
+              priority: 'high' as const,
+              createdAt: o.createdAt ?? new Date().toISOString(),
+              actionLabel: stageActionLabel || (stage === 'ASSIGNED' ? 'Start job' : stage === 'IN_PROGRESS' ? 'Add photos' : 'Open'),
+              itemType: 'workflow' as const,
+              workflowRunId: stageRunId,
+              workflowStage: stage,
+              workflowRequestType: requestType,
+              amount: Number.isFinite(Number(claim.amount)) ? Number(claim.amount) : undefined,
+              currency: String(claim.currency || 'USD').trim() || 'USD',
+              actingOrgTenantId: targetOrgTenantId,
+              ownerOrgTenantId: targetOrgTenantId,
+              ownerDisplayName: claim.orgName || activeOrgLabel || undefined,
+              assignmentRole: claim.assigneeRole,
+              authContext: 'personal',
+              authToken: o._token || holderToken,
+            };
+          }
+          // Organization requests (purchases, quotes, general asks) are approved or declined right here.
+          const platformRequestId = /^[a-z]+\.[a-z_]+$/i.test(requestType) && !requestType.toLowerCase().startsWith('field.')
+            ? String(o.sourceId || '').replace(/:delegation:.*$/, '') || undefined
+            : undefined;
+          return {
+            id: o.id ?? o.offerId,
+            title: o.title || requestCopy.title,
+            description: delegated
+              ? `Passed to you. ${o.body || requestCopy.title}`
+              : (o.body || 'Waiting for your decision.'),
+            module: 'approvals',
+            flowType: 'WORKFLOW' as const,
+            status: 'pending' as const,
+            priority: 'high' as const,
+            createdAt: o.createdAt ?? new Date().toISOString(),
+            actionLabel: platformRequestId ? 'Approve' : requestCopy.actionLabel,
+            itemType: 'workflow' as const,
+            workflowRequestType: requestType,
+            platformRequestId,
+            amount: Number.isFinite(Number(claim.amount)) ? Number(claim.amount) : undefined,
+            currency: String(claim.currency || 'USD').trim() || 'USD',
             actingOrgTenantId: targetOrgTenantId,
             ownerOrgTenantId: targetOrgTenantId,
             ownerDisplayName: claim.targetOrgName || claim.orgName || activeOrgLabel || undefined,
@@ -1650,10 +1778,31 @@ export default function InboxPage() {
           }
         }
 
+        const credentialType = String(o.credentialType || '');
+        const claim = o.claims || {};
+        const orgLabel = claim.orgName || o.issuerName;
+        const credentialTitle =
+          o.sourceType === 'org_employee' || credentialType === 'EmployeeCredential'
+            ? `Employee credential${orgLabel ? ` · ${orgLabel}` : ''}`
+            : o.sourceType === 'org_delegation' || credentialType === 'DelegationCredential'
+              ? `Delegation${orgLabel ? ` · ${orgLabel}` : ''}`
+              : o.sourceType === 'employment_contract' || credentialType === 'EmploymentContractVC'
+                ? `Employment contract${orgLabel ? ` · ${orgLabel}` : ''}`
+                : o.sourceType === 'org_workflow_actor' || credentialType === 'OrgWorkflowActorCredential'
+                  ? (o.title || `Role credential${orgLabel ? ` · ${orgLabel}` : ''}`)
+                  : o.sourceType === 'workflow_vc_offer'
+                    ? (o.title || `Job record${orgLabel ? ` · ${orgLabel}` : ''}`)
+                  : o.sourceType === 'platform_identity' || credentialType === 'PlatformIdentityCredential'
+                    ? 'Platform identity'
+                    : formatCredentialType(credentialType || 'Credential Offer');
+        const credentialBody =
+          o.body
+          || (orgLabel ? `From ${orgLabel}` : o.issuerName ? `From ${o.issuerName}` : 'Waiting for you to add it to your wallet');
+
         return {
           id: o.id ?? o.offerId,
-          title: formatCredentialType(o.credentialType ?? 'Credential Offer'),
-          description: o.issuerName ? `From ${o.issuerName}` : 'Pending credential offer',
+          title: credentialTitle,
+          description: credentialBody,
           module: 'Request',
           flowType: 'REQUEST' as const,
           status: 'pending' as const,
@@ -1996,19 +2145,6 @@ export default function InboxPage() {
     setItems((prev) => prev.filter((i) => !isExpiredItem(i)));
   }, []);
 
-  const getResumeIdempotencyKey = useCallback((runId: string, action: 'start_job' | 'capture_evidence') => {
-    const actionKey = `${runId}:${action}`;
-    const existing = resumeKeyByActionRef.current[actionKey];
-    if (existing) return existing;
-
-    const randomPart = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const next = `resume:${runId}:${action}:${randomPart}`;
-    resumeKeyByActionRef.current[actionKey] = next;
-    return next;
-  }, []);
-
   const handleAction = async (action: 'approve' | 'reject' | 'dismiss') => {
     if (!selectedItem) return;
     if (action === 'dismiss') {
@@ -2134,6 +2270,7 @@ export default function InboxPage() {
           const switched = await ensureOrgContextForApproval(
             selectedItem.actingOrgTenantId,
             selectedItem.ownerDisplayName || selectedItem.actingOrgTenantId,
+            'collection',
           );
           if (!switched) {
             setActionLoading(false);
@@ -2169,6 +2306,43 @@ export default function InboxPage() {
         await router.push(buildArCollectionSettlementRoute(selectedItem));
         return;
       } else {
+        if (selectedItem.module === 'approvals' && selectedItem.platformRequestId) {
+          // Organization request (for example "Buy materials" raised from a job). Decide as the org.
+          if (action === 'reject' && !decisionReason.trim()) {
+            throw new Error('Please say why you are declining.');
+          }
+          if (selectedItem.actingOrgTenantId) {
+            const switched = await ensureOrgContextForApproval(selectedItem.actingOrgTenantId, selectedItem.ownerDisplayName, 'request');
+            if (!switched) {
+              setActionLoading(false);
+              return;
+            }
+          }
+          const orgToken = getOrgToken();
+          if (!orgToken) throw new Error('Open the organization first, then try again.');
+          const headers = { Authorization: `Bearer ${orgToken}` };
+          const transition = (toStatus: string, payload?: Record<string, unknown>) =>
+            api.post('/api/platform/requests/transition', { requestId: selectedItem.platformRequestId, toStatus, payload }, { headers });
+          if (action === 'approve') {
+            try {
+              await transition('in_review');
+            } catch (err: any) {
+              // Already under review — carry on to approve.
+              const msg = String(err?.response?.data?.message || err?.message || '');
+              if (!/Invalid request transition/i.test(msg)) throw err;
+            }
+            await transition('approved');
+            notifications.show({ title: 'Approved', message: 'The request is approved. Anything waiting on it continues now.', color: 'green' });
+          } else {
+            await transition('rejected', { reason: decisionReason.trim() });
+            notifications.show({ title: 'Declined', message: 'The request was declined.', color: 'orange' });
+          }
+          setSelectedItem(null);
+          setDecisionReason('');
+          await syncAndFetch();
+          return;
+        }
+
         if (selectedItem.module === 'approvals' && selectedItem.workflowRequestId) {
           if (isRequisitionApproval(selectedItem) && action === 'approve') {
             const running = toRunningActionFromItem(selectedItem);
@@ -2249,7 +2423,7 @@ export default function InboxPage() {
         }
         if (isRequisitionWorkflow) {
           if (selectedItem.actingOrgTenantId) {
-            const switched = await ensureOrgContextForApproval(selectedItem.actingOrgTenantId, activeOrgLabel || undefined);
+            const switched = await ensureOrgContextForApproval(selectedItem.actingOrgTenantId, activeOrgLabel || undefined, 'requisition');
             if (!switched) {
               setActionLoading(false);
               return;
@@ -2263,7 +2437,7 @@ export default function InboxPage() {
 
         if (isApWorkflow) {
           if (selectedItem.actingOrgTenantId) {
-            const switched = await ensureOrgContextForApproval(selectedItem.actingOrgTenantId, activeOrgLabel || undefined);
+            const switched = await ensureOrgContextForApproval(selectedItem.actingOrgTenantId, activeOrgLabel || undefined, 'payable');
             if (!switched) {
               setActionLoading(false);
               return;
@@ -2296,85 +2470,6 @@ export default function InboxPage() {
     }
   };
 
-  const handleStartFieldTask = async (item: InboxItemData) => {
-    if (!item.workflowRunId) return;
-    setActionLoading(true);
-    try {
-      const walletToken = getWalletToken();
-      const orgToken = getOrgToken();
-      const idempotencyKey = getResumeIdempotencyKey(item.workflowRunId, 'start_job');
-      const tokenCandidates = [item.authToken, walletToken, orgToken]
-        .filter((token): token is string => typeof token === 'string' && token.length > 0)
-        .filter((token, index, list) => list.indexOf(token) === index);
-
-      let lastError: any = null;
-      for (const token of tokenCandidates) {
-        try {
-          await api.post(`/workflows/runs/${item.workflowRunId}/resume`, {}, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'x-idempotency-key': idempotencyKey,
-            },
-          });
-          lastError = null;
-          break;
-        } catch (err: any) {
-          lastError = err;
-        }
-      }
-
-      if (lastError) {
-        throw lastError;
-      }
-
-      delete resumeKeyByActionRef.current[`${item.workflowRunId}:start_job`];
-      notifications.show({
-        title: 'Job Started',
-        message: 'Task moved to in-progress. Capture evidence next.',
-        color: 'green',
-      });
-      setSelectedItem(null);
-      await syncAndFetch();
-    } catch (err: any) {
-      notifications.show({ title: 'Start Job Failed', message: err.response?.data?.message ?? err.message, color: 'red' });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleCaptureEvidence = async (item: InboxItemData) => {
-    const runId = normalizeRunId(item.workflowRunId);
-    if (!runId) return;
-
-    let phase: 'before' | 'after' = 'before';
-    const tokenCandidates = [item.authToken, getWalletToken(), getOrgToken()]
-      .filter((token): token is string => typeof token === 'string' && token.length > 0)
-      .filter((token, index, list) => list.indexOf(token) === index);
-
-    for (const token of tokenCandidates) {
-      try {
-        const runRes = await api.get(`/workflows/runs/${encodeURIComponent(runId)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const output = runRes.data?.output || {};
-        const beforeHash = output?.evidenceBefore?.evidenceHash || output?.evidence?.before?.evidenceHash;
-        phase = beforeHash ? 'after' : 'before';
-        break;
-      } catch {
-        // Fall back to default phase when run lookup is not available.
-      }
-    }
-
-    const target = `/activity?ref=${encodeURIComponent(runId)}&capture=1&phase=${encodeURIComponent(phase)}`;
-    setSelectedItem(null);
-    if (typeof window !== 'undefined') {
-      window.location.assign(target);
-      return;
-    }
-
-    router.push(target).catch(() => undefined);
-  };
-
   const handleOpenRequisitionDetails = async (item: InboxItemData) => {
     if (!item.workflowRequestId) return;
 
@@ -2382,7 +2477,7 @@ export default function InboxPage() {
     if (running) upsertRunningAction(running);
 
     if (item.actingOrgTenantId) {
-      const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, activeOrgLabel || undefined);
+      const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, activeOrgLabel || undefined, 'requisition');
       if (!switched) return;
     }
 
@@ -2400,7 +2495,7 @@ export default function InboxPage() {
       let resolvedOrgTenantId = item.actingOrgTenantId || undefined;
       if (item.actingOrgTenantId) {
         try {
-          const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, item.ownerDisplayName || activeOrgLabel || undefined);
+          const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, item.ownerDisplayName || activeOrgLabel || undefined, 'collection');
           if (!switched) return;
         } catch (switchErr: any) {
           const switchStatus = Number(switchErr?.response?.status || 0);
@@ -2588,7 +2683,7 @@ export default function InboxPage() {
     setActionLoading(true);
     try {
       if (item.actingOrgTenantId) {
-        const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, activeOrgLabel || undefined);
+        const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, activeOrgLabel || undefined, 'requisition');
         if (!switched) {
           return;
         }
@@ -2651,7 +2746,7 @@ export default function InboxPage() {
     if (!runId) {
       notifications.show({
         title: 'Run ID Missing',
-        message: 'This FEPT assignment has no valid run ID yet. Refresh inbox and try again.',
+        message: 'This job is not ready yet. Refresh and try again.',
         color: 'yellow',
       });
       return;
@@ -2660,7 +2755,7 @@ export default function InboxPage() {
     setActionLoading(true);
     try {
       if (item.ownerOrgTenantId) {
-        const switched = await ensureOrgContextForApproval(item.ownerOrgTenantId, item.ownerDisplayName || activeOrgLabel || undefined);
+        const switched = await ensureOrgContextForApproval(item.ownerOrgTenantId, item.ownerDisplayName || activeOrgLabel || undefined, 'job');
         if (!switched) return;
       }
 
@@ -2671,7 +2766,7 @@ export default function InboxPage() {
       setDecisionReason('');
       await router.push(`/finance?tab=field&runId=${encodeURIComponent(runId)}${item.ownerOrgTenantId ? `&orgTenantId=${encodeURIComponent(item.ownerOrgTenantId)}` : ''}`);
     } catch (err: any) {
-      notifications.show({ title: 'Open Field Run Failed', message: err.response?.data?.message ?? err.message, color: 'red' });
+      notifications.show({ title: 'Could not open the job', message: err.response?.data?.message ?? err.message, color: 'red' });
     } finally {
       setActionLoading(false);
     }
@@ -3154,7 +3249,7 @@ export default function InboxPage() {
                         loading={actionLoading}
                         onClick={() => void handleOpenFieldRun(selectedItem)}
                       >
-                        Open Assigned FEPT Run
+                        Open job
                       </Button>
                     ) : null}
                     {selectedItem.module !== 'field' && (!isRequisitionApproval(selectedItem) || selectedItem.module !== 'approvals') && (
@@ -3199,10 +3294,10 @@ export default function InboxPage() {
       >
         <Stack gap="sm">
           <Alert color="blue" variant="light" icon={<IconShieldCheck size={16} />}>
-            You are about to approve on behalf of an organization.
+            {ORG_SWITCH_COPY[switchConsentTarget?.purpose || 'request'].banner}
           </Alert>
           <Text size="sm" c="dimmed">
-            Continue as <Text span fw={700}>{switchConsentTarget?.orgName || switchConsentTarget?.orgTenantId}</Text> to open this requisition request in org context.
+            Continue as <Text span fw={700}>{switchConsentTarget?.orgName || switchConsentTarget?.orgTenantId}</Text> to {ORG_SWITCH_COPY[switchConsentTarget?.purpose || 'request'].action}.
           </Text>
           <Group grow mt="sm">
             <Button variant="default" onClick={() => resolveSwitchConsent(false)}>

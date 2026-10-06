@@ -7,7 +7,7 @@ import {
   getPersonalWalletTenantId,
   getPreferredToken,
 } from '@/lib/auth'
-import { resolveMobileApiBaseUrl } from './baseUrl'
+import { isCapacitorNativeRuntime, resolveMobileApiBaseUrl } from './baseUrl'
 
 const API_BASE = resolveMobileApiBaseUrl()
 
@@ -108,7 +108,7 @@ api.interceptors.request.use((config) => {
     // ngrok HTTPS domain, so isCrossOriginBrowserRequest=true and allowCustomContextHeaders=false.
     // CapacitorHttp (which patches native fetch) MUST send this header or every response is the
     // ngrok HTML interstitial page — causing empty wallets, 0 orgs, and client-side crashes.
-    const isCapacitorNative = !!(window as any).Capacitor
+    const isCapacitorNative = isCapacitorNativeRuntime()
     if (isNgrokUrl && (allowCustomContextHeaders || isCapacitorNative)) {
       ;(config.headers as any)['ngrok-skip-browser-warning'] = 'true'
     }

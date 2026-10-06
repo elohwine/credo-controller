@@ -11,6 +11,7 @@ import {
     Text,
     UnstyledButton,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import {
     IconChevronDown,
     IconHome,
@@ -19,9 +20,20 @@ import {
     IconBuildingStore,
     IconBuilding,
     IconShieldCheck,
+    IconUserShield,
+    IconUsersGroup,
+    IconChecklist,
+    IconInbox,
     IconReceipt,
+    IconSchool,
+    IconBriefcase,
+    IconCoin,
+    IconWallet,
+    IconCreditCard,
+    IconUsers,
 } from '@tabler/icons-react';
 import OrgSwitcher from '@/components/OrgSwitcher';
+import { usePortalContext } from '@/lib/portalContext';
 
 const LayoutNestingContext = React.createContext(false);
 
@@ -54,6 +66,8 @@ interface NavCategory {
 const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
     const isNested = useContext(LayoutNestingContext);
     const router = useRouter();
+    const { mounted, isOrg } = usePortalContext();
+    const compactHeader = useMediaQuery('(max-width: 900px)');
 
     if (isNested) {
         return (
@@ -68,30 +82,53 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
         );
     }
 
-    // Primary nav items
-    const primaryNav: NavItem[] = [
-        { label: 'Home', href: '/', icon: <IconHome size={16} /> },
-        { label: 'My Wallet', href: '/wallet', icon: <IconReceipt size={16} /> },
-        { label: 'Verify', href: '/verify', icon: <IconFileCheck size={16} /> },
-    ];
+    // Context-aware shell (mirrors mobile BottomNav):
+    //   personal/holder session → Home · My Wallet · Activity · Verify · Shop
+    //   organization session    → Home · Inbox · Verify + Work / Organization menus
+    // Org-only surfaces (finance, requisitions, approvals, org admin) are never
+    // advertised in a personal session; their pages also redirect via useRequireOrgContext.
+    const primaryNav: NavItem[] = isOrg
+        ? [
+              { label: 'Home', href: '/', icon: <IconHome size={16} /> },
+              { label: 'Inbox', href: '/inbox', icon: <IconInbox size={16} /> },
+              { label: 'Verify', href: '/verify', icon: <IconFileCheck size={16} /> },
+          ]
+        : [
+              { label: 'Home', href: '/', icon: <IconHome size={16} /> },
+              { label: 'My Wallet', href: '/wallet', icon: <IconWallet size={16} /> },
+              { label: 'Activity', href: '/inbox', icon: <IconInbox size={16} /> },
+              { label: 'Verify', href: '/verify', icon: <IconFileCheck size={16} /> },
+              { label: 'Shop', href: '/shop', icon: <IconBuildingStore size={16} /> },
+          ];
 
-    // Categorized menus
-    const categories: NavCategory[] = [
+    // Categorized menus — organization context only
+    const categories: NavCategory[] = !isOrg ? [] : [
         {
             label: 'Work',
             items: [
-                { label: 'Inbox', href: '/inbox', icon: <IconFileCheck size={16} />, description: 'Actions awaiting attention' },
+                { label: 'Inbox', href: '/inbox', icon: <IconInbox size={16} />, description: 'Actions awaiting attention' },
                 { label: 'Requests', href: '/requests', icon: <IconReceipt size={16} />, description: 'Organizational requests' },
-                { label: 'Shop', href: '/shop', icon: <IconBuildingStore size={16} />, description: 'Browse and buy' },
+                { label: 'Finance', href: '/finance', icon: <IconCoin size={16} />, description: 'AR, AP, requisitions, invoices, and field ops' },
+                { label: 'Requisitions', href: '/finance/requisitions', icon: <IconReceipt size={16} />, description: 'Internal approval and release workflow' },
+                { label: 'Job Cards', href: '/finance/job-cards', icon: <IconBriefcase size={16} />, description: 'Field Operations & Execution Jobs' },
+                { label: 'School Fees', href: '/finance/school-fees', icon: <IconSchool size={16} />, description: 'Fee invoices and school payment flows' },
+                { label: 'Approvals', href: '/approvals', icon: <IconShieldCheck size={16} />, description: 'Approval trails and decisions' },
+                { label: 'Tasks', href: '/tasks', icon: <IconChecklist size={16} />, description: 'Open workflow tasks' },
             ],
         },
         {
             label: 'Organization',
             items: [
-                { label: 'Setup & Readiness', href: '/organization/setup', icon: <IconBuildingStore size={16} />, description: 'Capability-driven setup center' },
+                { label: 'Organization Setup', href: '/organization/setup', icon: <IconChecklist size={16} />, description: 'Configure people, workflows, authority, and integrations' },
                 { label: 'People', href: '/organization/people', icon: <IconCertificate size={16} />, description: 'Members, roles, invitations' },
+                { label: 'Roles', href: '/organization/roles', icon: <IconUserShield size={16} />, description: 'Starter roles and permissions' },
                 { label: 'Departments', href: '/organization/departments', icon: <IconBuilding size={16} />, description: 'Departments and cost centres' },
                 { label: 'Authorities', href: '/organization/authorities', icon: <IconShieldCheck size={16} />, description: 'Approval authorities and thresholds' },
+                { label: 'Who does what', href: '/organization/actors', icon: <IconUserShield size={16} />, description: 'Who handles each step of a job' },
+                { label: 'What happens next', href: '/organization/handoffs', icon: <IconChecklist size={16} />, description: 'When one piece of work leads to another' },
+                { label: 'Payments', href: '/organization/integrations', icon: <IconCreditCard size={16} />, description: 'Practice or live payment services' },
+                { label: 'Trusted partners', href: '/organization/trusted-partners', icon: <IconUsers size={16} />, description: 'Organizations whose documents you accept' },
+                { label: 'Stand-ins', href: '/organization/delegations', icon: <IconUsersGroup size={16} />, description: 'Who can act for someone who is away' },
                 { label: 'Credentials', href: '/credential-models', icon: <IconCertificate size={16} />, description: 'Credential definitions' },
                 { label: 'Issue / Verify', href: '/select-credentials', icon: <IconFileCheck size={16} />, description: 'Manual credential ops' },
             ],
@@ -179,9 +216,10 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                             />
                         </Link>
 
-                        {/* Navigation - horizontal scrollable on mobile */}
-                        <Box style={{ overflow: 'auto', maxWidth: '100%' }}>
-                            <Group gap={4} wrap="nowrap">
+                        {/* Navigation — scrollable. The account picker lives OUTSIDE this box so it is
+                            always visible, even on narrow viewports where the nav overflows. */}
+                        <Box style={{ overflow: 'auto', flex: 1, minWidth: 0, visibility: mounted ? 'visible' : 'hidden' }}>
+                            <Group gap={4} wrap="nowrap" style={{ minWidth: 'max-content' }}>
                                 {/* Primary nav items */}
                                 {primaryNav.map((item) => {
                                     const active = isActive(item.href);
@@ -267,11 +305,12 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                                         </Menu.Dropdown>
                                     </Menu>
                                 ))}
-
-                                <Box style={{ minWidth: 260, maxWidth: 340, flexShrink: 0 }}>
-                                    <OrgSwitcher />
-                                </Box>
                             </Group>
+                        </Box>
+
+                        {/* Account / organization picker — fixed slot, compact on narrow viewports */}
+                        <Box style={{ flexShrink: 0, minWidth: compactHeader ? undefined : 220, maxWidth: 340 }}>
+                            <OrgSwitcher compact={!!compactHeader} />
                         </Box>
                     </Group>
                 </Container>

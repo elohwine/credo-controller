@@ -29,6 +29,7 @@ import {
 } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 
+import { useRequireOrgContext } from '@/lib/portalContext'
 interface Department {
     id: string
     name: string
@@ -45,6 +46,9 @@ interface CreateDepartmentBody {
 }
 
 export default function OrganizationDepartmentsPage() {
+  // Org-only surface: personal sessions are redirected (mirrors mobile /finance → /inbox).
+  useRequireOrgContext('/organization/setup')
+
     const [orgTenantId, setOrgTenantId] = useState('')
     const [orgName, setOrgName] = useState('')
     const [departments, setDepartments] = useState<Department[]>([])
@@ -58,7 +62,7 @@ export default function OrganizationDepartmentsPage() {
     const [creating, setCreating] = useState(false)
     const [deleting, setDeleting] = useState<string | null>(null)
 
-    const backendUrl = process.env.NEXT_PUBLIC_HOLDER_URL || 'http://localhost:7000'
+    const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
 
     const getToken = () => getOrgScopedToken() || getPersonalToken()
 

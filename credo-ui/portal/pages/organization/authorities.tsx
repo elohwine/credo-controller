@@ -30,6 +30,7 @@ import {
 } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 
+import { useRequireOrgContext } from '@/lib/portalContext'
 interface Authority {
     id: string
     userId: string
@@ -75,6 +76,9 @@ const DOMAIN_COLORS: Record<string, string> = {
 }
 
 export default function OrganizationAuthoritiesPage() {
+  // Org-only surface: personal sessions are redirected (mirrors mobile /finance → /inbox).
+  useRequireOrgContext('/organization/setup')
+
     const [orgTenantId, setOrgTenantId] = useState('')
     const [orgName, setOrgName] = useState('')
     const [authorities, setAuthorities] = useState<Authority[]>([])
@@ -90,7 +94,7 @@ export default function OrganizationAuthoritiesPage() {
     const [granting, setGranting] = useState(false)
     const [revoking, setRevoking] = useState<string | null>(null)
 
-    const backendUrl = process.env.NEXT_PUBLIC_HOLDER_URL || 'http://localhost:7000'
+    const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
 
     const getToken = () => getOrgScopedToken() || getPersonalToken()
 

@@ -8,7 +8,7 @@ import ErrorHandlingService from '../../../errorHandlingService'
 import { ENDORSER_DID_NOT_PRESENT } from '../../../errorMessages'
 import { BadRequestError, InternalServerError, NotFoundError } from '../../../errors/errors'
 import { CreateSchemaSuccessful, SchemaExample, SchemaId } from '../../examples'
-import { CreateSchemaInput } from '../../types'
+import type { CreateSchemaInput } from '../../types'
 
 @Tags('AnonCreds - Schemas (Preserved)')
 @Route('/anoncreds/schemas')

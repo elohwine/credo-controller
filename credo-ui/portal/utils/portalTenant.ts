@@ -5,10 +5,132 @@ export type PortalTenantAuth = {
   tenantToken: string
 }
 
+type ActiveOrgRecord = {
+  orgTenantId?: string
+  name?: string
+  role?: string
+}
+
+export type PortalContextMode = 'personal' | 'org'
+
 function normalizeStored(value: string | null | undefined) {
   if (!value) return undefined
   if (value === 'undefined' || value === 'null') return undefined
   return value
+}
+
+function getActiveOrgRecord(): ActiveOrgRecord | undefined {
+  if (typeof window === 'undefined') return undefined
+
+  const raw = normalizeStored(window.localStorage.getItem('credoActiveOrg'))
+  if (!raw) return undefined
+
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') return parsed as ActiveOrgRecord
+  } catch {
+    return undefined
+  }
+
+  return undefined
+}
+
+function getStoredContextMode(): PortalContextMode {
+  if (typeof window === 'undefined') return 'personal'
+  const mode = normalizeStored(window.localStorage.getItem('credoContextMode'))
+  return mode === 'org' ? 'org' : 'personal'
+}
+
+function hasValidOrgTokenForActiveOrg(): boolean {
+  if (typeof window === 'undefined') return false
+
+  const activeOrg = getActiveOrgRecord()
+  const activeOrgId =
+    normalizeStored(activeOrg?.orgTenantId) || normalizeStored(window.localStorage.getItem('credoTenantId'))
+  const orgToken = normalizeStored(window.localStorage.getItem('credoOrgToken'))
+  if (!activeOrgId || !orgToken) return false
+
+  const tokenTenantId = extractTenantFromJwt(orgToken)
+  if (!tokenTenantId) return false
+  return tokenTenantId === activeOrgId
+}
+
+export function isOrgContextActive(): boolean {
+  if (typeof window === 'undefined') return false
+  return getStoredContextMode() === 'org' && hasValidOrgTokenForActiveOrg()
+}
+
+export function getPortalContextMode(): PortalContextMode {
+  if (typeof window === 'undefined') return 'personal'
+  if (isOrgContextActive()) return 'org'
+  return 'personal'
+}
+
+export function getPreferredTenantToken(): string | undefined {
+  if (typeof window === 'undefined') return undefined
+
+  // Org mode must use the active org token only.
+  if (getStoredContextMode() === 'org') {
+    if (hasValidOrgTokenForActiveOrg()) {
+      return normalizeStored(window.localStorage.getItem('credoOrgToken'))
+    }
+    return undefined
+  }
+
+  // Personal mode should prefer holder wallet token.
+  const walletToken = normalizeStored(window.localStorage.getItem('walletToken'))
+  if (walletToken) return walletToken
+
+  const tenantToken =
+    normalizeStored(window.localStorage.getItem('credoTenantToken')) ||
+    normalizeStored(window.localStorage.getItem('tenantToken'))
+  const orgToken = normalizeStored(window.localStorage.getItem('credoOrgToken'))
+  if (tenantToken && (!orgToken || tenantToken !== orgToken)) return tenantToken
+
+  return undefined
+}
+
+export function getPersonalWalletTenantId(): string | undefined {
+  if (typeof window === 'undefined') return undefined
+
+  const walletToken = normalizeStored(window.localStorage.getItem('walletToken'))
+  if (!walletToken) return undefined
+  return extractTenantFromJwt(walletToken)
+}
+
+export function getPersonalWalletToken(): string | undefined {
+  if (typeof window === 'undefined') return undefined
+  const token = normalizeStored(window.localStorage.getItem('walletToken'))
+  if (!token) return undefined
+  return token
+}
+
+export function getPreferredTenantId(token?: string): string | undefined {
+  if (typeof window === 'undefined') return undefined
+
+  if (isOrgContextActive()) {
+    return (
+      normalizeStored(getActiveOrgRecord()?.orgTenantId) ||
+      normalizeStored(window.localStorage.getItem('credoTenantId')) ||
+      normalizeStored(window.localStorage.getItem('tenantId'))
+    )
+  }
+
+  const walletToken = normalizeStored(window.localStorage.getItem('walletToken'))
+  if (walletToken) {
+    const walletTenantId = extractTenantFromJwt(walletToken)
+    if (walletTenantId) return walletTenantId
+  }
+
+  const explicitTenantId =
+    normalizeStored(window.localStorage.getItem('credoTenantId')) ||
+    normalizeStored(window.localStorage.getItem('tenantId'))
+  const activeOrgId = normalizeStored(getActiveOrgRecord()?.orgTenantId)
+  if (explicitTenantId && (!activeOrgId || explicitTenantId !== activeOrgId)) {
+    return explicitTenantId
+  }
+
+  return token ? extractTenantFromJwt(token) : undefined
 }
 
 /**
@@ -21,6 +143,19 @@ function extractTenantFromJwt(token: string): string | undefined {
     if (parts.length !== 3) return undefined
     const payload = JSON.parse(atob(parts[1]))
     return payload.tenantId
+  } catch {
+    return undefined
+  }
+}
+
+function extractRoleFromJwt(token: string): string | undefined {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return undefined
+    const payload = JSON.parse(atob(parts[1]))
+    const role = payload?.role
+    if (Array.isArray(role)) return String(role[0] || '').trim() || undefined
+    return typeof role === 'string' ? role.trim() || undefined : undefined
   } catch {
     return undefined
   }
@@ -81,7 +216,7 @@ export async function ensurePortalTenant(
   }
 
   // PRIORITY 3: Create new anonymous tenant for guest user
-  const apiKey = options?.holderApiKey || 'holder-api-key-12345'
+  const apiKey = options?.holderApiKey || 'test-api-key-12345'
   const rootTokenRes = await axios.post(`${holderBackend}/agent/token`, {}, { headers: { Authorization: apiKey } })
   const rootToken: string | undefined = rootTokenRes?.data?.token
   if (!rootToken) {

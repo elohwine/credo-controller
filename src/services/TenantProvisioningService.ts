@@ -46,10 +46,10 @@ export async function provisionTenantResources({
   const displayLabel = displayName ?? tenantRecord.config?.label ?? tenantRecord.id
   const display = displayLabel
     ? {
-      name: displayLabel,
-      description: `${displayLabel} OpenID endpoints`,
-      locale: 'en-US',
-    }
+        name: displayLabel,
+        description: `${displayLabel} OpenID endpoints`,
+        locale: 'en-US',
+      }
     : undefined
 
   const result = await agent.modules.tenants.withTenantAgent(
@@ -151,6 +151,11 @@ export async function provisionTenantResources({
           (tenantAgent.modules as any).openId4VcIssuer.getAllIssuers()
 
         const newCredentialsSupported = (issuerMetadata as any).credentials_supported || []
+        const newCredentialConfigurationsSupported =
+          (issuerMetadata as any).credential_configurations_supported ||
+          Object.fromEntries(
+            newCredentialsSupported.filter((c: any) => typeof c?.id === 'string' && !!c.id).map((c: any) => [c.id, c]),
+          )
         const newDisplay = (issuerMetadata as any).display || []
 
         if (existingIssuers && existingIssuers.length > 0) {
@@ -163,13 +168,13 @@ export async function provisionTenantResources({
 
           await (tenantAgent as any).openid4vc?.issuer?.updateIssuerMetadata?.({
             issuerId: existingIssuer.issuerId,
-            credentialsSupported: newCredentialsSupported,
+            credentialConfigurationsSupported: newCredentialConfigurationsSupported,
             display: newDisplay,
           })
         } else {
           // Only create if none exist
           await (tenantAgent as any).openid4vc?.issuer?.createIssuer?.({
-            credentialsSupported: newCredentialsSupported,
+            credentialConfigurationsSupported: newCredentialConfigurationsSupported,
             display: newDisplay,
           })
           // eslint-disable-next-line no-console

@@ -51,6 +51,8 @@ interface SSIRegisterResponse {
   claimedExisting: boolean
   /** URL to claim the PlatformIdentityVC (if auto-push disabled) */
   vcOfferUrl?: string
+  /** True when the issued PlatformIdentityVC was automatically accepted into wallet */
+  vcOfferAutoAccepted?: boolean
   /** Number of existing credentials in claimed tenant */
   existingCredentialsCount?: number
   /** Number of past receipts queued for issuance */
@@ -197,6 +199,7 @@ export class SSIAuthController extends Controller {
         existingCredentialsCount: result.claimedExisting ? existingCredentialsCount : undefined,
         retroactiveReceiptsQueued: retroactiveReceiptsQueued > 0 ? retroactiveReceiptsQueued : undefined,
         vcOfferUrl: result.vcOfferUrl,
+        vcOfferAutoAccepted: result.vcOfferAutoAccepted,
       }
     } catch (error: any) {
       request.logger?.error({ error: error.message }, 'SSI Registration failed')

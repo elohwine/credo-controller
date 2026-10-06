@@ -29,15 +29,13 @@ services:
       # Keep this false in docker demos to avoid startup regressions after container rebuilds.
       - ALLOW_TENANT_RECOVERY_ON_LOGIN=true
       - STRICT_TENANT_INVARIANT=false
-      # Only run Issuer
-      - HOLDER_API_PORT=7000
       # EcoCash Payment Mode: 'true' = simulated (auto-webhook), 'false' = live (USSD PIN push)
       - ECOCASH_SANDBOX=true
       - ECOCASH_WEBHOOK_SECRET=test-webhook-secret
       # Event-Based Offer Push Config (Docker Internal Network)
       # Disabled for manual acceptance flow (MVP Fastlane)
       # - OFFER_PUSH_URL=http://172.19.0.11:7000/api/wallet/holder-wallet/exchange/useOfferRequest
-      # - OFFER_PUSH_API_KEY=holder-api-key-12345
+      # - OFFER_PUSH_API_KEY=test-api-key-12345
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     command: ['node', './samples/startServer.js']

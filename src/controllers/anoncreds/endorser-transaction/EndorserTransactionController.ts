@@ -6,8 +6,8 @@ import { injectable } from 'tsyringe'
 import { SCOPES } from '../../../enums'
 import ErrorHandlingService from '../../../errorHandlingService'
 import { BadRequestError } from '../../../errors'
-import { AgentType } from '../../../types'
-import { DidNymTransaction, EndorserTransaction, WriteTransaction } from '../../types'
+import type { AgentType } from '../../../types'
+import type { DidNymTransaction, EndorserTransaction, WriteTransaction } from '../../types'
 
 @Tags('Blockchain Transaction Management')
 @Route('/blockchain/transactions')

@@ -23,31 +23,47 @@ import {
 import { IconAlertCircle, IconCheck, IconPlus, IconTrash, IconUsers } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 
+import { useRequireOrgContext } from '@/lib/portalContext'
+import { personLabel, roleLabel } from '@/lib/orgPeople'
 interface OrgMember {
   userId: string
   role: string
   status: string
   createdAt: string
+  displayName?: string
+  phone?: string
 }
 
-interface InviteBody {
-  targetUserId: string
-  role: 'admin' | 'member'
-}
 
 export default function OrganizationPeoplePage() {
+  // Org-only surface: personal sessions are redirected (mirrors mobile /finance → /inbox).
+  useRequireOrgContext('/organization/setup')
+
   const [orgTenantId, setOrgTenantId] = useState('')
   const [orgName, setOrgName] = useState('')
   const [members, setMembers] = useState<OrgMember[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [inviteOpen, setInviteOpen] = useState(false)
-  const [inviteUserId, setInviteUserId] = useState('')
+  const [invitePhone, setInvitePhone] = useState('')
   const [inviteRole, setInviteRole] = useState<string>('member')
   const [inviting, setInviting] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
+  const [changingRole, setChangingRole] = useState<string | null>(null)
 
-  const backendUrl = process.env.NEXT_PUBLIC_HOLDER_URL || 'http://localhost:7000'
+  const roleChoices = [
+    { value: 'member', label: 'Team member' },
+    { value: 'field_worker', label: 'Field worker' },
+    { value: 'supervisor', label: 'Supervisor' },
+    { value: 'dispatcher', label: 'Dispatcher' },
+    { value: 'approver', label: 'Approver' },
+    { value: 'manager', label: 'Manager' },
+    { value: 'finance_manager', label: 'Finance officer' },
+    { value: 'director', label: 'Director' },
+    { value: 'admin', label: 'Admin' },
+  ]
+
+  const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
 
   useEffect(() => {
     const activeOrg = readActiveOrganization()
@@ -84,17 +100,16 @@ export default function OrganizationPeoplePage() {
 
   const handleInvite = async () => {
     const token = getToken()
-    if (!token || !orgTenantId || !inviteUserId.trim()) return
+    if (!token || !orgTenantId || !invitePhone.trim()) return
     setInviting(true)
     try {
-      const body: InviteBody = { targetUserId: inviteUserId.trim(), role: inviteRole as 'admin' | 'member' }
       await axios.post(
-        `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}/members`,
-        body,
+        `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}/members/invite`,
+        { phone: invitePhone.trim(), role: inviteRole },
         { headers: { Authorization: `Bearer ${token}` } },
       )
-      notifications.show({ title: 'Member invited', message: inviteUserId.trim(), color: 'green', icon: <IconCheck size={16} /> })
-      setInviteUserId('')
+      notifications.show({ title: 'Invite sent', message: invitePhone.trim(), color: 'green', icon: <IconCheck size={16} /> })
+      setInvitePhone('')
       setInviteOpen(false)
       void loadMembers()
     } catch (err: any) {
@@ -104,16 +119,37 @@ export default function OrganizationPeoplePage() {
     }
   }
 
+  const handleRoleChange = async (userId: string, role: string | null) => {
+    const token = getToken()
+    if (!token || !orgTenantId || !role) return
+    setChangingRole(userId)
+    try {
+      await axios.patch(
+        `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}/members/${encodeURIComponent(userId)}`,
+        { role },
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      notifications.show({ title: 'Role updated', message: roleLabel(role), color: 'green' })
+      void loadMembers()
+    } catch (err: any) {
+      notifications.show({ title: 'Could not change role', message: err?.response?.data?.message || err?.message, color: 'red' })
+    } finally {
+      setChangingRole(null)
+    }
+  }
+
   const handleRemove = async (userId: string) => {
     const token = getToken()
     if (!token || !orgTenantId) return
+    const who = members.find((m) => m.userId === userId)
+    if (!window.confirm(`Remove ${who ? personLabel(who) : 'this person'} from the organization?`)) return
     setRemoving(userId)
     try {
       await axios.delete(
         `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}/members/${encodeURIComponent(userId)}`,
         { headers: { Authorization: `Bearer ${token}` } },
       )
-      notifications.show({ title: 'Member removed', message: userId, color: 'gray' })
+      notifications.show({ title: 'Removed', message: who ? personLabel(who) : 'Team member', color: 'gray' })
       void loadMembers()
     } catch (err: any) {
       notifications.show({ title: 'Remove failed', message: err?.response?.data?.message || err?.message, color: 'red' })
@@ -123,7 +159,7 @@ export default function OrganizationPeoplePage() {
   }
 
   return (
-    <Layout title="Organization People">
+    <Layout title="People">
       <Container size="xl" py="lg">
         <Stack gap="lg">
           <Paper withBorder={false}>
@@ -183,7 +219,7 @@ export default function OrganizationPeoplePage() {
                 <Table striped highlightOnHover>
                   <Table.Thead>
                     <Table.Tr>
-                      <Table.Th>User ID</Table.Th>
+                      <Table.Th>Person</Table.Th>
                       <Table.Th>Role</Table.Th>
                       <Table.Th>Status</Table.Th>
                       <Table.Th>Joined</Table.Th>
@@ -194,25 +230,31 @@ export default function OrganizationPeoplePage() {
                     {members.map((m) => (
                       <Table.Tr key={m.userId}>
                         <Table.Td>
-                          <Text size="sm" fw={500} ff="monospace">
-                            {m.userId.length > 20 ? `${m.userId.slice(0, 20)}…` : m.userId}
-                          </Text>
+                          <Text size="sm" fw={500}>{personLabel(m)}</Text>
+                          {m.phone && personLabel(m) !== m.phone && (
+                            <Text size="xs" c="dimmed">{m.phone}</Text>
+                          )}
                         </Table.Td>
                         <Table.Td>
-                          <Badge
-                            size="sm"
-                            color={m.role === 'owner' || m.role === 'admin' ? 'blue' : 'gray'}
-                            variant="light"
-                          >
-                            {m.role}
-                          </Badge>
+                          {m.role === 'owner' ? (
+                            <Badge size="sm" color="blue" variant="light">{roleLabel(m.role)}</Badge>
+                          ) : (
+                            <Select
+                              size="xs"
+                              data={roleChoices.some((choice) => choice.value === m.role) ? roleChoices : [...roleChoices, { value: m.role, label: roleLabel(m.role) }]}
+                              value={m.role}
+                              disabled={changingRole === m.userId}
+                              onChange={(value) => void handleRoleChange(m.userId, value)}
+                              allowDeselect={false}
+                            />
+                          )}
                         </Table.Td>
                         <Table.Td>
                           <Badge
                             size="sm"
                             color={m.status === 'active' ? 'teal' : m.status === 'suspended' ? 'red' : 'orange'}
                           >
-                            {m.status}
+                            {m.status === 'active' ? 'Active' : m.status === 'suspended' ? 'Suspended' : 'Invited'}
                           </Badge>
                         </Table.Td>
                         <Table.Td>
@@ -247,17 +289,24 @@ export default function OrganizationPeoplePage() {
       <Modal opened={inviteOpen} onClose={() => setInviteOpen(false)} title="Invite Member" centered>
         <Stack gap="md">
           <TextInput
-            label="User ID"
-            description="The internal user ID of the person to invite"
-            placeholder="uuid or ssi_users.id"
-            value={inviteUserId}
-            onChange={(e) => setInviteUserId(e.currentTarget.value)}
+            label="Phone number"
+            description="The number they use to sign in to the app"
+            placeholder="0774 123 456"
+            value={invitePhone}
+            onChange={(e) => setInvitePhone(e.currentTarget.value)}
             required
           />
           <Select
             label="Role"
             data={[
               { value: 'member', label: 'Member' },
+              { value: 'field_worker', label: 'Field Worker' },
+              { value: 'supervisor', label: 'Supervisor / Inspector' },
+              { value: 'dispatcher', label: 'Dispatcher' },
+              { value: 'approver', label: 'Approver' },
+              { value: 'manager', label: 'Manager' },
+              { value: 'finance_manager', label: 'Finance Officer' },
+              { value: 'director', label: 'Director' },
               { value: 'admin', label: 'Admin' },
             ]}
             value={inviteRole}
@@ -267,7 +316,7 @@ export default function OrganizationPeoplePage() {
             <Button variant="default" onClick={() => setInviteOpen(false)}>Cancel</Button>
             <Button
               loading={inviting}
-              disabled={!inviteUserId.trim()}
+              disabled={!invitePhone.trim()}
               onClick={handleInvite}
               leftSection={<IconPlus size={14} />}
             >

@@ -22,6 +22,13 @@ import { randomUUID } from 'crypto'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
 
+/** Workflow types whose reconciliation requires a delivery confirmation event. */
+const DELIVERY_REQUIRED_WORKFLOW_TYPES = new Set([
+  'ecommerce_delivery',
+  'tpl-quote-invoice-receipt',
+  'tpl-delivery-escrow',
+])
+
 const logger = rootLogger.child({ module: 'ReconciliationService' })
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -43,6 +50,16 @@ export type ReconciliationEventType =
   | 'REQUISITION_FINANCE_APPROVED'
   | 'REQUISITION_RELEASED'
   | 'EXECUTION_ACKNOWLEDGED'
+  | 'WORK_EVIDENCE_BEFORE'
+  | 'WORK_EVIDENCE_AFTER'
+  | 'WORK_EVIDENCE_RECEIPT'
+  | 'AGENT_ASSIGNED'
+  | 'SITE_INSPECTION_COMPLETED'
+  | 'RISK_ASSESSMENT_COMPLETED'
+  | 'ARRIVAL_CONFIRMED'
+  | 'COMPLETION_REVIEWED'
+  | 'JOB_STARTED'
+  | 'JOB_CLOSED'
 
 export type ReconciliationStatus =
   | 'QUOTE_ISSUED'
@@ -258,28 +275,34 @@ export class ReconciliationService {
 
     if (events.length === 0) return
 
-    // Resolve the tenant's sector from workflow_templates.
-    // Ecommerce requires delivery confirmation before RECONCILED.
-    // Education, cash, and custom sectors are terminal at PAYMENT_SUCCESS + RECEIPT_ISSUED.
-    let tenantSector: string | null = null
+    // Resolve whether this tenant's configured workflows require delivery confirmation
+    // before RECONCILED. Commerce / delivery workflows do; payment-only workflows
+    // (education, cash, collections) are terminal at PAYMENT_SUCCESS + RECEIPT_ISSUED.
+    // Configured templates are consulted regardless of the legacy `enabled` flag —
+    // readiness, not activation, decides whether a workflow is operational.
+    let tenantRequiresDelivery: boolean | null = null
     if (tenantId) {
       try {
         const wt = db
           .prepare(
             `
-                    SELECT sector FROM workflow_templates
-                    WHERE tenant_id = ? AND enabled = 1
+                    SELECT sector, workflow_type FROM workflow_templates
+                    WHERE tenant_id = ?
                     ORDER BY updated_at DESC LIMIT 1
                 `,
           )
-          .get(tenantId) as { sector: string } | undefined
-        tenantSector = wt?.sector ?? null
+          .get(tenantId) as { sector: string; workflow_type: string } | undefined
+        if (wt) {
+          tenantRequiresDelivery =
+            wt.sector === 'ecommerce' ||
+            DELIVERY_REQUIRED_WORKFLOW_TYPES.has(String(wt.workflow_type || '').toLowerCase())
+        }
       } catch (_) {
         /* non-fatal — fall back to delivery-required behaviour */
       }
     }
-    // If no sector is found default to requiring delivery (safest, ecommerce-compatible)
-    const requiresDelivery = !tenantSector || tenantSector === 'ecommerce'
+    // If no template is found default to requiring delivery (safest, ecommerce-compatible)
+    const requiresDelivery = tenantRequiresDelivery === null ? true : tenantRequiresDelivery
 
     // Build event presence flags
     const has = (type: string) => events.some((e) => e.event_type === type)
@@ -702,15 +725,17 @@ export class ReconciliationService {
     try {
       const db = DatabaseManager.getDatabase()
 
-      // Find tenants whose sector is NOT ecommerce and have enabled templates
-      const nonEcommerceTenants = db
-        .prepare(
-          `
-                SELECT DISTINCT tenant_id, sector FROM workflow_templates
-                WHERE enabled = 1 AND sector != 'ecommerce' AND sector IS NOT NULL
+      // Find tenants whose configured workflows do not require delivery confirmation.
+      const nonEcommerceTenants = (
+        db
+          .prepare(
+            `
+                SELECT DISTINCT tenant_id, sector, workflow_type FROM workflow_templates
+                WHERE tenant_id IS NOT NULL AND sector != 'ecommerce' AND sector IS NOT NULL
             `,
-        )
-        .all() as Array<{ tenant_id: string; sector: string }>
+          )
+          .all() as Array<{ tenant_id: string; sector: string; workflow_type: string }>
+      ).filter((row) => !DELIVERY_REQUIRED_WORKFLOW_TYPES.has(String(row.workflow_type || '').toLowerCase()))
 
       if (nonEcommerceTenants.length === 0) return
 

@@ -20,7 +20,7 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
-import { v4 as uuid } from 'uuid'
+import { randomUUID } from 'crypto'
 
 import { rootLogger } from '../utils/pinoLogger'
 
@@ -42,6 +42,8 @@ export interface WorkflowRun {
   error?: string
   triggerType: TriggerType
   triggerRef?: string
+  /** Snapshot of the action list the run was created with (kept so audit views survive template edits). */
+  actionsSnapshot?: any[]
   currentStep: number
   totalSteps: number
   startedAt?: Date
@@ -77,19 +79,37 @@ export interface WorkflowTriggerPersistenceRecord {
 }
 
 export class WorkflowRunRepository {
+  private actionsSnapshotColumnEnsured = false
+
+  /**
+   * `actions_snapshot` exists on long-lived databases (added by an earlier codebase) but is not part of the
+   * base `workflow_runs` schema shipped in the migrations folder. Add it lazily so both fresh and live DBs work.
+   */
+  private ensureActionsSnapshotColumn(): void {
+    if (this.actionsSnapshotColumnEnsured) return
+    const db = DatabaseManager.getDatabase()
+    const columns = db.prepare('PRAGMA table_info(workflow_runs)').all() as Array<{ name: string }>
+    if (!columns.some((c) => c.name === 'actions_snapshot')) {
+      db.exec('ALTER TABLE workflow_runs ADD COLUMN actions_snapshot TEXT')
+      logger.info('Added workflow_runs.actions_snapshot column')
+    }
+    this.actionsSnapshotColumnEnsured = true
+  }
+
   // ==================== Workflow Runs ====================
 
   createRun(run: Partial<WorkflowRun> & { workflowId: string; tenantId: string }): WorkflowRun {
     const db = DatabaseManager.getDatabase()
-    const id = run.id || uuid()
+    this.ensureActionsSnapshotColumn()
+    const id = run.id || randomUUID()
 
     const stmt = db.prepare(`
             INSERT INTO workflow_runs (
                 id, workflow_id, tenant_id, status, input, output, error,
-                trigger_type, trigger_ref, current_step, total_steps, started_at
+                trigger_type, trigger_ref, actions_snapshot, current_step, total_steps, started_at
             ) VALUES (
                 @id, @workflowId, @tenantId, @status, @input, @output, @error,
-                @triggerType, @triggerRef, @currentStep, @totalSteps, @startedAt
+                @triggerType, @triggerRef, @actionsSnapshot, @currentStep, @totalSteps, @startedAt
             )
         `)
 
@@ -103,6 +123,7 @@ export class WorkflowRunRepository {
       error: run.error || null,
       triggerType: run.triggerType || 'manual',
       triggerRef: run.triggerRef || null,
+      actionsSnapshot: run.actionsSnapshot ? JSON.stringify(run.actionsSnapshot) : null,
       currentStep: run.currentStep || 0,
       totalSteps: run.totalSteps || 0,
       startedAt: run.startedAt?.toISOString() || null,
@@ -153,11 +174,13 @@ export class WorkflowRunRepository {
 
   findRunById(id: string): WorkflowRun | undefined {
     const db = DatabaseManager.getDatabase()
+    this.ensureActionsSnapshotColumn()
     const row = db
       .prepare(
         `
             SELECT id, workflow_id as workflowId, tenant_id as tenantId, status,
                    input, output, error, trigger_type as triggerType, trigger_ref as triggerRef,
+                   actions_snapshot as actionsSnapshot,
                    current_step as currentStep, total_steps as totalSteps,
                    started_at as startedAt, completed_at as completedAt, created_at as createdAt
             FROM workflow_runs WHERE id = ?
@@ -171,6 +194,7 @@ export class WorkflowRunRepository {
       ...row,
       input: row.input ? JSON.parse(row.input) : undefined,
       output: row.output ? JSON.parse(row.output) : undefined,
+      actionsSnapshot: row.actionsSnapshot ? JSON.parse(row.actionsSnapshot) : undefined,
       startedAt: row.startedAt ? new Date(row.startedAt) : undefined,
       completedAt: row.completedAt ? new Date(row.completedAt) : undefined,
       createdAt: row.createdAt ? new Date(row.createdAt) : undefined,
@@ -179,10 +203,12 @@ export class WorkflowRunRepository {
 
   listRuns(tenantId: string, workflowId?: string, status?: WorkflowRunStatus, limit = 50): WorkflowRun[] {
     const db = DatabaseManager.getDatabase()
+    this.ensureActionsSnapshotColumn()
 
     let query = `
             SELECT id, workflow_id as workflowId, tenant_id as tenantId, status,
                    input, output, error, trigger_type as triggerType, trigger_ref as triggerRef,
+                   actions_snapshot as actionsSnapshot,
                    current_step as currentStep, total_steps as totalSteps,
                    started_at as startedAt, completed_at as completedAt, created_at as createdAt
             FROM workflow_runs WHERE tenant_id = ?
@@ -207,6 +233,7 @@ export class WorkflowRunRepository {
       ...row,
       input: row.input ? JSON.parse(row.input) : undefined,
       output: row.output ? JSON.parse(row.output) : undefined,
+      actionsSnapshot: row.actionsSnapshot ? JSON.parse(row.actionsSnapshot) : undefined,
       startedAt: row.startedAt ? new Date(row.startedAt) : undefined,
       completedAt: row.completedAt ? new Date(row.completedAt) : undefined,
       createdAt: row.createdAt ? new Date(row.createdAt) : undefined,
@@ -217,7 +244,7 @@ export class WorkflowRunRepository {
 
   createStep(step: Partial<WorkflowStep> & { runId: string; stepIndex: number; actionName: string }): WorkflowStep {
     const db = DatabaseManager.getDatabase()
-    const id = step.id || uuid()
+    const id = step.id || randomUUID()
 
     const stmt = db.prepare(`
             INSERT INTO workflow_steps (
@@ -338,7 +365,7 @@ export class WorkflowRunRepository {
     trigger: Partial<WorkflowTriggerPersistenceRecord> & { workflowId: string; tenantId: string; triggerType: string },
   ): WorkflowTriggerPersistenceRecord {
     const db = DatabaseManager.getDatabase()
-    const id = trigger.id || uuid()
+    const id = trigger.id || randomUUID()
 
     const stmt = db.prepare(`
             INSERT INTO workflow_triggers (

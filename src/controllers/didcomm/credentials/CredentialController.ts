@@ -14,9 +14,9 @@ import { injectable } from 'tsyringe'
 
 import { SCOPES } from '../../../enums'
 import ErrorHandlingService from '../../../errorHandlingService'
-import { AgentType } from '../../../types'
+import type { AgentType } from '../../../types'
 import { CredentialExchangeRecordExample, RecordId } from '../../examples'
-import {
+import type {
   AcceptCredentialRequestOptions,
   ProposeCredentialOptions,
   AcceptCredentialProposalOptions,

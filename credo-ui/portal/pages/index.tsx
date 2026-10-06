@@ -26,6 +26,8 @@ import {
     IconUsers,
     IconChecklist,
     IconGitBranch,
+    IconUserShield,
+    IconUsersGroup,
 } from '@tabler/icons-react'
 import Link from 'next/link'
 
@@ -125,7 +127,7 @@ export default function DashboardPage() {
     const [readinessPercent, setReadinessPercent] = useState<number | null>(null)
     const [readinessState, setReadinessState] = useState<string | null>(null)
 
-    const backendUrl = process.env.NEXT_PUBLIC_HOLDER_URL || 'http://localhost:7000'
+    const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
 
     useEffect(() => {
         const activeOrg = readActiveOrganization()
@@ -225,6 +227,18 @@ export default function DashboardPage() {
                                 icon={<IconGitBranch size={20} />}
                             />
                             <QuickLinkCard
+                                label="Approvals"
+                                description="Approval trails and decisions"
+                                href="/approvals"
+                                icon={<IconShieldCheck size={20} />}
+                            />
+                            <QuickLinkCard
+                                label="Tasks"
+                                description="Open workflow tasks"
+                                href="/tasks"
+                                icon={<IconChecklist size={20} />}
+                            />
+                            <QuickLinkCard
                                 label="Verify"
                                 description="Verify a credential or presentation"
                                 href="/verify"
@@ -250,6 +264,12 @@ export default function DashboardPage() {
                                 icon={<IconUsers size={20} />}
                             />
                             <QuickLinkCard
+                                label="Roles"
+                                description="Starter permissions and access groups"
+                                href="/organization/roles"
+                                icon={<IconUserShield size={20} />}
+                            />
+                            <QuickLinkCard
                                 label="Departments"
                                 description="Departments and cost centres"
                                 href="/organization/departments"
@@ -260,6 +280,12 @@ export default function DashboardPage() {
                                 description="Approval authorities and thresholds"
                                 href="/organization/authorities"
                                 icon={<IconShieldCheck size={20} />}
+                            />
+                            <QuickLinkCard
+                                label="Delegations"
+                                description="Backup approvals and delegated power"
+                                href="/organization/delegations"
+                                icon={<IconUsersGroup size={20} />}
                             />
                         </SimpleGrid>
                     </Box>
