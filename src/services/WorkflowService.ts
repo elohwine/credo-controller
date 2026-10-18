@@ -18,14 +18,19 @@ import type { WorkflowRecord } from '../persistence/WorkflowRepository'
 import type { WorkflowRun, TriggerType } from '../persistence/WorkflowRunRepository'
 import type { WorkflowActionContext } from './workflow/ActionRegistry'
 
+import { StatusException } from '../errors'
+import { DatabaseManager } from '../persistence/DatabaseManager'
 import { providerRepository } from '../persistence/ProviderRepository'
 import { workflowRepository } from '../persistence/WorkflowRepository'
 import { workflowRunRepository } from '../persistence/WorkflowRunRepository'
 import { rootLogger } from '../utils/pinoLogger'
 
+import { orgSetupProfileService } from './OrgSetupProfileService'
 import { workflowReadinessService } from './WorkflowReadinessService'
 import { ActionRegistry } from './workflow/ActionRegistry'
 import { workflowHandoffService } from './workflow/WorkflowHandoffService'
+import { ArActions } from './workflow/actions/ArActions'
+import { ClientPaymentActions } from './workflow/actions/ClientPaymentActions'
 import { ConsentActions } from './workflow/actions/ConsentActions'
 import { CredentialActions } from './workflow/actions/CredentialActions'
 import { ecocashPayment, ecocashPaymentProof, ecocashTransactionLookup } from './workflow/actions/EcoCashActions'
@@ -37,6 +42,7 @@ import { triggerFollowOnRequest } from './workflow/actions/RequestTriggerAction'
 import { TrustActions } from './workflow/actions/TrustActions'
 import { createWorkflowStartAction } from './workflow/actions/WorkflowStartAction'
 import { ensureExecutableWorkflow } from './workflow/materialize'
+import { getWorkflowTypeForWorkflow } from './workflow/initiation'
 
 // Register default actions
 ActionRegistry.register('finance.calculate_invoice', FinanceActions.calculateInvoice)
@@ -45,6 +51,9 @@ ActionRegistry.register('external.fetch', ExternalActions.fetchExternal)
 ActionRegistry.register('external.ecocash_payment', ExternalActions.initiateEcoCashPayment)
 ActionRegistry.register('external.call_provider', ExternalActions.callProvider)
 ActionRegistry.register('external.send_notification', ExternalActions.sendNotification)
+ActionRegistry.register('client.request_payment', ClientPaymentActions.requestPayment)
+ActionRegistry.register('client.record_payment', ClientPaymentActions.recordPayment)
+ActionRegistry.register('ar.create_plan', ArActions.createPlan)
 
 // EcoCash provider actions
 ActionRegistry.register('ecocash.payment', ecocashPayment)
@@ -116,11 +125,13 @@ export class WorkflowService {
     if (!workflow) {
       throw new Error(`Workflow not found: ${workflowId}`)
     }
-    workflowReadinessService.assertExecutable(tenantId, workflow.category || workflowId)
+    orgSetupProfileService.assertWorkflow(tenantId, workflow)
+    workflowReadinessService.assertExecutable(tenantId, getWorkflowTypeForWorkflow(workflow))
 
-    // 2. Create Run Record
+    // 2. Create Run Record. The run points at the executable row (a template alias such as
+    // `field_execution_fept` is not a `workflows` row, and `workflow_runs.workflow_id` is a foreign key).
     const run = workflowRunRepository.createRun({
-      workflowId,
+      workflowId: workflow.id,
       tenantId,
       status: 'pending',
       input,
@@ -205,6 +216,8 @@ export class WorkflowService {
 
     const storedWorkflow = workflowRepository.findById(run.workflowId)
     if (!storedWorkflow) throw new Error(`Workflow not found: ${run.workflowId}`)
+    orgSetupProfileService.assertWorkflow(run.tenantId, storedWorkflow)
+    workflowReadinessService.assertExecutable(run.tenantId, getWorkflowTypeForWorkflow(storedWorkflow))
     const workflow =
       Array.isArray(run.actionsSnapshot) && run.actionsSnapshot.length > 0
         ? { ...storedWorkflow, actions: run.actionsSnapshot }
@@ -217,8 +230,118 @@ export class WorkflowService {
   }
 
   /** Reassign a paused field job. The checkpoint stays where it is. */
-  public reassignRun(runId: string, assigneeUserId: string, actedByUserId?: string) {
-    return FieldExecutionActions.reassignRun(runId, assigneeUserId, actedByUserId)
+  /**
+   * The organisation sorted out a worker's "not safe to start" hold. The hold is marked
+   * resolved and the worker is told to redo the safety check; the check itself stays theirs.
+   */
+  public resolveSafetyHold(runId: string, holdId: string, note: string, actedByUserId?: string) {
+    return FieldExecutionActions.resolveHold(runId, holdId, note, actedByUserId)
+  }
+
+  public async reassignRun(runId: string, assigneeUserId: string, actedByUserId?: string) {
+    const moved = FieldExecutionActions.reassignRun(runId, assigneeUserId, actedByUserId)
+    const { workflowVcOfferDispatcher } = await import('./workflow/WorkflowVcOfferDispatcher')
+    try {
+      const record = await workflowVcOfferDispatcher.transferJobAssignmentRecord(runId)
+      return { ...moved, assignmentRecord: record.outcome }
+    } catch (error) {
+      this.logger.error({ err: error, runId, assigneeUserId }, 'Job reassigned but assignment record transfer failed')
+      throw new StatusException(
+        "The job was reassigned, but its assignment record could not be transferred. Retry the reassignment to deliver the current worker's record.",
+        503,
+      )
+    }
+  }
+
+  public async retryClientBilling(
+    runId: string,
+    clientName: string,
+    clientPhone: string,
+    actedByUserId?: string,
+  ): Promise<WorkflowExecutionResult> {
+    const parent = workflowRunRepository.findRunById(runId)
+    if (!parent) throw new StatusException('Run not found', 404)
+    const name = clientName.trim()
+    const phone = clientPhone.trim()
+    if (!name || !/^\+?[1-9]\d{6,14}$/.test(phone))
+      throw new StatusException('Enter a client name and valid international mobile', 400)
+    const childId = parent.output?.startedWorkflows?.['tpl-payment-collection']?.runId
+    const child = typeof childId === 'string' ? workflowRunRepository.findRunById(childId) : undefined
+    if (!child || child.tenantId !== parent.tenantId || child.input?.parentRunId !== parent.id) {
+      throw new StatusException('The original billing workflow is unavailable. Review the billing handoff.', 409)
+    }
+    if (child.output?.clientBill?.linkId || parent.output?.clientBill?.linkId) {
+      throw new StatusException('Resend or renew the existing payment link instead of creating another debt.', 409)
+    }
+    if (!['completed', 'failed'].includes(child.status))
+      throw new StatusException('Billing is already in progress', 409)
+    const stored = workflowRepository.findById(child.workflowId)
+    if (!stored || stored.tenantId !== parent.tenantId) throw new StatusException('Billing workflow not found', 404)
+    const actions = child.actionsSnapshot?.length ? child.actionsSnapshot : stored.actions
+    const step = actions.findIndex(
+      (action) => action.action === 'client.request_payment' && action.config?.kind !== 'quote',
+    )
+    if (step < 0) throw new StatusException('The original workflow has no invoice billing step', 409)
+    orgSetupProfileService.assertModule(parent.tenantId, 'collections')
+    workflowReadinessService.assertExecutable(parent.tenantId, 'tpl-payment-collection')
+    const contact = { clientName: name, payerName: name, payerPhone: phone, customerMsisdn: phone }
+    workflowRunRepository.updateRun(parent.id, { input: { ...parent.input, ...contact } })
+    const input = { ...child.input, ...contact, ...(actedByUserId ? { actedByUserId } : {}) }
+    workflowRunRepository.updateRun(child.id, { input, status: 'running', error: '' })
+    return this.executeRun(child.id, { ...stored, actions }, input, parent.tenantId, step, { ...child.output })
+  }
+
+  private withCurrentBilling(run: WorkflowRun): WorkflowRun {
+    const snapshot = run.output?.startedWorkflows?.['tpl-payment-collection']
+    const candidate = snapshot?.runId ? workflowRunRepository.findRunById(String(snapshot.runId)) : undefined
+    const child =
+      candidate?.tenantId === run.tenantId && candidate?.input?.parentRunId === run.id ? candidate : undefined
+    const bill = child?.output?.clientBill || run.output?.clientBill
+    let currentBill = bill
+    if (bill?.linkId) {
+      const link = DatabaseManager.getDatabase()
+        .prepare(
+          `SELECT status, metadata, shortlink_url AS url, shortlink_code AS code, paid_at AS paidAt FROM payment_links WHERE id = ? AND merchant_id = ?`,
+        )
+        .get(bill.linkId, run.tenantId) as
+        | { status: string; metadata: string | null; url: string; code: string; paidAt?: string }
+        | undefined
+      if (link) {
+        const metadata = link.metadata ? JSON.parse(link.metadata) : {}
+        currentBill = {
+          ...bill,
+          url: link.url,
+          code: link.code,
+          ...(metadata.notification
+            ? {
+                notification: metadata.notification,
+                status: metadata.notification.accepted ? 'sent' : 'delivery_failed',
+              }
+            : {}),
+          ...(link.status === 'paid' ? { status: 'paid', paidAt: link.paidAt } : {}),
+        }
+      }
+    }
+    if (!child && !currentBill) return run
+    return {
+      ...run,
+      output: {
+        ...run.output,
+        ...(currentBill ? { clientBill: currentBill } : {}),
+        ...(child
+          ? {
+              startedWorkflows: {
+                ...run.output.startedWorkflows,
+                'tpl-payment-collection': {
+                  ...snapshot,
+                  status: child.status,
+                  ...(child.error ? { error: child.error } : {}),
+                },
+              },
+            }
+          : {}),
+      },
+    }
   }
 
   /**
@@ -231,14 +354,16 @@ export class WorkflowService {
     }
 
     const steps = workflowRunRepository.listSteps(runId)
-    return { ...run, steps }
+    return { ...this.withCurrentBilling(run), steps }
   }
 
   /**
    * List workflow runs
    */
   public async listRuns(tenantId: string, workflowId?: string, status?: any, limit?: number) {
-    return workflowRunRepository.listRuns(tenantId, workflowId, status, limit)
+    return workflowRunRepository
+      .listRuns(tenantId, workflowId, status, limit)
+      .map((run) => this.withCurrentBilling(run))
   }
 
   /**
@@ -338,8 +463,6 @@ export class WorkflowService {
           completedAt: new Date(),
         })
       } catch (error: any) {
-        this.logger.error({ error, action: actionName }, 'Action failed')
-
         // Check if action requested pause (for async operations like webhooks)
         if (error.message === 'WORKFLOW_PAUSE') {
           workflowRunRepository.updateStep(step.id, {
@@ -361,6 +484,8 @@ export class WorkflowService {
           }
           return { runId, status: 'running', output: context.state }
         }
+
+        this.logger.error({ error, action: actionName }, 'Action failed')
 
         // Mark step as failed
         workflowRunRepository.updateStep(step.id, {
@@ -408,8 +533,25 @@ export class WorkflowService {
     return { runId, status: 'completed', output: context.state }
   }
 
+  /** Stop a paused run for good (for example the client declined a quote) and release any job waiting on it. */
+  public async cancelRun(runId: string, statePatch: Record<string, unknown> = {}): Promise<void> {
+    const run = workflowRunRepository.findRunById(runId)
+    if (!run || run.status !== 'paused') return
+    const state = {
+      ...((run.output && typeof run.output === 'object' ? run.output : {}) as Record<string, unknown>),
+      ...statePatch,
+    }
+    delete state.pauseReason
+    workflowRunRepository.updateRun(runId, { status: 'cancelled', output: state, completedAt: new Date() })
+    await this.notifyParentOfFinish(runId, 'cancelled', state)
+  }
+
   /** If this run was started as a hand-off from another job, hand control back. */
-  private async notifyParentOfFinish(runId: string, status: 'completed' | 'failed', state: Record<string, unknown>) {
+  private async notifyParentOfFinish(
+    runId: string,
+    status: 'completed' | 'failed' | 'cancelled',
+    state: Record<string, unknown>,
+  ) {
     try {
       await workflowHandoffService.onRunFinished(runId, status, state)
     } catch (error: any) {

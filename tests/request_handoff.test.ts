@@ -74,13 +74,26 @@ describe('request handoffs', () => {
     expect(purchaseOrder.status).toBe('submitted')
     expect(JSON.parse(purchaseOrder.context_json).supplierRef).toBe('supplier-1')
 
-    const payment = requestHandoffService.continueFromPlatformRequest({
+    // The supplier is paid against their bill once the goods arrive, not when the order is approved.
+    const onApproval = requestHandoffService.continueFromPlatformRequest({
       tenantId: org.orgTenantId,
       requestId: first[0].id,
       requestType: 'finance.purchase_order',
       toStatus: 'approved',
     })
+    expect(onApproval).toHaveLength(0)
+    const payment = requestHandoffService.continueFromPlatformRequest({
+      tenantId: org.orgTenantId,
+      requestId: first[0].id,
+      requestType: 'finance.purchase_order',
+      toStatus: 'completed',
+      context: { supplierRef: 'supplier-1', invoiceRef: 'BILL-77' },
+    })
     expect(payment[0].requestType).toBe('finance.payment_request')
+    const paymentRow = DatabaseManager.getDatabase()
+      .prepare('SELECT context_json FROM requests WHERE id = ?')
+      .get(payment[0].id) as { context_json: string }
+    expect(JSON.parse(paymentRow.context_json).invoiceRef).toBe('BILL-77')
   })
 
   test('an organization can turn a built-in handoff off and add its own', () => {
@@ -176,7 +189,12 @@ describe('request handoffs', () => {
         `INSERT INTO workflow_requests (id, requester_tenant_id, target_org_tenant_id, request_type, workflow_type, payload, status)
          VALUES (?, ?, ?, 'requisition', 'internal_requisition_approval', ?, 'approved')`,
       )
-      .run(randomUUID(), org.orgTenantId, org.orgTenantId, JSON.stringify({ requisitionId, vendor: 'Petty cash', paymentMethod: 'cash' }))
+      .run(
+        randomUUID(),
+        org.orgTenantId,
+        org.orgTenantId,
+        JSON.stringify({ requisitionId, vendor: 'Petty cash', paymentMethod: 'cash' }),
+      )
 
     const spawned = requestHandoffService.continueFromWorkflowRequest({
       orgTenantId: org.orgTenantId,

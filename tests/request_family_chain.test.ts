@@ -5,10 +5,15 @@
  */
 
 import 'reflect-metadata'
-import { afterAll, beforeAll, describe, expect, test } from '@jest/globals'
+import { afterAll, afterEach, beforeAll, describe, expect, jest, test } from '@jest/globals'
+import { Agent } from '@credo-ts/core'
+import { container } from 'tsyringe'
 
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
+import { orgEntitlementService } from '../src/services/OrgEntitlementService'
+import { orgSetupProfileService } from '../src/services/OrgSetupProfileService'
 import { platformRequestService } from '../src/services/PlatformRequestService'
+import { credentialIssuanceService } from '../src/services/CredentialIssuanceService'
 import { workflowReadinessService } from '../src/services/WorkflowReadinessService'
 
 import {
@@ -29,6 +34,46 @@ beforeAll(() => {
 afterAll(() => {
   databases.cleanup()
 })
+
+afterEach(() => {
+  jest.restoreAllMocks()
+})
+
+function configureStaffRequests(orgTenantId: string) {
+  orgEntitlementService.setPlan(orgTenantId, { grantedModules: ['people_payroll'] })
+  orgSetupProfileService.save(orgTenantId, {
+    operatingModel: 'internal',
+    kinds: ['office'],
+    modules: ['people_payroll', 'collections'],
+    expectedRevision: orgSetupProfileService.get(orgTenantId).access.revision,
+  })
+}
+
+function mockIssuer() {
+  jest.spyOn(container, 'resolve').mockImplementation((token) => {
+    expect(token).toBe(Agent)
+    return { modules: {} }
+  })
+  return jest.spyOn(credentialIssuanceService, 'createOffer').mockImplementation(async (input) => ({
+    offerId: `${input.tenantId}-${input.credentialType}`,
+    preAuthorizedCode: 'test',
+    credential_offer_uri: 'http://localhost/offer/test',
+    credential_offer_deeplink: 'openid-credential-offer://test',
+    expiresAt: new Date(Date.now() + 86400000).toISOString(),
+    credentialType: ['VerifiableCredential', input.credentialType],
+  }))
+}
+
+async function waitForRecord(requestId: string) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const row = DatabaseManager.getDatabase()
+      .prepare(`SELECT id FROM wallet_pending_offers WHERE source_id = ? AND source_type = 'workflow_vc_offer'`)
+      .get(requestId)
+    if (row) return row
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error(`Approval record not offered for ${requestId}`)
+}
 
 function childOf(parentId: string, requestType: string) {
   return DatabaseManager.getDatabase()
@@ -62,9 +107,9 @@ describe('field request family — readiness plus site access follow-on', () => 
 
     // enabled: false must not be what blocks or allows the workflow.
     configureFeptTemplate(org.orgTenantId, { enabled: false })
+    // Starter roles come from the setup answers, so the disabled flag is the only thing left — and it does not block.
     const blocked = workflowReadinessService.evaluateTemplate(org.orgTenantId, 'field_execution_fept')
-    expect(blocked.ready).toBe(false)
-    expect(blocked.blocking.map((item) => item.key)).toEqual(expect.arrayContaining(['roles']))
+    expect(blocked.blocking.map((item) => item.key)).not.toContain('roles')
     expect(blocked.blocking.map((item) => item.key)).not.toContain('stage_actor:assign_field_worker')
 
     addRole(org.organizationId, 'Field Worker')
@@ -103,7 +148,10 @@ describe('field request family — readiness plus site access follow-on', () => 
 
 describe('finance expense family — approval starts a payment request', () => {
   test('an approved expense claim spawns finance.payment_request', async () => {
+    mockIssuer()
     const org = seedOrganization({ name: 'Expense Co' })
+    // Expense claims belong to People & payroll: chosen in setup and covered by the plan.
+    configureStaffRequests(org.orgTenantId)
     const approverPersonId = addMember({
       orgTenantId: org.orgTenantId,
       organizationId: org.organizationId,
@@ -130,5 +178,69 @@ describe('finance expense family — approval starts a payment request', () => {
     const context = JSON.parse(payment?.contextJson || '{}')
     expect(context.paymentReference).toMatch(/^PAY-/)
     expect(context.payeeRef).toBe('unassigned')
+    await waitForRecord(claim.id)
+  })
+})
+
+describe('canonical leave requests replace the legacy operations service', () => {
+  test('tenant-scoped approval issues one employee record without writing the legacy table', async () => {
+    const issue = mockIssuer()
+    const org = seedOrganization()
+    configureStaffRequests(org.orgTenantId)
+    const employeeUserId = `employee-${org.orgTenantId}`
+    const employeePersonId = addMember({ ...org, userId: employeeUserId, role: 'member' })
+    const approverPersonId = addMember({ ...org, role: 'admin' })
+    const otherOrg = seedOrganization()
+    const leave = platformRequestService.create({
+      tenantId: org.orgTenantId,
+      subjectRef: employeeUserId,
+      requestType: 'hr.leave',
+      title: 'Annual leave',
+      context: { leaveType: 'annual', startDate: '2026-11-02', endDate: '2026-11-04', days: 3 },
+    }) as { id: string }
+    platformRequestService.submit(leave.id, org.orgTenantId, employeeUserId)
+    expect(() =>
+      platformRequestService.transition(leave.id, otherOrg.orgTenantId, 'in_review', otherOrg.ownerPersonId),
+    ).toThrow('Request not found')
+    expect(() => platformRequestService.transition(leave.id, org.orgTenantId, 'in_review', employeePersonId)).toThrow()
+    platformRequestService.transition(leave.id, org.orgTenantId, 'in_review', approverPersonId)
+    platformRequestService.transition(leave.id, org.orgTenantId, 'approved', approverPersonId)
+
+    const db = DatabaseManager.getDatabase()
+    const offered = () =>
+      db
+        .prepare(
+          `SELECT tenant_id, issuer_tenant_id, workflow_run_id, metadata FROM wallet_pending_offers
+           WHERE source_id = ? AND credential_type = 'LeaveApprovalVC'`,
+        )
+        .all(leave.id) as Array<{
+        tenant_id: string
+        issuer_tenant_id: string
+        workflow_run_id: string | null
+        metadata: string
+      }>
+    await waitForRecord(leave.id)
+    expect(offered()).toEqual([
+      expect.objectContaining({
+        tenant_id: `wallet-${employeeUserId}`,
+        issuer_tenant_id: org.orgTenantId,
+        workflow_run_id: null,
+      }),
+    ])
+    expect(JSON.parse(offered()[0].metadata).requestType).toBe('hr.leave')
+    expect(issue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentialType: 'LeaveApprovalVC',
+        tenantId: org.orgTenantId,
+        subjectDid: `did:key:${employeeUserId}`,
+        claims: expect.objectContaining({ employeeId: employeeUserId, daysCount: 3 }),
+      }),
+    )
+    await platformRequestService.issueApprovalRecord(leave.id)
+    expect(offered()).toHaveLength(1)
+    expect(issue).toHaveBeenCalledTimes(1)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM leave_requests WHERE tenant_id = ?').get(org.orgTenantId)).toEqual({
+      n: 0,
+    })
   })
 })

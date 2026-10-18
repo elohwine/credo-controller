@@ -9,6 +9,7 @@ import { createTestServerContext } from '../utils/testServer'
 import { DatabaseManager } from '../../src/persistence/DatabaseManager'
 import { contactRepository } from '../../src/persistence/ContactRepository'
 import { workflowRequestRepository } from '../../src/persistence/WorkflowRequestRepository'
+import { paymentLinkService } from '../../src/services/PaymentLinkService'
 import { workflowService } from '../../src/services/WorkflowService'
 import { orgWorkflowActorService } from '../../src/services/OrgWorkflowActorService'
 import { EducationFeeTemplate, instantiateTemplate } from '../../src/services/workflow/templates'
@@ -16,7 +17,7 @@ import { EducationFeeTemplate, instantiateTemplate } from '../../src/services/wo
 jest.setTimeout(180000)
 
 describe('School fees payment e2e', () => {
-  it('issues invoice and school-fee receipt VCs and routes org-configured personnel correctly', async () => {
+  it('sends the parent a pay link, keeps the school receipt once paid, and routes org-configured personnel', async () => {
     const context = await createTestServerContext()
     const client = new ApiClient(context.app)
 
@@ -159,46 +160,31 @@ describe('School fees payment e2e', () => {
         orgTenant.tenantId,
       )
 
-      expect(workflowResult.status).toBe('completed')
-      expect(workflowResult.output?.payment?.status || workflowResult.output?.ecocashPayment?.status).toBe('completed')
+      // The parent gets a pay link and the fee waits for the money (same rail as the SGK client bill).
+      expect(workflowResult.status).not.toBe('failed')
+      const waiting = await workflowService.getRunStatus(workflowResult.runId)
+      expect(waiting.status).toBe('paused')
+      const bill = (waiting.output as any)?.clientBill
+      expect(bill).toMatchObject({ status: 'sent', kind: 'invoice', amount: 650 })
+
+      const feeRecord = DatabaseManager.getDatabase()
+        .prepare(`SELECT transaction_type AS type FROM business_transactions WHERE id = ?`)
+        .get(bill.transactionId) as { type: string }
+      expect(feeRecord.type).toBe('fee_assessment')
+
+      await paymentLinkService.settlePaid(bill.linkId, { reference: 'ECO-E2E-1' })
 
       const runStatus = await workflowService.getRunStatus(workflowResult.runId)
+      expect(runStatus.status).toBe('completed')
+      expect((runStatus.output as any)?.payment).toMatchObject({ status: 'completed', reference: 'ECO-E2E-1' })
+
       const credentialSteps = (runStatus.steps || []).filter((step: any) => step.actionName === 'credential.issue')
-
-      expect(credentialSteps).toHaveLength(2)
-
-      const invoiceOffer = credentialSteps[0]?.outputState?.offer
-      const receiptOffer = credentialSteps[1]?.outputState?.offer
-
-      expect(invoiceOffer?.credentialType).toContain('InvoiceVC')
+      expect(credentialSteps).toHaveLength(1)
+      const receiptOffer = credentialSteps[0]?.outputState?.offer
       expect(receiptOffer?.credentialType).toContain('SchoolFeeReceiptVC')
-      expect(invoiceOffer?.preAuthorizedCode).toBeDefined()
-      expect(receiptOffer?.preAuthorizedCode).toBeDefined()
-
-      const invoiceHolderDid = await client.createKeyDid(requesterTenant.token)
-
-      const invoiceCredential = await client.redeemCredential({
-        grant_type: 'urn:ietf:params:oauth:grant-type:pre-authorized_code',
-        pre_authorized_code: invoiceOffer.preAuthorizedCode,
-        subject_did: invoiceHolderDid.did,
-      })
-      const receiptCredential = await client.redeemCredential({
-        grant_type: 'urn:ietf:params:oauth:grant-type:pre-authorized_code',
-        pre_authorized_code: receiptOffer.preAuthorizedCode,
-        subject_did: invoiceHolderDid.did,
-      })
-
-      expect(invoiceCredential.credentialId).toBeDefined()
-      expect(receiptCredential.credentialId).toBeDefined()
-      expect(invoiceCredential.verifiableCredential).toMatch(/^eyJ/)
-      expect(receiptCredential.verifiableCredential).toMatch(/^eyJ/)
 
       const credentialRecords = await client.listIssuedCredentials(orgTenant.token)
-      expect(Array.isArray(credentialRecords)).toBe(true)
-      expect(credentialRecords.length).toBeGreaterThanOrEqual(2)
-
       const serialisedRecords = credentialRecords.map((record) => JSON.stringify(record)).join('\n')
-      expect(serialisedRecords).toContain('InvoiceVC')
       expect(serialisedRecords).toContain('SchoolFeeReceiptVC')
     } finally {
       await context.cleanup()

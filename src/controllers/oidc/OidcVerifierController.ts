@@ -12,7 +12,7 @@ import { credoPresentationVerificationService } from '../../services/ssi/CredoPr
  * DCQL is the primary OpenID4VP 1.0 request language. DIF PEX v2 remains
  * available only when explicitly selected with `queryLanguage: pex_v2`.
  */
-@Route('oidc')
+@Route('api/oidc')
 @Tags('OIDC4VP')
 export class OidcVerifierController extends Controller {
   @Get('verifier/formats')

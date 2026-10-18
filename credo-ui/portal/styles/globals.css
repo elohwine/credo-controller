@@ -30,22 +30,47 @@
   --radius-lg: 1rem;
 }
 
-/* Base body styles with Credentis palette */
+/* The colour scheme switch owns the page. The phone uses the same saved choice. */
 body {
-  background-color: #ffffff;
-  color: rgb(var(--foreground-rgb));
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground-rgb: 208, 230, 243;
-    --background-rgb: 15, 63, 94;
-  }
-  
-  body {
-    background-color: #0f3f5e;
-  }
+  background-color: var(--mantine-color-body, #ffffff);
+  color: var(--mantine-color-text, rgb(var(--foreground-rgb)));
 }
 
 
 
+
+/* Tab rows behave like Android TabLayout "auto" mode (WhatsApp style): tabs fill the bar when
+   they fit, otherwise each keeps its label on one line and the row scrolls sideways with the
+   selected tab kept in view (lib/tabs.ts). Applied to every Tabs via the theme classNames. */
+.app-tabs-list[data-orientation='horizontal'] {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+}
+
+.app-tabs-list[data-orientation='horizontal']::-webkit-scrollbar {
+  display: none;
+}
+
+/* The underline is drawn on the scroll box itself so it spans the visible width at any scroll
+   position; the absolutely positioned one would stop where the first screen of tabs ends. */
+.app-tabs-list[data-orientation='horizontal'][data-variant='default']::before {
+  display: none;
+}
+
+.app-tabs-list[data-orientation='horizontal'][data-variant='default'] {
+  background: linear-gradient(var(--tab-border-color), var(--tab-border-color)) bottom / 100% 1px no-repeat;
+}
+
+.app-tabs-list[data-orientation='horizontal'] .app-tabs-tab {
+  flex: 1 0 auto;
+  justify-content: center;
+  min-width: 4.5rem;
+  max-width: 22.5rem;
+  white-space: nowrap;
+  scroll-snap-align: start;
+}

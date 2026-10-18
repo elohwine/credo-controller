@@ -1,5 +1,5 @@
 import React from 'react';
-import { Drawer, Stack, Text, Button, Group, Box, ThemeIcon, Tooltip } from '@mantine/core';
+import { Drawer, Stack, Text, Button, Group, Box, ThemeIcon } from '@mantine/core';
 import {
   IconQrcode,
   IconShieldCheck,
@@ -8,6 +8,7 @@ import {
 } from '@tabler/icons-react';
 
 export type ScanMode =
+  | 'wallet'
   | 'save-credential'
   | 'verify-presentation'
   | 'capture-evidence'
@@ -33,11 +34,11 @@ const MODES: Array<{
   orgOnly: boolean;
 }> = [
     {
-      id: 'save-credential',
+      id: 'wallet',
       icon: IconQrcode,
       color: '#2188ca',
-      label: 'Save Credential',
-      description: 'Scan a QR code to accept and save a verifiable credential to your wallet',
+      label: 'Scan with your wallet',
+      description: 'Sign in, review a request to share details, or receive a credential. The QR determines the next step.',
       orgOnly: false,
     },
     {
@@ -125,25 +126,22 @@ export default function ScanModeSheet({ opened, onClose, onSelect, hasOrgSession
 
         {/* Inform holder-only users that org modes exist but require an org context */}
         {!hasOrgSession && (
-          <Tooltip label="Switch to an org context in Settings to unlock these modes" withArrow position="top">
-            <Box
-              px="md"
-              py="xs"
-              style={{
-                borderRadius: 8,
-                background: '#f3f4f6',
-                cursor: 'default',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <IconLock size={14} color="#9ca3af" />
-              <Text size="xs" c="dimmed">
-                Scan To Approve, Verify Presentation, Capture Evidence, and Verify Delivery require an active org context.
-              </Text>
-            </Box>
-          </Tooltip>
+          <Box
+            px="md"
+            py="xs"
+            style={{
+              borderRadius: 8,
+              background: '#f3f4f6',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <IconLock size={14} color="#9ca3af" />
+            <Text size="xs" c="dimmed">
+              Sign-in and sharing use your personal wallet. Review the requested details before approving.
+            </Text>
+          </Box>
         )}
       </Stack>
     </Drawer>

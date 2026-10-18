@@ -12,6 +12,7 @@ export type DetailTimelineItem = {
   description?: string
   note?: string
   timestamp?: string
+  content?: React.ReactNode
   badge?: {
     label: string
     color?: string
@@ -33,7 +34,8 @@ export function DetailSectionCard({
   return (
     <Paper p="md" radius="md" withBorder>
       <Stack gap="sm">
-        <Text size="xs" c="dimmed" fw={600}>{title}</Text>
+        {/* Empty when the content draws its own header (the Progress list does). */}
+        {title && <Text size="xs" c="dimmed" fw={600}>{title}</Text>}
         {children}
       </Stack>
     </Paper>
@@ -105,6 +107,7 @@ export function DetailTimelineList({
               {item.note && (
                 <Text size="xs" c="dimmed" mt={4}>{item.note}</Text>
               )}
+              {item.content}
               {item.badge && (
                 <Badge size="xs" mt={6} color={item.badge.color || 'gray'} variant="light">
                   {item.badge.label}
@@ -125,27 +128,34 @@ export function WorkflowDetailBody({
   auditItems,
   auditEmptyText,
   auditLoading = false,
+  showHistory = true,
 }: {
   statusCard: React.ReactNode
   sections: WorkflowDetailSection[]
   auditItems: DetailTimelineItem[]
   auditEmptyText: string
   auditLoading?: boolean
+  /** A job already shows its steps above. Skip this list when it would only repeat them. */
+  showHistory?: boolean
 }) {
   return (
     <Stack gap="md" pb="lg">
       {statusCard}
-      {sections.map((section) => (
-        <DetailSectionCard key={section.title} title={section.title}>
+      {sections.map((section, index) => (
+        <DetailSectionCard key={section.title || `section-${index}`} title={section.title}>
           {section.content}
         </DetailSectionCard>
       ))}
-      <Divider label="History" labelPosition="left" />
-      <DetailTimelineList
-        items={auditItems}
-        emptyText={auditEmptyText}
-        loading={auditLoading}
-      />
+      {showHistory && (
+        <>
+          <Divider label="History" labelPosition="left" />
+          <DetailTimelineList
+            items={auditItems}
+            emptyText={auditEmptyText}
+            loading={auditLoading}
+          />
+        </>
+      )}
     </Stack>
   )
 }

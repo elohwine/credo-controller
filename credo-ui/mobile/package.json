@@ -16,17 +16,23 @@
   "dependencies": {
     "@capacitor-mlkit/barcode-scanning": "^7.5.0",
     "@capacitor/android": "^7.4.3",
+    "@capacitor/app": "^7.0.0",
     "@capacitor/camera": "^7.0.0",
     "@capacitor/cli": "^7.4.3",
     "@capacitor/core": "^7.4.3",
+    "@capacitor/filesystem": "^7.1.9",
     "@capacitor/geolocation": "^7.0.0",
     "@capacitor/haptics": "^7.0.0",
     "@capacitor/push-notifications": "^7.0.0",
+    "@capacitor/share": "^7.0.4",
     "@mantine/core": "^8.3.10",
     "@mantine/form": "^8.3.10",
     "@mantine/hooks": "^8.3.10",
     "@mantine/notifications": "^8.3.10",
     "@tabler/icons-react": "^3.36.1",
+    "@tanstack/query-async-storage-persister": "^5.104.4",
+    "@tanstack/react-query": "^5.104.4",
+    "@tanstack/react-query-persist-client": "^5.104.4",
     "@types/crypto-js": "^4.2.2",
     "axios": "^1.7.2",
     "crypto-js": "^4.2.0",
@@ -35,7 +41,8 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-qr-code": "^2.0.18",
-    "typescript": "5.4.5"
+    "typescript": "5.4.5",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.0",

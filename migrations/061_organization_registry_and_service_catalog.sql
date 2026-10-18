@@ -1,3 +1,4 @@
+-- SUPERSEDED: not in the DatabaseManager registry and never run. Replaced by 097 and 118.
 -- Organization Registry: Public service discovery and VC catalog
 -- Enables holder-initiated VC requests from discoverable organizations
 

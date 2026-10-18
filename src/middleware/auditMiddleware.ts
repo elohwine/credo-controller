@@ -36,10 +36,6 @@ const AUDIT_ROUTES: Array<{ method: string; pattern: RegExp; actionType: string 
   { method: 'POST', pattern: /^\/api\/payroll\/runs\/.*\/issue/, actionType: 'hr.payslips_issued' },
   { method: 'POST', pattern: /^\/api\/payroll\/tax-compliance/, actionType: 'hr.tax_compliance_issued' },
   { method: 'PUT', pattern: /^\/api\/payroll\/tax-compliance\/.*/, actionType: 'hr.tax_compliance_updated' },
-  { method: 'POST', pattern: /^\/api\/operations\/leave/, actionType: 'hr.leave_request' },
-  { method: 'PUT', pattern: /^\/api\/operations\/leave\/.*/, actionType: 'hr.leave_status_updated' },
-  { method: 'POST', pattern: /^\/api\/operations\/expenses/, actionType: 'hr.expense_claim' },
-  { method: 'PUT', pattern: /^\/api\/operations\/expenses\/.*/, actionType: 'hr.expense_status_updated' },
   { method: 'POST', pattern: /^\/api\/onboarding\/cases/, actionType: 'hr.onboarding_case_created' },
 
   // Trust operations
@@ -111,13 +107,24 @@ function extractActorDid(req: Request): string | undefined {
   return undefined
 }
 
+/** An id has digits in it (uuid, FR-123, did:key…); a verb like `resume` or a version like `v1` does not. */
+function looksLikeId(segment: string): boolean {
+  return segment.startsWith('did:') || (segment.length >= 4 && /\d/.test(segment))
+}
+
+/** The verb at the end of a path (`/workflows/runs/<id>/resume` → `resume`), when there is one. */
+function extractPathAction(req: Request): string | undefined {
+  const parts = req.path.split('/').filter(Boolean)
+  const last = parts[parts.length - 1]
+  return last && !looksLikeId(last) ? last : undefined
+}
+
 function extractResourceId(req: Request, responseBody: any): string | undefined {
-  // Try to extract the affected resource ID
-  // From URL params
-  const pathParts = req.path.split('/')
-  const lastPart = pathParts[pathParts.length - 1]
-  if (lastPart && !['create', 'run', 'issue', 'accept', 'reserve', 'fulfill'].includes(lastPart)) {
-    return lastPart
+  // The id nearest the end of the path is the thing acted on; `/runs/<id>/resume` is about <id>,
+  // not about "resume". Stored verbs as ids left activity rows with no job to open.
+  const pathParts = req.path.split('/').filter(Boolean)
+  for (let i = pathParts.length - 1; i >= 0; i--) {
+    if (looksLikeId(pathParts[i])) return decodeURIComponent(pathParts[i])
   }
 
   // From response body
@@ -146,6 +153,8 @@ function sanitizeDetails(req: Request, res: Response): object {
     statusCode: res.statusCode,
     correlationId: (req as any).correlationId,
   }
+  const action = extractPathAction(req)
+  if (action) details.action = action
 
   // Add non-sensitive body fields
   if (req.body) {

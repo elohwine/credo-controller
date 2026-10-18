@@ -42,7 +42,7 @@ export class ShortlinkService {
    * @returns The short code and full URL
    */
   static create(
-    type: 'credential' | 'receipt' | 'verification',
+    type: 'credential' | 'receipt' | 'verification' | 'payment',
     targetId: string,
     metadata?: Record<string, any>,
     ttlHours: number = this.DEFAULT_TTL_HOURS,
@@ -86,7 +86,7 @@ export class ShortlinkService {
       .prepare(
         `
       SELECT * FROM ${this.TABLE} 
-      WHERE code = ? AND expires_at > datetime('now')
+      WHERE code = ? AND julianday(expires_at) > julianday('now')
     `,
       )
       .get(code.toUpperCase()) as any
@@ -141,5 +141,13 @@ export class ShortlinkService {
       ...claims,
       createdAt: new Date().toISOString(),
     })
+  }
+
+  static createPaymentLink(
+    paymentLinkId: string,
+    metadata: { amount: number; currency: string; description: string; merchantName?: string; sector?: string },
+    ttlHours: number = 72,
+  ): { code: string; url: string; expiresAt: string } {
+    return this.create('payment', paymentLinkId, metadata, ttlHours)
   }
 }

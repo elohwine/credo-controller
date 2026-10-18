@@ -31,6 +31,7 @@ import {
 import { notifications } from '@mantine/notifications'
 
 import { useRequireOrgContext } from '@/lib/portalContext'
+import { orgMemberLabel, orgMemberName, type OrgMemberNameSource } from '@/lib/jobPeople'
 interface Authority {
     id: string
     userId: string
@@ -82,6 +83,7 @@ export default function OrganizationAuthoritiesPage() {
     const [orgTenantId, setOrgTenantId] = useState('')
     const [orgName, setOrgName] = useState('')
     const [authorities, setAuthorities] = useState<Authority[]>([])
+    const [members, setMembers] = useState<Array<OrgMemberNameSource & { status?: string }>>([])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
@@ -120,6 +122,12 @@ export default function OrganizationAuthoritiesPage() {
                 `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}/authorities`,
                 { headers: { Authorization: `Bearer ${token}` } },
             )
+            const membersRes = await axios
+                .get(`${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}/members`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                })
+                .catch(() => ({ data: [] }))
+            setMembers(Array.isArray(membersRes.data) ? membersRes.data : [])
             const list = Array.isArray(res.data)
                 ? res.data
                 : Array.isArray((res.data as any).authorities)
@@ -285,8 +293,11 @@ export default function OrganizationAuthoritiesPage() {
                                         {authorities.map((a) => (
                                             <Table.Tr key={a.id}>
                                                 <Table.Td>
-                                                    <Text size="sm" fw={500} ff="monospace">
-                                                        {a.userId.length > 20 ? `${a.userId.slice(0, 20)}…` : a.userId}
+                                                    <Text size="sm" fw={500}>
+                                                        {(() => {
+                                                            const member = members.find((m) => m.userId === a.userId)
+                                                            return member ? orgMemberName(member) : `${a.userId.slice(0, 8)}…`
+                                                        })()}
                                                     </Text>
                                                 </Table.Td>
                                                 <Table.Td>
@@ -307,7 +318,7 @@ export default function OrganizationAuthoritiesPage() {
                                                     <Text size="sm">
                                                         {a.thresholdAmount != null
                                                             ? `${a.currency ?? ''} ${a.thresholdAmount.toLocaleString()}`
-                                                            : <Text size="sm" c="dimmed">Unlimited</Text>}
+                                                            : <Text component="span" size="sm" c="dimmed">Unlimited</Text>}
                                                     </Text>
                                                 </Table.Td>
                                                 <Table.Td>
@@ -347,12 +358,17 @@ export default function OrganizationAuthoritiesPage() {
 
             <Modal opened={grantOpen} onClose={() => setGrantOpen(false)} title="Grant Authority" centered>
                 <Stack gap="md">
-                    <TextInput
-                        label="User ID"
-                        description="Internal user ID of the member receiving this authority"
-                        placeholder="uuid or ssi_users.id"
-                        value={grantUserId}
-                        onChange={(e) => setGrantUserId(e.currentTarget.value)}
+                    <Select
+                        label="Member"
+                        description="The person on the team who gets this authority"
+                        placeholder="Choose a member"
+                        searchable
+                        data={members
+                            .filter((m) => !m.status || m.status === 'active')
+                            .map((m) => ({ value: m.userId, label: orgMemberLabel(m) }))}
+                        value={grantUserId || null}
+                        onChange={(value) => setGrantUserId(value || '')}
+                        nothingFoundMessage="Invite them on the Members page first"
                         required
                     />
                     <TextInput

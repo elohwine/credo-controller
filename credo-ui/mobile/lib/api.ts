@@ -5,9 +5,14 @@ import {
   getActiveOrgId,
   getContextMode,
   getPersonalWalletTenantId,
+  getOrgToken,
   getPreferredToken,
+  getUserPhone,
+  getWalletToken,
+  setPersonalContext,
 } from '@/lib/auth'
 import { isCapacitorNativeRuntime, resolveMobileApiBaseUrl } from './baseUrl'
+import { useSyncStore } from './state/sync'
 
 const API_BASE = resolveMobileApiBaseUrl()
 
@@ -26,7 +31,9 @@ const PUBLIC_AUTH_PATH_PREFIXES = [
   '/api/wallet/auth/login',
   '/api/wallet/auth/register',
   '/api/wallet/auth/login-challenge',
+  '/api/wallet/auth/login-wallet',
   '/api/wallet/auth/login-with-vc',
+  '/api/public/pay/',
 ]
 
 function isPublicAuthRoute(url?: string): boolean {
@@ -88,9 +95,47 @@ function getTenantScopedIdempotencyKey(signature: string, tenantId: string, cont
   return nextKey
 }
 
+export const API_BASE_URL = API_BASE
 export const api = axios.create({ baseURL: API_BASE, timeout: 20000 })
 
+let offlineNoted = false
+
+// Count server calls for the one progress bar under the header. Registered first, so it runs
+// after the guards below (axios runs request interceptors last-registered-first) and only
+// calls that are really sent are counted. `silentProgress: true` leaves a call out.
 api.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined' && !(config as any).silentProgress) {
+    ;(config as any).__progressCounted = true
+    useSyncStore.getState().requestStarted()
+  }
+  return config
+})
+
+function endProgress(config: any) {
+  if (config && config.__progressCounted) {
+    config.__progressCounted = false
+    useSyncStore.getState().requestEnded()
+  }
+}
+
+api.interceptors.response.use(
+  (res) => {
+    endProgress(res?.config)
+    return res
+  },
+  (err) => {
+    endProgress(err?.config)
+    return Promise.reject(err)
+  },
+)
+
+api.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined' && window.navigator.onLine === false) {
+    if (!offlineNoted) {
+      offlineNoted = true
+    }
+    return Promise.reject(Object.assign(new Error('offline'), { code: 'OFFLINE' }))
+  }
   if (typeof window !== 'undefined') {
     config.headers = (config.headers ?? {}) as typeof config.headers
     const requestBaseOrigin = (() => {
@@ -211,6 +256,13 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+function bearerOf(config: any): string | null {
+  const headers = config?.headers || {}
+  const raw = typeof headers.get === 'function' ? headers.get('Authorization') : headers.Authorization || headers.authorization
+  const match = /^Bearer\s+(.+)$/i.exec(String(raw || ''))
+  return match ? match[1].trim() : null
+}
+
 api.interceptors.response.use(
   (res) => res,
   (err) => {
@@ -219,16 +271,31 @@ api.interceptors.response.use(
     const isAuthRoute = isPublicAuthRoute(requestUrl)
     const skipAuthRedirect = Boolean((err?.config as any)?.skipAuthRedirect)
 
-    // Recover from stale/expired sessions by forcing a clean re-login flow.
-    // Without this, the app can stay stuck replaying an invalid token and
-    // repeatedly receiving 401s on protected endpoints.
     if (typeof window !== 'undefined' && status === 401 && !isAuthRoute && !skipAuthRedirect) {
-      clearAuth()
-      localStorage.setItem('credoContextMode', 'personal')
-
-      if (!window.location.pathname.startsWith('/login')) {
-        const returnTo = `${window.location.pathname}${window.location.search || ''}`
-        window.location.replace(`/login/?returnTo=${encodeURIComponent(returnTo)}`)
+      const sent = bearerOf(err?.config)
+      const personal = getWalletToken()
+      const org = getOrgToken()
+      if (sent && sent !== personal && sent !== org) {
+        // A reply for an account or context that is no longer open (for example just after an
+        // account switch). The account now open is not affected.
+        console.warn('[auth] ignored 401 for a session that is no longer open', requestUrl)
+      } else if (sent && sent === org && org !== personal && personal) {
+        // The organisation session was refused; keep the person signed in on their own wallet.
+        console.warn('[auth] organisation session refused; back to personal wallet', requestUrl)
+        setPersonalContext()
+        if (!window.location.pathname.startsWith('/login')) window.location.replace('/inbox')
+      } else {
+        // This account's own sign-in has ended. Other saved accounts stay on the phone; only
+        // this one needs its PIN again.
+        console.warn('[auth] personal session refused; sign in again', requestUrl)
+        const phone = getUserPhone()
+        clearAuth()
+        localStorage.setItem('credoContextMode', 'personal')
+        if (!window.location.pathname.startsWith('/login')) {
+          const returnTo = `${window.location.pathname}${window.location.search || ''}`
+          const phoneHint = phone ? `&phone=${encodeURIComponent(phone)}` : ''
+          window.location.replace(`/login/?returnTo=${encodeURIComponent(returnTo)}${phoneHint}`)
+        }
       }
     }
 

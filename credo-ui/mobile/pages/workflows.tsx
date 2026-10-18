@@ -13,10 +13,7 @@ import AppShellMobile from '@/components/layout/AppShellMobile';
 import ErrorAlert from '@/components/shared/ErrorAlert';
 import api from '@/lib/api';
 import { getActiveOrgId, getContextMode, getPreferredToken, getUserRole } from '@/lib/auth';
-import dayjs from 'dayjs';
-import relativeTime from 'dayjs/plugin/relativeTime';
-
-dayjs.extend(relativeTime);
+import { formatTxnTime } from '@/lib/inboxAttention';
 
 // ---- Types ----
 interface WorkflowTemplate {
@@ -289,7 +286,7 @@ export default function WorkflowsPage() {
                                     <Group justify="space-between" align="center">
                                         <Box>
                                             <Text fw={600} size="sm">{run.workflowName || run.workflowId}</Text>
-                                            <Text size="xs" c="dimmed">{run.startedAt ? dayjs(run.startedAt).fromNow() : '—'}</Text>
+                                            <Text size="xs" c="dimmed">{run.startedAt ? formatTxnTime(run.startedAt) : '—'}</Text>
                                         </Box>
                                         <Badge color={RUN_STATUS_COLOR[run.status] || 'gray'} size="sm">{run.status}</Badge>
                                     </Group>
@@ -351,8 +348,8 @@ export default function WorkflowsPage() {
                         </Group>
 
                         <SimpleGrid cols={2}>
-                            <Box><Text size="xs" c="dimmed">Started</Text><Text size="sm">{selectedRun.startedAt ? dayjs(selectedRun.startedAt).format('DD MMM HH:mm') : '—'}</Text></Box>
-                            <Box><Text size="xs" c="dimmed">Completed</Text><Text size="sm">{selectedRun.completedAt ? dayjs(selectedRun.completedAt).format('DD MMM HH:mm') : '—'}</Text></Box>
+                            <Box><Text size="xs" c="dimmed">Started</Text><Text size="sm">{selectedRun.startedAt ? formatTxnTime(selectedRun.startedAt) : '—'}</Text></Box>
+                            <Box><Text size="xs" c="dimmed">Completed</Text><Text size="sm">{selectedRun.completedAt ? formatTxnTime(selectedRun.completedAt) : '—'}</Text></Box>
                         </SimpleGrid>
 
                         {selectedRun.error && <Alert color="red" variant="light">{selectedRun.error}</Alert>}

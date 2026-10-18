@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Text, Group, Badge, useMantineColorScheme, useMantineTheme } from '@mantine/core';
+import { formatCredentialType } from '@/lib/format';
 
 export type CredentialKind = 'identity' | 'payment' | 'org' | 'general';
 
@@ -11,6 +12,22 @@ export interface WalletCard {
     kind: CredentialKind;
     issueDate?: string;
     meta?: string;       // e.g. "Due today", "Issued 12 Aug 2026"
+}
+
+/**
+ * The wallet list sends `type` as one name ("EmploymentCredential"). An older
+ * shape sent an array. Reading `[length - 1]` on the string keeps only the last
+ * letter, so every card title became "l".
+ */
+export function credentialTypeName(type: unknown): string {
+    const labels = Array.isArray(type)
+        ? type.map((item) => String(item || '').trim()).filter(Boolean)
+        : typeof type === 'string' && type.trim()
+            ? [type.trim()]
+            : [];
+    const raw = labels.find((label) => label !== 'VerifiableCredential') || labels[labels.length - 1] || 'Document';
+    if (/Record$/.test(raw)) return formatCredentialType(raw);
+    return raw.replace(/VC$|Credential$/i, '').replace(/([a-z])([A-Z])/g, '$1 $2').trim() || 'Document';
 }
 
 /** Plain-language credential type from raw VC credential type array/string */
@@ -100,12 +117,12 @@ export default function CredentialPreviewCard({ card, onClick }: CredentialPrevi
                 </Text>
                 <Box
                     style={{
-                        background: 'rgba(255,255,255,0.12)',
+                        background: 'rgba(0,0,0,0.55)',
                         borderRadius: 6,
                         padding: '2px 7px',
                     }}
                 >
-                    <Text size="9px" fw={700} style={{ color: statusStyle.color }}>
+                    <Text size="11px" fw={700} style={{ color: statusStyle.color === '#fff' ? '#ffffff' : statusStyle.color }}>
                         {statusStyle.label}
                     </Text>
                 </Box>

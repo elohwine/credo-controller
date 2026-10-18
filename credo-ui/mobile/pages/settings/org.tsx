@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Stack, Title, Text, Box, Divider, Button, Group, Checkbox, TextInput, Alert, Loader, Center,
   Paper, Badge, Collapse, Stepper, SimpleGrid, ThemeIcon, Card, ColorInput, ScrollArea, Select,
-  SegmentedControl, Modal, Radio, Chip, Progress,
+  SegmentedControl, Modal, Radio, Chip, Progress, UnstyledButton,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -13,13 +13,24 @@ import {
   IconEdit,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
+import { StepHelp } from '@/components/help/StepHelp';
 import AppShellMobile from '@/components/layout/AppShellMobile';
 import BottomSheet from '@/components/shared/BottomSheet';
 import ErrorAlert from '@/components/shared/ErrorAlert';
 import HandoffSettingsCard from '@/components/shared/HandoffSettingsCard';
+import RecordSettingsCard from '@/components/shared/RecordSettingsCard';
+import DeviceTrustSettingsCard from '@/components/shared/DeviceTrustSettingsCard';
+import OrgPermissionsSettings from '@/components/shared/OrgPermissionsSettings';
 import api, { safeArray } from '@/lib/api';
-import { getActiveOrgLabel, getActiveOrgId, getWalletToken, getPreferredToken, applyOrgContext, getOrgRoleClaim } from '@/lib/auth';
-import { ORG_KIND_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, kindsFromRequestTypes, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, setupChecklist, type OrgKind, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
+import { getActiveOrgLabel, getActiveOrgId, getWalletToken, getPreferredToken, applyOrgContext, getOrgRoleClaim, decodeJwtPayload } from '@/lib/auth';
+import {
+  CARD_STATE_COLOR, CARD_STATE_LABEL, ONBOARDING_PATH, SUMMARY_COLOR, SUMMARY_LABEL,
+  DEFAULT_STAFF_CARD_CHANGE, STAFF_CARD_CHANGE_OPTIONS,
+  cardCanResend, cardPurpose, cardResendHint, myOnboardingSteps, readyCount, sendCardsPath, staffCardChangeRule,
+  type MemberCardKind, type MemberOnboarding, type StaffCardChangeRule,
+} from '@/lib/orgOnboarding';
+import { MONEY_CHOICES, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, TEAM_ROLE_FALLBACK, kindsFromRequestTypes, modulePlanNote, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, setupChecklist, teamRolesFromCatalog, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
+import { suggestedOrgModules, type OrgOperatingModel } from '@/lib/orgProfile';
 
 // ── Org list types ──
 
@@ -74,19 +85,8 @@ const ROLE_LABELS: Record<string, string> = {
   manager: 'Manager',
   finance_manager: 'Finance officer',
   director: 'Director',
+  auditor: 'Auditor',
 };
-
-const MEMBER_ROLE_CHOICES = [
-  { value: 'member', label: 'Team member' },
-  { value: 'field_worker', label: 'Field worker' },
-  { value: 'supervisor', label: 'Supervisor' },
-  { value: 'dispatcher', label: 'Dispatcher' },
-  { value: 'approver', label: 'Approver' },
-  { value: 'manager', label: 'Manager' },
-  { value: 'finance_manager', label: 'Finance officer' },
-  { value: 'director', label: 'Director' },
-  { value: 'admin', label: 'Admin' },
-];
 
 interface WorkflowActorDefault {
   id: string;
@@ -243,36 +243,41 @@ interface OrganizationReadiness {
   workflows?: WorkflowReadinessSummary[];
 }
 
-type ReadinessFixTarget = 'members' | 'actors' | 'payments' | 'partners' | 'profile' | 'store' | 'departments';
+type ReadinessFixTarget = 'members' | 'actors' | 'payments' | 'partners' | 'profile' | 'store' | 'departments' | 'roles' | 'authorities';
 
 /** One settings area per screen. `null` is the organisation home. */
-type OrgSection = 'team' | 'actors' | 'payments' | 'departments' | 'handoffs' | 'store';
+type OrgSection = 'team' | 'actors' | 'payments' | 'departments' | 'handoffs' | 'records' | 'store' | 'roles' | 'authorities';
 
 const SECTION_FOR_FIX: Record<ReadinessFixTarget, OrgSection> = {
   members: 'team',
+  roles: 'roles',
+  authorities: 'authorities',
   departments: 'departments',
   actors: 'actors',
   payments: 'payments',
   partners: 'payments',
-  // SGK demo branch: there is no public store screen here, so these land on Team.
-  profile: 'team',
-  store: 'team',
+  profile: 'store',
+  store: 'store',
 };
 
-/** SGK demo branch: the Store section stays in the code but is not offered. */
-const SHOW_STORE_SECTION = false;
+function sectionLabels(showStore: boolean): Array<{ id: OrgSection; label: string }> {
+  return [
+    { id: 'team', label: 'Team' },
+    { id: 'roles', label: 'Roles' },
+    { id: 'authorities', label: 'Approval authorities' },
+    { id: 'actors', label: 'Who does what' },
+    { id: 'payments', label: 'Payments' },
+    { id: 'departments', label: 'Departments' },
+    { id: 'handoffs', label: 'What happens next' },
+    { id: 'records', label: 'Record settings' },
+    ...(showStore ? [{ id: 'store' as const, label: 'Store' }] : []),
+  ];
+}
 
-const SECTION_LABELS: Array<{ id: OrgSection; label: string }> = [
-  { id: 'team', label: 'Team' },
-  { id: 'actors', label: 'Who does what' },
-  { id: 'payments', label: 'Payments' },
-  { id: 'departments', label: 'Departments' },
-  { id: 'handoffs', label: 'What happens next' },
-  ...(SHOW_STORE_SECTION ? [{ id: 'store' as OrgSection, label: 'Store' }] : []),
-];
-
-const QUESTION_FOR_STEP: Partial<Record<SetupStepId, 1 | 2 | 3>> = { kinds: 1, money: 2, payments: 3 };
-const STEP_SAVED_LABEL: Record<1 | 2 | 3, string> = { 1: 'What you do', 2: 'Who handles money', 3: 'Payments' };
+type OrgQuestion = 1 | 2 | 3 | 4;
+const ORG_QUESTION_COUNT = 4;
+const QUESTION_FOR_STEP: Partial<Record<SetupStepId, OrgQuestion>> = { kinds: 1, people: 2, money: 3, payments: 4 };
+const STEP_SAVED_LABEL: Record<OrgQuestion, string> = { 1: 'What you do', 2: 'Staff leave and payroll', 3: 'Who handles money', 4: 'Payments' };
 const OPEN_FOR_KIND: Record<OrgKind, string> = { office: '', field: 'Jobs', school: 'School fees', shop: 'Counter sales' };
 
 /** Which card on this page fixes a checklist item. */
@@ -280,6 +285,8 @@ function readinessFixTarget(item: ReadinessItem): ReadinessFixTarget | null {
   const key = String(item.key || '').toLowerCase();
   if (/stage_actor|actor/.test(key)) return 'actors';
   if (/department/.test(key)) return 'departments';
+  if (/authorit/.test(key)) return 'authorities';
+  if (/^roles?$/.test(key)) return 'roles';
   if (/admin|member|people|role|authorit|delegat/.test(key)) return 'members';
   if (/trusted|issuer|verifier|partner/.test(key)) return 'partners';
   if (/payment|provider|rail/.test(key)) return 'payments';
@@ -305,6 +312,8 @@ const READINESS_TITLE_PLAIN: Record<string, string> = {
 
 const READINESS_FIX_CARD_ID: Record<ReadinessFixTarget, string> = {
   members: 'org-card-members',
+  roles: 'org-card-roles',
+  authorities: 'org-card-authorities',
   departments: 'org-card-departments',
   actors: 'org-card-actors',
   payments: 'org-card-payments',
@@ -363,13 +372,45 @@ export default function OrgSettingsPage() {
   const [membersLoading, setMembersLoading] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [invitePhone, setInvitePhone] = useState('');
-  const [inviteRole, setInviteRole] = useState<string | null>('approver');
+  const [inviteRole, setInviteRole] = useState<string | null>('field_worker');
+  const [teamRoleChoices, setTeamRoleChoices] = useState(TEAM_ROLE_FALLBACK);
   const [inviting, setInviting] = useState(false);
   const [changingRole, setChangingRole] = useState<string | null>(null);
+  /** Organisation setting: what happens to an earlier staff card when a role changes. */
+  const [staffCardChange, setStaffCardChange] = useState<StaffCardChangeRule>(DEFAULT_STAFF_CARD_CHANGE);
+  const [savingStaffCardChange, setSavingStaffCardChange] = useState(false);
   const [departments, setDepartments] = useState<Array<{ id: string; name: string; code?: string }>>([]);
   const [deptName, setDeptName] = useState('');
   const [deptBusy, setDeptBusy] = useState(false);
   const [applyingPreset, setApplyingPreset] = useState<string | null>(null);
+
+  // What each person still has to do: sign in, identity card, staff card, role cards.
+  const [onboardingRows, setOnboardingRows] = useState<MemberOnboarding[]>([]);
+  const [expandedMember, setExpandedMember] = useState<string | null>(null);
+  const [sendingCards, setSendingCards] = useState<string | null>(null);
+
+  const fetchOnboarding = useCallback(async (orgId: string) => {
+    const token = getPreferredToken();
+    if (!token || !orgId) return;
+    try {
+      const res = await api.get(`/api/organizations/${orgId}${ONBOARDING_PATH}`, { headers: { Authorization: `Bearer ${token}` } });
+      setOnboardingRows(safeArray(res.data));
+    } catch { setOnboardingRows([]); }
+  }, []);
+
+  const loadTeamRoles = useCallback(async (orgId: string) => {
+    const token = getPreferredToken();
+    if (!token || !orgId) return;
+    try {
+      const res = await api.get(`/api/organizations/${orgId}/roles`, { headers: { Authorization: `Bearer ${token}` } });
+      const fromSetup = teamRolesFromCatalog(safeArray(res.data));
+      const next = fromSetup.length > 0 ? fromSetup : TEAM_ROLE_FALLBACK;
+      setTeamRoleChoices(next);
+      setInviteRole((current) => (next.some((choice) => choice.value === current) ? current : next[0]?.value || 'member'));
+    } catch {
+      setTeamRoleChoices(TEAM_ROLE_FALLBACK);
+    }
+  }, []);
 
   const fetchMembers = useCallback(async (orgId: string) => {
     const token = getPreferredToken();
@@ -379,15 +420,41 @@ export default function OrgSettingsPage() {
       const res = await api.get(`/api/organizations/${orgId}/members`, { headers: { Authorization: `Bearer ${token}` } });
       setMemberList(safeArray(res.data?.members ?? res.data));
     } catch { setMemberList([]); } finally { setMembersLoading(false); }
-  }, []);
+    void fetchOnboarding(orgId);
+  }, [fetchOnboarding]);
+
+  const sendMemberCards = async (userId: string, kind: MemberCardKind | 'all') => {
+    const token = getPreferredToken();
+    if (!token || !activeId) return;
+    setSendingCards(`${userId}:${kind}`);
+    try {
+      const res = await api.post(`/api/organizations/${activeId}${sendCardsPath(userId)}`, { kind }, { headers: { Authorization: `Bearer ${token}` } });
+      const sent: string[] = res.data?.sent || [];
+      const skipped: Array<{ reason: string }> = res.data?.skipped || [];
+      if (res.data?.member) setOnboardingRows((prev) => prev.map((row) => (row.userId === userId ? res.data.member : row)));
+      notifications.show({
+        title: sent.length > 0 ? 'Sent' : 'Nothing new to send',
+        message: sent.length > 0 ? 'They will find it in their app inbox.' : skipped[0]?.reason || 'Everything they need is already in their app.',
+        color: sent.length > 0 ? 'green' : 'gray',
+      });
+    } catch (err: any) {
+      notifications.show({ title: 'Could not send', message: err.response?.data?.message ?? err.message, color: 'red' });
+    } finally { setSendingCards(null); }
+  };
+
+  const myUserId = useMemo(() => {
+    const token = getPreferredToken();
+    const payload = token ? decodeJwtPayload(token) : null;
+    return payload?.id ? String(payload.id) : null;
+  }, [activeId]);
 
   const handleInviteMember = async () => {
     const token = getPreferredToken();
     if (!token || !activeId || !invitePhone.trim()) return;
     setInviting(true);
     try {
-      await api.post(`/api/organizations/${activeId}/members/invite`, { phone: invitePhone.trim(), role: inviteRole || 'member' }, { headers: { Authorization: `Bearer ${token}` } });
-      notifications.show({ title: 'Invite sent', message: `${invitePhone.trim()} invited as ${inviteRole}.`, color: 'green' });
+      const res = await api.post(`/api/organizations/${activeId}/members/invite`, { phone: invitePhone.trim(), role: inviteRole || 'member' }, { headers: { Authorization: `Bearer ${token}` } });
+      notifications.show({ title: 'On the team', message: res.data?.message || `${invitePhone.trim()} is on the team.`, color: 'green' });
       setInvitePhone(''); setShowInvite(false);
       void fetchMembers(activeId);
     } catch (err: any) {
@@ -418,7 +485,9 @@ export default function OrgSettingsPage() {
 
   // What the organization does (prepares the kinds of requests it uses)
   const [orgKinds, setOrgKinds] = useState<OrgKind[]>(['office']);
-  const [orgQuestion, setOrgQuestion] = useState<0 | 1 | 2 | 3>(0);
+  const [orgModules, setOrgModules] = useState<OrgModule[]>([]);
+  const [operatingModel, setOperatingModel] = useState<OrgOperatingModel>('internal');
+  const [orgQuestion, setOrgQuestion] = useState<0 | OrgQuestion>(0);
   const [orgQuestionPreset, setOrgQuestionPreset] = useState('keep_current');
   const [orgQuestionPay, setOrgQuestionPay] = useState<PaymentChoice>('simulated');
   /** Answers saved on the server; null until the owner finishes the questions on any device. */
@@ -428,9 +497,9 @@ export default function OrgSettingsPage() {
   /** True when one question was opened from the checklist, not the first-run flow. */
   const [orgSingle, setOrgSingle] = useState(false);
   /** Checklist questions still to do after this one. */
-  const [orgThen, setOrgThen] = useState<Array<1 | 2 | 3>>([]);
+  const [orgThen, setOrgThen] = useState<OrgQuestion[]>([]);
   /** Small "done" screen after saving: which question, or 'all' after the first run. */
-  const [orgDone, setOrgDone] = useState<null | 1 | 2 | 3 | 'all'>(null);
+  const [orgDone, setOrgDone] = useState<null | OrgQuestion | 'all'>(null);
   const [branding, setBranding] = useState({ orgName: '', primaryColor: '#228be6' });
   const [activating, setActivating] = useState(false);
   const [activeWorkflowTypes, setActiveWorkflowTypes] = useState<string[]>([]);
@@ -446,6 +515,10 @@ export default function OrgSettingsPage() {
   const [partnerRef, setPartnerRef] = useState('');
   const [setupBusy, setSetupBusy] = useState(false);
   const canManageOrgSetup = ['owner', 'admin'].includes(String(getOrgRoleClaim() || '').toLowerCase());
+  const myOnboarding = useMemo(
+    () => onboardingRows.find((row) => row.userId === myUserId) || (onboardingRows.length === 1 && !canManageOrgSetup ? onboardingRows[0] : null),
+    [onboardingRows, myUserId, canManageOrgSetup],
+  );
 
   const loadActiveWorkflowTypes = useCallback(async (orgId?: string | null) => {
     const targetOrgId = orgId || getActiveOrgId();
@@ -579,11 +652,12 @@ export default function OrgSettingsPage() {
     void loadStoreBasics(activeId);
     void loadWorkflowActorDefaults();
     void fetchMembers(activeId);
+    void loadTeamRoles(activeId);
     void loadDepartments(activeId);
     void loadActiveWorkflowTypes(activeId);
     void loadReadiness(activeId);
     void loadOrgSetupExtras(activeId);
-  }, [activeId, fetchMembers, loadActiveWorkflowTypes, loadReadiness, loadOrgSetupExtras]);
+  }, [activeId, fetchMembers, loadTeamRoles, loadActiveWorkflowTypes, loadReadiness, loadOrgSetupExtras]);
 
   // ── Data loading (reused from original) ──
 
@@ -758,6 +832,26 @@ export default function OrgSettingsPage() {
     }
   };
 
+  const saveStaffCardChange = async (value: string) => {
+    const token = getPreferredToken() || getWalletToken();
+    const rule = staffCardChangeRule(value);
+    if (!token || !activeId) return;
+    const previous = staffCardChange;
+    setStaffCardChange(rule);
+    setSavingStaffCardChange(true);
+    try {
+      await api.put(`/api/organizations/${encodeURIComponent(activeId)}${SETUP_PROFILE_PATH}`, { staffCardChange: rule }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      notifications.show({ title: 'Saved', message: 'Applies the next time a role changes.', color: 'green' });
+    } catch (err: any) {
+      setStaffCardChange(previous);
+      notifications.show({ title: 'Could not save', message: err?.response?.data?.message || err?.message, color: 'red' });
+    } finally {
+      setSavingStaffCardChange(false);
+    }
+  };
+
   const changeMemberRole = async (userId: string, role: string | null) => {
     const token = getPreferredToken();
     if (!token || !activeId || !role) return;
@@ -766,7 +860,11 @@ export default function OrgSettingsPage() {
       await api.patch(`/api/organizations/${encodeURIComponent(activeId)}/members/${encodeURIComponent(userId)}`, { role }, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      notifications.show({ title: 'Role updated', message: ROLE_LABELS[role] || humanizeKey(role), color: 'green' });
+      notifications.show({
+        title: 'Role updated',
+        message: `${ROLE_LABELS[role] || humanizeKey(role)}. A new staff card is on its way to their app inbox.`,
+        color: 'green',
+      });
       await fetchMembers(activeId);
     } catch (err: any) {
       notifications.show({ title: 'Could not change role', message: err?.response?.data?.message || err?.message, color: 'red' });
@@ -819,7 +917,12 @@ export default function OrgSettingsPage() {
   }, [actorsView]);
 
   const setupSteps = useMemo(
-    () => setupChecklist({ profile: serverProfile || readOrgProfile(), items: readiness?.items ?? [], memberCount: memberList.length }),
+    () => setupChecklist({
+      profile: serverProfile || readOrgProfile(),
+      items: readiness?.items ?? [],
+      memberCount: memberList.length,
+      roles: memberList.map((member) => member.role),
+    }),
     [serverProfile, readiness, memberList],
   );
   const moneyActorGapTitles = useMemo(() => {
@@ -988,6 +1091,7 @@ export default function OrgSettingsPage() {
 
 
   useEffect(() => {
+    if (serverProfile) setOrgModules(serverProfile.modules);
     if (serverProfile && serverProfile.kinds.length > 0) {
       setOrgKinds(serverProfile.kinds);
       return;
@@ -1007,11 +1111,13 @@ export default function OrgSettingsPage() {
       })
       .then((res) => {
         if (cancelled) return;
+        setStaffCardChange(staffCardChangeRule(res.data?.staffCardChange));
         const server = profileFromServer(res.data);
         setServerProfile(server);
         if (server) {
+          setOperatingModel(server.operatingModel || 'internal');
           persistOrgProfile(server);
-          setOrgQuestion(0);
+          if (server.completedAt) setOrgQuestion(0);
         }
       })
       .catch(() => {
@@ -1033,7 +1139,11 @@ export default function OrgSettingsPage() {
 
   const finishOrgQuestions = async () => {
     const profile: OrgProfile = {
+      orgTenantId: activeId || undefined,
+      operatingModel,
+      access: serverProfile?.access,
       kinds: orgKinds,
+      modules: orgModules,
       approvalPresetId: orgQuestionPreset === 'keep_current' ? serverProfile?.approvalPresetId || '' : orgQuestionPreset,
       approvalTitle:
         orgQuestionPreset === 'keep_current'
@@ -1041,16 +1151,16 @@ export default function OrgSettingsPage() {
           : (actorsView?.presets || []).find((preset) => preset.id === orgQuestionPreset)?.title || '',
       paymentChoice: orgQuestionPay,
       completedAt: new Date().toISOString(),
+      plan: serverProfile?.plan,
     };
     const saved = await saveOrgKinds(profile);
     if (!saved) return;
-    if (orgQuestionPreset && orgQuestionPreset !== 'keep_current') {
+    if (orgModules.length > 0 && orgQuestionPreset && orgQuestionPreset !== 'keep_current') {
       await applyActorPreset(orgQuestionPreset);
     }
-    if (orgQuestionPay !== 'none') {
+    if (orgModules.length > 0 && orgQuestionPay !== 'none') {
       await choosePaymentMethod(orgQuestionPay);
     }
-    persistOrgProfile(profile);
     setOrgQuestion(0);
     setOrgDone('all');
   };
@@ -1061,8 +1171,10 @@ export default function OrgSettingsPage() {
     if (question === 0) return;
     let saved = false;
     if (question === 1) {
-      saved = await saveOrgKinds(undefined, { kinds: orgKinds });
+      saved = await saveOrgKinds(undefined, { kinds: orgKinds, operatingModel, modules: orgModules });
     } else if (question === 2) {
+      saved = await saveOrgKinds(undefined, { modules: orgModules });
+    } else if (question === 3) {
       if (orgQuestionPreset && orgQuestionPreset !== 'keep_current') await applyActorPreset(orgQuestionPreset);
       saved = await saveOrgKinds(undefined, {
         approvalPresetId: orgQuestionPreset === 'keep_current' ? serverProfile?.approvalPresetId : orgQuestionPreset,
@@ -1089,7 +1201,7 @@ export default function OrgSettingsPage() {
     const question = QUESTION_FOR_STEP[id];
     if (!question) return;
     setOrgSingle(true);
-    setOrgThen(rest.map((step) => QUESTION_FOR_STEP[step]).filter((value): value is 1 | 2 | 3 => Boolean(value)));
+    setOrgThen(rest.map((step) => QUESTION_FOR_STEP[step]).filter((value): value is OrgQuestion => Boolean(value)));
     setOrgQuestion(question);
   };
 
@@ -1130,7 +1242,8 @@ export default function OrgSettingsPage() {
         throw new Error('Organization session expired. Switch organization and try again.');
       }
 
-      const body = partial ?? (profile ? profileToServer(profile) : { kinds: orgKinds });
+      const body = { ...(partial ?? (profile ? profileToServer(profile) : { kinds: orgKinds })),
+        expectedRevision: serverProfile?.access?.revision ?? 0 };
       const res = await api.put(`/api/organizations/${activeId}${SETUP_PROFILE_PATH}`, body, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -1198,12 +1311,32 @@ export default function OrgSettingsPage() {
     <AppShellMobile>
       <Stack gap="md" px="md" pt="md" pb={80}>
         {/* ── Header ── */}
-        <Box>
-          <Title order={3}>Organisation</Title>
-        </Box>
+        <Group justify="space-between" align="center" wrap="nowrap">
+          <Title order={3}>{section ? sectionLabels(orgKinds.includes('shop')).find(item => item.id === section)?.label : 'Organisation settings'}</Title>
+          <StepHelp
+            title="Setup"
+            points={[
+              'These answers decide which work this organisation runs.',
+              'Jobs, purchases and school fees follow from what you do.',
+              'Who handles money is asked here. Other steps are asked the first time they are used.',
+              'You can change an answer later.',
+            ]}
+          />
+        </Group>
 
         <Divider />
         {error && <ErrorAlert message={error} />}
+        {activeId && serverProfile?.access?.drainingWork?.length ? (
+          <Alert color="blue" title="Existing work is continuing">
+            {serverProfile.access.drainingWork.map((item) => {
+              const parts = [
+                item.activeRequests ? `${item.activeRequests} request${item.activeRequests === 1 ? '' : 's'}` : '',
+                item.activeWorkflowRuns ? `${item.activeWorkflowRuns} workflow run${item.activeWorkflowRuns === 1 ? '' : 's'}` : '',
+              ].filter(Boolean)
+              return `${item.label}: ${parts.join(' and ')}`
+            }).join('. ')}. New work in these areas is unavailable; existing work and its history are retained.
+          </Alert>
+        ) : null}
 
         {/* ── Create Org ── */}
         {section === null && !answering && (
@@ -1284,7 +1417,7 @@ export default function OrgSettingsPage() {
                   </Text>
                   {orgDone === 'all' && (
                     <Text size="xs" c="dimmed" ta="center">
-                      Open now: {['Purchase requests', 'Supplier bills', ...orgKinds.map((kind) => OPEN_FOR_KIND[kind]).filter(Boolean)].join(', ')}.
+                      Open now: {['Purchase requests', 'Supplier bills', ...orgKinds.map((kind) => OPEN_FOR_KIND[kind]).filter(Boolean), ...orgModules.map((module) => ORG_MODULE_OPTIONS.find((option) => option.id === module)?.opens || '').filter(Boolean)].join(', ')}.
                       {orgKinds.includes('field') ? ' You pick who goes out on the first job.' : ''}
                     </Text>
                   )}
@@ -1317,55 +1450,141 @@ export default function OrgSettingsPage() {
             {section === null && canManageOrgSetup && orgQuestion > 0 && (
               <Paper p="md" radius="md" withBorder>
                 <Stack gap="sm">
-                  <Progress value={(orgQuestion / 3) * 100} size="sm" radius="xl" aria-label="Progress" />
-                  <Text size="xs" c="dimmed">Question {orgQuestion} of 3</Text>
+                  <Progress value={(orgQuestion / ORG_QUESTION_COUNT) * 100} size="sm" radius="xl" aria-label="Progress" />
+                  <Text size="xs" c="dimmed">Question {orgQuestion} of {ORG_QUESTION_COUNT}</Text>
                   <Text fw={700}>
                     {orgQuestion === 1
                       ? 'What does your organization do?'
                       : orgQuestion === 2
-                        ? 'Who approves and releases money?'
-                        : 'How do you take payments?'}
+                        ? 'Which of these would be useful for your organisation?'
+                        : orgQuestion === 3
+                          ? 'Who approves and releases money?'
+                          : 'How do you take payments?'}
                   </Text>
                   {orgQuestion === 1 && (
-                    <Chip.Group multiple value={orgKinds} onChange={(value) => setOrgKinds(value as OrgKind[])}>
+                    <Stack>
+                    <Radio.Group label="How will you use the platform?" value={operatingModel} onChange={(value) => {
+                      const model = value as OrgOperatingModel;
+                      setOperatingModel(model);
+                      if (model === 'integration') setOrgModules([]);
+                    }}>
+                      <Stack gap="xs">
+                        <Radio value="internal" label="Handle our work here" />
+                        <Radio value="integration" label="Connect an existing business system" />
+                        <Radio value="hybrid" label="Both" />
+                      </Stack>
+                    </Radio.Group>
+                    <Text size="xs">Identity, wallets and required proofs are always retained.</Text>
+                    {operatingModel !== 'integration' && <Chip.Group multiple value={orgKinds} onChange={(value) => {
+                      const answers = value as OrgKind[];
+                      setOrgKinds(answers);
+                      setOrgModules(suggestedOrgModules(answers, operatingModel));
+                    }}>
                       <Stack gap={6}>
                         {ORG_KIND_OPTIONS.map((option) => (
-                          <Chip key={option.id} value={option.id} radius="md" variant="outline">
-                            {option.label}
-                          </Chip>
+                          <Box key={option.id}>
+                            <Chip value={option.id} radius="md" variant="outline">
+                              {option.label}
+                            </Chip>
+                            <Text size="xs" c="dimmed" mt={2}>{option.detail}</Text>
+                          </Box>
                         ))}
+                      </Stack>
+                    </Chip.Group>}
+                    </Stack>
+                  )}
+                  {orgQuestion === 2 && (
+                    <Chip.Group multiple value={orgModules} onChange={(value) => setOrgModules(value as OrgModule[])}>
+                      <Stack gap={6}>
+                        {ORG_MODULE_OPTIONS.filter((option) => suggestedOrgModules(orgKinds, operatingModel).includes(option.id) || (operatingModel !== 'integration' && option.id === 'people_payroll')).map((option) => (
+                          <Box key={option.id}>
+                            <Chip value={option.id} radius="md" variant="outline">
+                              {option.label}
+                            </Chip>
+                            <Text size="xs" c="dimmed" mt={2}>{option.detail}</Text>
+                            <Text size="xs" c="dimmed">{modulePlanNote(option.id, serverProfile?.plan)}</Text>
+                          </Box>
+                        ))}
+                        <Text size="xs" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas needed. SSI remains available; external-client APIs are a later delivery.' : 'Suggested from your activity answers. Untick anything handled elsewhere; staff tools are optional.'}</Text>
                       </Stack>
                     </Chip.Group>
                   )}
-                  {orgQuestion === 2 && (
-                    <Stack gap={6}>
-                      <Button size="sm" variant={orgQuestionPreset === 'keep_current' ? 'filled' : 'light'} onClick={() => setOrgQuestionPreset('keep_current')}>
-                        Keep what is set now
-                      </Button>
-                      {(actorsView?.presets || []).map((preset) => (
-                        <Button
-                          key={preset.id}
-                          size="sm"
-                          variant={orgQuestionPreset === preset.id ? 'filled' : 'light'}
-                          onClick={() => setOrgQuestionPreset(preset.id)}
-                        >
-                          {preset.title}
-                        </Button>
-                      ))}
-                    </Stack>
-                  )}
                   {orgQuestion === 3 && (
                     <Stack gap={6}>
-                      {PAYMENT_CHOICES.map((choice) => (
-                        <Button
-                          key={choice.id}
-                          size="sm"
-                          variant={orgQuestionPay === choice.id ? 'filled' : 'light'}
-                          onClick={() => setOrgQuestionPay(choice.id)}
-                        >
-                          {choice.label}
-                        </Button>
-                      ))}
+                      <Paper
+                        withBorder
+                        radius="md"
+                        p="sm"
+                        onClick={() => setOrgQuestionPreset('keep_current')}
+                        style={{ cursor: 'pointer', borderColor: orgQuestionPreset === 'keep_current' ? 'var(--mantine-color-teal-6)' : undefined }}
+                      >
+                        <Group wrap="nowrap" align="flex-start" gap="sm">
+                          <Stack gap={2} style={{ flex: 1 }}>
+                            <Text size="sm" fw={600}>Keep what is set now</Text>
+                            <Text size="xs" c="dimmed">Leave the people already chosen under Who does what.</Text>
+                          </Stack>
+                          {orgQuestionPreset === 'keep_current' && (
+                            <ThemeIcon color="teal" variant="light" radius="xl" size="sm"><IconCheck size={12} /></ThemeIcon>
+                          )}
+                        </Group>
+                      </Paper>
+                      {(actorsView?.presets?.length ? actorsView.presets : MONEY_CHOICES).map((preset) => {
+                        const choice = MONEY_CHOICES.find((item) => item.id === preset.id);
+                        const selected = orgQuestionPreset === preset.id;
+                        return (
+                          <Paper
+                            key={preset.id}
+                            withBorder
+                            radius="md"
+                            p="sm"
+                            onClick={() => setOrgQuestionPreset(preset.id)}
+                            style={{ cursor: 'pointer', borderColor: selected ? 'var(--mantine-color-teal-6)' : undefined }}
+                          >
+                            <Group wrap="nowrap" align="flex-start" gap="sm">
+                              <Stack gap={2} style={{ flex: 1 }}>
+                                <Text size="sm" fw={600}>{choice?.title || preset.title}</Text>
+                                <Text size="xs" c="dimmed">{choice?.detail || preset.detail}</Text>
+                                {choice && (
+                                  <>
+                                    <Text size="xs">Confirms: {choice.confirms}</Text>
+                                    <Text size="xs">Releases the money: {choice.releases}</Text>
+                                  </>
+                                )}
+                              </Stack>
+                              {selected && (
+                                <ThemeIcon color="teal" variant="light" radius="xl" size="sm"><IconCheck size={12} /></ThemeIcon>
+                              )}
+                            </Group>
+                          </Paper>
+                        );
+                      })}
+                    </Stack>
+                  )}
+                  {orgQuestion === 4 && (
+                    <Stack gap={6}>
+                      {PAYMENT_CHOICES.map((choice) => {
+                        const selected = orgQuestionPay === choice.id;
+                        return (
+                          <Paper
+                            key={choice.id}
+                            withBorder
+                            radius="md"
+                            p="sm"
+                            onClick={() => setOrgQuestionPay(choice.id)}
+                            style={{ cursor: 'pointer', borderColor: selected ? 'var(--mantine-color-teal-6)' : undefined }}
+                          >
+                            <Group wrap="nowrap" align="flex-start" gap="sm">
+                              <Stack gap={2} style={{ flex: 1 }}>
+                                <Text size="sm" fw={600}>{choice.label}</Text>
+                                <Text size="xs" c="dimmed">{choice.detail}</Text>
+                              </Stack>
+                              {selected && (
+                                <ThemeIcon color="teal" variant="light" radius="xl" size="sm"><IconCheck size={12} /></ThemeIcon>
+                              )}
+                            </Group>
+                          </Paper>
+                        );
+                      })}
                     </Stack>
                   )}
                   {orgSingle ? (
@@ -1385,17 +1604,17 @@ export default function OrgSettingsPage() {
                       color="gray"
                       onClick={() => {
                         if (orgQuestion === 1) {
-                          persistOrgProfile({ kinds: orgKinds, approvalPresetId: '', approvalTitle: '', paymentChoice: 'none', completedAt: '' });
+                          persistOrgProfile({ kinds: orgKinds, modules: orgModules, approvalPresetId: '', approvalTitle: '', paymentChoice: 'none', completedAt: '' });
                           setOrgQuestion(0);
                           return;
                         }
-                        setOrgQuestion((current) => (current - 1) as 1 | 2 | 3);
+                        setOrgQuestion((current) => (current - 1) as OrgQuestion);
                       }}
                     >
                       {orgQuestion === 1 ? "I'll answer later" : 'Back'}
                     </Button>
-                    {orgQuestion < 3 ? (
-                      <Button size="xs" disabled={orgQuestion === 1 && orgKinds.length === 0} onClick={() => setOrgQuestion((current) => (current + 1) as 1 | 2 | 3)}>
+                    {orgQuestion < ORG_QUESTION_COUNT ? (
+                      <Button size="xs" disabled={orgQuestion === 1 && orgKinds.length === 0} onClick={() => setOrgQuestion((current) => (current + 1) as OrgQuestion)}>
                         Continue
                       </Button>
                     ) : (
@@ -1408,6 +1627,31 @@ export default function OrgSettingsPage() {
                 </Stack>
               </Paper>
             )}
+            {section === null && orgQuestion === 0 && orgDone === null && myOnboarding && myOnboarding.summary !== 'ready' && (
+            <Paper p="md" radius="md" withBorder>
+              <Stack gap="xs">
+                <Group justify="space-between" align="start">
+                  <Text fw={700}>Your getting started</Text>
+                  <Badge size="xs" variant="light" color={SUMMARY_COLOR[myOnboarding.summary]}>{SUMMARY_LABEL[myOnboarding.summary]}</Badge>
+                </Group>
+                {myOnboardingSteps(myOnboarding).map((step) => (
+                  <Group key={step.label} gap="xs" wrap="nowrap" align="start">
+                    <ThemeIcon radius="xl" size="sm" color={step.done ? 'teal' : 'gray'} variant={step.done ? 'filled' : 'light'}>
+                      {step.done ? <IconCheck size={12} /> : null}
+                    </ThemeIcon>
+                    <Box>
+                      <Text size="sm" fw={step.done ? 400 : 600} c={step.done ? 'dimmed' : undefined}>{step.label}</Text>
+                      {!step.done && <Text size="xs" c="dimmed">{step.hint}</Text>}
+                    </Box>
+                  </Group>
+                ))}
+                {myOnboarding.cards.some((card) => card.state === 'waiting') && (
+                  <Button size="xs" onClick={() => router.push('/inbox')} style={{ alignSelf: 'flex-start' }}>Open Inbox</Button>
+                )}
+              </Stack>
+            </Paper>
+            )}
+
             {section === null && orgQuestion === 0 && orgDone === null && (
             <Paper p="md" radius="md" withBorder>
               <Stack gap="xs">
@@ -1434,7 +1678,10 @@ export default function OrgSettingsPage() {
                                   <ThemeIcon radius="xl" size="sm" color={step.done ? 'teal' : 'gray'} variant={step.done ? 'filled' : 'light'}>
                                     {step.done ? <IconCheck size={12} /> : null}
                                   </ThemeIcon>
-                                  <Text size="sm" fw={isNext ? 600 : 400} c={step.done ? 'dimmed' : undefined}>{step.label}</Text>
+                                  <Box>
+                                    <Text size="sm" fw={isNext ? 600 : 400} c={step.done ? 'dimmed' : undefined}>{step.label}</Text>
+                                    {step.note && <Text size="xs" c="dimmed">{step.note}</Text>}
+                                  </Box>
                                 </Group>
                                 {canManageOrgSetup && (
                                   <Button size="compact-xs" variant={isNext ? 'filled' : 'subtle'} onClick={() => openChecklistStep(step.id, rest)}>
@@ -1477,7 +1724,7 @@ export default function OrgSettingsPage() {
                           <Group key={item.key} justify="space-between" wrap="nowrap">
                             <Text size="sm">{plainReadinessTitle(item)}</Text>
                             {target && item.status !== 'pending_external' ? (
-                              <Button size="compact-xs" variant="subtle" onClick={() => setSection(SECTION_FOR_FIX[target])}>
+                              <Button size="compact-xs" variant="subtle" onClick={() => setSection(SECTION_FOR_FIX[target] === 'store' && !orgKinds.includes('shop') ? 'team' : SECTION_FOR_FIX[target])}>
                                 Open
                               </Button>
                             ) : (
@@ -1498,11 +1745,13 @@ export default function OrgSettingsPage() {
               <Paper p="md" radius="md" withBorder>
                 <Stack gap={4}>
                   <Text fw={700}>Settings</Text>
-                  {SECTION_LABELS.filter((item) => canManageOrgSetup || !['payments', 'departments'].includes(item.id)).map((item) => (
-                    <Group key={item.id} justify="space-between" wrap="nowrap" style={{ cursor: 'pointer' }} onClick={() => setSection(item.id)}>
+                  {sectionLabels(orgKinds.includes('shop')).filter((item) => canManageOrgSetup || !['payments', 'departments', 'records', 'roles', 'authorities'].includes(item.id)).map((item) => (
+                    <UnstyledButton key={item.id} onClick={() => setSection(item.id)} py="sm" style={{ minHeight: 48 }}>
+                    <Group justify="space-between" wrap="nowrap">
                       <Text size="sm">{item.label}</Text>
                       <IconArrowRight size={14} />
                     </Group>
+                    </UnstyledButton>
                   ))}
                 </Stack>
               </Paper>
@@ -1510,8 +1759,14 @@ export default function OrgSettingsPage() {
 
             {section !== null && (
               <Button variant="subtle" size="xs" leftSection={<IconArrowLeft size={14} />} onClick={() => setSection(null)} style={{ alignSelf: 'flex-start' }}>
-                Organisation
+                All settings
               </Button>
+            )}
+
+            {(section === 'roles' || section === 'authorities') && canManageOrgSetup && activeId && (
+              <OrgPermissionsSettings key={activeId} orgId={activeId} section={section} onChanged={async () => {
+                await Promise.all([loadTeamRoles(activeId), fetchMembers(activeId), loadReadiness(activeId)]);
+              }} />
             )}
 
             {section === 'payments' && canManageOrgSetup && (
@@ -1724,9 +1979,14 @@ export default function OrgSettingsPage() {
                       ) : (
                         actorsView.policy.defaultChain.map((entry, index) => (
                           <Group key={`${entry.type}:${entry.value}`} justify="space-between" wrap="nowrap">
-                            <Text size="xs">
-                              {index + 1}. {entry.type === 'role' ? humanizeKey(entry.value) : personName(actorsView.members.find((m) => m.userId === entry.value), entry.value)}
-                            </Text>
+                            <Group gap={6} wrap="nowrap">
+                              <Text size="xs">
+                                {index + 1}. {entry.type === 'role' ? humanizeKey(entry.value) : personName(actorsView.members.find((m) => m.userId === entry.value), entry.value)}
+                              </Text>
+                              <Badge size="xs" variant="outline" color={entry.type === 'user' ? 'teal' : 'indigo'}>
+                                {entry.type === 'user' ? 'Person' : entry.type === 'role' ? 'Role' : 'Wallet'}
+                              </Badge>
+                            </Group>
                             <Button
                               size="compact-xs"
                               variant="subtle"
@@ -1794,6 +2054,10 @@ export default function OrgSettingsPage() {
 
             {section === 'handoffs' && <HandoffSettingsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />}
 
+            {section === 'records' && activeId && <RecordSettingsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />}
+
+            {section === 'records' && <DeviceTrustSettingsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />}
+
             {/* ── Member Management ── */}
             {section === 'team' && (
             <Paper id="org-card-members" p="md" radius="md" withBorder>
@@ -1801,7 +2065,11 @@ export default function OrgSettingsPage() {
                 <Group justify="space-between" align="start">
                   <Box>
                     <Group gap="xs"><IconUsers size={18} color="var(--mantine-color-indigo-6)" /><Text fw={700}>Team Members</Text></Group>
-                    <Text size="xs" c="dimmed" mt={4}>Invite, manage roles, and remove members from this organisation.</Text>
+                    <Text size="xs" c="dimmed" mt={4}>
+                      {onboardingRows.length > 0
+                        ? (() => { const c = readyCount(onboardingRows); return c.ready === c.total ? 'Everyone has what they need in the app.' : `${c.ready} of ${c.total} ready. Tap a person to see what is still missing.`; })()
+                        : 'Invite, manage roles, and remove members from this organisation.'}
+                    </Text>
                   </Box>
                   {canManageOrgSetup && (
                     <Button size="xs" leftSection={<IconUserPlus size={14} />} onClick={() => setShowInvite((s) => !s)}>Invite</Button>
@@ -1811,18 +2079,8 @@ export default function OrgSettingsPage() {
                 <Collapse in={showInvite && canManageOrgSetup}>
                   <Paper p="sm" radius="sm" withBorder>
                     <Stack gap="xs">
-                      <TextInput label="Phone number" placeholder="+263..." value={invitePhone} onChange={(e) => setInvitePhone(e.target.value)} size="xs" />
-                      <Select label="Role" size="xs" value={inviteRole} onChange={setInviteRole} data={[
-                        { value: 'approver', label: 'Approver' },
-                        { value: 'manager', label: 'Manager' },
-                        { value: 'finance_manager', label: 'Finance Officer' },
-                        { value: 'director', label: 'Director' },
-                        { value: 'field_worker', label: 'Field Worker' },
-                        { value: 'supervisor', label: 'Supervisor / Inspector' },
-                        { value: 'dispatcher', label: 'Dispatcher' },
-                        { value: 'member', label: 'Team member (sign-off, general)' },
-                        { value: 'admin', label: 'Admin' },
-                      ]} />
+                      <TextInput label="Phone number" description="If they do not have an account yet, we open one and message them. They choose their own PIN." placeholder="+263..." value={invitePhone} onChange={(e) => setInvitePhone(e.target.value)} size="xs" />
+                      <Select label="Role" description="These follow the answers from setup." size="xs" value={inviteRole} onChange={setInviteRole} data={teamRoleChoices} />
                       <Group justify="flex-end">
                         <Button size="xs" variant="subtle" onClick={() => setShowInvite(false)}>Cancel</Button>
                         <Button size="xs" loading={inviting} disabled={!invitePhone.trim()} onClick={handleInviteMember}>Send Invite</Button>
@@ -1837,17 +2095,28 @@ export default function OrgSettingsPage() {
                   <Text size="xs" c="dimmed">{canManageOrgSetup ? 'No members yet. Invite your team above.' : 'No other members yet.'}</Text>
                 ) : (
                   <Stack gap="xs">
-                    {memberList.map((m) => (
+                    {memberList.map((m) => {
+                      const ob = onboardingRows.find((row) => row.userId === m.userId);
+                      const open = expandedMember === m.userId;
+                      return (
                       <Paper key={m.userId} p="xs" radius="sm" withBorder>
                         <Group justify="space-between" align="center" wrap="nowrap">
                           <Box style={{ flex: 1, minWidth: 0 }}>
-                            <Text size="xs" fw={600} truncate>{personName(m)}</Text>
+                            <Group gap={6} wrap="nowrap" onClick={() => ob && setExpandedMember(open ? null : m.userId)} style={{ cursor: ob ? 'pointer' : undefined }}>
+                              <Text size="xs" fw={600} truncate>{personName(m)}</Text>
+                              {ob && (
+                                <Badge size="xs" variant="light" color={SUMMARY_COLOR[ob.summary]}>
+                                  {SUMMARY_LABEL[ob.summary]}
+                                  {ob.summary !== 'ready' && ob.summary !== 'no_app' ? ` · ${ob.cards.filter((c) => c.state === 'accepted').length}/${ob.cards.length}` : ''}
+                                </Badge>
+                              )}
+                            </Group>
                             {m.phone && personName(m) !== m.phone && <Text size="10px" c="dimmed">{m.phone}</Text>}
                             <Group gap={4} mt={2}>
                               {canManageOrgSetup && m.role !== 'owner' ? (
                                 <Select
                                   size="xs"
-                                  data={MEMBER_ROLE_CHOICES.some((choice) => choice.value === m.role) ? MEMBER_ROLE_CHOICES : [...MEMBER_ROLE_CHOICES, { value: m.role, label: ROLE_LABELS[m.role] || humanizeKey(m.role) }]}
+                                  data={teamRoleChoices.some((choice) => choice.value === m.role) ? teamRoleChoices : [...teamRoleChoices, { value: m.role, label: ROLE_LABELS[m.role] || humanizeKey(m.role) }]}
                                   value={m.role}
                                   disabled={changingRole === m.userId}
                                   onChange={(value) => void changeMemberRole(m.userId, value)}
@@ -1865,15 +2134,81 @@ export default function OrgSettingsPage() {
                             Remove
                           </Button>
                         </Group>
+                        {ob && (
+                          <Collapse in={open}>
+                            <Stack gap={6} mt="xs">
+                              <Text size="xs">{ob.nextStep}</Text>
+                              <Group justify="space-between" wrap="nowrap">
+                                <Group gap={6} wrap="nowrap">
+                                  <ThemeIcon radius="xl" size="xs" color={ob.hasApp ? 'teal' : 'gray'} variant={ob.hasApp ? 'filled' : 'light'}>{ob.hasApp ? <IconCheck size={10} /> : null}</ThemeIcon>
+                                  <Text size="xs">Signed in to the app</Text>
+                                </Group>
+                                <Badge size="xs" variant="light" color={ob.hasApp ? 'teal' : 'gray'}>{ob.hasApp ? 'Done' : 'Not yet'}</Badge>
+                              </Group>
+                              {ob.cards.map((card) => (
+                                <Box key={`${card.kind}:${card.workflowType || ''}`}>
+                                  <Group justify="space-between" wrap="nowrap" align="start">
+                                    <Group gap={6} wrap="nowrap" align="start">
+                                      <ThemeIcon radius="xl" size="xs" color={card.state === 'accepted' ? 'teal' : 'gray'} variant={card.state === 'accepted' ? 'filled' : 'light'}>{card.state === 'accepted' ? <IconCheck size={10} /> : null}</ThemeIcon>
+                                      <Box>
+                                        <Text size="xs">{card.label}</Text>
+                                        <Text size="10px" c="dimmed">{cardPurpose(card)}</Text>
+                                        {cardResendHint(card) && <Text size="10px" c="dimmed">{cardResendHint(card)}</Text>}
+                                      </Box>
+                                    </Group>
+                                    <Stack gap={2} align="end">
+                                      <Badge size="xs" variant="light" color={CARD_STATE_COLOR[card.state]}>{CARD_STATE_LABEL[card.state]}</Badge>
+                                      {canManageOrgSetup && ob.hasApp && cardCanResend(card) && (
+                                        <Button size="compact-xs" variant="subtle" loading={sendingCards === `${ob.userId}:${card.kind}`} onClick={() => void sendMemberCards(ob.userId, card.kind)}>
+                                          {card.state === 'not_sent' ? 'Send' : 'Send again'}
+                                        </Button>
+                                      )}
+                                    </Stack>
+                                  </Group>
+                                </Box>
+                              ))}
+                              {ob.hasApp && !(ob.cards.find((card) => card.kind === 'employee')?.covers?.length) && (
+                                <Text size="10px" c="dimmed">Their staff card is enough for now. Who goes out and who checks the work is chosen on each job.</Text>
+                              )}
+                              {canManageOrgSetup && ob.hasApp && ob.summary !== 'ready' && (
+                                <Button size="xs" loading={sendingCards === `${ob.userId}:all`} onClick={() => void sendMemberCards(ob.userId, 'all')} style={{ alignSelf: 'flex-start' }}>
+                                  Send everything missing
+                                </Button>
+                              )}
+                            </Stack>
+                          </Collapse>
+                        )}
                       </Paper>
-                    ))}
+                      );
+                    })}
                   </Stack>
+                )}
+
+                {canManageOrgSetup && (
+                  <Paper p="sm" radius="sm" withBorder>
+                    <Stack gap="xs">
+                      <Text size="sm" fw={600}>When a role changes</Text>
+                      <Text size="xs" c="dimmed">
+                        The person gets a new staff card in their app inbox. Choose what happens to the one they already hold.
+                      </Text>
+                      <Radio.Group value={staffCardChange} onChange={(value) => void saveStaffCardChange(value)}>
+                        <Stack gap="xs">
+                          {STAFF_CARD_CHANGE_OPTIONS.map((option) => (
+                            <Radio key={option.value} value={option.value} size="xs" label={option.label} description={option.hint} disabled={savingStaffCardChange} />
+                          ))}
+                        </Stack>
+                      </Radio.Group>
+                      <Text size="10px" c="dimmed">
+                        When someone leaves, their staff card stops working straight away. Either way, the earlier card stays on their phone until they remove it from Records.
+                      </Text>
+                    </Stack>
+                  </Paper>
                 )}
               </Stack>
             </Paper>
             )}
 
-            {SHOW_STORE_SECTION && section === 'store' && (
+            {orgKinds.includes('shop') && section === 'store' && (
             <>
             <Paper id="org-card-store" p="md" radius="md" withBorder>
               <Stack gap="md">

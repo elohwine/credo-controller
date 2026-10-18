@@ -1,11 +1,10 @@
 /**
  * IdenEx Credentis - Org Workflow Actor Credential Service
  *
- * Makes sure every person who is expected to act at a workflow stage on behalf of an
- * organization is *offered* an `OrgWorkflowActorCredential` (actor VC) scoped to that
- * organization, workflow and the stage actions they cover. When the person later performs the
- * stage action, the OIDC4VP request for that action accepts this credential (see
- * ProofVcPolicyService) and the platform checks its org/stage scope.
+ * Makes sure every person who acts for an organization has one staff card
+ * (EmployeeCredential) whose claims list their role and every step they confirm.
+ * A separate card per workflow is not offered. Cards already in a wallet are still
+ * accepted at proof time when they match the organization and the step.
  *
  * Offers are queued into `wallet_pending_offers` (source_type `org_workflow_actor`) so they
  * surface in the actor's wallet inbox, and announced through the outbox (`wallet.vc.offered`).
@@ -16,7 +15,7 @@
  * @module services/OrgWorkflowActorCredentialService
  */
 
-import { createHash, randomUUID } from 'crypto'
+import { createHash } from 'crypto'
 
 import {
   ORG_WORKFLOW_ACTOR_OFFER_SOURCE_TYPE,
@@ -24,7 +23,6 @@ import {
   OrgWorkflowActorClaims,
 } from '../config/credentials/OrgWorkflowActorVC'
 import { DatabaseManager } from '../persistence/DatabaseManager'
-import { getTenantById } from '../persistence/TenantRepository'
 import { WorkflowTemplateRepository } from '../persistence/WorkflowTemplateRepository'
 import { rootLogger } from '../utils/pinoLogger'
 
@@ -35,7 +33,6 @@ import {
   workflowActorTypeCandidates,
 } from './OrgWorkflowActorService'
 import { orgSetupProfileService } from './OrgSetupProfileService'
-import { outboxService } from './OutboxService'
 import { getDeclaredPrerequisites } from './workflow/prerequisites'
 
 const logger = rootLogger.child({ module: 'OrgWorkflowActorCredentialService' })
@@ -54,12 +51,7 @@ export interface ActorCredentialStatus {
   stale?: boolean
 }
 
-export type ActorCredentialOfferOutcome =
-  | 'offered'
-  | 'already_offered'
-  | 'already_accepted'
-  | 'skipped'
-  | 'failed'
+export type ActorCredentialOfferOutcome = 'offered' | 'already_offered' | 'already_accepted' | 'skipped' | 'failed'
 
 export interface ActorCredentialOfferResult {
   outcome: ActorCredentialOfferOutcome
@@ -125,6 +117,7 @@ const STAGE_PEOPLE_LABEL: Record<string, string> = {
   assign_field_worker: 'doing the job',
   inspect_site: 'checking the site',
   review_completion: 'reviewing finished work',
+  resolve_safety_hold: 'sorting out safety holds',
   acknowledge_execution: 'signing off',
   trigger_payout: 'releasing payment',
   approve_requisition: 'approving requests',
@@ -132,16 +125,19 @@ const STAGE_PEOPLE_LABEL: Record<string, string> = {
   release_funds: 'releasing funds',
   record_payment: 'recording payments',
   acknowledge_remittance: 'confirming payments received',
+  issue_receipt_vc: 'issuing receipts',
+  issue_receipt: 'issuing receipts',
 }
 
-function describeWorkflowForPeople(workflowType: string): string {
+export function describeWorkflowForPeople(workflowType: string): string {
   const key = String(workflowType || '').toLowerCase()
   return WORKFLOW_PEOPLE_LABEL[key] || key.replace(/_/g, ' ')
 }
 
-function describeStageForPeople(stageAction: string): string {
+export function describeStageForPeople(stageAction: string): string {
   const key = String(stageAction || '').toLowerCase()
-  return STAGE_PEOPLE_LABEL[key] || key.replace(/_/g, ' ')
+  // Unknown stage names come from templates; strip the technical suffixes before showing them to people.
+  return STAGE_PEOPLE_LABEL[key] || key.replace(/_(vc|credential|did)$/g, '').replace(/_/g, ' ')
 }
 
 function normalizeStage(value: unknown): string {
@@ -253,14 +249,38 @@ export class OrgWorkflowActorCredentialService {
   public coveredStageActions(orgTenantId: string, workflowType: string, userId: string): string[] {
     return this.listStageActions(orgTenantId, workflowType).filter((stageAction) => {
       const resolved = this.actorService.resolveActor({ orgTenantId, workflowType, stageAction })
-      return !OrgWorkflowActorService.needsAssignment(resolved) && resolved.userId === userId
+      if (OrgWorkflowActorService.needsAssignment(resolved)) return false
+      if (resolved.userId === userId) return true
+      // A step that falls to a role ("a supervisor", "an owner") belongs to everyone in that
+      // role, so each of their cards lists it.
+      return this.actorService.roleStandIns(orgTenantId, resolved).some((member) => member.userId === userId)
     })
+  }
+
+  /** Every step this person confirms, across every workflow the organization runs. */
+  public coveredStageActionsForMember(orgTenantId: string, userId: string): string[] {
+    const stages = new Set<string>()
+    const workflowTypes = new Set<string>(
+      [
+        ...workflowTemplateRepository.listByTenantId(orgTenantId).map((template) => template.workflowType),
+        ...orgSetupProfileService.get(orgTenantId).requestTypes,
+      ].filter(Boolean),
+    )
+    for (const workflowType of workflowTypes) {
+      for (const stageAction of this.coveredStageActions(orgTenantId, workflowType, userId)) stages.add(stageAction)
+    }
+    return Array.from(stages).sort()
   }
 
   /**
    * Latest actor-credential status for a member on a workflow (accepted / offered / not offered).
    */
-  public getStatus(orgTenantId: string, workflowType: string, walletTenantId: string | undefined, expectedFingerprint?: string): ActorCredentialStatus {
+  public getStatus(
+    orgTenantId: string,
+    workflowType: string,
+    walletTenantId: string | undefined,
+    expectedFingerprint?: string,
+  ): ActorCredentialStatus {
     if (!walletTenantId) return { state: 'not_applicable' }
     const db = DatabaseManager.getDatabase()
     let rows: PendingOfferRow[] = []
@@ -277,9 +297,16 @@ export class OrgWorkflowActorCredentialService {
           LIMIT 20
         `,
         )
-        .all(walletTenantId, ORG_WORKFLOW_ACTOR_OFFER_SOURCE_TYPE, actorCredentialSourceId(orgTenantId, workflowType)) as PendingOfferRow[]
+        .all(
+          walletTenantId,
+          ORG_WORKFLOW_ACTOR_OFFER_SOURCE_TYPE,
+          actorCredentialSourceId(orgTenantId, workflowType),
+        ) as PendingOfferRow[]
     } catch (error: any) {
-      logger.warn({ error: error.message }, 'wallet_pending_offers unavailable; reporting actor credential as not offered')
+      logger.warn(
+        { error: error.message },
+        'wallet_pending_offers unavailable; reporting actor credential as not offered',
+      )
       return { state: 'not_offered' }
     }
 
@@ -311,14 +338,20 @@ export class OrgWorkflowActorCredentialService {
   }
 
   /**
-   * Ensure the actor resolved for `stageAction` has been offered an actor credential covering
-   * every stage they act on in this workflow. Idempotent: identical scope → no new offer.
+   * The person resolved for this step gets one staff card listing every step they confirm.
+   * Identical role and steps produce no second offer. Callers that used to offer a card per
+   * workflow land here and share that one card.
    */
   public async ensureActorCredential(params: EnsureActorCredentialParams): Promise<ActorCredentialOfferResult> {
     const { orgTenantId } = params
     const workflowType = String(params.workflowType || '').trim()
     const stageAction = normalizeStage(params.stageAction)
-    const base: ActorCredentialOfferResult = { outcome: 'skipped', orgTenantId, workflowType, stageActions: [stageAction] }
+    const base: ActorCredentialOfferResult = {
+      outcome: 'skipped',
+      orgTenantId,
+      workflowType,
+      stageActions: [stageAction],
+    }
 
     if (!orgTenantId || !workflowType || !stageAction) {
       return { ...base, reason: 'orgTenantId, workflowType and stageAction are required' }
@@ -337,199 +370,77 @@ export class OrgWorkflowActorCredentialService {
       }
     }
 
-    const covered = this.coveredStageActions(orgTenantId, workflowType, actor.userId)
-    const stageActions = covered.length > 0 ? covered : [stageAction]
-    const role = String(actor.role || 'member').toLowerCase()
-    const fingerprint = actorCredentialFingerprint({
+    const stageActions = this.coveredStageActionsForMember(orgTenantId, actor.userId)
+    const role = String(actor.role || 'member')
+    const { orgMembershipCredentialService } = await import('./OrgMembershipCredentialService')
+    const staff = await orgMembershipCredentialService.ensureEmployeeCredential({
       orgTenantId,
-      userId: actor.userId,
-      workflowType,
-      stageActions,
-      role,
-    })
-    const result: ActorCredentialOfferResult = {
-      ...base,
-      stageActions,
       userId: actor.userId,
       walletTenantId: actor.walletTenantId,
       role,
-    }
-
-    const status = this.getStatus(orgTenantId, workflowType, actor.walletTenantId, fingerprint)
-    if (!params.force) {
-      if (status.state === 'offered' && status.stale === false) {
-        return { ...result, outcome: 'already_offered', offerRowId: status.offerRowId }
-      }
-      if (status.state === 'accepted' && status.stale === false) {
-        return { ...result, outcome: 'already_accepted', offerRowId: status.offerRowId }
-      }
-    }
-
-    const tenant = getTenantById(orgTenantId)
-    const now = new Date().toISOString()
-    const claims: OrgWorkflowActorClaims = {
-      orgTenantId,
-      orgName: tenant?.label || 'Organization',
-      orgIssuerDid: tenant?.issuerDid || undefined,
-      userId: actor.userId,
-      memberRole: actor.role,
-      role,
-      workflowType,
+      source: 'membership',
+      force: params.force,
+      reason: params.reason,
+    })
+    return {
+      ...base,
+      outcome: staff.outcome,
+      reason: staff.reason,
       stageActions,
-      assignmentMode: actor.mode,
-      assignedAt: now,
-      issuedAt: now,
-      platformName: process.env.PLATFORM_NAME || 'IdenEx Credentis',
-      fingerprint,
+      userId: actor.userId,
+      walletTenantId: actor.walletTenantId,
+      role: role.toLowerCase(),
     }
-
-    let offer: { offerId: string; offerUri: string; expiresAt?: string }
-    try {
-      offer = await this.offerFactory({ orgTenantId, walletTenantId: actor.walletTenantId, claims })
-    } catch (error: any) {
-      logger.warn(
-        { error: error?.message, orgTenantId, workflowType, userId: actor.userId },
-        'Failed to create actor credential offer',
-      )
-      return { ...result, outcome: 'failed', reason: error?.message || 'offer creation failed' }
-    }
-
-    const db = DatabaseManager.getDatabase()
-    const sourceId = actorCredentialSourceId(orgTenantId, workflowType)
-    const rowId = `owa-${randomUUID()}`
-    try {
-      // Supersede any unresolved offer for an older scope so the inbox shows a single card.
-      db.prepare(
-        `
-        UPDATE wallet_pending_offers
-        SET resolved_at = @now,
-            last_attempt_at = @now,
-            last_error = CASE
-              WHEN last_error IS NULL OR last_error = '' THEN 'superseded: actor assignment changed'
-              ELSE last_error
-            END
-        WHERE tenant_id = @tenantId
-          AND source_type = @sourceType
-          AND source_id = @sourceId
-          AND resolved_at IS NULL
-          AND accepted_at IS NULL
-      `,
-      ).run({ now, tenantId: actor.walletTenantId, sourceType: ORG_WORKFLOW_ACTOR_OFFER_SOURCE_TYPE, sourceId })
-
-      db.prepare(
-        `
-        INSERT INTO wallet_pending_offers (
-          id, tenant_id, issuer_tenant_id, source_type, source_id,
-          credential_type, offer_uri, title, body, metadata, created_at,
-          attempt_count, last_attempt_at
-        ) VALUES (
-          @id, @tenantId, @issuerTenantId, @sourceType, @sourceId,
-          @credentialType, @offerUri, @title, @body, @metadata, @createdAt,
-          0, @createdAt
-        )
-      `,
-      ).run({
-        id: rowId,
-        tenantId: actor.walletTenantId,
-        issuerTenantId: orgTenantId,
-        sourceType: ORG_WORKFLOW_ACTOR_OFFER_SOURCE_TYPE,
-        sourceId,
-        credentialType: ORG_WORKFLOW_ACTOR_VC_TYPE,
-        offerUri: offer.offerUri,
-        title: `Your role card · ${claims.orgName}`,
-        body: `${claims.orgName} has given you a role for ${describeWorkflowForPeople(workflowType)}: ${stageActions
-          .map(describeStageForPeople)
-          .join(', ')}. Add it to your wallet and use it when it is your turn to confirm a step.`,
-        metadata: JSON.stringify({
-          ...claims,
-          offerId: offer.offerId,
-          expiresAt: offer.expiresAt,
-          reason: params.reason || 'stage_assignment',
-          triggerStageAction: stageAction,
-        }),
-        createdAt: now,
-      })
-    } catch (error: any) {
-      logger.warn(
-        { error: error?.message, orgTenantId, workflowType, userId: actor.userId },
-        'Actor credential offer created but could not be queued in wallet_pending_offers',
-      )
-      return { ...result, outcome: 'failed', reason: error?.message || 'queueing failed', offerId: offer.offerId }
-    }
-
-    try {
-      outboxService.enqueue({
-        topic: 'wallet.vc.offered',
-        aggregateKey: actor.walletTenantId,
-        dedupeKey: `wpo:${actor.walletTenantId}:${ORG_WORKFLOW_ACTOR_OFFER_SOURCE_TYPE}:${sourceId}:${fingerprint}`,
-        payload: {
-          tenantId: actor.walletTenantId,
-          issuerTenantId: orgTenantId,
-          sourceType: ORG_WORKFLOW_ACTOR_OFFER_SOURCE_TYPE,
-          sourceId,
-          credentialType: ORG_WORKFLOW_ACTOR_VC_TYPE,
-          offerUri: offer.offerUri.slice(0, 300),
-          stageActions,
-          queuedAt: now,
-        },
-      })
-    } catch (error: any) {
-      logger.warn({ error: error?.message }, 'Outbox enqueue for actor credential offer failed (non-fatal)')
-    }
-
-    logger.info(
-      { orgTenantId, workflowType, stageActions, userId: actor.userId, mode: actor.mode, offerId: offer.offerId },
-      'Actor credential offered',
-    )
-    return { ...result, outcome: 'offered', offerRowId: rowId, offerId: offer.offerId }
   }
 
   /**
-   * Walk every configured workflow (or one) and make sure each resolved actor holds / was
-   * offered an actor credential. Used after actor configuration changes and by the
-   * "Offer actor credentials" setup action.
+   * Refresh the one staff card for each member (or one member). The card's claims list the
+   * steps they confirm now. Used after who-does-what changes and from the team list.
    */
   public async ensureForOrganization(
     orgTenantId: string,
-    options: { workflowType?: string; force?: boolean; reason?: string } = {},
+    options: { workflowType?: string; force?: boolean; reason?: string; userId?: string } = {},
   ): Promise<EnsureOrganizationActorCredentialsResult> {
-    const result: EnsureOrganizationActorCredentialsResult = { offered: [], alreadyCovered: [], skipped: [], failed: [] }
+    const result: EnsureOrganizationActorCredentialsResult = {
+      offered: [],
+      alreadyCovered: [],
+      skipped: [],
+      failed: [],
+    }
+    const members = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT user_id as userId, role FROM org_memberships
+         WHERE org_tenant_id = ? AND status IN ('active', 'invited')`,
+      )
+      .all(orgTenantId) as Array<{ userId: string; role: string }>
 
-    const templates = workflowTemplateRepository.listByTenantId(orgTenantId)
-    const workflowTypes = Array.from(
-      new Set(
-        [
-          ...templates.map((template) => template.workflowType),
-          ...orgSetupProfileService.get(orgTenantId).requestTypes,
-        ].filter(Boolean),
-      ),
-    )
-    const wanted = options.workflowType
-      ? new Set([options.workflowType, ...workflowActorTypeCandidates(options.workflowType)].map((v) => v.toLowerCase()))
-      : undefined
-
-    for (const workflowType of workflowTypes) {
-      if (wanted && !wanted.has(workflowType.toLowerCase())) continue
-      const seenActors = new Set<string>()
-      for (const stageAction of this.listStageActions(orgTenantId, workflowType)) {
-        const actor = this.actorService.resolveActor({ orgTenantId, workflowType, stageAction })
-        const actorKey = actor.userId || actor.walletTenantId || `${actor.mode}:${actor.role}`
-        if (seenActors.has(actorKey)) continue
-        seenActors.add(actorKey)
-
-        const outcome = await this.ensureActorCredential({
-          orgTenantId,
-          workflowType,
-          stageAction,
-          actor,
-          force: options.force,
-          reason: options.reason,
-        })
-        if (outcome.outcome === 'offered') result.offered.push(outcome)
-        else if (outcome.outcome === 'already_offered' || outcome.outcome === 'already_accepted') result.alreadyCovered.push(outcome)
-        else if (outcome.outcome === 'failed') result.failed.push(outcome)
-        else result.skipped.push(outcome)
+    const { orgMembershipCredentialService } = await import('./OrgMembershipCredentialService')
+    for (const member of members) {
+      if (options.userId && member.userId !== options.userId) continue
+      const stageActions = this.coveredStageActionsForMember(orgTenantId, member.userId)
+      const staff = await orgMembershipCredentialService.ensureEmployeeCredential({
+        orgTenantId,
+        userId: member.userId,
+        role: member.role,
+        source: 'membership',
+        force: options.force,
+        reason: options.reason,
+      })
+      const outcome: ActorCredentialOfferResult = {
+        outcome: staff.outcome,
+        reason: staff.reason,
+        orgTenantId,
+        workflowType: options.workflowType || '',
+        stageActions,
+        userId: member.userId,
+        walletTenantId: staff.walletTenantId,
+        role: String(member.role || '').toLowerCase(),
       }
+      if (staff.outcome === 'offered') result.offered.push(outcome)
+      else if (staff.outcome === 'already_offered' || staff.outcome === 'already_accepted')
+        result.alreadyCovered.push(outcome)
+      else if (staff.outcome === 'failed') result.failed.push(outcome)
+      else result.skipped.push(outcome)
     }
     return result
   }
@@ -543,7 +454,10 @@ export class OrgWorkflowActorCredentialService {
     })
   }
 
-  public ensureForOrganizationInBackground(orgTenantId: string, options: { workflowType?: string; reason?: string } = {}): void {
+  public ensureForOrganizationInBackground(
+    orgTenantId: string,
+    options: { workflowType?: string; reason?: string; userId?: string } = {},
+  ): void {
     void this.ensureForOrganization(orgTenantId, options).catch((error: any) => {
       logger.warn({ error: error?.message, orgTenantId }, 'Background organization actor credential sweep failed')
     })

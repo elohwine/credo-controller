@@ -1,6 +1,7 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') })
 
 const { startServer } = require('../build/index')
+const { createLoopbackFetch } = require('../build/utils/loopbackFetch')
 const express = require('express')
 const {
   Agent,
@@ -127,6 +128,7 @@ async function run() {
             agentContext,
             issuanceSession,
             holderBinding,
+            credentialConfiguration,
             credentialConfigurationId,
             credentialConfigurationIds,
           }) => {
@@ -146,22 +148,16 @@ async function run() {
             const boundDid = holderBindingDid(holderBinding)
             if (boundDid) subjectDid = boundDid
 
-            const { DidsApi, KeyType } = require('@credo-ts/core')
+            const { DidsApi } = require('@credo-ts/core')
             const didsApi = agentContext.dependencyManager.resolve(DidsApi)
-            let issuerDids = await didsApi.getCreatedDids({ method: 'key' })
-            let issuerDid
-
-            if (issuerDids.length === 0) {
-              const created = await didsApi.create({
-                method: 'key',
-                options: {
-                  keyType: KeyType.Ed25519,
-                },
-              })
-              issuerDid = created.didState.did
-            } else {
-              issuerDid = issuerDids[0].did
-            }
+            // Organisation records are signed with the organisation's own DID when the offer came
+            // from its issuer; platform credentials with the pinned platform DID.
+            const { signingDidFor } = require('../build/services/ssi/PlatformIssuerDid')
+            const { credentialDefinitionStore } = require('../build/utils/credentialDefinitionStore')
+            const signingDefinition = supportedId
+              ? credentialDefinitionStore.get(supportedId, metadata?.tenantId ? String(metadata.tenantId) : undefined)
+              : undefined
+            const issuerDid = await signingDidFor(agentContext, signingDefinition?.issuerDid)
 
             const issuerDidDocument = await didsApi.resolveDidDocument(issuerDid)
             const verificationMethod =
@@ -169,12 +165,84 @@ async function run() {
 
             let normalizedClaims = claims || {}
             if (normalizedClaims.claims && typeof normalizedClaims.claims === 'object') {
-              normalizedClaims = { ...normalizedClaims, ...normalizedClaims.claims }
+              const { claims: nested, ...rest } = normalizedClaims
+              normalizedClaims = { ...rest, ...nested }
+            }
+
+            // Every card gets a status entry and an issued row so the organisation can withdraw
+            // it later (role change, leaving, "send again").
+            const { credentialLifecycleService } = require('../build/services/ssi/CredentialLifecycleService')
+            const credentialId = metadata?.credentialId || `urn:uuid:${issuanceSession.id}`
+            const issuerTenantId = metadata?.tenantId || 'default'
+
+            const { SD_JWT_CONFIG_SUFFIX, sdJwtDisclosureFrame } = require('../build/utils/credentialDefinitionStore')
+            const configFormat = String(credentialConfiguration?.format || '')
+            const selective =
+              configFormat === 'vc+sd-jwt' ||
+              configFormat === 'dc+sd-jwt' ||
+              String(supportedId || '').endsWith(SD_JWT_CONFIG_SUFFIX) ||
+              String(metadata?.credentialDefinitionId || '').endsWith(SD_JWT_CONFIG_SUFFIX)
+            if (selective) {
+              const vct = String(supportedId || metadata?.credentialDefinitionId || '').replace(
+                SD_JWT_CONFIG_SUFFIX,
+                '',
+              )
+              // The signer checks this object's format and vct. A stored configuration that lost
+              // them still issues, because the configuration id says which card this is.
+              if (credentialConfiguration) {
+                if (!credentialConfiguration.format) credentialConfiguration.format = 'vc+sd-jwt'
+                if (!credentialConfiguration.vct) credentialConfiguration.vct = vct
+              }
+              const sdClaims = {}
+              for (const [key, value] of Object.entries(normalizedClaims)) {
+                if (value === undefined || key === 'id' || key === 'claims') continue
+                sdClaims[key] = value
+              }
+              const bindingKeys = Array.isArray(holderBinding?.keys) ? holderBinding.keys : []
+              const holders = bindingKeys.map((key) =>
+                key?.method === 'did' && typeof key.didUrl === 'string'
+                  ? { method: 'did', didUrl: key.didUrl }
+                  : key?.jwk
+                    ? { method: 'jwk', jwk: key.jwk }
+                    : undefined,
+              )
+              if (holders.length === 0) holders.push(undefined)
+              const statusEntry = credentialLifecycleService.registerIssued({
+                issuanceSessionId: issuanceSession.id,
+                tenantId: issuerTenantId,
+                issuerDid,
+                credentialId,
+                holderDid: subjectDid,
+                credentialDefinitionId: metadata?.credentialDefinitionId || supportedId,
+                format: ClaimFormat.SdJwtDc,
+                credentialData: {
+                  vct,
+                  type: ['VerifiableCredential', vct],
+                  credentialSubject: { id: subjectDid, ...sdClaims },
+                },
+              })
+              console.log(
+                '[startServer] Issuing selective-disclosure card',
+                vct,
+                statusEntry ? 'with status entry' : 'without status entry',
+              )
+              return {
+                type: 'credentials',
+                format: ClaimFormat.SdJwtDc,
+                credentials: holders.map((holder) => ({
+                  // `jti` and `status` stay outside the disclosure frame so a checker always sees them.
+                  payload: { vct, jti: credentialId, ...(statusEntry ? { status: statusEntry } : {}), ...sdClaims },
+                  ...(holder ? { holder } : {}),
+                  issuer: { method: 'did', didUrl: verificationMethod },
+                  disclosureFrame: sdJwtDisclosureFrame(sdClaims),
+                })),
+              }
             }
 
             const credentialType = (supportedId || 'GenericIDCredential').replace(/_jwt_vc_json$/, '')
             const credentialJson = {
               '@context': ['https://www.w3.org/2018/credentials/v1'],
+              id: credentialId,
               type: ['VerifiableCredential', credentialType],
               issuer: issuerDid,
               issuerId: issuerDid,
@@ -185,6 +253,17 @@ async function run() {
               },
               credentialSubjectIds: [subjectDid],
             }
+            const statusEntry = credentialLifecycleService.registerIssued({
+              issuanceSessionId: issuanceSession.id,
+              tenantId: issuerTenantId,
+              issuerDid,
+              credentialId,
+              holderDid: subjectDid,
+              credentialDefinitionId: metadata?.credentialDefinitionId || supportedId,
+              format: ClaimFormat.JwtVc,
+              credentialData: credentialJson,
+            })
+            if (statusEntry) credentialJson.credentialStatus = statusEntry
 
             console.log('[startServer] Constructed Credential (Plain):', JSON.stringify(credentialJson))
 
@@ -206,7 +285,18 @@ async function run() {
         },
       }),
     },
-    dependencies: agentDependencies,
+    dependencies:
+      process.env.OID4VC_LOOPBACK_FETCH === 'false'
+        ? agentDependencies
+        : {
+            ...agentDependencies,
+            // Calls to our own public (tunnel) URL go straight to the local API on port 3000.
+            fetch: createLoopbackFetch(
+              agentDependencies.fetch,
+              [process.env.PUBLIC_BASE_URL, process.env.OID4VC_BASE_URL].filter(Boolean),
+              'http://127.0.0.1:3000',
+            ),
+          },
   })
 
   await agent.initialize()
@@ -309,6 +399,20 @@ async function run() {
       })
     })
 
+    // Selective-disclosure cards (staff card, role card) are also offered as `vc+sd-jwt`, so a
+    // share can reveal only the details a step asks for. Same builder as the API uses.
+    const { issuerConfigurationsForDefinition } = require('../build/utils/credentialDefinitionStore')
+    demoTypes.forEach((type) => {
+      for (const config of issuerConfigurationsForDefinition({
+        name: type,
+        credentialType: ['VerifiableCredential', type],
+      })) {
+        if (config.format !== 'vc+sd-jwt') continue
+        const { id, ...rest } = config
+        credentialConfigurationsSupported[id] = rest
+      }
+    })
+
     const display = [
       {
         name: 'Credo Controller Sample',
@@ -399,7 +503,7 @@ async function run() {
   const server = await startServer(
     agent,
     {
-      port: 3000,
+      port: Number(process.env.CREDO_LISTEN_PORT || process.env.ISSUER_API_PORT || 3000),
       cors: true,
       webhookUrl: process.env.WEBHOOK_URL,
       app,

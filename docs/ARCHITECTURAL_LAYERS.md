@@ -1,8 +1,29 @@
 # Platform Remodel — Architectural Layers
 
-**Status**: Documentation verified against actual codebase (no guessing)  
-**Branch**: `platform-remodel`  
-**Reference Commit**: `370abc249e8724c3cdeeb7641e56d9071f797cc9`
+## Current platform direction (2026-10-15)
+
+The [configurable-platform implementation plan](./CONFIGURABLE_PLATFORM_IMPLEMENTATION_PLAN.md)
+extends this architecture as one modular platform. SSI remains foundational:
+platform identity offers on registration, personal wallets/DIDs, organisation
+issuer/verifier provisioning, core `ssi_identity` readiness and existing required
+proof policies are preserved and may only be enhanced.
+
+Business modules and additional integrations (payments, fiscalisation, devices,
+external credential APIs and later custom workflows) are configurable. Supported
+workflow-record offer/delivery settings do not disable platform identity or required
+proofs. Integration-only organisations need not use internal jobs/store/finance
+screens, but retain their platform SSI context. See the plan for migration and
+acceptance gates; it does not introduce an SSI-off profile or a new runtime behavior.
+
+The branch/reference and implementation-completeness statements below are historical.
+For authentication verification qualifications, see the
+[current SSI authentication notes](./SSI_AUTH_IMPLEMENTATION.md#architecture-decision-and-current-code-qualification-2026-10-15).
+
+---
+
+**Status**: Layer descriptions verified against the codebase at the reference commit below (historical)  
+**Branch at the time**: `platform-remodel` (work now continues on `sgk`)  
+**Reference Commit**: `370abc249e8724c3cdeeb7641e56d9071f797cc9` (historical; not the current head)
 
 ---
 
@@ -130,6 +151,64 @@ draft → submitted → approved/rejected → in_fulfilment → completed
 
 - `src/services/PlatformRequestService.ts`
 - `src/persistence/PlatformRequestRepository.ts`
+
+#### OrgEntitlementService (modules and plans, added 2026-10-12)
+
+Decides whether an organisation may use an optional module. Today there is one module,
+`people_payroll` (staff leave, expense claims, payslips sent again).
+
+- Chosen in setup: `org_setup_profiles.modules` (JSON list, written by `OrgSetupProfileService.save`).
+- Allowed by the plan: `org_plans` (`plan` = `free` | `premium`, `granted_modules`, `note`). A module is
+  allowed when the tier is at least its required tier (`MODULE_PLAN`) or it is in `granted_modules`.
+  An organisation with no row is `free` with `people_payroll` granted and `note = 'pilot'`.
+- `hasModule(orgTenantId, module)` = chosen **and** allowed. Callers: `OrgSetupProfileService.get`
+  (request types and inbox tabs), `PlatformRequestService.optionsForSubject` / `create`,
+  `OrgStarterRoles`. Controllers never read `org_plans` directly.
+
+**Files**:
+
+- `src/services/OrgEntitlementService.ts`
+- `src/services/OrgSetupProfileService.ts`
+- `migrations/113_org_modules_and_plans.sql`
+
+#### HolderActivityService (the person's own log, added 2026-10-12)
+
+Keeps, per wallet, an append-only list of what happened to the person's data: a share and its
+result, a request turned down, a card received or replaced, a card withdrawn. It answers
+"Your activity" on the phone (`/activity`, personal lens) and the website (`/activity`), and the
+Home strips in personal context.
+
+- Rows: `holder_activity` (migration 114), one per `(wallet, kind, source_id)` so retries are no-ops
+  (`INSERT OR IGNORE`). Kinds: `shared`, `share_verified`, `share_refused`, `share_declined`,
+  `card_received`, `card_withdrawn`. The person cannot delete rows; they can export them (CSV).
+- Stored: organisation id and name, the step (`stage_action`) and the job or request reference,
+  the purpose line, the **names** of the card types and claims asked for, the names shared and the
+  names kept back, the signed job line (step · job · amount), the outcome and a plain reason.
+- Never stored: claim values, the presentation or credential itself, keys, nonces or any other
+  VP material (handoff §30). The platform already keeps the verification result on the run.
+- Writers, one per event owner: `StageProofService.recordShareFromWallet` (every embedded or
+  phone share: field sign-off / payout, purchase approve / release / acknowledge, payable
+  transitions, collection consent) and `verifyStageProof` (`share_verified` / `share_refused`);
+  `WalletController.declinedShare` (`POST /api/wallet/activity/declined`, the phone's "Not now");
+  `WalletCredentialsController.acceptOffer` (`card_received`, `outcome = replaced` when the offer
+  carries `metadata.replaces`); `CredentialLifecycleService.revokeStaffCards` (`card_withdrawn`).
+  Controllers never insert rows themselves.
+- Readers: `GET /api/wallet/activity` (cursor paged, `kind`, `orgTenantId`, `format=csv`) and
+  `GET /api/wallet/activity/partners` (who holds a working card of yours, what it lets them check,
+  how many shares, membership). The wallet is taken from the personal token, never from a
+  parameter.
+- A one-time backfill on start (`backfill()`) writes `card_received` from accepted wallet offers and
+  past shares from the `ack` / `payment` presentation stamps on finished runs; it is idempotent.
+
+**Files**:
+
+- `src/services/ssi/HolderActivityService.ts`
+- `src/services/ssi/StageProofService.ts` (`recordShareFromWallet`, `verifyStageProof`)
+- `src/controllers/wallet/WalletController.ts` (`/api/wallet/activity*`)
+- `migrations/114_holder_activity.sql`
+- UI twins: `credo-ui/mobile/lib/holderActivity.ts` ↔ `credo-ui/portal/lib/holderActivity.ts`,
+  `credo-ui/mobile/components/shared/PersonalActivityPanel.tsx` ↔
+  `credo-ui/portal/components/activity/PersonalActivityPanel.tsx`
 
 #### WorkflowService
 
@@ -261,6 +340,59 @@ Transaction history → Trust events → Score calculation → Reputation
 
 **SQLite via better-sqlite3** — no ORM, direct SQL queries.
 
+#### Business transaction and obligation correlation
+
+The finance projection deliberately separates four things:
+
+```
+purchase / sale / fee / field job
+  → payable or receivable obligation
+    → one or more settlement allocations
+      → credential or receipt only at a trust boundary
+```
+
+`BusinessTransactionService` links existing request, workflow, invoice and payment ids without
+replacing their owning modules. `business_transactions` is the stable commercial centre;
+`financial_obligations` holds the amount owed and its remaining balance; and
+`settlement_allocations` applies a payment idempotently. A payment link is a collection attempt,
+not the receivable. A supplier bill is payable only after the order, receipt and bill match, or
+after an authorised variance decision. AP/AR reports read obligations and allocations; they do
+not infer debt from a pending cart, workflow approval or payment-link status.
+
+Field-job client terms follow the same model: one-time, fixed-instalment and recurring schedules
+create separate dated receivable obligations under the job transaction. Retrying or replacing a
+link reuses the obligation; cancelling a link cancels the attempt, while cancelling a plan cancels
+its unsettled obligations. A settlement applies only up to the balance and records any excess as
+unapplied instead of silently overpaying the debt.
+
+Purchases select their evidence boundary explicitly. Goods or services that require confirmation
+use three-way matching (order, delivery/service receipt, supplier bill). A purchase that explicitly
+does not require confirmation uses two-way matching (order and bill), stores no fictional receipt,
+and still creates the payable only after those amounts agree.
+
+This layer is not a general ledger and does not implement tax, inventory, payroll accounting or
+one invoice allocated across multiple jobs.
+
+#### Product centres and shared capabilities
+
+The UI follows the same ownership rule as the data:
+
+- **Operations** owns field jobs, purchase requests, school fees, shop/services and their
+  fulfilment history. A school fee is its own `fee_assessment` business transaction (no parent
+  job): the `education_fee_payment` run creates it through `ReceivablePlanService.createForJob`
+  with one obligation and pay link per instalment.
+- **People** owns leave, expense claims, staff records and payroll runs when that module is on.
+- **Money** is a shared projection: money in (AR) and money out (AP), linked back to the job,
+  purchase, fee, sale or payroll run that created the obligation.
+- Payment links, EcoCash/card/cash/bank methods, instalment schedules and delivery/service
+  confirmation are attached capabilities. They are not top-level business transactions and are
+  used only by centres that need them.
+- **Work** is the action queue (Inbox and Approvals); All requests is the history/registry.
+
+The mirrored `workflowCapabilities.ts` helpers classify the owning centre before the UI chooses
+an inbox section, route or stage copy. Portal and phone therefore use the same centre names even
+when the phone performs wallet actions that the portal cannot.
+
 #### DatabaseManager
 
 Central connection + migration coordinator:
@@ -334,6 +466,9 @@ async createRequest(...) {
 - `src/controllers/WorkflowController.ts`
 - `src/controllers/OrganizationController.ts`
 - `src/controllers/oidc/*.ts` (OpenID issuance/verification)
+- `src/controllers/discovery/DiscoveryController.ts` (public, read-only: organisations that chose to be found, their services and storefront)
+
+2026-10-12: `RequestController` gained the holder-side routes behind the Home "Request" sheet: `GET /api/platform/requests/options` (what this person can ask for, by membership, from `PlatformRequestService.optionsForSubject`), `POST …/raise` (idempotent), `GET …/mine` and `GET …/mine/{id}`. They take the personal wallet token and resolve the organisation from the body, so the person never switches context to ask. `WalletCredentialsController` gained `POST /api/wallet/credentials/resend-mine` (holder-initiated re-issue of staff card and receipts; payslips answer "ask the organisation"). `WorkflowRequestController` accepts `targetOrgTenantId` as an alternative to `contactId` and creates the organisation-side contact on first contact. Controllers still only parse, delegate and map status codes; routing of the resulting cards stays in `WorkflowStageInboxService`, the decision in `AuthorizationService`.
 
 ### Layer 5: Credo Framework Layer
 

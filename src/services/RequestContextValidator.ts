@@ -81,7 +81,18 @@ const CONTEXT_SCHEMAS = new Map<string, ReadonlySet<string>>([
   ],
   [
     'procurement.requisition',
-    new Set(['categoryCode', 'supplierRef', 'urgency', 'justificationRef', 'projectRef', 'budgetRef', 'deliveryRef']),
+    new Set([
+      'categoryCode',
+      'supplierRef',
+      'urgency',
+      'justificationRef',
+      'projectRef',
+      'budgetRef',
+      'deliveryRef',
+      'paymentMethod',
+      'itemType',
+      'receivingRequired',
+    ]),
   ],
   [
     'procurement.supplier_onboarding',
@@ -96,6 +107,10 @@ const CONTEXT_SCHEMAS = new Map<string, ReadonlySet<string>>([
     new Set(['roleRef', 'departmentRef', 'endDate', 'handoverRef', 'reasonCode', 'equipmentReturnRef']),
   ],
   ['hr.delegation_request', new Set(['delegateRef', 'scopeRef', 'validFrom', 'validUntil', 'reasonCode'])],
+  // Raised by a member from Home: time off, with who covers while they are away.
+  ['hr.leave', new Set(['leaveType', 'startDate', 'endDate', 'days', 'reasonCode', 'coverRef'])],
+  // A worker's nudge for a signed-off job whose payout has not been released yet.
+  ['finance.payout_request', new Set(['workflowRunId', 'jobReference', 'periodRef'])],
   [
     'field.site_access',
     new Set([

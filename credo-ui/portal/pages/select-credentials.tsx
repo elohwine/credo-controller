@@ -17,6 +17,11 @@ export default function SelectCredentials() {
   const [AvailableCredentials] = React.useContext(CredentialsContext);
   const env = React.useContext(EnvContext);
   const router = useRouter();
+  const verification = router.query.mode === 'verification';
+
+  React.useEffect(() => {
+    if (router.isReady && !verification) void router.replace('/organization/credential-operations');
+  }, [router.isReady, router, verification]);
 
   const [definitionTypeById, setDefinitionTypeById] = useState<Record<string, string>>({});
 
@@ -132,6 +137,7 @@ export default function SelectCredentials() {
 
     const params = new URLSearchParams();
     params.append("ids", idsToIssue.join(","));
+    params.append("mode", "verification");
 
     router.push(`/credentials?${params.toString()}`);
   }
@@ -140,6 +146,8 @@ export default function SelectCredentials() {
     const value = e.target.value;
     setSearchTerm(value);
   }
+
+  if (!router.isReady || !verification) return null;
 
   return (
     <Layout title="Select Credentials">

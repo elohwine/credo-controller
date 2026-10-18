@@ -17,7 +17,10 @@ export default function QrScanner({ onResult, onCancel, hint }: QrScannerProps) 
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [devInput, setDevInput] = useState('');
+  const [useCamera, setUseCamera] = useState(false);
   const isNative = Capacitor.isNativePlatform();
+  const onResultRef = useRef(onResult);
+  useEffect(() => { onResultRef.current = onResult; }, [onResult]);
   const scannerListenerRef = useRef<{ remove: () => Promise<void> } | null>(null);
 
   const cleanupScanner = useCallback(async () => {
@@ -72,7 +75,7 @@ export default function QrScanner({ onResult, onCancel, hint }: QrScannerProps) 
         const first = oneShot?.barcodes?.[0]?.rawValue;
         if (first) {
           setScanning(false);
-          onResult(first);
+          onResultRef.current(first);
           return;
         }
       } catch {
@@ -99,7 +102,7 @@ export default function QrScanner({ onResult, onCancel, hint }: QrScannerProps) 
         if (!value) return;
         setScanning(false);
         await cleanupScanner();
-        onResult(value);
+        onResultRef.current(value);
       });
       scannerListenerRef.current = listener as any;
 
@@ -114,11 +117,11 @@ export default function QrScanner({ onResult, onCancel, hint }: QrScannerProps) 
       setError(formatNativeScannerError(err));
       setScanning(false);
     }
-  }, [cleanupScanner, onResult]);
+  }, [cleanupScanner]);
 
   useEffect(() => {
-    if (isNative) {
-      startNativeScan();
+    if (isNative && useCamera) {
+      void startNativeScan();
     }
     return () => {
       // Cleanup if unmounted during scan
@@ -126,23 +129,24 @@ export default function QrScanner({ onResult, onCancel, hint }: QrScannerProps) 
         void cleanupScanner();
       }
     };
-  }, [cleanupScanner, isNative, startNativeScan]);
+  }, [cleanupScanner, isNative, startNativeScan, useCamera]);
 
   // Web / dev fallback
-  if (!isNative) {
+  if (!isNative || !useCamera) {
     return (
       <Stack gap="md" p="md">
         <Alert icon={<IconQrcode size={16} />} color="blue" radius="sm">
-          {hint ?? 'Running in browser — paste the QR content below to test.'}
+          {isNative ? 'Use your camera or paste a sign-in, sharing or credential-offer link.' : hint ?? 'Running in browser — paste the QR content below to test.'}
         </Alert>
+        {isNative && <Button onClick={() => setUseCamera(true)}>Use camera</Button>}
         {error && (
           <Alert icon={<IconAlertCircle size={16} />} color="red" radius="sm">
             {error}
           </Alert>
         )}
         <TextInput
-          label="QR / credential offer URI"
-          placeholder="openid-credential-offer://... or paste VP token"
+          label={isNative ? 'Paste wallet link' : 'QR code content'}
+          placeholder="openid4vp://... or openid-credential-offer://..."
           value={devInput}
           onChange={(e) => setDevInput(e.target.value)}
           size="md"
@@ -153,7 +157,7 @@ export default function QrScanner({ onResult, onCancel, hint }: QrScannerProps) 
           disabled={!devInput.trim()}
           onClick={() => onResult(devInput.trim())}
         >
-          Submit
+          {isNative ? 'Open link' : 'Submit'}
         </Button>
         <Button variant="subtle" color="gray" fullWidth onClick={onCancel}>
           Cancel
@@ -167,6 +171,7 @@ export default function QrScanner({ onResult, onCancel, hint }: QrScannerProps) 
     <Center style={{ minHeight: 200 }}>
       <Stack align="center" gap="md">
         {scanning && <Loader color="white" size="lg" />}
+        <Button variant="light" onClick={() => setUseCamera(false)}>Paste link instead</Button>
         {error && (
           <Stack gap="sm" align="center">
             <Alert icon={<IconAlertCircle size={16} />} color="red">

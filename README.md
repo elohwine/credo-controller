@@ -34,6 +34,13 @@ Credo Controller is a W3C-first REST API for building single-tenant SSI agents w
 - 💻 **CLI** that makes it super easy to start an instance of the REST API.
 - 🌐 **Interoperable** with all major Aries implementations.
 
+### Maintained applications on this branch
+
+- [Mobile wallet](./credo-ui/mobile/) — Capacitor Android app and web UI.
+- [Organisation portal](./credo-ui/portal/) — issuer/verifier and operations UI.
+
+The legacy Nuxt `wallet` and `wallet-dev` applications have been removed from this branch.
+
 ### Quick start
 
 The REST API provides an OpenAPI schema that can easily be viewed using the SwaggerUI that is provided with the server. The docs can be viewed on the `/docs` endpoint (e.g. http://localhost:3000/docs).

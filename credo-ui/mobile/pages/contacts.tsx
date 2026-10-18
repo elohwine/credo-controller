@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import {
   Stack, Title, Text, Box, TextInput, ActionIcon, Group, Avatar, Badge,
-  Card, Center, Loader, Alert, ThemeIcon, Divider, Button, Select, CopyButton, Paper, SegmentedControl, Checkbox, Skeleton
+  Card, Center, Loader, Alert, ThemeIcon, Divider, Button, Select, CopyButton, Paper, SegmentedControl, Skeleton
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -16,6 +16,7 @@ import BottomSheet from '@/components/shared/BottomSheet';
 import ErrorAlert from '@/components/shared/ErrorAlert';
 import api, { safeArray } from '@/lib/api';
 import { getActiveOrgLabel, getContextMode, getPreferredToken, getUserRole } from '@/lib/auth';
+import { contactAppLabel, contactAppStatus, contactInviteUrl } from '@/lib/contactAvailability';
 
 interface Contact {
   id: string;
@@ -24,6 +25,7 @@ interface Contact {
   email?: string;
   did?: string;
   contactScope: 'internal' | 'external';
+  appStatus?: 'in_app' | 'invite' | 'no_phone';
   sourceType?: string;
   linkedAt?: string;
   createdAt: string;
@@ -123,7 +125,7 @@ export default function ContactsPage() {
   const [issuing, setIssuing] = useState(false);
 
   const [showCreate, setShowCreate] = useState(false);
-  const [createForm, setCreateForm] = useState({ name: '', phone: '', email: '', contactScope: 'external' as 'internal' | 'external', inviteToWallet: true });
+  const [createForm, setCreateForm] = useState({ name: '', phone: '', email: '', contactScope: 'external' as 'internal' | 'external' });
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -168,6 +170,7 @@ export default function ContactsPage() {
         email: c.email,
         did: c.did,
         contactScope: c.contactScope ?? 'external',
+        appStatus: c.appStatus,
         sourceType: c.sourceType,
         linkedAt: c.linkedAt,
         createdAt: c.createdAt,
@@ -260,11 +263,10 @@ export default function ContactsPage() {
         phone: createForm.phone || undefined,
         email: createForm.email || undefined,
         contactScope: createForm.contactScope,
-        inviteToWallet: createForm.inviteToWallet,
       });
-      notifications.show({ title: 'Success', message: 'Contact created', color: 'green' });
+      notifications.show({ title: 'Saved', message: 'If this phone has no account yet, Invite stays on the list.', color: 'green' });
       setShowCreate(false);
-      setCreateForm({ name: '', phone: '', email: '', contactScope: 'external', inviteToWallet: true });
+      setCreateForm({ name: '', phone: '', email: '', contactScope: 'external' });
       fetchContacts();
     } catch (err: any) {
       notifications.show({ title: 'Error', message: err.response?.data?.message ?? err.message, color: 'red' });
@@ -351,8 +353,8 @@ export default function ContactsPage() {
             onChange={(value) => setScopeFilter(value as 'all' | 'internal' | 'external')}
             data={[
               { label: 'All', value: 'all' },
-              { label: 'Internal', value: 'internal' },
-              { label: 'External', value: 'external' },
+              { label: 'On the team', value: 'internal' },
+              { label: 'Outside', value: 'external' },
             ]}
             mb="sm"
           />
@@ -388,10 +390,14 @@ export default function ContactsPage() {
                     <Group gap={6} mb={2} wrap="nowrap">
                       <Text fw={600} size="sm" truncate>{contact.name}</Text>
                       <Badge size="xs" color={contact.contactScope === 'internal' ? 'indigo' : 'teal'} variant="light">
-                        {contact.contactScope}
+                        {contact.contactScope === 'internal' ? 'On the team' : 'Outside'}
                       </Badge>
-                      {contact.sourceType === 'membership-org' && <Badge size="xs" color="indigo" variant="light">Org</Badge>}
-                      {contact.linkedAt && <Badge size="xs" color="green" variant="light">Linked</Badge>}
+                      {contact.sourceType !== 'membership-org' && contactAppStatus(contact.appStatus) === 'in_app' && (
+                        <Badge size="xs" color="green" variant="light">In the app</Badge>
+                      )}
+                      {contact.sourceType !== 'membership-org' && contactAppStatus(contact.appStatus) === 'invite' && (
+                        <Badge size="xs" color="orange" variant="light">Invite</Badge>
+                      )}
                     </Group>
                     {contact.phone && <Text size="xs" c="dimmed" truncate>{contact.phone}</Text>}
                   </Box>
@@ -511,14 +517,12 @@ export default function ContactsPage() {
                   <Box><Text size="xs" c="dimmed">Email</Text><Text size="sm" fw={500}>{selected.email}</Text></Box>
                 </Group>
               )}
-              {selected.did && (
-                <Group gap="sm" align="flex-start">
-                  <ThemeIcon size={32} radius="xl" variant="light" color="indigo"><IconShieldCheck size={16} /></ThemeIcon>
-                  <Box style={{ flex: 1, minWidth: 0 }}>
-                    <Text size="xs" c="dimmed">Decentralised Identity (DID)</Text>
-                    <Text size="xs" style={{ fontFamily: 'monospace', wordBreak: 'break-all' }} c="indigo">{selected.did}</Text>
-                  </Box>
-                </Group>
+              {selected.sourceType !== 'membership-org' && (
+                <Text size="sm" c={contactAppStatus(selected.appStatus) === 'in_app' ? 'green' : 'dimmed'}>
+                  {contactAppStatus(selected.appStatus) === 'in_app'
+                    ? 'They already have the app, so work can reach them.'
+                    : contactAppLabel(selected.appStatus)}
+                </Text>
               )}
             </Stack>
             <Divider />
@@ -528,15 +532,26 @@ export default function ContactsPage() {
               </Alert>
             )}
             <Stack gap="sm">
+              {selected.sourceType !== 'membership-org' && contactAppStatus(selected.appStatus) === 'invite' && selected.phone && (
+                <Button
+                  fullWidth
+                  size="lg"
+                  color="green"
+                  leftSection={<IconBrandWhatsapp size={18} />}
+                  component="a"
+                  href={contactInviteUrl(selected.phone, selected.name)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Invite to the app
+                </Button>
+              )}
               <Button fullWidth size="lg" leftSection={<IconLink size={18} />} onClick={() => setShowPay(true)} disabled={selected.sourceType === 'membership-org'}>
-                Pay
+                Request payment
               </Button>
-              <Button fullWidth size="lg" color="gray" variant="light" leftSection={<IconChevronRight size={18} />} onClick={() => setShowPay(true)}>
-                View
-              </Button>
-              {!isHolder && (
-                <Button fullWidth size="lg" color="violet" variant="light" leftSection={<IconSend size={18} />} onClick={() => setShowVC(true)} disabled={selected.sourceType === 'membership-org'}>
-                  Issue Credential Offer
+              {!isHolder && selected.contactScope === 'internal' && contactAppStatus(selected.appStatus) === 'in_app' && (
+                <Button fullWidth size="lg" color="violet" variant="light" leftSection={<IconSend size={18} />} onClick={() => setShowVC(true)}>
+                  Send a card
                 </Button>
               )}
               <Button fullWidth size="lg" color="blue" variant="light" leftSection={<IconUsers size={18} />} onClick={() => window.location.assign('/organizations')}>
@@ -612,19 +627,15 @@ export default function ContactsPage() {
           <TextInput label="Phone" placeholder="+263..." value={createForm.phone} onChange={e => setCreateForm({ ...createForm, phone: e.currentTarget.value })} />
           <TextInput label="Email" value={createForm.email} onChange={e => setCreateForm({ ...createForm, email: e.currentTarget.value })} />
           <Select
-            label="Contact scope"
+            label="Who they are"
             value={createForm.contactScope}
             onChange={(value) => setCreateForm({ ...createForm, contactScope: (value as 'internal' | 'external') || 'external' })}
             data={[
-              { value: 'external', label: 'External (customers, suppliers, parents)' },
-              { value: 'internal', label: 'Internal (staff, owner, team)' },
+              { value: 'external', label: 'Outside contact' },
+              { value: 'internal', label: 'On the team' },
             ]}
           />
-          <Checkbox
-            checked={createForm.inviteToWallet}
-            onChange={(event) => setCreateForm({ ...createForm, inviteToWallet: event.currentTarget.checked })}
-            label="Send wallet-link invite after saving"
-          />
+          <Text size="xs" c="dimmed">Saving them does not put them in the app. If this phone has not signed up, the list shows Invite.</Text>
           <Button fullWidth onClick={handleCreateContact} loading={creating} disabled={!createForm.name}>Save Contact</Button>
         </Stack>
       </BottomSheet>

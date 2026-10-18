@@ -7,6 +7,7 @@ export type OfflineStorageDomain =
   | 'verifier_bundle'
   | 'consume_pending'
   | 'sync_state'
+  | 'query_cache'
 
 export interface OfflineStorageAdapter {
   get<T>(domain: OfflineStorageDomain, key: string): T | null
@@ -34,6 +35,7 @@ const OFFLINE_STORAGE_DOMAINS: OfflineStorageDomain[] = [
   'verifier_bundle',
   'consume_pending',
   'sync_state',
+  'query_cache',
 ]
 
 let runtimeNativeMasterSecret: string | null = null

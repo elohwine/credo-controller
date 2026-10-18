@@ -18,6 +18,8 @@ type Handoff = {
   stageOptions: Array<{ id: string; label: string }>;
   enabled: boolean;
   conditionLabel: string;
+  continueOn?: 'approved' | 'completed';
+  continueOnOptions?: Array<{ id: string; label: string }>;
 };
 
 /** "What happens next" — when one piece of work leads to another. */
@@ -48,7 +50,7 @@ export default function HandoffSettingsCard({ orgTenantId, canEdit }: { orgTenan
     void load();
   }, [load]);
 
-  const save = async (item: Handoff, patch: Partial<Pick<Handoff, 'startMode' | 'requiredStages' | 'enabled'>>) => {
+  const save = async (item: Handoff, patch: Partial<Pick<Handoff, 'startMode' | 'requiredStages' | 'enabled' | 'continueOn'>>) => {
     if (!orgTenantId) return;
     setSaving(item.key);
     try {
@@ -115,6 +117,20 @@ export default function HandoffSettingsCard({ orgTenantId, canEdit }: { orgTenan
                       clearable
                     />
                   )}
+                  {item.continueOnOptions && item.continueOn && (
+                    <Box>
+                      <Text size="xs" fw={600} mb={4}>The job continues</Text>
+                      <SegmentedControl
+                        size="xs"
+                        fullWidth
+                        orientation="vertical"
+                        value={item.continueOn}
+                        disabled={!canEdit || saving === item.key}
+                        onChange={(value) => save(item, { continueOn: value as 'approved' | 'completed' })}
+                        data={item.continueOnOptions.map((option) => ({ value: option.id, label: option.label }))}
+                      />
+                    </Box>
+                  )}
                   {item.holdParent && (
                     <Text size="xs" c="dimmed">The job waits while this is open and continues when it is done.</Text>
                   )}
@@ -145,7 +161,7 @@ export default function HandoffSettingsCard({ orgTenantId, canEdit }: { orgTenan
         ) : (
           <Stack gap="md">
             {section('During a job', handoffs.filter((h) => h.kind === 'job'))}
-            {section('After a request is approved', handoffs.filter((h) => h.kind === 'request'))}
+            {section('After a request', handoffs.filter((h) => h.kind === 'request'))}
           </Stack>
         )}
       </Stack>

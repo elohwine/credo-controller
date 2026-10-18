@@ -4,7 +4,7 @@ html,
 body {
   margin: 0;
   padding: 0;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: system-ui, Roboto, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background-color: #f4f7fb;
   background-image:
     radial-gradient(circle at top left, rgba(33, 136, 202, 0.08), transparent 30%),
@@ -13,22 +13,41 @@ body {
   /* Prevent iOS/Android rubber-band scroll on the root */
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
-  /* iOS safe-area insets */
-  padding-bottom: env(safe-area-inset-bottom);
 }
 
 :root {
   --app-statusbar-offset: 0px;
+  --safe-area-inset-top: 0px;
+  --safe-area-inset-right: 0px;
+  --safe-area-inset-bottom: 0px;
+  --safe-area-inset-left: 0px;
+  --app-safe-top: max(var(--safe-area-inset-top), env(safe-area-inset-top, 0px), var(--app-statusbar-offset));
+  --app-safe-right: max(var(--safe-area-inset-right), env(safe-area-inset-right, 0px));
+  --app-safe-bottom: max(var(--safe-area-inset-bottom), env(safe-area-inset-bottom, 0px));
+  --app-safe-left: max(var(--safe-area-inset-left), env(safe-area-inset-left, 0px));
 }
 
 * {
   box-sizing: border-box;
 }
 
+/* A phone screen never scrolls sideways. Rows that should scroll (tab lists, tables) keep
+   their own overflow-x: auto inside this. `clip` (unlike `hidden`) keeps position: sticky. */
+html,
+body,
+#__next {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+.mantine-Button-root {
+  max-width: 100%;
+}
+
 /* Page wrapper — accounts for bottom nav height */
 .page-content {
-  padding-bottom: calc(80px + env(safe-area-inset-bottom));
-  padding-top: calc(8px + max(env(safe-area-inset-top), var(--app-statusbar-offset, 0px)));
+  padding-bottom: calc(96px + var(--app-safe-bottom));
+  padding-top: 8px;
   min-height: 100svh;
 }
 
@@ -39,8 +58,10 @@ body {
   left: 0;
   right: 0;
   z-index: 200;
-  height: calc(62px + env(safe-area-inset-bottom));
-  padding-bottom: env(safe-area-inset-bottom);
+  height: calc(80px + var(--app-safe-bottom));
+  padding-right: var(--app-safe-right);
+  padding-bottom: var(--app-safe-bottom);
+  padding-left: var(--app-safe-left);
   background: rgba(255, 255, 255, 0.84);
   border-top: 1px solid rgba(148, 163, 184, 0.16);
   box-shadow: 0 -8px 30px rgba(15, 23, 42, 0.06);
@@ -50,6 +71,60 @@ body {
 /* Scan FAB special treatment */
 .scan-fab {
   margin-top: -20px;
+}
+
+/* Mantine mounts sheets and dialogs outside the app shell. Keep every close
+   control and action clear of Android/iOS system bars as well. */
+.mantine-Modal-content,
+.mantine-Drawer-content {
+  max-height: calc(100dvh - var(--app-safe-top) - var(--app-safe-bottom));
+}
+
+/* Material bottom sheets are as tall as their content. Mantine maps
+   size="auto" to var(--drawer-size-auto), which it never defines, so without
+   this token every bottom sheet falls back to full height. */
+.mantine-Drawer-root {
+  --drawer-size-auto: auto;
+}
+
+.mantine-Modal-header,
+.mantine-Drawer-header {
+  padding-top: calc(12px + var(--app-safe-top));
+  min-height: calc(60px + var(--app-safe-top));
+}
+
+.mantine-Modal-close,
+.mantine-Drawer-close {
+  width: 48px;
+  height: 48px;
+}
+
+.mantine-Drawer-body {
+  padding-bottom: calc(16px + var(--app-safe-bottom));
+}
+
+button:active,
+a:active,
+.mantine-UnstyledButton-root:active {
+  filter: brightness(0.92);
+}
+
+.mantine-Button-root {
+  min-height: 48px;
+}
+
+.mantine-Input-input:not(textarea),
+.mantine-Combobox-option,
+.app-tabs-tab {
+  min-height: 48px;
+}
+
+.sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--mantine-color-default-border);
+  margin: 4px auto 8px;
 }
 
 /* Dark mode overrides */
@@ -71,4 +146,88 @@ body {
     radial-gradient(circle at top left, rgba(33, 136, 202, 0.12), transparent 30%),
     radial-gradient(circle at top right, rgba(15, 63, 94, 0.16), transparent 28%),
     linear-gradient(180deg, #15181d 0%, #121417 42%, #0f1114 100%);
+}
+
+/* Tab rows behave like Android TabLayout "auto" mode (WhatsApp style): tabs fill the bar when
+   they fit, otherwise each keeps its label on one line and the row scrolls sideways with the
+   selected tab kept in view (lib/tabs.ts). Applied to every Tabs via the theme classNames. */
+.app-tabs-list[data-orientation='horizontal'] {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+}
+
+.app-tabs-list[data-orientation='horizontal']::-webkit-scrollbar {
+  display: none;
+}
+
+/* The underline is drawn on the scroll box itself so it spans the visible width at any scroll
+   position; the absolutely positioned one would stop where the first screen of tabs ends. */
+.app-tabs-list[data-orientation='horizontal'][data-variant='default']::before {
+  display: none;
+}
+
+.app-tabs-list[data-orientation='horizontal'][data-variant='default'] {
+  background: linear-gradient(var(--tab-border-color), var(--tab-border-color)) bottom / 100% 1px no-repeat;
+}
+
+.app-tabs-list[data-orientation='horizontal'] .app-tabs-tab {
+  flex: 1 0 auto;
+  justify-content: center;
+  min-width: 4.5rem;
+  max-width: 22.5rem;
+  white-space: nowrap;
+  scroll-snap-align: start;
+}
+
+/* Unified loading: one thin indeterminate bar (Material 3 linear progress) and skeleton shimmer. */
+@keyframes credentis-progress-slide {
+  0% { transform: translateX(-100%) scaleX(0.35); }
+  50% { transform: translateX(30%) scaleX(0.6); }
+  100% { transform: translateX(110%) scaleX(0.35); }
+}
+.credentis-progress-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none;
+}
+.credentis-progress-track[data-active='true'] {
+  background: rgba(37, 99, 235, 0.14);
+}
+.credentis-progress-bar {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  background: #2563eb;
+  animation: credentis-progress-slide 1.3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes credentis-skeleton-shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+.credentis-skeleton {
+  border-radius: 8px;
+  background-color: #eef1f5;
+  background-image: linear-gradient(90deg, #eef1f5 0, #f8fafc 40%, #eef1f5 80%);
+  background-size: 200px 100%;
+  background-repeat: no-repeat;
+  animation: credentis-skeleton-shimmer 1.2s ease-in-out infinite;
+}
+@keyframes credentis-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .credentis-progress-bar,
+  .credentis-skeleton {
+    animation-duration: 3s;
+  }
 }

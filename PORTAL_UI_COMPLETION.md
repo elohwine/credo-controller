@@ -122,21 +122,21 @@ Extended the Credo Portal UI to cover all backend API controllers. Previously on
 
 ## API Coverage Matrix
 
-| API Controller        | Portal Page                          | Status      |
-| --------------------- | ------------------------------------ | ----------- |
-| `/api/catalog`        | `/catalog`                           | ✅ NEW      |
-| `/api/trust`          | `/trust`                             | ✅ NEW      |
-| `/api/payroll`        | `/payroll`                           | ✅ NEW      |
-| `/api/onboarding`     | `/onboarding`                        | ✅ NEW      |
-| `/api/wa` (WhatsApp)  | `/whatsapp`                          | ✅ NEW      |
-| `/api/revocation`     | `/revocation`                        | ✅ NEW      |
-| `/metrics`, `/health` | `/metrics`                           | ✅ NEW      |
-| `/api/finance`        | `/finance/reports`                   | ✅ Existing |
-| `/api/inventory`      | `/inventory/dashboard`               | ✅ Existing |
-| `/api/operations`     | `/hr/operations`                     | ✅ Existing |
-| `/oidc/*`             | `/credentials`, `/credential-models` | ✅ Existing |
-| `/api/workflows`      | `/workflows`                         | ✅ Existing |
-| `/api/verify`         | `/verify/[vcId]`                     | ✅ Existing |
+| API Controller           | Portal Page                          | Status      |
+| ------------------------ | ------------------------------------ | ----------- |
+| `/api/catalog`           | `/catalog`                           | ✅ NEW      |
+| `/api/trust`             | `/trust`                             | ✅ NEW      |
+| `/api/payroll`           | `/payroll`                           | ✅ NEW      |
+| `/api/onboarding`        | `/onboarding`                        | ✅ NEW      |
+| `/api/wa` (WhatsApp)     | `/whatsapp`                          | ✅ NEW      |
+| `/api/revocation`        | `/revocation`                        | ✅ NEW      |
+| `/metrics`, `/health`    | `/metrics`                           | ✅ NEW      |
+| `/api/finance`           | `/finance/reports`                   | ✅ Existing |
+| `/api/inventory`         | `/inventory/dashboard`               | ✅ Existing |
+| `/api/platform/requests` | `/hr/operations`                     | ✅ Existing |
+| `/oidc/*`                | `/credentials`, `/credential-models` | ✅ Existing |
+| `/api/workflows`         | `/workflows`                         | ✅ Existing |
+| `/api/verify`            | `/verify/[vcId]`                     | ✅ Existing |
 
 ## Design Patterns
 

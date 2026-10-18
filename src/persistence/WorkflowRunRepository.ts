@@ -147,6 +147,10 @@ export class WorkflowRunRepository {
       setClauses.push('output = @output')
       params.output = JSON.stringify(updates.output)
     }
+    if (updates.input !== undefined) {
+      setClauses.push('input = @input')
+      params.input = JSON.stringify(updates.input)
+    }
     if (updates.error !== undefined) {
       setClauses.push('error = @error')
       params.error = updates.error

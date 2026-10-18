@@ -141,6 +141,40 @@ export class DatabaseManager {
       { version: 102, file: '102_org_workflow_handoffs.sql', name: 'org_workflow_handoffs' },
       { version: 103, file: '103_payment_method_catalogue.sql', name: 'payment_method_catalogue' },
       { version: 104, file: '104_org_setup_profiles.sql', name: 'org_setup_profiles' },
+      {
+        version: 105,
+        file: '105_org_setup_profiles_staff_card_change.sql',
+        name: 'org_setup_profiles_staff_card_change',
+      },
+      {
+        version: 106,
+        file: '106_create_credential_status_lists_compat.sql',
+        name: 'create_credential_status_lists_compat',
+      },
+      { version: 107, file: '107_roles_membership_role.sql', name: 'roles_membership_role' },
+      { version: 108, file: '108_device_push_tokens.sql', name: 'device_push_tokens' },
+      { version: 109, file: '109_ar_ap_and_payment_links.sql', name: 'ar_ap_and_payment_links' },
+      { version: 110, file: '110_handoff_continue_on.sql', name: 'handoff_continue_on' },
+      { version: 111, file: '111_org_contacts_compat.sql', name: 'org_contacts_compat' },
+      { version: 112, file: '112_ap_ledger_request_links.sql', name: 'ap_ledger_request_links' },
+      { version: 113, file: '113_org_modules_and_plans.sql', name: 'org_modules_and_plans' },
+      { version: 114, file: '114_holder_activity.sql', name: 'holder_activity' },
+      {
+        version: 115,
+        file: '115_business_transactions_and_obligations.sql',
+        name: 'business_transactions_and_obligations',
+      },
+      { version: 116, file: '116_finance_gap_closure.sql', name: 'finance_gap_closure' },
+      { version: 117, file: '117_org_configuration.sql', name: 'org_configuration' },
+      { version: 119, file: '119_payment_receipt_resolution.sql', name: 'payment_receipt_resolution' },
+      { version: 120, file: '120_wallet_login_sessions.sql', name: 'wallet_login_sessions' },
+      { version: 121, file: '121_wallet_custody_rebinds.sql', name: 'wallet_custody_rebinds' },
+      { version: 122, file: '122_partner_clients.sql', name: 'partner_clients' },
+      { version: 124, file: '124_transactional_notifications.sql', name: 'transactional_notifications' },
+      { version: 125, file: '125_workflow_request_experience.sql', name: 'workflow_request_experience' },
+      { version: 126, file: '126_connected_systems.sql', name: 'connected_systems' },
+      { version: 127, file: '127_organization_entry_proofs.sql', name: 'organization_entry_proofs' },
+      { version: 128, file: '128_device_trust.sql', name: 'device_trust' },
     ]
 
     for (const migration of migrationFiles) {
@@ -179,6 +213,45 @@ export class DatabaseManager {
     }
 
     this.logger.info('All migrations applied successfully')
+    this.repairPresentationProtocolColumns(db)
+  }
+
+  /**
+   * Migrations 023, 024 and 049 share version numbers with older migrations, so the runner skips
+   * them and 090 recreates the tables without their columns. Add whatever is missing, column by
+   * column, so the OpenID4VP request binding works on every database.
+   */
+  private static repairPresentationProtocolColumns(db: Database.Database): void {
+    const repairs: Record<string, Array<[string, string]>> = {
+      presentation_requests: [
+        ['protocol', "TEXT NOT NULL DEFAULT 'openid4vp'"],
+        ['credo_verification_session_id', 'TEXT'],
+        ['verifier_client_id_ref', 'TEXT'],
+        ['protocol_state', 'TEXT'],
+      ],
+      verifier_registrations: [
+        ['signer_did_url_ref', 'TEXT'],
+        ['credo_verifier_id_ref', 'TEXT'],
+      ],
+    }
+    for (const [table, columns] of Object.entries(repairs)) {
+      const existing = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+      if (existing.length === 0) continue
+      const names = new Set(existing.map((column) => column.name))
+      for (const [column, definition] of columns) {
+        if (names.has(column)) continue
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+        this.logger.info(`Added missing column ${table}.${column}`)
+      }
+    }
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_platform_presentation_credo_session
+        ON presentation_requests(credo_verification_session_id) WHERE credo_verification_session_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_presentation_requests_protocol_state
+        ON presentation_requests(protocol_state) WHERE protocol_state IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_platform_verifier_credo_id
+        ON verifier_registrations(organization_id, credo_verifier_id_ref) WHERE credo_verifier_id_ref IS NOT NULL;
+    `)
   }
 
   private static logQuery(sql: string): void {

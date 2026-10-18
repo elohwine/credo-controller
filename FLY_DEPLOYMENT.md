@@ -1,194 +1,85 @@
-# Fly.io Deployment Guide
+# Fly.io deployment
 
-## Prerequisites
+The Credo API and the SSI-to-OIDC bridge run as **one Fly app, one machine, one volume**. Fly bills running machines, not processes, so a second app for the bridge would cost more, not less.
 
-- Install Fly CLI: `curl -L https://fly.io/install.sh | sh`
-- Login: `fly auth login`
+Account: `elowine@outlook.com`, org `personal` (`Eloh`), region `jnb`. Do not log in as another account. Do not touch the `crypto-btcpay-final-*` apps.
 
-## Secrets to Set
+Wallet and portal stay separate apps and can stay scaled to zero. They are not part of this deploy.
 
-### API Service (credentis-api)
+## What runs on the machine
 
-```bash
-cd /home/eloh/PROJECTS/credo-controller
+Caddy listens on `:8080`. Fly terminates TLS in front of it.
 
-# Database encryption
-fly secrets set WALLET_KEY="$(openssl rand -base64 32)" -a credentis-api
+| Public path | Process | Bind |
+| --- | --- | --- |
+| `/.well-known/*`, `/oauth2/*`, `/userinfo` | Ory Hydra | `127.0.0.1:4444` |
+| `/login`, `/_next/*`, `/common/*`, `/api/consent`, `/api/presentCredential`, `/api/clientMetadata`, `/api/dynamic/*`, `/api-docs` | vclogin | `127.0.0.1:3002` |
+| everything else, including `/health` and `/api/*` | Credo API | `127.0.0.1:3000` |
 
-# JWT secrets
-fly secrets set JWT_SECRET="$(openssl rand -base64 64)" -a credentis-api
+Not published: Hydra admin `:4445`, Postgres `:5432`, Redis `:6379`. The API reaches Hydra at `http://127.0.0.1:4445`. vclogin reaches the API at `http://127.0.0.1:3000`.
 
-# Agent configuration
-fly secrets set AGENT_NAME="Credentis Issuer" -a credentis-api
-fly secrets set AGENT_ENDPOINTS='["https://credentis-api.fly.dev"]' -a credentis-api
+Public URL, for both the API and relying parties:
 
-# Optional: EcoCash integration
-# fly secrets set ECOCASH_API_URL="https://api.ecocash.co.zw" -a credentis-api
-# fly secrets set ECOCASH_MERCHANT_ID="your-merchant-id" -a credentis-api
-# fly secrets set ECOCASH_API_KEY="your-api-key" -a credentis-api
-```
+- API: `https://credentis.fly.dev`
+- OIDC issuer: `https://credentis.fly.dev/`
+- Discovery: `https://credentis.fly.dev/.well-known/openid-configuration`
 
-### Wallet Service (credentis-wallet)
+## Size
 
-```bash
-cd /home/eloh/PROJECTS/credo-controller/credo-ui/wallet
+`shared-cpu-4x` (1024 MB), `min_machines_running = 1`, `auto_stop_machines = off`. Do not use `shared-cpu-1x` (256 MB) and do not scale to zero. If the machine is OOM-killed, use `fly scale vm shared-cpu-8x -a credentis`. Do not split the bridge into a second app. The volume attaches to one machine, so the app stays at count 1.
 
-# No secrets required - all config via env vars in fly.toml
-```
-
-### Portal Service (credentis-portal)
+## First deploy
 
 ```bash
-cd /home/eloh/PROJECTS/credo-controller/credo-ui/portal
+# must print elowine@outlook.com
+fly auth whoami
 
-# API authentication (if needed)
-# fly secrets set NEXT_PUBLIC_ISSUER_API_KEY="your-api-key" -a credentis-portal
+# stages vclogin, creates the app and volume if missing, then deploys
+# refuses any Fly account other than elowine@outlook.com
+./scripts/fly-deploy.sh
 ```
 
-## Deployment Steps
-
-### 1. Deploy API Service
+Set secrets once, before the first boot. Generate each with `openssl rand -base64 48`. Never use the upstream samples (`youReallyNeedToChangeThis`, `secret`).
 
 ```bash
-cd /home/eloh/PROJECTS/credo-controller
-
-# Create app (first time only)
-fly launch --no-deploy --name credentis-api --region jnb --dockerfile Dockerfile
-
-# Set secrets (see above)
-fly secrets set WALLET_KEY="$(openssl rand -base64 32)" -a credentis-api
-fly secrets set JWT_SECRET="$(openssl rand -base64 64)" -a credentis-api
-
-# Deploy
-fly deploy -a credentis-api
-
-# Verify
-fly status -a credentis-api
-fly logs -a credentis-api
+BRIDGE_KEY="$(openssl rand -base64 48 | tr -d '\n')"
+fly secrets set -a credentis \
+  HYDRA_SECRETS_SYSTEM="$(openssl rand -base64 48 | tr -d '\n')" \
+  HYDRA_PAIRWISE_SALT="$(openssl rand -base64 48 | tr -d '\n')" \
+  POSTGRES_PASSWORD="$(openssl rand -base64 48 | tr -d '\n')" \
+  REDIS_PASSWORD="$(openssl rand -base64 48 | tr -d '\n')" \
+  CREDENTIS_BRIDGE_KEY="$BRIDGE_KEY" \
+  PARTNER_BRIDGE_API_KEY="$BRIDGE_KEY" \
+  WALLET_ID="shared-controller-agent" \
+  WALLET_KEY="$(openssl rand -base64 32 | tr -d '\n')" \
+  JWT_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
 ```
 
-### 2. Deploy Wallet Service
+`WALLET_ID` and `WALLET_KEY` must stay the same across deploys or the Askar wallet will not open. Do not set `HYDRA_ADMIN_FORWARDED_PROTO`. `HYDRA_ADMIN_URL` is already `http://127.0.0.1:4445` in `fly.toml`.
+
+Later deploys are `./scripts/fly-deploy.sh`. It stages `ssi-to-oidc-bridge/vclogin` into `deploy/fly/vclogin-src` (gitignored) and runs `fly deploy --ha=false`.
+
+## Checks
 
 ```bash
-cd /home/eloh/PROJECTS/credo-controller/credo-ui/wallet
-
-# Create app (first time only)
-fly launch --no-deploy --name credentis-wallet --region jnb --dockerfile Dockerfile
-
-# Deploy
-fly deploy -a credentis-wallet
-
-# Verify
-fly status -a credentis-wallet
-fly logs -a credentis-wallet
+curl -fsS https://credentis.fly.dev/health
+curl -fsS https://credentis.fly.dev/.well-known/openid-configuration
+curl -fsS -o /dev/null -w '%{http_code}\n' https://credentis.fly.dev/login
+fly status -a credentis
+fly ssh console -a credentis -C "wget -q -O - http://127.0.0.1:4445/health/ready"
 ```
 
-### 3. Deploy Portal Service
+Discovery `issuer` must be `https://credentis.fly.dev/`. `/login` must be the vclogin page. Admin, Postgres and Redis must not answer on the public hostname.
 
-```bash
-cd /home/eloh/PROJECTS/credo-controller/credo-ui/portal
+Hydra's Postgres data must remain at `/data/postgres` on the persistent volume,
+not on the machine's ephemeral root filesystem. The entrypoint restores `/data`
+traversal permissions after creating SQLite/app directories; the Postgres directory
+itself remains mode `700`, owned by `postgres`.
 
-# Create app (first time only)
-fly launch --no-deploy --name credentis-portal --region jnb --dockerfile Dockerfile
+## Android release
 
-# Deploy
-fly deploy -a credentis-portal
-
-# Verify
-fly status -a credentis-portal
-fly logs -a credentis-portal
-```
-
-## Inter-Service Communication
-
-Fly.io provides internal DNS for apps within the same organization:
-
-- **Internal**: `http://credentis-api.internal:3000` (wallet/portal → API)
-- **External**: `https://credentis-api.fly.dev` (public callbacks)
-
-### Network Notes
-
-- Internal traffic uses `.internal` hostnames (no TLS, private network)
-- External traffic uses `.fly.dev` hostnames (automatic TLS)
-- Wallet backend proxy routes `/wallet-api/*` → API holder service (port 6000)
-
-## Persistent Storage
-
-SQLite databases are stored in `/app/data` and use Fly volumes:
-
-```bash
-# Create volume for API (if using persistent DB)
-fly volumes create credentis_data --region jnb --size 1 -a credentis-api
-
-# Update fly.toml to mount volume
-# [mounts]
-#   source = "credentis_data"
-#   destination = "/app/data"
-```
-
-**Note**: Current setup uses ephemeral storage. For production, add volume mounts.
-
-## Health Checks
-
-All services include health check endpoints:
-
-- **API**: `GET /health` (port 3000)
-- **Wallet**: Nuxt default health check
-- **Portal**: Next.js default health check
-
-## Scaling
-
-```bash
-# Scale to 2 machines
-fly scale count 2 -a credentis-api
-
-# Auto-scale (0-3 machines based on load)
-fly autoscale set min=0 max=3 -a credentis-api
-```
-
-## Troubleshooting
-
-```bash
-# View logs
-fly logs -a credentis-api
-
-# SSH into machine
-fly ssh console -a credentis-api
-
-# Check resource usage
-fly status -a credentis-api
-
-# Restart app
-fly apps restart credentis-api
-```
-
-## Environment Variables Summary
-
-| Service | Variable                        | Value                              | Type   |
-| ------- | ------------------------------- | ---------------------------------- | ------ |
-| API     | PUBLIC_BASE_URL                 | https://credentis-api.fly.dev      | env    |
-| API     | WALLET_UI_URL                   | https://credentis-wallet.fly.dev   | env    |
-| API     | PORTAL_UI_URL                   | https://credentis-portal.fly.dev   | env    |
-| API     | WALLET_KEY                      | _generated_                        | secret |
-| API     | JWT_SECRET                      | _generated_                        | secret |
-| Wallet  | NUXT_PUBLIC_WALLET_BACKEND_URL  | http://credentis-api.internal:6000 | env    |
-| Wallet  | NUXT_PUBLIC_ISSUER_CALLBACK_URL | https://credentis-api.fly.dev      | env    |
-| Portal  | NEXT_PUBLIC_ISSUER_API_URL      | http://credentis-api.internal:3000 | env    |
-| Portal  | NEXT_PUBLIC_WALLET_UI_URL       | https://credentis-wallet.fly.dev   | env    |
-
-## Post-Deployment Verification
-
-1. **API Health**: `curl https://credentis-api.fly.dev/health`
-2. **Wallet UI**: Visit `https://credentis-wallet.fly.dev`
-3. **Portal UI**: Visit `https://credentis-portal.fly.dev`
-4. **Test Credential Flow**:
-   - Portal → Create offer
-   - Wallet → Accept offer
-   - Verify credential appears in wallet
-
-## Cost Optimization
-
-- Auto-stop inactive machines (already configured)
-- Start at 0 min machines for development
-- Scale up to 1-2 machines for production load
-- Use shared-cpu-1x machine type (default)
+From `credo-ui/mobile`, run `npm run android:release`. The signed release defaults
+to `https://credentis.fly.dev`; a running ngrok agent no longer changes the build.
+An explicit `NEXT_PUBLIC_API_URL=https://...` can override the default for testing.
+The script increments the Android version and writes the signed APK to `dist/`.
+Local browser development still uses the local API on port 3000.

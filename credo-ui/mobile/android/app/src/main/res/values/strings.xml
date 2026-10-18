@@ -4,4 +4,5 @@
     <string name="title_activity_main">Credentis</string>
     <string name="package_name">com.credentis.mobile</string>
     <string name="custom_url_scheme">com.credentis.mobile</string>
+    <string name="default_notification_channel_id">credentis_alerts</string>
 </resources>

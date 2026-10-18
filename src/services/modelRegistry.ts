@@ -3,6 +3,7 @@ import { container } from 'tsyringe'
 
 import { DELEGATION_JSON_SCHEMA, DELEGATION_VC_TYPE } from '../config/credentials/DelegationVC'
 import { EMPLOYEE_JSON_SCHEMA, EMPLOYEE_VC_TYPE } from '../config/credentials/EmployeeVC'
+import { JOB_ASSIGNMENT_JSON_SCHEMA, JOB_ASSIGNMENT_VC_TYPE } from '../config/credentials/JobAssignmentVC'
 import { ORG_WORKFLOW_ACTOR_JSON_SCHEMA, ORG_WORKFLOW_ACTOR_VC_TYPE } from '../config/credentials/OrgWorkflowActorVC'
 import {
   PLATFORM_IDENTITY_VC_TYPE,
@@ -99,22 +100,27 @@ export async function seedPlatformCredentialDefinitions(rootIssuerDid: string): 
   // --- OrgWorkflowActorCredential (actor VC offered to configured workflow actors) ---
   const actorSchemaId = ensureGlobalSchema(ORG_WORKFLOW_ACTOR_VC_TYPE, '1.0.0', ORG_WORKFLOW_ACTOR_JSON_SCHEMA)
 
-  ensureGlobalDefinition(ORG_WORKFLOW_ACTOR_VC_TYPE, actorSchemaId, ['VerifiableCredential', ORG_WORKFLOW_ACTOR_VC_TYPE], {
-    credentialSubject: {
-      orgTenantId: 'org-tenant-id',
-      orgName: 'Organization',
-      userId: 'user-id',
-      memberRole: 'approver',
-      role: 'approver',
-      workflowType: 'internal_requisitions',
-      stageActions: ['approve_requisition'],
-      assignmentMode: 'configured_user',
-      assignedAt: new Date().toISOString(),
-      issuedAt: new Date().toISOString(),
-      platformName: 'IdenEx Credentis',
-      fingerprint: 'sha256',
+  ensureGlobalDefinition(
+    ORG_WORKFLOW_ACTOR_VC_TYPE,
+    actorSchemaId,
+    ['VerifiableCredential', ORG_WORKFLOW_ACTOR_VC_TYPE],
+    {
+      credentialSubject: {
+        orgTenantId: 'org-tenant-id',
+        orgName: 'Organization',
+        userId: 'user-id',
+        memberRole: 'approver',
+        role: 'approver',
+        workflowType: 'internal_requisitions',
+        stageActions: ['approve_requisition'],
+        assignmentMode: 'configured_user',
+        assignedAt: new Date().toISOString(),
+        issuedAt: new Date().toISOString(),
+        platformName: 'IdenEx Credentis',
+        fingerprint: 'sha256',
+      },
     },
-  })
+  )
 
   const employeeSchemaId = ensureGlobalSchema(EMPLOYEE_VC_TYPE, '1.0.0', EMPLOYEE_JSON_SCHEMA)
   ensureGlobalDefinition(EMPLOYEE_VC_TYPE, employeeSchemaId, ['VerifiableCredential', EMPLOYEE_VC_TYPE], {
@@ -205,6 +211,8 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
             amount: { type: 'string' },
             currency: { type: 'string' },
             merchant: { type: 'string' },
+            merchantName: { type: 'string' },
+            merchantDid: { type: 'string' },
           },
         },
       },
@@ -608,5 +616,230 @@ export async function registerDefaultModelsForTenant({ tenantId, issuerDid }: Se
       },
       'jwt_vc_json',
     )
+
+    const employeeSchemaId = ensureSchema(EMPLOYEE_VC_TYPE, '1.0.0', EMPLOYEE_JSON_SCHEMA)
+    registerDef(
+      EMPLOYEE_VC_TYPE,
+      '1.0.0',
+      employeeSchemaId,
+      ['VerifiableCredential', EMPLOYEE_VC_TYPE],
+      {},
+      'jwt_vc_json',
+    )
+
+    const delegationSchemaId = ensureSchema(DELEGATION_VC_TYPE, '1.0.0', DELEGATION_JSON_SCHEMA)
+    registerDef(
+      DELEGATION_VC_TYPE,
+      '1.0.0',
+      delegationSchemaId,
+      ['VerifiableCredential', DELEGATION_VC_TYPE],
+      {},
+      'jwt_vc_json',
+    )
+
+    const actorSchemaId = ensureSchema(ORG_WORKFLOW_ACTOR_VC_TYPE, '1.0.0', ORG_WORKFLOW_ACTOR_JSON_SCHEMA)
+    registerDef(
+      ORG_WORKFLOW_ACTOR_VC_TYPE,
+      '1.0.0',
+      actorSchemaId,
+      ['VerifiableCredential', ORG_WORKFLOW_ACTOR_VC_TYPE],
+      {},
+      'jwt_vc_json',
+    )
+
+    await ensureRequestRecordModels(tenantId, issuerDid)
   })
+}
+
+const LEAVE_APPROVAL_SCHEMA = {
+  $id: 'LeaveApprovalVC-1.0.0',
+  type: 'object',
+  required: ['credentialSubject'],
+  properties: {
+    credentialSubject: {
+      type: 'object',
+      required: ['leaveRequestId', 'employeeId', 'leaveType', 'startDate', 'endDate', 'approvedBy', 'approvedAt'],
+      properties: {
+        leaveRequestId: { type: 'string' },
+        employeeId: { type: 'string' },
+        employeeName: { type: 'string' },
+        orgName: { type: 'string' },
+        leaveType: { type: 'string' },
+        startDate: { type: 'string' },
+        endDate: { type: 'string' },
+        daysCount: { type: 'number' },
+        cover: { type: 'string' },
+        note: { type: 'string' },
+        approvedBy: { type: 'string' },
+        approvedAt: { type: 'string' },
+      },
+    },
+  },
+}
+
+const EXPENSE_APPROVAL_SCHEMA = {
+  $id: 'ExpenseApprovalVC-1.0.0',
+  type: 'object',
+  required: ['credentialSubject'],
+  properties: {
+    credentialSubject: {
+      type: 'object',
+      required: ['expenseClaimId', 'employeeId', 'amount', 'currency', 'approvedBy', 'approvedAt'],
+      properties: {
+        expenseClaimId: { type: 'string' },
+        employeeId: { type: 'string' },
+        employeeName: { type: 'string' },
+        orgName: { type: 'string' },
+        description: { type: 'string' },
+        amount: { type: 'number' },
+        currency: { type: 'string' },
+        category: { type: 'string' },
+        approvedBy: { type: 'string' },
+        approvedAt: { type: 'string' },
+      },
+    },
+  },
+}
+
+/** A record whose claims the workflow template decides; any claim set is accepted. */
+function openRecordSchema(name: string): Record<string, any> {
+  return {
+    $id: `${name}-1.0.0`,
+    type: 'object',
+    required: ['credentialSubject'],
+    properties: { credentialSubject: { type: 'object', additionalProperties: true } },
+  }
+}
+
+/**
+ * Records a workflow step can hand a person. Each is registered on the organisation the first
+ * time it is needed, so the holder keeps a card of that type (a "Job card", not a "Generic ID").
+ */
+export const WORKFLOW_RECORD_SCHEMAS: Record<string, Record<string, any>> = {
+  [JOB_ASSIGNMENT_VC_TYPE]: JOB_ASSIGNMENT_JSON_SCHEMA,
+  [EMPLOYEE_VC_TYPE]: EMPLOYEE_JSON_SCHEMA,
+  [DELEGATION_VC_TYPE]: DELEGATION_JSON_SCHEMA,
+  [ORG_WORKFLOW_ACTOR_VC_TYPE]: ORG_WORKFLOW_ACTOR_JSON_SCHEMA,
+  LeaveApprovalVC: LEAVE_APPROVAL_SCHEMA,
+  ExpenseApprovalVC: EXPENSE_APPROVAL_SCHEMA,
+  RequisitionVC: openRecordSchema('RequisitionVC'),
+  RequisitionAcknowledgementVC: openRecordSchema('RequisitionAcknowledgementVC'),
+  SiteInspectionVC: openRecordSchema('SiteInspectionVC'),
+  ExecutionAckVC: openRecordSchema('ExecutionAckVC'),
+  QuoteVC: openRecordSchema('QuoteVC'),
+  PaymentReceiptVC: openRecordSchema('PaymentReceiptVC'),
+  DeliveryProofVC: openRecordSchema('DeliveryProofVC'),
+  PayslipVC: openRecordSchema('PayslipVC'),
+}
+
+/**
+ * Leave and expense records an organisation issues when it approves a request.
+ * Existing organisations were provisioned before these models existed, so approval
+ * registers them on that organisation and adds them to the issuer the offer uses.
+ */
+export async function ensureRequestRecordModels(tenantId: string, issuerDid: string): Promise<void> {
+  await ensureRecordModels(tenantId, issuerDid, ['LeaveApprovalVC', 'ExpenseApprovalVC'])
+}
+
+/**
+ * Register the given record types on an organisation and advertise them on the issuer, so an
+ * offer for that type is issued as that type. Unknown types are ignored (the caller falls back).
+ * Returns the types that are now registered.
+ */
+export async function ensureRecordModels(tenantId: string, issuerDid: string, types: string[]): Promise<string[]> {
+  const known = types.filter((type) => WORKFLOW_RECORD_SCHEMAS[type])
+  if (known.length === 0) return []
+  await registerRecordModels(
+    tenantId,
+    issuerDid,
+    known.map((name) => ({ name, jsonSchema: WORKFLOW_RECORD_SCHEMAS[name] })),
+  )
+  return known
+}
+
+export interface RecordModelInput {
+  name: string
+  jsonSchema: Record<string, any>
+  /** Schema version; the credential definition and issuer configuration stay one per name. */
+  schemaVersion?: string
+}
+
+/**
+ * Register record models (schema, credential definition, issuer configuration) on an
+ * organisation. Returns the schema id registered for each model name.
+ */
+export async function registerRecordModels(
+  tenantId: string,
+  issuerDid: string,
+  models: RecordModelInput[],
+): Promise<Record<string, string>> {
+  if (models.length === 0) return {}
+  const { schemaStore } = await import('../utils/schemaStore')
+  const { credentialDefinitionStore, issuerConfigurationsForDefinition } = await import(
+    '../utils/credentialDefinitionStore'
+  )
+
+  const ensureSchema = (name: string, version: string, jsonSchema: Record<string, any>): string => {
+    const existing = schemaStore.find(name, version, tenantId)
+    if (existing) return existing.schemaId
+    const registered: any = schemaStore.register({ name, version, jsonSchema, tenantId })
+    if ('error' in registered) {
+      const after = schemaStore.find(name, version, tenantId)
+      if (after) return after.schemaId
+      throw new Error(`Schema registration failed for ${name}: ${registered.error}`)
+    }
+    return registered.schemaId
+  }
+
+  const ensureDef = (name: string, schemaId: string) => {
+    const existing = credentialDefinitionStore
+      .list(tenantId)
+      .find((def) => def.name === name && def.version === '1.0.0' && def.issuerDid === issuerDid)
+    if (existing) return existing
+    const registered: any = credentialDefinitionStore.register({
+      name,
+      version: '1.0.0',
+      schemaId,
+      issuerDid,
+      tenantId,
+      credentialType: ['VerifiableCredential', name],
+      claimsTemplate: {},
+      format: 'jwt_vc_json',
+    })
+    if (registered && 'error' in registered) {
+      const after = credentialDefinitionStore
+        .list(tenantId)
+        .find((def) => def.name === name && def.issuerDid === issuerDid)
+      if (after) return after
+      throw new Error(`Credential definition registration failed for ${name}: ${registered.error}`)
+    }
+    return registered
+  }
+
+  const schemaIds: Record<string, string> = {}
+  const defs = models
+    .map((model) => {
+      const schemaId = ensureSchema(model.name, model.schemaVersion || '1.0.0', model.jsonSchema)
+      schemaIds[model.name] = schemaId
+      return ensureDef(model.name, schemaId)
+    })
+    .filter(Boolean)
+
+  const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent)
+  const issuerModule = (baseAgent as any).openid4vc?.issuer || (baseAgent.modules as any)?.openId4VcIssuer
+  if (!issuerModule?.getAllIssuers) return schemaIds
+  const issuers = await issuerModule.getAllIssuers()
+  const added = Object.fromEntries(
+    defs.flatMap((def: any) => issuerConfigurationsForDefinition(def).map((config) => [config.id, config])),
+  )
+  await Promise.all(
+    (issuers || []).map((issuer: any) =>
+      issuerModule.updateIssuerMetadata({
+        issuerId: issuer.issuerId,
+        credentialConfigurationsSupported: { ...(issuer.credentialConfigurationsSupported || {}), ...added },
+        display: issuer.display || [],
+      }),
+    ),
+  )
+  return schemaIds
 }

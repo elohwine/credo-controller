@@ -64,6 +64,10 @@ services:
     build:
       context: ./credo-ui/portal
       dockerfile: Dockerfile
+      # Org configuration shared with the API and mobile app (credo-ui/shared -> src/config).
+      additional_contexts:
+        shared: ./credo-ui/shared
+        orgconfig: ./src/config
     container_name: credo-portal
     restart: unless-stopped
     ports:

@@ -1,62 +1,46 @@
-app = "credentis-api-v2"
+# One Fly app for the Credo API and the SSI-to-OIDC bridge.
+# Caddy on :8080 splits the public hostname. Hydra admin, Postgres and Redis stay on loopback.
+# Do not add a second app for the bridge, and do not set min_machines_running = 0.
+app = "credentis"
 primary_region = "jnb"
 
 [build]
-  dockerfile = "Dockerfile"
-  target = "production"
+  dockerfile = "Dockerfile.fly"
 
 [env]
   NODE_ENV = "production"
-  PORT = "3000"
-  HOLDER_PORT = "6000"
-  PUBLIC_BASE_URL = "https://credentis-api.fly.dev"
-  HOLDER_BASE_URL = "https://credentis-api.fly.dev:6000"
-  WALLET_UI_URL = "https://credentis-wallet.fly.dev"
-  PORTAL_UI_URL = "https://credentis-portal.fly.dev"
+  PORT = "8080"
+  PUBLIC_BASE_URL = "https://credentis.fly.dev"
+  HYDRA_PUBLIC_URL = "https://credentis.fly.dev/"
+  VCLOGIN_PUBLIC_URL = "https://credentis.fly.dev"
+  PARTNER_OIDC_ISSUER_URL = "https://credentis.fly.dev/"
+  CREDENTIS_API_URL = "http://127.0.0.1:3000"
+  HYDRA_ADMIN_URL = "http://127.0.0.1:4445"
+  ASKAR_STORAGE_PATH = "/data/askar"
+  PERSISTENCE_DB_PATH = "/data/persistence.db"
+  CREDO_LISTEN_PORT = "3000"
 
-[[services]]
-  internal_port = 3000
-  protocol = "tcp"
+[http_service]
+  internal_port = 8080
+  force_https = true
   auto_stop_machines = "off"
   auto_start_machines = true
   min_machines_running = 1
+  processes = ["app"]
 
-
-  [[services.ports]]
-    handlers = ["http"]
-    port = 80
-
-  [[services.ports]]
-    handlers = ["tls", "http"]
-    port = 443
-
-[[services]]
-  internal_port = 6000
-  protocol = "tcp"
-  auto_stop_machines = "off"
-  auto_start_machines = true
-  min_machines_running = 1
-
-
-  [[services.ports]]
-    handlers = ["tls", "http"]
-    port = 6000
-
-
-  [[services.http_checks]]
+  [[http_service.checks]]
     interval = "30s"
     timeout = "10s"
-    grace_period = "40s"
-    method = "get"
+    grace_period = "120s"
+    method = "GET"
     path = "/health"
 
-# Cost-effective VM configuration
-[vm]
-  size = "shared-cpu-1x"
-  memory = "1gb"  # Increased from 256MB to handle multiple processes
+[[vm]]
+  size = "shared-cpu-4x"
+  memory = "1024mb"
 
-# Persistent storage for SQLite databases
 [[mounts]]
   source = "credentis_data"
-  destination = "/app/data"
-  initial_size = 1  # 1GB volume
+  destination = "/data"
+  initial_size = "1gb"
+

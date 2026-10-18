@@ -20,6 +20,7 @@ import { DetailStatusCard, type DetailTimelineItem, WorkflowDetailBody } from '.
 import { StageActorTimeline } from '../../../components/finance/StageActorTimeline';
 import { actorsForWorkflow, requisitionEventTitle, requisitionNextStep, requisitionStages, requisitionStatusColor, requisitionStatusLabel, type WorkflowActorReport } from '../../../components/finance/financeStages';
 import { getOrgScopedToken, readActiveOrganization } from '@/utils/organizationContext';
+import { formatTxnTime } from '@/lib/inboxAttention';
 
 import { useRequireOrgContext } from '@/lib/portalContext';
 export default function RequisitionDetailPage() {
@@ -227,7 +228,7 @@ export default function RequisitionDetailPage() {
             ? `By: ${ev.actorName || ev.approverName || String(ev.actorDid || '').substring(0, 20) + '…'}`
             : undefined,
         note: ev.approverRole ? `Role: ${ev.approverRole}` : undefined,
-        timestamp: ev.occurredAt ? new Date(ev.occurredAt).toLocaleString() : undefined,
+        timestamp: formatTxnTime(ev.occurredAt) || undefined,
         badge: {
             label: 'recorded',
             color: 'teal',
@@ -247,7 +248,7 @@ export default function RequisitionDetailPage() {
                         <Title order={4} mb="md">Details</Title>
                         <Stack gap="sm">
                             <Group justify="space-between"><Text fw={600}>Total amount:</Text> <Text>{resolvedCurrency} {resolvedAmount.toLocaleString()}</Text></Group>
-                            <Group justify="space-between"><Text fw={600}>Created:</Text> <Text>{new Date(summary.firstEventAt).toLocaleString()}</Text></Group>
+                            <Group justify="space-between"><Text fw={600}>Created:</Text> <Text>{formatTxnTime(summary.firstEventAt) || '—'}</Text></Group>
                             <Group justify="space-between"><Text fw={600}>Updates:</Text> <Text>{summary.eventCount}</Text></Group>
                         </Stack>
 
@@ -286,7 +287,6 @@ export default function RequisitionDetailPage() {
                     <Paper p="xl" radius="md" withBorder style={{ flex: 1 }}>
                         <Stack gap="md">
                             <Paper p="md" radius="md" withBorder>
-                                <Text size="xs" c="dimmed" fw={600} mb="sm">STEP · WHO · STATUS</Text>
                                 <StageActorTimeline
                                     stages={requisitionStages(summary.status, signMode)}
                                     actors={actorsForWorkflow(actorReports, ['requisition'])}

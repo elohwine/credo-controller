@@ -65,8 +65,8 @@ export function requestHandoffKey(rule: Pick<RequestHandoffRule, 'fromType' | 'o
  * An organization row in `request_handoffs` replaces or disables a matching rule.
  */
 export const DEFAULT_REQUEST_HANDOFFS: RequestHandoffRule[] = [
-  // Procurement: requisition → purchase order → supplier payment
-  // A cash requisition is paid by its own release step and does not open procurement.
+  // Procurement: requisition → purchase order → (delivered, supplier bill) → supplier payment
+  // A cash requisition is marked bought with its receipt and does not open procurement.
   {
     fromType: 'procurement.requisition',
     onStatus: 'approved',
@@ -85,9 +85,10 @@ export const DEFAULT_REQUEST_HANDOFFS: RequestHandoffRule[] = [
     copyItems: true,
     when: 'needs_supplier_purchase',
   },
+  // The supplier is paid against their bill once the goods arrive, not when the order is placed.
   {
     fromType: 'finance.purchase_order',
-    onStatus: 'approved',
+    onStatus: 'completed',
     toType: 'finance.payment_request',
     title: 'Supplier payment',
     targetModule: 'finance',
@@ -189,7 +190,12 @@ function seedContext(toType: string, parent: Record<string, unknown>, parentId: 
   }
   if (toType === 'field.maintenance') {
     return {
-      assetRef: typeof parent.assetRef === 'string' ? parent.assetRef : typeof parent.siteRef === 'string' ? parent.siteRef : 'unassigned',
+      assetRef:
+        typeof parent.assetRef === 'string'
+          ? parent.assetRef
+          : typeof parent.siteRef === 'string'
+            ? parent.siteRef
+            : 'unassigned',
       workOrderRef: `WO-${short}`,
     }
   }
@@ -268,7 +274,8 @@ export class RequestHandoffService {
         toType: row.toType,
         title: row.title || base?.title || `Follow-on ${row.toType}`,
         targetModule: row.targetModule || base?.targetModule,
-        copyItems: row.copyItems === undefined || row.copyItems === null ? (base?.copyItems ?? true) : row.copyItems !== 0,
+        copyItems:
+          row.copyItems === undefined || row.copyItems === null ? (base?.copyItems ?? true) : row.copyItems !== 0,
         startMode: row.startMode === 'manual' ? 'manual' : 'auto',
         enabled: row.enabled !== 0,
         source: base ? 'built_in' : 'custom',
@@ -341,7 +348,13 @@ export class RequestHandoffService {
    * Hand-offs that wait for someone to ask: rules set to 'manual' whose trigger status the
    * request has reached, and that have not been started yet.
    */
-  public manualNextFor(params: { tenantId: string; organizationId?: string; requestId: string; requestType: string; status: string }) {
+  public manualNextFor(params: {
+    tenantId: string
+    organizationId?: string
+    requestId: string
+    requestType: string
+    status: string
+  }) {
     const organizationId = params.organizationId || this.organizationId(params.tenantId)
     if (!organizationId) return []
     const db = DatabaseManager.getDatabase()
@@ -363,7 +376,11 @@ export class RequestHandoffService {
   }
 
   /** Someone asked for the next request. Only rules the organization allows can be started. */
-  public startManual(params: { tenantId: string; parentRequestId: string; toType: string }): SpawnedRequest | undefined {
+  public startManual(params: {
+    tenantId: string
+    parentRequestId: string
+    toType: string
+  }): SpawnedRequest | undefined {
     const parent = this.loadParent(params.parentRequestId, params.tenantId)
     if (!parent) return undefined
     const facts = this.factsFor(params.parentRequestId, params.tenantId)
@@ -427,7 +444,8 @@ export class RequestHandoffService {
       return []
     }
 
-    const subjectRef = params.subjectRef || this.subjectForPerson(params.requestId) || this.fallbackMember(params.tenantId)
+    const subjectRef =
+      params.subjectRef || this.subjectForPerson(params.requestId) || this.fallbackMember(params.tenantId)
     if (!subjectRef) return []
 
     const spawned: SpawnedRequest[] = []
@@ -471,12 +489,19 @@ export class RequestHandoffService {
 
     const fromType = params.requestType
     const payload =
-      params.payload && Object.keys(params.payload).length > 0 ? params.payload : this.workflowRequestPayload(params.requestId)
-    const facts = collectHandoffFacts({ amount: params.amount ?? payload.amount ?? payload.totalAmount, context: payload })
+      params.payload && Object.keys(params.payload).length > 0
+        ? params.payload
+        : this.workflowRequestPayload(params.requestId)
+    const facts = collectHandoffFacts({
+      amount: params.amount ?? payload.amount ?? payload.totalAmount,
+      context: payload,
+    })
     const automatic = this.rulesFor(organizationId).filter(
       (rule) => rule.startMode !== 'manual' && handoffConditionMet(rule.when, facts),
     )
-    const rules = automatic.filter((rule) => normalize(rule.fromType) === normalize(fromType) && rule.onStatus === 'approved')
+    const rules = automatic.filter(
+      (rule) => normalize(rule.fromType) === normalize(fromType) && rule.onStatus === 'approved',
+    )
     // Also match the workflow type label (internal_requisitions, education fees, …) when
     // the request type itself has no rule.
     const workflowRules =
@@ -563,9 +588,15 @@ export class RequestHandoffService {
         `SELECT id, request_type AS requestType, title FROM requests
          WHERE parent_request_id = ? AND request_type = ? LIMIT 1`,
       )
-      .get(params.parentRequestId, params.rule.toType) as { id?: string; requestType?: string; title?: string } | undefined
+      .get(params.parentRequestId, params.rule.toType) as
+      | { id?: string; requestType?: string; title?: string }
+      | undefined
     if (existing?.id) {
-      return { id: existing.id, requestType: existing.requestType || params.rule.toType, title: existing.title || params.rule.title }
+      return {
+        id: existing.id,
+        requestType: existing.requestType || params.rule.toType,
+        title: existing.title || params.rule.title,
+      }
     }
 
     const childTitle = `${params.rule.title}: ${params.title}`.slice(0, 180)
@@ -624,14 +655,21 @@ export class RequestHandoffService {
     return { id: childId, requestType: params.rule.toType, title: childTitle }
   }
 
-  private copyItems(parentRequestId: string): Array<{ description: string; quantity?: number; unitPrice?: number; itemType?: string }> {
+  private copyItems(
+    parentRequestId: string,
+  ): Array<{ description: string; quantity?: number; unitPrice?: number; itemType?: string }> {
     try {
       const rows = DatabaseManager.getDatabase()
         .prepare(
           `SELECT description, quantity, unit_price AS unitPrice, item_type AS itemType
            FROM request_items WHERE request_id = ?`,
         )
-        .all(parentRequestId) as Array<{ description: string; quantity?: number; unitPrice?: number; itemType?: string }>
+        .all(parentRequestId) as Array<{
+        description: string
+        quantity?: number
+        unitPrice?: number
+        itemType?: string
+      }>
       return rows.map((row) => ({
         description: row.description,
         quantity: row.quantity,
@@ -666,20 +704,26 @@ export class RequestHandoffService {
   /** Facts the platform checks before starting a follow-on for this request. */
   public factsFor(requestId: string, tenantId: string): HandoffFacts {
     const parent = this.loadParent(requestId, tenantId)
-    if (parent) return collectHandoffFacts({ amount: parent.amount, context: parent.context, items: this.copyItems(requestId) })
+    if (parent)
+      return collectHandoffFacts({ amount: parent.amount, context: parent.context, items: this.copyItems(requestId) })
     const payload = this.workflowRequestPayload(requestId)
     return collectHandoffFacts({ amount: payload.amount ?? payload.totalAmount, context: payload })
   }
 
-  private loadParent(requestId: string, tenantId: string): {
-    organizationId: string
-    requestType: string
-    title: string
-    amount?: number
-    currency?: string
-    departmentId?: string
-    context: Record<string, unknown>
-  } | undefined {
+  private loadParent(
+    requestId: string,
+    tenantId: string,
+  ):
+    | {
+        organizationId: string
+        requestType: string
+        title: string
+        amount?: number
+        currency?: string
+        departmentId?: string
+        context: Record<string, unknown>
+      }
+    | undefined {
     const row = DatabaseManager.getDatabase()
       .prepare(
         `SELECT r.organization_id AS organizationId, r.request_type AS requestType, r.title,

@@ -518,12 +518,18 @@ export default function ShopPage() {
       requestPayload.serviceType = selectedService.serviceType;
       requestPayload.vcType = selectedService.vcType;
 
+      // A service request to the shop's organisation; it lands with the person who handles it.
       const response = await axios.post(
-        `${backendUrl}/api/vc-requests`,
+        `${backendUrl}/workflow-requests`,
         {
-          serviceId: selectedService.id,
-          requestPayload,
-          consent: true,
+          targetOrgTenantId: storefront?.tenantId || storefront?.orgId,
+          requestType: 'service',
+          payload: {
+            title: selectedService.name,
+            description: requestNotes.trim() || `Service request: ${selectedService.name}`,
+            serviceId: selectedService.id,
+            ...requestPayload,
+          },
         },
         {
           headers: { Authorization: `Bearer ${walletToken}` },

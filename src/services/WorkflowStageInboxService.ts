@@ -4,18 +4,22 @@
  * Covers every request family the platform runs — fees, AP/AR, requisitions, FEPT / field,
  * HR / onboarding, department work, and the generic platform request types. The primary
  * recipient is the resolved stage actor (a department member wins over an owner fallback
- * when the request names a department). Active delegates whose scope covers the stage
- * get their own inbox card and are expected to present a DelegationCredential.
+ * when the request names a department). When the stage falls to the owner by role rather
+ * than a chosen person, every active owner/admin gets the card. Active delegates whose scope
+ * covers the stage get their own inbox card and are expected to present a DelegationCredential.
  */
 
 import { randomUUID } from 'crypto'
 
+import { requestFamily, REQUEST_STAGE_ACTIONS } from '../config/requestExperience'
+import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
 
 import { orgWorkflowActorCredentialService } from './OrgWorkflowActorCredentialService'
-import { orgWorkflowActorService, ROLE_FALLBACK_BY_STAGE_ACTION } from './OrgWorkflowActorService'
+import { orgWorkflowActorService, roleFallbackFor } from './OrgWorkflowActorService'
 import { outboxService } from './OutboxService'
+import { requestExperienceDefinition } from './RequestExperienceService'
 
 const logger = rootLogger.child({ module: 'WorkflowStageInboxService' })
 
@@ -38,18 +42,27 @@ const STAGE_PERMISSION_ALIASES: Record<string, string[]> = {
   approve_requisition: ['approve_requisition', 'request.approve', 'finance.approve', 'procurement.approve'],
   finance_approve_requisition: ['finance_approve_requisition', 'finance.approve', 'request.approve'],
   release_funds: ['release_funds', 'finance.release', 'request.approve'],
-  record_payment: ['record_payment', 'finance.pay', 'payment.record', 'finance.payment', 'finance.approve', 'request.approve'],
+  record_payment: [
+    'record_payment',
+    'finance.pay',
+    'payment.record',
+    'finance.payment',
+    'finance.approve',
+    'request.approve',
+  ],
   present_payment_proof: ['present_payment_proof', 'finance.pay', 'payment.proof'],
   acknowledge_remittance: ['acknowledge_remittance', 'finance.acknowledge'],
   issue_receipt_vc: ['issue_receipt_vc', 'finance.receipt'],
   assign_field_worker: ['assign_field_worker', 'field.assign', 'field.execute'],
   inspect_site: ['inspect_site', 'field.inspect', 'field.execute'],
   assess_risk: ['assess_risk', 'field.execute'],
+  resolve_safety_hold: ['resolve_safety_hold', 'field.inspect', 'field.execute'],
   review_completion: ['review_completion', 'field.inspect', 'request.complete'],
   confirm_arrival: ['confirm_arrival', 'field.execute'],
   start_job: ['start_job', 'field.execute'],
   capture_evidence: ['capture_evidence', 'field.execute'],
   approve_onboarding: ['approve_onboarding', 'hr.approve', 'hr.onboarding'],
+  approve_request: ['approve_request', 'request.approve', 'hr.approve'],
   issue_payslip: ['issue_payslip', 'payroll.issue', 'hr.payroll'],
   acknowledge_execution: ['acknowledge_execution', 'request.complete'],
   resolve_dispute: ['resolve_dispute', 'finance.dispute'],
@@ -66,66 +79,17 @@ function normalize(value: unknown): string {
  * configured actor should receive the inbox card.
  */
 export function resolveStageRoute(requestType: string, workflowType?: string): StageRoute {
-  const request = normalize(requestType)
-  const workflow = normalize(workflowType)
-  const combined = `${request} ${workflow}`
-
-  const pick = (fallbackWorkflow: string, stageAction: string): StageRoute => ({
-    workflowType: workflow || fallbackWorkflow,
-    stageAction,
-  })
-
-  // Field job sign-off and payout go to their own people, not the worker.
-  if (/field\.signoff|field_signoff|acknowledge_execution/.test(request)) {
-    return pick('field_execution_fept', 'acknowledge_execution')
+  const declared = requestFamily(requestType, workflowType)
+  if (!declared) {
+    logger.warn({ requestType, workflowType }, 'No request family declared; using the generic request review')
   }
-  if (/field\.payout|field_payout|trigger_payout/.test(request)) {
-    return pick('field_execution_fept', 'trigger_payout')
-  }
-  if (/field\.review|field_review|review_completion/.test(request)) {
-    return pick('field_execution_fept', 'review_completion')
-  }
-  if (/field\.inspection|field_inspection|inspect_site/.test(request)) {
-    return pick('field_execution_fept', 'inspect_site')
-  }
-  if (/fept|field_execution|field\.|field_service|site_access|inspection|maintenance/.test(combined)) {
-    return pick('field_execution_fept', 'assign_field_worker')
-  }
-  if (/requisition|procurement/.test(combined)) {
-    return pick('internal_requisitions', 'approve_requisition')
-  }
-  if (/fee|school|tuition|education/.test(combined)) {
-    return pick('education_fee_payment', 'record_payment')
-  }
-  if (/receivable|accounts_receivable|invoice|quote|collect|payment_collection|cash_counter|\bar_/.test(combined)) {
-    return pick('accounts_receivable', 'record_payment')
-  }
-  if (/payable|accounts_payable|finance\.payment|finance\.expense|finance\.purchase|purchase_order|expense_claim|supplier|\bap_/.test(combined)) {
-    const stage = /expense|purchase|supplier|approv/.test(combined) ? 'approve_requisition' : 'record_payment'
-    return pick('accounts_payable', stage)
-  }
-  if (/payslip|payroll/.test(combined)) {
-    return pick('employee_onboarding', 'issue_payslip')
-  }
-  if (/onboarding|offboarding|employee|delegation/.test(combined)) {
-    return pick('employee_onboarding', 'approve_onboarding')
-  }
-  if (/receipt/.test(combined)) return pick(workflow || 'accounts_receivable', 'issue_receipt_vc')
-  if (/dispute/.test(combined)) return pick(workflow || 'accounts_receivable', 'resolve_dispute')
-  if (/payment|cash/.test(combined)) return pick(workflow || 'accounts_receivable', 'record_payment')
-  if (/department|\bdept\b/.test(combined)) return pick(workflow || 'department_request', 'approve_requisition')
-
   return {
-    workflowType: workflow || request || 'general',
-    stageAction: 'approve_requisition',
+    workflowType: workflowType || declared?.workflowType || requestType || 'general',
+    stageAction: declared?.experience.reviewAction || 'approve_request',
   }
 }
 
-export function delegationCoversStage(
-  permissions: string[],
-  stageAction: string,
-  requestType: string,
-): boolean {
+export function delegationCoversStage(permissions: string[], stageAction: string, requestType: string): boolean {
   const granted = permissions.map((value) => normalize(value)).filter(Boolean)
   if (granted.length === 0) return false
   if (granted.some((value) => value === '*' || value === 'all')) return true
@@ -174,10 +138,11 @@ function departmentActor(params: {
   orgTenantId: string
   organizationId: string
   departmentId: string
+  workflowType: string
   stageAction: string
 }): StageInboxRecipient | undefined {
   const preferredRoles = new Set(
-    (ROLE_FALLBACK_BY_STAGE_ACTION[params.stageAction] || []).map((role) => role.toLowerCase()),
+    roleFallbackFor(params.workflowType, params.stageAction).map((role) => role.toLowerCase()),
   )
   const rows = DatabaseManager.getDatabase()
     .prepare(
@@ -298,6 +263,21 @@ function insertStageCard(params: {
   metadata: Record<string, unknown>
 }): boolean {
   const db = DatabaseManager.getDatabase()
+  return db.transaction(() => insertStageCardWithIntent(params))()
+}
+
+function insertStageCardWithIntent(params: {
+  recipient: StageInboxRecipient
+  orgTenantId: string
+  sourceType: string
+  sourceId: string
+  credentialType: string
+  offerUri: string
+  title: string
+  body: string
+  metadata: Record<string, unknown>
+}): boolean {
+  const db = DatabaseManager.getDatabase()
   const now = new Date().toISOString()
   const cardSourceId =
     params.recipient.via === 'delegation' && params.recipient.delegationId
@@ -312,12 +292,12 @@ function insertStageCard(params: {
       INSERT INTO wallet_pending_offers (
         id, tenant_id, issuer_tenant_id, source_type, source_id,
         credential_type, offer_uri, title, body, metadata, created_at,
-        attempt_count, last_attempt_at
+        attempt_count, last_attempt_at, workflow_run_id
       )
       SELECT
         @id, @tenantId, @issuerTenantId, @sourceType, @sourceId,
         @credentialType, @offerUri, @title, @body, @metadata, @createdAt,
-        0, @createdAt
+        0, @createdAt, @workflowRunId
       WHERE NOT EXISTS (
         SELECT 1 FROM wallet_pending_offers
         WHERE tenant_id = @tenantId AND source_type = @sourceType AND source_id = @sourceId AND resolved_at IS NULL
@@ -330,6 +310,7 @@ function insertStageCard(params: {
       issuerTenantId: params.orgTenantId,
       sourceType: params.sourceType,
       sourceId: cardSourceId,
+      workflowRunId: typeof params.metadata.workflowRunId === 'string' ? params.metadata.workflowRunId : null,
       credentialType: params.credentialType,
       offerUri: params.offerUri,
       title: params.title,
@@ -343,6 +324,7 @@ function insertStageCard(params: {
         targetOrgTenantId: params.orgTenantId,
         orgName,
         targetOrgName: orgName,
+        notificationOutboxDedupeKey: `wpo:${params.recipient.walletTenantId}:${params.sourceType}:${cardSourceId}`,
       }),
       createdAt: now,
     })
@@ -363,8 +345,9 @@ function insertStageCard(params: {
         queuedAt: now,
       },
     })
-  } catch (error: any) {
-    logger.warn({ error: error?.message }, 'Stage inbox outbox enqueue failed (non-fatal)')
+  } catch {
+    // The persisted card is authoritative. The outbox sweeper recovers its recorded intent.
+    logger.warn('Stage notification intent deferred; inbox card remains available')
   }
   return true
 }
@@ -373,6 +356,8 @@ export interface RouteStageInboxParams {
   orgTenantId: string
   requestType: string
   workflowType?: string
+  /** The step that comes after approval (release_funds, record_payment) instead of the approval step. */
+  stageAction?: string
   sourceId: string
   title: string
   body: string
@@ -392,8 +377,16 @@ export interface RouteStageInboxParams {
  * Resolve who should act and write one inbox card per recipient (actor + covering delegates).
  * Also offers the actor credential to the primary actor so their stage VP can carry it.
  */
-export function routeWorkflowStageInbox(params: RouteStageInboxParams): { routed: number; recipients: StageInboxRecipient[] } {
-  const route = resolveStageRoute(params.requestType, params.workflowType)
+export function routeWorkflowStageInbox(params: RouteStageInboxParams): {
+  routed: number
+  recipients: StageInboxRecipient[]
+} {
+  const definition = requestExperienceDefinition(params.orgTenantId, params.requestType, params.workflowType)
+  const resolvedRoute = { workflowType: definition.workflowType, stageAction: definition.definition.reviewAction }
+  if (params.stageAction && !REQUEST_STAGE_ACTIONS.some((action) => action === params.stageAction)) {
+    throw new StatusException(`Unsupported request stage action: ${params.stageAction}`, 400)
+  }
+  const route = params.stageAction ? { ...resolvedRoute, stageAction: params.stageAction } : resolvedRoute
   const named = namedMember(params.orgTenantId, params.assigneeUserId)
   const resolved = named
     ? { userId: named.userId, walletTenantId: named.walletTenantId, role: named.role, mode: 'configured_user' as const }
@@ -405,12 +398,14 @@ export function routeWorkflowStageInbox(params: RouteStageInboxParams): { routed
 
   const organizationId = organizationIdFor(params.orgTenantId)
   let primary: StageInboxRecipient | undefined
-  const ownerish = resolved.mode === 'owner_fallback' || resolved.mode === 'unassigned' || resolved.mode === 'role_fallback'
+  const ownerish =
+    resolved.mode === 'owner_fallback' || resolved.mode === 'unassigned' || resolved.mode === 'role_fallback'
   if (params.departmentId && organizationId && ownerish) {
     primary = departmentActor({
       orgTenantId: params.orgTenantId,
       organizationId,
       departmentId: params.departmentId,
+      workflowType: route.workflowType,
       stageAction: route.stageAction,
     })
   }
@@ -424,6 +419,21 @@ export function routeWorkflowStageInbox(params: RouteStageInboxParams): { routed
   }
   if (!primary) return { routed: 0, recipients: [] }
 
+  // A step that fell to a role belongs to everyone in it: each active supervisor / owner gets
+  // the card, not just the first one found. A step that names a person stays with that person.
+  const standIns: StageInboxRecipient[] =
+    primary.via === 'actor' && !named
+      ? orgWorkflowActorService
+          .roleStandIns(params.orgTenantId, resolved)
+          .filter((member) => member.walletTenantId !== primary!.walletTenantId)
+          .map((member) => ({
+            userId: member.userId,
+            walletTenantId: member.walletTenantId as string,
+            role: normalize(member.role) || 'member',
+            via: 'actor' as const,
+          }))
+      : []
+
   const delegates =
     organizationId && primary.userId
       ? activeDelegates({
@@ -435,7 +445,13 @@ export function routeWorkflowStageInbox(params: RouteStageInboxParams): { routed
         }).filter((delegate) => delegate.walletTenantId !== primary!.walletTenantId)
       : []
 
-  const recipients = [primary, ...delegates]
+  const recipients = [primary, ...standIns, ...delegates]
+  const request = DatabaseManager.getDatabase()
+    .prepare(
+      `SELECT r.id, r.status FROM requests r JOIN organizations o ON o.id = r.organization_id
+      WHERE r.id = ? AND o.tenant_id = ? AND r.request_type = ?`,
+    )
+    .get(params.sourceId, params.orgTenantId, params.requestType) as { id: string; status: string } | undefined
   const offerUri = params.offerUri || `platform-request://${encodeURIComponent(params.sourceId)}`
   const sourceType = params.sourceType || WORKFLOW_STAGE_SOURCE_TYPE
   let routed = 0
@@ -449,11 +465,10 @@ export function routeWorkflowStageInbox(params: RouteStageInboxParams): { routed
       credentialType: params.credentialType || 'WorkflowStageAction',
       offerUri,
       title: delegated ? `${params.title} (delegated)` : params.title,
-      body: delegated
-        ? `${params.body} You are acting under a delegation from this stage's actor.`
-        : params.body,
+      body: delegated ? `${params.body} You are acting under a delegation from this stage's actor.` : params.body,
       metadata: {
         ...(params.extraMetadata || {}),
+        ...(request ? { resourceType: 'request', resourceId: request.id, requestStatus: request.status } : {}),
         requestType: params.requestType,
         workflowType: route.workflowType,
         stageAction: route.stageAction,
@@ -478,7 +493,8 @@ export function routeWorkflowStageInbox(params: RouteStageInboxParams): { routed
 }
 
 /**
- * Copy an already-addressed stage card to delegates of the primary actor.
+ * Copy an already-addressed stage card to the other owners who may stand in and to
+ * delegates of the primary actor.
  * Used by requisition and workflow-request notifiers that insert their own primary card.
  */
 export function notifyStageDelegates(params: {
@@ -486,6 +502,7 @@ export function notifyStageDelegates(params: {
   actorUserId?: string
   stageAction: string
   requestType: string
+  workflowType?: string
   sourceType: string
   sourceId: string
   title: string
@@ -496,8 +513,40 @@ export function notifyStageDelegates(params: {
   amount?: number
 }): number {
   if (!params.actorUserId) return 0
+  let routed = 0
+
+  // When the step fell to a role ("a supervisor", "an owner"), everyone in that role gets the same card.
+  const route = resolveStageRoute(params.requestType, params.workflowType)
+  const resolved = orgWorkflowActorService.resolveActor({
+    orgTenantId: params.orgTenantId,
+    workflowType: route.workflowType,
+    stageAction: params.stageAction || route.stageAction,
+  })
+  if (resolved.userId === params.actorUserId) {
+    for (const member of orgWorkflowActorService.roleStandIns(params.orgTenantId, resolved)) {
+      if (!member.walletTenantId) continue
+      const wrote = insertStageCard({
+        recipient: {
+          userId: member.userId,
+          walletTenantId: member.walletTenantId,
+          role: normalize(member.role) || 'member',
+          via: 'actor',
+        },
+        orgTenantId: params.orgTenantId,
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+        credentialType: params.credentialType,
+        offerUri: params.offerUri,
+        title: params.title,
+        body: params.body,
+        metadata: { ...(params.metadata || {}), stageAction: params.stageAction, requestType: params.requestType },
+      })
+      if (wrote) routed += 1
+    }
+  }
+
   const organizationId = organizationIdFor(params.orgTenantId)
-  if (!organizationId) return 0
+  if (!organizationId) return routed
   const delegates = activeDelegates({
     organizationId,
     delegatorUserId: params.actorUserId,
@@ -505,7 +554,6 @@ export function notifyStageDelegates(params: {
     requestType: params.requestType,
     amount: params.amount,
   })
-  let routed = 0
   for (const recipient of delegates) {
     if (
       insertStageCard({

@@ -2,7 +2,7 @@ import type { Agent, KeyDidCreateOptions } from '@credo-ts/core'
 import type { TenantRecord } from '@credo-ts/tenants'
 import type { TenantAgent } from '@credo-ts/tenants'
 
-import { upsertTenant } from '../persistence/TenantRepository'
+import { getTenantById, upsertTenant } from '../persistence/TenantRepository'
 import { didStore } from '../utils/didStore'
 import { issuerMetadataCache } from '../utils/issuerMetadataCache'
 import { buildIssuerMetadata, buildVerifierMetadata } from '../utils/openidMetadata'
@@ -64,66 +64,32 @@ export async function provisionTenantResources({
       console.log(`[Provisioning] Tenant ${tenantRecord.id} type: ${tenantType}`)
 
       if (tenantType === 'USER') {
-        // === USER TENANT (HOLDER ONLY) ===
-        // 1. Create Holder DID (did:key)
-        const holderDidResult = await createKeyDidForTenant(tenantAgent, 'holder')
-        const holderDid = holderDidResult.didState.did
-        const holderVm = holderDidResult.didState.didDocument?.verificationMethod?.[0]
-        const holderKid = holderVm?.id ?? `${holderDid}#key-1`
-
-        if (!holderDid) {
-          throw new Error(`Failed to create Holder DID: missing DID in state=${holderDidResult.didState.state}`)
-        }
+        const holder = await getOrCreateTenantDid(tenantAgent, tenantRecord.id, 'holder')
 
         // eslint-disable-next-line no-console
-        console.log(`[Provisioning] Created Holder DID: ${holderDid}`)
+        console.log(`[Provisioning] Holder DID ready: ${holder.did}`)
 
-        // 2. Return result properly
-        // Note: We populate issuerDid/verifierDid with the Holder DID to satisfy NOT NULL constraints in DB,
-        // but we do NOT generate issuer metadata or register the tenant as a published issuer.
         return {
-          issuerDid: holderDid, // Placeholder
-          issuerKid: holderKid, // Placeholder
-          verifierDid: holderDid, // Placeholder
-          verifierKid: holderKid, // Placeholder
+          issuerDid: holder.did,
+          issuerKid: holder.kid,
+          verifierDid: holder.did,
+          verifierKid: holder.kid,
           metadata: {
-            issuer: {}, // Empty = Not an Issuer
-            verifier: {}, // Empty = Not a Verifier
+            issuer: {},
+            verifier: {},
           },
           askarProfile: tenantRecord.id,
         }
       }
 
-      // === ORG TENANT (ISSUER / VERIFIER) ===
-      // Legacy logic for full issuer setup
+      const issuer = await getOrCreateTenantDid(tenantAgent, tenantRecord.id, 'issuer')
+      const verifier = await getOrCreateTenantDid(tenantAgent, tenantRecord.id, 'verifier')
+      const issuerDid = issuer.did
+      const verifierDid = verifier.did
 
-      const issuerDidState = await createKeyDidForTenant(tenantAgent, 'issuer')
-      if (issuerDidState.didState.state !== 'finished') {
-        throw new Error('Failed to create issuer DID for tenant')
-      }
-      const issuerDid = issuerDidState.didState.did
-      const issuerVm = issuerDidState.didState.didDocument?.verificationMethod?.[0]
-      const issuerKid = issuerVm?.id ?? `${issuerDid}#key-1`
-
-      const verifierDidState = await createKeyDidForTenant(tenantAgent, 'verifier')
-      if (verifierDidState.didState.state !== 'finished') {
-        throw new Error('Failed to create verifier DID for tenant')
-      }
-      const verifierDid = verifierDidState.didState.did
-      const verifierVm = verifierDidState.didState.didDocument?.verificationMethod?.[0]
-      const verifierKid = verifierVm?.id ?? `${verifierDid}#key-1`
-
-      // Seed default VC models (schemas + credential definitions) for this tenant ONLY if ORG
-      if (tenantType === 'ORG') {
-        try {
-          await registerDefaultModelsForTenant({ issuerDid, tenantId: tenantRecord.id })
-          // eslint-disable-next-line no-console
-          console.log(`[Provisioning] Default models registered for ORG tenant ${tenantRecord.id}`)
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.warn('Failed to seed default VC models for tenant', { err: (e as Error).message })
-        }
-      }
+      await registerDefaultModelsForTenant({ issuerDid, tenantId: tenantRecord.id })
+      // eslint-disable-next-line no-console
+      console.log(`[Provisioning] Default models registered for ORG tenant ${tenantRecord.id}`)
 
       const issuerUrl = `${resolvedBaseUrl}/tenants/${tenantRecord.id}`
 
@@ -144,126 +110,87 @@ export async function provisionTenantResources({
         display,
       })
 
-      // Create or Update native OpenID4VC Issuer record in the tenant wallet
-      try {
-        const existingIssuers =
-          (await (tenantAgent as any).openid4vc?.issuer?.getAllIssuers?.()) ??
-          (tenantAgent.modules as any).openId4VcIssuer.getAllIssuers()
+      const existingIssuers =
+        (await (tenantAgent as any).openid4vc?.issuer?.getAllIssuers?.()) ??
+        (tenantAgent.modules as any).openId4VcIssuer.getAllIssuers()
 
-        const newCredentialsSupported = (issuerMetadata as any).credentials_supported || []
-        const newCredentialConfigurationsSupported =
-          (issuerMetadata as any).credential_configurations_supported ||
-          Object.fromEntries(
-            newCredentialsSupported.filter((c: any) => typeof c?.id === 'string' && !!c.id).map((c: any) => [c.id, c]),
-          )
-        const newDisplay = (issuerMetadata as any).display || []
+      const newCredentialsSupported = (issuerMetadata as any).credentials_supported || []
+      const newCredentialConfigurationsSupported =
+        (issuerMetadata as any).credential_configurations_supported ||
+        Object.fromEntries(
+          newCredentialsSupported.filter((c: any) => typeof c?.id === 'string' && !!c.id).map((c: any) => [c.id, c]),
+        )
+      const newDisplay = (issuerMetadata as any).display || []
 
-        if (existingIssuers && existingIssuers.length > 0) {
-          // Reuse the first issuer found
-          const existingIssuer = existingIssuers[0]
-          // eslint-disable-next-line no-console
-          console.log(
-            `[Provisioning] Reuse existing OpenID4VC issuer ${existingIssuer.issuerId} for tenant ${tenantRecord.id}`,
-          )
-
-          await (tenantAgent as any).openid4vc?.issuer?.updateIssuerMetadata?.({
-            issuerId: existingIssuer.issuerId,
-            credentialConfigurationsSupported: newCredentialConfigurationsSupported,
-            display: newDisplay,
-          })
-        } else {
-          // Only create if none exist
-          await (tenantAgent as any).openid4vc?.issuer?.createIssuer?.({
-            credentialConfigurationsSupported: newCredentialConfigurationsSupported,
-            display: newDisplay,
-          })
-          // eslint-disable-next-line no-console
-          console.log(`[Provisioning] Created new native OpenID4VC issuer for tenant ${tenantRecord.id}`)
-        }
-
-        // Create or Update native OpenID4VC Verifier record in the tenant wallet
-        const existingVerifiers =
-          (await (tenantAgent as any).openid4vc?.verifier?.getAllVerifiers?.()) ??
-          (tenantAgent.modules as any).openId4VcVerifier.getAllVerifiers()
-        if (existingVerifiers && existingVerifiers.length > 0) {
-          // eslint-disable-next-line no-console
-          console.log(`[Provisioning] Reuse existing OpenID4VC verifier for tenant ${tenantRecord.id}`)
-        } else {
-          await (tenantAgent as any).openid4vc?.verifier?.createVerifier?.({
-            // Verifier doesn't have complex metadata in this version of Credo,
-            // but we initialize the record so it's ready.
-          })
-          // eslint-disable-next-line no-console
-          console.log(`[Provisioning] Created new native OpenID4VC verifier for tenant ${tenantRecord.id}`)
-        }
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('[Provisioning] Failed to create/update native OpenID4VC issuer/verifier', {
-          err: (e as Error).message,
+      if (existingIssuers && existingIssuers.length > 0) {
+        const existingIssuer = existingIssuers[0]
+        await (tenantAgent as any).openid4vc?.issuer?.updateIssuerMetadata?.({
+          issuerId: existingIssuer.issuerId,
+          credentialConfigurationsSupported: newCredentialConfigurationsSupported,
+          display: newDisplay,
+        })
+      } else {
+        await (tenantAgent as any).openid4vc?.issuer?.createIssuer?.({
+          credentialConfigurationsSupported: newCredentialConfigurationsSupported,
+          display: newDisplay,
         })
       }
 
-      await tenantAgent.genericRecords.save({
-        id: `tenant:${tenantRecord.id}:issuer`,
-        content: {
-          did: issuerDid,
-          kid: issuerKid,
-          metadata: issuerMetadata,
-        },
-        tags: { tenantId: tenantRecord.id, type: 'issuer' },
+      const existingVerifiers =
+        (await (tenantAgent as any).openid4vc?.verifier?.getAllVerifiers?.()) ??
+        (tenantAgent.modules as any).openId4VcVerifier.getAllVerifiers()
+      if (!existingVerifiers || existingVerifiers.length === 0) {
+        await (tenantAgent as any).openid4vc?.verifier?.createVerifier?.({})
+      }
+
+      await saveTenantDidRecord(tenantAgent, tenantRecord.id, 'issuer', {
+        did: issuerDid,
+        kid: issuer.kid,
+        metadata: issuerMetadata,
       })
 
       // Populate in-memory cache for scoped fetch (avoids HTTP loopback)
-      issuerMetadataCache.set(issuerUrl, issuerMetadata, issuerDid, issuerKid, tenantRecord.id)
+      issuerMetadataCache.set(issuerUrl, issuerMetadata, issuerDid, issuer.kid, tenantRecord.id)
 
-      await tenantAgent.genericRecords.save({
-        id: `tenant:${tenantRecord.id}:verifier`,
-        content: {
-          did: verifierDid,
-          kid: verifierKid,
-          metadata: verifierMetadata,
-        },
-        tags: { tenantId: tenantRecord.id, type: 'verifier' },
+      await saveTenantDidRecord(tenantAgent, tenantRecord.id, 'verifier', {
+        did: verifierDid,
+        kid: verifier.kid,
+        metadata: verifierMetadata,
       })
 
-      // ... (DID Store saving logic remains same, just moved down) ...
-      // Optimization: Only save DIDs if we created them as Issuer/Verifier
-
-      // Save Issuer Key
-      const issuerPkBase58 = extractPublicKeyBase58(issuerVm)
+      const issuerPkBase58 = extractPublicKeyBase58(issuer.verificationMethod)
       if (issuerPkBase58) {
         didStore.save({
           did: issuerDid,
-          keyRef: issuerKid,
+          keyRef: issuer.kid,
           method: 'key',
           createdAt: new Date().toISOString(),
           type: 'key',
           publicKeyBase58: issuerPkBase58,
           keyType: 'Ed25519',
-          didDocument: issuerDidState.didState.didDocument?.toJSON?.() ?? issuerDidState.didState.didDocument,
+          didDocument: issuer.didDocument.toJSON?.() ?? issuer.didDocument,
         })
       }
 
-      // Save Verifier Key
-      const verifierPkBase58 = extractPublicKeyBase58(verifierVm)
+      const verifierPkBase58 = extractPublicKeyBase58(verifier.verificationMethod)
       if (verifierPkBase58) {
         didStore.save({
           did: verifierDid,
-          keyRef: verifierKid,
+          keyRef: verifier.kid,
           method: 'key',
           createdAt: new Date().toISOString(),
           type: 'key',
           publicKeyBase58: verifierPkBase58,
           keyType: 'Ed25519',
-          didDocument: verifierDidState.didState.didDocument?.toJSON?.() ?? verifierDidState.didState.didDocument,
+          didDocument: verifier.didDocument.toJSON?.() ?? verifier.didDocument,
         })
       }
 
       return {
         issuerDid,
-        issuerKid,
+        issuerKid: issuer.kid,
         verifierDid,
-        verifierKid,
+        verifierKid: verifier.kid,
         metadata: {
           issuer: issuerMetadata,
           verifier: verifierMetadata,
@@ -318,7 +245,70 @@ function extractPublicKeyBase58(verificationMethod?: any): string | undefined {
   return undefined
 }
 
-async function createKeyDidForTenant(tenantAgent: TenantAgent<any>, role: 'holder' | 'issuer' | 'verifier') {
+type TenantDidRole = 'holder' | 'issuer' | 'verifier'
+
+export async function getOrCreateTenantDid(tenantAgent: TenantAgent<any>, tenantId: string, role: TenantDidRole) {
+  const recordId = `tenant:${tenantId}:${role}`
+  let record = await tenantAgent.genericRecords.findById(recordId)
+
+  if (!record && role !== 'holder') {
+    const persistedTenant = getTenantById(tenantId)
+    if (persistedTenant?.tenantType === 'ORG') {
+      const did = role === 'issuer' ? persistedTenant.issuerDid : persistedTenant.verifierDid
+      const kid = role === 'issuer' ? persistedTenant.issuerKid : persistedTenant.verifierKid
+      record = await tenantAgent.genericRecords.save({
+        id: recordId,
+        content: { did, kid },
+        tags: { tenantId, type: role },
+      })
+    }
+  }
+
+  if (record) {
+    const did = typeof record.content.did === 'string' ? record.content.did : undefined
+    const kid = typeof record.content.kid === 'string' ? record.content.kid : undefined
+    if (!did || !kid) throw new Error(`Tenant ${role} DID record is incomplete for tenant ${tenantId}`)
+
+    const [ownedDid] = await tenantAgent.dids.getCreatedDids({ did })
+    if (!ownedDid) throw new Error(`Tenant ${role} DID record points to a DID not owned by tenant ${tenantId}`)
+
+    const didDocument = await tenantAgent.dids.resolveDidDocument(did)
+    const verificationMethod = didDocument.verificationMethod?.find((method) => method.id === kid)
+    if (!verificationMethod) throw new Error(`Tenant ${role} DID verification method ${kid} cannot be resolved`)
+    return { did, kid, didDocument, verificationMethod }
+  }
+
+  const didResult = await createKeyDidForTenant(tenantAgent, role)
+  const did = didResult.didState.did
+  const didDocument = didResult.didState.didDocument
+  const verificationMethod = didDocument?.verificationMethod?.[0]
+  if (!did || !didDocument || !verificationMethod?.id) {
+    throw new Error(`Failed to create ${role} DID for tenant: DID document or verification method is missing`)
+  }
+
+  const kid = verificationMethod.id
+  await tenantAgent.genericRecords.save({
+    id: recordId,
+    content: { did, kid },
+    tags: { tenantId, type: role },
+  })
+
+  return { did, kid, didDocument, verificationMethod }
+}
+
+async function saveTenantDidRecord(
+  tenantAgent: TenantAgent<any>,
+  tenantId: string,
+  role: 'issuer' | 'verifier',
+  content: Record<string, unknown>,
+) {
+  const record = await tenantAgent.genericRecords.findById(`tenant:${tenantId}:${role}`)
+  if (!record) throw new Error(`Tenant ${role} DID record is missing for tenant ${tenantId}`)
+  record.content = { ...record.content, ...content }
+  await tenantAgent.genericRecords.update(record)
+}
+
+async function createKeyDidForTenant(tenantAgent: TenantAgent<any>, role: TenantDidRole) {
   const didResult = await tenantAgent.dids.create<KeyDidCreateOptions>({
     method: 'key',
     options: {

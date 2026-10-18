@@ -36,15 +36,31 @@ import {
 import AppShellMobile from '@/components/layout/AppShellMobile'
 import ErrorAlert from '@/components/shared/ErrorAlert'
 import api, { safeArray } from '@/lib/api'
-import { getActiveOrgId, getContextMode, getUserRole, getPreferredToken, getWalletToken, getOrgToken } from '@/lib/auth'
-import { getFriendlyActivityActionLabel, getFriendlyActivitySummary, toFeptStageLabel } from '@/lib/uxCopy'
+import { getActiveOrgId, getContextMode, getUserRole, getPreferredToken, getWalletToken, getOrgToken, getTaskContext } from '@/lib/auth'
+import { assertFieldStepSucceeded, fieldEvidenceResumePayload } from '../../shared/fieldEvidence'
+import { getFriendlyActivityActionLabel, getFriendlyActivitySummary, stepRequiredLabel, toFeptStageLabel } from '@/lib/uxCopy'
+import PersonalActivityPanel, { type PersonalActivityClient } from '@/components/shared/PersonalActivityPanel'
+import { Anchor } from '@mantine/core'
+
+/** Your own activity log is read with the personal wallet session, whatever context is active. */
+const personalActivityClient: PersonalActivityClient = {
+  get: async (path, params) => {
+    const token = getWalletToken()
+    const res = await api.get(path, {
+      params,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      skipAuthRedirect: true as any,
+    } as any)
+    return res.data
+  },
+}
 import { evaluateOrgActionPolicy, getCachedOrgContextBundle, refreshOrgContextBundle } from '@/lib/offline/orgContextBundle'
 import { getRunningActions, RunningAction, upsertRunningAction } from '@/lib/runningActions'
+import { purchaseReceiptsFromHandoffs, type PurchaseReceipt } from '@/lib/jobAuditTrail'
 import dayjs from 'dayjs'
-import relativeTime from 'dayjs/plugin/relativeTime'
 import EvidenceCapture, { EvidencePayload } from '@/components/scan/EvidenceCapture'
-
-dayjs.extend(relativeTime)
+import { friendlyRequestError } from '@/lib/requestError'
+import { formatTxnTime } from '@/lib/inboxAttention'
 
 interface ReconSummary {
   total: number
@@ -722,8 +738,13 @@ function mapAuditLogToTimelineItem(entry: any): AuditItem {
 
 export default function ActivityPage() {
   const router = useRouter()
+  const taskActive = typeof window !== 'undefined' && Boolean(getTaskContext())
+  const [inboxTask, setInboxTask] = useState(false)
+  useEffect(() => { setInboxTask(taskActive) }, [taskActive])
   const [isIssuer, setIsIssuer] = useState(false)
   const [tenantId, setTenantId] = useState<string | null>(null)
+  /** Signed in to your own account (not acting for an organisation). Set after mount. */
+  const [personalContext, setPersonalContext] = useState(false)
 
   useEffect(() => {
     const orgMode = getContextMode() === 'org'
@@ -769,6 +790,8 @@ export default function ActivityPage() {
   const [evidenceLoading, setEvidenceLoading] = useState(false)
   // Which photo step the job is waiting on, read from the job itself when the link does not say.
   const [runPhase, setRunPhase] = useState<EvidencePhase | null>(null)
+  const [purchaseReceipts, setPurchaseReceipts] = useState<PurchaseReceipt[]>([])
+  const [runReference, setRunReference] = useState<string | null>(null)
 
   const resolveEvidencePhase = useCallback((): EvidencePhase => {
     const fromQuery = typeof router.query.phase === 'string' ? router.query.phase.trim().toLowerCase() : ''
@@ -787,6 +810,9 @@ export default function ActivityPage() {
           headers: { Authorization: `Bearer ${token}` },
         })
         const output = res.data?.output || {}
+        const input = res.data?.input || {}
+        setRunReference(String(input.reference || output.reference || '').trim() || null)
+        setPurchaseReceipts(purchaseReceiptsFromHandoffs(output.handoffs))
         const reason = String(output.pauseReason || '').toLowerCase()
         if (reason === 'await_evidence_after') { setRunPhase('after'); return }
         if (reason === 'await_evidence_receipt') { setRunPhase('receipt'); return }
@@ -888,6 +914,36 @@ export default function ActivityPage() {
     return next
   }, [])
 
+  // Receipts step without a photo: nothing was bought, or the purchase receipts that came back
+  // from "Buy materials" are the receipt record.
+  const handleReceiptWithoutPhoto = async (source: 'none' | 'purchase') => {
+    if (!selectedRef) return
+    const token = getPreferredToken()
+    if (!token) throw new Error('Missing active context session')
+    const resumeRes = await api.post(
+      `/workflows/runs/${selectedRef}/resume`,
+      source === 'purchase' ? { phase: 'receipt', usePurchaseReceipts: true } : { phase: 'receipt', noReceipt: true },
+      { headers: { Authorization: `Bearer ${token}`, 'x-idempotency-key': `${source === 'purchase' ? 'purchase-receipt' : 'no-receipt'}:${selectedRef}` } },
+    )
+    assertFieldStepSucceeded(resumeRes.data)
+    import('@mantine/notifications').then((n) => {
+      n.notifications.show({
+        title: 'Noted',
+        message: source === 'purchase'
+          ? 'Purchase receipts added. Take the after photos when the work is done.'
+          : 'No materials bought. Take the after photos when the work is done.',
+        color: 'green',
+      })
+    })
+    setEvidenceMode(false)
+    if (router.query.capture === '1') {
+      setSelectedRef(null)
+      void router.push(getTaskContext()?.target || `/finance?tab=field&runId=${encodeURIComponent(selectedRef)}`)
+    } else {
+      handleSelectRef(selectedRef)
+    }
+  }
+
   const handleEvidenceCapture = async (payload: EvidencePayload) => {
     if (!selectedRef) return
     setEvidenceLoading(true)
@@ -917,30 +973,9 @@ export default function ActivityPage() {
       }
 
       const phase = resolveEvidencePhase()
-
       const resumeRes = await api.post(
         `/workflows/runs/${selectedRef}/resume`,
-        {
-          evidenceHash: payload.sha256,
-          photoUri: payload.imageBase64 ? `data:${payload.mimeType};base64,${payload.imageBase64}` : undefined,
-          gps: payload.gpsLat ? { lat: payload.gpsLat, lng: payload.gpsLng } : undefined,
-          notes: payload.notes,
-          // Device time at the moment the live photo was taken; the server adds its own sealed time.
-          deviceCapturedAt: payload.timestamp,
-          attachments: (payload.attachments || [])
-            .filter((item) => item.imageBase64)
-            .map((item) => ({
-              photoUri: `data:${item.mimeType || 'image/jpeg'};base64,${item.imageBase64}`,
-              evidenceHash: item.sha256,
-              gps: item.gpsLat != null ? { lat: item.gpsLat, lng: item.gpsLng } : undefined,
-              deviceCapturedAt: item.timestamp,
-              notes: item.notes,
-              kind: 'photo',
-            })),
-          phase,
-          performanceVc: payload.performanceVc,
-          receiptVc: payload.receiptVc,
-        },
+        fieldEvidenceResumePayload(payload, phase),
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -949,13 +984,11 @@ export default function ActivityPage() {
         },
       )
 
-      if (String(resumeRes?.data?.status || '').toLowerCase() === 'failed') {
-        throw new Error(String(resumeRes?.data?.error || `Evidence ${phase} stage failed`))
-      }
+      assertFieldStepSucceeded(resumeRes.data)
 
       delete resumeKeyByRunRef.current[`${selectedRef}:capture_evidence`]
       import('@mantine/notifications').then((n) => {
-        n.notifications.show({ title: 'Photo saved', message: phase === 'receipt' ? 'Receipt added to this job.' : `${phase === 'after' ? 'After' : 'Before'} photo added to this job.`, color: 'green' })
+        n.notifications.show({ title: 'Step complete', message: phase === 'receipt' ? 'Receipt added to this job. Opening the job for the next step.' : `${phase === 'after' ? 'After' : 'Before'} photo added to this job. Opening the job for the next step.`, color: 'green' })
       })
       setEvidenceMode(false)
       if (router.query.capture === '1') {
@@ -964,20 +997,18 @@ export default function ActivityPage() {
         setEventsHasMore(false)
         setEventsCursor(undefined)
         setEventsToken(undefined)
-        void router.push('/finance?tab=field')
+        // Show the job and its next step, not the inbox card that was just completed.
+        void router.replace(`/finance?tab=field&runId=${encodeURIComponent(selectedRef)}`)
       } else {
         handleSelectRef(selectedRef)
       }
     } catch (err: any) {
-      const errorMessage = String(
-        err?.response?.data?.error
-          || err?.response?.data?.message
-          || err?.message
-          || 'Server error',
-      )
+      const errorMessage = friendlyRequestError(err)
       import('@mantine/notifications').then((n) => {
-        n.notifications.show({ title: 'Capture Failed', message: errorMessage, color: 'red' })
+        n.notifications.show({ title: 'Photo not saved yet', message: errorMessage, color: 'red' })
       })
+      // The capture screen keeps the photos and shows the retry.
+      throw new Error(errorMessage)
     } finally {
       setEvidenceLoading(false)
     }
@@ -1137,6 +1168,7 @@ export default function ActivityPage() {
   useEffect(() => {
     setFavoriteRefs(readFavoriteActivityRefs())
     setActivityLens(getContextMode() === 'org' ? 'org' : 'personal')
+    setPersonalContext(getContextMode() !== 'org')
     setTxnFilter('all')
     setDateFilter('all')
   }, [])
@@ -1230,16 +1262,17 @@ export default function ActivityPage() {
   }, [])
 
   useEffect(() => {
-    if (isIssuer) fetchIssuerData()
+    if (isIssuer && !taskActive) fetchIssuerData()
     else setLoading(false)
-  }, [isIssuer, fetchIssuerData])
+  }, [isIssuer, fetchIssuerData, taskActive])
 
   useEffect(() => {
+    if (taskActive) return
     fetchAuditLogs()
     fetchRecentTxns()
     fetchDelegatedSummaries()
     setRunningActions(getRunningActions().filter((entry) => entry.status !== 'completed').slice(0, 6))
-  }, [fetchAuditLogs, fetchDelegatedSummaries, fetchRecentTxns])
+  }, [fetchAuditLogs, fetchDelegatedSummaries, fetchRecentTxns, taskActive])
 
   useEffect(() => {
     const sentinel = auditLoadMoreRef.current
@@ -1268,7 +1301,10 @@ export default function ActivityPage() {
     const capture = router.query.capture === '1'
     if (ref && ref !== searchRef) {
       setSearchRef(ref)
-      void handleSelectRef(ref)
+      if (capture && taskActive) {
+        setSelectedRef(ref)
+        void loadRunPhase(ref)
+      } else void handleSelectRef(ref)
     }
     if (ref && capture) {
       setEvidenceMode(true)
@@ -1283,6 +1319,42 @@ export default function ActivityPage() {
     ): Promise<PagedAuditResponse<AuditItem>> => {
       const limit = options?.limit ?? 40
       const cursor = options?.cursor
+
+      if (!cursor) {
+        try {
+          const normalized = await api.get(`/workflows/runs/${encodeURIComponent(ref)}/audit`, {
+            headers: { Authorization: `Bearer ${token}` },
+            skipAuthRedirect: true as any,
+          } as any)
+          const rows = safeArray(normalized.data?.rows)
+          if (rows.length > 0) {
+            return {
+              hasMore: false,
+              items: rows.map((row: any) => ({
+                id: row.id,
+                eventType: row.event,
+                title: row.event,
+                displayTitle: row.event,
+                source: row.source,
+                sourceLabel: row.source === 'event' ? 'Recorded event' : 'Workflow step',
+                status: row.status,
+                occurredAt: row.occurredAt,
+                actorName: row.person,
+                friendlyDetails: [
+                  row.stage ? { label: 'Stage', value: row.stage } : undefined,
+                  row.confirmation ? { label: 'Confirmation', value: row.confirmation } : undefined,
+                ].filter(Boolean),
+                evidenceAttachments: safeArray(row.evidence).map((item: any) => ({
+                  url: item.reference,
+                  label: item.label,
+                })),
+              })),
+            }
+          }
+        } catch {
+          // A provider reference is not necessarily a run id; use the organization activity feed below.
+        }
+      }
 
       try {
         const res = await api.get(`/api/audit/activity/${encodeURIComponent(ref)}/paged`, {
@@ -1576,9 +1648,31 @@ export default function ActivityPage() {
   const personalAuditLogs = dateFilteredAuditLogs.filter((entry) => !entry.onBehalfOf && !entry.onBehalfOfName)
   const scopedActionLogs = activityLens === 'org' ? onBehalfAuditLogs : personalAuditLogs
 
+  // In your own account "View all" means your own log: who has your data, what you shared,
+  // for what. The organisation feed (payments, exceptions, job history) stays behind `lens=org`
+  // or a reference lookup.
+  const lensQuery = typeof router.query.lens === 'string' ? router.query.lens : ''
+  const personalView = lensQuery === 'personal' || (lensQuery !== 'org' && personalContext && !router.query.ref)
+  if (personalView) {
+    return (
+      <AppShellMobile>
+        <Stack gap="md" px="md" pt="md" pb="xl">
+          <PersonalActivityPanel
+            client={personalActivityClient}
+            labelStep={(step) => stepRequiredLabel({ stageAction: step })}
+            initialEntryId={typeof router.query.entry === 'string' ? router.query.entry : undefined}
+          />
+          <Anchor size="sm" c="dimmed" onClick={() => router.push('/activity?lens=org')} style={{ cursor: 'pointer' }}>
+            Payments, receipts and job history →
+          </Anchor>
+        </Stack>
+      </AppShellMobile>
+    )
+  }
+
   return (
     <AppShellMobile>
-      <Stack gap="md" px="md" pt="md">
+      <Stack gap="md" px="md" pt="md" style={inboxTask ? { display: 'none' } : undefined}>
         {/* Header */}
         <Group justify="space-between" align="center">
           <Box>
@@ -1764,7 +1858,7 @@ export default function ActivityPage() {
                           <Text size="sm" fw={600} truncate>{entry.title}</Text>
                           <Text size="xs" c="dimmed" lineClamp={1}>{entry.description || 'Resume action'}</Text>
                         </Box>
-                        <Text size="xs" c="dimmed">{dayjs(entry.updatedAt).fromNow()}</Text>
+                        <Text size="xs" c="dimmed">{formatTxnTime(entry.updatedAt)}</Text>
                       </Group>
                     </Paper>
                   ))}
@@ -1890,7 +1984,7 @@ export default function ActivityPage() {
                             {favoriteRefs.includes(txn.ref) ? <IconStarFilled size={16} /> : <IconStar size={16} />}
                           </ActionIcon>
                           <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-                            {dayjs(txn.createdAt).fromNow()}
+                            {formatTxnTime(txn.createdAt)}
                           </Text>
                         </Stack>
                       </Group>
@@ -2041,7 +2135,7 @@ export default function ActivityPage() {
                                 )}
                               </Box>
                               <Text size="xs" c="dimmed" ta="right" style={{ whiteSpace: 'nowrap' }}>
-                                {dayjs(log.createdAt).fromNow()}
+                                {formatTxnTime(log.createdAt)}
                               </Text>
                             </Group>
                           </Paper>
@@ -2085,6 +2179,9 @@ export default function ActivityPage() {
       <Drawer
         opened={!!selectedRef}
         onClose={() => {
+          if (inboxTask && router.query.capture === '1') {
+            void router.push(getTaskContext()?.target || '/inbox')
+          }
           setSelectedRef(null)
           setEvidenceMode(false)
           setEvents([])
@@ -2094,7 +2191,9 @@ export default function ActivityPage() {
         }}
         position="bottom"
         size="auto"
-        title={selectedRef && selectedRef.length > 32 ? `${selectedRef.slice(0, 16)}…${selectedRef.slice(-8)}` : (selectedRef || 'Details')}
+        title={evidenceMode && runReference
+          ? `Job ${runReference}`
+          : selectedRef && selectedRef.length > 32 ? `${selectedRef.slice(0, 16)}…${selectedRef.slice(-8)}` : (selectedRef || 'Details')}
         radius="lg"
         styles={{ content: { borderRadius: '16px 16px 0 0' } }}
       >
@@ -2102,9 +2201,17 @@ export default function ActivityPage() {
           {evidenceMode ? (
             <EvidenceCapture
               evidenceStage={resolveEvidencePhase()}
-              workflowLabel={`Job ${selectedRef || ''}`.trim()}
+              workflowLabel={`Job ${runReference || selectedRef || ''}`.trim()}
               onCapture={handleEvidenceCapture}
-              onCancel={() => setEvidenceMode(false)}
+              draftKey={selectedRef ? `${selectedRef}:${resolveEvidencePhase()}` : undefined}
+              onNoReceipt={() => handleReceiptWithoutPhoto('none')}
+              purchaseReceipts={purchaseReceipts}
+              onUsePurchaseReceipts={() => handleReceiptWithoutPhoto('purchase')}
+              onCancel={() => {
+                if (router.query.capture === '1') {
+                  void router.push(getTaskContext()?.target || `/finance?tab=field&runId=${encodeURIComponent(selectedRef || '')}`)
+                } else setEvidenceMode(false)
+              }}
             />
           ) : eventsLoading ? (
             <Center py="xl">
@@ -2134,7 +2241,7 @@ export default function ActivityPage() {
                         </Box>
                       </Group>
                       <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-                        {dayjs(ev.occurredAt).fromNow()}
+                        {formatTxnTime(ev.occurredAt)}
                       </Text>
                     </Group>
 

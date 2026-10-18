@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Box, Badge, Divider, Group, Loader, Menu, ScrollArea, Text, UnstyledButton } from '@mantine/core'
-import { IconBuilding, IconCheck, IconChevronDown, IconPlus, IconWallet } from '@tabler/icons-react'
+import { IconBuilding, IconCheck, IconChevronDown, IconPlus, IconUser, IconWallet } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 import { useRouter } from 'next/router'
 import axios from 'axios'
-import { CONTEXT_UPDATED_EVENT, OPEN_ORG_SWITCHER_EVENT } from '@/lib/portalContext'
+import { clearPortalTask, CONTEXT_UPDATED_EVENT, OPEN_ORG_SWITCHER_EVENT } from '@/lib/portalContext'
+import { beginAddAccount, currentAccountId, listSavedAccounts, loadSavedAccountNames, rememberCurrentAccount, restoreAccount } from '@/lib/savedAccounts'
 import { isOrgContextActive } from '@/utils/portalTenant'
+import { captureOrganizationSwitchContext } from '../../shared/taskContext'
 
 export interface OrgInfo {
   orgTenantId: string
@@ -132,6 +134,8 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
   const [switching, setSwitching] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [opened, setOpened] = useState(false)
+  const [accounts, setAccounts] = useState<Array<{ id: string; label: string }>>([])
+  const [activeAccountId, setActiveAccountId] = useState<string | null>(null)
 
   const holderBackend = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
 
@@ -191,21 +195,40 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
   useEffect(() => {
     if (typeof window === 'undefined') return
     setMounted(true)
+    rememberCurrentAccount()
+    setAccounts(listSavedAccounts())
+    setActiveAccountId(currentAccountId())
     loadOrganizations()
-    const onContext = () => loadOrganizations()
+    const onContext = () => {
+      rememberCurrentAccount()
+      setAccounts(listSavedAccounts())
+      setActiveAccountId(currentAccountId())
+      loadOrganizations()
+    }
     window.addEventListener('storage', onContext)
     window.addEventListener(CONTEXT_UPDATED_EVENT, onContext)
+    router.events.on('routeChangeComplete', onContext)
     return () => {
       window.removeEventListener('storage', onContext)
       window.removeEventListener(CONTEXT_UPDATED_EVENT, onContext)
+      router.events.off('routeChangeComplete', onContext)
     }
-  }, [loadOrganizations])
+  }, [loadOrganizations, router])
 
   useEffect(() => {
-    if (opened) loadOrganizations()
-  }, [opened, loadOrganizations])
+    if (opened) {
+      rememberCurrentAccount()
+      setAccounts(listSavedAccounts())
+      setActiveAccountId(currentAccountId())
+      loadOrganizations()
+      void loadSavedAccountNames(holderBackend).finally(() => setAccounts(listSavedAccounts())).catch((error: Error) => {
+        notifications.show({ title: 'Account names unavailable', message: error.message, color: 'orange' })
+      })
+    }
+  }, [opened, loadOrganizations, holderBackend])
 
   const switchToOrg = useCallback(async (org: OrgInfo) => {
+    const assertContextUnchanged = captureOrganizationSwitchContext(localStorage)
     setSwitching(true)
     try {
       const personalToken = getPersonalToken()
@@ -243,6 +266,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
       )
 
       const { token: orgToken, sector, workflowTypes } = res.data
+      assertContextUnchanged()
 
       localStorage.setItem(ORG_TOKEN_KEY, orgToken)
       localStorage.setItem(ACTIVE_ORG_KEY, JSON.stringify(org))
@@ -266,6 +290,8 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
       }
 
       persistOrganizationsToCache([org, ...organizations.filter((entry) => entry.orgTenantId !== org.orgTenantId)])
+      // Chosen in the account picker, so it is no longer a one-task switch.
+      clearPortalTask()
 
       window.dispatchEvent(new Event('credo:workflow-context-updated'))
 
@@ -325,6 +351,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
     }
 
     clearActiveOrg()
+    clearPortalTask()
     localStorage.setItem('credoContextMode', 'personal')
     localStorage.removeItem('credoOrgName')
     localStorage.removeItem('credoTenantSector')
@@ -403,6 +430,11 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
           <Divider my="xs" />
 
           <Menu.Label>Organizations</Menu.Label>
+          {organizations.length > 0 && (
+            <Menu.Item onClick={() => { void router.push('/organization/enter') }} leftSection={<IconWallet size={16} />}>
+              Enter with a staff card
+            </Menu.Item>
+          )}
           {loading && organizations.length === 0 && (
             <Menu.Item disabled leftSection={<Loader size={14} />}>
               Loading organizations…
@@ -430,6 +462,37 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
               </Menu.Item>
             )
           })}
+
+          <Divider my="xs" />
+
+          <Menu.Label>Accounts</Menu.Label>
+          {accounts.map((account) => {
+            const selected = account.id === activeAccountId
+            return (
+              <Menu.Item
+                key={account.id}
+                onClick={() => {
+                  if (selected) return
+                  if (restoreAccount(account.id)) router.reload()
+                }}
+                disabled={switching || selected}
+                leftSection={selected ? <IconCheck size={16} /> : <IconUser size={16} />}
+              >
+                <Text size="sm" fw={500}>{account.label}</Text>
+                <Text size="xs" c="dimmed">{selected ? 'Signed in now' : 'Switch to this account'}</Text>
+              </Menu.Item>
+            )
+          })}
+          <Menu.Item
+            leftSection={<IconPlus size={16} />}
+            onClick={() => {
+              beginAddAccount()
+              void router.push('/auth?add=1')
+            }}
+          >
+            <Text size="sm" fw={500}>Add account</Text>
+            <Text size="xs" c="dimmed">Sign in on this browser. The accounts above stay saved.</Text>
+          </Menu.Item>
 
           <Divider my="xs" />
 

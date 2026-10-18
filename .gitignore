@@ -12,6 +12,7 @@ logs.txt
 .env
 .env.*
 !.env.sample
+!.env.example
 
 # Local persistence / wallet / credential material
 /data/
@@ -24,6 +25,15 @@ logs.txt
 *.key
 *.p12
 *.pfx
+*.keystore
+*.apk
+*.log
+*:Zone.Identifier
+/backups/
+/tmp/
+/tmp-scripts/
+/credo-ui/.stale-pages-mobile-copy-20260904/
+/credo-ui/.stray-pages-mobile-20261007/
 
 # parcel-bundler cache
 .cache
@@ -67,3 +77,9 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# TypeScript incremental build state
+*.tsbuildinfo
+
+# Staged sibling tree for the combined Fly image. Produced by scripts/fly-deploy.sh.
+/deploy/fly/vclogin-src/

@@ -1,6 +1,16 @@
 import type { WorkflowInitiationDefinition } from '../../types/WorkflowTemplate'
 
+import { ORG_MODULE_CATALOGUE } from '../../config/orgModules'
+
 import { getTemplateById } from './templates'
+
+export interface WorkflowIdentity {
+  id: string
+  category?: string
+  workflowType?: string
+}
+
+const CATALOGUE_TEMPLATE_IDS: readonly string[] = ORG_MODULE_CATALOGUE.flatMap((module) => [...module.templateIds])
 
 const WORKFLOW_TYPE_ALIASES: Record<string, string> = {
   ecommerce_delivery: 'tpl-quote-invoice-receipt',
@@ -45,7 +55,18 @@ export function normalizeWorkflowTypeAlias(workflowType: string): string {
     return normalized
   }
 
-  return WORKFLOW_TYPE_ALIASES[normalized] ?? normalized
+  return (
+    WORKFLOW_TYPE_ALIASES[normalized] ??
+    CATALOGUE_TEMPLATE_IDS.find((id) => normalized === id || normalized.startsWith(`${id}-`)) ??
+    normalized
+  )
+}
+
+/** Catalogue instances retain their identity even when their category is just "finance" or "utilities". */
+export function getWorkflowTypeForWorkflow(workflow: WorkflowIdentity): string {
+  const id = normalizeWorkflowTypeAlias(workflow.id)
+  if (CATALOGUE_TEMPLATE_IDS.includes(id)) return workflow.id
+  return workflow.workflowType || workflow.category || workflow.id
 }
 
 export function getWorkflowTypeCandidates(workflowType: string): string[] {
@@ -54,7 +75,7 @@ export function getWorkflowTypeCandidates(workflowType: string): string[] {
     return []
   }
 
-  const canonical = WORKFLOW_TYPE_ALIASES[normalized] ?? normalized
+  const canonical = normalizeWorkflowTypeAlias(normalized)
   const reverseAliases = REVERSE_WORKFLOW_TYPE_ALIASES[canonical] ?? []
 
   return Array.from(new Set([normalized, canonical, ...reverseAliases]))

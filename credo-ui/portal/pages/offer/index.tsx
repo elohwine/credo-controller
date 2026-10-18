@@ -1,148 +1,129 @@
-import QRCode from "react-qr-code";
-import Button from "@/components/walt/button/Button";
-import { useContext, useEffect, useState } from "react";
-import { useRouter } from "next/router";
-import { CredentialsContext, EnvContext } from "@/pages/_app";
-import { sendToWebWallet } from "@/utils/sendToWebWallet";
-import { getOfferUrl } from "@/utils/getOfferUrl";
-import nextConfig from "@/next.config";
-import BackButton from "@/components/walt/button/BackButton";
+import axios from 'axios'
+import Head from 'next/head'
+import Link from 'next/link'
+import { useRouter } from 'next/router'
+import { useEffect, useState } from 'react'
+import { Alert, Loader, Text } from '@mantine/core'
+import CredentialOfferCard from '@/components/credential/CredentialOfferCard'
+import { useRequireOrgContext } from '@/lib/portalContext'
+import { holderCardName } from '@/lib/holderActivity'
+import { getPreferredTenantId, getPreferredTenantToken, isOrgContextActive } from '@/utils/portalTenant'
 
-const BUTTON_COPY_TEXT_DEFAULT = 'Copy offer URL';
-const BUTTON_COPY_TEXT_COPIED = 'Copied';
+type Offer = { rowId: string; credentialType: string; offerUri: string; expiresAt: string | null }
 
-export default function Offer() {
-  const [AvailableCredentials] = useContext(CredentialsContext);
-  const env = useContext(EnvContext);
-  const router = useRouter();
-
-  const [offerURL, setOfferURL] = useState<string | null>('');
-  const [loading, setLoading] = useState(true);
-  const [copyText, setCopyText] = useState(BUTTON_COPY_TEXT_DEFAULT);
-
-  function handleCancel() {
-    router.push('/');
-  }
+export default function OfferPage() {
+  const router = useRouter()
+  const ctx = useRequireOrgContext('/inbox')
+  const orgTenantId = ctx.activeOrg?.orgTenantId
+  const rowId = typeof router.query.rowId === 'string' ? router.query.rowId : null
+  const [offer, setOffer] = useState<Offer | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [localOffer, setLocalOffer] = useState(false)
 
   useEffect(() => {
-    const getOfferURL = async () => {
-      setLoading(true);
+    if (!router.isReady || !ctx.mounted || !ctx.isOrg || !orgTenantId) return
+    const controller = new AbortController()
+    const current = () => !controller.signal.aborted && isOrgContextActive() && getPreferredTenantId() === orgTenantId
+    setOffer(null)
+    setError(null)
+    setLocalOffer(false)
+    if (!rowId) {
+      setError(
+        'Choose a current offer from Credential operations. Legacy selections do not create offers automatically.',
+      )
+      setLoading(false)
+      return
+    }
+    const token = getPreferredTenantToken()
+    if (!token) {
+      setError('Your organization session is unavailable. Sign in again.')
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    const load = async () => {
       try {
-        let credentials;
-        if (localStorage.getItem('offer')) {
-          credentials = JSON.parse(localStorage.getItem('offer')!);
-          localStorage.removeItem('offer');
-        } else {
-          let ids = router.query.ids?.toString().split(',') ?? [];
-          credentials = AvailableCredentials.filter((cred) => {
-            if (!cred?.id) return false
-            return ids.some((id) => id && String(id) === String(cred.id))
-          });
+        const backend = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
+        const response = await axios.get<Offer>(
+          `${backend}/api/organizations/credential-operations/offers/${encodeURIComponent(rowId)}/link`,
+          { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal },
+        )
+        if (current()) {
+          const wrapper = new URL(response.data.offerUri)
+          const inner = wrapper.searchParams.get('credential_offer_uri')
+          const host = (inner ? new URL(inner) : wrapper).hostname
+          setLocalOffer(['localhost', '127.0.0.1', '[::1]'].includes(host))
+          setOffer(response.data)
         }
-        if (credentials) {
-          console.log('Selected credentials for offer:', credentials);
-          if (credentials.length === 0) {
-            console.error('No credentials selected for offer');
-            setLoading(false);
-            return;
-          }
-          const response = await getOfferUrl(
-            credentials,
-            env.NEXT_PUBLIC_VC_REPO
-              ? env.NEXT_PUBLIC_VC_REPO
-              : nextConfig.publicRuntimeConfig!.NEXT_PUBLIC_VC_REPO,
-            env.NEXT_PUBLIC_ISSUER
-              ? env.NEXT_PUBLIC_ISSUER
-              : nextConfig.publicRuntimeConfig!.NEXT_PUBLIC_ISSUER,
-            router.query.authenticationMethod as string,
-            router.query.vpRequestValue as string,
-            router.query.vpProfile as string
-          );
-          console.log('Offer response:', response.data);
-          setOfferURL(response.data.credential_offer_deeplink || response.data.credential_offer_url);
-        }
-      } catch (error: any) {
-        console.error('Failed to create credential offer:', error);
-        setOfferURL(null);
+      } catch (failure: unknown) {
+        if (!current()) return
+        setError(
+          axios.isAxiosError<{ message?: string }>(failure)
+            ? failure.response?.data?.message || failure.message
+            : failure instanceof Error
+              ? failure.message
+              : 'Could not load the offer.',
+        )
       } finally {
-        setLoading(false);
+        if (current()) setLoading(false)
       }
-    };
-    //   getOfferURL();
-    // }, [router.query.credentialId]);
-    if (router.isReady) getOfferURL();
-  }, [router.isReady, router.query]);
-
-  async function copyCurrentURLToClipboard() {
-    if (!offerURL) return;
-    navigator.clipboard.writeText(offerURL).then(
-      function () {
-        setCopyText(BUTTON_COPY_TEXT_COPIED);
-        setTimeout(() => {
-          setCopyText(BUTTON_COPY_TEXT_DEFAULT);
-        }, 3000);
-      },
-      function (err) {
-        console.error('Could not copy text: ', err);
-      }
-    );
-  }
-
-  function openWebWallet() {
-    if (!offerURL) return;
-    sendToWebWallet(
-      env.NEXT_PUBLIC_WALLET
-        ? env.NEXT_PUBLIC_WALLET
-        : (nextConfig.publicRuntimeConfig!.NEXT_PUBLIC_WALLET as string),
-      'api/siop/initiateIssuance',
-      offerURL
-    );
-  }
+    }
+    void load()
+    return () => controller.abort()
+  }, [ctx.isOrg, ctx.mounted, orgTenantId, router.isReady, rowId])
 
   return (
-    <div className="flex flex-col justify-center items-center bg-white">
-      <div
-        className="my-5 flex flex-row justify-center cursor-pointer"
-        onClick={() => router.push('/')}
-      >
-        <img src="/credentis-logo.png" alt="Credentis" style={{ height: 35, width: 'auto' }} />
-      </div>
-      <div className="relative w-10/12 sm:w-7/12 lg:w-5/12 text-center shadow-2xl rounded-lg pt-8 pb-8 px-10 bg-white">
-        <BackButton />
-        <h1 className="text-xl sm:text-2xl lg:text-3xl text-gray-900 text-center font-bold mt-5">
-          Claim Your Credential
-        </h1>
-        <div className="flex justify-center">
+    <>
+      <Head>
+        <title>Credential offer | Credentis</title>
+      </Head>
+      <div className="min-h-screen bg-white px-4 py-10">
+        <div className="flex justify-center mb-8">
+          <Link href="/organization/credential-operations">
+            <img src="/credentis-logo.png" alt="Credentis" style={{ height: 35, width: 'auto' }} />
+          </Link>
+        </div>
+        <div className="max-w-md mx-auto">
+          <Link href="/organization/credential-operations" className="inline-block text-sm text-gray-600 mb-6">
+            &larr; Back to credentials
+          </Link>
           {loading ? (
-            <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-gray-900 my-10"></div>
-          ) : offerURL ? (
-            <QRCode
-              className="h-full max-h-[220px] my-10"
-              value={offerURL}
-              viewBox={'0 0 256 256'}
-            />
-          ) : (
-            <div className="my-10 text-center text-red-500">
-              <p>Failed to generate credential offer.</p>
-              <p className="text-sm mt-2">Please check the console for details.</p>
+            <div className="flex justify-center py-16">
+              <Loader aria-label="Loading credential offer" />
             </div>
+          ) : error ? (
+            <Alert color="red" title="Offer unavailable">
+              {error}
+            </Alert>
+          ) : (
+            ctx.isOrg &&
+            offer && (
+              <>
+                {localOffer && (
+                  <Alert color="yellow" mb="lg" title="Local-only offer">
+                    This older offer points to localhost and cannot be opened on a phone. Replace it from its source
+                    flow using the public API address; resending the same offer will not fix its address.
+                  </Alert>
+                )}
+                <CredentialOfferCard
+                  key={offer.rowId}
+                  offerUri={offer.offerUri}
+                  credentialType={holderCardName(offer.credentialType)}
+                />
+                <Text size="sm" c="dimmed" ta="center" mt="lg">
+                  Share privately with the intended recipient. Acceptance is confirmed separately in their wallet.
+                </Text>
+                {offer.expiresAt && (
+                  <Text size="xs" c="dimmed" ta="center" mt="xs">
+                    Expires {new Date(offer.expiresAt).toLocaleString()}
+                  </Text>
+                )}
+              </>
+            )
           )}
         </div>
-        <div className="sm:flex flex-row gap-5 justify-center">
-          <Button style="link" onClick={copyCurrentURLToClipboard}>
-            {copyText}
-          </Button>
-          <Button onClick={openWebWallet} style="button">
-            Open Web Wallet
-          </Button>
-        </div>
-        <div className="flex flex-col items-center mt-12">
-          <div className="flex flex-row gap-2 items-center content-center text-sm text-center" style={{ color: '#7B8794' }}>
-            <p className="">Secured by Credentis</p>
-            <img src="/credentis-logo.png" alt="Credentis" style={{ height: 15, width: 'auto' }} />
-          </div>
-        </div>
       </div>
-    </div>
-  );
+    </>
+  )
 }

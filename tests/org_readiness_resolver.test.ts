@@ -35,7 +35,7 @@ afterAll(() => {
   databases.cleanup()
 })
 
-function itemByKey(items: Array<{ key: string; status: string }>, key: string) {
+function itemByKey<T extends { key: string; status: string }>(items: T[], key: string) {
   return items.find((item) => item.key === key)
 }
 
@@ -58,12 +58,12 @@ describe('WorkflowReadinessService — owner-only organization', () => {
     expect(itemByKey(report.items, 'ssi_identity')?.status).toBe('ready')
   })
 
-  test('is not operational while roles are missing; who goes out is asked on the first job', () => {
+  test('starter roles make jobs operational; who goes out is asked on the first job', () => {
     const report = workflowReadinessService.evaluateTemplate(org.orgTenantId, 'field_execution_fept')
 
-    expect(report.ready).toBe(false)
+    expect(report.ready).toBe(true)
     const blockingKeys = report.blocking.map((item) => item.key)
-    expect(blockingKeys).toContain('roles')
+    expect(itemByKey(report.items, 'roles')?.status).toBe('ready')
     expect(blockingKeys).not.toContain('stage_actor:assign_field_worker')
     expect(itemByKey(report.items, 'stage_actor:assign_field_worker')?.status).toBe('optional')
     expect(itemByKey(report.items, 'stage_actor:assign_field_worker')?.askedOnFirstUse).toBe(true)
@@ -92,7 +92,7 @@ describe('WorkflowReadinessService — owner-only organization', () => {
 
   test('assertExecutable throws a WorkflowPrerequisitesError carrying the report when blocked', () => {
     const blocked = seedOrganization({ name: 'Blocked Ltd' })
-    configureFeptTemplate(blocked.orgTenantId)
+    configureFeptTemplate(blocked.orgTenantId, { paymentModes: ['ecocash'] })
 
     expect(() => workflowReadinessService.assertExecutable(blocked.orgTenantId, 'field_execution_fept')).toThrow(
       /not operational/,
@@ -101,7 +101,7 @@ describe('WorkflowReadinessService — owner-only organization', () => {
       workflowReadinessService.assertExecutable(blocked.orgTenantId, 'field_execution_fept')
     } catch (error: any) {
       expect(error.code).toBe('WORKFLOW_PREREQUISITES_MISSING')
-      expect(error.report.blocking.map((item: { key: string }) => item.key)).toContain('roles')
+      expect(error.report.blocking.map((item: { key: string }) => item.key)).toContain('payment_provider')
     }
   })
 })
@@ -151,7 +151,9 @@ describe('WorkflowReadinessService — organization-wide evaluation', () => {
     expect(evaluation.templates.map((report) => report.workflowType)).toEqual(
       expect.arrayContaining(['field_execution_fept', 'collect_payments', 'internal_requisitions']),
     )
-    expect(evaluation.templates.find((report) => report.workflowType === 'internal_requisitions')?.configured).toBe(false)
+    expect(evaluation.templates.find((report) => report.workflowType === 'internal_requisitions')?.configured).toBe(
+      false,
+    )
     const paymentProvider = itemByKey(evaluation.items, 'payment_provider') as any
     expect(paymentProvider?.status).toBe('needs_attention')
     expect(paymentProvider?.requiredFor).toEqual(expect.arrayContaining(['field_execution_fept', 'collect_payments']))

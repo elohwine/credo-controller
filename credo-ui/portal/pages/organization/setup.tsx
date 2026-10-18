@@ -3,6 +3,9 @@ import { useRouter } from 'next/router'
 import axios from 'axios'
 import Link from 'next/link'
 import Layout from '@/components/Layout'
+import { StepHelp } from '@/components/help/StepHelp'
+import RecordSettingsCard from '@/components/organization/RecordSettingsCard'
+import DeviceTrustSettingsCard from '@/components/organization/DeviceTrustSettingsCard'
 import {
   getOrgScopedToken,
   getPersonalToken,
@@ -223,6 +226,8 @@ export default function OrganizationSetupPage() {
   const [creatingOrg, setCreatingOrg] = useState(false)
   const [orgProfile, setOrgProfile] = useState<OrgProfile | null>(null)
   const [memberCount, setMemberCount] = useState(0)
+  const [memberRoles, setMemberRoles] = useState<string[]>([])
+  const [canEditRecords, setCanEditRecords] = useState(false)
 
   const groupedItems = useMemo(() => {
     if (!readiness) return [] as Array<{ domain: ReadinessDomain; items: ReadinessItem[]; percent: number }>
@@ -239,6 +244,7 @@ export default function OrganizationSetupPage() {
     const activeOrg = readActiveOrganization()
     if (activeOrg?.orgTenantId) {
       setOrgTenantId(activeOrg.orgTenantId)
+      setCanEditRecords(['owner', 'admin'].includes(String(activeOrg.role || '').toLowerCase()))
     }
     setOrgProfile(readOrgProfile())
   }, [])
@@ -325,7 +331,9 @@ export default function OrganizationSetupPage() {
         })
         .then((membersRes) => {
           const list = Array.isArray(membersRes.data) ? membersRes.data : membersRes.data?.members || []
-          setMemberCount(list.filter((member: any) => member?.status !== 'removed').length)
+          const active = list.filter((member: any) => member?.status !== 'removed' && member?.status !== 'inactive')
+          setMemberCount(active.length)
+          setMemberRoles(active.map((member: any) => String(member?.role || '').toLowerCase()))
         })
         .catch(() => setMemberCount(0))
       axios
@@ -349,8 +357,8 @@ export default function OrganizationSetupPage() {
   }
 
   const steps = useMemo(
-    () => setupChecklist({ profile: orgProfile, items: readiness?.items ?? [], memberCount }),
-    [orgProfile, readiness, memberCount],
+    () => setupChecklist({ profile: orgProfile, items: readiness?.items ?? [], memberCount, roles: memberRoles }),
+    [orgProfile, readiness, memberCount, memberRoles],
   )
   const doneCount = steps.filter((step) => step.done).length
   const firstOpen = steps.find((step) => !step.done)
@@ -374,16 +382,42 @@ export default function OrganizationSetupPage() {
                 </Text>
               )}
             </Box>
-            {orgTenantId && (
-              <Button variant="subtle" size="xs" leftSection={<IconRefresh size={14} />} onClick={loadReadiness} loading={loading}>
-                Refresh
-              </Button>
-            )}
+            <Group gap="sm">
+              <StepHelp
+                title="Setup"
+                points={[
+                  'These answers decide which work this organisation runs.',
+                  'Jobs, purchases and school fees follow from what you do.',
+                  'Who handles money is asked here. Other steps are asked the first time they are used.',
+                  'You can change an answer later.',
+                ]}
+              />
+              {orgTenantId && (
+                <Button variant="subtle" size="xs" leftSection={<IconRefresh size={14} />} onClick={loadReadiness} loading={loading}>
+                  Refresh
+                </Button>
+              )}
+            </Group>
           </Group>
 
           {orgProfile && describeOrgProfile(orgProfile).length > 0 && (
             <Text size="sm">{describeOrgProfile(orgProfile).join(' · ')}</Text>
           )}
+
+          {orgProfile?.access?.drainingWork?.length ? (
+            <Alert color="blue" title="Existing work is continuing">
+              {orgProfile.access.drainingWork.map((item) => {
+                const parts = [
+                  item.activeRequests ? `${item.activeRequests} request${item.activeRequests === 1 ? '' : 's'}` : '',
+                  item.activeWorkflowRuns ? `${item.activeWorkflowRuns} workflow run${item.activeWorkflowRuns === 1 ? '' : 's'}` : '',
+                ].filter(Boolean)
+                return `${item.label}: ${parts.join(' and ')}`
+              }).join('. ')}. New work in these areas is unavailable; existing work and its history are retained.
+            </Alert>
+          ) : null}
+
+          {orgTenantId && <RecordSettingsCard orgTenantId={orgTenantId} canEdit={canEditRecords} />}
+          {orgTenantId && <DeviceTrustSettingsCard orgTenantId={orgTenantId} canEdit={canEditRecords} />}
 
           {/* ── Create Organization ───────────────────── */}
           {!orgTenantId && (
@@ -448,9 +482,14 @@ export default function OrganizationSetupPage() {
                           >
                             {step.done ? <IconCheck size={12} /> : null}
                           </ThemeIcon>
-                          <Text size="sm" fw={isNext ? 600 : 400} c={step.done ? 'dimmed' : undefined}>
-                            {step.label}
-                          </Text>
+                          <Box>
+                            <Text size="sm" fw={isNext ? 600 : 400} c={step.done ? 'dimmed' : undefined}>
+                              {step.label}
+                            </Text>
+                            {step.note && (
+                              <Text size="xs" c="dimmed">{step.note}</Text>
+                            )}
+                          </Box>
                         </Group>
                         <Button
                           size="xs"

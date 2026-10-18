@@ -4,7 +4,7 @@ import { DatabaseManager } from '../persistence/DatabaseManager'
 import { workflowRepository } from '../persistence/WorkflowRepository'
 import { rootLogger } from '../utils/pinoLogger'
 
-import { authorizationService } from './AuthorizationService'
+import { authorizationService, authorityRefused } from './AuthorizationService'
 import { platformRequestService } from './PlatformRequestService'
 import {
   WorkflowPrerequisitesError,
@@ -181,7 +181,7 @@ export class PlatformWorkflowService {
     })
 
     if (decision.decision !== 'allow') {
-      throw new Error(`Insufficient authority: ${decision.reasonCode}`)
+      throw authorityRefused(decision.reasonCode, 'start work on this request')
     }
 
     const workflow = this.ensureExecutableWorkflow(workflowId, tenantId)
@@ -276,7 +276,7 @@ export class PlatformWorkflowService {
         resourceId: taskId,
       })
       if (decision.decision !== 'allow') {
-        throw new Error(`Insufficient authority: ${decision.reasonCode}`)
+        throw authorityRefused(decision.reasonCode, 'complete this task')
       }
     }
 

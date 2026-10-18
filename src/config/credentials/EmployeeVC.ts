@@ -4,6 +4,13 @@
  * Offered when someone is added as an organization member, linked as an internal contact,
  * or hired through the employee onboarding flow. Presentation is evidence only: the platform
  * still owns workflow state and checks the credential's organization at action time.
+ *
+ * Lifecycle: every card carries an id (`jti` on the SD-JWT form, `id` on the W3C form) and a
+ * status entry (W3C Bitstring Status List, purpose `revocation`); `CredentialLifecycleService`
+ * records each issued card. A role change sends a new card; the earlier accepted card stops when
+ * the new one is accepted, or straight away when the new role has fewer steps (or the
+ * organisation chose `staffCardChange = 'stop_now'`). Leaving the organisation withdraws all of
+ * them. Stage proofs refuse a withdrawn card.
  */
 
 export const EMPLOYEE_VC_TYPE = 'EmployeeCredential'
@@ -21,6 +28,15 @@ export interface EmployeeCredentialClaims {
   employmentStatus: 'active'
   /** membership | internal_contact | onboarding */
   source: string
+  /**
+   * Steps this person confirms for the organization (approve, release, sign off, …).
+   * One staff card carries every step. Empty on cards issued before steps were added;
+   * those still prove employment, and a fresh card is sent when the steps change.
+   * Issued as a selective-disclosure card (SD-JWT, vct EmployeeCredential). A share reveals
+   * only the details the step asks for (organisation, role, status, steps). Cards already
+   * in a wallet as a whole signed record still work and are shared in full.
+   */
+  stageActions?: string[]
   issuedAt: string
   platformName: string
   fingerprint: string
@@ -43,6 +59,7 @@ export const EMPLOYEE_JSON_SCHEMA = {
         department: { type: 'string' },
         employmentStatus: { type: 'string' },
         source: { type: 'string' },
+        stageActions: { type: 'array', items: { type: 'string' } },
         issuedAt: { type: 'string', format: 'date-time' },
         platformName: { type: 'string' },
         fingerprint: { type: 'string' },

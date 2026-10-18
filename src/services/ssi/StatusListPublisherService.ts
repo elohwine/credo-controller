@@ -1,4 +1,4 @@
-import type { Agent } from '@credo-ts/core'
+import { type Agent, ClaimFormat, JsonTransformer, W3cCredential } from '@credo-ts/core'
 
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { rootLogger } from '../../utils/pinoLogger'
@@ -78,8 +78,8 @@ export class StatusListPublisherService {
     let signedVcJson: string
     try {
       const signResult = await (agent.w3cCredentials as any).signCredential({
-        format: 'jwt_vc',
-        credential: credentialPayload,
+        format: ClaimFormat.JwtVc,
+        credential: JsonTransformer.fromJSON(credentialPayload, W3cCredential),
         verificationMethod,
         alg: 'EdDSA',
       })
@@ -132,6 +132,57 @@ export class StatusListPublisherService {
       logger.warn({ statusListId, err }, 'On-demand status list publish failed')
       return null
     }
+  }
+
+  /**
+   * Signs the list with whichever wallet holds the issuer DID: the root agent
+   * (platform cards) or the organisation's tenant agent (org-issued cards).
+   * Used by the public endpoint, which has no request-scoped agent.
+   */
+  public async publishWithOwningAgent(statusListId: string, rootAgent: Agent<any>): Promise<string | null> {
+    const cached = this.getSignedVc(statusListId)
+    if (cached) return cached
+
+    const db = DatabaseManager.getDatabase()
+    const row = db
+      .prepare(
+        `SELECT l.issuer_ref, o.tenant_id FROM credential_status_lists l
+           LEFT JOIN organizations o ON o.id = l.organization_id
+          WHERE l.id = ?`,
+      )
+      .get(statusListId) as { issuer_ref: string; tenant_id: string | null } | undefined
+    if (!row) return null
+
+    const ownsDid = async (candidate: Agent<any>) => {
+      try {
+        const records = await (candidate as any).dids.getCreatedDids({ did: row.issuer_ref })
+        return records.length > 0
+      } catch {
+        return false
+      }
+    }
+
+    try {
+      if (await ownsDid(rootAgent)) {
+        await this.publish(statusListId, rootAgent)
+        return this.getSignedVc(statusListId)
+      }
+      const tenants = (rootAgent.modules as any)?.tenants
+      if (row.tenant_id && tenants?.withTenantAgent) {
+        let published = false
+        await tenants.withTenantAgent({ tenantId: row.tenant_id }, async (tenantAgent: Agent<any>) => {
+          if (await ownsDid(tenantAgent)) {
+            await this.publish(statusListId, tenantAgent)
+            published = true
+          }
+        })
+        if (published) return this.getSignedVc(statusListId)
+      }
+      logger.warn({ statusListId, issuerRef: row.issuer_ref }, 'No wallet holds the status list issuer DID')
+    } catch (err) {
+      logger.warn({ statusListId, err }, 'Status list publish failed')
+    }
+    return null
   }
 
   // ────────────────────────────────────────────────────────────────────────────

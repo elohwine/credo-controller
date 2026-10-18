@@ -9,10 +9,12 @@
  */
 
 import 'reflect-metadata'
-import { afterAll, beforeAll, describe, expect, test } from '@jest/globals'
+import { afterAll, beforeAll, describe, expect, jest, test } from '@jest/globals'
 
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
+import { notificationService } from '../src/services/NotificationService'
 import { orgWorkflowActorCredentialService } from '../src/services/OrgWorkflowActorCredentialService'
+import { paymentLinkService } from '../src/services/PaymentLinkService'
 import { ReconciliationService } from '../src/services/ReconciliationService'
 import { workflowReadinessService } from '../src/services/WorkflowReadinessService'
 import { workflowService } from '../src/services/WorkflowService'
@@ -50,6 +52,8 @@ function resolveRef(context: any, ref: unknown): unknown {
 }
 
 ActionRegistry.register('credential.issue', async (context, config = {}) => {
+  // Same rule as the real action: nothing to record (for example no receipt) → no record.
+  if (config.skipUnless && !resolveRef(context, config.skipUnless)) return
   const claims: Record<string, unknown> = {}
   for (const [key, ref] of Object.entries(config.mapping || {})) {
     claims[key] = resolveRef(context, ref)
@@ -79,6 +83,9 @@ beforeAll(() => {
     offerId: 'offer-fept',
     offerUri: 'openid-credential-offer://?credential_offer_uri=https://issuer.example/offer/fept',
   }))
+  jest
+    .spyOn(notificationService, 'dispatchContactNotification')
+    .mockResolvedValue({ accepted: true, channels: [{ channel: 'sms', status: 'accepted' }] } as any)
 })
 
 afterAll(() => {
@@ -153,6 +160,8 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
         requestId: 'REQ-1',
         requesterId: org.ownerUserId,
         amount: 250,
+        // A subcontractor job: the client is invoiced 250 and the worker is paid 90 after sign-off.
+        payoutAmount: 90,
         currency: 'USD',
         customerMsisdn: '263771234567',
         clientName: 'Acme',
@@ -162,52 +171,16 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
     const runId = start.runId
     let state = runState(runId)
     expect(runStatus(runId).status).toBe('paused')
-    expect(state.pauseReason).toBe('await_site_inspection')
+    expect(state.pauseReason).toBe('await_worker_start')
     expect(state.workflowStage).toBe('ASSIGNED')
     expect(state.assignment?.assigneeId).toBe(workerUserId)
-    expect(state.issuedCredentials?.RequisitionVC).toBeDefined()
-    expect(issued.map((vc) => vc.type)).toEqual(['RequisitionVC'])
+    expect(state.issuedCredentials?.JobAssignmentVC).toBeDefined()
+    expect(issued.map((vc) => vc.type)).toEqual(['JobAssignmentVC'])
     expect(issued[0].recipientStage).toBe('assign_field_worker')
     expect(issued[0].claims.requisitionId).toBe('REQ-1')
     expect(reconciliationEvents(reference)).toContain('AGENT_ASSIGNED')
 
-    // 2a. The job cannot start before the pre-job inspection: an empty resume is rejected and the run stays paused.
-    await expect(workflowService.resumeWorkflow(runId, {})).rejects.toThrow(/Site inspection is required/)
-    expect(runStatus(runId).status).toBe('paused')
-
-    // 2b. A failed inspection blocks the job and is logged, without failing the run.
-    await expect(
-      workflowService.resumeWorkflow(runId, { siteInspection: { outcome: 'failed', findings: 'Gate locked' } }),
-    ).rejects.toThrow(/did not clear/)
-    expect(runStatus(runId).status).toBe('paused')
-    expect(runState(runId).checkpointBlocks?.[0]?.checkpoint).toBe('site_inspection')
-
-    // 2c. Inspection passes → the field worker's risk assessment is next (still before the job starts).
-    await workflowService.resumeWorkflow(runId, {
-      siteInspection: { outcome: 'passed_with_notes', accessConfirmed: true, findings: 'Tight access, bring ladder' },
-    })
-    state = runState(runId)
-    expect(state.workflowStage).toBe('ASSIGNED')
-    expect(state.pauseReason).toBe('await_risk_assessment')
-    expect(state.checkpoints?.site_inspection?.status).toBe('completed')
-    expect(reconciliationEvents(reference)).toContain('SITE_INSPECTION_COMPLETED')
-
-    // 2d. Unsafe risk assessment keeps the job on hold; a safe one releases the start step.
-    await expect(
-      workflowService.resumeWorkflow(runId, {
-        riskAssessment: { hazards: ['live wiring'], controls: '', ppeConfirmed: true, safeToProceed: false },
-      }),
-    ).rejects.toThrow(/not safe to start/)
-    await workflowService.resumeWorkflow(runId, {
-      riskAssessment: { hazards: ['working at height'], controls: 'harness + spotter', ppeConfirmed: true, safeToProceed: true },
-    })
-    state = runState(runId)
-    expect(state.workflowStage).toBe('ASSIGNED')
-    expect(state.pauseReason).toBe('await_worker_start')
-    expect(state.checkpoints?.risk_assessment?.data?.controls).toBe('harness + spotter')
-    expect(reconciliationEvents(reference)).toContain('RISK_ASSESSMENT_COMPLETED')
-
-    // 2e. Worker starts the job, then proves arrival before any BEFORE evidence.
+    // 2a. The worker accepts and heads out. Nothing on site has been checked yet.
     await workflowService.resumeWorkflow(runId, {})
     state = runState(runId)
     expect(runStatus(runId).status).toBe('paused')
@@ -215,12 +188,192 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
     expect(state.pauseReason).toBe('await_arrival')
     expect(reconciliationEvents(reference)).toContain('JOB_STARTED')
 
+    // 2b. Arrival without a location is rejected. A location moves the job to the site check.
     await expect(workflowService.resumeWorkflow(runId, { arrival: { method: 'gps' } })).rejects.toThrow(/Arrival proof/)
     await workflowService.resumeWorkflow(runId, { arrival: { gps: { lat: -17.8, lng: 31.0, accuracy: 12 } } })
     state = runState(runId)
-    expect(state.pauseReason).toBe('await_evidence_before')
+    expect(state.pauseReason).toBe('await_site_inspection')
     expect(state.checkpoints?.arrival?.data?.method).toBe('gps')
     expect(reconciliationEvents(reference)).toContain('ARRIVAL_CONFIRMED')
+
+    // 2c. The site check cannot be skipped, and a failed check keeps the job on hold.
+    await expect(workflowService.resumeWorkflow(runId, {})).rejects.toThrow(/Site inspection is required/)
+    expect(runStatus(runId).status).toBe('paused')
+    await expect(
+      workflowService.resumeWorkflow(runId, { siteInspection: { outcome: 'failed', findings: 'Gate locked' } }),
+    ).rejects.toThrow(/did not clear/)
+    expect(runStatus(runId).status).toBe('paused')
+    expect(runState(runId).checkpointBlocks?.[0]?.checkpoint).toBe('site_inspection')
+
+    // 2d. Inspection passes → the safety check is next, still before any photos.
+    await workflowService.resumeWorkflow(runId, {
+      siteInspection: { outcome: 'passed_with_notes', accessConfirmed: true, findings: 'Tight access, bring ladder' },
+    })
+    state = runState(runId)
+    expect(state.workflowStage).toBe('IN_PROGRESS')
+    expect(state.pauseReason).toBe('await_risk_assessment')
+    expect(state.checkpoints?.site_inspection?.status).toBe('completed')
+    expect(reconciliationEvents(reference)).toContain('SITE_INSPECTION_COMPLETED')
+
+    // 2e. The safety check is an explicit choice. Leaving it out, or leaving the PPE box
+    //     unticked, is an error and never a hold.
+    const holdsOf = () =>
+      (runState(runId).checkpointBlocks || []).filter((b: any) => b.checkpoint === 'risk_assessment')
+    await expect(
+      workflowService.resumeWorkflow(runId, { riskAssessment: { hazards: [], ppeConfirmed: false } }, workerUserId),
+    ).rejects.toThrow(/Choose whether it is safe/)
+    await expect(
+      workflowService.resumeWorkflow(
+        runId,
+        { riskAssessment: { decision: 'safe', hazards: [], ppeConfirmed: false } },
+        workerUserId,
+      ),
+    ).rejects.toThrow(/protective equipment/)
+    expect(holdsOf()).toHaveLength(0)
+    expect(runStatus(runId).status).toBe('paused')
+
+    //     "Not safe" needs a reason and a photo before it becomes a hold.
+    await expect(
+      workflowService.resumeWorkflow(
+        runId,
+        { riskAssessment: { decision: 'not_safe', hazards: ['live wiring'] } },
+        workerUserId,
+      ),
+    ).rejects.toThrow(/Say why/)
+    expect(holdsOf()).toHaveLength(0)
+
+    //     With both, the job goes on hold once: the organisation gets a card and an event is recorded.
+    const unsafe = {
+      riskAssessment: {
+        decision: 'not_safe',
+        hazards: ['live wiring'],
+        holdReason: 'Exposed live wire at the meter box',
+        holdPhoto: { photoUri: 'data:image/jpeg;base64,AAA', evidenceHash: 'hash-hold-1' },
+      },
+    }
+    await expect(workflowService.resumeWorkflow(runId, unsafe, workerUserId)).rejects.toThrow(/on hold/)
+    expect(runStatus(runId).status).toBe('paused')
+    expect(runState(runId).pauseReason).toBe('await_risk_assessment')
+    let holds = holdsOf()
+    expect(holds).toHaveLength(1)
+    const hold = holds[0]
+    expect(hold.status).toBe('open')
+    expect(hold.by).toBe(workerUserId)
+    expect(hold.reason).toBe('Exposed live wire at the meter box')
+    expect(hold.photo?.evidenceHash).toBe('hash-hold-1')
+    expect(reconciliationEvents(reference)).toContain('RISK_ASSESSMENT_HOLD_RAISED')
+    const holdCardSource = `${runId}:safety-hold:${hold.id}`
+    const holdCards = () =>
+      DatabaseManager.getDatabase()
+        .prepare(
+          `SELECT tenant_id AS tenantId, resolved_at AS resolvedAt, metadata FROM wallet_pending_offers WHERE source_id = ?`,
+        )
+        .all(holdCardSource) as Array<{ tenantId: string; resolvedAt: string | null; metadata: string }>
+    expect(holdCards().length).toBeGreaterThan(0)
+    expect(holdCards().every((card) => card.tenantId !== `wallet-${workerUserId}`)).toBe(true)
+    expect(JSON.parse(holdCards()[0].metadata).stageAction).toBe('resolve_safety_hold')
+
+    //     The same call again (a retry) adds no second hold.
+    await expect(workflowService.resumeWorkflow(runId, unsafe, workerUserId)).rejects.toThrow(/on hold/)
+    expect(holdsOf()).toHaveLength(1)
+
+    expect(hold.fixBy).toBe('organisation')
+    expect(JSON.parse(holdCards()[0].metadata).holdFixBy).toBe('organisation')
+
+    //     The worker said the organisation must fix it, so the check stays locked until it is resolved,
+    //     even with "what changed" filled in. A retry that claims "on site" cannot unlock it.
+    await expect(
+      workflowService.resumeWorkflow(
+        runId,
+        { riskAssessment: { decision: 'safe', hazards: [], ppeConfirmed: true, whatChanged: 'nothing yet' } },
+        workerUserId,
+      ),
+    ).rejects.toThrow(/waiting for your organisation/i)
+    await expect(
+      workflowService.resumeWorkflow(
+        runId,
+        { riskAssessment: { ...unsafe.riskAssessment, fixBy: 'worker' } },
+        workerUserId,
+      ),
+    ).rejects.toThrow(/on hold/)
+    expect(holdsOf()).toHaveLength(1)
+    expect(holdsOf()[0].fixBy).toBe('organisation')
+
+    //     The organisation marks the issue resolved: the org card closes, the worker gets a card,
+    //     and the hold is still live (the worker has not re-checked). Resolving twice is a no-op.
+    const resolved = workflowService.resolveSafetyHold(
+      runId,
+      hold.id,
+      'Site electrician isolated the supply',
+      org.ownerUserId,
+    )
+    expect(resolved.status).toBe('resolved')
+    expect(workflowService.resolveSafetyHold(runId, hold.id, 'again', org.ownerUserId)).toMatchObject({
+      status: 'resolved',
+      resolutionNote: 'Site electrician isolated the supply',
+    })
+    expect(() => workflowService.resolveSafetyHold(runId, 'no-such-hold', 'x', org.ownerUserId)).toThrow(
+      /not on this job/,
+    )
+    holds = holdsOf()
+    expect(holds[0].status).toBe('resolved')
+    expect(holds[0].resolvedBy).toBe(org.ownerUserId)
+    expect(holdCards().every((card) => card.resolvedAt)).toBe(true)
+    const resumeCards = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT tenant_id AS tenantId, resolved_at AS resolvedAt, metadata FROM wallet_pending_offers WHERE source_id = ?`,
+      )
+      .all(`${runId}:safety-resume:${hold.id}`) as Array<{
+      tenantId: string
+      resolvedAt: string | null
+      metadata: string
+    }>
+    expect(resumeCards).toHaveLength(1)
+    expect(resumeCards[0].tenantId).toBe(`wallet-${workerUserId}`)
+    expect(JSON.parse(resumeCards[0].metadata).stageAction).toBe('assess_risk')
+    expect(reconciliationEvents(reference)).toContain('RISK_ASSESSMENT_HOLD_RESOLVED')
+    expect(runState(runId).pauseReason).toBe('await_risk_assessment')
+
+    //     Once resolved the worker may redo it, but still has to say what changed.
+    await expect(
+      workflowService.resumeWorkflow(
+        runId,
+        { riskAssessment: { decision: 'safe', hazards: [], ppeConfirmed: true } },
+        workerUserId,
+      ),
+    ).rejects.toThrow(/what changed/i)
+
+    //     The worker redoes the check. A safe one clears the hold and opens the before photos.
+    await workflowService.resumeWorkflow(
+      runId,
+      {
+        riskAssessment: {
+          decision: 'safe',
+          hazards: ['working at height'],
+          controls: 'harness + spotter',
+          ppeConfirmed: true,
+          whatChanged: 'Supply isolated, wire taped and labelled',
+        },
+      },
+      workerUserId,
+    )
+    state = runState(runId)
+    expect(state.pauseReason).toBe('await_evidence_before')
+    expect(state.checkpoints?.risk_assessment?.data?.controls).toBe('harness + spotter')
+    expect(state.checkpoints?.risk_assessment?.data?.whatChanged).toBe('Supply isolated, wire taped and labelled')
+    holds = holdsOf()
+    expect(holds[0].status).toBe('cleared')
+    expect(holds[0].clearedBy).toBe(workerUserId)
+    expect(holds[0].whatChanged).toBe('Supply isolated, wire taped and labelled')
+    expect(
+      (
+        DatabaseManager.getDatabase()
+          .prepare(`SELECT resolved_at AS resolvedAt FROM wallet_pending_offers WHERE source_id = ?`)
+          .all(`${runId}:safety-resume:${hold.id}`) as Array<{ resolvedAt: string | null }>
+      ).every((card) => card.resolvedAt),
+    ).toBe(true)
+    expect(reconciliationEvents(reference)).toContain('RISK_ASSESSMENT_COMPLETED')
+    expect(() => workflowService.resolveSafetyHold(runId, hold.id, 'late', org.ownerUserId)).toThrow(/already cleared/)
 
     // 3. Out-of-order evidence is rejected: AFTER before BEFORE fails the run step.
     //    (Resume with the wrong phase; the capture action throws.)
@@ -228,9 +381,10 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
       evidenceHash: 'hash-after',
       phase: 'after',
       photoUri: 'p.jpg',
+      gps: '-17.8,31.0',
     })
     expect(wrongOrder.status).toBe('failed')
-    expect(wrongOrder.error).toMatch(/Before evidence must be uploaded before after evidence/)
+    expect(wrongOrder.error).toMatch(/waiting for before evidence, not after/)
 
     // Recover the run to paused so the happy path continues (engine marks failed runs terminal).
     DatabaseManager.getDatabase()
@@ -246,18 +400,25 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
     })
     state = runState(runId)
     expect(state.evidenceBefore?.evidenceHash).toBe('hash-before')
-    expect(state.pauseReason).toBe('await_evidence_after')
+    // Materials are bought during the job: receipts come right after the before photos.
+    expect(state.pauseReason).toBe('await_evidence_receipt')
     expect(reconciliationEvents(reference)).toContain('WORK_EVIDENCE_BEFORE')
 
-    // 5. AFTER evidence.
-    await workflowService.resumeWorkflow(runId, { evidenceHash: 'hash-after', phase: 'after', photoUri: 'after.jpg' })
-    state = runState(runId)
-    expect(state.evidenceAfter?.evidenceHash).toBe('hash-after')
-    expect(state.workflowStage).toBe('EVIDENCE_CAPTURED')
-    expect(state.pauseReason).toBe('await_evidence_receipt')
-    expect(reconciliationEvents(reference)).toContain('WORK_EVIDENCE_AFTER')
+    // 5. After evidence cannot jump the receipt step.
+    const afterTooEarly = await workflowService.resumeWorkflow(runId, {
+      evidenceHash: 'hash-after',
+      phase: 'after',
+      photoUri: 'p.jpg',
+      gps: '-17.8,31.0',
+    })
+    expect(afterTooEarly.status).toBe('failed')
+    expect(afterTooEarly.error).toMatch(/waiting for receipt evidence, not after/)
+    expect(runState(runId).evidenceAfter).toBeUndefined()
+    DatabaseManager.getDatabase()
+      .prepare(`UPDATE workflow_runs SET status = 'paused', error = NULL WHERE id = ?`)
+      .run(runId)
 
-    // 6. RECEIPT evidence → ReceiptVC (material profile) → wait for the customer sign-off.
+    //    RECEIPT evidence → ReceiptVC (material profile) → wait for the after photos.
     await workflowService.resumeWorkflow(runId, {
       evidenceHash: 'hash-receipt',
       phase: 'receipt',
@@ -265,13 +426,30 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
       notes: '2x valves',
     })
     state = runState(runId)
+    expect(state.evidenceReceipt?.evidenceHash).toBe('hash-receipt')
+    expect(state.pauseReason).toBe('await_evidence_after')
+    expect(reconciliationEvents(reference)).toContain('WORK_EVIDENCE_RECEIPT')
+
+    // 6. AFTER evidence → wait for the work review.
+    await workflowService.resumeWorkflow(runId, {
+      evidenceHash: 'hash-after',
+      phase: 'after',
+      photoUri: 'after.jpg',
+      gps: '-17.8,31.0',
+    })
+    state = runState(runId)
+    expect(state.evidenceAfter?.evidenceHash).toBe('hash-after')
+    expect(state.workflowStage).toBe('EVIDENCE_CAPTURED')
+    expect(reconciliationEvents(reference)).toContain('WORK_EVIDENCE_AFTER')
     expect(runStatus(runId).status).toBe('paused')
     expect(state.pauseReason).toBe('await_completion_review')
     expect(state.ack).toBeUndefined()
 
     // 6b. A reviewer checks the finished work. Rework holds the job; approval releases customer sign-off.
     await expect(
-      workflowService.resumeWorkflow(runId, { completionReview: { outcome: 'rework_required', notes: 'Seal not flush' } }),
+      workflowService.resumeWorkflow(runId, {
+        completionReview: { outcome: 'rework_required', notes: 'Seal not flush' },
+      }),
     ).rejects.toThrow(/work to redo/)
     expect(runState(runId).checkpointBlocks?.at(-1)?.checkpoint).toBe('completion_review')
     await workflowService.resumeWorkflow(runId, { completionReview: { outcome: 'approved' } })
@@ -289,10 +467,16 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
       .prepare(`UPDATE workflow_runs SET status = 'paused', error = NULL WHERE id = ?`)
       .run(runId)
 
-    //    Sign-off → ExecutionAckVC → wait for payout release (its own person, its own proof).
+    //    Sign-off → ExecutionAckVC → client invoice (payment collection) → wait for the worker
+    //    payout release (its own person, its own proof) because the job has a payout amount.
     const signedOff = await workflowService.resumeWorkflow(runId, {
       receiverId: 'customer-1',
-      acknowledgementPresentation: { id: 'vp-ack-1', type: 'OpenID4VP', holderDid: 'did:key:customer', verifiedBy: 'server' },
+      acknowledgementPresentation: {
+        id: 'vp-ack-1',
+        type: 'OpenID4VP',
+        holderDid: 'did:key:customer',
+        verifiedBy: 'server',
+      },
     })
     expect(signedOff.status).toBe('running')
     state = runState(runId)
@@ -301,7 +485,14 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
     expect(state.ack?.status).toBe('acknowledged')
     expect(state.ack?.presentationId).toBe('vp-ack-1')
     expect(state.payment).toBeUndefined()
-    expect(issued.filter((vc) => vc.runId === runId).map((vc) => vc.type)).toEqual(['RequisitionVC', 'ReceiptVC', 'ExecutionAckVC'])
+    // The client is invoiced at sign-off, before any payout.
+    expect(childRuns(runId)).toHaveLength(1)
+    expect(issued.filter((vc) => vc.runId === runId).map((vc) => vc.type)).toEqual([
+      'JobAssignmentVC',
+      'SiteInspectionVC',
+      'ReceiptVC',
+      'ExecutionAckVC',
+    ])
 
     //    Payout without proof is refused too.
     const unpaid = await workflowService.resumeWorkflow(runId, {})
@@ -311,13 +502,15 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
       .prepare(`UPDATE workflow_runs SET status = 'paused', error = NULL WHERE id = ?`)
       .run(runId)
 
-    //    Payout release → payout trigger → workflow.start(payment collection) → receipt issued → reconcile.
+    //    Payout release → payout trigger → payout receipt issued → reconcile.
     const finished = await workflowService.resumeWorkflow(runId, {
       releasePresentation: { id: 'vp-payout-1', type: 'OpenID4VP', holderDid: 'did:key:finance', verifiedBy: 'server' },
     })
     expect(finished.status).toBe('completed')
     state = runState(runId)
     expect(state.payment?.presentationId).toBe('vp-payout-1')
+    // The payout is the worker's amount, not the client invoice.
+    expect(state.payment?.amount).toBe(90)
     expect(runStatus(runId).status).toBe('completed')
     expect(state.evidenceReceipt?.evidenceHash).toBe('hash-receipt')
     expect(state.ack?.status).toBe('acknowledged')
@@ -328,22 +521,23 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
     expect(state.workflowStage).toBe('RECONCILED')
     expect(state.notified).toBe(true)
 
-    // SGK reuse matrix: job card, material receipt, completion acknowledgement — in order, to the right stages.
+    // SGK reuse matrix: job card, site check, material receipt, completion acknowledgement — in order, to the right stages.
     expect(issued.filter((vc) => vc.runId === runId).map((vc) => vc.type)).toEqual([
-      'RequisitionVC',
+      'JobAssignmentVC',
+      'SiteInspectionVC',
       'ReceiptVC',
       'ExecutionAckVC',
     ])
     const receiptVc = issued.find((vc) => vc.type === 'ReceiptVC')!
     expect(receiptVc.recipientStage).toBe('trigger_payout')
     expect(receiptVc.claims.evidenceHash).toBe('hash-receipt')
-    expect(receiptVc.claims.linkedEvidenceIds).toEqual(['hash-before', 'hash-after'])
+    expect(receiptVc.claims.linkedEvidenceIds).toEqual(['hash-before'])
     const ackVc = issued.find((vc) => vc.type === 'ExecutionAckVC')!
     expect(ackVc.recipientStage).toBe('acknowledge_execution')
     expect(ackVc.claims.completionStatus).toBe('acknowledged')
     expect(ackVc.claims.evidenceRefs).toEqual(['hash-before', 'hash-after', 'hash-receipt'])
     expect(Object.keys(state.issuedCredentials)).toEqual(
-      expect.arrayContaining(['RequisitionVC', 'ReceiptVC', 'ExecutionAckVC']),
+      expect.arrayContaining(['JobAssignmentVC', 'ReceiptVC', 'ExecutionAckVC']),
     )
 
     // Follow-on payment collection started via workflow.start (readiness-gated) and produced its own VCs.
@@ -355,14 +549,23 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
     expect(children[0].id).toBe(handoff.runId)
     // Async child; give the engine a tick to finish.
     await new Promise((resolve) => setTimeout(resolve, 50))
+    // The client gets a pay link by phone; the bill waits for the money. Nothing goes to the payout person.
+    expect(runStatus(handoff.runId).status).toBe('paused')
+    const waiting = runState(handoff.runId)
+    expect(waiting.pauseReason).toBe('await_client_payment')
+    expect(waiting.clientBill).toMatchObject({ status: 'sent', kind: 'invoice', amount: 250 })
+    expect(issued.filter((vc) => vc.runId === handoff.runId)).toEqual([])
+
+    // A resume without the money keeps the bill waiting.
+    await workflowService.resumeWorkflow(handoff.runId, {})
+    expect(runStatus(handoff.runId).status).toBe('paused')
+
+    // The paid link continues the bill.
+    await paymentLinkService.settlePaid(waiting.clientBill.linkId, { reference: 'ECO-TEST-1' })
     expect(runStatus(handoff.runId).status).toBe('completed')
-    const childState = runState(handoff.runId)
-    expect(childState.finance).toBeDefined()
-    expect(childState.issuedCredentials?.InvoiceVC).toBeDefined()
-    expect(childState.issuedCredentials?.PaymentReceiptVC).toBeDefined()
-    const paymentVcs = issued.filter((vc) => vc.runId === handoff.runId).map((vc) => vc.type)
-    expect(paymentVcs).toEqual(['InvoiceVC', 'PaymentReceiptVC'])
-    expect(issued.find((vc) => vc.type === 'InvoiceVC')?.claims.amount).toBe(250)
+    const paidState = runState(handoff.runId)
+    expect(paidState.clientBill.status).toBe('paid')
+    expect(paidState.payment).toMatchObject({ status: 'completed', reference: 'ECO-TEST-1', amount: 250 })
 
     // Reconciliation ledger for the job reference is complete.
     const events = reconciliationEvents(reference)
@@ -421,37 +624,59 @@ describe('FEPT chain — follow-on workflow is skipped when the org has no payme
     expect(runState(runId).pauseReason).toBe('await_worker_start')
     await workflowService.resumeWorkflow(runId, {})
     expect(runState(runId).pauseReason).toBe('await_evidence_before')
-    await workflowService.resumeWorkflow(runId, { evidenceHash: 'b1', phase: 'before', photoUri: 'b.jpg' })
-    await workflowService.resumeWorkflow(runId, { evidenceHash: 'a1', phase: 'after', photoUri: 'a.jpg' })
+    // "No materials bought" before the before photos is refused like any other out-of-order step.
+    const tooEarly = await workflowService.resumeWorkflow(runId, { phase: 'receipt', noReceipt: true })
+    expect(tooEarly.status).toBe('failed')
+    expect(tooEarly.error).toMatch(/waiting for before evidence, not receipt/)
+    DatabaseManager.getDatabase()
+      .prepare(`UPDATE workflow_runs SET status = 'paused', error = NULL WHERE id = ?`)
+      .run(runId)
     await workflowService.resumeWorkflow(runId, {
-      evidenceHash: 'r1',
-      phase: 'receipt',
-      photoUri: 'r.jpg',
+      evidenceHash: 'b1',
+      phase: 'before',
+      photoUri: 'b.jpg',
+      gps: '-17.8,31.0',
     })
-    // Sign-off was waived, but releasing the payout still needs its person and their proof.
-    expect(runState(runId).pauseReason).toBe('await_payout_release')
+    expect(runState(runId).pauseReason).toBe('await_evidence_receipt')
+    // No materials were bought: the worker says so and the job moves on to the work.
+    await workflowService.resumeWorkflow(runId, { phase: 'receipt', noReceipt: true, notes: 'Used stock from the van' })
+    expect(runState(runId).evidenceReceipt?.skipped).toBe(true)
+    expect(runState(runId).pauseReason).toBe('await_evidence_after')
+    // Salaried staff, no payout amount: the job closes right after the after photos. Sign-off was
+    // waived, the client invoice is blocked (no payment provider) and there is no payout step.
     const finished = await workflowService.resumeWorkflow(runId, {
-      releasePresentation: { id: 'vp-payout-2', type: 'OpenID4VP', verifiedBy: 'server' },
+      evidenceHash: 'a1',
+      phase: 'after',
+      photoUri: 'a.jpg',
+      gps: '-17.8,31.0',
     })
 
     expect(finished.status).toBe('completed')
     const state = runState(runId)
     expect(state.workflowStage).toBe('RECONCILED')
+    expect(state.payment?.status).toBe('not_needed')
+    expect(state.receipt?.status).toBe('not_needed')
     expect(state.startedWorkflows?.['tpl-payment-collection']?.status).toBe('blocked')
     expect(state.startedWorkflows?.['tpl-payment-collection']?.missing).toContain('payment_provider')
     expect(childRuns(runId)).toHaveLength(0)
-    // The field job's own VCs are still issued.
+    // The field job's own VCs are still issued; no receipt record without a receipt.
     expect(issued.filter((vc) => vc.runId === runId).map((vc) => vc.type)).toEqual([
-      'RequisitionVC',
-      'ReceiptVC',
+      'JobAssignmentVC',
+      'SiteInspectionVC',
       'ExecutionAckVC',
     ])
+    expect(reconciliationEvents(reference)).not.toContain('RECEIPT_ISSUED')
   })
 
   test('an internal job with no client to charge does not start payment collection at all', async () => {
     const org = seedOrganization({ name: 'Internal Works Co' })
     addRole(org.organizationId, 'Field Worker')
-    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, userId: `worker-c-${Date.now()}`, role: 'field_worker' })
+    addMember({
+      orgTenantId: org.orgTenantId,
+      organizationId: org.organizationId,
+      userId: `worker-c-${Date.now()}`,
+      role: 'field_worker',
+    })
     const fept = configureFeptTemplate(org.orgTenantId)
     const workflow = ensureExecutableWorkflow(org.orgTenantId, fept.id)!
 
@@ -461,6 +686,7 @@ describe('FEPT chain — follow-on workflow is skipped when the org has no payme
         reference: 'INT-1',
         requestId: 'REQ-3',
         amount: 40,
+        payoutAmount: 25,
         requireSiteInspection: false,
         requireRiskAssessment: 'false',
         requireArrivalProof: false,
@@ -471,14 +697,27 @@ describe('FEPT chain — follow-on workflow is skipped when the org has no payme
     )
     const runId = start.runId
     await workflowService.resumeWorkflow(runId, {})
-    await workflowService.resumeWorkflow(runId, { evidenceHash: 'b1', phase: 'before', photoUri: 'b.jpg' })
-    await workflowService.resumeWorkflow(runId, { evidenceHash: 'a1', phase: 'after', photoUri: 'a.jpg' })
+    await workflowService.resumeWorkflow(runId, {
+      evidenceHash: 'b1',
+      phase: 'before',
+      photoUri: 'b.jpg',
+      gps: '-17.8,31.0',
+    })
     await workflowService.resumeWorkflow(runId, { evidenceHash: 'r1', phase: 'receipt', photoUri: 'r.jpg' })
+    await workflowService.resumeWorkflow(runId, {
+      evidenceHash: 'a1',
+      phase: 'after',
+      photoUri: 'a.jpg',
+      gps: '-17.8,31.0',
+    })
+    // A payout amount means the money person still releases the worker's pay, with proof.
+    expect(runState(runId).pauseReason).toBe('await_payout_release')
     const finished = await workflowService.resumeWorkflow(runId, {
       releasePresentation: { id: 'vp-payout-3', type: 'OpenID4VP', verifiedBy: 'server' },
     })
 
     expect(finished.status).toBe('completed')
+    expect(runState(runId).payment?.amount).toBe(25)
     expect(runState(runId).startedWorkflows?.['tpl-payment-collection']?.status).toBe('not_needed')
     expect(childRuns(runId)).toHaveLength(0)
   })
@@ -496,7 +735,12 @@ describe('FEPT chain — recovery', () => {
   test('a failed run can be retried from the step that failed without repeating earlier steps', async () => {
     const org = seedOrganization({ name: 'Retry Works Co' })
     addRole(org.organizationId, 'Field Worker')
-    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, userId: `worker-r-${Date.now()}`, role: 'field_worker' })
+    addMember({
+      orgTenantId: org.orgTenantId,
+      organizationId: org.organizationId,
+      userId: `worker-r-${Date.now()}`,
+      role: 'field_worker',
+    })
     const fept = configureFeptTemplate(org.orgTenantId)
     const workflow = ensureExecutableWorkflow(org.orgTenantId, fept.id)!
 
@@ -516,6 +760,7 @@ describe('FEPT chain — recovery', () => {
           reference: 'INT-RETRY',
           requestId: 'REQ-RETRY',
           amount: 40,
+          payoutAmount: 40,
           requireSiteInspection: false,
           requireRiskAssessment: 'false',
           requireArrivalProof: false,
@@ -526,9 +771,19 @@ describe('FEPT chain — recovery', () => {
       )
       const runId = start.runId
       await workflowService.resumeWorkflow(runId, {})
-      await workflowService.resumeWorkflow(runId, { evidenceHash: 'b1', phase: 'before', photoUri: 'b.jpg' })
-      await workflowService.resumeWorkflow(runId, { evidenceHash: 'a1', phase: 'after', photoUri: 'a.jpg' })
+      await workflowService.resumeWorkflow(runId, {
+        evidenceHash: 'b1',
+        phase: 'before',
+        photoUri: 'b.jpg',
+        gps: '-17.8,31.0',
+      })
       await workflowService.resumeWorkflow(runId, { evidenceHash: 'r1', phase: 'receipt', photoUri: 'r.jpg' })
+      await workflowService.resumeWorkflow(runId, {
+        evidenceHash: 'a1',
+        phase: 'after',
+        photoUri: 'a.jpg',
+        gps: '-17.8,31.0',
+      })
       const failed = await workflowService.resumeWorkflow(runId, {
         releasePresentation: { id: 'vp-payout-retry', type: 'OpenID4VP', verifiedBy: 'server' },
       })

@@ -1,5 +1,8 @@
-import { Controller, Get, Post, Route, Tags, Query, Body } from 'tsoa'
+import { Request as ExRequest } from 'express'
+import { Controller, Get, Post, Route, Tags, Query, Body, Request, Security } from 'tsoa'
 
+import { StatusException } from '../../errors'
+import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { reportingService, IncomeStatement, BalanceSheet, CashFlowStatement } from '../../services/ReportingService'
 
 export interface CreateStatementOfferRequest {
@@ -19,30 +22,68 @@ export interface StatementOfferResponse {
 @Route('api/finance')
 @Tags('Financial Reporting')
 export class ReportingController extends Controller {
+  private tenantForReporter(request: ExRequest): string {
+    const user = (request as any).user || {}
+    const tenantId = String(user.tenantId || '')
+    if (!tenantId || !user.id) throw new StatusException('Organization sign-in is required.', 401)
+    const membership = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT m.role, r.permissions
+           FROM org_memberships m
+           LEFT JOIN organizations o ON o.tenant_id = m.org_tenant_id
+           LEFT JOIN roles r ON r.organization_id = o.id AND r.membership_role = m.role
+          WHERE m.org_tenant_id = ? AND m.user_id = ? AND m.status = 'active' LIMIT 1`,
+      )
+      .get(tenantId, String(user.id)) as { role?: string; permissions?: string } | undefined
+    let permissions: string[] = []
+    try {
+      permissions = membership?.permissions ? JSON.parse(membership.permissions) : []
+    } catch {
+      permissions = []
+    }
+    if (
+      !['owner', 'admin'].includes(String(membership?.role || '').toLowerCase()) &&
+      !permissions.includes('report.read')
+    ) {
+      throw new StatusException('You do not have permission to view reports.', 403)
+    }
+    return tenantId
+  }
+
   /**
    * Generate an Income Statement (P&L) for a specific period.
    * Aggregates Sales, Payroll, and Expenses.
    */
   @Get('income-statement')
-  public async getIncomeStatement(@Query() startDate: string, @Query() endDate: string): Promise<IncomeStatement> {
-    // In a real app, we'd get tenantId from auth context
-    return reportingService.generateIncomeStatement('default', startDate, endDate)
+  @Security('jwt', ['tenant'])
+  public async getIncomeStatement(
+    @Query() startDate: string,
+    @Query() endDate: string,
+    @Request() request: ExRequest,
+  ): Promise<IncomeStatement> {
+    return reportingService.generateIncomeStatement(this.tenantForReporter(request), startDate, endDate)
   }
 
   /**
    * Generate a Balance Sheet as of a specific date.
    */
   @Get('balance-sheet')
-  public async getBalanceSheet(@Query() asOfDate: string): Promise<BalanceSheet> {
-    return reportingService.generateBalanceSheet('default', asOfDate)
+  @Security('jwt', ['tenant'])
+  public async getBalanceSheet(@Query() asOfDate: string, @Request() request: ExRequest): Promise<BalanceSheet> {
+    return reportingService.generateBalanceSheet(this.tenantForReporter(request), asOfDate)
   }
 
   /**
    * Generate a Cash Flow Statement for a specific period.
    */
   @Get('cash-flow')
-  public async getCashFlowStatement(@Query() startDate: string, @Query() endDate: string): Promise<CashFlowStatement> {
-    return reportingService.generateCashFlowStatement('default', startDate, endDate)
+  @Security('jwt', ['tenant'])
+  public async getCashFlowStatement(
+    @Query() startDate: string,
+    @Query() endDate: string,
+    @Request() request: ExRequest,
+  ): Promise<CashFlowStatement> {
+    return reportingService.generateCashFlowStatement(this.tenantForReporter(request), startDate, endDate)
   }
 
   /**
@@ -50,8 +91,16 @@ export class ReportingController extends Controller {
    * The returned URI can be displayed as a QR code for an auditor to scan.
    */
   @Post('income-statement/offer')
-  public async createIncomeStatementOffer(@Body() body: CreateStatementOfferRequest): Promise<StatementOfferResponse> {
-    const uri = await reportingService.createIncomeStatementOffer('default', body.startDate, body.endDate)
+  @Security('jwt', ['tenant'])
+  public async createIncomeStatementOffer(
+    @Body() body: CreateStatementOfferRequest,
+    @Request() request: ExRequest,
+  ): Promise<StatementOfferResponse> {
+    const uri = await reportingService.createIncomeStatementOffer(
+      this.tenantForReporter(request),
+      body.startDate,
+      body.endDate,
+    )
     return { uri, statementType: 'IncomeStatementVC' }
   }
 
@@ -59,8 +108,12 @@ export class ReportingController extends Controller {
    * Create a Credential Offer for a verifiable Balance Sheet VC.
    */
   @Post('balance-sheet/offer')
-  public async createBalanceSheetOffer(@Body() body: CreateBalanceSheetOfferRequest): Promise<StatementOfferResponse> {
-    const uri = await reportingService.createBalanceSheetOffer('default', body.asOfDate)
+  @Security('jwt', ['tenant'])
+  public async createBalanceSheetOffer(
+    @Body() body: CreateBalanceSheetOfferRequest,
+    @Request() request: ExRequest,
+  ): Promise<StatementOfferResponse> {
+    const uri = await reportingService.createBalanceSheetOffer(this.tenantForReporter(request), body.asOfDate)
     return { uri, statementType: 'BalanceSheetVC' }
   }
 
@@ -68,8 +121,16 @@ export class ReportingController extends Controller {
    * Create a Credential Offer for a verifiable Cash Flow Statement VC.
    */
   @Post('cash-flow/offer')
-  public async createCashFlowOffer(@Body() body: CreateStatementOfferRequest): Promise<StatementOfferResponse> {
-    const uri = await reportingService.createCashFlowOffer('default', body.startDate, body.endDate)
+  @Security('jwt', ['tenant'])
+  public async createCashFlowOffer(
+    @Body() body: CreateStatementOfferRequest,
+    @Request() request: ExRequest,
+  ): Promise<StatementOfferResponse> {
+    const uri = await reportingService.createCashFlowOffer(
+      this.tenantForReporter(request),
+      body.startDate,
+      body.endDate,
+    )
     return { uri, statementType: 'CashFlowVC' }
   }
 }

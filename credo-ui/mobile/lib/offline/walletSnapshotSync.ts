@@ -1,16 +1,21 @@
+import { currentAccountId, rememberCurrentAccount } from '@/lib/savedAccounts'
 import api, { safeArray } from '@/lib/api'
 import { decodeJwtPayload, getPersonalWalletTenantId, getWalletToken } from '@/lib/auth'
 import { getOfflineStorageAdapter } from './storage'
 
 export interface WalletSnapshotCredential {
   id: string
+  /** The id the issuer registered for the card, when the card carries one. */
+  issuedId?: string
   type: string | string[]
   issuerDid?: string
+  issuerName?: string
   addedOn?: string
   revoked?: boolean
+  withdrawn?: boolean
   archived?: boolean
   revocationReason?: string
-  parsedDocument?: Record<string, unknown>
+  parsedDocument?: Record<string, any>
 }
 
 export interface WalletOfflineSnapshot {
@@ -55,19 +60,27 @@ export function getCachedWalletSnapshot(walletId?: string | null): WalletOffline
   return snapshot
 }
 
-function normalizeCredentialRows(items: any[]): WalletSnapshotCredential[] {
+/**
+ * Rows from `GET /api/wallet/{id}/credentials/list` as the screens and the offline copy hold
+ * them. The endpoint returns `vc_id` / `vc_type` / `issued_at`; older callers used `id` /
+ * `type` / `addedOn`, so both spellings are read. Receipts for the same transaction keep only
+ * the newest copy; every other card is its own record. Used by the Records screen and by the
+ * background sync, so the offline copy is the same list the person saw.
+ */
+export function normalizeWalletCredentialRows(items: any[]): WalletSnapshotCredential[] {
   const dedupedMap = new Map<string, any>()
 
   items.forEach((item) => {
+    const itemId = item?.vc_id || item?.id
+    const itemType = item?.vc_type || item?.type
+    const itemAdded = item?.issued_at || item?.addedOn
     const subject = item?.parsedDocument?.credentialSubject || item?.credentialSubject || {}
-    const baseKey = subject.transactionId || subject.invoiceHash || subject.invoiceId || subject.cartId || item.id
-    const type = Array.isArray(item?.type) ? item.type : [item?.type]
-    const isReceipt = type
-      .filter(Boolean)
-      .map(String)
-      .some((t: string) => t.includes('Receipt'))
-    const key = isReceipt ? `receipt-${item.id}` : `${baseKey}-${String(type.find(Boolean) || 'Credential')}`
-    if (!dedupedMap.has(key) || new Date(item.addedOn || 0) > new Date(dedupedMap.get(key)?.addedOn || 0)) {
+    const types = (Array.isArray(itemType) ? itemType : [itemType]).filter(Boolean).map(String)
+    const isReceipt = types.some((t: string) => t.includes('Receipt'))
+    const receiptKey = subject.transactionId || subject.invoiceHash || subject.invoiceId || subject.cartId
+    const key = isReceipt && receiptKey ? `receipt-${receiptKey}-${types[0] || 'Credential'}` : `card-${itemId}`
+    const existing = dedupedMap.get(key)
+    if (!existing || new Date(itemAdded || 0) > new Date(existing.issued_at || existing.addedOn || 0)) {
       dedupedMap.set(key, item)
     }
   })
@@ -76,15 +89,37 @@ function normalizeCredentialRows(items: any[]): WalletSnapshotCredential[] {
     (item) =>
       ({
         id: item.vc_id || item.id,
+        issuedId: item.issuedId,
         type: item.vc_type || item.type || 'VerifiableCredential',
         issuerDid: item.issuerDid,
+        issuerName: item.issuerName,
         addedOn: item.issued_at || item.addedOn,
         revoked: !!item.revoked || item.status === 'REVOKED',
+        withdrawn: !!item.withdrawn,
         archived: !!item.archived,
-        revocationReason: item.revocation_reason,
+        revocationReason: item.revocationReason || item.revocation_reason,
         parsedDocument: item.parsedDocument || item.parsed_document,
       }) as WalletSnapshotCredential,
   )
+}
+
+/**
+ * The account switcher shows "Name (+phone)". The name comes from this person's own identity
+ * card, never from an organisation, and is kept with the signed-in account.
+ */
+function rememberIdentityName(walletId: string, items: any[]): void {
+  if (typeof window === 'undefined') return
+  const identity = items.find((item) => {
+    const types = [item?.type, item?.credentialType, ...(item?.parsedDocument?.type || [])].map(String)
+    return !item?.withdrawn && types.some((type) => type.includes('PlatformIdentity'))
+  })
+  const raw = identity?.parsedDocument?.credentialSubject || identity?.credentialSubject || {}
+  const subject = { ...(raw.claims || {}), ...raw }
+  const name = String(subject.displayName || subject.name || subject.username || '').trim()
+  if (!name || currentAccountId() !== walletId) return
+  if (localStorage.getItem('credoUserName') !== name) localStorage.setItem('credoUserName', name)
+  if (!localStorage.getItem('credoUserPhone') && subject.phone) localStorage.setItem('credoUserPhone', String(subject.phone))
+  rememberCurrentAccount()
 }
 
 export async function syncWalletSnapshot(options?: {
@@ -120,7 +155,8 @@ export async function syncWalletSnapshot(options?: {
       } as any)
 
       const items: any[] = safeArray(res.data?.items ?? res.data)
-      return normalizeCredentialRows(items)
+      rememberIdentityName(walletId, items)
+      return normalizeWalletCredentialRows(items)
     } catch {
       return null
     }

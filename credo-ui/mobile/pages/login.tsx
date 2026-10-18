@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import {
   Box,
@@ -18,10 +18,11 @@ import { notifications } from '@mantine/notifications';
 import { IconPhone, IconLock, IconAlertCircle, IconShieldCheck } from '@tabler/icons-react';
 import api from '@/lib/api';
 import { applyPersonalWalletContext } from '@/lib/auth';
+import { confirmWithDevice, deviceTrustAvailable, rememberedWalletId, rememberPhoneWallet } from '@/lib/deviceTrust';
 import ErrorAlert from '@/components/shared/ErrorAlert';
 
 interface LoginValues {
-  phone: string;
+  identifier: string;
   pin: string;
 }
 
@@ -37,11 +38,16 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<'login' | 'register'>('login');
+  const submitting = useRef(false);
 
   const loginForm = useForm<LoginValues>({
-    initialValues: { phone: '', pin: '' },
+    initialValues: { identifier: '', pin: '' },
     validate: {
-      phone: (v) => (v.trim().length < 9 ? 'Enter a valid phone number' : null),
+      identifier: (v) => (
+        v.includes('@')
+          ? (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? null : 'Enter a valid email address')
+          : (v.trim().length < 9 ? 'Enter a valid phone number' : null)
+      ),
       pin: (v) => (v.length < 4 ? 'PIN must be at least 4 digits' : null),
     },
   });
@@ -56,18 +62,36 @@ export default function LoginPage() {
     },
   });
 
+  useEffect(() => {
+    const phone = typeof router.query.phone === 'string' ? router.query.phone : '';
+    if (phone && !loginForm.values.identifier) loginForm.setFieldValue('identifier', phone);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.query.phone]);
+
   const handleLogin = async (values: typeof loginForm.values) => {
+    // One tap signs in once, even if the keyboard closing fires a second submit.
+    if (submitting.current) return;
+    submitting.current = true;
     setLoading(true);
     setError(null);
     try {
+      const identifier = values.identifier.trim();
+      const email = identifier.includes('@') ? identifier : undefined;
+      const phone = email ? undefined : identifier;
       const res = await api.post('/api/wallet/auth/login', {
-        phone: values.phone,
+        phone,
+        email,
         pin: values.pin,
       });
       const { token, tenantId, organizations } = res.data;
 
       applyPersonalWalletContext(token, tenantId);
-      localStorage.setItem('credoUserPhone', values.phone);
+      rememberPhoneWallet(tenantId);
+      if (phone) localStorage.setItem('credoUserPhone', phone);
+      const { rememberCurrentAccount } = await import('@/lib/savedAccounts');
+      rememberCurrentAccount(identifier);
+      // Read this person's name from their identity card now, so the account switcher shows it.
+      void import('@/lib/offline/walletSnapshotSync').then(({ syncWalletSnapshot }) => syncWalletSnapshot()).catch(() => undefined);
 
       // Cache orgs from login response so the user can manually switch later.
       const orgs: Array<{ orgTenantId: string; name: string; role: string }> = organizations ?? [];
@@ -83,8 +107,58 @@ export default function LoginPage() {
       const msg = err.response?.data?.message ?? err.message ?? 'Login failed';
       setError(msg);
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
+  };
+
+  const handlePhoneLogin = async () => {
+    if (submitting.current) return;
+    const walletId = rememberedWalletId();
+    if (!walletId) {
+      setError('Sign in with your PIN once on this phone. After that you can use fingerprint or face.');
+      return;
+    }
+    submitting.current = true;
+    setLoading(true);
+    setError(null);
+    try {
+      const started = await api.post('/api/wallet/auth/login-wallet');
+      const deviceAssertion = deviceTrustAvailable()
+        ? await confirmWithDevice({ purpose: 'vc_login', required: true })
+        : undefined;
+      await api.post('/api/wallet/auth/login-wallet/present', {
+        walletId,
+        authorizationRequest: started.data.authorizationRequest,
+        ...(deviceAssertion ? { deviceAssertion } : {}),
+      });
+      const verified = await pollWalletLogin(started.data.loginId, started.data.pollToken);
+      applyPersonalWalletContext(verified.token, verified.tenantId);
+      rememberPhoneWallet(verified.tenantId);
+      const { rememberCurrentAccount } = await import('@/lib/savedAccounts');
+      rememberCurrentAccount();
+      const returnTo = router.query.returnTo as string | undefined;
+      router.replace(returnTo ?? '/inbox');
+    } catch (err: any) {
+      const message = err.response?.data?.message ?? err.message ?? 'Could not sign in with this phone';
+      setError(/does not hold|identity card/i.test(message)
+        ? 'Accept your identity card in Inbox, then try again.'
+        : message);
+    } finally {
+      submitting.current = false;
+      setLoading(false);
+    }
+  };
+
+  const pollWalletLogin = async (loginId: string, pollToken: string) => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const response = await api.get(`/api/wallet/auth/login-wallet/${encodeURIComponent(loginId)}`, {
+        headers: { 'x-login-poll-token': pollToken },
+      });
+      if (response.data?.status === 'verified') return response.data;
+      await new Promise((resolve) => window.setTimeout(resolve, 400));
+    }
+    throw new Error('The identity card was not accepted. Accept it in Inbox, then try again.');
   };
 
   const handleRegister = async (values: typeof registerForm.values) => {
@@ -98,7 +172,7 @@ export default function LoginPage() {
       });
       notifications.show({ title: 'Account created', message: 'You can now log in', color: 'green' });
       setTab('login');
-      loginForm.setValues({ phone: values.phone, pin: '' });
+      loginForm.setValues({ identifier: values.phone, pin: '' });
     } catch (err: any) {
       const msg = err.response?.data?.message ?? err.message ?? 'Registration failed';
       setError(msg);
@@ -113,9 +187,11 @@ export default function LoginPage() {
         minHeight: '100svh',
         background: 'light-dark(linear-gradient(135deg, var(--mantine-color-blue-0) 0%, var(--mantine-color-gray-0) 100%), var(--mantine-color-dark-8))',
         display: 'flex',
-        alignItems: 'center',
+        // Top-aligned so the Sign in button stays put when the keyboard closes; a centred form
+        // moved under the finger and the first tap only closed the keyboard.
+        alignItems: 'flex-start',
         justifyContent: 'center',
-        padding: '24px 16px',
+        padding: 'max(32px, env(safe-area-inset-top)) 16px 24px',
       }}
     >
       <Box style={{ width: '100%', maxWidth: 400 }}>
@@ -138,7 +214,7 @@ export default function LoginPage() {
             Credentis
           </Title>
           <Text size="sm" c="dimmed" ta="center">
-            Sign in with your phone and PIN
+            Sign in with your phone or email and PIN
           </Text>
         </Stack>
 
@@ -189,12 +265,14 @@ export default function LoginPage() {
               <form onSubmit={loginForm.onSubmit(handleLogin)}>
                 <Stack gap="sm">
                   <TextInput
-                    label="Phone number"
-                    placeholder="263771234567"
+                    label="Phone or email"
+                    placeholder="263771234567 or john@example.com"
                     leftSection={<IconPhone size={16} />}
                     size="md"
+                    autoComplete="username"
                     inputMode="tel"
-                    {...loginForm.getInputProps('phone')}
+                    enterKeyHint="next"
+                    {...loginForm.getInputProps('identifier')}
                   />
                   <PasswordInput
                     label="PIN"
@@ -202,11 +280,20 @@ export default function LoginPage() {
                     leftSection={<IconLock size={16} />}
                     size="md"
                     inputMode="numeric"
+                    enterKeyHint="go"
+                    autoComplete="current-password"
                     {...loginForm.getInputProps('pin')}
                   />
                   <Button type="submit" size="lg" fullWidth loading={loading} mt="xs">
                     Sign in
                   </Button>
+                  <Divider label="or" />
+                  <Button variant="default" size="lg" fullWidth loading={loading} onClick={() => void handlePhoneLogin()}>
+                    Sign in with this phone
+                  </Button>
+                  <Text size="xs" c="dimmed" ta="center">
+                    Uses the identity card already on this phone. Fingerprint or face confirms it. No QR.
+                  </Text>
                 </Stack>
               </form>
             ) : (

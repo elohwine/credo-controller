@@ -122,6 +122,32 @@ The driver will scan to confirm delivery.
 
 ---
 
+## 🙋 Asking for something (Request on Home)
+
+On Home, next to Scan, Receive, Pay and Share, there is **Request**. On the website it is the **Request** button at the top of Home, and the "Ask for something" cards below. It shows only what you can ask for right now.
+
+**My organisations** — one block for each organisation you work with.
+
+- **Ask for leave**: pick the kind of leave and the first and last day. Your manager gets it in their inbox and decides. You see the answer under My requests.
+- **Claim an expense**: say what you paid for, the amount and the category. Your manager decides; finance pays you back and marks it paid.
+- **Ask for my payout**: only shows when one of your finished jobs is still waiting for its payment. It sends a reminder to the person who releases it. It closes by itself when the payment goes out.
+- **Something else**: a short title and a few words. It goes to the person who handles requests in that organisation.
+
+**My records** — for a new or reset phone.
+
+- **Staff card** and **receipts** come back to your inbox; accept each one.
+- **Payslips** are sent by your payroll person. Tap "Ask the organisation" and they get your request.
+
+**Other businesses** — organisations you do not work for.
+
+- **Ask for a quote**, **Ask for a bill**, **Book a service**: on the phone, pick the business under Network → Discover; on the website, search for it in the sheet. They see your name and what you wrote, nothing else. Their answer arrives in your inbox.
+
+**Acting as an organisation**: the sheet shows the organisation's actions instead (purchase request, new field job, collect a payment). Your own requests stay under your personal account.
+
+**My requests** lists everything you asked for, where it is (Waiting, Done, Declined) and, for an organisation request, its full History.
+
+---
+
 ## 🔧 Troubleshooting
 
 | Issue                 | Solution                                        |

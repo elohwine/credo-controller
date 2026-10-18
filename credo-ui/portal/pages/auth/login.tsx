@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect } from 'react';
+import React, { useState, useContext, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
@@ -26,6 +26,7 @@ import {
 } from '@mantine/core';
 import { IconLogin, IconAlertCircle, IconCheck, IconWallet, IconCopy, IconQrcode } from '@tabler/icons-react';
 import QRCode from 'react-qr-code';
+import { applyPersonalLogin } from '@/lib/personalSession';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -38,12 +39,17 @@ export default function LoginPage() {
     const [ssiLoading, setSsiLoading] = useState(false);
     const [ssiModalOpen, setSsiModalOpen] = useState(false);
     const [authRequest, setAuthRequest] = useState<string | null>(null);
-    const [ssiState, setSsiState] = useState<string | null>(null);
+    const walletAttempt = useRef(0);
+    const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [authChecked, setAuthChecked] = useState(false);
 
+    useEffect(() => () => {
+        walletAttempt.current++;
+        if (pollTimer.current) clearTimeout(pollTimer.current);
+    }, []);
+
     const [form, setForm] = useState({
-        phone: '',
-        email: '',
+        identifier: '',
         pin: '',
         rememberMe: false,
     });
@@ -76,7 +82,10 @@ export default function LoginPage() {
         setError(null);
         setLoading(true);
 
-        if (!form.phone && !form.email) {
+        const identifier = form.identifier.trim();
+        const email = identifier.includes('@') ? identifier : undefined;
+        const phone = email ? undefined : identifier;
+        if (!identifier) {
             setError('Please enter phone or email');
             setLoading(false);
             return;
@@ -85,8 +94,8 @@ export default function LoginPage() {
         try {
             // Use SSI Auth PIN login - no PII stored, just hash lookup
             const response = await axios.post(`${holderBackend}/api/ssi/auth/login/pin`, {
-                phone: form.phone || undefined,
-                email: form.email || undefined,
+                phone,
+                email,
                 pin: form.pin,
             });
 
@@ -94,17 +103,7 @@ export default function LoginPage() {
             setSuccess(true);
 
             // Store auth token and wallet info
-            const { token, tenantId } = response.data;
-            if (token) {
-                localStorage.setItem('credoTenantToken', token);
-                // Also set walletToken for WalletPage compatibility
-                localStorage.setItem('walletToken', token);
-                localStorage.setItem('tenantToken', token);
-            }
-            if (tenantId) {
-                localStorage.setItem('credoTenantId', tenantId);
-                localStorage.setItem('tenantId', tenantId);
-            }
+            applyPersonalLogin(response.data, identifier);
 
             // Redirect to shop or dashboard
             const returnUrl = router.query.returnUrl as string || '/wallet';
@@ -121,17 +120,20 @@ export default function LoginPage() {
 
     // SSI Login - Step 1: Get authorization request
     const handleWalletLogin = async () => {
+        const attempt = ++walletAttempt.current;
+        if (pollTimer.current) clearTimeout(pollTimer.current);
         setSsiLoading(true);
         setError(null);
         try {
             const response = await axios.post(`${holderBackend}/api/wallet/auth/login-wallet`);
+            if (attempt !== walletAttempt.current) return;
             setAuthRequest(response.data.authorizationRequest);
-            setSsiState(response.data.state);
             setSsiModalOpen(true);
-            
-            // Start polling for verification result
-            pollForVerification(response.data.state);
+
+            // The poll token never leaves this page; it is the only way to collect the session.
+            pollForVerification(response.data.loginId, response.data.pollToken, attempt);
         } catch (err: any) {
+            if (attempt !== walletAttempt.current) return;
             console.error('[SSI Login] Error:', err);
             setError(err.response?.data?.message || 'Failed to initiate wallet login');
         } finally {
@@ -140,11 +142,12 @@ export default function LoginPage() {
     };
 
     // Poll for SSI login verification
-    const pollForVerification = async (state: string) => {
-        const maxAttempts = 60; // 2 minutes at 2s intervals
+    const pollForVerification = async (loginId: string, pollToken: string, attempt: number) => {
+        const maxAttempts = 150; // 5 minutes at 2s intervals, the sign-in lifetime
         let attempts = 0;
 
         const poll = async () => {
+            if (attempt !== walletAttempt.current) return;
             if (attempts >= maxAttempts) {
                 setError('Login timed out. Please try again.');
                 setSsiModalOpen(false);
@@ -152,29 +155,32 @@ export default function LoginPage() {
             }
 
             try {
-                const response = await axios.get(`${holderBackend}/api/wallet/auth/login-challenge?state=${state}`);
-                
-                if (response.data.verified) {
-                    // Login successful
-                    const { token, tenantId } = response.data;
-                    localStorage.setItem('credoTenantToken', token);
-                    localStorage.setItem('tenantToken', token);
-                    localStorage.setItem('credoTenantId', tenantId);
-                    localStorage.setItem('tenantId', tenantId);
-                    
+                const response = await axios.get(
+                    `${holderBackend}/api/wallet/auth/login-wallet/${encodeURIComponent(loginId)}`,
+                    { headers: { 'x-login-poll-token': pollToken } },
+                );
+                if (attempt !== walletAttempt.current) return;
+
+                if (response.data.status === 'verified') {
+                    applyPersonalLogin(response.data);
+
                     setSuccess(true);
                     setSsiModalOpen(false);
-                    
+
                     const returnUrl = router.query.returnUrl as string || '/wallet';
                     setTimeout(() => router.push(returnUrl), 1000);
                     return;
                 }
-            } catch (err) {
-                // Still pending - continue polling
+            } catch (err: any) {
+                if (attempt !== walletAttempt.current) return;
+                // A rejected, used or expired sign-in will not recover by polling.
+                setError(err.response?.data?.details || err.response?.data?.message || 'Wallet sign-in failed. Please try again.');
+                setSsiModalOpen(false);
+                return;
             }
 
             attempts++;
-            setTimeout(poll, 2000);
+            pollTimer.current = setTimeout(poll, 2000);
         };
 
         poll();
@@ -196,6 +202,11 @@ export default function LoginPage() {
                     ) : (
                         <form onSubmit={handleSubmit}>
                             <Stack gap="md">
+                                {router.query.sessionExpired === '1' && (
+                                    <Alert icon={<IconAlertCircle size={16} />} title="Please sign in again" color="yellow">
+                                        Your previous session is no longer valid. Sign in with your wallet or PIN to continue.
+                                    </Alert>
+                                )}
                                 {error && (
                                     <Alert icon={<IconAlertCircle size={16} />} title="Error" color="red">
                                         {error}
@@ -203,19 +214,12 @@ export default function LoginPage() {
                                 )}
 
                                 <TextInput
-                                    label="Phone Number"
-                                    placeholder="0774 123 456"
-                                    description="Enter the phone you registered with"
-                                    value={form.phone}
-                                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                                />
-
-                                <TextInput
-                                    label="Or Email"
-                                    placeholder="john@example.com"
-                                    type="email"
-                                    value={form.email}
-                                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                                    label="Phone or email"
+                                    placeholder="0774 123 456 or john@example.com"
+                                    autoComplete="username"
+                                    required
+                                    value={form.identifier}
+                                    onChange={(e) => setForm({ ...form, identifier: e.target.value })}
                                 />
 
                                 <PasswordInput
@@ -265,7 +269,11 @@ export default function LoginPage() {
             {/* SSI Login Modal - Show QR code for wallet scan */}
             <Modal
                 opened={ssiModalOpen}
-                onClose={() => setSsiModalOpen(false)}
+                onClose={() => {
+                    walletAttempt.current++;
+                    if (pollTimer.current) clearTimeout(pollTimer.current);
+                    setSsiModalOpen(false);
+                }}
                 title={
                     <Group gap="xs">
                         <IconWallet size={24} />

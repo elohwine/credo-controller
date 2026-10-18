@@ -6,23 +6,21 @@ import { Controller, Post, Get, Route, Tags, Path, Request } from 'tsoa'
 import { container } from 'tsyringe'
 
 import { DatabaseManager } from '../../persistence/DatabaseManager'
-import { rootLogger } from '../../utils/pinoLogger'
-
-const logger = rootLogger.child({ module: 'VCVerifierController' })
-
+import { credentialLifecycleService } from '../../services/ssi/CredentialLifecycleService'
 export interface VerificationResult {
   vcId: string
   vcType: string
   status: 'valid' | 'invalid' | 'revoked' | 'expired' | 'not_found'
+  /** Why the organisation ended it, when status is revoked. */
+  reason?: string
+  /** The organisation that issued it, in words. */
+  issuerName?: string
   issuer?: string
   issuanceDate?: string
   expirationDate?: string
+  /** What the record says. */
   subject?: any
   verifiedAt: string
-  signature?: {
-    algorithm: string
-    verified: boolean
-  }
 }
 
 export interface VerificationLog {
@@ -43,73 +41,21 @@ export class VCVerifierController extends Controller {
    */
   @Get('{vcId}')
   public async verifyCredential(@Path() vcId: string, @Request() request: ExRequest): Promise<VerificationResult> {
-    const db = DatabaseManager.getDatabase()
-
-    let result: VerificationResult = {
+    // The register holds the truth: `issued_credentials` first, then an accepted inbox row.
+    // Reading the old column names (`type`, `claims`, `issuer_did`) threw on every check, so a
+    // record that was issued here came back as "not found".
+    const check = credentialLifecycleService.checkRecord(vcId)
+    const result: VerificationResult = {
       vcId,
-      vcType: 'Unknown',
-      status: 'not_found',
-      verifiedAt: new Date().toISOString(),
+      vcType: check.vcType,
+      status: check.status,
+      reason: check.reason,
+      issuerName: check.issuerName,
+      issuanceDate: check.issuedAt,
+      expirationDate: check.expiresAt,
+      subject: check.claims,
+      verifiedAt: check.checkedAt,
     }
-
-    try {
-      // Try to find the credential in our issued_credentials table
-      const credential = db
-        .prepare(
-          `
-                SELECT * FROM issued_credentials WHERE id = ? OR offer_id = ?
-            `,
-        )
-        .get(vcId, vcId) as any
-
-      if (!credential) {
-        // Try credential_offers table
-        const offer = db
-          .prepare(
-            `
-                    SELECT * FROM credential_offers WHERE id = ?
-                `,
-          )
-          .get(vcId) as any
-
-        if (!offer) {
-          result.status = 'not_found'
-          this.logVerification(vcId, result, request)
-          return result
-        }
-
-        // Found in offers
-        result.vcType = offer.type || 'CredentialOffer'
-        result.issuer = offer.issuer_did
-        result.issuanceDate = offer.created_at
-        result.status = offer.status === 'accepted' ? 'valid' : 'invalid'
-        result.subject = JSON.parse(offer.claims || '{}')
-      } else {
-        // Found issued credential
-        result.vcType = credential.type || 'VerifiableCredential'
-        result.issuer = credential.issuer_did
-        result.issuanceDate = credential.created_at
-        result.subject = JSON.parse(credential.claims || '{}')
-
-        // Check revocation status
-        if (credential.revoked) {
-          result.status = 'revoked'
-        } else if (credential.expires_at && new Date(credential.expires_at) < new Date()) {
-          result.status = 'expired'
-          result.expirationDate = credential.expires_at
-        } else {
-          result.status = 'valid'
-          result.signature = {
-            algorithm: 'EdDSA',
-            verified: true,
-          }
-        }
-      }
-    } catch (error: any) {
-      logger.error({ vcId, error: error.message }, 'Verification failed')
-      result.status = 'invalid'
-    }
-
     this.logVerification(vcId, result, request)
     return result
   }

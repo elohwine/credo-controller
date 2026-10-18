@@ -2,7 +2,7 @@
 # Build a signed release APK for the Credentis mobile app.
 #
 # Steps:
-#   1. Resolve the public API URL: running ngrok agent (127.0.0.1:4040) -> NEXT_PUBLIC_API_URL env -> fail.
+#   1. Resolve the public API URL: explicit NEXT_PUBLIC_API_URL or the deployed Fly API.
 #   2. Bump versionCode (+1) and versionName (patch) in android/app/build.gradle.
 #   3. next build (static export to out/) with NEXT_PUBLIC_API_URL baked in.
 #   4. npx cap sync android
@@ -11,7 +11,7 @@
 #
 # Usage:
 #   npm run android:release
-#   NEXT_PUBLIC_API_URL=https://api.example.com npm run android:release   # explicit URL, skips ngrok lookup
+#   NEXT_PUBLIC_API_URL=https://api.example.com npm run android:release   # explicit override
 #   SKIP_VERSION_BUMP=1 npm run android:release                           # keep current versionCode/versionName
 
 set -euo pipefail
@@ -19,39 +19,14 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
-NGROK_API="${NGROK_API:-http://127.0.0.1:4040/api/tunnels}"
 GRADLE_FILE="android/app/build.gradle"
 
 log() { printf '\n\033[1;36m[build-mobile]\033[0m %s\n' "$*"; }
 die() { printf '\n\033[1;31m[build-mobile] %s\033[0m\n' "$*" >&2; exit 1; }
 
 # ── 1. Resolve API URL ───────────────────────────────────────────────────────
-resolve_ngrok_url() {
-  command -v curl >/dev/null 2>&1 || return 1
-  local json
-  json="$(curl -fsS --max-time 3 "$NGROK_API" 2>/dev/null)" || return 1
-  python3 - "$json" <<'PY' 2>/dev/null
-import json, sys
-data = json.loads(sys.argv[1])
-for t in data.get("tunnels", []):
-    url = t.get("public_url", "")
-    if url.startswith("https://"):
-        print(url)
-        break
-PY
-}
-
-API_URL="${NEXT_PUBLIC_API_URL:-}"
-if [[ -z "$API_URL" ]]; then
-  API_URL="$(resolve_ngrok_url || true)"
-  if [[ -n "$API_URL" ]]; then
-    log "Using ngrok tunnel: $API_URL"
-  fi
-else
-  log "Using NEXT_PUBLIC_API_URL from environment: $API_URL"
-fi
-
-[[ -n "$API_URL" ]] || die "No API URL. Start the tunnel (ngrok http 3000) or set NEXT_PUBLIC_API_URL=https://..."
+API_URL="${NEXT_PUBLIC_API_URL:-https://credentis.fly.dev}"
+log "Using API: $API_URL"
 [[ "$API_URL" == https://* ]] || die "API URL must be https:// for the native build (got: $API_URL)"
 case "$API_URL" in
   *localhost*|*127.0.0.1*) die "API URL must not be a loopback address (got: $API_URL)";;
@@ -97,10 +72,21 @@ log "cap sync android"
 npx cap sync android
 
 # ── 5. Gradle release build ──────────────────────────────────────────────────
+# The kiosk app already unpacked Gradle 8.11.1 under the user Gradle home.
+# Point the wrapper there so a phone build does not download it again.
+LOCAL_GRADLE_HOME="${GRADLE_HOME_LOCAL:-$HOME/.gradle}"
+if [[ -x "$LOCAL_GRADLE_HOME/wrapper/dists/gradle-8.11.1-all/2qik7nd48slq1ooc2496ixf4i/gradle-8.11.1/bin/gradle" ]]; then
+  export GRADLE_USER_HOME="$LOCAL_GRADLE_HOME"
+  log "Using Gradle 8.11.1 already installed at $GRADLE_USER_HOME"
+else
+  log "Local Gradle 8.11.1 not found; the wrapper will download it"
+fi
 log "gradlew assembleRelease"
 pushd android >/dev/null
 chmod +x ./gradlew
-./gradlew assembleRelease --no-daemon -q
+# Same invocation as the kiosk build-and-sign-apk.sh. GRADLE_USER_HOME above
+# is the home that already holds the unpacked 8.11.1 distribution.
+./gradlew assembleRelease || { echo "Gradle build failed"; exit 1; }
 popd >/dev/null
 
 APK="$(ls -t android/app/build/outputs/apk/release/*.apk 2>/dev/null | head -1)"

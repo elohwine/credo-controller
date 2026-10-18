@@ -1,11 +1,10 @@
 /**
  * OrgWorkflowActorCredential - "actor VC" for people acting on behalf of an organization.
  *
- * When an organization configures who acts at a workflow stage (directly, by role, or through
- * its fallback policy), the platform offers the resolved person an actor credential scoped to
- * that organization and to the stage actions they cover. When the person later performs the
- * stage action (approve / release funds / acknowledge / assign / payout …) the OIDC4VP request
- * for that action accepts this credential as proof that they are the organization's actor.
+ * Older wallets may still hold one of these per workflow. New offers are not issued: the steps
+ * a person confirms are claims on their single staff card (EmployeeCredential.stageActions).
+ * A presentation of an existing actor credential is still accepted when it matches the
+ * organization and the step. The OIDC4VP request for a step accepts either card.
  *
  * Design invariant (remodel handoff §10): SSI provides evidence and trust; the platform owns
  * workflow state. Possession of this credential never implies authorization on its own — the

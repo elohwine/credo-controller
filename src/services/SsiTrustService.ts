@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'crypto'
 import { consentRepository } from '../persistence/ConsentRepository'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 
-import { authorizationService } from './AuthorizationService'
+import { authorizationService, authorityRefused } from './AuthorizationService'
 
 export interface PresentationRequestInput {
   tenantId: string
@@ -190,7 +190,7 @@ export class SsiTrustService {
     })
 
     if (authorization.decision !== 'allow') {
-      throw new Error(`Insufficient authority: ${authorization.reasonCode}`)
+      throw authorityRefused(authorization.reasonCode, 'ask for cards')
     }
 
     const queryLanguage = input.queryLanguage ?? 'dcql'
@@ -375,6 +375,20 @@ export class SsiTrustService {
     }
 
     return { consentId, requestId: input.requestId, decision: input.decision, disclosedCategories }
+  }
+
+  /** A request is answered once: after a verified result, any further answer is a replay. */
+  public hasVerifiedResult(tenantId: string, requestId: string): boolean {
+    const organizationId = this.resolveOrganization(tenantId)
+    const row = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT 1 FROM presentation_results r
+         JOIN presentation_requests pr ON pr.id = r.presentation_request_id
+         WHERE r.presentation_request_id = ? AND pr.organization_id = ? AND r.verified = 1
+         LIMIT 1`,
+      )
+      .get(requestId, organizationId)
+    return Boolean(row)
   }
 
   public recordVerification(input: PresentationVerificationInput) {

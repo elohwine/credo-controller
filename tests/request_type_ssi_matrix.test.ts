@@ -17,14 +17,13 @@ import { afterAll, beforeAll, expect, test } from '@jest/globals'
 import { ORG_WORKFLOW_ACTOR_VC_TYPE } from '../src/config/credentials/OrgWorkflowActorVC'
 import { PLATFORM_IDENTITY_VC_TYPE } from '../src/config/credentials/PlatformIdentityVC'
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
+import { orgEntitlementService } from '../src/services/OrgEntitlementService'
+import { orgSetupProfileService } from '../src/services/OrgSetupProfileService'
 import { WorkflowTemplateRepository } from '../src/persistence/WorkflowTemplateRepository'
 import { orgWorkflowActorCredentialService } from '../src/services/OrgWorkflowActorCredentialService'
 import { orgWorkflowActorService } from '../src/services/OrgWorkflowActorService'
 import { platformRequestService } from '../src/services/PlatformRequestService'
-import {
-  resolveAcceptedProofVcTypes,
-  type ProofVcActionKey,
-} from '../src/services/ProofVcPolicyService'
+import { resolveAcceptedProofVcTypes, type ProofVcActionKey } from '../src/services/ProofVcPolicyService'
 import { requestHandoffService } from '../src/services/RequestHandoffService'
 import { workflowReadinessService } from '../src/services/WorkflowReadinessService'
 import { resolveStageRoute, routeWorkflowStageInbox } from '../src/services/WorkflowStageInboxService'
@@ -43,21 +42,16 @@ import {
   type TestDatabases,
 } from './utils/orgReadinessFixture'
 
-const ROLES = ['roles']
-const AP = ['authorities', 'roles', 'stage_actor:record_payment']
-const REQUISITION = [
-  'authorities',
-  'departments',
-  'roles',
-  'stage_actor:approve_requisition',
-  'stage_actor:release_funds',
-]
-const FEPT = ['roles']
-const HR = ['authorities', 'departments', 'roles']
-const PAYSLIP = ['roles']
-const COLLECT = ['payment_provider', 'roles']
-const COMMERCE = ['payment_provider', 'roles']
-const VERIFY = ['roles', 'trusted_issuers']
+// Starter roles are filled from the setup answers when readiness is read, so they never block.
+const ROLES: string[] = []
+const AP = ['authorities', 'stage_actor:record_payment']
+const REQUISITION = ['authorities', 'departments', 'stage_actor:approve_requisition', 'stage_actor:release_funds']
+const FEPT: string[] = []
+const HR = ['authorities', 'departments']
+const PAYSLIP: string[] = []
+const COLLECT = ['payment_provider']
+const COMMERCE = ['payment_provider']
+const VERIFY = ['trusted_issuers']
 
 const CREDENTIAL_MATERIAL = ['vc', 'vp', 'jwt', 'credential', 'presentation']
 
@@ -109,7 +103,7 @@ const ROWS: MatrixRow[] = [
     blocking: AP,
     routeType: 'finance.purchase_order',
     context: { supplierRef: 'sup-1', poRef: 'PO-1' },
-    followOn: { onStatus: 'approved', childType: 'finance.payment_request', via: 'platform' },
+    followOn: { onStatus: 'completed', childType: 'finance.payment_request', via: 'platform' },
   },
   {
     id: 'procurement.requisition',
@@ -380,7 +374,12 @@ function saveDisabledTemplate(orgTenantId: string, templateId: string): void {
   templates.save(definition)
 }
 
-function satisfy(org: ReturnType<typeof seedOrganization>, blocking: string[], workflowType: string, actorUserId: string) {
+function satisfy(
+  org: ReturnType<typeof seedOrganization>,
+  blocking: string[],
+  workflowType: string,
+  actorUserId: string,
+) {
   if (blocking.includes('roles')) addRole(org.organizationId, 'Operator')
   if (blocking.includes('authorities')) addAuthorityGrant(org.organizationId, org.ownerPersonId)
   if (blocking.includes('departments')) addDepartment(org.organizationId, 'Operations')
@@ -417,9 +416,7 @@ function assertNoCredentialMaterial(context: Record<string, unknown>) {
 
 function childContext(parentId: string, childType: string): Record<string, unknown> | undefined {
   const row = DatabaseManager.getDatabase()
-    .prepare(
-      `SELECT context_json AS contextJson FROM requests WHERE parent_request_id = ? AND request_type = ?`,
-    )
+    .prepare(`SELECT context_json AS contextJson FROM requests WHERE parent_request_id = ? AND request_type = ?`)
     .get(parentId, childType) as { contextJson?: string } | undefined
   if (!row?.contextJson) return undefined
   return JSON.parse(row.contextJson) as Record<string, unknown>
@@ -448,7 +445,7 @@ function assertDeclaredCredentials(templateId: string) {
   if (templateId === 'tpl-fept-field-execution') {
     const start = template!.steps.find((step) => step.action === 'workflow.start')
     expect(start?.config?.workflow).toBe('tpl-payment-collection')
-    expect(template!.outputVCs).toEqual(expect.arrayContaining(['RequisitionVC', 'ReceiptVC', 'ExecutionAckVC']))
+    expect(template!.outputVCs).toEqual(expect.arrayContaining(['JobAssignmentVC', 'ReceiptVC', 'ExecutionAckVC']))
   }
 }
 
@@ -466,9 +463,11 @@ for (const row of ROWS) {
     if (row.templateId) saveDisabledTemplate(org.orgTenantId, row.templateId)
 
     const unready = workflowReadinessService.evaluateTemplate(org.orgTenantId, row.templateRef)
-    expect(unready.ready).toBe(false)
+    expect(unready.ready).toBe(row.blocking.length === 0)
+    expect(unready.items.find((item) => item.key === 'roles')?.status ?? 'ready').toBe('ready')
+    // Templates that declare no organisation needs skip the core checklist, identity included.
     const identity = unready.items.find((item) => item.key === 'ssi_identity')
-    expect(identity?.status).toBe('ready')
+    expect(identity?.status ?? 'ready').toBe('ready')
     expect(sorted(unready.blocking.map((item) => item.key))).toEqual(sorted(row.blocking))
 
     satisfy(org, row.blocking, String(unready.workflowType || row.templateRef), actorUserId)
@@ -521,6 +520,12 @@ for (const row of ROWS) {
     expect(accepted).toContain(ORG_WORKFLOW_ACTOR_VC_TYPE)
 
     if (row.declareCredentials && row.templateId) assertDeclaredCredentials(row.templateId)
+
+    // Payroll stays off for existing organisations until the plan and setup answers turn it on.
+    if (orgSetupProfileService.moduleForOperation(row.routeType) === 'people_payroll') {
+      orgEntitlementService.setPlan(org.orgTenantId, { grantedModules: ['people_payroll'] })
+      orgSetupProfileService.save(org.orgTenantId, { modules: ['people_payroll'], expectedRevision: 0 })
+    }
 
     const parentId = randomUUID()
     if (row.followOn?.via === 'platform' || !row.followOn) {

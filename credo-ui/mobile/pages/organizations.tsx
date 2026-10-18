@@ -8,8 +8,10 @@ import {
 } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
 import AppShellMobile from '@/components/layout/AppShellMobile';
-import { getActiveOrgLabel, getContextMode, getPreferredToken, getWalletToken, isAuthenticated } from '@/lib/auth';
+import { getActiveOrgId, getActiveOrgLabel, getContextMode, getPreferredToken, getWalletToken, isAuthenticated } from '@/lib/auth';
 import api, { safeArray } from '@/lib/api';
+import { TEAM_ROLE_FALLBACK, teamRolesFromCatalog } from '@/lib/orgProfile';
+import { contactAppStatus, contactInviteUrl } from '@/lib/contactAvailability';
 
 interface Organization {
   id: string;
@@ -41,6 +43,7 @@ interface ContactSummary {
   did?: string;
   walletTenantId?: string;
   contactScope: 'internal' | 'external';
+  appStatus?: 'in_app' | 'invite' | 'no_phone';
 }
 
 const CATEGORY_CONFIG: Record<string, { label: string; icon: any; color: string }> = {
@@ -166,7 +169,9 @@ export default function OrganizationsPage() {
     phone: '',
     email: '',
     contactScope: 'external' as 'internal' | 'external',
+    teamRole: 'field_worker',
   });
+  const [teamRoleChoices, setTeamRoleChoices] = useState(TEAM_ROLE_FALLBACK);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -181,6 +186,24 @@ export default function OrganizationsPage() {
     }
     setCheckingAuth(false);
   }, [router]);
+
+  useEffect(() => {
+    if (!showCreateContact) return;
+    const orgId = getActiveOrgId();
+    const token = getPreferredToken();
+    if (!orgId || !token) return;
+    api.get(`/api/organizations/${encodeURIComponent(orgId)}/roles`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => {
+        const fromSetup = teamRolesFromCatalog(safeArray(res.data));
+        const next = fromSetup.length > 0 ? fromSetup : TEAM_ROLE_FALLBACK;
+        setTeamRoleChoices(next);
+        setContactForm((prev) => ({
+          ...prev,
+          teamRole: next.some((choice) => choice.value === prev.teamRole) ? prev.teamRole : (next[0]?.value || 'field_worker'),
+        }));
+      })
+      .catch(() => setTeamRoleChoices(TEAM_ROLE_FALLBACK));
+  }, [showCreateContact]);
 
   useEffect(() => {
     if (checkingAuth) return;
@@ -297,6 +320,7 @@ export default function OrganizationsPage() {
         did: entry.did || undefined,
         walletTenantId: entry.walletTenantId || undefined,
         contactScope: entry.contactScope === 'internal' ? 'internal' : 'external',
+        appStatus: entry.appStatus,
       })));
     } catch {
       setContacts([]);
@@ -312,6 +336,12 @@ export default function OrganizationsPage() {
 
     setCreatingContact(true);
     try {
+      if (contactForm.contactScope === 'internal' && !contactForm.teamRole) {
+        notifications.show({ title: 'Choose a role', message: 'Someone on the team needs a role from setup.', color: 'orange' });
+        setCreatingContact(false);
+        return;
+      }
+
       await api.post('/api/contacts', {
         name: contactForm.name.trim(),
         phone: contactForm.phone.trim() || undefined,
@@ -321,9 +351,45 @@ export default function OrganizationsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      notifications.show({ title: 'Contact Added', message: 'Contact saved successfully.', color: 'green' });
+      let joined = false;
+      let teamMessage = '';
+      if (contactForm.contactScope === 'internal' && contactForm.phone.trim()) {
+        const orgId = getActiveOrgId();
+        if (orgId) {
+          try {
+            const inviteRes = await api.post(`/api/organizations/${encodeURIComponent(orgId)}/members/invite`, {
+              phone: contactForm.phone.trim(),
+              role: contactForm.teamRole,
+            }, { headers: { Authorization: `Bearer ${token}` } });
+            joined = true;
+            teamMessage = inviteRes.data?.message || '';
+          } catch (inviteError: any) {
+            notifications.show({
+              title: 'Contact saved',
+              message: inviteError?.response?.data?.message || 'They were saved, but not added to the team.',
+              color: 'orange',
+            });
+          }
+        }
+      }
+
+      if (joined) {
+        notifications.show({
+          title: 'On the team',
+          message: teamMessage || 'They are on the team. Their staff card is in the app.',
+          color: 'green',
+        });
+      } else if (contactForm.contactScope !== 'internal' || !contactForm.phone.trim()) {
+        notifications.show({
+          title: 'Contact added',
+          message: contactForm.contactScope === 'external'
+            ? 'They stay off the team. You can send them one job if they already have the app.'
+            : 'Contact saved. Add a phone number to put them on the team.',
+          color: 'green',
+        });
+      }
       setShowCreateContact(false);
-      setContactForm({ name: '', phone: '', email: '', contactScope: 'external' });
+      setContactForm({ name: '', phone: '', email: '', contactScope: 'external', teamRole: teamRoleChoices[0]?.value || 'field_worker' });
       await loadContacts();
     } catch (error: any) {
       const msg = error?.response?.data?.message ?? error?.message ?? 'Failed to create contact';
@@ -352,7 +418,9 @@ export default function OrganizationsPage() {
 
   const viewOrganization = (org: Organization) => {
     const source = activeTab === 'my-orgs' ? 'my-orgs' : 'discover';
-    router.push(`/organizations/${org.id}?source=${encodeURIComponent(source)}`);
+    // "Ask for a quote / bill / service" from Home carries through to the organisation page.
+    const ask = typeof router.query.ask === 'string' && source === 'discover' ? `&ask=${encodeURIComponent(router.query.ask)}` : '';
+    router.push(`/organizations/${org.id}?source=${encodeURIComponent(source)}${ask}`);
   };
 
   const openDiscoveryAddModal = (org: Organization) => {
@@ -667,14 +735,14 @@ export default function OrganizationsPage() {
                       variant={contactScopeFilter === 'internal' ? 'filled' : 'light'}
                       onClick={() => setContactScopeFilter('internal')}
                     >
-                      Internal
+                      On the team
                     </Button>
                     <Button
                       size="xs"
                       variant={contactScopeFilter === 'external' ? 'filled' : 'light'}
                       onClick={() => setContactScopeFilter('external')}
                     >
-                      External
+                      Outside
                     </Button>
                   </Group>
                   <Text size="xs" c="dimmed">{contacts.filter((c) => contactScopeFilter === 'all' || c.contactScope === contactScopeFilter).length} shown</Text>
@@ -720,8 +788,23 @@ export default function OrganizationsPage() {
                           <Group gap={8} wrap="nowrap">
                             <Text size="sm" fw={600} lineClamp={1}>{contact.name}</Text>
                             <Badge size="xs" variant="light" color={contact.contactScope === 'internal' ? 'indigo' : 'teal'}>
-                              {contact.contactScope}
+                              {contact.contactScope === 'internal' ? 'On the team' : 'Outside'}
                             </Badge>
+                            {contactAppStatus(contact.appStatus) === 'in_app' ? (
+                              <Badge size="xs" variant="light" color="green">In the app</Badge>
+                            ) : contactAppStatus(contact.appStatus) === 'invite' && contact.phone ? (
+                              <Button
+                                size="compact-xs"
+                                variant="light"
+                                color="green"
+                                component="a"
+                                href={contactInviteUrl(contact.phone, contact.name)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                Invite
+                              </Button>
+                            ) : null}
                           </Group>
                           <Text size="xs" c="dimmed" lineClamp={1}>{contact.phone || contact.email || 'No phone/email'}</Text>
                         </Box>
@@ -759,14 +842,25 @@ export default function OrganizationsPage() {
               onChange={(event) => setContactForm((prev) => ({ ...prev, email: event.currentTarget.value }))}
             />
             <Select
-              label="Scope"
+              label="Who they are"
               value={contactForm.contactScope}
               data={[
-                { value: 'external', label: 'External' },
-                { value: 'internal', label: 'Internal' },
+                { value: 'external', label: 'Outside contact' },
+                { value: 'internal', label: 'On the team' },
               ]}
               onChange={(value) => setContactForm((prev) => ({ ...prev, contactScope: (value as 'internal' | 'external') || 'external' }))}
             />
+            {contactForm.contactScope === 'internal' ? (
+              <Select
+                label="Role"
+                description="Taken from the answers you gave at setup. They get a staff card if they already have the app."
+                data={teamRoleChoices}
+                value={teamRoleChoices.some((choice) => choice.value === contactForm.teamRole) ? contactForm.teamRole : teamRoleChoices[0]?.value}
+                onChange={(value) => setContactForm((prev) => ({ ...prev, teamRole: value || teamRoleChoices[0]?.value || 'field_worker' }))}
+              />
+            ) : (
+              <Text size="xs" c="dimmed">They stay off the team. You can still send them one job, and they get the job card if they already have the app.</Text>
+            )}
             <Group justify="flex-end">
               <Button variant="subtle" onClick={() => setShowCreateContact(false)}>Cancel</Button>
               <Button onClick={handleCreateContact} loading={creatingContact} disabled={!contactForm.name.trim()}>

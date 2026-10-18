@@ -1,193 +1,58 @@
-import {useContext, useEffect, useState} from "react";
-import Button from "@/components/walt/button/Button";
-import {CredentialsContext, EnvContext} from "@/pages/_app";
-import {useRouter} from "next/router";
-import QRCode from "react-qr-code";
-import axios from "axios";
-import {sendToWebWallet} from "@/utils/sendToWebWallet";
-import nextConfig from "@/next.config";
-import BackButton from "@/components/walt/button/BackButton";
-import {CredentialFormats, mapFormat} from "@/types/credentials";
-import {checkVerificationResult, getStateFromUrl} from "@/utils/checkVerificationResult";
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/router'
+import { Button, Container, Group, Paper, Stack, Text, TextInput, Title } from '@mantine/core'
 
-const BUTTON_COPY_TEXT_DEFAULT = 'Copy offer URL';
-const BUTTON_COPY_TEXT_COPIED = 'Copied';
+import RecordCheckPanel from '@/components/records/RecordCheckPanel'
 
-export default function Verification() {
-  const env = useContext(EnvContext);
-  const [AvailableCredentials] = useContext(CredentialsContext);
-  const router = useRouter();
-
-  const [verifyURL, setverifyURL] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [copyText, setCopyText] = useState(BUTTON_COPY_TEXT_DEFAULT);
-
-  function handleCancel() {
-    router.push('/');
-  }
+/**
+ * The public check. Anyone can paste a reference from a record issued here; no sign-in.
+ * A short link lands here as `?id=`, and the same panel checks it straight away.
+ * The signed-in apps (Home and a record's own details) use the same panel and the same words.
+ */
+export default function VerifyPage() {
+  const router = useRouter()
+  const fromLink = typeof router.query.id === 'string' ? router.query.id : ''
+  const [reference, setReference] = useState('')
+  const [checking, setChecking] = useState('')
 
   useEffect(() => {
-    const getverifyURL = async () => {
-      let vps = router.query.vps?.toString().split(',') ?? [];
-      let ids = router.query.ids?.toString().split(',') ?? [];
-      let format = router.query.format?.toString() ?? CredentialFormats[0];
-      let credentials = AvailableCredentials.filter((cred) => {
-        for (const id of ids) {
-          if (id.toString() == cred.id.toString()) {
-            return true;
-          }
-        }
-        return false;
-      });
-
-      const standardVersion = 'draft13'; // ['draft13', 'draft11']
-      const issuerMetadataConfigSelector = {
-        'draft13': 'credential_configurations_supported',
-        'draft11': 'credentials_supported',
-      }
-
-      // Fetch metadata from Credo backend
-      // Use actual tenant ID from localStorage (created in _app.tsx), or fall back to platform-level metadata
-      const tenantId = typeof window !== 'undefined' 
-        ? localStorage.getItem('credoTenantId') || process.env.NEXT_PUBLIC_TENANT_ID || 'default'
-        : process.env.NEXT_PUBLIC_TENANT_ID || 'default';
-      const credoBackend = (env.NEXT_PUBLIC_ISSUER || nextConfig.publicRuntimeConfig!.NEXT_PUBLIC_ISSUER).replace('/oidc/issuer', '');
-      
-      let issuerMetadata;
-      try {
-        // Try tenant-specific metadata first
-        issuerMetadata = await axios.get(`${credoBackend}/tenants/${tenantId}/.well-known/openid-credential-issuer`);
-      } catch (e: any) {
-        // Fall back to platform-level metadata
-        console.warn(`Failed to fetch tenant ${tenantId} metadata, using platform-level metadata:`, e.message);
-        issuerMetadata = await axios.get(`${credoBackend}/.well-known/openid-credential-issuer`);
-      }
-      const request_credentials = credentials.map((credential) => {
-        if (mapFormat(format) === 'vc+sd-jwt') {
-          let url = issuerMetadata.data[issuerMetadataConfigSelector[standardVersion]][`${credential.offer.type[credential.offer.type.length - 1]}_vc+sd-jwt`].vct;
-          return {
-            vct: url,
-            format: mapFormat(format),
-          };
-        } else {
-          return {
-            type: credential.offer.type[credential.offer.type.length - 1],
-            format: mapFormat(format),
-          };
-        }
-      });
-
-      let requestBody: any = {
-        request_credentials: request_credentials,
-      };
-
-      if (mapFormat(format) !== 'vc+sd-jwt') {
-        requestBody.vc_policies = vps.map((vp) => {
-          if (vp.includes('=')) {
-            return {
-              policy: vp.split('=')[0],
-              args: vp.split('=')[1],
-            };
-          } else {
-            return vp;
-          }
-        });
-      }
-
-      // Call Credo backend verifier endpoint
-      const credoVerifierUrl = (env.NEXT_PUBLIC_VERIFIER || nextConfig.publicRuntimeConfig!.NEXT_PUBLIC_VERIFIER).replace('/oidc/verifier', '');
-      const response = await axios.post(
-        `${credoVerifierUrl}/oidc/verifier/presentation-requests`,
-        {
-          credentialTypes: request_credentials.map((rc: any) => rc.type || 'VerifiableCredential'),
-          purpose: 'Credential verification'
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_TENANT_TOKEN || ''}`,
-            'X-Tenant-ID': process.env.NEXT_PUBLIC_TENANT_ID || 'default'
-          },
-        }
-      );
-      setverifyURL(response.data);
-      setLoading(false);
-
-      const state = getStateFromUrl(response.data);
-      if (state) {
-        checkVerificationResult(env.NEXT_PUBLIC_VERIFIER ? env.NEXT_PUBLIC_VERIFIER : nextConfig.publicRuntimeConfig!.NEXT_PUBLIC_VERIFIER, state).then((result) => {
-          if (result) {
-            router.push(`/success/${state}`);
-          }
-        });
-      }
-    };
-    getverifyURL();
-  }, []);
-
-  async function copyCurrentURLToClipboard() {
-    navigator.clipboard.writeText(verifyURL).then(
-      function () {
-        setCopyText(BUTTON_COPY_TEXT_COPIED);
-        setTimeout(() => {
-          setCopyText(BUTTON_COPY_TEXT_DEFAULT);
-        }, 3000);
-      },
-      function (err) {
-        console.error('Could not copy text: ', err);
-      }
-    );
-  }
-
-  function openWebWallet() {
-    sendToWebWallet(
-      env.NEXT_PUBLIC_WALLET
-        ? env.NEXT_PUBLIC_WALLET
-        : nextConfig.publicRuntimeConfig!.NEXT_PUBLIC_WALLET,
-      'api/siop/initiatePresentation',
-      verifyURL
-    );
-  }
+    if (fromLink) setChecking(fromLink)
+  }, [fromLink])
 
   return (
-    <div className="flex flex-col justify-center items-center bg-white">
-      <div
-        className="my-5 flex flex-row justify-center cursor-pointer"
-        onClick={() => router.push('/')}
-      >
-        <img src="/credentis-logo.png" alt="Credentis" style={{ height: 35, width: 'auto' }} />
-      </div>
-      <div className="relative w-10/12 sm:w-7/12 lg:w-5/12 text-center shadow-2xl rounded-lg pt-8 pb-8 px-10 bg-white">
-        <BackButton />
-        <h1 className="text-xl sm:text-2xl lg:text-3xl text-gray-900 text-center font-bold mt-5">
-          Scan to Verify
-        </h1>
-        <div className="flex justify-center">
-          {loading ? (
-            <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-gray-900 my-10"></div>
+    <Container size="sm" py="xl">
+      <Stack gap="lg">
+        <div>
+          <Title order={2}>Check a record</Title>
+          <Text c="dimmed" size="sm" mt={4}>
+            Anyone can check a record issued here. Paste the reference from the record. No sign-in is needed.
+          </Text>
+        </div>
+        <Paper withBorder p="lg" radius="md">
+          {checking ? (
+            <Stack>
+              <RecordCheckPanel presetReference={checking} />
+              <Group justify="flex-end">
+                <Button variant="subtle" size="xs" onClick={() => { setChecking(''); setReference('') }}>
+                  Check another
+                </Button>
+              </Group>
+            </Stack>
           ) : (
-            <QRCode
-              className="h-full max-h-[220px] my-10"
-              value={verifyURL}
-              viewBox={'0 0 256 256'}
-            />
+            <Stack>
+              <TextInput
+                label="Record reference"
+                placeholder="Paste the reference"
+                value={reference}
+                onChange={(event) => setReference(event.currentTarget.value)}
+              />
+              <Button disabled={!reference.trim()} onClick={() => setChecking(reference.trim())}>
+                Check it is still valid
+              </Button>
+            </Stack>
           )}
-        </div>
-        <div className="sm:flex flex-row gap-5 justify-center">
-          <Button style="link" onClick={copyCurrentURLToClipboard}>
-            {copyText}
-          </Button>
-          <Button onClick={openWebWallet} style="button">
-            Open Web Wallet
-          </Button>
-        </div>
-        <div className="flex flex-col items-center mt-12">
-          <div className="flex flex-row gap-2 items-center content-center text-sm text-center" style={{ color: '#7B8794' }}>
-            <p className="">Secured by Credentis</p>
-            <img src="/credentis-logo.png" alt="Credentis" style={{ height: 15, width: 'auto' }} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+        </Paper>
+      </Stack>
+    </Container>
+  )
 }

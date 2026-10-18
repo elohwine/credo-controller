@@ -4,6 +4,8 @@ import Layout from '@/components/Layout';
 import { ClipboardDocumentListIcon, FunnelIcon, ArrowPathIcon, ShieldCheckIcon, UserIcon, GlobeAltIcon } from '@heroicons/react/24/outline';
 import { BRAND } from '@/lib/theme';
 import { EnvContext } from '@/pages/_app';
+import { getOrgScopedToken } from '@/utils/organizationContext';
+import { getPreferredTenantToken } from '@/utils/portalTenant';
 
 
 interface AuditLog {
@@ -42,9 +44,6 @@ export default function AuditLogsPage() {
 
   const env = useContext(EnvContext);
   const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
-  const apiKey = env.NEXT_PUBLIC_CREDO_API_KEY || 'test-api-key-12345';
-
-
   const fetchLogs = async () => {
     setLoading(true);
     setError(null);
@@ -53,13 +52,29 @@ export default function AuditLogsPage() {
       params.set('limit', String(limit));
       if (resourceId) params.set('resourceId', resourceId);
 
-      const res = await fetch(`${backendUrl}/api/audit/logs?${params.toString()}`, {
-        headers: { 'x-api-key': apiKey },
+      const token = getOrgScopedToken() || getPreferredTenantToken() || localStorage.getItem('walletToken') || '';
+      const url = resourceId
+        ? `${backendUrl}/workflows/runs/${encodeURIComponent(resourceId)}/audit`
+        : `${backendUrl}/api/audit/logs?${params.toString()}`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (!res.ok) throw new Error('Failed to load audit logs');
       const data = await res.json();
-      setLogs(data || []);
+      setLogs(
+        resourceId
+          ? (data.rows || []).map((row: any) => ({
+              id: row.id,
+              tenantId: '',
+              actorDid: row.person,
+              actionType: row.event,
+              resourceId,
+              details: { status: row.status, stage: row.stage, evidence: row.evidence, confirmation: row.confirmation },
+              createdAt: row.occurredAt,
+            }))
+          : data || [],
+      );
     } catch (err: any) {
       setError(err.message || 'Failed to load audit logs');
     } finally {

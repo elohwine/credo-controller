@@ -162,6 +162,7 @@ export class WorkflowRequestRepository {
       status?: WorkflowRequestStatus
       requestType?: WorkflowRequestType
       limit?: number
+      offset?: number
     },
   ): WorkflowRequest[] {
     let sql = `SELECT * FROM workflow_requests WHERE target_org_tenant_id = ?`
@@ -177,11 +178,11 @@ export class WorkflowRequestRepository {
       params.push(filters.requestType)
     }
 
-    sql += ' ORDER BY created_at DESC'
+    sql += ' ORDER BY created_at DESC, id DESC'
 
     if (filters?.limit) {
-      sql += ' LIMIT ?'
-      params.push(filters.limit)
+      sql += ' LIMIT ? OFFSET ?'
+      params.push(filters.limit, Math.max(0, Math.floor(filters.offset || 0)))
     }
 
     const rows = this.db.prepare(sql).all(...params) as any[]
@@ -355,6 +356,11 @@ export class WorkflowRequestRepository {
     }
 
     let sql = `SELECT * FROM workflow_requests WHERE (${conditions.join(' OR ')})`
+    sql += ` AND NOT (request_type = 'vc_offer' AND (
+      COALESCE(json_extract(payload, '$.holderScope'), '') = 'organization'
+      OR (COALESCE(workflow_type, '') = 'field_execution_fept'
+          AND COALESCE(json_extract(payload, '$.credentialType'), '') IN ('SiteInspectionVC', 'ReceiptVC', 'ExecutionAckVC'))
+    ))`
 
     if (filters?.status) {
       sql += ' AND status = ?'

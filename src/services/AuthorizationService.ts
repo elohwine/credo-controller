@@ -8,6 +8,7 @@ import type {
 
 import { randomUUID } from 'crypto'
 
+import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
 
@@ -15,6 +16,10 @@ import { authZENAdapterService } from './AuthZENAdapterService'
 import { authorizationPolicyService } from './AuthorizationPolicyService'
 
 const logger = rootLogger.child({ module: 'AuthorizationService' })
+
+export function authorityRefused(reasonCode: string, action: string): StatusException {
+  return new StatusException(`You do not have authority to ${action} (${reasonCode}).`, 403)
+}
 
 /**
  * Authorization is intentionally separate from credential verification.
@@ -265,6 +270,30 @@ export class AuthorizationService {
       })
     }
 
+    // The role the organisation gave this person carries permissions (Roles page / starter
+    // roles). Without an explicit grant, that role decides: a manager approves, a finance
+    // officer reads and pays. Separation of duties still applies.
+    if (orgRole?.role && this.rolePermits(actor.organizationId, input.tenantId, orgRole.role, permission)) {
+      if (this.violatesSeparationOfDuties(input)) {
+        return this.persistDecision(input, {
+          decisionId,
+          decision: 'deny',
+          reasonCode: 'separation_of_duties_violation',
+          credentialReferences: [],
+          policyVersion,
+          evaluatedAt,
+        })
+      }
+      return this.persistDecision(input, {
+        decisionId,
+        decision: 'allow',
+        reasonCode: 'org_role_permission_match',
+        credentialReferences: [],
+        policyVersion,
+        evaluatedAt,
+      })
+    }
+
     return this.persistDecision(input, {
       decisionId,
       decision: 'deny',
@@ -273,6 +302,55 @@ export class AuthorizationService {
       policyVersion,
       evaluatedAt,
     })
+  }
+
+  /**
+   * Does the organisation's role carry this permission? Reads the Roles page first, then the
+   * starter role catalogue for roles the owner never edited. One permission stands for the
+   * steps it implies: approving covers reviewing and declining; paying covers marking paid.
+   */
+  private rolePermits(organizationId: string, tenantId: string, role: string, permission: string): boolean {
+    const slug = String(role || '')
+      .trim()
+      .toLowerCase()
+    if (!slug) return false
+    let permissions: string[] = []
+    try {
+      const row = DatabaseManager.getDatabase()
+        .prepare(`SELECT permissions FROM roles WHERE organization_id = ? AND LOWER(membership_role) = ? LIMIT 1`)
+        .get(organizationId, slug) as { permissions?: string } | undefined
+      if (row?.permissions) {
+        const parsed = JSON.parse(row.permissions)
+        if (Array.isArray(parsed)) permissions = parsed.map((value) => String(value))
+      }
+    } catch {
+      permissions = []
+    }
+    if (permissions.length === 0) {
+      try {
+        const { starterRolesForOrganization } = require('./OrgStarterRoles') as typeof import('./OrgStarterRoles')
+        permissions =
+          starterRolesForOrganization(tenantId).find((starter) => starter.membershipRole === slug)?.permissions || []
+      } catch {
+        permissions = []
+      }
+    }
+    if (permissions.length === 0) return false
+    const has = (needed: string) => permissions.includes(needed)
+    switch (permission) {
+      case 'request.read':
+        return has('request.read')
+      case 'request.review':
+      case 'request.reject':
+      case 'request.approve':
+        return has('request.approve')
+      case 'request.fulfil':
+        return has('request.approve') || has('request.complete') || has('finance.pay') || has('finance.release')
+      case 'request.complete':
+        return has('request.complete') || has('finance.pay') || has('finance.release')
+      default:
+        return has(permission)
+    }
   }
 
   private parseScope(value: string): AuthorityScope {

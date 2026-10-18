@@ -7,6 +7,14 @@ import { Controller, Post, Get, Route, Tags, Body, Path, Query, Security, Reques
 import { SCOPES } from '../../enums'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { credentialIssuanceService } from '../../services/CredentialIssuanceService'
+import { orgSetupProfileService } from '../../services/OrgSetupProfileService'
+
+function sellsOrAdvertises(merchantId: string): boolean {
+  const profile = orgSetupProfileService.get(merchantId)
+  return profile.access.mode === 'legacy'
+    ? profile.kinds.includes('shop')
+    : profile.access.modules.some((module) => module.id === 'commerce' && module.available)
+}
 
 export interface CreateCatalogItemRequest {
   title: string
@@ -51,6 +59,10 @@ export class CatalogController extends Controller {
     @Body() body: CreateCatalogItemRequest,
     @Request() request: ExRequest,
   ): Promise<CatalogItem> {
+    if (!sellsOrAdvertises(merchantId)) {
+      this.setStatus(403)
+      throw new Error('This organisation has not chosen to sell or advertise')
+    }
     const db = DatabaseManager.getDatabase()
     const id = `ITM-${randomUUID()}`
     const timestamp = new Date().toISOString()
@@ -118,6 +130,10 @@ export class CatalogController extends Controller {
     @Path() merchantId: string,
     @Body() items: CreateCatalogItemRequest[],
   ): Promise<{ imported: number }> {
+    if (!sellsOrAdvertises(merchantId)) {
+      this.setStatus(403)
+      throw new Error('This organisation has not chosen to sell or advertise')
+    }
     const db = DatabaseManager.getDatabase()
     const timestamp = new Date().toISOString()
 

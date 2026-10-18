@@ -24,6 +24,8 @@ export default function NewRequisitionPage() {
         department: 'HR',
         payWith: 'supplier' as 'supplier' | 'cash',
         vendor: '',
+        purchaseKind: 'goods' as 'goods' | 'service',
+        receivingRequired: 'yes' as 'yes' | 'no',
         amount: '',
         currency: 'USD',
         description: '',
@@ -55,26 +57,37 @@ export default function NewRequisitionPage() {
         try {
             const parsedAmount = parseFloat(form.amount)
             const itemName = form.description?.trim() || form.vendor?.trim() || 'Requisition item'
-            await axios.post(
-                `${baseUrl}/api/finance/requisitions/request`,
+            const created = await axios.post(
+                `${baseUrl}/api/platform/requests/`,
                 {
-                    orgTenantId: getTargetOrgTenantId() || undefined,
-                    department: form.department,
-                    vendor: form.payWith === 'cash' ? '' : form.vendor,
-                    paymentMethod: form.payWith === 'cash' ? 'cash' : 'supplier',
+                    requestType: 'procurement.requisition',
+                    title: itemName,
+                    description: form.description || undefined,
+                    amount: parsedAmount,
                     currency: form.currency,
-                    notes: form.description,
+                    targetModule: 'finance',
+                    context: {
+                        department: form.department,
+                        supplierRef: form.payWith === 'cash' ? undefined : form.vendor,
+                        paymentMethod: form.payWith === 'cash' ? 'cash' : 'supplier',
+                        itemType: form.purchaseKind,
+                        receivingRequired: form.receivingRequired === 'yes',
+                    },
                     items: [
                         {
-                            id: `item-${Date.now()}`,
-                            name: itemName,
-                            price: parsedAmount,
+                            description: itemName,
+                            unitPrice: parsedAmount,
                             quantity: 1,
+                            itemType: form.purchaseKind,
                         },
                     ],
-                    totalAmount: parsedAmount
                 },
                 { headers: { Authorization: `Bearer ${token}` } }
+            );
+            await axios.post(
+                `${baseUrl}/api/platform/requests/${encodeURIComponent(created.data.id)}/submit`,
+                {},
+                { headers: { Authorization: `Bearer ${token}` } },
             );
 
             notifications.show({
@@ -85,7 +98,7 @@ export default function NewRequisitionPage() {
                 color: 'green',
                 icon: <IconCheck size={16} />
             });
-            router.push('/finance/requisitions');
+            router.push(`/requests?tab=requisitions&request=${encodeURIComponent(created.data.id)}`);
         } catch (err: any) {
             notifications.show({
                 title: 'Could not send this request',
@@ -125,6 +138,20 @@ export default function NewRequisitionPage() {
                                 onChange={(val) => setForm({ ...form, payWith: val === 'cash' ? 'cash' : 'supplier' })}
                                 allowDeselect={false}
                                 required
+                            />
+                        </Group>
+                        <Group grow>
+                            <Select
+                                label="What are you buying?"
+                                data={[{ value: 'goods', label: 'Goods or materials' }, { value: 'service', label: 'A service' }]}
+                                value={form.purchaseKind}
+                                onChange={(value) => setForm({ ...form, purchaseKind: value === 'service' ? 'service' : 'goods' })}
+                            />
+                            <Select
+                                label={form.purchaseKind === 'goods' ? 'Confirm delivery before paying?' : 'Confirm the service before paying?'}
+                                data={[{ value: 'yes', label: 'Yes, confirmation is required' }, { value: 'no', label: 'No separate confirmation' }]}
+                                value={form.receivingRequired}
+                                onChange={(value) => setForm({ ...form, receivingRequired: value === 'no' ? 'no' : 'yes' })}
                             />
                         </Group>
 

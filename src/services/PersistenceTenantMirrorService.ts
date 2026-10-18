@@ -14,8 +14,38 @@ interface EnsureTenantMirrorOptions {
   resolveTenant?: TenantResolver
 }
 
-function assertTenantExistsInCanonicalStore(tenantId: string, resolveTenant: TenantResolver): TenantPersistenceRecord {
-  const tenant = resolveTenant(tenantId)
+/**
+ * A person's wallet tenant lives in `ssi_users`, not in the canonical tenant store. When such a
+ * person writes to an FK-bound table (for example asks a business for a quote), mirror a minimal
+ * USER tenant row so the foreign key holds. No PII: the label is generic and the DID is public.
+ */
+function personalWalletTenant(db: Database, tenantId: string): TenantPersistenceRecord | null {
+  const row = db
+    .prepare('SELECT tenant_id, did, created_at FROM ssi_users WHERE tenant_id = ? LIMIT 1')
+    .get(tenantId) as { tenant_id: string; did: string; created_at: string | null } | undefined
+  if (!row) return null
+  const createdAt = row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString()
+  return {
+    id: row.tenant_id,
+    label: 'Personal wallet',
+    status: 'active',
+    createdAt,
+    issuerDid: row.did,
+    issuerKid: `${row.did}#key-1`,
+    verifierDid: row.did,
+    verifierKid: `${row.did}#key-1`,
+    askarProfile: row.tenant_id,
+    metadata: { source: 'ssi_users' },
+    tenantType: 'USER',
+  }
+}
+
+function assertTenantExistsInCanonicalStore(
+  tenantId: string,
+  resolveTenant: TenantResolver,
+  db?: Database,
+): TenantPersistenceRecord {
+  const tenant = resolveTenant(tenantId) || (db ? personalWalletTenant(db, tenantId) : null)
   if (!tenant) {
     throw new Error(`Tenant ${tenantId} not found in canonical tenant store`)
   }
@@ -83,7 +113,7 @@ export function ensureTenantMirrorsForFk(
       const exists = db.prepare('SELECT 1 FROM tenants WHERE id = ? LIMIT 1').get(tenantId)
       if (exists) continue
 
-      const canonicalTenant = assertTenantExistsInCanonicalStore(tenantId, resolveTenant)
+      const canonicalTenant = assertTenantExistsInCanonicalStore(tenantId, resolveTenant, db)
       upsertPersistenceTenant(db, canonicalTenant)
 
       logger.info({ tenantId }, 'Mirrored tenant row into persistence DB for FK consistency')

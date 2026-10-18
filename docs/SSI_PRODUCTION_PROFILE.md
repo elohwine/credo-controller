@@ -55,6 +55,17 @@ Authorization decisions must evaluate:
 
 The system must record the decision result and the references used to reach it, without copying sensitive credential contents into the transaction record.
 
+2026-10-12: `AuthorizationService.decide` evaluates, in order: active actor → explicit authority grant (scope, limits) → delegation → owner/admin → the member's role permissions (`roles.permissions` by `membership_role`, else the starter catalogue; `request.approve` implies review and reject, `finance.release|pay` imply fulfil and complete) → separation of duties. The role step is what lets a manager decide a leave request or an expense claim raised from Home without an individual grant; the decision record names the step that allowed it (`org_role_permission_match`). A credential (staff card) remains evidence of the role; the decision is still made here.
+
+2026-10-12: Finance follows the same boundary. Purchase, sale, payable, receivable and settlement
+state is normal tenant-scoped application data (`business_transactions`,
+`financial_obligations`, `settlement_allocations`). Order/receipt/bill matching, ageing, reminders,
+partial-payment arithmetic and variance decisions do not issue credentials. A credential or
+signed record is used only when another person or organisation must later verify who acted or
+what crossed that boundary, such as an authority card, externally shared invoice, delivery
+receipt or payment receipt. The credential is evidence for that event; it is not the payable,
+receivable, authorization decision or general ledger.
+
 ## Holder/user centricity
 
 The primary user experience is the user's action queue:
@@ -71,9 +82,24 @@ SSI terminology should be progressive disclosure. A normal employee should be ab
 
 Where a verifier requests a credential presentation, the holder must be shown the purpose, verifier identity, requested information categories and the effect of accepting the presentation before consent is recorded.
 
+2026-10-11: That purpose is the one step. The request names the step, the share screen shows it ("Release worker payout · Job FR-…"), and the wallet signs the job and the amount with the card. Each step on a new staff card can be revealed on its own.
+
+2026-10-11, later: Only the asked-for step leaves the phone. The verifier receives that step, the organisation and the status; role, name and the other steps stay on the phone and are listed under Not shared ("Other steps on your card"). The card that answers also signs the job line (`transactionDataSigners`). A card issued with the list as one unit still shares the whole list.
+
+2026-10-12: The person keeps their own record of all of this. "Your activity" (phone `/activity` personal lens, website `/activity`, and the Home strips in personal context) lists who has their data, what they shared and for what, from `holder_activity` (`HolderActivityService`, migration 114). Mapping to the EUDI ARF dashboard requirements and ISO/IEC TS 27560 consent records:
+
+- DASH_02 (log of every presentation): one `shared` row per share with the organisation, date and time, step and reference; `share_verified` / `share_refused` add the verifier's answer and a plain reason; `share_declined` keeps the requests the person turned down ("Not now" on the share screen).
+- DASH_03 (what was asked and what was given): `requested_types_json`, `requested_claims_json`, `shared_claims_json`, `withheld_claims_json` hold **claim and card-type names only**, shown in plain words (Staff card, Your role, Steps you may confirm). Claim values, the presentation and credential material are never written (handoff §30); the signed line (`signed_line`, step · job · amount) is kept because it is the purpose the person agreed to, not a card value.
+- DASH_05 (identity of the relying party): `org_tenant_id` and `org_name` from the platform's organisation register, not from the verifier DID (every card is signed with one platform key, so the DID names no organisation). The identity card from the platform is attributed to the platform itself.
+- DASH_07 (export): `GET /api/wallet/activity?format=csv` and "Export CSV" on both apps, every page, no role gate — the log belongs to the person.
+- ISO/IEC TS 27560 consent record fields: PII principal = the wallet (`wallet_tenant_id`), PII controller = `org_tenant_id`, purpose = `purpose_label` + `stage_action`, PII categories = the claim names above, event time = `occurred_at`, consent status = `kind` + `outcome`. Receipts the person holds in their wallet (job records, leave approved) appear as `card_received` so the log and My Records agree.
+- Retention: the log is append-only for the person (no delete from the UI); withdrawn cards stay listed as `card_withdrawn` so the "Who has your data" summary can say an organisation no longer holds a working card. The row carries no personal data beyond the names of fields, so it falls under the "references, not originals" retention class below.
+
 ## Wallet boundary
 
 The holder wallet is the system of record for the holder's credentials. The organization platform is the system of record for workflow state and business outcomes.
+
+2026-10-12: Re-issuance is holder-initiated as well as issuer-initiated. From Home → Request → My records a person asks for their staff card or receipts "on this phone" (`POST /api/wallet/credentials/resend-mine`); the issuer re-offers through the same path the organisation uses (`OrgMemberOnboardingService.sendCards`, receipts by payer match), the old card is replaced when the new one is accepted (`metadata.replaces`), and nothing about the holder is read back from the wallet. Records the platform does not hold as credentials (payslips) are not re-issued by the platform; the person is handed a plain request to the organisation instead.
 
 The platform may keep:
 

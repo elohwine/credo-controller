@@ -2,6 +2,161 @@
 
 This guide explains how to configure and test the WhatsApp commerce flow for Credentis.
 
+## Transactional notification delivery (October 2026)
+
+The implemented delivery rail is the existing `integration_outbox` +
+`NotificationService`, not a campaign engine. Migration **124** adds leases,
+retry scheduling, recipient preferences, sender bindings and delivery evidence.
+The API server drains on startup and every 15 seconds. Stage cards and their
+outbox event normally commit together; a local enqueue failure preserves the
+actor card and the periodic sweeper recovers its persisted intent marker.
+An external notification never approves,
+completes or replaces a wallet task. Existing `wallet.vc.offered` events fan out
+to consented task/offer WhatsApp intent as well as a deduplicated Android outbox
+intent. Android provider outcomes retain the existing push adapter's limitations;
+the WhatsApp delivery state machine does not claim Android delivery evidence.
+
+**Live acceptance is not established by unit tests or this guide.** No live
+messages were sent during implementation. Each sender needs real Meta access,
+an approved utility template, a recorded recipient opt-in, and explicit operator
+test approval. Do not use the historical commerce diagram or mocked provider
+tests as evidence that the complete commerce journey works.
+
+### Select and validate a sender
+
+An organization owner/admin uses their **organization-scoped JWT**:
+
+- `GET/PUT /organizations/{tenantId}/notifications/whatsapp`
+- `POST /organizations/{tenantId}/notifications/whatsapp/validate`
+- `POST /organizations/{tenantId}/notifications/whatsapp/test` with
+  `{"eventType":"task","requestId":"unique-consented-test-1"}` queues only the
+  authenticated administrator's own recorded opted-in phone. It does not create
+  consent or bypass the operator's test-recipient allowlist. Reuse the request ID
+  to avoid a duplicate test. Watch `deliveries` for actual acceptance/status.
+- `GET /organizations/{tenantId}/notifications/deliveries` — safe status projection
+- `GET /organizations/{tenantId}/notifications/dispatch` — attempts/outbox failures
+
+Example selection:
+
+```json
+{
+  "mode": "platform",
+  "enabled": true,
+  "templates": {
+    "task": { "name": "credentis_inbox_update", "language": "en_US" },
+    "vc_offer": { "name": "credentis_inbox_update", "language": "en_US" }
+  }
+}
+```
+
+`mode` is explicitly `platform` or `tenant`; there is **no fallback**. Tenant
+mode additionally requires `phoneNumberId` and `wabaId`. Settings reuse
+`ProviderRepository` (`whatsapp-business`, config `whatsapp:{tenantId}`).
+Disabling that config/provider revokes subsequent dispatch. Sender validation
+checks Meta's WABA phone membership, approved templates and unique phone binding.
+
+Credentials use the established deployment environment-secret mechanism; the
+existing generic provider config is not a secure token vault. **Never put access
+tokens/app secrets in `provider_configs`, request bodies, logs or committed `.env`
+files.** This implementation does not introduce a Vault/HSM integration.
+
+Platform secrets/configuration:
+
+```bash
+WABA_PHONE_NUMBER_ID=...
+WABA_BUSINESS_ACCOUNT_ID=...
+WABA_TOKEN=...
+WHATSAPP_APP_SECRET=...
+WHATSAPP_VERIFY_TOKEN=...
+WALLET_PUBLIC_URL=https://your-wallet.example
+WHATSAPP_DELIVERY_ENABLED=true
+WHATSAPP_TEST_RECIPIENTS=263771234567
+# Leave unset for test-only delivery. Production requires separate operator approval:
+# WHATSAPP_PRODUCTION_ENABLED=true
+```
+
+Tenant credentials are independently provisioned by the operator, under
+`WHATSAPP_TENANT_<UPPERCASE_SHA256_OF_EXACT_TENANT_ID>_TOKEN` and the matching
+`_APP_SECRET`. `tenantWhatsAppSecretPrefix(tenantId)` returns that prefix.
+Tenant administrators cannot choose another tenant's secret reference.
+Use the deployment's secret manager to inject these environment values.
+Rotate/revoke at the provider and update the corresponding environment secret;
+reload workers before restoring delivery. Revalidate after changing phone/WABA.
+
+All business sends use **sender-specific APPROVED UTILITY templates**, including
+inside the customer-service window (no free-form fallback). The template BODY
+must accept two text parameters: a minimal inbox-update notice and the HTTPS
+wallet `/inbox` URL. Do not add other required components/placeholders. Template
+approval is checked against the selected WABA at dispatch, not trusted from an
+administrator's JSON. Messages exclude credential offers, proof URLs, financial
+details and authentication tokens. Inbox authentication and existing actor
+checks still control action. Where a task's persisted source resolves to a
+request in that organization, `/inbox?request={id}` uses the existing
+request-specific inbox selection. Other source families safely open `/inbox`;
+not every domain item has an existing item-specific link contract yet.
+
+### Record consent and preferences
+
+The **recipient's own authenticated JWT** can:
+
+- `PUT /organizations/{tenantId}/notifications/preferences` with
+  `{"phone":"+263771234567","eventType":"task","enabled":true}`.
+- `GET` the same URL to read their preferences.
+
+Supported events: `task`, `vc_offer`, `payment_link`, `proof_request`, `remittance`.
+Each preference applies only to WhatsApp for that organization and event.
+The phone must hash to the signed-in person's registered account phone.
+There is no automatic subscription from membership, checkout, an inbound greeting,
+or sender selection. Disable a preference to opt out; signed `STOP`,
+`UNSUBSCRIBE`, or `CANCEL` messages disable all that sender's matching preferences.
+A platform STOP applies to organizations selecting that shared platform sender.
+An opt-out is rechecked immediately before the send POST. Re-opt-in requires the
+authenticated preferences API; no inbound message silently grants consent.
+External contacts without a verified platform phone cannot be opted in by admins.
+
+### Signed callbacks and failure handling
+
+The actual callback is **`/wa/webhook`** (GET challenge and POST events). Configure
+Meta's `messages` subscription; status events arrive there too.
+POST requires `X-Hub-Signature-256` over the **unaltered raw request bytes**.
+Configure reverse proxies not to rewrite the JSON or strip this header.
+Each phone/WABA binding resolves its own app secret. All entries, statuses and
+messages are processed; callbacks are deduplicated and stale statuses cannot
+overwrite delivered/read evidence. Unknown senders/signatures are rejected.
+
+`queued` is not `accepted`; only a provider message ID proves acceptance.
+`sent`, `delivered`, `read` require signed provider evidence. Reminder timestamps
+are updated only after an accepted result (a later scheduler pass can observe
+the persisted WhatsApp acceptance). Remittance responses return real channel
+outcomes rather than equating a contact address with successful notification.
+Email/SMS remain the existing immediate channels; durable retries here apply to
+WhatsApp and registered outbox handlers, not an invented delivery guarantee for
+all transports.
+
+Retryable known rejections (e.g. HTTP 429) use five bounded attempts and exponential
+backoff. Permanent invalid sender/template/auth failures remain visible.
+Timeout/5xx after the POST, or a crashed `sending` intent, becomes **uncertain**:
+do not blindly resend. A signed status with `biz_opaque_callback_data` reconciles
+the original intent/provider message ID. Without that callback, an operator must
+reconcile against Meta before deliberately creating a new notification event.
+Expired legacy non-idempotent handler leases are also uncertain, not replayed.
+There is no exactly-once external delivery promise. Unknown topics fail explicitly.
+Recipient/task state remains authoritative throughout.
+
+Preferences/delivery rows contain recipient phone numbers: restrict DB access,
+back them up with the persistence database, and apply your retention policy.
+Never expose payloads or raw Axios errors from administrative status views.
+Broadcast marketing/campaigns and approval-by-WhatsApp are deliberately absent.
+
+Focused verification:
+
+```bash
+yarn test --runInBand src/services/__tests__/TransactionalNotifications.spec.ts \
+  src/services/__tests__/BusinessTransactionService.spec.ts
+yarn check-types
+yarn tsoa && node scripts/patch-swagger.js
+```
+
 ## Overview
 
 The WhatsApp commerce flow:
@@ -66,9 +221,9 @@ API_BASE_URL=http://localhost:3000
 ### Step 4: Configure Webhooks
 
 1. In WhatsApp > Configuration
-2. Set callback URL to: `{NGROK_URL}/webhooks/whatsapp`
-3. Set verify token (any string you choose)
-4. Subscribe to: `messages`, `messaging_postbacks`
+2. Set callback URL to: `{NGROK_URL}/wa/webhook`
+3. Set verify token to the server's `WHATSAPP_VERIFY_TOKEN` secret (no default)
+4. Subscribe to `messages` and validate the selected sender as described above
 
 ## Getting EcoCash API Credentials
 
@@ -179,7 +334,7 @@ ngrok http 3000
 
 Then configure:
 
-- WhatsApp webhook URL: `{NGROK_URL}/webhooks/whatsapp`
+- WhatsApp webhook URL: `{NGROK_URL}/wa/webhook`
 - EcoCash webhook URL: `{NGROK_URL}/webhooks/ecocash`
 
 ## Flow Diagram

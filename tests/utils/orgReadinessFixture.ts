@@ -6,7 +6,7 @@
  * readiness prerequisites (roles, members with a role, payment provider, trust
  * anchors) so tests can assert how workflow readiness reacts to configuration.
  *
- * Uses real SQLite databases (persistence + tenants) in a temp directory so the
+ * Uses real SQLite databases (persistence + tenants) in a project-local directory so the
  * readiness resolver, execution gate and workflow engine run unmodified.
  */
 
@@ -14,14 +14,18 @@ import type { WorkflowTemplate } from '../../src/services/workflow/templates'
 import type { WorkflowTemplateDefinition } from '../../src/types/WorkflowTemplate'
 
 import { randomUUID } from 'crypto'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, mkdtempSync, rmSync } from 'fs'
 import path from 'path'
 
 import { DatabaseManager } from '../../src/persistence/DatabaseManager'
 import { initTenantStore, upsertTenant } from '../../src/persistence/TenantRepository'
 import { WorkflowTemplateRepository } from '../../src/persistence/WorkflowTemplateRepository'
-import { FieldExecutionProofTemplate, PaymentCollectionTemplate } from '../../src/services/workflow/templates'
+import { ShortlinkService } from '../../src/services/ShortlinkService'
+import {
+  EducationFeeTemplate,
+  FieldExecutionProofTemplate,
+  PaymentCollectionTemplate,
+} from '../../src/services/workflow/templates'
 
 const workflowTemplateRepository = new WorkflowTemplateRepository()
 
@@ -33,13 +37,16 @@ export interface TestDatabases {
 }
 
 export function initTestDatabases(prefix = 'credo-readiness-'): TestDatabases {
-  const dir = mkdtempSync(path.join(tmpdir(), prefix))
+  const root = path.join(process.cwd(), '.test-data')
+  mkdirSync(root, { recursive: true })
+  const dir = mkdtempSync(path.join(root, prefix))
   const persistencePath = path.join(dir, 'persistence.db')
   const tenantsPath = path.join(dir, 'tenants.db')
 
   // Migration 097 (workflow runtime compat schema) gives a fresh database every
   // table the readiness resolver, engine and reconciliation ledger touch.
   DatabaseManager.initialize({ path: persistencePath })
+  ShortlinkService.initialize()
   initTenantStore(tenantsPath)
 
   return {
@@ -66,7 +73,7 @@ export interface SeededOrganization {
 }
 
 export function seedOrganization(
-  params: { name?: string; orgTenantId?: string; ownerUserId?: string } = {},
+  params: { name?: string; orgTenantId?: string; ownerUserId?: string; setup?: 'new' | 'legacy' } = {},
 ): SeededOrganization {
   const db = DatabaseManager.getDatabase()
   const orgTenantId = params.orgTenantId || `org-${randomUUID()}`
@@ -111,6 +118,13 @@ export function seedOrganization(
   )
 
   const ownerPersonId = addMember({ orgTenantId, organizationId, userId: ownerUserId, role: 'owner' })
+
+  // Migration 117 freezes existing organisations as legacy; provisioning creates
+  // an unconfigured row for new ones. Tests seed after migrations, so mirror both.
+  db.prepare(`INSERT INTO org_setup_profiles (org_tenant_id, configuration_mode) VALUES (?, ?)`).run(
+    orgTenantId,
+    params.setup === 'new' ? 'unconfigured' : 'legacy',
+  )
 
   return { orgTenantId, organizationId, ownerUserId, ownerPersonId, name }
 }
@@ -254,6 +268,20 @@ export function configurePaymentCollectionTemplate(
   const definition = toDefinition(
     PaymentCollectionTemplate,
     { orgTenantId, workflowType: 'collect_payments', sector: 'custom' },
+    overrides,
+  )
+  workflowTemplateRepository.save(definition)
+  return workflowTemplateRepository.findById(definition.id) || definition
+}
+
+/** Persist the school-fee template for an organization (what a school-kind setup saves). */
+export function configureSchoolFeeTemplate(
+  orgTenantId: string,
+  overrides: Partial<WorkflowTemplateDefinition> = {},
+): WorkflowTemplateDefinition {
+  const definition = toDefinition(
+    EducationFeeTemplate,
+    { orgTenantId, workflowType: 'education_fee_payment', sector: 'education' },
     overrides,
   )
   workflowTemplateRepository.save(definition)

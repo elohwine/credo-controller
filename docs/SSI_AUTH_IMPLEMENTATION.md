@@ -1,13 +1,117 @@
 # SSI Authentication Implementation Summary
 
 **Date:** February 2026  
-**Status:** Phase 1 Complete - Build Passing
+**Status:** Historical implementation summary; verification claims require the
+current-code qualification below.
+
+## Architecture decision and current-code qualification (2026-10-15)
+
+SSI remains foundational, not an organisation-selectable feature. Continue offering
+`PlatformIdentityCredential` to every registering platform user, retaining personal
+wallet/DID provisioning, organisation issuer/verifier identities and required proofs.
+Organisation-level workflow-record preferences must not suppress platform identity
+offers, login verification, recovery/reissue or mandatory evidence.
+
+See the revised [configurable-platform plan](./CONFIGURABLE_PLATFORM_IMPLEMENTATION_PLAN.md#6-ssi-foundation-preserved-workflow-record-settings-remain-bounded)
+for implementation scope and acceptance gates. There is no planned SSI-off account
+or business-only downgrade. Existing PIN/bootstrap access is retained, not expanded
+into a bypass of proof-gated actions.
+
+The registration implementation requests an identity offer, queues it and attempts
+embedded-wallet acceptance. An offer is not yet a held credential; failures need
+explicit pending/retry states. Do not infer that every registered account already
+holds a usable identity credential.
+
+**Update (2026-10-18).** [loginWithVC](../src/services/SSIAuthService.ts) now consumes the
+one-time challenge atomically, has Credo verify the JWT presentation and credential
+signatures against that nonce and the login audience, and then refuses unless: the
+presentation signature itself verified (holder binding), the signer is the credential
+subject, the issuer is the pinned platform issuer, the credential is recorded as issued here
+and is neither revoked nor suspended, and the presenter controls the account's wallet.
+The OpenID4VP path ([CredoPresentationVerificationService](../src/services/ssi/CredoPresentationVerificationService.ts))
+adds verifier, state, audience, nonce, holder, trusted-issuer and status checks, refuses
+a second answer to an already-verified request, and keeps requests tenant-scoped. These
+are covered by negative tests that must stay green:
+[vc_login_negative.test.ts](../tests/vc_login_negative.test.ts) and
+[presentation_verification_negative.test.ts](../tests/presentation_verification_negative.test.ts).
+Writing them found and fixed: a fail-open default that re-derived the holder from an
+unverified presentation, and SSI migrations 023/024/049 never running (version clashes),
+now repaired column by column at start-up. Status lists are now published: the public
+`GET /status-lists/:id` signs a list on first read after issuance or any status change,
+using whichever wallet holds the issuer DID (the root wallet for platform cards, the org's
+tenant wallet for org cards). List URLs use `STATUS_LIST_BASE_URL`, falling back to
+`PUBLIC_BASE_URL`, so outside verifiers can reach them
+([status_list_publish.test.ts](../tests/status_list_publish.test.ts)).
+
+The earlier qualification, kept for history: the then-current loginWithVC looked up
+and consumed a challenge, then decoded a supplied credential JWT for account lookup.
+The historical flow below describing signature, issuer and nonce verification was a
+target, not verified behavior at that time. Before claiming production VC-login
+assurance, verify trusted issuer and credential cryptography, presenter
+key/holder binding, validity/status, verifier/audience, freshness, session correlation
+and replay prevention, then map verified claims to an active account.
+
+Use [OpenID4VP](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html)
+verification appropriate to supported profiles; a raw copied credential plus a
+separate nonce is not proof of key control.
+[OpenID4VCI](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html)
+separates offer and credential delivery. Neither standard requires making SSI
+optional; retaining it as a foundation is the platform's product decision.
+
+The older "ZERO PII" and "No data breach risk" claims below are not current system-wide
+assurances. The current registration controller logs identity fields, and wallet,
+payment and contact records can contain personal data. Hashes can remain linkable
+personal data. Treat privacy as minimisation, access control, retention and safe
+logging across the actual system, not an absolute guarantee derived from using VCs.
 
 ---
 
 ## Overview
 
-Implemented TRUE Self-Sovereign Identity (SSI) authentication for the Credentis platform. The core principle: **ZERO PII stored in the database**. All personal information (phone, email, name) lives exclusively in the user's wallet as a `PlatformIdentityVC`.
+### Personal login and organisation entry
+
+Cross-device wallet login returns verified identity claims alongside the personal
+session. The portal applies `displayName`, disclosed phone/email and personal
+token/tenant keys together, clears the previous account's active organisation
+context, and keeps saved accounts separate. Missing optional claims must never
+display the previous person's profile.
+
+Personal login still requires a platform-issued identity credential. After login,
+choose **Enter with a staff card** in the organisation picker, select an
+organisation, and scan the new QR. This optional proof-backed entry uses:
+
+- `POST /api/organizations/{orgTenantId}/entry-proof`
+- `GET /api/organizations/{orgTenantId}/entry-proof/{requestId}` with the initiating
+  personal bearer token and `x-login-poll-token`.
+
+Requests expire, are single-use, and are bound to that personal session, account
+and organisation. The DCQL query accepts either an SD-JWT `EmployeeCredential`
+or a legacy W3C JWT staff credential, with cryptographic holder binding required.
+The SDK verifies the presentation before the service evaluates claims. The staff
+card must be issued by that organisation's configured issuer, recorded as issued
+by that tenant, active, and match the authenticated user and current active
+membership role. Changed/withdrawn/unrecognised evidence is rejected; failure
+does not log the person out of their personal account.
+
+Roles in cards are evidence, not permission grants: existing server-side membership,
+role and delegation policy remains authoritative. Organisation identity/legal-entity
+credentials do not identify a human member; action-scoped actor/delegation cards
+do not grant general owner/admin access. Existing membership-based organisation
+switching remains available; this feature does not require staff proof globally.
+Multiple organisations require explicit selection.
+
+OpenID4VP/DCQL supports multiple credentials, including optional sets, but this
+flow deliberately separates personal sign-in from optional organisation proof.
+It does not implement organisation-only personal login or require both cards for
+every sign-in. See [OpenID4VP](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html).
+
+Validation must distinguish mocked policy tests from real wallet cryptographic
+presentation tests and phone acceptance. A passing mocked test does not establish
+wallet-format interoperability or device acceptance.
+
+The original design centred platform authentication on a `PlatformIdentityVC`,
+with wallet-held identity claims and hash-based account lookup. The current-code
+qualification above supersedes historical completeness and privacy claims.
 
 ---
 
@@ -15,12 +119,12 @@ Implemented TRUE Self-Sovereign Identity (SSI) authentication for the Credentis 
 
 ### SSI Principles Applied
 
-| Principle               | Implementation                            |
-| ----------------------- | ----------------------------------------- |
-| User controls identity  | PII stored in wallet VC, not our database |
-| Minimized data exposure | Only SHA-256 hashes stored for lookup     |
-| Verifiable claims       | PlatformIdentityVC issued by platform DID |
-| No data breach risk     | No PII to steal from database             |
+| Principle               | Implementation                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------- |
+| User controls identity  | PII stored in wallet VC, not our database                                             |
+| Minimized data exposure | Only SHA-256 hashes stored for lookup                                                 |
+| Verifiable claims       | PlatformIdentityVC issued by platform DID                                             |
+| Privacy goal            | Minimise personal data and protect all remaining records/logs; no zero-risk guarantee |
 
 ### Database Schema (No PII)
 
@@ -87,14 +191,15 @@ User enters: phone/email + PIN
         ↓
 Hash phone/email → Lookup user
         ↓
-Verify PIN hash matches
+If no PIN is stored yet (an organisation opened the account), the PIN they type becomes theirs
+Otherwise verify the PIN hash matches
         ↓
 Generate session token
         ↓
 Return: JWT token
 ```
 
-### 3. Login with VC Presentation (TRUE SSI)
+### 3. Login with VC Presentation (target verification flow, not current assurance)
 
 ```
 Wallet requests login challenge

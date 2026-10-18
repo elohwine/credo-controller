@@ -9,7 +9,7 @@
  * @copyright 2024-2026 IdenEx Credentis
  */
 
-import { Request as ExRequest } from 'express'
+import type { Request as ExRequest } from 'express'
 import { Controller, Post, Get, Put, Route, Tags, Body, Path, Query, Request, Security } from 'tsoa'
 
 import { AuthContext } from '../../enums'
@@ -18,10 +18,10 @@ import { contactRepository } from '../../persistence/ContactRepository'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import {
   workflowRequestRepository,
-  ContactCapability,
-  WorkflowRequest,
-  WorkflowRequestType,
-  WorkflowRequestStatus,
+  type ContactCapability,
+  type WorkflowRequest,
+  type WorkflowRequestType,
+  type WorkflowRequestStatus,
 } from '../../persistence/WorkflowRequestRepository'
 import { OrgWorkflowActorService } from '../../services/OrgWorkflowActorService'
 import { notifyStageDelegates, resolveStageRoute } from '../../services/WorkflowStageInboxService'
@@ -29,13 +29,19 @@ import { outboxService } from '../../services/OutboxService'
 import { ReconciliationService } from '../../services/ReconciliationService'
 import { workflowReadinessService } from '../../services/WorkflowReadinessService'
 import { workflowService } from '../../services/WorkflowService'
+import { isWorkflowRequestActionable } from '../../services/workflowRequestInbox'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 import { rootLogger } from '../../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'WorkflowRequestController' })
 
 interface CreateRequestBody {
-  contactId: string
+  /** The organisation's record of this person. Omit it when writing to an organisation for the first time. */
+  contactId?: string
+  /** First contact from Discover: the organisation adds this person to its contacts and the request lands as usual. */
+  targetOrgTenantId?: string
+  /** How the person wants the organisation to know them. Only used when a contact is created. */
+  requesterName?: string
   requestType: WorkflowRequestType
   workflowType?: string
   payload: Record<string, unknown>
@@ -57,6 +63,8 @@ interface WorkflowRequestResponse {
   id: string
   requesterTenantId: string
   targetOrgTenantId: string
+  /** Plain name of the organisation the request went to, for the requester's own list. */
+  targetOrgName?: string
   contactName?: string
   requestType: string
   workflowType?: string
@@ -72,6 +80,9 @@ interface WorkflowRequestResponse {
   assignmentMode?: string
   createdAt: string
   updatedAt: string
+  approvedAt?: string
+  rejectedAt?: string
+  fulfilledAt?: string
 }
 
 interface ContactCapabilityResponse {
@@ -516,18 +527,7 @@ export class WorkflowRequestController extends Controller {
     // A record offer (job card, receipt, role card…) is delivered and accepted through the
     // wallet inbox card the dispatcher queues. The workflow_requests row is only a trace and
     // must not show up as something to approve.
-    if (String(request.requestType) === 'vc_offer') return false
-    if (request.requestType !== 'requisition') return true
-    if (request.status !== 'pending') return true
-
-    const requisitionId = request.payload?.requisitionId
-    if (!requisitionId || typeof requisitionId !== 'string') return true
-
-    const recon = new ReconciliationService().getStatus(requisitionId)
-    const currentStatus = String(recon?.status || '').toUpperCase()
-
-    // Requisition approvals are only actionable while still in approval stages.
-    return currentStatus === 'REQUISITION_CREATED' || currentStatus === 'MANAGER_APPROVED'
+    return isWorkflowRequestActionable(request)
   }
 
   private enqueueApproverInboxNotification(params: {
@@ -608,6 +608,7 @@ export class WorkflowRequestController extends Controller {
       actorUserId: params.assigneeUserId,
       stageAction,
       requestType: params.request.requestType,
+      workflowType: params.request.workflowType,
       sourceType: 'workflow_request_assignment',
       sourceId: params.request.id,
       title,
@@ -646,7 +647,12 @@ export class WorkflowRequestController extends Controller {
           requestType: request.requestType,
           workflowType: request.workflowType,
           title: typeof payload.title === 'string' ? payload.title : request.requestType,
-          amount: typeof payload.totalAmount === 'number' ? payload.totalAmount : typeof payload.amount === 'number' ? payload.amount : undefined,
+          amount:
+            typeof payload.totalAmount === 'number'
+              ? payload.totalAmount
+              : typeof payload.amount === 'number'
+                ? payload.amount
+                : undefined,
           currency: typeof payload.currency === 'string' ? payload.currency : undefined,
           payload,
           actedByUserId,
@@ -655,23 +661,20 @@ export class WorkflowRequestController extends Controller {
       .catch(() => undefined)
   }
 
-  private clearApproverInboxNotification(requestId: string, assigneeWalletTenantId?: string): void {
-    if (!assigneeWalletTenantId) return
-
+  /** Closes the approval card for every wallet that received it (assignee, stand-in owners, delegates). */
+  private clearApproverInboxNotification(requestId: string, _assigneeWalletTenantId?: string): void {
     this.db
       .prepare(
         `
             UPDATE wallet_pending_offers
             SET resolved_at = COALESCE(resolved_at, @resolvedAt),
                 accepted_at = COALESCE(accepted_at, @acceptedAt)
-            WHERE tenant_id = @tenantId
-              AND source_type = 'workflow_request_assignment'
+            WHERE source_type = 'workflow_request_assignment'
               AND source_id = @sourceId
               AND resolved_at IS NULL
         `,
       )
       .run({
-        tenantId: assigneeWalletTenantId,
         sourceId: requestId,
         resolvedAt: new Date().toISOString(),
         acceptedAt: new Date().toISOString(),
@@ -709,15 +712,35 @@ export class WorkflowRequestController extends Controller {
     const requesterTenantId = this.requireTenantId(req)
     const holderDid = ctx.holderDid
 
-    // Validate contact exists
-    const contact = contactRepository.findById(body.contactId)
+    // The organisation's record of this person: given, or found / created from the wallet when
+    // the person writes to an organisation they found in Discover.
+    let contact = body.contactId ? contactRepository.findById(body.contactId) : undefined
+    if (!contact && body.targetOrgTenantId) {
+      const orgTenantId = String(body.targetOrgTenantId).trim()
+      const orgExists = DatabaseManager.getDatabase()
+        .prepare(`SELECT 1 FROM organizations WHERE tenant_id = ? AND status = 'active' LIMIT 1`)
+        .get(orgTenantId)
+      if (!orgExists) {
+        this.setStatus(404)
+        throw new Error('Organisation not found')
+      }
+      contact =
+        contactRepository.findByWalletTenantId(orgTenantId, requesterTenantId) ||
+        (holderDid ? contactRepository.findByDid(orgTenantId, holderDid) : undefined) ||
+        contactRepository.upsert({
+          orgTenantId,
+          contactScope: 'external',
+          name: String(body.requesterName || '').trim() || 'New client (from the app)',
+          did: holderDid,
+          walletTenantId: requesterTenantId,
+          linkedAt: new Date().toISOString(),
+          notes: 'Wrote to you from the app',
+        })
+    }
     if (!contact) {
       this.setStatus(404)
       throw new Error('Contact not found')
     }
-
-    // Verify holder has access to this contact (either public or holder's personal contact)
-    // TODO: implement contact ownership/visibility check if needed
 
     const targetOrgTenantId = contact.orgTenantId
     if (!targetOrgTenantId) {
@@ -725,7 +748,7 @@ export class WorkflowRequestController extends Controller {
       throw new Error('Contact does not have associated organization')
     }
 
-    const capabilities = workflowRequestRepository.listCapabilitiesByContact(body.contactId)
+    const capabilities = workflowRequestRepository.listCapabilitiesByContact(contact.id)
     const routing = this.resolveCapabilityRouting(body.requestType, body.workflowType, capabilities)
     const resolvedWorkflowType = routing.workflowType || body.workflowType
 
@@ -752,7 +775,7 @@ export class WorkflowRequestController extends Controller {
       requesterTenantId,
       requesterDid: holderDid,
       targetOrgTenantId,
-      contactId: body.contactId,
+      contactId: contact.id,
       requestType: body.requestType,
       workflowType: resolvedWorkflowType,
       payload: effectivePayload,
@@ -929,6 +952,8 @@ export class WorkflowRequestController extends Controller {
     @Query() status?: WorkflowRequestStatus,
     @Query() requestType?: WorkflowRequestType,
     @Query() limit?: number,
+    @Query() includeHistory?: boolean,
+    @Query() offset?: number,
   ): Promise<WorkflowRequestResponse[]> {
     const targetOrgTenantId = this.requireTenantId(req)
     const userRole = this.resolveOrgRole(req)
@@ -943,9 +968,10 @@ export class WorkflowRequestController extends Controller {
       .listInbound(targetOrgTenantId, {
         status,
         requestType,
-        limit: limit || 50,
+        limit: Math.max(1, Math.min(limit || 50, 100)),
+        offset,
       })
-      .filter((request) => this.isRequestActionable(request))
+      .filter((request) => String(request.requestType) !== 'vc_offer' && (includeHistory || this.isRequestActionable(request)))
 
     return requests.map((r) => {
       const contact = r.contactId ? contactRepository.findById(r.contactId) : undefined
@@ -1363,10 +1389,14 @@ export class WorkflowRequestController extends Controller {
   // ==================== Helpers ====================
 
   private toResponse(request: WorkflowRequest, contactName?: string): WorkflowRequestResponse {
+    const targetOrg = DatabaseManager.getDatabase()
+      .prepare(`SELECT name FROM organizations WHERE tenant_id = ? LIMIT 1`)
+      .get(request.targetOrgTenantId) as { name?: string } | undefined
     return {
       id: request.id,
       requesterTenantId: request.requesterTenantId,
       targetOrgTenantId: request.targetOrgTenantId,
+      targetOrgName: targetOrg?.name,
       contactName,
       requestType: request.requestType,
       workflowType: request.workflowType,
@@ -1380,6 +1410,9 @@ export class WorkflowRequestController extends Controller {
       assigneeRole: request.assigneeRole,
       assignedAt: request.assignedAt?.toISOString(),
       assignmentMode: request.assignmentMode,
+      approvedAt: request.approvedAt?.toISOString(),
+      rejectedAt: request.rejectedAt?.toISOString(),
+      fulfilledAt: request.fulfilledAt?.toISOString(),
       createdAt: request.createdAt.toISOString(),
       updatedAt: request.updatedAt.toISOString(),
     }

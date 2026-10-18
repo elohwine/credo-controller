@@ -19,6 +19,7 @@ export default function BottomSheet({ opened, onClose, title, children }: Bottom
       title={title}
       styles={{ content: { borderRadius: '16px 16px 0 0' } }}
     >
+      <div className="sheet-handle" aria-hidden />
       {children}
     </Drawer>
   );

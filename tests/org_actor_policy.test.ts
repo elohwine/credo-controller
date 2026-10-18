@@ -63,7 +63,9 @@ describe('OrgWorkflowActorService — fallback policy', () => {
     const actor = resolve(org.orgTenantId)
     expect(actor.mode).toBe('owner_fallback')
     expect(actor.userId).toBe(org.ownerUserId)
-    expect(stageItem(org.orgTenantId)?.status).toBe('needs_attention')
+    // Who goes out is asked on the job, so the owner standing in does not block setup.
+    expect(stageItem(org.orgTenantId)?.status).toBe('optional')
+    expect(stageItem(org.orgTenantId)?.askedOnFirstUse).toBe(true)
     expect(stageItem(org.orgTenantId)?.actionPath).toBe('/organization/actors')
   })
 
@@ -142,8 +144,8 @@ describe('OrgWorkflowActorService — fallback policy', () => {
     expect(actor.userId).toBeUndefined()
 
     const item = stageItem(strict.orgTenantId)
-    expect(item?.status).toBe('needs_attention')
-    expect(item?.reason).toMatch(/owner fallback is disabled/)
+    expect(item?.status).toBe('optional')
+    expect(item?.askedOnFirstUse).toBe(true)
 
     // Re-enabling built-in order resolves it again without touching the owner switch.
     orgWorkflowActorService.savePolicy(strict.orgTenantId, { useBuiltInRoleFallbacks: true })
@@ -183,5 +185,50 @@ describe('OrgWorkflowActorService — fallback policy', () => {
     expect(team.find((row) => row.stageAction === 'approve_requisition')?.defaultRole).toBe('manager')
     expect(team.find((row) => row.stageAction === 'finance_approve_requisition')?.defaultRole).toBe('finance_manager')
     expect(team.find((row) => row.stageAction === 'release_funds')?.defaultRole).toBe('director')
+  })
+
+  test('a role with no person does not override who releases a job payment', () => {
+    const payoutOrg = seedOrganization({ name: 'Payout Ltd' })
+    addRole(payoutOrg.organizationId, 'Field Worker')
+    configureFeptTemplate(payoutOrg.orgTenantId)
+    const workerUserId = 'user-payout-worker'
+    addMember({
+      orgTenantId: payoutOrg.orgTenantId,
+      organizationId: payoutOrg.organizationId,
+      userId: workerUserId,
+      role: 'field_worker',
+    })
+
+    orgWorkflowActorService.applyPreset(payoutOrg.orgTenantId, 'owner_handles_money')
+    orgWorkflowActorService.upsertDefault({
+      orgTenantId: payoutOrg.orgTenantId,
+      workflowType: 'tpl-fept-field-execution',
+      stageAction: 'trigger_payout',
+      defaultRole: 'field_worker',
+    })
+
+    const inherited = orgWorkflowActorService.resolveActor({
+      orgTenantId: payoutOrg.orgTenantId,
+      workflowType: 'field_execution_fept',
+      stageAction: 'trigger_payout',
+    })
+    expect(inherited.mode).toBe('shared_finance')
+    expect(inherited.userId).toBe(payoutOrg.ownerUserId)
+    expect(inherited.userId).not.toBe(workerUserId)
+
+    orgWorkflowActorService.upsertDefault({
+      orgTenantId: payoutOrg.orgTenantId,
+      workflowType: 'field_execution_fept',
+      stageAction: 'trigger_payout',
+      defaultUserId: workerUserId,
+      defaultRole: 'field_worker',
+    })
+    const named = orgWorkflowActorService.resolveActor({
+      orgTenantId: payoutOrg.orgTenantId,
+      workflowType: 'field_execution_fept',
+      stageAction: 'trigger_payout',
+    })
+    expect(named.mode).toBe('configured_user')
+    expect(named.userId).toBe(workerUserId)
   })
 })

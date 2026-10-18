@@ -64,13 +64,23 @@ interface SSILoginChallengeResponse {
   nonce: string
   /** When the challenge expires (5 min) */
   expiresAt: string
+  /** Audience the presentation must be addressed to (VP `aud`) */
+  audience: string
 }
 
 interface VCLoginRequest {
-  /** JWT-encoded Verifiable Credential (PlatformIdentityVC) */
-  vcJwt: string
+  /** JWT Verifiable Presentation signed by the holder (nonce + aud), containing the PlatformIdentityVC */
+  vpJwt: string
   /** Nonce from createLoginChallenge */
   nonce: string
+  /** Signature from the enrolled phone. Required once a phone is enrolled for this wallet. */
+  deviceAssertion?: {
+    deviceKeyId: string
+    nonce: string
+    purpose: string
+    signedAt: string
+    signature: string
+  }
 }
 
 interface PinLoginRequest {
@@ -254,20 +264,21 @@ export class SSIAuthController extends Controller {
   /**
    * Login by presenting PlatformIdentityVC
    *
-   * TRUE SSI Login: User presents their VC, we verify the signature and extract claims.
+   * The holder signs a JWT presentation over the challenge nonce and audience. The presentation,
+   * holder binding, platform issuer and credential status are all verified before a session is issued.
    * No password stored, no PII stored - the VC IS the credential.
    */
   @Post('/login/vc')
   public async loginWithVC(@Request() request: ExRequest, @Body() body: VCLoginRequest): Promise<LoginResponse> {
-    if (!body.vcJwt || !body.nonce) {
-      this.setStatus(400)
-      throw new Error('vcJwt and nonce are required')
+    if (!body.vpJwt || !body.nonce) {
+      throw new StatusException('vpJwt and nonce are required', 400)
     }
 
     try {
       const result = await this.authService.loginWithVC({
-        vcJwt: body.vcJwt,
+        vpJwt: body.vpJwt,
         nonce: body.nonce,
+        deviceAssertion: body.deviceAssertion,
       })
 
       // Set auth cookie

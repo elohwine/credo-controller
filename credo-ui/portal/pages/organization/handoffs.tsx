@@ -34,6 +34,8 @@ type Handoff = {
   stageOptions: Array<{ id: string; label: string }>
   enabled: boolean
   conditionLabel: string
+  continueOn?: 'approved' | 'completed'
+  continueOnOptions?: Array<{ id: string; label: string }>
 }
 
 function decodeRole(token: string | null): string {
@@ -85,7 +87,7 @@ export default function OrganizationHandoffsPage() {
     if (orgTenantId) void load()
   }, [orgTenantId, load])
 
-  const save = async (item: Handoff, patch: Partial<Pick<Handoff, 'startMode' | 'requiredStages' | 'enabled'>>) => {
+  const save = async (item: Handoff, patch: Partial<Pick<Handoff, 'startMode' | 'requiredStages' | 'enabled' | 'continueOn'>>) => {
     const token = getToken()
     if (!token || !orgTenantId) return
     setSaving(item.key)
@@ -179,6 +181,20 @@ export default function OrganizationHandoffsPage() {
                 clearable
               />
             )}
+            {item.continueOnOptions && item.continueOn && (
+              <Stack gap={4}>
+                <Text size="xs" fw={600}>
+                  The job continues
+                </Text>
+                <SegmentedControl
+                  size="xs"
+                  value={item.continueOn}
+                  disabled={!canEdit || saving === item.key}
+                  onChange={(value) => save(item, { continueOn: value as 'approved' | 'completed' })}
+                  data={item.continueOnOptions.map((option) => ({ value: option.id, label: option.label }))}
+                />
+              </Stack>
+            )}
           </Group>
         )}
         {item.enabled && item.holdParent && (
@@ -224,7 +240,7 @@ export default function OrganizationHandoffsPage() {
           )}
           {requests.length > 0 && (
             <Stack gap="sm">
-              <Title order={4}>After a request is approved</Title>
+              <Title order={4}>After a request</Title>
               {requests.map(renderRow)}
             </Stack>
           )}

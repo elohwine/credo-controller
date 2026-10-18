@@ -20,13 +20,21 @@ import {
   EMPLOYMENT_CONTRACT_VC_TYPE,
   EmployeeCredentialClaims,
 } from '../config/credentials/EmployeeVC'
+import { ORG_WORKFLOW_ACTOR_OFFER_SOURCE_TYPE } from '../config/credentials/OrgWorkflowActorVC'
 import { PLATFORM_IDENTITY_VC_TYPE } from '../config/credentials/PlatformIdentityVC'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { getTenantById } from '../persistence/TenantRepository'
 import { rootLogger } from '../utils/pinoLogger'
 
-import { toCredentialOfferDeeplink } from './OrgWorkflowActorCredentialService'
+import { orgSetupProfileService } from './OrgSetupProfileService'
+import {
+  describeStageForPeople,
+  orgWorkflowActorCredentialService,
+  toCredentialOfferDeeplink,
+} from './OrgWorkflowActorCredentialService'
 import { outboxService } from './OutboxService'
+import { credentialLifecycleService } from './ssi/CredentialLifecycleService'
+import { findWalletTenantByContact } from './ssi/walletLookup'
 
 const logger = rootLogger.child({ module: 'OrgMembershipCredentialService' })
 
@@ -48,14 +56,12 @@ function fingerprintOf(parts: Array<string | number | undefined>): string {
     .slice(0, 32)
 }
 
-function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, '')
-  if (digits.startsWith('0') && digits.length === 10) return `263${digits.slice(1)}`
-  return digits
-}
-
-function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex')
+/** `field_worker` → `field worker`, the words the People page uses. */
+function describeRole(role: string): string {
+  return String(role || 'member')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase()
 }
 
 async function defaultOfferFactory(input: {
@@ -78,6 +84,19 @@ async function defaultOfferFactory(input: {
   }
 }
 
+/**
+ * Why a person is getting a card they seem to already hold. Stored on the offer as
+ * `metadata.replaces`; the phone and the website show it as a "Replaces your current card"
+ * badge with the note, so the new offer does not look like a duplicate.
+ */
+export interface OfferReplacement {
+  why: 'steps_changed' | 'role_changed' | 'sent_again' | 'scope_changed' | 'renewed' | 'disclosure'
+  /** Plain words shown to the person, e.g. "Added: signing off. Your earlier card stops working once you accept this one." */
+  note: string
+  added?: string[]
+  removed?: string[]
+}
+
 interface QueueInput {
   walletTenantId: string
   issuerTenantId: string
@@ -87,7 +106,7 @@ interface QueueInput {
   offerUri: string
   title: string
   body: string
-  metadata: Record<string, unknown>
+  metadata: Record<string, unknown> & { replaces?: OfferReplacement }
   fingerprint: string
 }
 
@@ -133,6 +152,14 @@ function queueOffer(input: QueueInput): MembershipOfferOutcome {
   `,
   ).run({ now, tenantId: input.walletTenantId, sourceType: input.sourceType, sourceId: input.sourceId })
 
+  // The person already accepted one of these: say so, even when the caller gave no detail,
+  // so the new card never looks like a duplicate.
+  const replaces: OfferReplacement | undefined =
+    input.metadata.replaces ||
+    (rows.some((row) => Boolean(row.accepted_at))
+      ? { why: 'renewed', note: 'This replaces the one you already hold. Accept it to keep using it.' }
+      : undefined)
+
   const rowId = `omc-${randomUUID()}`
   db.prepare(
     `
@@ -156,7 +183,7 @@ function queueOffer(input: QueueInput): MembershipOfferOutcome {
     offerUri: input.offerUri,
     title: input.title,
     body: input.body,
-    metadata: JSON.stringify({ ...input.metadata, fingerprint: input.fingerprint }),
+    metadata: JSON.stringify({ ...input.metadata, ...(replaces ? { replaces } : {}), fingerprint: input.fingerprint }),
     createdAt: now,
   })
 
@@ -180,6 +207,57 @@ function queueOffer(input: QueueInput): MembershipOfferOutcome {
   }
 
   return 'offered'
+}
+
+function matchingEmployeeOffer(
+  walletTenantId: string,
+  sourceId: string,
+  fingerprint: string,
+): 'already_offered' | 'already_accepted' | undefined {
+  const rows = DatabaseManager.getDatabase()
+    .prepare(
+      `SELECT metadata, accepted_at, resolved_at FROM wallet_pending_offers
+       WHERE tenant_id = ? AND source_type = ? AND source_id = ?
+       ORDER BY datetime(created_at) DESC`,
+    )
+    .all(walletTenantId, EMPLOYEE_OFFER_SOURCE_TYPE, sourceId) as Array<{
+    metadata: string | null
+    accepted_at: string | null
+    resolved_at: string | null
+  }>
+  for (const row of rows) {
+    let stored = ''
+    try {
+      stored = String(JSON.parse(row.metadata || '{}')?.fingerprint || '')
+    } catch {
+      stored = ''
+    }
+    if (stored !== fingerprint) continue
+    if (row.accepted_at) return 'already_accepted'
+    if (!row.resolved_at) return 'already_offered'
+  }
+  return undefined
+}
+
+/** Pending per-workflow role cards are replaced by the one staff card. */
+function retirePendingRoleCards(walletTenantId: string, orgTenantId: string): void {
+  const now = new Date().toISOString()
+  DatabaseManager.getDatabase()
+    .prepare(
+      `
+      UPDATE wallet_pending_offers
+      SET resolved_at = @now, last_attempt_at = @now,
+          last_error = CASE WHEN last_error IS NULL OR last_error = '' THEN 'superseded: steps are on the staff card' ELSE last_error END
+      WHERE tenant_id = @tenantId AND source_type = @sourceType AND source_id LIKE @sourcePrefix
+        AND resolved_at IS NULL AND accepted_at IS NULL
+    `,
+    )
+    .run({
+      now,
+      tenantId: walletTenantId,
+      sourceType: ORG_WORKFLOW_ACTOR_OFFER_SOURCE_TYPE,
+      sourcePrefix: `${orgTenantId}:%`,
+    })
 }
 
 function resolveWallet(userId: string): { userId: string; walletTenantId?: string; roleHint?: string } {
@@ -216,19 +294,65 @@ export class OrgMembershipCredentialService {
     source: 'membership' | 'internal_contact' | 'onboarding'
     walletTenantId?: string
     displayName?: string
+    /** Send a fresh card even if one is still waiting in the inbox (the "send again" button). */
+    force?: boolean
+    /**
+     * Send a fresh card even when the same card was already accepted. The accepted card is
+     * withdrawn once the new one is accepted (the "send again" button on an accepted card).
+     */
+    replaceAccepted?: boolean
+    reason?: string
+    /** Set when the role was changed on the People page; the inbox copy says so. */
+    previousRole?: string
   }): Promise<{ outcome: MembershipOfferOutcome; reason?: string; walletTenantId?: string }> {
     const walletTenantId = params.walletTenantId || resolveWallet(params.userId).walletTenantId
     if (!walletTenantId) return { outcome: 'skipped', reason: 'no wallet' }
 
+    const sourceId = `${params.orgTenantId}:${params.userId}`
+    const force = Boolean(params.force || params.replaceAccepted)
+    if (force) {
+      const now = new Date().toISOString()
+      DatabaseManager.getDatabase()
+        .prepare(
+          `
+          UPDATE wallet_pending_offers
+          SET resolved_at = @now, last_attempt_at = @now,
+              last_error = CASE WHEN last_error IS NULL OR last_error = '' THEN 'superseded: sent again' ELSE last_error END
+          WHERE tenant_id = @tenantId AND source_type = @sourceType AND source_id = @sourceId
+            AND resolved_at IS NULL AND accepted_at IS NULL
+        `,
+        )
+        .run({ now, tenantId: walletTenantId, sourceType: EMPLOYEE_OFFER_SOURCE_TYPE, sourceId })
+    }
+
     const orgName = getTenantById(params.orgTenantId)?.label || 'Organization'
     const role = params.role || 'employee'
+    const stageActions = orgWorkflowActorCredentialService.coveredStageActionsForMember(
+      params.orgTenantId,
+      params.userId,
+    )
     const fingerprint = fingerprintOf([
       params.orgTenantId,
       params.userId,
       role.toLowerCase(),
       params.department || '',
       params.source,
+      stageActions.join(','),
+      // Cards issued before this reveal the whole step list. A new fingerprint sends a card
+      // that can reveal one step at a time.
+      'disclosure:per-step',
+      // A replacement of an accepted card is a new card even when nothing about the person changed.
+      // Only added when resending, so cards issued before this existed keep their fingerprint.
+      ...(params.replaceAccepted ? [`resend:${Date.now()}`] : []),
     ])
+    if (!force) {
+      const same = matchingEmployeeOffer(walletTenantId, sourceId, fingerprint)
+      if (same) {
+        retirePendingRoleCards(walletTenantId, params.orgTenantId)
+        return { outcome: same, walletTenantId }
+      }
+    }
+    const stepText = stageActions.map(describeStageForPeople)
     const claims: EmployeeCredentialClaims = {
       orgTenantId: params.orgTenantId,
       orgName,
@@ -238,6 +362,7 @@ export class OrgMembershipCredentialService {
       department: params.department,
       employmentStatus: 'active',
       source: params.source,
+      stageActions,
       issuedAt: new Date().toISOString(),
       platformName: process.env.PLATFORM_NAME || 'IdenEx Credentis',
       fingerprint,
@@ -255,28 +380,156 @@ export class OrgMembershipCredentialService {
       return { outcome: 'failed', reason: error?.message || 'offer failed', walletTenantId }
     }
 
+    // What happens to the card they already hold. The organisation's rule decides whether it
+    // stops now or only once the new card is accepted; the inbox copy says which.
+    const held = credentialLifecycleService.acceptedStaffCards(walletTenantId, params.orgTenantId, params.userId)
+    // "Send again" from the People table: the card they hold is fine, a fresh one simply replaces it.
+    const sentAgain = Boolean(params.replaceAccepted || params.reason === 'manual')
+    let earlierCard: 'withdrawn_now' | 'kept_until_accepted' | 'nothing_to_withdraw' = 'nothing_to_withdraw'
+    if (held.length > 0) {
+      const rule = orgSetupProfileService.get(params.orgTenantId).staffCardChange
+      const changeReason = params.previousRole
+        ? `role changed from ${params.previousRole} to ${role}`
+        : sentAgain
+          ? 'card sent again'
+          : 'steps changed'
+      earlierCard = sentAgain
+        ? 'kept_until_accepted'
+        : credentialLifecycleService.applyStaffCardChangeRule({
+            walletTenantId,
+            orgTenantId: params.orgTenantId,
+            userId: params.userId,
+            rule,
+            next: { role, stageActions },
+            reason: changeReason,
+          })
+    }
+
+    const steps = stepText.length > 0 ? ` You use it to confirm: ${stepText.join(', ')}.` : ''
+    const who = params.displayName ? `${params.displayName} works` : 'You work'
+    const heldSteps = new Set(held[0]?.scope?.stageActions || [])
+    const nextSteps = new Set(stageActions.map((item) => String(item).trim().toLowerCase()))
+    const stepsUnchanged =
+      held.length > 0 &&
+      !params.previousRole &&
+      !sentAgain &&
+      [...nextSteps].every((item) => heldSteps.has(item)) &&
+      [...heldSteps].every((item) => nextSteps.has(item))
+    const change = params.previousRole
+      ? `Your role at ${orgName} changed from ${describeRole(params.previousRole)} to ${describeRole(role)}. `
+      : sentAgain
+        ? `${orgName} sent your staff card again. `
+        : stepsUnchanged
+          ? `Your staff card at ${orgName} now shares only the step you are confirming. `
+          : held.length > 0
+            ? `The steps you confirm at ${orgName} changed. `
+            : ''
+    const earlier =
+      earlierCard === 'withdrawn_now'
+        ? ' Your earlier card no longer works; you can remove it from Records.'
+        : earlierCard === 'kept_until_accepted'
+          ? ' Your earlier card stops working once you accept this one; you can then remove it from Records.'
+          : ''
+    // What is different from the card they hold, in plain words, for the inbox badge.
+    let replaces: OfferReplacement | undefined
+    if (held.length > 0 || sentAgain) {
+      const added = [...nextSteps].filter((item) => !heldSteps.has(item)).map(describeStageForPeople)
+      const removed = [...heldSteps].filter((item) => !nextSteps.has(item)).map(describeStageForPeople)
+      const diff = [
+        added.length > 0 ? `Added: ${added.join(', ')}.` : '',
+        removed.length > 0 ? `Removed: ${removed.join(', ')}.` : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+      replaces = {
+        why: params.previousRole
+          ? 'role_changed'
+          : sentAgain
+            ? 'sent_again'
+            : stepsUnchanged
+              ? 'disclosure'
+              : 'steps_changed',
+        note: `${change}${diff ? `${diff} ` : ''}${earlier.trim()}`.trim(),
+        added,
+        removed,
+      }
+    }
     const outcome = queueOffer({
       walletTenantId,
       issuerTenantId: params.orgTenantId,
       sourceType: EMPLOYEE_OFFER_SOURCE_TYPE,
-      sourceId: `${params.orgTenantId}:${params.userId}`,
+      sourceId,
       credentialType: EMPLOYEE_VC_TYPE,
       offerUri: offer.offerUri,
-      title: `Employee credential · ${orgName}`,
-      body: params.displayName
-        ? `${params.displayName} is recorded as ${role} at ${orgName}. Accept to present it when you act for the organization.`
-        : `You are recorded as ${role} at ${orgName}. Accept to present it when you act for the organization.`,
-      metadata: { ...claims, offerId: offer.offerId, expiresAt: offer.expiresAt },
+      title: `Staff card · ${orgName}`,
+      body: `${change}${who} at ${orgName} as ${describeRole(role)}.${steps} Accept it in your inbox.${earlier}`,
+      metadata: {
+        ...claims,
+        offerId: offer.offerId,
+        expiresAt: offer.expiresAt,
+        reason: params.reason,
+        previousRole: params.previousRole,
+        earlierCard,
+        ...(replaces ? { replaces } : {}),
+      },
       fingerprint,
     })
+    if (outcome === 'offered' || outcome === 'already_offered' || outcome === 'already_accepted') {
+      retirePendingRoleCards(walletTenantId, params.orgTenantId)
+    }
     return { outcome, walletTenantId }
+  }
+
+  /**
+   * Called when a staff card is accepted into the wallet: the older accepted cards for the same
+   * person and organisation are withdrawn, so only one staff card is valid per membership.
+   */
+  public staffCardAccepted(walletTenantId: string, acceptedRowId: string): void {
+    const row = DatabaseManager.getDatabase()
+      .prepare('SELECT source_id FROM wallet_pending_offers WHERE id = ? AND tenant_id = ? AND source_type = ? LIMIT 1')
+      .get(acceptedRowId, walletTenantId, EMPLOYEE_OFFER_SOURCE_TYPE) as { source_id?: string } | undefined
+    const [orgTenantId, userId] = String(row?.source_id || '').split(':')
+    if (!orgTenantId || !userId) return
+    credentialLifecycleService.revokeStaffCards({
+      walletTenantId,
+      orgTenantId,
+      userId,
+      keepRowId: acceptedRowId,
+      reason: 'replaced by a newer staff card',
+    })
+  }
+
+  /** The person left the organisation: every staff card they hold from it stops working. */
+  public memberLeft(orgTenantId: string, userId: string, reason = 'left the organisation'): void {
+    const walletTenantId = resolveWallet(userId).walletTenantId
+    if (!walletTenantId) return
+    credentialLifecycleService.revokeStaffCards({ walletTenantId, orgTenantId, userId, reason })
+    const now = new Date().toISOString()
+    DatabaseManager.getDatabase()
+      .prepare(
+        `UPDATE wallet_pending_offers
+         SET resolved_at = @now, last_attempt_at = @now,
+             last_error = CASE WHEN last_error IS NULL OR last_error = '' THEN @note ELSE last_error END
+         WHERE tenant_id = @tenantId AND source_type = @sourceType AND source_id = @sourceId
+           AND resolved_at IS NULL AND accepted_at IS NULL`,
+      )
+      .run({
+        now,
+        note: `withdrawn: ${reason}`,
+        tenantId: walletTenantId,
+        sourceType: EMPLOYEE_OFFER_SOURCE_TYPE,
+        sourceId: `${orgTenantId}:${userId}`,
+      })
   }
 
   public ensureEmployeeCredentialInBackground(
     params: Parameters<OrgMembershipCredentialService['ensureEmployeeCredential']>[0],
   ): void {
     void this.ensureEmployeeCredential(params).catch((error: any) => {
-      logger.warn({ error: error?.message, orgTenantId: params.orgTenantId, userId: params.userId }, 'Employee credential offer failed')
+      logger.warn(
+        { error: error?.message, orgTenantId: params.orgTenantId, userId: params.userId },
+        'Employee credential offer failed',
+      )
     })
   }
 
@@ -290,9 +543,7 @@ export class OrgMembershipCredentialService {
     const holder = resolveUserByWallet(params.walletTenantId)
     if (!holder) return
     const membership = DatabaseManager.getDatabase()
-      .prepare(
-        `SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ? AND status = 'active' LIMIT 1`,
-      )
+      .prepare(`SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ? AND status = 'active' LIMIT 1`)
       .get(holder.userId, params.orgTenantId) as { role?: string } | undefined
     this.ensureEmployeeCredentialInBackground({
       orgTenantId: params.orgTenantId,
@@ -453,7 +704,11 @@ export class OrgMembershipCredentialService {
   }
 
   /** Queue the platform identity offer so registration shows up in the holder inbox. */
-  public queuePlatformIdentityOffer(params: { walletTenantId: string; offerUri: string; displayName?: string }): MembershipOfferOutcome {
+  public queuePlatformIdentityOffer(params: {
+    walletTenantId: string
+    offerUri: string
+    displayName?: string
+  }): MembershipOfferOutcome {
     if (!params.walletTenantId || !params.offerUri) return 'skipped'
     const fingerprint = fingerprintOf([params.walletTenantId, PLATFORM_IDENTITY_VC_TYPE])
     return queueOffer({
@@ -473,25 +728,7 @@ export class OrgMembershipCredentialService {
   }
 
   private lookupWalletByContact(phone?: string, email?: string): string | undefined {
-    const db = DatabaseManager.getDatabase()
-    if (phone) {
-      const normalized = normalizePhone(phone)
-      const hashes = [sha256(normalized), sha256(normalized.toLowerCase()), sha256(phone.trim().toLowerCase())]
-      for (const hash of hashes) {
-        const row = db.prepare('SELECT tenant_id as walletTenantId FROM ssi_users WHERE phone_hash = ? LIMIT 1').get(hash) as
-          | { walletTenantId?: string }
-          | undefined
-        if (row?.walletTenantId) return row.walletTenantId
-      }
-    }
-    if (email) {
-      const hash = sha256(email.trim().toLowerCase())
-      const row = db.prepare('SELECT tenant_id as walletTenantId FROM ssi_users WHERE email_hash = ? LIMIT 1').get(hash) as
-        | { walletTenantId?: string }
-        | undefined
-      if (row?.walletTenantId) return row.walletTenantId
-    }
-    return undefined
+    return findWalletTenantByContact(phone, email)
   }
 }
 

@@ -4,6 +4,7 @@ import {
   ActionIcon, Button, Tabs, Badge
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { usePullRefresh } from '@/lib/pullRefresh';
 import {
   IconWallet, IconRefresh, IconAlertCircle, IconShare
 } from '@tabler/icons-react';
@@ -16,17 +17,30 @@ import type { ProofCardData } from '@/components/proofs/ProofCard';
 import CredentialCard from '@/components/shared/CredentialCard';
 import api, { safeArray } from '@/lib/api';
 import { decodeJwtPayload, getPersonalWalletTenantId, getWalletToken } from '@/lib/auth';
-import { formatCredentialType, formatDate, formatIssuerName } from '@/lib/format';
+import { credentialClaimRows, credentialIssuerLabel, formatCredentialType, formatDate } from '@/lib/format';
+import { formatTxnTime } from '@/lib/inboxAttention';
+import {
+  RECORD_SECTION_LABELS, RECORD_SECTION_ORDER, recordCardTitle, recordSectionOf, type RecordSectionKey,
+} from '@/lib/workflowCapabilities';
+import { cardLife, readArchivedCardIds, setCardArchived, type CardLifeInfo } from '@/lib/cardLife';
 import { getOfflineStorageAdapter } from '@/lib/offline/storage';
+import { normalizeWalletCredentialRows } from '@/lib/offline/walletSnapshotSync';
+import RecordCheckPanel from '@/components/records/RecordCheckPanel';
 
 interface WalletCredential {
   id: string;
   type: string | string[];
   issuerDid?: string;
+  /** The organisation behind the issuer key, when the card's claims do not name it. */
+  issuerName?: string;
   addedOn?: string;
   revoked?: boolean;
+  /** The issuer withdrew this card (role changed, left the organisation). It no longer works. */
+  withdrawn?: boolean;
   archived?: boolean;
   revocationReason?: string;
+  /** Id the organisation registered when it issued this card. */
+  issuedId?: string;
   parsedDocument?: {
     credentialSubject?: Record<string, any>;
     issuer?: string | { id: string };
@@ -70,31 +84,41 @@ function primaryType(type: unknown): string {
   return labels.find((l) => l !== 'VerifiableCredential') || labels[labels.length - 1] || 'Credential';
 }
 
-function classifyCategory(type: unknown): 'Identity' | 'Payments' | 'Employment' | 'Education' | 'Healthcare' | 'Government' | 'Other' {
-  const t = primaryType(type).toLowerCase();
-
-  if (/(receipt|invoice|quote|payment|transaction)/i.test(t)) return 'Payments';
-  if (/(employment|payroll|salary|staff|worker|job)/i.test(t)) return 'Employment';
-  if (/(education|student|school|fees|tuition)/i.test(t)) return 'Education';
-  if (/(health|medical|vaccine|prescription|clinic|hospital)/i.test(t)) return 'Healthcare';
-  if (/(government|national|civic|voter|licence|license|permit|tax|passport)/i.test(t)) return 'Government';
-  if (/(id|identity|kyc|membership|national)/i.test(t)) return 'Identity';
-  return 'Other';
-}
-
-function toProofCard(cred: WalletCredential): ProofCardData {
+function issuerOf(cred: WalletCredential): string {
   const issuer = typeof cred.parsedDocument?.issuer === 'string'
     ? cred.parsedDocument?.issuer
     : cred.parsedDocument?.issuer?.id || cred.issuerDid || '';
+  // The organisation named on the card, not the key behind it.
+  return cred.issuerName || credentialIssuerLabel(cred.parsedDocument?.credentialSubject, issuer);
+}
 
+function logCardLives(list: WalletCredential[]): void {
+  const counts = { active: 0, expired: 0, replaced: 0, withdrawn: 0 };
+  for (const cred of list) counts[lifeOf(cred).life] += 1;
+}
+
+function lifeOf(cred: WalletCredential): CardLifeInfo {
+  return cardLife({
+    withdrawn: cred.withdrawn,
+    revoked: cred.revoked,
+    revocationReason: cred.revocationReason,
+    expiresAt: cred.parsedDocument?.expirationDate,
+  });
+}
+
+function toProofCard(cred: WalletCredential): ProofCardData & { title?: string } {
+  const life = lifeOf(cred);
+  const type = primaryType(cred.type);
   return {
     id: cred.id,
-    type: primaryType(cred.type),
-    issuer,
+    type,
+    // Older job records were issued as a generic card; name them by what they are.
+    title: recordCardTitle(type, cred.parsedDocument?.credentialSubject),
+    issuer: issuerOf(cred),
     issuedAt: cred.addedOn || cred.parsedDocument?.issuanceDate || new Date().toISOString(),
     expiresAt: cred.parsedDocument?.expirationDate,
     claims: {},
-    status: cred.archived ? 'archived' : cred.revoked ? 'expired' : 'valid',
+    status: cred.archived && life.life === 'active' ? 'archived' : life.life === 'active' ? 'valid' : life.life,
   };
 }
 
@@ -105,25 +129,40 @@ export default function ProofsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<WalletCredential | null>(null);
   const [tab, setTab] = useState<string>('active');
+  const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
+  const [removing, setRemoving] = useState(false);
   const hintedPendingRef = useRef(false);
   const offlineNoticeShownRef = useRef(false);
+  const inFlightRef = useRef(false);
+  const hasShownRef = useRef(false);
   const offlineStorage = getOfflineStorageAdapter();
 
-  const active = credentials.filter((c) => !c.archived && !c.revoked);
-  const archived = credentials.filter((c) => !!c.archived);
+  const rows = credentials.map((c) => ({ ...c, archived: archivedIds.has(c.id) }));
+  // Replaced and withdrawn cards are filed on their own. Expired cards stay with the live ones
+  // until the person archives them.
+  const active = rows.filter((c) => !c.archived && !lifeOf(c).fileAway);
+  const archived = rows.filter((c) => c.archived || lifeOf(c).fileAway);
+  const expiredInView = active.filter((c) => lifeOf(c).life === 'expired').length;
 
-  const grouped = {
-    Identity: active.filter((c) => classifyCategory(c.type) === 'Identity'),
-    Payments: active.filter((c) => classifyCategory(c.type) === 'Payments'),
-    Employment: active.filter((c) => classifyCategory(c.type) === 'Employment'),
-    Education: active.filter((c) => classifyCategory(c.type) === 'Education'),
-    Healthcare: active.filter((c) => classifyCategory(c.type) === 'Healthcare'),
-    Government: active.filter((c) => classifyCategory(c.type) === 'Government'),
-    Other: active.filter((c) => classifyCategory(c.type) === 'Other'),
-  };
+  // Filed under the same words as the inbox tabs; only sections that hold a card are shown.
+  const grouped = RECORD_SECTION_ORDER.map((key: RecordSectionKey) => ({
+    key,
+    title: RECORD_SECTION_LABELS[key],
+    rows: active.filter((c) => recordSectionOf(primaryType(c.type), c.parsedDocument?.credentialSubject) === key),
+  })).filter((section) => section.rows.length > 0);
 
-  const fetchWallet = useCallback(async () => {
-    setLoading(true);
+  /**
+   * Load the wallet. A background refresh (`silent`: app came back to the front, connection came
+   * back) keeps the cards on screen and swaps in the new list when it arrives; only the first
+   * load and an explicit Refresh / pull show the spinner. One request at a time.
+   */
+  const fetchWallet = useCallback(async (trigger?: unknown) => {
+    const reason = typeof trigger === 'string' ? trigger : 'refresh';
+    const silent = reason !== 'mount' && reason !== 'pull' && reason !== 'refresh';
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    const showSpinner = !silent || !hasShownRef.current;
+    if (showSpinner) setLoading(true);
     setError(null);
     try {
       const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
@@ -135,6 +174,13 @@ export default function ProofsPage() {
       const walletId = payload.tenantId ?? payload.walletId ?? payload.sub;
       if (!walletId) throw new Error('Could not determine wallet ID');
       const cached = offlineStorage.get<CachedWalletSnapshot>('credential_cache', `${WALLET_CACHE_KEY}:${walletId}`);
+      // Last known cards first, so the screen is never blank while the network answers.
+      if (!hasShownRef.current && cached?.credentials?.length) {
+        setCredentials(cached.credentials);
+        setPendingOffers(cached.pendingOffers || []);
+        hasShownRef.current = true;
+        setLoading(false);
+      }
 
       const [credentialsResult, pendingResult] = await Promise.allSettled([
         (async () => {
@@ -156,28 +202,8 @@ export default function ProofsPage() {
             skipAuthRedirect: true as any,
           } as any);
           const items: any[] = safeArray(res.data?.items ?? res.data);
-
-          const dedupedMap = new Map<string, any>();
-          items.forEach((item) => {
-            const subject = item.parsedDocument?.credentialSubject || item.credentialSubject || {};
-            const baseKey = subject.transactionId || subject.invoiceHash || subject.invoiceId || subject.cartId || item.id;
-            const isReceipt = toTypeList(item.type).some((t) => t.includes('Receipt'));
-            const key = isReceipt ? `receipt-${item.id}` : `${baseKey}-${primaryType(item.type)}`;
-            if (!dedupedMap.has(key) || new Date(item.addedOn) > new Date(dedupedMap.get(key)?.addedOn)) {
-              dedupedMap.set(key, item);
-            }
-          });
-
-          return Array.from(dedupedMap.values()).map((item) => ({
-            id: item.vc_id || item.id,
-            type: item.vc_type || item.type || 'VerifiableCredential',
-            issuerDid: item.issuerDid,
-            addedOn: item.issued_at || item.addedOn,
-            revoked: !!item.revoked || item.status === 'REVOKED',
-            archived: !!item.archived,
-            revocationReason: item.revocation_reason,
-            parsedDocument: item.parsedDocument || item.parsed_document,
-          } as WalletCredential));
+          // One normaliser for the screen and the offline copy (`walletSnapshotSync`).
+          return normalizeWalletCredentialRows(items) as WalletCredential[];
         })(),
         (async () => {
           const personalToken = getWalletToken() || token;
@@ -207,7 +233,13 @@ export default function ProofsPage() {
           const offerRows = safeArray(resOffers.data?.offers ?? resOffers.data);
           const receiptRows = safeArray(resReceipts.data?.pendingReceipts ?? resReceipts.data?.receipts ?? resReceipts.data);
 
-          const mappedOffers = offerRows.map((o: any) => ({
+          // A job step or an assignment is inbox work, not a record waiting to be kept.
+          const recordOffers = offerRows.filter((o: any) => {
+            const source = String(o.sourceType || '');
+            const type = String(o.credentialType || '');
+            return source !== 'workflow_stage_action' && source !== 'workflow_assignment' && type !== 'WorkflowStageAction' && type !== 'FieldTask';
+          });
+          const mappedOffers = recordOffers.map((o: any) => ({
             id: o.id ?? o.offerId,
             credentialType: o.credentialType ?? 'Credential Offer',
             issuerName: o.issuerName,
@@ -239,6 +271,7 @@ export default function ProofsPage() {
 
       if (credentialsResult.status === 'fulfilled') {
         setCredentials(credentialsResult.value);
+        logCardLives(credentialsResult.value);
       } else {
         const msg = (credentialsResult.reason as any)?.response?.data?.message
           ?? (credentialsResult.reason as any)?.message
@@ -291,11 +324,6 @@ export default function ProofsPage() {
       }
 
       if (usedCachedCredentials || usedCachedOffers) {
-        notifications.show({
-          title: 'Offline wallet mode',
-          message: 'Showing last synced credentials and offers from local cache.',
-          color: 'blue',
-        });
         offlineNoticeShownRef.current = true;
       } else if (credentialsResult.status === 'fulfilled' || pendingResult.status === 'fulfilled') {
         offlineNoticeShownRef.current = false;
@@ -320,15 +348,8 @@ export default function ProofsPage() {
       if (cached?.credentials?.length) {
         setCredentials(cached.credentials);
         setPendingOffers(cached.pendingOffers || []);
-        setError(`Offline mode: showing cached credentials (last sync ${formatDate(cached.cachedAt)}).`);
-        if (!offlineNoticeShownRef.current) {
-          notifications.show({
-            title: 'Offline wallet mode',
-            message: 'Network unavailable. Loaded credentials from local cache.',
-            color: 'blue',
-          });
-          offlineNoticeShownRef.current = true;
-        }
+        setError('');
+        offlineNoticeShownRef.current = true;
       } else {
         setError(err.response?.data?.message ?? err.message ?? 'Failed to load credentials');
         const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
@@ -341,41 +362,74 @@ export default function ProofsPage() {
         }
       }
     } finally {
+      hasShownRef.current = true;
+      inFlightRef.current = false;
       setLoading(false);
     }
   }, [offlineStorage]);
 
-  useEffect(() => { fetchWallet(); }, [fetchWallet]);
-
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      fetchWallet();
-    }, 15000);
-    return () => window.clearInterval(timer);
+    setArchivedIds(readArchivedCardIds());
+    fetchWallet('mount');
   }, [fetchWallet]);
+  usePullRefresh(() => { void fetchWallet('pull'); });
 
+  // Refresh quietly when the app comes back to the front or the connection returns. No timer:
+  // cards change when the person accepts one in the inbox, not on a clock.
   useEffect(() => {
-    const handleFocus = () => { fetchWallet(); };
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleFocus);
+    const onResume = (event: Event) => {
+      if (document.visibilityState !== 'visible') return;
+      fetchWallet(event.type);
+    };
+    window.addEventListener('focus', onResume);
+    window.addEventListener('online', onResume);
+    document.addEventListener('visibilitychange', onResume);
     return () => {
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleFocus);
+      window.removeEventListener('focus', onResume);
+      window.removeEventListener('online', onResume);
+      document.removeEventListener('visibilitychange', onResume);
     };
   }, [fetchWallet]);
 
-  const handleArchive = async (cred: WalletCredential, archive: boolean) => {
+  /** Delete the card from this device. The organisation's record of what it issued is untouched. */
+  const handleRemove = async (cred: WalletCredential) => {
+    if (!window.confirm('Remove this card from this device? You cannot undo this.')) return;
+    const token = getWalletToken();
+    if (!token) return;
+    const payload = decodeJwtPayload(token);
+    const walletId = payload?.tenantId ?? payload?.walletId ?? payload?.sub;
+    if (!walletId) return;
+    setRemoving(true);
     try {
-      const token = getWalletToken();
-      if (!token) throw new Error('Missing holder wallet token');
-      await api.post(`/api/wallet/credentials/${cred.id}/archive`, { archived: archive }, { headers: { Authorization: `Bearer ${token}` } });
-    } catch { }
-    setCredentials((prev) => prev.map((c) => c.id === cred.id ? { ...c, archived: archive } : c));
+      let authToken = token;
+      try {
+        const sessionRes = await api.post('/api/ssi/auth/session', { expiresInSeconds: 900 }, {
+          headers: { Authorization: `Bearer ${token}` },
+          skipAuthRedirect: true as any,
+        } as any);
+        if (sessionRes.data?.token) authToken = sessionRes.data.token;
+      } catch { }
+      await api.delete(`/api/wallet/${walletId}/credentials/${encodeURIComponent(cred.id)}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      setCredentials((prev) => prev.filter((c) => c.id !== cred.id));
+      setSelected(null);
+      notifications.show({ title: 'Removed', message: 'The card is no longer on this device.', color: 'gray' });
+    } catch (err: any) {
+      notifications.show({ title: 'Could not remove', message: err?.response?.data?.message || err?.message, color: 'red' });
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  const handleArchive = (cred: WalletCredential, archive: boolean) => {
+    setCardArchived(cred.id, archive);
+    setArchivedIds(readArchivedCardIds());
     setSelected(null);
   };
 
   const handleShare = (cred: WalletCredential) => {
-    const typeName = formatCredentialType(primaryType(cred.type));
+    const typeName = recordCardTitle(primaryType(cred.type), cred.parsedDocument?.credentialSubject) || formatCredentialType(primaryType(cred.type));
     const msg = encodeURIComponent(`Authentic ${typeName} - Credentis`);
     window.open(`https://wa.me/?text=${msg}`, '_blank');
   };
@@ -383,19 +437,15 @@ export default function ProofsPage() {
   const renderSection = (title: string, rows: WalletCredential[]) => (
     <Box key={title}>
       <Text fw={700} size="lg">{title}</Text>
-      {rows.length > 0 ? (
-        <Stack gap="sm" mt="sm">
-          {rows.map((cred) => (
-            <CredentialCard
-              key={cred.id}
-              {...toProofCard(cred)}
-              onClick={() => setSelected(cred)}
-            />
-          ))}
-        </Stack>
-      ) : (
-        <Text size="xs" c="dimmed" mt="xs">No records</Text>
-      )}
+      <Stack gap="sm" mt="sm">
+        {rows.map((cred) => (
+          <CredentialCard
+            key={cred.id}
+            {...toProofCard(cred)}
+            onClick={() => setSelected(cred)}
+          />
+        ))}
+      </Stack>
     </Box>
   );
 
@@ -406,9 +456,9 @@ export default function ProofsPage() {
           <Group justify="space-between" align="center">
             <Box style={{ flex: 1 }}>
               <Title order={1} fw={700} style={{ fontSize: 36, lineHeight: 1.05 }}>My Records</Title>
-              <Text size="sm" c="dimmed" mt={4}>Your verified documents, receipts, and credentials — organised by category.</Text>
+              <Text size="sm" c="dimmed" mt={4}>Your documents, receipts and cards, sorted by kind.</Text>
             </Box>
-            <ActionIcon variant="subtle" color="gray" size="lg" onClick={fetchWallet} loading={loading}><IconRefresh size={18} /></ActionIcon>
+            <ActionIcon variant="subtle" color="gray" size={48} aria-label="Refresh" onClick={() => void fetchWallet('refresh')} loading={loading}><IconRefresh size={18} /></ActionIcon>
           </Group>
         </Box>
 
@@ -421,10 +471,15 @@ export default function ProofsPage() {
 
         <Box px="md" pt="md">
           {error && <ErrorAlert message={error} mb="md" />}
+          {expiredInView > 0 && tab === 'active' && (
+            <Alert color="gray" radius="sm" mb="md" title="Some cards have expired">
+              They are shown in grey. Open one and archive it so your live cards stay easy to find.
+            </Alert>
+          )}
           {pendingOffers.length > 0 && (
-            <Alert color="blue" radius="sm" mb="md" title="Pending items moved to Today">
+            <Alert color="blue" radius="sm" mb="md" title="Waiting in your inbox">
               <Group justify="space-between" align="center">
-                <Text size="sm">{pendingOffers.length} offer{pendingOffers.length !== 1 ? 's' : ''} await action.</Text>
+                <Text size="sm">{pendingOffers.length} record{pendingOffers.length !== 1 ? 's are' : ' is'} waiting for you to keep.</Text>
                 <Button size="xs" variant="light" onClick={() => window.location.assign('/inbox')}>Open Inbox</Button>
               </Group>
             </Alert>
@@ -433,17 +488,15 @@ export default function ProofsPage() {
           {loading ? (
             <Center py="xl"><Loader color="credentis" /></Center>
           ) : tab === 'active' ? (
-            <Stack gap="xl">
-              {renderSection('Identity', grouped.Identity)}
-              {renderSection('Payments', grouped.Payments)}
-              {renderSection('Employment', grouped.Employment)}
-              {renderSection('Education', grouped.Education)}
-              {renderSection('Healthcare', grouped.Healthcare)}
-              {renderSection('Government', grouped.Government)}
-              {renderSection('Other', grouped.Other)}
-            </Stack>
+            grouped.length === 0 ? (
+              <EmptyState icon={<IconWallet size={28} />} title="No records yet" description="Cards and records you keep from your inbox appear here." />
+            ) : (
+              <Stack gap="xl">
+                {grouped.map((section) => renderSection(section.title, section.rows))}
+              </Stack>
+            )
           ) : archived.length === 0 ? (
-            <EmptyState icon={<IconWallet size={28} />} title="No archived credentials" />
+            <EmptyState icon={<IconWallet size={28} />} title="No archived cards" />
           ) : (
             <Stack gap="sm">
               {archived.map((cred) => (
@@ -458,58 +511,77 @@ export default function ProofsPage() {
         </Box>
       </Stack>
 
-      <BottomSheet opened={!!selected} onClose={() => setSelected(null)} title={selected ? formatCredentialType(primaryType(selected.type)) : ''}>
+      <BottomSheet opened={!!selected} onClose={() => setSelected(null)} title={selected ? (recordCardTitle(primaryType(selected.type), selected.parsedDocument?.credentialSubject) || formatCredentialType(primaryType(selected.type))) : ''}>
         {selected && (
           <Stack gap="md" pb="lg">
-            <Group gap="xs">
-              {selected.revoked ? <StatusBadge status="expired" /> : <StatusBadge status={selected.archived ? 'archived' : 'valid'} />}
-              {selected.parsedDocument?.expirationDate && !selected.revoked && (
-                <Badge size="xs" color={new Date(selected.parsedDocument.expirationDate) < new Date() ? 'red' : 'gray'} variant="light">
-                  {new Date(selected.parsedDocument.expirationDate) < new Date() ? 'Expired' : `Expires ${new Date(selected.parsedDocument.expirationDate).toLocaleDateString()}`}
-                </Badge>
-              )}
-            </Group>
-            <Text size="sm" c="dimmed">Issued by {formatIssuerName(typeof selected.parsedDocument?.issuer === 'string' ? selected.parsedDocument?.issuer : selected.issuerDid || '')}</Text>
-            <Text size="sm" c="dimmed">Issued on {formatDate(selected.addedOn)}</Text>
+            {(() => {
+              const life = lifeOf(selected);
+              const standing = selected.archived && life.life === 'active' ? 'archived' : life.life === 'active' ? 'valid' : life.life;
+              return (
+                <>
+                  <Group gap="xs">
+                    <StatusBadge status={standing} />
+                    {life.life === 'active' && selected.parsedDocument?.expirationDate && (
+                      <Badge size="xs" color="gray" variant="light">
+                        Expires {new Date(selected.parsedDocument.expirationDate).toLocaleDateString()}
+                      </Badge>
+                    )}
+                  </Group>
+                  {life.note && (
+                    <Alert color={life.life === 'replaced' ? 'orange' : life.life === 'withdrawn' ? 'red' : 'gray'} variant="light">
+                      {life.note}
+                    </Alert>
+                  )}
+                  {life.life === 'expired' && !selected.archived && (
+                    <Button color="gray" onClick={() => handleArchive(selected, true)}>Archive this card</Button>
+                  )}
+                </>
+              );
+            })()}
+            <Text size="sm" c="dimmed">From {issuerOf(selected)}</Text>
+            <Text size="sm" c="dimmed">Issued on {formatTxnTime(selected.addedOn)}</Text>
+            {credentialClaimRows(selected.parsedDocument?.credentialSubject).length > 0 && (
+              <>
+                <Divider />
+                <Text size="sm" fw={600}>What this record says</Text>
+                <Stack gap={6}>
+                  {credentialClaimRows(selected.parsedDocument?.credentialSubject).map((row) => (
+                    <Group key={row.label} justify="space-between" align="flex-start" wrap="nowrap" gap="md">
+                      <Text size="sm" c="dimmed" style={{ flexShrink: 0 }}>{row.label}</Text>
+                      <Text size="sm" fw={500} ta="right" style={{ textTransform: row.label === 'Role' ? 'capitalize' : undefined }}>{row.value}</Text>
+                    </Group>
+                  ))}
+                </Stack>
+              </>
+            )}
             <Divider />
             <Group grow>
-              <Button variant="light" color="green" size="sm" leftSection={<IconShare size={14} />} onClick={() => handleShare(selected)}>Share</Button>
-              <Button
-                variant="light"
-                color={selected.archived ? 'blue' : 'gray'}
-                size="sm"
-                onClick={() => handleArchive(selected, !selected.archived)}
-              >
-                {selected.archived ? 'Restore' : 'Archive'}
-              </Button>
+              {lifeOf(selected).life === 'active' && !selected.archived && (
+                <Button variant="light" color="green" size="sm" leftSection={<IconShare size={14} />} onClick={() => handleShare(selected)}>Share</Button>
+              )}
+              {!lifeOf(selected).fileAway && (
+                <Button
+                  variant="light"
+                  color={selected.archived ? 'blue' : 'gray'}
+                  size="sm"
+                  onClick={() => handleArchive(selected, !selected.archived)}
+                >
+                  {selected.archived ? 'Restore' : 'Archive'}
+                </Button>
+              )}
             </Group>
-            {!selected.revoked && (
-              <Button
-                variant="subtle"
-                size="xs"
-                color="orange"
-                onClick={async () => {
-                  try {
-                    const token = getWalletToken();
-                    const res = await api.get(`/api/wallet/credentials/${selected.id}/revocation-status`, {
-                      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-                    });
-                    const isRevoked = res.data?.revoked === true || res.data?.status === 'revoked';
-                    if (isRevoked) {
-                      notifications.show({ title: 'Credential Revoked', message: 'This credential has been revoked by the issuer.', color: 'red' });
-                      setCredentials((prev) => prev.map((c) => c.id === selected.id ? { ...c, revoked: true } : c));
-                      setSelected(null);
-                    } else {
-                      notifications.show({ title: 'Credential Valid', message: 'Live revocation check passed — this credential is active.', color: 'teal' });
-                    }
-                  } catch {
-                    notifications.show({ title: 'Revocation Check', message: 'Could not reach issuer. Try again when online.', color: 'yellow' });
-                  }
+            {lifeOf(selected).life === 'active' && (
+              <RecordCheckPanel
+                presetReference={selected.issuedId || selected.id}
+                onRevoked={() => {
+                  setCredentials((prev) => prev.map((c) => c.id === selected.id ? { ...c, revoked: true } : c));
+                  setSelected(null);
                 }}
-              >
-                Check Revocation Status (Live)
-              </Button>
+              />
             )}
+            <Button variant="subtle" size="xs" color="red" loading={removing} onClick={() => void handleRemove(selected)}>
+              Remove from this device
+            </Button>
           </Stack>
         )}
       </BottomSheet>

@@ -19,6 +19,8 @@ import {
 } from '@heroicons/react/24/outline';
 
 import { useRequireOrgContext } from '@/lib/portalContext';
+import { getOrgScopedToken } from '@/utils/organizationContext';
+import { getPreferredTenantToken } from '@/utils/portalTenant';
 type StatementType = 'income' | 'balance' | 'cashflow';
 
 const FinanceReports = () => {
@@ -36,6 +38,13 @@ const FinanceReports = () => {
 
   const env = useContext(EnvContext);
   const baseUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+  const auth = () => ({
+    headers: {
+      Authorization: `Bearer ${
+        getOrgScopedToken() || getPreferredTenantToken() || localStorage.getItem('walletToken') || ''
+      }`,
+    },
+  });
 
   const fetchReport = async () => {
     setLoading(true);
@@ -47,17 +56,20 @@ const FinanceReports = () => {
       switch (activeTab) {
         case 'income':
           response = await axios.get(`${baseUrl}/api/finance/income-statement`, {
-            params: { startDate, endDate }
+            params: { startDate, endDate },
+            ...auth(),
           });
           break;
         case 'balance':
           response = await axios.get(`${baseUrl}/api/finance/balance-sheet`, {
-            params: { asOfDate }
+            params: { asOfDate },
+            ...auth(),
           });
           break;
         case 'cashflow':
           response = await axios.get(`${baseUrl}/api/finance/cash-flow`, {
-            params: { startDate, endDate }
+            params: { startDate, endDate },
+            ...auth(),
           });
           break;
       }
@@ -77,17 +89,17 @@ const FinanceReports = () => {
         case 'income':
           response = await axios.post(`${baseUrl}/api/finance/income-statement/offer`, {
             startDate, endDate
-          });
+          }, auth());
           break;
         case 'balance':
           response = await axios.post(`${baseUrl}/api/finance/balance-sheet/offer`, {
             asOfDate
-          });
+          }, auth());
           break;
         case 'cashflow':
           response = await axios.post(`${baseUrl}/api/finance/cash-flow/offer`, {
             startDate, endDate
-          });
+          }, auth());
           break;
       }
       setOfferUri(response?.data.uri);

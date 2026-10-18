@@ -29,10 +29,12 @@ import {
   IconMoneybag,
   IconRefresh,
   IconShieldCheck,
+  IconX,
 } from '@tabler/icons-react';
 import AppShellMobile from '@/components/layout/AppShellMobile';
 import api from '@/lib/api';
 import { getPersonalWalletTenantId, getPersonalWalletToken } from '@/lib/auth';
+import { clientPayCopy } from '@/lib/uxCopy';
 
 interface PaymentDetails {
   linkId: string;
@@ -41,6 +43,7 @@ interface PaymentDetails {
   currency: string;
   merchantName?: string;
   status: string;
+  kind?: 'quote' | 'invoice';
   providerRef?: string;
   paidAt?: string;
   invoiceRef?: string;
@@ -116,6 +119,9 @@ export default function MobilePayPage() {
   const [success, setSuccess] = useState<{ providerRef?: string; instructions?: string; checkoutUrl?: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [declining, setDeclining] = useState(false);
+  const [declined, setDeclined] = useState(false);
+  const copy = clientPayCopy(payment?.kind);
 
   const authToken = useMemo(() => getPersonalWalletToken(), []);
   const isAuthenticated = Boolean(authToken);
@@ -177,10 +183,26 @@ export default function MobilePayPage() {
         }
       })
       .catch((e) => {
-        setError(e.response?.data?.error || e.response?.data?.message || 'Failed to load payment details');
+        const message = e.response?.data?.error || e.response?.data?.message || 'Failed to load payment details';
+        if (e.response?.status === 410 && /declined/i.test(message)) setDeclined(true);
+        else setError(message);
       })
       .finally(() => setLoading(false));
   }, [code, encodedCode]);
+
+  const declineQuote = async () => {
+    if (!code) return;
+    setDeclining(true);
+    setPayError(null);
+    try {
+      await api.post(`/api/public/pay/${encodedCode}/decline`, {}, { skipAuthRedirect: true as any } as any);
+      setDeclined(true);
+    } catch (e: any) {
+      setPayError(e.response?.data?.message || e.message || 'Could not decline the quote');
+    } finally {
+      setDeclining(false);
+    }
+  };
 
   const goLogin = () => {
     const target = code ? `/pay/${encodeURIComponent(code)}` : '/';
@@ -244,7 +266,7 @@ export default function MobilePayPage() {
     }
 
     if (!phone.trim()) {
-      setPayError('Mobile number is required to link InvoiceVC and ReceiptVC to your wallet.');
+      setPayError('Enter your mobile number.');
       return;
     }
 
@@ -298,7 +320,7 @@ export default function MobilePayPage() {
 
       notifications.show({
         title: 'Payment submitted',
-        message: 'Your invoice and receipt credentials will appear in Inbox/Wallet after confirmation.',
+        message: 'Your invoice and receipt will appear in your records once the payment is confirmed.',
         color: 'green',
       });
     } catch (e: any) {
@@ -322,6 +344,18 @@ export default function MobilePayPage() {
         <Center py="xl">
           <Loader />
         </Center>
+      </AppShellMobile>
+    );
+  }
+
+  if (declined) {
+    return (
+      <AppShellMobile>
+        <Stack gap="md" px="md" pt="md">
+          <Alert color="gray" icon={<IconX size={16} />} title={copy.declinedTitle}>
+            {copy.declinedBody}
+          </Alert>
+        </Stack>
       </AppShellMobile>
     );
   }
@@ -364,19 +398,19 @@ export default function MobilePayPage() {
     return (
       <AppShellMobile>
         <Stack gap="md" px="md" pt="md">
-          <Alert color="green" icon={<IconCheck size={16} />} title="Payment already completed">
-            This payment link has already been paid.
+          <Alert color="green" icon={<IconCheck size={16} />} title={copy.paidTitle}>
+            {copy.paidBody}
           </Alert>
           {payment.providerRef && (
             <Paper withBorder p="sm" radius="md">
-              <Text size="xs" c="dimmed">Provider Ref</Text>
+              <Text size="xs" c="dimmed">{copy.referenceLabel}</Text>
               <Text fw={600}>{payment.providerRef}</Text>
             </Paper>
           )}
           <Group grow>
-            <Button variant="light" onClick={() => router.push('/inbox?filter=receipts')}>Open Inbox</Button>
-            {(payment.invoiceRef || resumeOrgTenantId) ? (
-              <Button variant="default" onClick={openFinanceResume}>Resume In Finance</Button>
+            <Button variant="light" onClick={() => router.push('/inbox?filter=receipts')}>{copy.openRecordsLabel}</Button>
+            {resumeOrgTenantId ? (
+              <Button variant="default" onClick={openFinanceResume}>Back to finance</Button>
             ) : null}
           </Group>
         </Stack>
@@ -394,18 +428,18 @@ export default function MobilePayPage() {
 
           {success.providerRef && (
             <Paper withBorder p="sm" radius="md">
-              <Text size="xs" c="dimmed">Provider Ref</Text>
+              <Text size="xs" c="dimmed">{copy.referenceLabel}</Text>
               <Text fw={600}>{success.providerRef}</Text>
             </Paper>
           )}
 
           <Group grow>
-            <Button variant="light" onClick={() => router.push('/inbox?filter=receipts')}>Open Inbox</Button>
-            {(payment.invoiceRef || resumeOrgTenantId) ? (
-              <Button variant="default" onClick={openFinanceResume}>Resume In Finance</Button>
+            <Button variant="light" onClick={() => router.push('/inbox?filter=receipts')}>{copy.openRecordsLabel}</Button>
+            {resumeOrgTenantId ? (
+              <Button variant="default" onClick={openFinanceResume}>Back to finance</Button>
             ) : null}
             {!isAuthenticated ? (
-              <Button onClick={() => router.push('/login?returnTo=/proofs')}>Sign in to Wallet</Button>
+              <Button onClick={() => router.push('/login?returnTo=/proofs')}>Sign in</Button>
             ) : null}
           </Group>
 
@@ -427,8 +461,8 @@ export default function MobilePayPage() {
     <AppShellMobile>
       <Stack gap="md" px="md" pt="md">
         <Box>
-          <Title order={3}>Complete Payment</Title>
-          <Text size="sm" c="dimmed">{payment.merchantName || 'Credentis Merchant'}</Text>
+          <Title order={3}>{copy.title}</Title>
+          <Text size="sm" c="dimmed">{payment.merchantName || 'Business'}</Text>
         </Box>
 
         <Card withBorder radius="md" p="md">
@@ -444,7 +478,7 @@ export default function MobilePayPage() {
                 style={{ width: 42, height: 42, objectFit: 'contain', borderRadius: 8 }}
               />
             </Group>
-            {payment.invoiceRef && <Badge variant="light">Invoice: {payment.invoiceRef}</Badge>}
+            {payment.invoiceRef && <Badge variant="light">{payment.kind === 'quote' ? 'Job' : 'Invoice'}: {payment.invoiceRef}</Badge>}
           </Stack>
         </Card>
 
@@ -483,7 +517,8 @@ export default function MobilePayPage() {
         </Card>
 
         <TextInput
-          label="Mobile Number"
+          label={copy.phoneLabel}
+          description={copy.phoneHelp}
           required
           placeholder="e.g. 0771234567 or +263771234567"
           value={phone}
@@ -494,14 +529,14 @@ export default function MobilePayPage() {
         <Switch
           checked={saveToWallet}
           onChange={(e) => setSaveToWallet(e.currentTarget.checked)}
-          label="Save invoice and receipt to my records"
-          description="When enabled, InvoiceVC and ReceiptVC are issued to this wallet after payment confirmation."
+          label={copy.keepLabel}
+          description={copy.keepHelp}
           color="teal"
         />
 
         {!isAuthenticated ? (
           <Alert color="blue" icon={<IconShieldCheck size={16} />}>
-            Sign in to complete payment and anchor receipts to your wallet identity.
+            Sign in to pay and keep your receipt.
           </Alert>
         ) : null}
 
@@ -517,9 +552,14 @@ export default function MobilePayPage() {
           </Button>
         ) : (
           <Button onClick={submitPayment} loading={paying} disabled={!selectedMethod || payment.availableMethods.length === 0}>
-            Pay {formatAmount(payment.amount, payment.currency)}
+            {copy.payLabel} {formatAmount(payment.amount, payment.currency)}
           </Button>
         )}
+        {copy.canDecline ? (
+          <Button variant="subtle" color="gray" leftSection={<IconX size={16} />} onClick={declineQuote} loading={declining}>
+            {copy.declineLabel}
+          </Button>
+        ) : null}
       </Stack>
     </AppShellMobile>
   );

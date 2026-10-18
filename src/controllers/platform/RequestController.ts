@@ -2,10 +2,14 @@ import type { Request as ExRequest } from 'express'
 
 import { Body, Get, Path, Post, Query, Request, Route, Security, Tags } from 'tsoa'
 
+import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import {
   platformRequestService,
   CreatePlatformRequestInput,
+  MODULE_OFF_MESSAGE,
+  RaiseRequestInput,
+  RequestOptions,
   RequestStatus,
 } from '../../services/PlatformRequestService'
 import { requestHandoffService, type SpawnedRequest } from '../../services/RequestHandoffService'
@@ -29,6 +33,14 @@ function getPrincipal(request: ExRequest): { tenantId: string; subjectRef: strin
   return { tenantId, subjectRef }
 }
 
+/** The signed-in person, whichever token (own wallet or an organisation) they hold. */
+function getSubject(request: ExRequest): string {
+  const user = (request as any).user as AuthenticatedClaims | undefined
+  const subjectRef = user?.sub || user?.id
+  if (!subjectRef) throw new Error('Authenticated subject is required')
+  return subjectRef
+}
+
 @Route('api/platform/requests')
 @Tags('Platform Requests')
 @Security('jwt')
@@ -40,6 +52,53 @@ export class RequestController {
   ) {
     const principal = getPrincipal(request)
     return platformRequestService.create({ ...body, ...principal })
+  }
+
+  /**
+   * What the signed-in person may ask for from Home: their organisations and the request kinds
+   * each one accepts, jobs waiting for their payout, and records that can be sent again.
+   * Works with the person's own wallet token.
+   */
+  @Get('/options')
+  public async options(@Request() request: ExRequest): Promise<RequestOptions> {
+    return platformRequestService.optionsForSubject(getSubject(request))
+  }
+
+  /** Every request the signed-in person raised, across their organisations. */
+  @Get('/mine')
+  public async mine(@Request() request: ExRequest, @Query() limit?: number) {
+    return { items: platformRequestService.listMine(getSubject(request), limit ?? 50) }
+  }
+
+  /** One of the person's own requests, with its history. */
+  @Get('/mine/{requestId}')
+  public async mineDetail(@Request() request: ExRequest, @Path() requestId: string): Promise<any> {
+    const detail = platformRequestService.getMine(requestId, getSubject(request))
+    if (!detail) throw new StatusException('Request not found', 404)
+    return detail
+  }
+
+  /**
+   * Raise and submit a request to one of the person's organisations from Home. Safe to retry
+   * with the same `x-idempotency-key`.
+   */
+  @Post('/raise')
+  public async raise(@Request() request: ExRequest, @Body() body: Omit<RaiseRequestInput, 'subjectRef'>) {
+    const subjectRef = getSubject(request)
+    const db = DatabaseManager.getDatabase()
+    const action = `request-raise:${body?.orgTenantId}:${body?.requestType}`
+    const idempotency = IdempotencyGuard.guard(db, request, String(body?.orgTenantId || ''), action)
+    if (idempotency.duplicate) return idempotency.response
+    let raised: unknown
+    try {
+      raised = platformRequestService.raiseForSubject({ ...body, subjectRef })
+    } catch (error: any) {
+      // The organisation has not switched on the module this request belongs to.
+      if (error?.message === MODULE_OFF_MESSAGE) throw new StatusException(MODULE_OFF_MESSAGE, 403)
+      throw error
+    }
+    if (idempotency.key) IdempotencyGuard.record(db, idempotency.key, String(body?.orgTenantId || ''), action, raised)
+    return raised
   }
 
   @Post('/{requestId}/submit')
@@ -59,13 +118,20 @@ export class RequestController {
     },
   ) {
     const principal = getPrincipal(request)
-    return platformRequestService.transitionBySubject(
+    // A decision tapped twice (or retried after a dropped connection) is answered once.
+    const db = DatabaseManager.getDatabase()
+    const action = `request-transition:${body?.requestId}:${body?.toStatus}`
+    const idempotency = IdempotencyGuard.guard(db, request, principal.tenantId, action)
+    if (idempotency.duplicate) return idempotency.response
+    const result = platformRequestService.transitionBySubject(
       body.requestId,
       principal.tenantId,
       principal.subjectRef,
       body.toStatus,
       body.payload,
     )
+    if (idempotency.key) IdempotencyGuard.record(db, idempotency.key, principal.tenantId, action, result)
+    return result
   }
 
   @Get('/')
@@ -118,7 +184,11 @@ export class RequestController {
     const action = `request-next:${requestId}:${body?.toType}`
     const idempotency = IdempotencyGuard.guard(db, request, principal.tenantId, action)
     if (idempotency.duplicate) return idempotency.response as SpawnedRequest
-    const spawned = requestHandoffService.startManual({ tenantId: principal.tenantId, parentRequestId: requestId, toType: String(body?.toType || '') })
+    const spawned = requestHandoffService.startManual({
+      tenantId: principal.tenantId,
+      parentRequestId: requestId,
+      toType: String(body?.toType || ''),
+    })
     if (!spawned) return { error: 'This step cannot be started from here.' }
     if (idempotency.key) IdempotencyGuard.record(db, idempotency.key, principal.tenantId, action, spawned)
     return spawned

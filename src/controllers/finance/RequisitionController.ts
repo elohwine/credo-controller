@@ -4,23 +4,23 @@ import type { Request as ExRequest } from 'express'
 import { Agent } from '@credo-ts/core'
 import { randomUUID, randomBytes } from 'crypto'
 import { Controller, Post, Get, Route, Tags, Body, Path, Request, Security } from 'tsoa'
-import { container } from 'tsyringe'
 
 import { SCOPES } from '../../enums'
 import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { getTenantById } from '../../persistence/TenantRepository'
 import { workflowRequestRepository, WorkflowRequest } from '../../persistence/WorkflowRequestRepository'
-import { evaluateOrgEvidenceProof } from '../../services/ActorCredentialProofService'
+import { evaluateOrgEvidenceProof, extractPresentedCredentials } from '../../services/ActorCredentialProofService'
 import { orgWorkflowActorCredentialService } from '../../services/OrgWorkflowActorCredentialService'
 import { orgWorkflowActorService, requisitionApprovalSignMode } from '../../services/OrgWorkflowActorService'
 import { outboxService } from '../../services/OutboxService'
-import { buildVcTypeArrayFilter, resolveAcceptedProofVcTypes } from '../../services/ProofVcPolicyService'
 import { ReconciliationService } from '../../services/ReconciliationService'
 import { ShortlinkService } from '../../services/ShortlinkService'
 import { notifyStageDelegates } from '../../services/WorkflowStageInboxService'
-import { stageProofService } from '../../services/ssi/StageProofService'
+import { stageProofService, verifierModuleOf } from '../../services/ssi/StageProofService'
+import { requireDeviceTrust } from '../../services/deviceAssertion'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
+import { getIssuerApiKey } from '../../utils/serviceApiKey'
 
 interface RequisitionItem {
   id: string
@@ -71,6 +71,14 @@ interface ReleaseRequest {
   amount?: number
   currency?: string
   description?: string
+  /** Signature from the enrolled phone. Required only when the organisation asks for it. */
+  deviceAssertion?: {
+    deviceKeyId: string
+    nonce: string
+    purpose: string
+    signedAt: string
+    signature: string
+  }
 }
 
 interface AckRequest {
@@ -88,22 +96,6 @@ const REQUISITION_WORKFLOW_TYPE_CANDIDATES = [
 @Route('api/finance/requisitions')
 @Tags('Internal Requisitions')
 export class RequisitionController extends Controller {
-  private shouldUseUnsignedLocalOid4vpRequest(): boolean {
-    const configuredBaseUrl = String(
-      process.env.OID4VC_BASE_URL || process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
-    ).trim()
-
-    try {
-      const parsed = new URL(configuredBaseUrl)
-      const isLoopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1'
-      const allowUnsigned = process.env.OID4VC_ALLOW_UNSIGNED_LOCAL_REQUESTS !== 'false'
-
-      return allowUnsigned && isLoopback && parsed.protocol === 'http:'
-    } catch {
-      return false
-    }
-  }
-
   private getNaturalReplayKey(
     scope: 'approve' | 'release' | 'ack',
     tenantId: string,
@@ -124,87 +116,6 @@ export class RequisitionController extends Controller {
     return request.agent as unknown as Agent<RestMultiTenantAgentModules>
   }
 
-  private getBaseAgentForHolder(): Agent<RestMultiTenantAgentModules> {
-    return container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
-  }
-
-  private getAuthDidUrl(did: string, didDocument?: any): string {
-    const authEntries = didDocument?.authentication
-    if (Array.isArray(authEntries) && authEntries.length > 0) {
-      const first = authEntries[0]
-      if (typeof first === 'string') return first
-      if (typeof first === 'object' && typeof first.id === 'string') return first.id
-    }
-
-    const firstVm = didDocument?.verificationMethod?.[0]
-    if (firstVm?.id && typeof firstVm.id === 'string') {
-      return firstVm.id
-    }
-
-    return `${did}#key-1`
-  }
-
-  private async getOrCreateDidForAgent(
-    agent: Agent<RestMultiTenantAgentModules>,
-  ): Promise<{ did: string; didUrl: string }> {
-    const createdDids = await agent.dids.getCreatedDids({ method: 'key' })
-    if (createdDids.length > 0) {
-      const did = createdDids[0].did
-      const resolved = await agent.dids.resolve(did)
-      const didUrl = this.getAuthDidUrl(did, resolved.didDocument)
-      return { did, didUrl }
-    }
-
-    const result = await agent.dids.create({
-      method: 'key',
-      options: {
-        createKey: {
-          type: {
-            kty: 'OKP',
-            crv: 'Ed25519',
-          },
-        },
-      },
-    })
-    const did = result.didState.did
-    if (result.didState.state !== 'finished' || !did) {
-      throw new StatusException('Unable to create verifier DID', 500)
-    }
-
-    const didUrl = this.getAuthDidUrl(did, result.didState.didDocument)
-    return { did, didUrl }
-  }
-
-  private async getOrCreateVerifierForAgent(
-    agent: Agent<RestMultiTenantAgentModules>,
-    signerDidUrl?: string,
-  ): Promise<{ verifierId: string; signerDidUrl: string }> {
-    const verifierModule = (agent as any)?.openid4vc?.verifier || (agent.modules as any).openId4VcVerifier
-    if (!verifierModule) {
-      throw new StatusException('OpenID4VP verifier module is unavailable for this tenant', 500)
-    }
-
-    const existingVerifiers = await verifierModule.getAllVerifiers?.()
-    const verifierId = existingVerifiers?.[0]?.verifierId
-    if (verifierId) {
-      return {
-        verifierId,
-        signerDidUrl: signerDidUrl || (await this.getOrCreateDidForAgent(agent)).didUrl,
-      }
-    }
-
-    const createdVerifier = await verifierModule.createVerifier?.({})
-    const finalVerifierId = createdVerifier?.verifierId || verifierId
-    if (!finalVerifierId) {
-      throw new StatusException('Unable to initialize an OpenID4VP verifier for this tenant', 500)
-    }
-
-    return {
-      verifierId: finalVerifierId,
-      signerDidUrl: signerDidUrl || (await this.getOrCreateDidForAgent(agent)).didUrl,
-    }
-  }
-
   private resolvePolicyOrgTenantId(request: ExRequest): string | undefined {
     const tenantId = String((request as any)?.user?.tenantId || '').trim()
     if (!tenantId) return undefined
@@ -215,86 +126,15 @@ export class RequisitionController extends Controller {
     return undefined
   }
 
-  private buildProofPresentationDefinition(params: {
-    idPrefix: string
-    requisitionId: string
-    descriptorId: string
-    descriptorName: string
-    purpose: string
-    acceptedVcTypes: string[]
-  }) {
-    return {
-      id: `${params.idPrefix}-${params.requisitionId}-${Date.now()}`,
-      input_descriptors: [
-        {
-          id: params.descriptorId,
-          name: params.descriptorName,
-          purpose: params.purpose,
-          constraints: {
-            fields: [
-              {
-                path: ['$.type', '$.vc.type'],
-                filter: buildVcTypeArrayFilter(params.acceptedVcTypes),
-              },
-            ],
-          },
-        },
-      ],
-    }
-  }
-
   /** True when the embedded wallet simply has no credential the organization accepts for the step. */
   private isMissingWalletCredentialError(error: any): boolean {
     const status = error instanceof StatusException ? (error as any).status : undefined
     return status === 400 && /does not (have|hold) a (role card|credential)/i.test(String(error?.message || ''))
   }
 
-  private decodeJwtPayload(token: string): Record<string, unknown> | null {
-    const parts = token.split('.')
-    if (parts.length !== 3) return null
-
-    try {
-      return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as Record<string, unknown>
-    } catch {
-      return null
-    }
-  }
-
+  /** PEX, DCQL and SD-JWT responses all read through the shared stage-proof helpers. */
   private extractApproverDid(verificationResult: any): string {
-    const idTokenSubject = verificationResult?.idToken?.payload?.sub
-    if (typeof idTokenSubject === 'string' && idTokenSubject.length > 0) {
-      return idTokenSubject
-    }
-
-    const firstPresentation = Array.isArray(verificationResult?.presentationExchange?.presentations)
-      ? verificationResult.presentationExchange.presentations[0]
-      : undefined
-    const presentationHolder = firstPresentation?.holder ?? firstPresentation?.holderId
-    if (typeof presentationHolder === 'string' && presentationHolder.length > 0) {
-      return presentationHolder
-    }
-
-    const holderDid = verificationResult?.presentation?.holder
-    if (typeof holderDid === 'string' && holderDid.length > 0) {
-      return holderDid
-    }
-
-    const verifiableCredential = verificationResult?.presentation?.verifiableCredential
-    const firstCredential = Array.isArray(verifiableCredential) ? verifiableCredential[0] : verifiableCredential
-
-    if (typeof firstCredential === 'object' && firstCredential?.credentialSubject?.id) {
-      return String(firstCredential.credentialSubject.id)
-    }
-
-    if (typeof firstCredential === 'string') {
-      const payload = this.decodeJwtPayload(firstCredential)
-      const sub = payload?.sub
-      if (typeof sub === 'string' && sub.length > 0) {
-        return sub
-      }
-    }
-
-    return 'did:unknown:holder'
+    return stageProofService.extractHolderDid(verificationResult)
   }
 
   private extractApproverRole(verificationResult: any): string {
@@ -302,27 +142,10 @@ export class RequisitionController extends Controller {
     if (typeof idTokenRole === 'string' && idTokenRole.length > 0) {
       return idTokenRole
     }
-
-    const verifiableCredential = verificationResult?.presentation?.verifiableCredential
-    const firstCredential = Array.isArray(verifiableCredential) ? verifiableCredential[0] : verifiableCredential
-
-    if (typeof firstCredential === 'object') {
-      const role = firstCredential?.credentialSubject?.role
-      if (typeof role === 'string' && role.length > 0) {
-        return role
-      }
+    for (const credential of extractPresentedCredentials(verificationResult)) {
+      const role = credential.subject?.role ?? credential.subject?.memberRole
+      if (typeof role === 'string' && role.length > 0) return role
     }
-
-    if (typeof firstCredential === 'string') {
-      const payload = this.decodeJwtPayload(firstCredential)
-      const roleFromVc =
-        payload?.vc && typeof payload.vc === 'object' ? (payload.vc as any)?.credentialSubject?.role : undefined
-
-      if (typeof roleFromVc === 'string' && roleFromVc.length > 0) {
-        return roleFromVc
-      }
-    }
-
     return ''
   }
 
@@ -819,6 +642,8 @@ export class RequisitionController extends Controller {
     const db = DatabaseManager.getDatabase()
     const now = new Date().toISOString()
     const offerUri = `workflow-request://${encodeURIComponent(params.request.id)}`
+    const approvalTitle = `Approval Request: ${params.request.requestType}`
+    const approvalBody = 'You have been assigned a requisition approval request.'
 
     const inserted = db
       .prepare(
@@ -848,8 +673,8 @@ export class RequisitionController extends Controller {
         issuerTenantId: params.request.targetOrgTenantId,
         sourceId: params.request.id,
         offerUri,
-        title: `Approval Request: ${params.request.requestType}`,
-        body: 'You have been assigned a requisition approval request.',
+        title: approvalTitle,
+        body: approvalBody,
         metadata: JSON.stringify({
           requestId: params.request.id,
           requestType: params.request.requestType,
@@ -878,38 +703,33 @@ export class RequisitionController extends Controller {
         },
       })
     }
+
+    // Other owners who may stand in, and covering delegates, get the same card.
+    notifyStageDelegates({
+      orgTenantId: params.request.targetOrgTenantId,
+      actorUserId: params.assigneeUserId,
+      stageAction: params.stageAction || 'approve_requisition',
+      requestType: params.request.requestType,
+      workflowType: params.request.workflowType,
+      sourceType: 'workflow_request_assignment',
+      sourceId: params.request.id,
+      title: approvalTitle,
+      body: approvalBody,
+      offerUri,
+      credentialType: 'WorkflowRequestApproval',
+      metadata: {
+        requestId: params.request.id,
+        workflowType: params.request.workflowType,
+        targetOrgTenantId: params.request.targetOrgTenantId,
+      },
+    })
   }
 
-  private clearApproverInboxNotification(requestId: string, assigneeWalletTenantId?: string): void {
+  /** Closes the approval card for every wallet that received it (assignee, stand-in owners, delegates). */
+  private clearApproverInboxNotification(requestId: string, _assigneeWalletTenantId?: string): void {
     const db = DatabaseManager.getDatabase()
     const nowIso = new Date().toISOString()
 
-    if (assigneeWalletTenantId) {
-      db.prepare(
-        `
-                UPDATE wallet_pending_offers
-                SET resolved_at = COALESCE(resolved_at, @resolvedAt),
-                    accepted_at = COALESCE(accepted_at, @acceptedAt),
-                    last_attempt_at = @resolvedAt,
-                    last_error = CASE
-                        WHEN last_error IS NULL OR last_error = '' THEN 'resolved: workflow request finalized'
-                        ELSE last_error
-                    END
-                WHERE source_type = 'workflow_request_assignment'
-                  AND source_id = @sourceId
-                  AND tenant_id = @tenantId
-                  AND resolved_at IS NULL
-            `,
-      ).run({
-        sourceId: requestId,
-        tenantId: assigneeWalletTenantId,
-        resolvedAt: nowIso,
-        acceptedAt: nowIso,
-      })
-      return
-    }
-
-    // Safety net: resolve any unresolved assignment cards for this request.
     db.prepare(
       `
             UPDATE wallet_pending_offers
@@ -995,7 +815,7 @@ export class RequisitionController extends Controller {
     stage: ApprovalStage,
   ): Promise<any> {
     const issuerApiUrl = process.env.ISSUER_API_URL || 'http://localhost:3000'
-    const apiKey = process.env.ISSUER_API_KEY || 'test-api-key-12345'
+    const apiKey = getIssuerApiKey()
 
     const stageStatus = stage === 'manager' ? 'MANAGER_APPROVED' : 'APPROVED'
     const eventType = stage === 'manager' ? 'REQUISITION_MANAGER_APPROVED' : 'REQUISITION_FINANCE_APPROVED'
@@ -1061,11 +881,7 @@ export class RequisitionController extends Controller {
   }
 
   private hasVerifiedPresentationOrIdToken(verificationResult: any): boolean {
-    const hasPresentation = Boolean(
-      verificationResult?.presentation || verificationResult?.presentationExchange?.presentations?.length,
-    )
-    const hasIdTokenSubject = Boolean(verificationResult?.idToken?.payload?.sub)
-    return hasPresentation || hasIdTokenSubject
+    return stageProofService.hasVerifiedPresentationOrIdToken(verificationResult)
   }
 
   private assertOrgRole(request: ExRequest, requiredRoles: string[] = ['owner', 'admin']): void {
@@ -1195,7 +1011,7 @@ export class RequisitionController extends Controller {
         let offerErrorMessage: string | undefined
 
         // In a real flow, this sends an offer via custom-oidc
-        const apiKey = process.env.ISSUER_API_KEY || 'test-api-key-12345'
+        const apiKey = getIssuerApiKey()
         const issuerApiUrl = process.env.ISSUER_API_URL || 'http://localhost:3000'
         const response = await fetch(`${issuerApiUrl}/custom-oidc/issuer/credential-offers`, {
           method: 'POST',
@@ -1368,17 +1184,16 @@ export class RequisitionController extends Controller {
       const authorizationState = body.state || body.requestId
 
       if (approvalMethod === 'oid4vp') {
+        const verifierModule = verifierModuleOf(tenantAgent as any)
         try {
-          verificationResult = await (tenantAgent.modules as any).openId4VcVerifier.getVerifiedAuthorizationResponse(
-            body.requestId,
-          )
+          verificationResult = await verifierModule.getVerifiedAuthorizationResponse(body.requestId)
         } catch (error: any) {
           if (!body.vpToken && !body.idToken && !body.approvalSignature) {
             throw error
           }
 
           if (body.vpToken || body.idToken) {
-            verificationResult = await (tenantAgent.modules as any).openId4VcVerifier.verifyAuthorizationResponse({
+            verificationResult = await verifierModule.verifyAuthorizationResponse({
               verificationSessionId: body.requestId,
               authorizationResponse: {
                 vp_token: body.vpToken,
@@ -1592,54 +1407,21 @@ export class RequisitionController extends Controller {
     const tenantAgent = this.getTenantAgent(request)
 
     try {
-      const signerIdentity = await this.getOrCreateDidForAgent(tenantAgent)
-      const verifierRegistration = await this.getOrCreateVerifierForAgent(tenantAgent, signerIdentity.didUrl)
-      const orgTenantId = this.resolvePolicyOrgTenantId(request)
-      const acceptedVcTypes = resolveAcceptedProofVcTypes(orgTenantId, 'requisition_approval')
-      const presentationDefinition = this.buildProofPresentationDefinition({
+      // One request builder for every stage: DCQL first, Presentation Exchange as the fallback.
+      const proof = await stageProofService.createStageProofRequest({
+        verifierAgent: tenantAgent,
+        orgTenantId: this.resolvePolicyOrgTenantId(request),
+        actionKey: 'requisition_approval',
+        reference: id,
         idPrefix: 'requisition-approval',
-        requisitionId: id,
-        descriptorId: 'platform-identity',
         descriptorName: 'Platform/Role Authorization Credential',
         purpose: 'Share your platform or role authorization credential to approve this requisition.',
-        acceptedVcTypes,
       })
-
-      const verifierModule = (tenantAgent as any)?.openid4vc?.verifier || (tenantAgent.modules as any).openId4VcVerifier
-      const authorizationRequestOptions: any = {
-        verifierId: verifierRegistration.verifierId,
-        version: 'v1.draft24',
-        requestSigner: this.shouldUseUnsignedLocalOid4vpRequest()
-          ? { method: 'none' }
-          : {
-              method: 'did',
-              didUrl: verifierRegistration.signerDidUrl,
-            },
-      }
-
-      if (presentationDefinition.input_descriptors.length > 0) {
-        authorizationRequestOptions.presentationExchange = {
-          definition: presentationDefinition,
-        }
-      }
-
-      const result = await verifierModule.createAuthorizationRequest(authorizationRequestOptions)
-
-      const rawRequestUrl = result.authorizationRequest as string
-      const authorizationRequestUri = result.verificationSession?.authorizationRequestUri
-      const requestUrl = authorizationRequestUri
-        ? `openid4vp://authorize?request_uri=${encodeURIComponent(authorizationRequestUri)}`
-        : rawRequestUrl
-      const requestId = result.verificationSession?.id || randomUUID()
-      const requestUrlWithVerificationSession = requestUrl.includes('?')
-        ? `${requestUrl}&verification_session_id=${encodeURIComponent(requestId)}`
-        : `${requestUrl}?verification_session_id=${encodeURIComponent(requestId)}`
-
       return {
         requisitionId: id,
-        requestId,
-        presentationRequestUrl: requestUrlWithVerificationSession,
-        verifierDid: signerIdentity.did,
+        requestId: proof.requestId,
+        presentationRequestUrl: proof.presentationRequestUrl,
+        verifierDid: proof.verifierDid,
       }
     } catch (error: any) {
       this.setStatus(500)
@@ -1671,6 +1453,7 @@ export class RequisitionController extends Controller {
           request,
           walletId: body.walletId,
           presentationRequestUrl: body.presentationRequestUrl,
+          reference: id,
         })
       } catch (presentationError: any) {
         if (!this.isMissingWalletCredentialError(presentationError)) throw presentationError
@@ -1743,6 +1526,13 @@ export class RequisitionController extends Controller {
     }
 
     try {
+      requireDeviceTrust({
+        request,
+        orgTenantId: tenantId,
+        stageAction: 'release_funds',
+        body,
+        transaction: { requisitionId: id, amount: body.amount || 0, currency: body.currency || 'USD' },
+      })
       this.assertRequisitionStatus(id, 'APPROVED')
       const paymentLinkId = randomUUID()
       const now = new Date().toISOString()
@@ -1861,42 +1651,21 @@ export class RequisitionController extends Controller {
   ): Promise<VpPresentationRequestResponse> {
     const tenantAgent = this.getTenantAgent(request)
     try {
-      const signerIdentity = await this.getOrCreateDidForAgent(tenantAgent)
-      const verifierRegistration = await this.getOrCreateVerifierForAgent(tenantAgent, signerIdentity.didUrl)
-      const orgTenantId = this.resolvePolicyOrgTenantId(request)
-      const acceptedVcTypes = resolveAcceptedProofVcTypes(orgTenantId, 'requisition_release')
-      const presentationDefinition = this.buildProofPresentationDefinition({
+      const proof = await stageProofService.createStageProofRequest({
+        verifierAgent: tenantAgent,
+        orgTenantId: this.resolvePolicyOrgTenantId(request),
+        actionKey: 'requisition_release',
+        reference: id,
         idPrefix: 'requisition-release',
-        requisitionId: id,
-        descriptorId: 'platform-identity',
         descriptorName: 'Platform/Role Authorization Credential',
         purpose:
           'Share your platform or role authorization credential to authorise funds release for this requisition.',
-        acceptedVcTypes,
       })
-      const verifierModule = (tenantAgent as any)?.openid4vc?.verifier || (tenantAgent.modules as any).openId4VcVerifier
-      const result = await verifierModule.createAuthorizationRequest({
-        verifierId: verifierRegistration.verifierId,
-        version: 'v1.draft24',
-        requestSigner: this.shouldUseUnsignedLocalOid4vpRequest()
-          ? { method: 'none' }
-          : { method: 'did', didUrl: verifierRegistration.signerDidUrl },
-        presentationExchange: { definition: presentationDefinition },
-      })
-      const rawRequestUrl = result.authorizationRequest as string
-      const authorizationRequestUri = result.verificationSession?.authorizationRequestUri
-      const requestUrl = authorizationRequestUri
-        ? `openid4vp://authorize?request_uri=${encodeURIComponent(authorizationRequestUri)}`
-        : rawRequestUrl
-      const requestId = result.verificationSession?.id || randomUUID()
-      const requestUrlWithSession = requestUrl.includes('?')
-        ? `${requestUrl}&verification_session_id=${encodeURIComponent(requestId)}`
-        : `${requestUrl}?verification_session_id=${encodeURIComponent(requestId)}`
       return {
         requisitionId: id,
-        requestId,
-        presentationRequestUrl: requestUrlWithSession,
-        verifierDid: signerIdentity.did,
+        requestId: proof.requestId,
+        presentationRequestUrl: proof.presentationRequestUrl,
+        verifierDid: proof.verifierDid,
       }
     } catch (error: any) {
       this.setStatus(500)
@@ -1931,6 +1700,7 @@ export class RequisitionController extends Controller {
         request,
         walletId: body.walletId,
         presentationRequestUrl: body.presentationRequestUrl,
+        reference: id,
       })
       // VP verified — proceed with actual release using the existing releaseFunds handler
       return await this.releaseFunds(
@@ -1960,41 +1730,20 @@ export class RequisitionController extends Controller {
   ): Promise<VpPresentationRequestResponse> {
     const tenantAgent = this.getTenantAgent(request)
     try {
-      const signerIdentity = await this.getOrCreateDidForAgent(tenantAgent)
-      const verifierRegistration = await this.getOrCreateVerifierForAgent(tenantAgent, signerIdentity.didUrl)
-      const orgTenantId = this.resolvePolicyOrgTenantId(request)
-      const acceptedVcTypes = resolveAcceptedProofVcTypes(orgTenantId, 'requisition_ack')
-      const presentationDefinition = this.buildProofPresentationDefinition({
+      const proof = await stageProofService.createStageProofRequest({
+        verifierAgent: tenantAgent,
+        orgTenantId: this.resolvePolicyOrgTenantId(request),
+        actionKey: 'requisition_ack',
+        reference: id,
         idPrefix: 'requisition-ack',
-        requisitionId: id,
-        descriptorId: 'platform-identity',
         descriptorName: 'Platform/Role Authorization Credential',
         purpose: 'Share your platform or role authorization credential to acknowledge delivery for this requisition.',
-        acceptedVcTypes,
       })
-      const verifierModule = (tenantAgent as any)?.openid4vc?.verifier || (tenantAgent.modules as any).openId4VcVerifier
-      const result = await verifierModule.createAuthorizationRequest({
-        verifierId: verifierRegistration.verifierId,
-        version: 'v1.draft24',
-        requestSigner: this.shouldUseUnsignedLocalOid4vpRequest()
-          ? { method: 'none' }
-          : { method: 'did', didUrl: verifierRegistration.signerDidUrl },
-        presentationExchange: { definition: presentationDefinition },
-      })
-      const rawRequestUrl = result.authorizationRequest as string
-      const authorizationRequestUri = result.verificationSession?.authorizationRequestUri
-      const requestUrl = authorizationRequestUri
-        ? `openid4vp://authorize?request_uri=${encodeURIComponent(authorizationRequestUri)}`
-        : rawRequestUrl
-      const requestId = result.verificationSession?.id || randomUUID()
-      const requestUrlWithSession = requestUrl.includes('?')
-        ? `${requestUrl}&verification_session_id=${encodeURIComponent(requestId)}`
-        : `${requestUrl}?verification_session_id=${encodeURIComponent(requestId)}`
       return {
         requisitionId: id,
-        requestId,
-        presentationRequestUrl: requestUrlWithSession,
-        verifierDid: signerIdentity.did,
+        requestId: proof.requestId,
+        presentationRequestUrl: proof.presentationRequestUrl,
+        verifierDid: proof.verifierDid,
       }
     } catch (error: any) {
       this.setStatus(500)
@@ -2020,6 +1769,7 @@ export class RequisitionController extends Controller {
         request,
         walletId: body.walletId,
         presentationRequestUrl: body.presentationRequestUrl,
+        reference: id,
       })
       // VP verified — proceed with actual ack using the existing acknowledgeExecution handler
       return await this.acknowledgeExecution(id, { notes: body.notes }, request)

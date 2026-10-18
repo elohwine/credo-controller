@@ -1,5 +1,14 @@
 # Credentis MVP — Fastlane Commerce Trust for Zimbabwe
 
+> **Scope note (2026-10-18).** This is the brief for the **Fastlane commerce pilot**, one
+> configuration of Credentis, not the whole product. Credentis is one configurable SSI trust
+> platform: any organisation, with or without its own software, onboards and issues/verifies
+> credentials without Credentis replacing its ERP, accounting, HR or school system. The
+> architectural source of truth is
+> [docs/CONFIGURABLE_PLATFORM_IMPLEMENTATION_PLAN.md](docs/CONFIGURABLE_PLATFORM_IMPLEMENTATION_PLAN.md);
+> organisations plug in their existing software as described in
+> [docs/CONNECTED_SYSTEMS.md](docs/CONNECTED_SYSTEMS.md).
+
 > **Mission:** Build trust infrastructure disguised as checkout.  
 > **Flow:** Catalog → Cart → Checkout → ReceiptVC → Embedded Wallet → Driver Verification
 

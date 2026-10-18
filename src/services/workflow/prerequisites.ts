@@ -48,8 +48,17 @@ function stageActor(
 
 const FEPT_PREREQUISITES: WorkflowPrerequisite[] = [
   stageActor('assign_field_worker', 'Who goes out on jobs'),
-  stageActor('inspect_site', 'Inspector who clears the site before work starts (defaults to the field worker)', 'recommended'),
+  stageActor(
+    'inspect_site',
+    'Inspector who clears the site before work starts (defaults to the field worker)',
+    'recommended',
+  ),
   stageActor('review_completion', 'Supervisor who reviews finished work before customer sign-off', 'recommended'),
+  stageActor(
+    'resolve_safety_hold',
+    'Who sorts out a safety hold when the worker says a job is not safe to start (defaults to the owner)',
+    'recommended',
+  ),
   stageActor('acknowledge_execution', 'Customer sign-off', 'recommended'),
   stageActor('trigger_payout', 'Who releases job payments', 'conditional', PAYOUT_CONFIGURED),
   {
@@ -99,6 +108,11 @@ const HR_PREREQUISITES: WorkflowPrerequisite[] = [
   { key: 'departments', requirement: 'conditional', title: 'Departments for employee placement' },
   { key: 'authorities', requirement: 'conditional', title: 'HR approval authority' },
   stageActor('approve_onboarding', 'HR approver'),
+]
+
+/** Leave and expense claims raised from Home (People & payroll module). One approver. */
+const HR_REQUEST_PREREQUISITES: WorkflowPrerequisite[] = [
+  stageActor('approve_request', 'Who approves leave and expense claims'),
 ]
 
 const PAYSLIP_PREREQUISITES: WorkflowPrerequisite[] = [
@@ -178,6 +192,8 @@ export const TEMPLATE_PREREQUISITES: Record<string, WorkflowPrerequisite[]> = {
 
   // HR / payroll
   'tpl-employee-onboarding': HR_PREREQUISITES,
+  hr_requests: HR_REQUEST_PREREQUISITES,
+  'hr.leave': HR_REQUEST_PREREQUISITES,
   'hr.onboarding': HR_PREREQUISITES,
   'hr.offboarding': HR_PREREQUISITES,
   'hr.delegation_request': HR_PREREQUISITES,
@@ -216,14 +232,23 @@ export function lookupRegistryPrerequisites(candidates: string[]): WorkflowPrere
  * `candidates` should include the template id, its workflow type, and known aliases.
  */
 export function getDeclaredPrerequisites(
-  template: Pick<WorkflowTemplateDefinition, 'id' | 'workflowType' | 'prerequisites'>,
+  template: Pick<WorkflowTemplateDefinition, 'id' | 'workflowType' | 'prerequisites' | 'experience'>,
   candidates: string[] = [],
 ): WorkflowPrerequisite[] {
-  if (Array.isArray(template.prerequisites) && template.prerequisites.length > 0) {
-    return template.prerequisites
-  }
   const lookup = [template.id, template.workflowType, ...candidates].filter(Boolean)
-  return lookupRegistryPrerequisites(lookup) ?? []
+  const declared =
+    Array.isArray(template.prerequisites) && template.prerequisites.length > 0
+      ? template.prerequisites
+      : (lookupRegistryPrerequisites(lookup) ?? [])
+  const stages = [template.experience?.reviewAction, template.experience?.fulfilmentAction].filter(
+    (action): action is NonNullable<typeof action> => Boolean(action),
+  )
+  return [
+    ...declared,
+    ...stages
+      .filter((action) => !declared.some((item) => item.key === 'stage_actor' && item.stageAction === action))
+      .map((action) => stageActor(action, `Who handles ${action.replace(/_/g, ' ')}`)),
+  ]
 }
 
 function readPath(source: unknown, path: string): unknown {

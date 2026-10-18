@@ -2,6 +2,8 @@ import React, { useState, useContext, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '@/components/Layout';
 import { EnvContext } from '@/pages/_app';
+import { rememberCurrentAccount } from '@/lib/savedAccounts';
+import { applyPersonalLogin } from '@/lib/personalSession';
 import {
     Container,
     Paper,
@@ -86,9 +88,7 @@ export default function AuthPage() {
                 pin: loginPassword,
             });
 
-            const { token } = response.data;
-            localStorage.setItem('walletToken', token);
-            localStorage.setItem('walletPhone', loginPhone);
+            applyPersonalLogin(response.data, loginPhone);
 
             notifications.show({
                 title: 'Welcome back!',

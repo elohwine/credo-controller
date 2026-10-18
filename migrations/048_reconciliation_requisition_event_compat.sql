@@ -1,3 +1,4 @@
+-- SUPERSEDED: not in the DatabaseManager registry and never run. Replaced by 097 (reconciliation ledger without CHECK constraints).
 -- Migration 048: make reconciliation requisition event constraints backward-compatible.
 --
 -- Why:

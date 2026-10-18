@@ -68,9 +68,12 @@ temp/
 *.tmp
 
 # Docker
-Dockerfile*
 docker-compose*
 .dockerignore
+
+# The combined Fly image copies this tree. Keep it; ignore only a stale local install inside it.
+deploy/fly/vclogin-src/node_modules/
+deploy/fly/vclogin-src/.next/
 
 # Misc
 credo-ui/

@@ -74,7 +74,8 @@ export const HANDOFF_CONDITIONS: Record<HandoffConditionId, { label: string; tes
       test: () => true,
     },
     needs_supplier_purchase: {
-      label: 'Only when something is bought from a supplier. Cash requests are paid on release and skip this.',
+      label:
+        'Only when something is bought from a supplier. Cash purchases are marked bought with their receipt and skip this.',
       test: (facts) => {
         if (CASH_METHODS.has(clean(facts.paymentMethod))) return false
         if (SUPPLIER_METHODS.has(clean(facts.paymentMethod))) return true

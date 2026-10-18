@@ -1,24 +1,34 @@
-diff --git a/node_modules/@credo-ts/askar/build/kms/AskarKeyManagementService.mjs b/node_modules/@credo-ts/askar/build/kms/AskarKeyManagementService.mjs
 --- a/node_modules/@credo-ts/askar/build/kms/AskarKeyManagementService.mjs
 +++ b/node_modules/@credo-ts/askar/build/kms/AskarKeyManagementService.mjs
-@@
+@@ -7,7 +7,7 @@
+ import { aeadEncrypt } from "./crypto/encrypt.mjs";
+ import { randomBytes } from "./crypto/randomBytes.mjs";
+ import { JsonEncoder, Kms, TypedArrayEncoder, utils } from "@credo-ts/core";
 -import { CryptoBox, Jwk, Key, KeyAlgorithm, KeyEntryList, SignatureAlgorithm, askar } from "@openwallet-foundation/askar-shared";
 +import { CryptoBox, Jwk, Key, KeyAlgorithm, KeyEntryList, NativeAskar, SignatureAlgorithm } from "@openwallet-foundation/askar-shared";
-@@
+ 
+ //#region src/kms/AskarKeyManagementService.ts
+ const askarSupportedEncryptionAlgorithms = [...Object.keys(jwkEncToAskarAlg), "XSALSA20-POLY1305"];
+@@ -360,7 +360,7 @@
+ 		return keyAlg;
+ 	}
  	keyFromJwk(jwk) {
 -		return new Key(askar.keyFromJwk({ jwk: new Uint8Array(JsonEncoder.toUint8Array(jwk)) }));
 +		return new Key(NativeAskar.instance.keyFromJwk({ jwk: new Uint8Array(JsonEncoder.toUint8Array(jwk)) }));
  	}
-@@
+ 	keyFromSecretBytesAndEncryptionAlgorithm(secretBytes, algorithm) {
+ 		const askarEncryptionAlgorithm = jwkEncToAskarAlg[algorithm];
+@@ -374,7 +374,7 @@
+ 		return Kms.publicJwkFromPrivateJwk(this.privateJwkFromKey(key, partialJwkPublic));
+ 	}
  	privateJwkFromKey(key, partialJwkPrivate) {
 -		const { alg, ...jwkSecret } = JsonEncoder.fromUint8Array(askar.keyGetJwkSecret({ localKeyHandle: key.handle }));
 +		const { alg, ...jwkSecret } = JsonEncoder.fromUint8Array(NativeAskar.instance.keyGetJwkSecret({ localKeyHandle: key.handle }));
  		return {
  			...partialJwkPrivate,
  			...jwkSecret
- 		};
- 	}
-@@
+@@ -383,7 +383,7 @@
+ 	async fetchAskarKey(agentContext, keyId) {
  		return await this.withSession(agentContext, async (session) => {
  			if (!session.handle) throw Error("Cannot fetch a key with a closed session");
 -			const handle = await askar.sessionFetchKey({
@@ -26,20 +36,30 @@ diff --git a/node_modules/@credo-ts/askar/build/kms/AskarKeyManagementService.mj
  				forUpdate: false,
  				name: keyId,
  				sessionHandle: session.handle
- 			});
-diff --git a/node_modules/@credo-ts/askar/build/kms/crypto/deriveKey.mjs b/node_modules/@credo-ts/askar/build/kms/crypto/deriveKey.mjs
 --- a/node_modules/@credo-ts/askar/build/kms/crypto/deriveKey.mjs
 +++ b/node_modules/@credo-ts/askar/build/kms/crypto/deriveKey.mjs
-@@
+@@ -1,7 +1,7 @@
+ import { jwkEncToAskarAlg } from "../../utils/askarKeyTypes.mjs";
+ import "../../utils/index.mjs";
+ import { Kms, TypedArrayEncoder } from "@credo-ts/core";
 -import { Key, askar } from "@openwallet-foundation/askar-shared";
 +import { Key, NativeAskar } from "@openwallet-foundation/askar-shared";
-@@
+ 
+ //#region src/kms/crypto/deriveKey.ts
+ const askarSupportedKeyAgreementAlgorithms = [
+@@ -16,7 +16,7 @@
+ 	if (!askarEncryptionAlgorithm) throw new Kms.KeyManagementAlgorithmNotSupportedError(`encryption with algorithm '${encryption.algorithm}'`, "askar");
+ 	if (keyAgreement.algorithm === "ECDH-HSALSA20") throw new Kms.KeyManagementAlgorithmNotSupportedError(`derive key for algorithm '${keyAgreement.algorithm}' with encryption algorithm '${encryption.algorithm}'`, "askar");
+ 	const askarKeyWrappingAlgorithm = keyAgreement.algorithm !== "ECDH-ES" ? jwkEncToAskarAlg[keyAgreement.algorithm.replace("ECDH-ES+", "")] : void 0;
 -	const derivedKey = new Key(askar.keyDeriveEcdhEs({
 +	const derivedKey = new Key(NativeAskar.instance.keyDeriveEcdhEs({
  		algId: TypedArrayEncoder.fromUtf8String(keyAgreement.algorithm === "ECDH-ES" ? encryption.algorithm : keyAgreement.algorithm),
  		receive: false,
  		apv: keyAgreement.apv ? new Uint8Array(keyAgreement.apv) : new Uint8Array([]),
-@@
+@@ -55,7 +55,7 @@
+ 	if (!askarEncryptionAlgorithm) throw new Kms.KeyManagementAlgorithmNotSupportedError(`decryption with algorithm '${decryption.algorithm}'`, "askar");
+ 	if (keyAgreement.algorithm === "ECDH-HSALSA20") throw new Kms.KeyManagementAlgorithmNotSupportedError(`derive key for algorithm '${keyAgreement.algorithm}' with encryption algorithm '${decryption.algorithm}'`, "askar");
+ 	const askarKeyWrappingAlgorithm = keyAgreement.algorithm !== "ECDH-ES" ? jwkEncToAskarAlg[keyAgreement.algorithm.replace("ECDH-ES+", "")] : void 0;
 -	const derivedKey = new Key(askar.keyDeriveEcdhEs({
 +	const derivedKey = new Key(NativeAskar.instance.keyDeriveEcdhEs({
  		algId: TypedArrayEncoder.fromUtf8String(keyAgreement.algorithm === "ECDH-ES" ? decryption.algorithm : keyAgreement.algorithm),

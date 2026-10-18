@@ -4,9 +4,9 @@ import Footer from "@/components/sections/Footer";
 
 export default function Document() {
   return (
-    <Html lang="en" className="bg-white">
+    <Html lang="en">
       <Head>
-        <ColorSchemeScript defaultColorScheme="light" />
+        <ColorSchemeScript defaultColorScheme="light" localStorageKey="credentis-color-scheme" />
       </Head>
       <body>
         <Main />

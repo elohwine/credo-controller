@@ -40,10 +40,10 @@ export class IssuedCredentialRepository {
         @schemaId, @credentialData, @format, @revoked, CURRENT_TIMESTAMP
       )
       ON CONFLICT(id) DO UPDATE SET
-        public holder_did = @holderDid,
-        public credential_data = @credentialData,
-        public format = @format,
-        public revoked = @revoked
+        holder_did = @holderDid,
+        credential_data = @credentialData,
+        format = @format,
+        revoked = @revoked
     `)
 
     try {
@@ -204,6 +204,44 @@ export class IssuedCredentialRepository {
     }
 
     return updated
+  }
+
+  /**
+   * Restore a credential to active state in local persistence.
+   * Use alongside status-list reactivation when supported.
+   */
+  public reactivate(credentialId: string): boolean {
+    const db = DatabaseManager.getDatabase()
+
+    const stmt = db.prepare(`
+      UPDATE issued_credentials
+      SET revoked = 0, revocation_reason = NULL, revoked_at = NULL
+      WHERE credential_id = ?
+    `)
+
+    const result = stmt.run(credentialId)
+    const updated = result.changes > 0
+    if (updated) {
+      this.logger.info(`Reactivated credential: ${credentialId}`)
+    }
+    return updated
+  }
+
+  /**
+   * The organisation that issued a card, by the card's id. Every card is signed with the shared
+   * platform key, so the issuer DID cannot tell organisations apart; this register can.
+   */
+  public organizationNameForCredentialId(credentialId: string): string | undefined {
+    if (!credentialId) return undefined
+    const db = DatabaseManager.getDatabase()
+    const row = db
+      .prepare(
+        `SELECT o.name AS name FROM issued_credentials ic
+           JOIN organizations o ON o.tenant_id = ic.tenant_id
+          WHERE ic.credential_id = ? LIMIT 1`,
+      )
+      .get(credentialId) as { name?: string } | undefined
+    return row?.name ? String(row.name) : undefined
   }
 
   /**

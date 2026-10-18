@@ -6,6 +6,8 @@
  * credential/reconciliation/evidence/branding policies, and versioning.
  */
 
+import type { RequestExperienceDefinition } from '../config/requestExperience'
+
 export type SectorType = 'ecommerce' | 'education' | 'cash' | 'field_execution' | 'custom'
 
 export type CredentialOfferMode = 'required' | 'optional' | 'disabled'
@@ -121,6 +123,8 @@ export interface WorkflowTemplateDefinition {
   evidencePolicy: EvidencePolicy
   brandingPolicy: BrandingPolicy
   initiation?: WorkflowInitiationDefinition
+  /** Shared request UI and actor routing; never grants authority or changes execution steps. */
+  experience?: RequestExperienceDefinition
   /**
    * Organizational prerequisites this template needs before it is operational.
    * When absent, the code-side registry in services/workflow/prerequisites.ts applies.

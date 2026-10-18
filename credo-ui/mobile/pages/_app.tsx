@@ -1,18 +1,30 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { AppProps } from 'next/app';
-import { MantineProvider, localStorageColorSchemeManager } from '@mantine/core';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
+import { Center, Loader, MantineProvider, localStorageColorSchemeManager } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { credentisTheme } from '@/lib/theme/credentis-theme';
-import { getActiveOrgId, getContextMode, getOrgToken, isAuthenticated } from '@/lib/auth';
+import { registerAndroidPush } from '@/lib/androidPush';
+import { bindTaskPath, endTaskContext, getTaskContext, getActiveOrgId, getContextMode, getOrgToken, isAuthenticated } from '@/lib/auth';
+import { TASK_CONTEXT_KEY } from '../../shared/taskContext';
 import api from '@/lib/api';
 import { initializeOfflineStorage } from '@/lib/offline/storage';
 import { syncWalletSnapshot } from '@/lib/offline/walletSnapshotSync';
+import { useActiveTabInView } from '@/lib/tabs';
+import { walletQrKind } from '@/lib/walletScan';
+import { adoptRestoredCameraResult, clearCameraPending, pendingCameraReturn } from '@/lib/photoDraft';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { QUERY_CACHE_BUSTER, QUERY_CACHE_MAX_AGE, bindQueryManagers, queryClient, queryPersister, shouldPersistQuery } from '@/lib/queries/client';
+import { bindSessionStore } from '@/lib/state/session';
+import { bindSyncStore, useSyncStore } from '@/lib/state/sync';
+import { BlockingOverlay } from '@/components/feedback/BlockingOverlay';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@/styles/globals.css';
 
-const PUBLIC_ROUTES = ['/login', '/login/'];
-const ORG_ONLY_ROUTE_PREFIXES = ['/finance', '/workflows', '/field-jobs', '/intake'];
+const PUBLIC_ROUTES = ['/login', '/login/', '/pay/[code]'];
+const ORG_ONLY_ROUTE_PREFIXES = ['/finance', '/workflows', '/field-jobs', '/intake', '/credential-operations', '/connected-systems', '/requests'];
 const PERSONAL_ONLY_ROUTE_PREFIXES = ['/shop', '/my-requests', '/proofs'];
 
 function matchesRoutePrefix(pathname: string, prefixes: string[]): boolean {
@@ -36,7 +48,6 @@ function parseDeepLinkUrl(rawUrl: string): { route: string; query: URLSearchPara
   }
 
   const topParams = parsed.searchParams;
-  const scheme = parsed.protocol.replace(':', '').toLowerCase();
 
   const readFirst = (params: URLSearchParams, keys: string[]): string | undefined => {
     for (const key of keys) {
@@ -67,10 +78,7 @@ function parseDeepLinkUrl(rawUrl: string): { route: string; query: URLSearchPara
     return nested || readFirst(topParams, keys);
   };
 
-  const isCredentialOffer =
-    scheme === 'openid-credential-offer' ||
-    scheme === 'openid-initiate-issuance' ||
-    !!readFirst(topParams, ['credential_offer_uri', 'credential_offer_url']);
+  const isCredentialOffer = walletQrKind(rawUrl) === 'credential-offer';
 
   if (isCredentialOffer) {
     const query = new URLSearchParams({
@@ -81,11 +89,7 @@ function parseDeepLinkUrl(rawUrl: string): { route: string; query: URLSearchPara
     return { route: '/scan', query };
   }
 
-  const isPresentationRequest =
-    scheme === 'openid4vp' ||
-    scheme === 'openid-vc' ||
-    !!requestUri ||
-    !!readFirst(topParams, ['presentation_request_url']);
+  const isPresentationRequest = walletQrKind(rawUrl) === 'presentation-request';
 
   if (!isPresentationRequest) {
     return null;
@@ -155,10 +159,100 @@ async function trackDeepLinkEntry(rawUrl: string, parsed: { route: string; query
 }
 
 export default function App({ Component, pageProps, router }: AppProps) {
+  useActiveTabInView();
+  const launchUrlHandled = useRef(false);
+  const openingDeepLink = useRef<string | null>(null);
+  // The exported HTML cannot see the stored sign-in, organisation or role, so pages that draw
+  // from them would not match it. Pages draw only after the app has mounted on the device.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    let hadTask = Boolean(localStorage.getItem(TASK_CONTEXT_KEY));
+    let returning = false;
+    const settle = (url: string) => {
+      const task = getTaskContext();
+      if (task) {
+        hadTask = true;
+        if (bindTaskPath(url)) return;
+        endTaskContext();
+        returning = true;
+      } else if (hadTask && getContextMode() === 'personal') {
+        returning = true;
+      } else if (!task) {
+        hadTask = false;
+      }
+    };
+    const finish = () => {
+      if (!returning) return;
+      returning = false;
+      hadTask = false;
+      if (router.pathname !== '/inbox') void router.replace('/inbox');
+    };
+    const check = () => { settle(router.asPath); finish(); };
+    const start = (url: string) => settle(url);
+    router.events.on('routeChangeStart', start);
+    router.events.on('routeChangeComplete', finish);
+    router.events.on('routeChangeError', finish);
+    window.addEventListener('focus', check);
+    window.addEventListener('storage', check);
+    const timer = window.setInterval(() => {
+      // Inline inbox actions may not yet have a destination; only expire them here.
+      const task = getTaskContext();
+      if (task) hadTask = true;
+      if (!task && hadTask) check();
+    }, 1000);
+    // After Android closed the app during the camera, the restore handler below returns to the
+    // job step; checking the start page first would end the task and drop the photo in Inbox.
+    if (!pendingCameraReturn() && (router.pathname !== '/inbox' || getTaskContext()?.target)) check();
+    return () => {
+      router.events.off('routeChangeStart', start);
+      router.events.off('routeChangeComplete', finish);
+      router.events.off('routeChangeError', finish);
+      window.removeEventListener('focus', check);
+      window.removeEventListener('storage', check);
+      window.clearInterval(timer);
+    };
+  }, [router]);
 
   useEffect(() => {
     void initializeOfflineStorage();
   }, []);
+
+  useEffect(() => {
+    const unbind = [bindSessionStore(), bindSyncStore(), bindQueryManagers()];
+    return () => unbind.forEach((fn) => fn());
+  }, []);
+
+  // Moving between screens counts as background work, so a slow screen shows the header bar.
+  useEffect(() => {
+    let navigating = false;
+    const start = () => {
+      if (navigating) return;
+      navigating = true;
+      useSyncStore.getState().requestStarted();
+    };
+    const end = () => {
+      if (!navigating) return;
+      navigating = false;
+      useSyncStore.getState().requestEnded();
+    };
+    router.events.on('routeChangeStart', start);
+    router.events.on('routeChangeComplete', end);
+    router.events.on('routeChangeError', end);
+    return () => {
+      end();
+      router.events.off('routeChangeStart', start);
+      router.events.off('routeChangeComplete', end);
+      router.events.off('routeChangeError', end);
+    };
+  }, [router]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!isAuthenticated()) return;
+    void registerAndroidPush();
+  }, [router.pathname]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -179,21 +273,29 @@ export default function App({ Component, pageProps, router }: AppProps) {
 
     void maybeSyncWalletSnapshot();
 
+    // The offline copy of the wallet is refreshed when the app comes to the front or the
+    // connection returns, and at most every five minutes while it stays open. The screens
+    // themselves load what they show; this only keeps the offline copy current.
     const interval = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
       void maybeSyncWalletSnapshot();
-    }, 30000);
+    }, 5 * 60 * 1000);
 
-    const onFocus = () => { void maybeSyncWalletSnapshot(); };
-    const onOnline = () => { void maybeSyncWalletSnapshot(); };
+    const onResume = () => {
+      if (document.visibilityState !== 'visible') return;
+      void maybeSyncWalletSnapshot();
+    };
 
-    window.addEventListener('focus', onFocus);
-    window.addEventListener('online', onOnline);
+    window.addEventListener('focus', onResume);
+    window.addEventListener('online', onResume);
+    document.addEventListener('visibilitychange', onResume);
 
     return () => {
       disposed = true;
       window.clearInterval(interval);
-      window.removeEventListener('focus', onFocus);
-      window.removeEventListener('online', onOnline);
+      window.removeEventListener('focus', onResume);
+      window.removeEventListener('online', onResume);
+      document.removeEventListener('visibilitychange', onResume);
     };
   }, []);
 
@@ -227,46 +329,82 @@ export default function App({ Component, pageProps, router }: AppProps) {
   }, [router.pathname]);
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !Capacitor.isNativePlatform()) return;
+    const returnTo = pendingCameraReturn();
+    let handle: PluginListenerHandle | undefined;
+    let settled = false;
+    const goBack = (target: string | null) => {
+      if (settled) return;
+      settled = true;
+      if (target && target !== router.asPath) void router.replace(target);
+    };
+    void CapacitorApp.addListener('appRestoredResult', (event: any) => {
+      goBack(adoptRestoredCameraResult(event));
+    }).then((h) => { handle = h; });
+    // Android may not hand the photo back (for example it was cancelled); still return to the step.
+    const fallback = returnTo
+      ? window.setTimeout(() => {
+          if (settled) return;
+          clearCameraPending();
+          goBack(returnTo);
+        }, 4000)
+      : undefined;
+    return () => {
+      if (fallback) window.clearTimeout(fallback);
+      handle?.remove().catch(() => undefined);
+    };
+    // Registered once at start: the restored camera result is delivered a single time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const capacitor = (window as any).Capacitor;
-    const appPlugin = capacitor?.Plugins?.App;
-    if (!appPlugin || typeof appPlugin.addListener !== 'function') {
-      return;
-    }
+    if (!Capacitor.isNativePlatform()) return;
+    const appPlugin = CapacitorApp;
 
-    let listenerHandle: any;
+    let listenerHandle: PluginListenerHandle | undefined;
     let disposed = false;
 
     const handleIncomingUrl = (incomingUrl?: string) => {
-      if (!incomingUrl) return;
+      if (disposed || !incomingUrl || openingDeepLink.current === incomingUrl) return;
       const parsed = parseDeepLinkUrl(incomingUrl);
       if (!parsed) return;
+      openingDeepLink.current = incomingUrl;
 
       void trackDeepLinkEntry(incomingUrl, parsed);
 
       const target = `${parsed.route}?${parsed.query.toString()}`;
-      router.push(target).catch(() => undefined);
+      router.push(target).catch((error) => {
+        console.error('Could not open wallet link', error);
+      }).finally(() => {
+        if (openingDeepLink.current === incomingUrl) openingDeepLink.current = null;
+      });
     };
 
     const attachListener = async () => {
       try {
-        listenerHandle = await appPlugin.addListener('appUrlOpen', (event: any) => {
+        listenerHandle = await appPlugin.addListener('appUrlOpen', (event) => {
           handleIncomingUrl(event?.url);
         });
-      } catch {
-        // Ignore listener setup failures in browser mode.
+        if (disposed) {
+          await listenerHandle.remove();
+          return;
+        }
+      } catch (error) {
+        console.error('Could not register wallet link listener', error);
       }
 
       try {
-        if (typeof appPlugin.getLaunchUrl === 'function') {
+        if (!launchUrlHandled.current) {
           const launch = await appPlugin.getLaunchUrl();
           if (!disposed) {
+            launchUrlHandled.current = true;
             handleIncomingUrl(launch?.url);
           }
         }
-      } catch {
-        // Ignore launch URL retrieval failures.
+      } catch (error) {
+        console.error('Could not read wallet launch link', error);
       }
     };
 
@@ -338,8 +476,25 @@ export default function App({ Component, pageProps, router }: AppProps) {
       defaultColorScheme="light"
       colorSchemeManager={localStorageColorSchemeManager({ key: 'credentis-color-scheme' })}
     >
-      <Notifications position="top-center" zIndex={9999} />
-      <Component {...pageProps} />
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{
+          persister: queryPersister,
+          maxAge: QUERY_CACHE_MAX_AGE,
+          buster: QUERY_CACHE_BUSTER,
+          dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },
+        }}
+      >
+        <Notifications position="bottom-center" limit={1} autoClose={3000} zIndex={9999} style={{ marginBottom: 'calc(88px + var(--app-safe-bottom))' }} />
+        {mounted ? (
+          <Component {...pageProps} />
+        ) : (
+          <Center h="100dvh">
+            <Loader size="sm" />
+          </Center>
+        )}
+        <BlockingOverlay />
+      </PersistQueryClientProvider>
     </MantineProvider>
   );
 }

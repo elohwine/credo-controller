@@ -15,9 +15,11 @@ import { randomUUID } from 'crypto'
 import { Controller, Post, Get, Route, Tags, Body, SuccessResponse, Security, Path, Query, Request } from 'tsoa'
 import { container } from 'tsyringe'
 
+import { StatusException } from '../../errors'
 import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
 import { getTenantById } from '../../persistence/TenantRepository'
-import { credentialDefinitionStore } from '../../utils/credentialDefinitionStore'
+import { statusListAllocatorService } from '../../services/ssi/StatusListAllocatorService'
+import { credentialDefinitionStore, issuerConfigurationsForDefinition } from '../../utils/credentialDefinitionStore'
 
 // Use request-scoped Pino logger attached by middleware
 
@@ -139,32 +141,13 @@ export class OidcIssuerController extends Controller {
               new Map([...definitions, ...globalDefinitions].map((def) => [def.credentialDefinitionId, def])).values(),
             )
 
-        const formats = ['jwt_vc', 'jwt_vc_json']
-        let refreshedSupported = mergedDefinitions.flatMap((def: any) => {
-          const leafType =
-            Array.isArray(def.credentialType) && def.credentialType.length
-              ? def.credentialType[def.credentialType.length - 1]
-              : def.name
-          const idBases = Array.from(new Set([def.name, leafType].filter(Boolean)))
-
-          return formats.flatMap((format) =>
-            idBases.map((base) => ({
-              id: `${base}_${format}`,
-              format,
-              types: def.credentialType || ['VerifiableCredential', base],
-              cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
-              cryptographic_suites_supported: ['EdDSA', 'ES256'],
-              credential_signing_alg_values_supported: ['EdDSA'],
-              proof_types_supported: {
-                jwt: { proof_signing_alg_values_supported: ['EdDSA'] },
-              },
-              credential_definition: {
-                type: def.credentialType || ['VerifiableCredential', base],
-              },
-              display: [{ name: base }],
-            })),
-          )
-        })
+        let refreshedSupported = mergedDefinitions.flatMap((def: any) =>
+          issuerConfigurationsForDefinition({
+            name: def.name,
+            credentialType: def.credentialType,
+            format: def.format,
+          }),
+        )
 
         const platformTemplateId = String(body.credentials[0]?.credentialDefinitionId || '')
         if (platformTemplateId === 'PlatformIdentityCredential' || platformTemplateId === 'PlatformIdentityVC') {
@@ -212,6 +195,21 @@ export class OidcIssuerController extends Controller {
     }
 
     const issuerWithAnySupported = issuers.find((i: any) => (i?.credentialsSupported || []).length > 0)
+
+    const supportedIds = new Set<string>()
+    for (const issuer of issuers as any[]) {
+      for (const supported of issuer?.credentialsSupported || []) {
+        if (supported?.id) supportedIds.add(String(supported.id))
+      }
+      for (const id of Object.keys(issuer?.credentialConfigurationsSupported || {})) supportedIds.add(String(id))
+    }
+    const missingConfigurations = credentialConfigurations.filter((id) => !supportedIds.has(id))
+    if (missingConfigurations.length > 0) {
+      throw new StatusException(
+        `Unsupported credential configuration requested: ${missingConfigurations.join(', ')}`,
+        400,
+      )
+    }
 
     const issuerId = issuerWithMatchingSupported?.issuerId || issuerWithAnySupported?.issuerId || issuers[0].issuerId
 
@@ -320,8 +318,6 @@ export class OidcIssuerController extends Controller {
 
   /**
    * Revoke an issued credential (Admin)
-   * Credo generic credentials module does not support 'revocation' (ledger/status list) directly via this API yet.
-   * We will perform a local delete to prevent further usage from this agent's perspective.
    */
   @Post('issuer/credentials/{id}/revoke')
   @Security('jwt', ['tenant'])
@@ -331,16 +327,32 @@ export class OidcIssuerController extends Controller {
     @Body() body?: { reason?: string },
   ): Promise<any> {
     try {
-      const credentialsApi = (request.agent as any).credentials
-      // Credo generic credentials module does not support 'revocation' (ledger/status list) directly via this API yet.
-      // We will perform a local delete to prevent further usage from this agent's perspective.
+      const tenantId = String((request as any)?.user?.tenantId || '').trim()
+      if (!tenantId) throw new StatusException('Tenant context required', 401)
       const reason = body?.reason
-      issuedCredentialRepository.revoke(id, reason)
-      await credentialsApi.deleteById(id)
-      return { id, revoked: true, status: 'deleted_locally', reason }
+      const record = issuedCredentialRepository.findByCredentialId(id) || issuedCredentialRepository.findById(id)
+      if (!record || record.tenantId !== tenantId) throw new StatusException('credential not found', 404)
+      const currentStatus = statusListAllocatorService.getStatusByCredentialRef(record.credentialId)
+      if (!currentStatus) {
+        throw new StatusException('Credential has no published status-list allocation', 409)
+      }
+      if (currentStatus !== 'revoked') {
+        const revoked = statusListAllocatorService.transitionStatusByCredentialRef(record.credentialId, 'revoke')
+        if (!revoked) {
+          throw new StatusException('credential revocation state could not be updated', 409)
+        }
+      }
+      if (!record.revoked && !issuedCredentialRepository.revoke(record.credentialId, reason || 'revoked by issuer')) {
+        throw new StatusException('credential revocation state could not be updated', 409)
+      }
+      return { id: record.credentialId, revoked: true, status: 'revoked', reason }
     } catch (e: any) {
+      if (e instanceof StatusException) {
+        this.setStatus(e.status)
+        throw e
+      }
       this.setStatus(500)
-      throw new Error(`Failed to revoke/delete: ${e.message}`)
+      throw new Error(`Failed to revoke: ${e.message}`)
     }
   }
 
@@ -349,12 +361,11 @@ export class OidcIssuerController extends Controller {
    */
   @Get('issuer/credentials/{id}/status')
   @Security('jwt', ['tenant'])
-  public async getCredentialStatus(@Path() id: string): Promise<any> {
+  public async getCredentialStatus(@Request() request: ExRequest, @Path() id: string): Promise<any> {
+    const tenantId = String((request as any)?.user?.tenantId || '').trim()
+    if (!tenantId) throw new StatusException('Tenant context required', 401)
     const record = issuedCredentialRepository.findByCredentialId(id) || issuedCredentialRepository.findById(id)
-    if (!record) {
-      this.setStatus(404)
-      throw new Error('credential not found')
-    }
+    if (!record || record.tenantId !== tenantId) throw new StatusException('credential not found', 404)
 
     return {
       id,

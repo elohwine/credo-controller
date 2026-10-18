@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState } from 'react';
 import QRCode from 'react-qr-code';
 import { DevicePhoneMobileIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline';
 import { BRAND } from '@/lib/theme';
@@ -12,8 +12,8 @@ interface CredentialOfferCardProps {
     credentialType?: string;
     /** Optional claims to preview */
     claims?: Record<string, any>;
-    /** Optional callback when offer is accepted */
-    onAccepted?: () => void;
+    /** Opening a wallet is not evidence of acceptance. */
+    onOpenWallet?: () => void;
     /** Optional calculation results for finance workflows */
     financeResult?: {
         subtotal?: number | string;
@@ -47,19 +47,21 @@ export default function CredentialOfferCard({
     deepLink,
     credentialType = 'Credential',
     claims,
-    onAccepted,
+    onOpenWallet,
     financeResult,
     compact = false,
 }: CredentialOfferCardProps) {
     const [copyText, setCopyText] = useState(BUTTON_COPY_TEXT_DEFAULT);
+    const [copyError, setCopyError] = useState<string | null>(null);
 
     const handleCopy = async () => {
         try {
+            setCopyError(null);
             await navigator.clipboard.writeText(deepLink || offerUri);
             setCopyText(BUTTON_COPY_TEXT_COPIED);
             setTimeout(() => setCopyText(BUTTON_COPY_TEXT_DEFAULT), 3000);
         } catch (err) {
-            console.error('Failed to copy:', err);
+            setCopyError('Could not copy the offer URL. Select and copy the link below.');
         }
     };
 
@@ -67,7 +69,7 @@ export default function CredentialOfferCard({
         <div className={`shadow-2xl rounded-xl p-8 bg-white ${compact ? 'max-w-sm' : 'max-w-md'} mx-auto text-center`}>
             {/* Header */}
             <h3 className="text-xl font-bold text-gray-900 mb-2">
-                Claim Your Credential
+                {credentialType}
             </h3>
             <p className="text-sm text-gray-600 mb-6">
                 Scan the QR code or open in your wallet
@@ -119,7 +121,7 @@ export default function CredentialOfferCard({
             <div className="flex flex-col gap-3 mb-6">
                 <a
                     href={deepLink || offerUri}
-                    onClick={() => onAccepted?.()}
+                    onClick={() => onOpenWallet?.()}
                     className="inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-medium text-white transition-all hover:shadow-md"
                     style={{ backgroundColor: BRAND.curious }}
                 >
@@ -135,6 +137,14 @@ export default function CredentialOfferCard({
                     {copyText}
                 </button>
             </div>
+            {copyError && <p role="alert" className="text-sm text-red-700 mb-3">{copyError}</p>}
+            <details open={copyError ? true : undefined} className="text-left text-sm text-gray-600 mb-4">
+                <summary className="cursor-pointer">Show offer URL</summary>
+                <label>
+                    Offer URL
+                    <input readOnly value={deepLink || offerUri} className="w-full border rounded-md p-2 mt-1 text-sm" />
+                </label>
+            </details>
 
             {/* Credentis Footer */}
             <div className="flex flex-col items-center pt-6 border-t">

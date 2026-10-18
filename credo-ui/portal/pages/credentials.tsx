@@ -23,6 +23,10 @@ export default function Credentials() {
 
   useEffect(() => {
     if (!router.isReady) return;
+    if (params.mode !== VERIFY_MODE) {
+      void router.replace('/organization/credential-operations');
+      return;
+    }
 
     const ids = params?.ids;
     const hasIds =
@@ -32,14 +36,13 @@ export default function Credentials() {
     // If user navigated here directly (e.g., via menu/bookmark) without selecting credentials,
     // send them through the credential selection flow.
     if (!hasIds) {
-      router.replace('/select-credentials');
+      router.replace('/select-credentials?mode=verification');
     }
   }, [router.isReady, params, router]);
 
   function handlePortalModeChange() {
     if (portalType === VERIFY_MODE) {
-      setPortalType(ISSUE_MODE);
-      addQueryParamToCurrentURL('mode', ISSUE_MODE);
+      void router.push('/organization/credential-operations');
     } else {
       setPortalType(VERIFY_MODE);
       addQueryParamToCurrentURL('mode', VERIFY_MODE);
@@ -63,7 +66,7 @@ export default function Credentials() {
     const hasIds =
       (typeof ids === 'string' && ids.trim().length > 0) ||
       (Array.isArray(ids) && ids.some((v) => typeof v === 'string' && v.trim().length > 0));
-    if (!hasIds) return null;
+    if (!hasIds || params.mode !== VERIFY_MODE) return null;
   }
 
   return (

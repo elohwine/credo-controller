@@ -1,23 +1,27 @@
-import React, { ReactNode, useContext } from 'react';
+import React, { ReactNode, useContext, useEffect, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import {
-    Anchor,
+    ActionIcon,
+    Alert,
+    AppShell,
+    Badge,
     Box,
-    Container,
+    Burger,
+    Button,
     Group,
-    Menu,
+    NavLink,
     Text,
-    UnstyledButton,
+    useMantineColorScheme,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import {
-    IconChevronDown,
+    IconMoon,
+    IconLogin2,
+    IconSun,
     IconHome,
     IconCertificate,
-    IconFileCheck,
-    IconBuildingStore,
     IconBuilding,
     IconShieldCheck,
     IconUserShield,
@@ -25,15 +29,20 @@ import {
     IconChecklist,
     IconInbox,
     IconReceipt,
-    IconSchool,
     IconBriefcase,
     IconCoin,
     IconWallet,
     IconCreditCard,
     IconUsers,
+    IconSchool,
+    IconShoppingBag,
+    IconReportMoney,
 } from '@tabler/icons-react';
 import OrgSwitcher from '@/components/OrgSwitcher';
-import { usePortalContext } from '@/lib/portalContext';
+import { endPortalTask, usePortalContext, usePortalTaskGuard } from '@/lib/portalContext';
+import { getOrgScopedToken, getPersonalToken } from '@/utils/organizationContext';
+import { readOrgProfile } from '@/utils/orgProfile';
+import { getWorkflowCapabilityFlags } from '@/lib/workflowCapabilities';
 
 const LayoutNestingContext = React.createContext(false);
 
@@ -51,23 +60,65 @@ const BRAND = {
     dark: '#0A3D5C',
 };
 
-interface NavItem {
-    label: string;
-    href: string;
-    icon?: React.ReactNode;
-    description?: string;
-}
-
-interface NavCategory {
-    label: string;
-    items: NavItem[];
-}
-
 const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
     const isNested = useContext(LayoutNestingContext);
     const router = useRouter();
-    const { mounted, isOrg } = usePortalContext();
+    const { mounted, isOrg, activeOrg } = usePortalContext();
+    const task = usePortalTaskGuard(!isNested);
     const compactHeader = useMediaQuery('(max-width: 900px)');
+    const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+    const [schemeReady, setSchemeReady] = useState(false);
+    useEffect(() => {
+        setSchemeReady(true);
+        const color = colorScheme === 'dark' ? '#121417' : '#f7fbff';
+        let meta = document.querySelector('meta[name="theme-color"]');
+        if (!meta) {
+            meta = document.createElement('meta');
+            meta.setAttribute('name', 'theme-color');
+            document.head.appendChild(meta);
+        }
+        meta.setAttribute('content', color);
+    }, [colorScheme]);
+    const dark = schemeReady && colorScheme === 'dark';
+    const [navOpened, setNavOpened] = useState(false);
+    const [counts, setCounts] = useState({ inbox: 0, requests: 0, jobs: 0 });
+    const [workflowTypes, setWorkflowTypes] = useState<string[]>([]);
+    const canManageOrg = ['owner', 'admin'].includes(String(activeOrg?.role || '').toLowerCase());
+
+    useEffect(() => {
+        setNavOpened(false);
+    }, [router.pathname]);
+
+    useEffect(() => {
+        if (!mounted || isNested || task) return;
+        const token = (isOrg ? getOrgScopedToken() : null) || getPersonalToken();
+        if (!token) return;
+        const headers = { Authorization: `Bearer ${token}` };
+        const backend = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000';
+        let cancelled = false;
+        const load = async () => {
+            const [offers, receipts, inbound, runs, workflows] = await Promise.all([
+                fetch(`${backend}/api/wallet/credentials/pending-offers`, { headers }).then((res) => res.json()).catch(() => null),
+                fetch(`${backend}/api/wallet/credentials/pending-receipts`, { headers }).then((res) => res.json()).catch(() => null),
+                isOrg ? fetch(`${backend}/workflow-requests/inbound?status=pending&limit=20`, { headers }).then((res) => res.json()).catch(() => null) : Promise.resolve(null),
+                isOrg ? fetch(`${backend}/workflows/runs?limit=30`, { headers }).then((res) => res.json()).catch(() => null) : Promise.resolve(null),
+                isOrg && activeOrg?.orgTenantId
+                    ? fetch(`${backend}/api/organizations/${encodeURIComponent(activeOrg.orgTenantId)}/workflows`, { headers }).then((res) => res.json()).catch(() => null)
+                    : Promise.resolve(null),
+            ]);
+            if (cancelled) return;
+            const offerRows = Array.isArray(offers?.offers) ? offers.offers : [];
+            const pendingReceipts = Array.isArray(receipts) ? receipts : [];
+            const receiptRows = pendingReceipts.filter((row: any) => String(row?.sourceType || '').toLowerCase() === 'payment');
+            const requestRows = Array.isArray(inbound) ? inbound : [];
+            const runRows = Array.isArray(runs) ? runs : [];
+            const openJobs = runRows.filter((run) => !['completed', 'cancelled', 'reconciled'].includes(String(run?.status || '').toLowerCase())).length;
+            setCounts({ inbox: offerRows.length + receiptRows.length, requests: requestRows.length, jobs: openJobs });
+            setWorkflowTypes(Array.isArray(workflows?.workflowTypes) ? workflows.workflowTypes : []);
+        };
+        void load();
+        return () => { cancelled = true; };
+    }, [mounted, isOrg, activeOrg?.orgTenantId, isNested, task]);
 
     if (isNested) {
         return (
@@ -82,244 +133,185 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
         );
     }
 
-    // Context-aware shell (mirrors mobile BottomNav):
-    //   personal/holder session → Home · My Wallet · Activity · Verify · Shop
-    //   organization session    → Home · Inbox · Verify + Work / Organization menus
-    // Org-only surfaces (finance, requisitions, approvals, org admin) are never
-    // advertised in a personal session; their pages also redirect via useRequireOrgContext.
-    const primaryNav: NavItem[] = isOrg
-        ? [
-              { label: 'Home', href: '/', icon: <IconHome size={16} /> },
-              { label: 'Inbox', href: '/inbox', icon: <IconInbox size={16} /> },
-              { label: 'Verify', href: '/verify', icon: <IconFileCheck size={16} /> },
-          ]
-        : [
-              { label: 'Home', href: '/', icon: <IconHome size={16} /> },
-              { label: 'My Wallet', href: '/wallet', icon: <IconWallet size={16} /> },
-              { label: 'Activity', href: '/inbox', icon: <IconInbox size={16} /> },
-              { label: 'Verify', href: '/verify', icon: <IconFileCheck size={16} /> },
-          ];
-
-    // Categorized menus — organization context only
-    const categories: NavCategory[] = !isOrg ? [] : [
-        {
-            label: 'Work',
-            items: [
-                { label: 'Inbox', href: '/inbox', icon: <IconInbox size={16} />, description: 'Actions awaiting attention' },
-                { label: 'Requests', href: '/requests', icon: <IconReceipt size={16} />, description: 'Organizational requests' },
-                { label: 'Finance', href: '/finance', icon: <IconCoin size={16} />, description: 'AR, AP, requisitions, invoices, and field ops' },
-                { label: 'Requisitions', href: '/finance/requisitions', icon: <IconReceipt size={16} />, description: 'Internal approval and release workflow' },
-                { label: 'Job Cards', href: '/finance/job-cards', icon: <IconBriefcase size={16} />, description: 'Field Operations & Execution Jobs' },
-                { label: 'Approvals', href: '/approvals', icon: <IconShieldCheck size={16} />, description: 'Approval trails and decisions' },
-                { label: 'Tasks', href: '/tasks', icon: <IconChecklist size={16} />, description: 'Open workflow tasks' },
-            ],
-        },
-        {
-            label: 'Organization',
-            items: [
-                { label: 'Organization Setup', href: '/organization/setup', icon: <IconChecklist size={16} />, description: 'Configure people, workflows, authority, and integrations' },
-                { label: 'People', href: '/organization/people', icon: <IconCertificate size={16} />, description: 'Members, roles, invitations' },
-                { label: 'Roles', href: '/organization/roles', icon: <IconUserShield size={16} />, description: 'Starter roles and permissions' },
-                { label: 'Departments', href: '/organization/departments', icon: <IconBuilding size={16} />, description: 'Departments and cost centres' },
-                { label: 'Authorities', href: '/organization/authorities', icon: <IconShieldCheck size={16} />, description: 'Approval authorities and thresholds' },
-                { label: 'Who does what', href: '/organization/actors', icon: <IconUserShield size={16} />, description: 'Who handles each step of a job' },
-                { label: 'What happens next', href: '/organization/handoffs', icon: <IconChecklist size={16} />, description: 'When one piece of work leads to another' },
-                { label: 'Payments', href: '/organization/integrations', icon: <IconCreditCard size={16} />, description: 'Practice or live payment services' },
-                { label: 'Trusted partners', href: '/organization/trusted-partners', icon: <IconUsers size={16} />, description: 'Organizations whose documents you accept' },
-                { label: 'Stand-ins', href: '/organization/delegations', icon: <IconUsersGroup size={16} />, description: 'Who can act for someone who is away' },
-                { label: 'Credentials', href: '/credential-models', icon: <IconCertificate size={16} />, description: 'Credential definitions' },
-                { label: 'Issue / Verify', href: '/select-credentials', icon: <IconFileCheck size={16} />, description: 'Manual credential ops' },
-            ],
-        },
-
-        /* PHASE 2+ - DEFERRED
-        {
-            label: 'Commerce',
-            items: [
-                { label: 'Catalog', href: '/catalog', icon: <IconBuildingStore size={16} />, description: 'Product catalog admin' },
-                { label: 'Finance', href: '/finance', icon: <IconCoin size={16} />, description: 'Financial reports' },
-                { label: 'Inventory', href: '/inventory/dashboard', icon: <IconPackage size={16} />, description: 'Stock management' },
-                { label: 'Metrics', href: '/metrics', icon: <IconChartBar size={16} />, description: 'Analytics' },
-            ],
-        },
-        {
-            label: 'HR & Payroll',
-            items: [
-                { label: 'HR Operations', href: '/hr/operations', icon: <IconUsers size={16} />, description: 'Staff management' },
-                { label: 'Onboarding', href: '/onboarding', icon: <IconUserPlus size={16} />, description: 'New employees' },
-                { label: 'Payroll', href: '/payroll', icon: <IconCash size={16} />, description: 'Compensation' },
-            ],
-        },
-        {
-            label: 'Trust & Security',
-            items: [
-                { label: 'Trust Scores', href: '/trust', icon: <IconStars size={16} />, description: 'Reputation' },
-                { label: 'WhatsApp', href: '/whatsapp', icon: <IconBrandWhatsapp size={16} />, description: 'WhatsApp commerce' },
-                { label: 'Workflows', href: '/workflows', icon: <IconGitBranch size={16} />, description: 'Automation' },
-            ],
-        },
-        */
-    ];
-
-    const isActive = (href: string) => {
-        if (href === '/') return router.pathname === '/';
-        // Handle exact match or subpath match
-        const basePath = href.split('/').slice(0, 2).join('/');
-        return router.pathname === href || router.pathname.startsWith(`${basePath}/`) || router.pathname === basePath;
+    const countFor = (href: string) => {
+        if (href === '/inbox') return counts.inbox;
+        if (href === '/requests') return counts.requests;
+        if (href === '/finance/job-cards') return counts.jobs;
+        return 0;
     };
 
-    const navLinkStyle = (active: boolean) => ({
-        color: active ? BRAND.curious : '#374151',
-        fontWeight: active ? 600 : 500,
-        fontSize: 14,
-        padding: '8px 12px',
-        borderRadius: 8,
-        backgroundColor: active ? BRAND.linkWater : 'transparent',
-        transition: 'all 0.15s ease',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-    });
+    const profile = readOrgProfile();
+    const capabilityFlags = getWorkflowCapabilityFlags(workflowTypes.map((workflowType) => ({ workflowType })));
+    const kinds = profile?.kinds || [];
+    const modules = profile?.modules || [];
+    const hasJobs = capabilityFlags.fieldExecution || kinds.includes('field');
+    const hasSchool = capabilityFlags.educationFees || kinds.includes('school');
+    const hasCommerce = capabilityFlags.cashCounter || capabilityFlags.ecommerce || kinds.includes('shop');
+    const hasPeople = capabilityFlags.hrOps || modules.includes('people_payroll');
+
+    const groups: Array<{ label: string; items: Array<{ label: string; href: string; icon: React.ReactNode }> }> = [
+        {
+            label: 'Work',
+            items: isOrg
+                ? [
+                    { label: 'Home', href: '/', icon: <IconHome size={18} /> },
+                    { label: 'Inbox', href: '/inbox', icon: <IconInbox size={18} /> },
+                    { label: 'Approvals', href: '/approvals', icon: <IconShieldCheck size={18} /> },
+                    { label: 'All requests', href: '/requests', icon: <IconReceipt size={18} /> },
+                ]
+                : [
+                    { label: 'Home', href: '/', icon: <IconHome size={18} /> },
+                    { label: 'Inbox', href: '/inbox', icon: <IconInbox size={18} /> },
+                    { label: 'My requests', href: '/requests/mine', icon: <IconReceipt size={18} /> },
+                ],
+        },
+        ...(isOrg ? [{
+            label: 'Operations',
+            items: [
+                ...(hasJobs ? [{ label: 'Jobs', href: '/finance/job-cards', icon: <IconBriefcase size={18} /> }] : []),
+                { label: 'Purchase requests', href: '/finance/requisitions', icon: <IconChecklist size={18} /> },
+                ...(hasSchool ? [{ label: 'School fees', href: '/finance/school-fees', icon: <IconSchool size={18} /> }] : []),
+                ...(hasCommerce ? [{ label: 'Shop & services', href: '/shop', icon: <IconShoppingBag size={18} /> }] : []),
+            ],
+        }, {
+            label: 'Money',
+            items: [
+                { label: 'Money in', href: '/finance?tab=ar', icon: <IconCoin size={18} /> },
+                { label: 'Money out', href: '/finance?tab=ap', icon: <IconCreditCard size={18} /> },
+                { label: 'Reports', href: '/finance/reports', icon: <IconReportMoney size={18} /> },
+            ],
+        }, ...(hasPeople ? [{
+            label: 'People',
+            items: [
+                { label: 'Staff requests', href: '/requests?tab=people', icon: <IconUsers size={18} /> },
+                { label: 'Payroll', href: '/payroll', icon: <IconReceipt size={18} /> },
+            ],
+        }] : [])] : []),
+        {
+            label: 'Records',
+            items: [
+                {
+                    label: isOrg && canManageOrg ? 'Organisation records' : 'My records',
+                    href: isOrg && canManageOrg ? '/wallet?holder=organization' : '/wallet',
+                    icon: <IconWallet size={18} />,
+                },
+            ],
+        },
+    ];
+
+    if (isOrg && canManageOrg) {
+        groups.push({
+            label: 'Organisation',
+            items: [
+                { label: 'Members', href: '/organization/people', icon: <IconUsers size={18} /> },
+                { label: 'Workflows', href: '/workflows', icon: <IconChecklist size={18} /> },
+                { label: 'Record settings', href: '/organization/setup#records', icon: <IconCertificate size={18} /> },
+                { label: 'Setup', href: '/organization/setup', icon: <IconBuilding size={18} /> },
+                { label: 'Who does what', href: '/organization/actors', icon: <IconUserShield size={18} /> },
+                { label: 'What happens next', href: '/organization/handoffs', icon: <IconChecklist size={18} /> },
+                { label: 'Credential operations', href: '/organization/credential-operations', icon: <IconCertificate size={18} /> },
+                { label: 'Departments', href: '/organization/departments', icon: <IconBuilding size={18} /> },
+                { label: 'Payments', href: '/organization/integrations', icon: <IconCreditCard size={18} /> },
+                { label: 'Connected systems', href: '/organization/sign-in-partners', icon: <IconLogin2 size={18} /> },
+                { label: 'Stand-ins', href: '/organization/delegations', icon: <IconUsersGroup size={18} /> },
+            ],
+        });
+    }
+
+    const isActive = (href: string) => {
+        const [pathWithQuery] = href.split('#');
+        const [path, queryString] = pathWithQuery.split('?');
+        if (path === '/') return router.pathname === '/';
+        if (queryString) {
+            const expected = new URLSearchParams(queryString);
+            return router.pathname === path && Array.from(expected.entries()).every(([key, value]) => String(router.query[key] || '') === value);
+        }
+        return router.pathname === path || router.pathname.startsWith(`${path}/`);
+    };
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <AppShell
+            header={{ height: 64 }}
+            navbar={{ width: 260, breakpoint: '900px', collapsed: { mobile: !navOpened || Boolean(task), desktop: Boolean(task) } }}
+            padding="md"
+            styles={{
+                header: { background: 'var(--mantine-color-body)', borderBottom: '1px solid var(--mantine-color-default-border)' },
+                navbar: { background: 'var(--mantine-color-body)', borderRight: '1px solid var(--mantine-color-default-border)' },
+                main: { background: 'var(--mantine-color-body)', color: 'var(--mantine-color-text)' },
+            }}
+        >
             <Head>
                 <title>{title} | Credentis</title>
                 <meta charSet="utf-8" />
                 <meta name="viewport" content="initial-scale=1.0, width=device-width" />
             </Head>
-
-            {/* Header */}
-            <Box
-                component="header"
-                style={{
-                    backgroundColor: '#ffffff',
-                    borderBottom: `1px solid #E5E7EB`,
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 40,
-                }}
-            >
-                {/* Top accent bar */}
+            <AppShell.Header>
                 <Box style={{ height: 3, background: `linear-gradient(90deg, ${BRAND.curious} 0%, ${BRAND.viking} 100%)` }} />
-
-                <Container size="xl">
-                    <Group justify="space-between" h={72} wrap="nowrap">
-                        {/* Logo */}
-                        <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none', flexShrink: 0 }}>
-                            <img
-                                src="/credentis-logo.png"
-                                alt="Credentis"
-                                style={{ height: 84, width: 'auto', display: 'block' }}
-                            />
+                <Group justify="space-between" h={61} px="md" wrap="nowrap">
+                    <Group gap="sm" wrap="nowrap">
+                        {compactHeader && (
+                            <Burger opened={navOpened} onClick={() => setNavOpened((open) => !open)} aria-label="Open menu" />
+                        )}
+                        <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
+                            <img src="/credentis-logo.png" alt="Credentis" style={{ height: 48, width: 'auto', display: 'block' }} />
                         </Link>
-
-                        {/* Navigation — scrollable. The account picker lives OUTSIDE this box so it is
-                            always visible, even on narrow viewports where the nav overflows. */}
-                        <Box style={{ overflow: 'auto', flex: 1, minWidth: 0, visibility: mounted ? 'visible' : 'hidden' }}>
-                            <Group gap={4} wrap="nowrap" style={{ minWidth: 'max-content' }}>
-                                {/* Primary nav items */}
-                                {primaryNav.map((item) => {
-                                    const active = isActive(item.href);
-                                    return (
-                                        <Anchor
-                                            key={item.href}
-                                            component={Link}
-                                            href={item.href}
-                                            underline="never"
-                                            style={navLinkStyle(active)}
-                                        >
-                                            {item.icon}
-                                            {item.label}
-                                        </Anchor>
-                                    );
-                                })}
-
-                                {/* Category dropdowns */}
-                                {categories.map((category) => (
-                                    <Menu
-                                        key={category.label}
-                                        trigger="hover"
-                                        openDelay={100}
-                                        closeDelay={200}
-                                        withinPortal
-                                        position="bottom-start"
-                                        shadow="lg"
-                                        radius="md"
-                                        width={280}
-                                    >
-                                        <Menu.Target>
-                                            <UnstyledButton
-                                                style={{
-                                                    ...navLinkStyle(false),
-                                                    cursor: 'pointer',
-                                                }}
-                                            >
-                                                {category.label}
-                                                <IconChevronDown size={14} style={{ marginLeft: 2 }} />
-                                            </UnstyledButton>
-                                        </Menu.Target>
-
-                                        <Menu.Dropdown style={{ padding: 8 }}>
-                                            <Text size="xs" fw={600} c="dimmed" px={12} py={6} tt="uppercase">
-                                                {category.label}
-                                            </Text>
-                                            {category.items.map((item) => (
-                                                <Menu.Item
-                                                    key={item.href}
-                                                    onClick={() => router.push(item.href)}
-                                                    leftSection={
-                                                        <Box
-                                                            style={{
-                                                                width: 32,
-                                                                height: 32,
-                                                                borderRadius: 8,
-                                                                backgroundColor: BRAND.linkWater,
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                color: BRAND.curious,
-                                                            }}
-                                                        >
-                                                            {item.icon}
-                                                        </Box>
-                                                    }
-                                                    style={{
-                                                        borderRadius: 8,
-                                                        padding: '10px 12px',
-                                                        cursor: 'pointer',
-                                                    }}
-                                                >
-                                                    <Text size="sm" fw={500}>
-                                                        {item.label}
-                                                    </Text>
-                                                    {item.description && (
-                                                        <Text size="xs" c="dimmed" mt={2}>
-                                                            {item.description}
-                                                        </Text>
-                                                    )}
-                                                </Menu.Item>
-                                            ))}
-                                        </Menu.Dropdown>
-                                    </Menu>
-                                ))}
-                            </Group>
-                        </Box>
-
-                        {/* Account / organization picker — fixed slot, compact on narrow viewports */}
+                    </Group>
+                    <Group gap="sm" wrap="nowrap">
+                        <ActionIcon
+                            variant="default"
+                            size={44}
+                            radius="md"
+                            aria-label={dark ? 'Switch to Light mode' : 'Switch to Dark mode'}
+                            onClick={() => toggleColorScheme()}
+                        >
+                            {dark ? <IconSun size={18} /> : <IconMoon size={18} />}
+                        </ActionIcon>
                         <Box style={{ flexShrink: 0, minWidth: compactHeader ? undefined : 220, maxWidth: 340 }}>
                             <OrgSwitcher compact={!!compactHeader} />
                         </Box>
                     </Group>
-                </Container>
-            </Box>
-
-            <LayoutNestingContext.Provider value={true}>
-                <main style={{ paddingTop: 0 }}>
-                    <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">{children}</div>
-                </main>
-            </LayoutNestingContext.Provider>
-        </div>
+                </Group>
+            </AppShell.Header>
+            <AppShell.Navbar p="sm">
+                <Box style={{ visibility: mounted ? 'visible' : 'hidden' }}>
+                    {!task && groups.map((group) => (
+                        <Box key={group.label} mb="md">
+                            <Text size="xs" fw={700} c="dimmed" tt="uppercase" px="sm" mb={4}>{group.label}</Text>
+                            {group.items.map((item) => {
+                                const count = countFor(item.href);
+                                return (
+                                    <NavLink
+                                        key={`${group.label}-${item.label}`}
+                                        component={Link}
+                                        href={item.href}
+                                        label={item.label}
+                                        leftSection={item.icon}
+                                        active={isActive(item.href)}
+                                        rightSection={count > 0 ? <Badge size="sm" circle>{count > 9 ? '9+' : count}</Badge> : undefined}
+                                        onClick={() => setNavOpened(false)}
+                                    />
+                                );
+                            })}
+                        </Box>
+                    ))}
+                </Box>
+            </AppShell.Navbar>
+            <AppShell.Main>
+                <LayoutNestingContext.Provider value={true}>
+                    <div className="max-w-7xl mx-auto">
+                        {task && (
+                            <Alert mb="sm">
+                                <Group justify="space-between">
+                                    <Text size="sm">Opened for {activeOrg?.name || 'your organisation'}</Text>
+                                    <Button size="xs" onClick={() => { endPortalTask(); void router.replace('/inbox'); }}>Back to inbox</Button>
+                                </Group>
+                            </Alert>
+                        )}
+                        {children}
+                    </div>
+                </LayoutNestingContext.Provider>
+            </AppShell.Main>
+        </AppShell>
     );
 };
 

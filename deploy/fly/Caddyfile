@@ -1,0 +1,31 @@
+# Path router for the single Fly app.
+# Fly terminates TLS and forwards HTTP to this listener.
+# Hydra admin (4445), Postgres (5432) and Redis (6379) are not routed.
+
+{
+	admin off
+	auto_https off
+	persist_config off
+}
+
+:8080 {
+	encode gzip
+
+	# Ory Hydra public (OIDC issuer). Must stay ahead of the Credo catch-all.
+	@hydra path /.well-known /.well-known/* /oauth2 /oauth2/* /userinfo /userinfo/*
+	handle @hydra {
+		reverse_proxy 127.0.0.1:4444
+	}
+
+	# vclogin. Credentis mode returns 404 for the legacy presentation routes,
+	# but they must still reach vclogin rather than the Credo API.
+	@vclogin path /login /login/* /_next/* /common/* /api/consent /api/consent/* /api/presentCredential /api/presentCredential/* /api/clientMetadata /api/clientMetadata/* /api/dynamic /api/dynamic/* /api-docs /api-docs/*
+	handle @vclogin {
+		reverse_proxy 127.0.0.1:3002
+	}
+
+	# Credo API, including /health and /api/partner/*.
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+}

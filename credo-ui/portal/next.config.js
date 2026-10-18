@@ -1,5 +1,7 @@
 const nextConfig = {
   reactStrictMode: false,
+  // Shared org configuration lives in credo-ui/shared and src/config (one mapping for API and both apps).
+  experimental: { externalDir: true },
   output: 'standalone',
   publicRuntimeConfig: {
     // Credo Backend URLs

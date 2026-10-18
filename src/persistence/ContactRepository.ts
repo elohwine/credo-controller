@@ -16,6 +16,11 @@ export interface OrgContact {
   walletTenantId?: string
   /** When the holder linked their wallet to this contact */
   linkedAt?: string
+  /**
+   * Whether this phone or email already belongs to someone who has signed up.
+   * Computed on read, the way a messenger checks an address book. Not stored.
+   */
+  appStatus?: 'in_app' | 'invite' | 'no_phone'
   createdAt: string
   updatedAt: string
 }
@@ -54,6 +59,61 @@ function toContact(row: ContactRow): OrgContact {
   }
 }
 
+function normalizePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '')
+  if (digits.startsWith('0') && digits.length === 10) return `263${digits.slice(1)}`
+  return digits
+}
+
+function sha256(value: string): string {
+  return crypto.createHash('sha256').update(value).digest('hex')
+}
+
+function phoneHashes(phone: string): string[] {
+  const normalized = normalizePhone(phone)
+  return [sha256(normalized), sha256(normalized.toLowerCase()), sha256(phone.trim().toLowerCase())]
+}
+
+function knownHashes(column: 'phone_hash' | 'email_hash', hashes: string[]): Set<string> {
+  const found = new Set<string>()
+  if (hashes.length === 0) return found
+  const db = DatabaseManager.getDatabase()
+  for (let index = 0; index < hashes.length; index += 400) {
+    const chunk = hashes.slice(index, index + 400)
+    const placeholders = chunk.map(() => '?').join(', ')
+    const rows = db
+      .prepare(`SELECT ${column} as hash FROM ssi_users WHERE ${column} IN (${placeholders})`)
+      .all(...chunk) as Array<{ hash: string | null }>
+    for (const row of rows) {
+      if (row.hash) found.add(row.hash)
+    }
+  }
+  return found
+}
+
+/**
+ * Match saved contacts against people who have already signed up.
+ * A saved phone is not enough: until it matches an account, the contact still needs an invite.
+ */
+export function annotateAppStatus(contacts: OrgContact[]): OrgContact[] {
+  const phoneCandidates = new Set<string>()
+  const emailCandidates = new Set<string>()
+  for (const contact of contacts) {
+    if (contact.phone) phoneHashes(contact.phone).forEach((hash) => phoneCandidates.add(hash))
+    if (contact.email?.trim()) emailCandidates.add(sha256(contact.email.trim().toLowerCase()))
+  }
+  const knownPhones = knownHashes('phone_hash', [...phoneCandidates])
+  const knownEmails = knownHashes('email_hash', [...emailCandidates])
+  return contacts.map((contact) => {
+    const onPhone = Boolean(contact.phone && phoneHashes(contact.phone).some((hash) => knownPhones.has(hash)))
+    const onEmail = Boolean(contact.email?.trim() && knownEmails.has(sha256(contact.email.trim().toLowerCase())))
+    const alreadyLinked = Boolean(contact.walletTenantId)
+    const appStatus =
+      onPhone || onEmail || alreadyLinked ? 'in_app' : contact.phone || contact.email ? 'invite' : 'no_phone'
+    return { ...contact, appStatus }
+  })
+}
+
 export function listContacts(orgTenantId: string, contactScope?: 'internal' | 'external'): OrgContact[] {
   const db = DatabaseManager.getDatabase()
   const rows = contactScope
@@ -63,7 +123,7 @@ export function listContacts(orgTenantId: string, contactScope?: 'internal' | 'e
     : (db
         .prepare('SELECT * FROM org_contacts WHERE org_tenant_id = ? ORDER BY name ASC')
         .all(orgTenantId) as ContactRow[])
-  return rows.map(toContact)
+  return annotateAppStatus(rows.map(toContact))
 }
 
 export function getContactById(id: string, orgTenantId: string): OrgContact | undefined {
@@ -71,7 +131,7 @@ export function getContactById(id: string, orgTenantId: string): OrgContact | un
   const row = db.prepare('SELECT * FROM org_contacts WHERE id = ? AND org_tenant_id = ?').get(id, orgTenantId) as
     | ContactRow
     | undefined
-  return row ? toContact(row) : undefined
+  return row ? annotateAppStatus([toContact(row)])[0] : undefined
 }
 
 export function findContactById(contactId: string, orgTenantId: string): OrgContact | undefined {

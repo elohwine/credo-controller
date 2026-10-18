@@ -1,3 +1,4 @@
+-- SUPERSEDED: not in the DatabaseManager registry and never run. Replaced by 097.
 -- ============================================================================
 -- IdenEx Credentis - Service Provider Registry
 -- Verifiable Trust Infrastructure for Africa's Digital Economy

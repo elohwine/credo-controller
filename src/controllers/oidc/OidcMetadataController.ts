@@ -35,38 +35,19 @@ export class OidcMetadataController extends Controller {
     // wallet UIs can display human-friendly credential cards when the platform is the issuer.
     try {
       // Lazy-require to avoid circular deps during startup
-      const { credentialDefinitionStore } = require('../../utils/credentialDefinitionStore')
+      const {
+        credentialDefinitionStore,
+        issuerConfigurationsForDefinition,
+      } = require('../../utils/credentialDefinitionStore')
       const definitions = credentialDefinitionStore.list() || []
 
+      // Same configurations the Credo issuer advertises (jwt_vc_json, plus vc+sd-jwt for
+      // selective-disclosure types such as the staff card), so wallets see one list.
       const credentialConfigurations: any = {}
       definitions.forEach((def: any) => {
-        const storedFormat = (def.format || 'jwt_vc') as string
-        // Map stored format to advertised OpenID4VC format
-        let advertisedFormat = 'jwt_vc'
-        let suffix = '_jwt_vc'
-        if (storedFormat.toLowerCase() === 'sd_jwt') {
-          advertisedFormat = 'vc+sd-jwt'
-          suffix = '_vc+sd-jwt'
-        } else if (storedFormat.toLowerCase().startsWith('jwt_vc_json')) {
-          advertisedFormat = 'jwt_vc_json'
-          suffix = '_jwt_vc_json'
-        }
-
-        const configId = `${def.name}${suffix}`
-        credentialConfigurations[configId] = {
-          format: advertisedFormat,
-          scope: def.name,
-          cryptographic_binding_methods_supported: ['did'],
-          cryptographic_suites_supported: ['Ed25519Signature2018'],
-          credential_definition: {
-            type: def.credentialType || ['VerifiableCredential'],
-          },
-          display: [
-            {
-              name: def.name,
-              locale: 'en-US',
-            },
-          ],
+        for (const config of issuerConfigurationsForDefinition(def)) {
+          const { id, ...rest } = config
+          credentialConfigurations[id] = rest
         }
       })
 

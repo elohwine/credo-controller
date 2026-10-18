@@ -39,7 +39,7 @@ export class FinanceActions {
 
     let subtotal = 0
     const lineItems = items.map((item: any) => {
-      const lineTotal = (item.unitPrice || 0) * (item.qty || 0)
+      const lineTotal = (item.unitPrice || 0) * (item.qty ?? item.quantity ?? 0)
       subtotal += lineTotal
       return { ...item, lineTotal }
     })

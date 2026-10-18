@@ -1,9 +1,11 @@
 import axios from 'axios'
-import { createHash } from 'crypto'
-import { Request as ExRequest } from 'express'
+import { createHash, timingSafeEqual } from 'crypto'
+import type { Request as ExRequest } from 'express'
 import { Controller, Post, Route, Tags, Body, Request, Security, Header } from 'tsoa'
 
 import { DatabaseManager } from '../../persistence/DatabaseManager'
+import { getTenantById } from '../../persistence/TenantRepository'
+import { paymentLinkService } from '../../services/PaymentLinkService'
 import { ShortlinkService } from '../../services/ShortlinkService'
 import { triggerService } from '../../services/TriggerService'
 import { workflowService } from '../../services/WorkflowService'
@@ -32,10 +34,27 @@ function normalizeMsisdn(msisdn?: string): string | undefined {
   return clean
 }
 
+function paymentMetadata(raw: unknown): Record<string, unknown> {
+  if (!raw) return {}
+  if (typeof raw === 'object') return raw as Record<string, unknown>
+  try {
+    return JSON.parse(String(raw)) || {}
+  } catch {
+    return {}
+  }
+}
+
 function hashMsisdn(msisdn?: string): string | undefined {
   const normalized = normalizeMsisdn(msisdn)
   if (!normalized) return undefined
   return createHash('sha256').update(normalized.trim().toLowerCase()).digest('hex')
+}
+
+function secretMatches(expected: string, provided?: string): boolean {
+  if (!provided) return false
+  const expectedBytes = Buffer.from(expected)
+  const providedBytes = Buffer.from(provided)
+  return expectedBytes.length === providedBytes.length && timingSafeEqual(expectedBytes, providedBytes)
 }
 
 @Route('webhooks')
@@ -61,14 +80,24 @@ export class EcoCashWebhookController extends Controller {
     const db = DatabaseManager.getDatabase()
 
     try {
-      logger.info({ payload }, 'Received EcoCash webhook')
+      logger.info({ sourceReference: payload.sourceReference, status: payload.status }, 'Received EcoCash webhook')
 
-      // Validate API key (simple validation - in production use HMAC)
-      const expectedApiKey = process.env.ECOCASH_WEBHOOK_SECRET || 'test-webhook-secret'
-      if (apiKey !== expectedApiKey) {
-        logger.warn({ providedKey: apiKey }, 'Invalid webhook API key')
+      const expectedApiKey =
+        process.env.ECOCASH_WEBHOOK_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'test-webhook-secret')
+      if (!expectedApiKey) {
+        logger.error('EcoCash webhook secret is not configured')
+        this.setStatus(503)
+        return { error: 'Webhook authentication is unavailable' }
+      }
+      if (!secretMatches(expectedApiKey, apiKey)) {
+        logger.warn({ sourceReference: payload.sourceReference }, 'Invalid webhook API key')
         this.setStatus(401)
         return { error: 'Unauthorized' }
+      }
+
+      if (!payload.sourceReference?.trim()) {
+        this.setStatus(400)
+        return { error: 'Payment source reference is required' }
       }
 
       // Idempotency check: Look up payment by sourceReference
@@ -89,15 +118,58 @@ export class EcoCashWebhookController extends Controller {
         }
       }
 
+      if (!existingPayment) {
+        this.setStatus(404)
+        return { error: 'No initiated payment matches this source reference' }
+      }
+
+      if (
+        payload.amount !== undefined &&
+        (!Number.isFinite(payload.amount) ||
+          Math.round(Number(existingPayment.amount) * 100) !== Math.round(payload.amount * 100))
+      ) {
+        this.setStatus(409)
+        return { error: 'Webhook amount does not match the initiated payment' }
+      }
+      if (
+        payload.currency &&
+        String(existingPayment.currency || '')
+          .trim()
+          .toUpperCase() !== payload.currency.trim().toUpperCase()
+      ) {
+        this.setStatus(409)
+        return { error: 'Webhook currency does not match the initiated payment' }
+      }
+
       // Check if payment was successful
       if (payload.status === 'SUCCESS' || payload.status === 'COMPLETED') {
+        if (!payload.transactionId?.trim()) {
+          this.setStatus(400)
+          return { error: 'Provider transaction ID is required for a successful payment' }
+        }
         logger.info({ sourceReference: payload.sourceReference }, 'Payment successful, processing receipt')
 
-        const apiKey = process.env.ISSUER_API_KEY || 'test-api-key-12345'
+        const apiKey = process.env.ISSUER_API_KEY || (process.env.NODE_ENV === 'production' ? '' : 'test-api-key-12345')
+        if (!apiKey) {
+          this.setStatus(503)
+          return { error: 'Credential issuer authentication is unavailable' }
+        }
         const issuerApiUrl = process.env.ISSUER_API_URL || 'http://localhost:3000'
         const baseUrl = process.env.NGROK_URL || 'http://localhost:3000'
-        // Use default tenant for issuer metadata refresh
-        const tenantId = existingPayment?.tenant_id || 'default'
+        const metadata = paymentMetadata(existingPayment?.metadata)
+        const merchantTenantId =
+          typeof metadata.merchantTenantId === 'string' ? metadata.merchantTenantId : existingPayment.tenant_id
+        if (typeof merchantTenantId !== 'string' || !merchantTenantId.trim()) {
+          this.setStatus(409)
+          return { error: 'Initiated payment has no merchant identity' }
+        }
+        const merchant = getTenantById(merchantTenantId)
+        if (!merchant?.issuerDid) {
+          this.setStatus(409)
+          return { error: 'Merchant issuer identity is unavailable for the receipt' }
+        }
+        const merchantName = String(metadata.merchantName || merchant?.label || merchantTenantId)
+        const tenantId = merchantTenantId
 
         // Get cart if we have a payment record
         let cartId: string | undefined
@@ -132,7 +204,9 @@ export class EcoCashWebhookController extends Controller {
                     currency: payload.currency || existingPayment?.currency || 'USD',
                     payerPhone,
                     subjectHash,
-                    merchant: existingPayment?.tenant_id || 'unknown',
+                    merchant: merchantTenantId,
+                    merchantName,
+                    merchantDid: merchant?.issuerDid || undefined,
                     cartId: cartId,
                     invoiceId: invoiceId,
                     invoiceHash: invoiceHash,
@@ -157,7 +231,10 @@ export class EcoCashWebhookController extends Controller {
             receiptResponse.data?.credential_offer_uri ||
             receiptResponse.data?.offerUrl ||
             receiptResponse.data?.credentialOffer
-          logger.info({ receiptOfferUrl, transactionId: payload.transactionId }, 'ReceiptVC issued')
+          if (typeof receiptOfferUrl !== 'string' || !receiptOfferUrl.trim()) {
+            throw new Error('Credential issuer returned no receipt offer URL')
+          }
+          logger.info({ transactionId: payload.transactionId }, 'ReceiptVC issued')
 
           // Generate verification shortlink (QR)
           const { url: verificationUrl, code: verificationCode } = ShortlinkService.createReceiptLink(
@@ -165,10 +242,10 @@ export class EcoCashWebhookController extends Controller {
             {
               amount: String(payload.amount || existingPayment?.amount || '0'),
               currency: payload.currency || existingPayment?.currency || 'USD',
-              merchant: existingPayment?.tenant_id || 'unknown',
+              merchant: merchantTenantId,
             },
           )
-          logger.info({ verificationUrl, verificationCode }, 'Generated verification shortlink')
+          logger.info({ transactionId: payload.transactionId }, 'Generated receipt verification link')
 
           // Update or create payment record
           if (existingPayment) {
@@ -222,6 +299,18 @@ export class EcoCashWebhookController extends Controller {
                             VALUES (?, ?, ?, ?, ?)
                         `,
             ).run(`rcp-${Date.now()}`, existingPayment.id, receiptOfferUrl, 'PaymentReceipt', new Date().toISOString())
+
+            const paymentLinkId = paymentMetadata(existingPayment.metadata).paymentLinkId
+            if (typeof paymentLinkId === 'string') {
+              try {
+                await paymentLinkService.settlePaid(paymentLinkId, {
+                  reference: payload.transactionId,
+                  payerPhone: existingPayment.payer_phone,
+                })
+              } catch (settleErr: any) {
+                logger.warn({ paymentLinkId, error: settleErr?.message }, 'Paid link did not continue its job')
+              }
+            }
           }
 
           // Update cart status to 'paid' if associated
@@ -290,7 +379,7 @@ export class EcoCashWebhookController extends Controller {
                 sourceReference: payload.sourceReference,
                 paymentMethod: 'EcoCash',
                 cartId: cartId,
-                merchantId: existingPayment?.tenant_id,
+                merchantId: merchantTenantId,
                 receiptOfferUrl,
                 timestamp: new Date().toISOString(),
               },
@@ -307,12 +396,15 @@ export class EcoCashWebhookController extends Controller {
             transactionId: payload.transactionId,
           }
         } catch (receiptError: any) {
-          logger.error({ error: receiptError.message }, 'Failed to issue ReceiptVC')
-          // Still acknowledge the webhook to prevent retries
+          logger.error(
+            { sourceReference: payload.sourceReference, error: receiptError.message },
+            'Failed to issue ReceiptVC',
+          )
+          this.setStatus(503)
           return {
-            status: 'acknowledged',
+            status: 'retry',
             receiptGenerated: false,
-            error: receiptError.message,
+            error: 'Receipt issuance failed; retry the webhook',
           }
         }
       } else if (payload.status === 'FAILED' || payload.status === 'CANCELLED') {

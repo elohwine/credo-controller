@@ -168,7 +168,9 @@ export const ACTOR_PRESETS: ActorPreset[] = [
   },
 ]
 
-export function requisitionApprovalSignMode(policy: Pick<OrgWorkflowActorPolicy, 'signGroups'> | undefined): StageSignMode {
+export function requisitionApprovalSignMode(
+  policy: Pick<OrgWorkflowActorPolicy, 'signGroups'> | undefined,
+): StageSignMode {
   return policy?.signGroups?.[REQUISITION_APPROVAL_SIGN_GROUP] === 'one' ? 'one' : 'both'
 }
 
@@ -198,6 +200,8 @@ export const ROLE_FALLBACK_BY_STAGE_ACTION: Record<string, string[]> = {
   inspect_site: ['inspector', 'supervisor', 'field_worker', 'technician'],
   review_completion: ['supervisor', 'inspector', 'manager', 'dispatcher'],
   assess_risk: ['field_worker', 'technician', 'driver', 'inspector'],
+  // Sorts out a "not safe to start" hold raised by the worker; owner/admin stand in when unset.
+  resolve_safety_hold: ['supervisor', 'operations_manager', 'dispatcher', 'manager'],
   confirm_arrival: ['field_worker', 'technician', 'driver', 'inspector'],
   start_job: ['field_worker', 'technician', 'driver', 'inspector'],
   capture_evidence: ['field_worker', 'technician', 'driver', 'inspector'],
@@ -205,7 +209,33 @@ export const ROLE_FALLBACK_BY_STAGE_ACTION: Record<string, string[]> = {
   trigger_payout: ['finance_manager', 'accountant', 'approver'],
   // HR / payroll
   approve_onboarding: ['hr_manager', 'hr', 'approver', 'manager'],
+  // Time off and expense claims raised from Home: the manager decides, HR or a director stands in.
+  approve_request: ['manager', 'hr_manager', 'director', 'approver'],
   issue_payslip: ['payroll', 'hr_manager', 'finance_manager', 'accountant'],
+}
+
+/**
+ * Where one workflow reads a shared step differently. On a field job the sign-off is the
+ * person who checks the work (supervisor / inspector), never the worker who did it; on a
+ * purchase request the same step is the requester confirming the goods arrived.
+ */
+export const ROLE_FALLBACK_BY_WORKFLOW_STAGE: Record<string, Record<string, string[]>> = {
+  field_execution_fept: {
+    acknowledge_execution: ['supervisor', 'inspector', 'manager', 'dispatcher'],
+    // The worker on site checks it unless the organisation names an inspector in Who does what.
+    // No built-in role here, so an unconfigured step resolves to the job's assigned worker.
+    inspect_site: [],
+  },
+}
+
+/** Built-in role order for a step, with the workflow's own reading of the step first. */
+export function roleFallbackFor(workflowType: string, stageAction: string): string[] {
+  const stage = normalize(stageAction)
+  for (const candidate of workflowActorTypeCandidates(workflowType)) {
+    const byWorkflow = ROLE_FALLBACK_BY_WORKFLOW_STAGE[normalize(candidate)]?.[stage]
+    if (byWorkflow) return byWorkflow
+  }
+  return ROLE_FALLBACK_BY_STAGE_ACTION[stage] || []
 }
 
 const OWNER_FALLBACK = ['owner', 'admin']
@@ -265,6 +295,8 @@ export const WORKFLOW_ACTOR_ALIASES: string[][] = [
   ],
   ['education_fee_payment', 'school_fee_payment', 'school_fees', 'tpl-education-fee'],
   ['cash_counter_payment', 'cash_payment', 'tpl-cash-counter'],
+  // Member requests (leave, expense claims) share the people set up for employee onboarding.
+  ['hr_requests', 'employee_onboarding', 'tpl-employee-onboarding', 'hr.leave', 'finance.expense_claim'],
 ]
 
 /** All workflow-type keys whose actor defaults apply to `workflowType` (itself first). */
@@ -332,6 +364,30 @@ function findMemberByRole(db: Db, orgTenantId: string, roles: string[]): OrgMemb
   return undefined
 }
 
+/** Every active member holding one of the roles, newest membership first. */
+function listMembersByRole(db: Db, orgTenantId: string, roles: string[]): OrgMemberActor[] {
+  const normalizedRoles = roles.map((r) => normalize(r)).filter(Boolean)
+  if (normalizedRoles.length === 0) return []
+  const rows = db
+    .prepare(
+      `
+      SELECT m.user_id as userId,
+             m.role as role,
+             m.status as status,
+             m.updated_at as updatedAt,
+             u.tenant_id as walletTenantId
+      FROM org_memberships m
+      LEFT JOIN ssi_users u ON u.id = m.user_id
+      WHERE m.org_tenant_id = ?
+        AND m.status = 'active'
+        AND LOWER(m.role) IN (${normalizedRoles.map(() => '?').join(', ')})
+      ORDER BY datetime(m.updated_at) DESC
+    `,
+    )
+    .all(orgTenantId, ...normalizedRoles) as OrgMemberActor[]
+  return rows.filter((row) => Boolean(row?.walletTenantId))
+}
+
 function findMemberByUserId(db: Db, orgTenantId: string, userId: string): OrgMemberActor | undefined {
   if (!userId) return undefined
   return db
@@ -365,12 +421,22 @@ function resolveChain(
     if (entry.type === 'user') {
       const member = findMemberByUserId(db, orgTenantId, value)
       if (member?.walletTenantId) {
-        return { userId: member.userId, walletTenantId: member.walletTenantId, role: normalize(member.role) || 'member', via: entry }
+        return {
+          userId: member.userId,
+          walletTenantId: member.walletTenantId,
+          role: normalize(member.role) || 'member',
+          via: entry,
+        }
       }
     } else if (entry.type === 'role') {
       const member = findMemberByRole(db, orgTenantId, [value])
       if (member?.walletTenantId) {
-        return { userId: member.userId, walletTenantId: member.walletTenantId, role: normalize(member.role) || normalize(value), via: entry }
+        return {
+          userId: member.userId,
+          walletTenantId: member.walletTenantId,
+          role: normalize(member.role) || normalize(value),
+          via: entry,
+        }
       }
     } else if (entry.type === 'wallet') {
       return { walletTenantId: value, role: normalize(entry.label) || 'member', via: entry }
@@ -405,7 +471,10 @@ function sanitizeChain(input: unknown): ActorFallbackEntry[] {
   return out.slice(0, 20)
 }
 
-function parsePolicy(orgTenantId: string, row: { policy_json?: string; updated_at?: string } | undefined): OrgWorkflowActorPolicy {
+function parsePolicy(
+  orgTenantId: string,
+  row: { policy_json?: string; updated_at?: string } | undefined,
+): OrgWorkflowActorPolicy {
   let parsed: any = {}
   if (row?.policy_json) {
     try {
@@ -470,7 +539,9 @@ export class OrgWorkflowActorService {
       stageChains: { ...current.stageChains },
       defaultChain: patch.defaultChain !== undefined ? sanitizeChain(patch.defaultChain) : current.defaultChain,
       useBuiltInRoleFallbacks:
-        typeof patch.useBuiltInRoleFallbacks === 'boolean' ? patch.useBuiltInRoleFallbacks : current.useBuiltInRoleFallbacks,
+        typeof patch.useBuiltInRoleFallbacks === 'boolean'
+          ? patch.useBuiltInRoleFallbacks
+          : current.useBuiltInRoleFallbacks,
       ownerFallbackEnabled:
         typeof patch.ownerFallbackEnabled === 'boolean' ? patch.ownerFallbackEnabled : current.ownerFallbackEnabled,
       signGroups: { ...current.signGroups, ...sanitizeSignGroups(patch.signGroups) },
@@ -529,7 +600,9 @@ export class OrgWorkflowActorService {
     const roles = new Set<string>(OWNER_FALLBACK)
     try {
       const membershipRoles = this.db
-        .prepare(`SELECT DISTINCT LOWER(role) as role FROM org_memberships WHERE org_tenant_id = ? AND status = 'active'`)
+        .prepare(
+          `SELECT DISTINCT LOWER(role) as role FROM org_memberships WHERE org_tenant_id = ? AND status = 'active'`,
+        )
         .all(normalizedOrg) as Array<{ role: string }>
       membershipRoles.forEach((row) => row.role && roles.add(normalize(row.role)))
     } catch {
@@ -542,7 +615,9 @@ export class OrgWorkflowActorService {
         )
         .all(normalizedOrg) as Array<{ name: string }>
       orgRoles.forEach((row) => {
-        const slug = normalize(row.name).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+        const slug = normalize(row.name)
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '')
         if (slug) roles.add(slug)
       })
     } catch {
@@ -737,7 +812,11 @@ export class OrgWorkflowActorService {
     const stageAction = normalize(input.stageAction)
 
     const configured = this.resolveConfigured(orgTenantId, workflowType, stageAction)
-    if (configured) return configured
+    // A borrowed money step (job payment, supplier payment, and the rest) may name a person.
+    // A role with nobody named is not an override: use who releases the money, then If nobody is chosen.
+    const unnamedRole =
+      configured?.mode === 'configured_role' && OrgWorkflowActorService.borrowedMoneyStep(workflowType, stageAction)
+    if (configured && !unnamedRole) return configured
 
     // Money steps borrow the purchase-request setup unless this workflow set its own person.
     const sharedStage = SHARED_FINANCE_STAGES[stageAction]
@@ -755,7 +834,7 @@ export class OrgWorkflowActorService {
     }
 
     if (policy.useBuiltInRoleFallbacks) {
-      const roleFallback = ROLE_FALLBACK_BY_STAGE_ACTION[stageAction] || []
+      const roleFallback = roleFallbackFor(workflowType, stageAction)
       const byFallbackRole = findMemberByRole(this.db, orgTenantId, roleFallback)
       if (byFallbackRole?.walletTenantId) {
         return {
@@ -785,6 +864,72 @@ export class OrgWorkflowActorService {
       role: 'owner',
       mode: 'owner_fallback',
     }
+  }
+
+  /**
+   * The other people in the same role who may also act on a step.
+   *
+   * When a step falls to a role — the built-in role order, a role entry in a backup list, a
+   * role default, or the owner stand-in — the organisation meant "a supervisor" / "an owner",
+   * not one person. Every active member with that role then gets the inbox card and the step
+   * on their staff card, so whichever of them is on duty can finish it. Owner and admin count
+   * as one role. A step that names a specific person stays with that person.
+   */
+  public roleStandIns(orgTenantId: string, resolved: ResolvedOrgWorkflowActor): OrgMemberActor[] {
+    if (!OrgWorkflowActorService.resolvedByRole(resolved)) return []
+    const role = normalize(resolved.role)
+    if (!role) return []
+    const roles = OWNER_FALLBACK.includes(role) ? OWNER_FALLBACK : [role]
+    return listMembersByRole(this.db, normalizeId(orgTenantId), roles).filter(
+      (member) => member.userId !== resolved.userId,
+    )
+  }
+
+  /** @deprecated use roleStandIns — kept for callers that only knew about owners. */
+  public ownerStandIns(orgTenantId: string, resolved: ResolvedOrgWorkflowActor): OrgMemberActor[] {
+    return this.roleStandIns(orgTenantId, resolved)
+  }
+
+  /**
+   * May this member finish the step? One answer for the inbox, the finishing endpoints and
+   * the wallet-proof check, so a person is never offered a step they cannot finish:
+   *  - named: this job names them for the step (for example the sign-off person chosen when
+   *    the job was created, or the worker assigned to it);
+   *  - configured: they are the person the organisation chose for the step;
+   *  - role: the step belongs to a role and they hold it (supervisor, owner, …);
+   *  - admin: an owner or admin standing in.
+   */
+  public mayAct(input: ResolveOrgWorkflowActorInput & { userId: string; namedUserId?: string }): {
+    allowed: boolean
+    why?: 'named' | 'configured' | 'role' | 'admin'
+  } {
+    const userId = normalizeId(input.userId)
+    if (!userId) return { allowed: false }
+    const named = normalizeId(input.namedUserId)
+    if (named && named === userId) return { allowed: true, why: 'named' }
+    const resolved = this.resolveActor(input)
+    if (resolved.userId && normalizeId(resolved.userId) === userId) {
+      return { allowed: true, why: OrgWorkflowActorService.resolvedByRole(resolved) ? 'role' : 'configured' }
+    }
+    if (this.roleStandIns(input.orgTenantId, resolved).some((member) => normalizeId(member.userId) === userId)) {
+      return { allowed: true, why: 'role' }
+    }
+    const member = findMemberByUserId(this.db, normalizeId(input.orgTenantId), userId)
+    if (member && OWNER_FALLBACK.includes(normalize(member.role))) return { allowed: true, why: 'admin' }
+    return { allowed: false }
+  }
+
+  /** True when the step was resolved through a role rather than a chosen person or wallet. */
+  public static resolvedByRole(resolved: Pick<ResolvedOrgWorkflowActor, 'mode' | 'via'>): boolean {
+    if (
+      resolved.mode === 'owner_fallback' ||
+      resolved.mode === 'role_fallback' ||
+      resolved.mode === 'configured_role'
+    ) {
+      return true
+    }
+    // A backup-list role entry, or a role default borrowed from the purchase-request money setup.
+    return (resolved.mode === 'policy_fallback' || resolved.mode === 'shared_finance') && resolved.via?.type === 'role'
   }
 
   /** The explicit setting for a stage (person, wallet or role), or undefined when none is saved. */
@@ -843,6 +988,8 @@ export class OrgWorkflowActorService {
             walletTenantId: byRole.walletTenantId,
             role: normalize(byRole.role) || defaultRole,
             mode: 'configured_role',
+            // Remember it was the role that was chosen, so borrowed (shared finance) results keep that.
+            via: { type: 'role', value: defaultRole },
           }
         }
       }
@@ -859,6 +1006,15 @@ export class OrgWorkflowActorService {
   /** Approving, releasing, recording or receipting money. These share the purchase-request people. */
   public static isMoneyStage(stageAction: string): boolean {
     return Object.prototype.hasOwnProperty.call(SHARED_FINANCE_STAGES, normalize(stageAction))
+  }
+
+  /**
+   * A money step on a workflow other than purchase requests. It uses the purchase-request
+   * person unless this workflow names its own person. A role alone is not that person.
+   */
+  public static borrowedMoneyStep(workflowType: string, stageAction: string): boolean {
+    if (!OrgWorkflowActorService.isMoneyStage(stageAction)) return false
+    return !workflowActorTypeCandidates(workflowType).includes(SHARED_FINANCE_WORKFLOW_TYPE)
   }
 }
 

@@ -28,6 +28,7 @@ import { readFile } from 'fs/promises'
 
 import { setupServer } from './server'
 import { generateSecretKey } from './utils/helpers'
+import { createLoopbackFetch } from './utils/loopbackFetch'
 import { TsLogger } from './utils/logger'
 import { holderBindingDid } from './utils/openidMetadata'
 
@@ -159,24 +160,102 @@ export const buildModules = (cfg: {
           const metadata = (issuanceSession.issuanceMetadata as any) ?? {}
           const claims = metadata?.claims || {}
 
+          const assignmentRecordType = String(metadata.credentialDefinitionId || '').startsWith('JobAssignmentVC')
+            ? 'JobAssignmentVC'
+            : String(metadata.credentialDefinitionId || '').startsWith('RequisitionVC') &&
+                claims.jobId &&
+                claims.assignment
+              ? 'RequisitionVC'
+              : undefined
+          if (assignmentRecordType) {
+            const { workflowVcOfferDispatcher } = await import('./services/workflow/WorkflowVcOfferDispatcher')
+            workflowVcOfferDispatcher.assertAssignmentIssuanceCurrent(
+              String(metadata.tenantId || ''),
+              String(claims.jobId || ''),
+              issuanceSession.id,
+              String(claims.assignment?.assigneeId || ''),
+              assignmentRecordType,
+            )
+          }
+
           let subjectDid = metadata?.subjectDid || 'did:example:unknown'
           const boundDid = holderBindingDid(holderBinding)
           if (boundDid) subjectDid = boundDid
 
           const { credentialDefinitionStore } = await import('./utils/credentialDefinitionStore')
-          const credDef = credentialDefinitionStore.get(credentialConfigurationId)
+          const credDef = credentialDefinitionStore.get(
+            credentialConfigurationId,
+            metadata?.tenantId ? String(metadata.tenantId) : undefined,
+          )
           if (!credDef) {
             throw new Error(`Credential definition not found for: ${credentialConfigurationId}`)
           }
 
-          const { DidsApi } = await import('@credo-ts/core')
-          const didsApi = agentContext.dependencyManager.resolve(DidsApi)
-          const [didRecord] = await didsApi.getCreatedDids({ method: 'key' })
-          const issuerDid = credDef.issuerDid || didRecord?.did || 'did:example:issuer'
+          // Only a DID this wallet holds can sign: the organisation's DID when the offer came from
+          // its issuer, otherwise the platform DID (root) or the tenant's own DID.
+          const { signingDidFor } = await import('./services/ssi/PlatformIssuerDid')
+          const issuerDid = await signingDidFor(agentContext, credDef.issuerDid)
 
           const verificationMethod = `${issuerDid}#${issuerDid.split(':').pop()}`
           const credentialId = metadata?.credentialId || `urn:uuid:${issuanceSession.id}`
           const tenantId = metadata?.tenantId || 'default'
+
+          // Selective disclosure: the staff card and role card are issued as IETF SD-JWT VC.
+          // Every claim is its own disclosure, so a share can reveal only the details a
+          // request names and keep the rest on the phone.
+          const configuredFormat = String((credentialConfiguration as any)?.format || '')
+          if (configuredFormat === 'vc+sd-jwt' || configuredFormat === 'dc+sd-jwt') {
+            const { SD_JWT_CONFIG_SUFFIX, sdJwtDisclosureFrame } = await import('./utils/credentialDefinitionStore')
+            const vct =
+              (credentialConfiguration as any)?.vct ||
+              (credentialConfigurationId.endsWith(SD_JWT_CONFIG_SUFFIX)
+                ? credentialConfigurationId.slice(0, -SD_JWT_CONFIG_SUFFIX.length)
+                : credentialConfigurationId)
+            const sdClaims: Record<string, unknown> = {}
+            for (const [key, value] of Object.entries(claims as Record<string, unknown>)) {
+              if (value === undefined || key === 'id') continue
+              sdClaims[key] = value
+            }
+            // One signed card per holder key in the request (Credo requires the counts to match).
+            const bindingKeys: any[] = Array.isArray((holderBinding as any)?.keys) ? (holderBinding as any).keys : []
+            const holders = bindingKeys.map((key) =>
+              key?.method === 'did' && typeof key.didUrl === 'string'
+                ? { method: 'did', didUrl: key.didUrl }
+                : key?.jwk
+                  ? { method: 'jwk', jwk: key.jwk }
+                  : undefined,
+            )
+            if (holders.length === 0) holders.push(undefined)
+
+            // Status entry and issued row, so the card can be withdrawn later. `jti` and
+            // `status` stay outside the disclosure frame: a checker must always see them.
+            const { credentialLifecycleService } = await import('./services/ssi/CredentialLifecycleService')
+            const statusEntry = credentialLifecycleService.registerIssued({
+              issuanceSessionId: issuanceSession.id,
+              tenantId,
+              issuerDid,
+              credentialId,
+              holderDid: subjectDid,
+              credentialDefinitionId: metadata?.credentialDefinitionId || credentialConfigurationId,
+              format: ClaimFormat.SdJwtDc,
+              credentialData: {
+                vct,
+                type: ['VerifiableCredential', vct],
+                credentialSubject: { id: subjectDid, ...sdClaims },
+              },
+            })
+
+            return {
+              type: 'credentials',
+              format: ClaimFormat.SdJwtDc,
+              credentials: holders.map((holder) => ({
+                payload: { vct, jti: credentialId, ...(statusEntry ? { status: statusEntry } : {}), ...sdClaims },
+                ...(holder ? { holder } : {}),
+                issuer: { method: 'did', didUrl: verificationMethod },
+                disclosureFrame: sdJwtDisclosureFrame(sdClaims),
+              })),
+            } as any
+          }
 
           const credentialPayload: Record<string, unknown> = {
             id: credentialId,
@@ -185,44 +264,23 @@ export const buildModules = (cfg: {
             issuer: issuerDid,
             issuanceDate: new Date().toISOString(),
             credentialSubject: {
-              id: subjectDid,
               ...claims,
+              id: subjectDid,
             },
           }
 
-          try {
-            const { statusListAllocatorService } = await import('./services/ssi/StatusListAllocatorService')
-            const allocation = statusListAllocatorService.allocateForTenant(
-              tenantId,
-              issuerDid,
-              'revocation',
-              credentialId,
-            )
-            if (allocation) {
-              credentialPayload.credentialStatus = allocation.entry
-            }
-          } catch (statusErr: any) {
-            agentContext.config.logger.warn(
-              `Status list allocation failed — credential issued without credentialStatus: ${statusErr?.message}`,
-            )
-          }
-
-          try {
-            const { IssuedCredentialRepository } = await import('./persistence/IssuedCredentialRepository')
-            const issuedCredentialRepository = new IssuedCredentialRepository()
-            issuedCredentialRepository.save({
-              id: issuanceSession.id,
-              tenantId,
-              credentialId,
-              holderDid: subjectDid,
-              credentialDefinitionId: metadata?.credentialDefinitionId || credentialConfigurationId,
-              credentialData: credentialPayload,
-              format: ClaimFormat.JwtVc,
-              revoked: false,
-            })
-          } catch (err: any) {
-            console.warn('[CredentialMapper] Failed to persist issued credential:', err?.message)
-          }
+          const { credentialLifecycleService } = await import('./services/ssi/CredentialLifecycleService')
+          const statusEntry = credentialLifecycleService.registerIssued({
+            issuanceSessionId: issuanceSession.id,
+            tenantId,
+            issuerDid,
+            credentialId,
+            holderDid: subjectDid,
+            credentialDefinitionId: metadata?.credentialDefinitionId || credentialConfigurationId,
+            format: ClaimFormat.JwtVc,
+            credentialData: credentialPayload,
+          })
+          if (statusEntry) credentialPayload.credentialStatus = statusEntry
 
           return {
             type: 'credentials',
@@ -301,7 +359,15 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
       }
     : baseModules
 
-  const agent = new Agent({ config: agentConfig, modules: tenantModules as any, dependencies: agentDependencies })
+  const selfUrls = [process.env.PUBLIC_BASE_URL, process.env.OID4VC_BASE_URL].filter((url): url is string => !!url)
+  const dependencies =
+    process.env.OID4VC_LOOPBACK_FETCH === 'false'
+      ? agentDependencies
+      : {
+          ...agentDependencies,
+          fetch: createLoopbackFetch(agentDependencies.fetch, selfUrls, `http://127.0.0.1:${adminPort}`) as any,
+        }
+  const agent = new Agent({ config: agentConfig, modules: tenantModules as any, dependencies })
 
   await agent.initialize()
 
@@ -321,22 +387,9 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
     // Build credentialsSupported from ALL definitions.
     // IMPORTANT: advertise both definition-name IDs (e.g., FinancialStatementDef_jwt_vc_json)
     // and leaf-type IDs (e.g., FinancialStatementCredential_jwt_vc_json) for compatibility.
-    const credentialsSupported = allDefs.flatMap((def) => {
-      const leafType =
-        Array.isArray(def.credentialType) && def.credentialType.length
-          ? def.credentialType[def.credentialType.length - 1]
-          : def.name
-
-      const idBases = Array.from(new Set([def.name, leafType].filter(Boolean)))
-
-      return idBases.map((base) => ({
-        format: def.format === 'sd_jwt' ? 'vc+sd-jwt' : 'jwt_vc_json',
-        id: `${base}_jwt_vc_json`,
-        cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
-        cryptographic_suites_supported: ['EdDSA', 'ES256'],
-        types: def.credentialType || ['VerifiableCredential', base],
-      }))
-    })
+    // Selective-disclosure types (staff card, role card) are also advertised as `vc+sd-jwt`.
+    const { issuerConfigurationsForDefinition } = await import('./utils/credentialDefinitionStore')
+    const credentialsSupported = allDefs.flatMap((def) => issuerConfigurationsForDefinition(def))
 
     const displayMetadata = [
       {
@@ -425,11 +478,22 @@ export async function runRestAgent(restConfig: AriesRestConfig) {
         },
       }
 
+      // Definitions seeded just now (staff card, role card, delegation) were not in the
+      // metadata built above on a first boot; add any configuration that is still missing.
+      const { issuerConfigurationsForDefinition } = await import('./utils/credentialDefinitionStore')
+      const seededConfigs = Object.fromEntries(
+        credentialDefinitionStore
+          .list()
+          .flatMap((def) => issuerConfigurationsForDefinition(def))
+          .map((c) => [c.id, c]),
+      )
+
       await Promise.all(
         existingIssuers.map((issuer: any) =>
           agent.openid4vc.issuer.updateIssuerMetadata({
             issuerId: issuer.issuerId,
             credentialConfigurationsSupported: {
+              ...seededConfigs,
               ...(issuer.credentialConfigurationsSupported || {}),
               [platformSupported.id]: platformSupported,
             },

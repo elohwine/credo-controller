@@ -13,6 +13,7 @@ import {
   Group,
   Modal,
   Paper,
+  Radio,
   Select,
   Stack,
   Table,
@@ -20,11 +21,31 @@ import {
   TextInput,
   Title,
 } from '@mantine/core'
-import { IconAlertCircle, IconCheck, IconPlus, IconTrash, IconUsers } from '@tabler/icons-react'
+import { IconAlertCircle, IconCheck, IconCircleCheck, IconClock, IconPlus, IconSend, IconTrash, IconUsers } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 
 import { useRequireOrgContext } from '@/lib/portalContext'
 import { personLabel, roleLabel } from '@/lib/orgPeople'
+import { TEAM_ROLE_FALLBACK, teamRolesFromCatalog } from '@/utils/orgProfile'
+import {
+  CARD_STATE_COLOR,
+  CARD_STATE_LABEL,
+  ONBOARDING_PATH,
+  SUMMARY_COLOR,
+  SUMMARY_LABEL,
+  DEFAULT_STAFF_CARD_CHANGE,
+  STAFF_CARD_CHANGE_OPTIONS,
+  cardCanResend,
+  cardPurpose,
+  cardResendHint,
+  readyCount,
+  sendCardsPath,
+  staffCardChangeRule,
+  type MemberCardKind,
+  type MemberOnboarding,
+  type StaffCardChangeRule,
+} from '@/lib/orgOnboarding'
+import { SETUP_PROFILE_PATH } from '@/utils/orgProfile'
 interface OrgMember {
   userId: string
   role: string
@@ -46,22 +67,18 @@ export default function OrganizationPeoplePage() {
   const [error, setError] = useState<string | null>(null)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [invitePhone, setInvitePhone] = useState('')
+  const [inviteName, setInviteName] = useState('')
   const [inviteRole, setInviteRole] = useState<string>('member')
   const [inviting, setInviting] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
   const [changingRole, setChangingRole] = useState<string | null>(null)
+  const [onboarding, setOnboarding] = useState<Record<string, MemberOnboarding>>({})
+  const [detailUserId, setDetailUserId] = useState<string | null>(null)
+  const [sending, setSending] = useState<string | null>(null)
+  const [staffCardChange, setStaffCardChange] = useState<StaffCardChangeRule>(DEFAULT_STAFF_CARD_CHANGE)
+  const [savingStaffCardChange, setSavingStaffCardChange] = useState(false)
 
-  const roleChoices = [
-    { value: 'member', label: 'Team member' },
-    { value: 'field_worker', label: 'Field worker' },
-    { value: 'supervisor', label: 'Supervisor' },
-    { value: 'dispatcher', label: 'Dispatcher' },
-    { value: 'approver', label: 'Approver' },
-    { value: 'manager', label: 'Manager' },
-    { value: 'finance_manager', label: 'Finance officer' },
-    { value: 'director', label: 'Director' },
-    { value: 'admin', label: 'Admin' },
-  ]
+  const [roleChoices, setRoleChoices] = useState(TEAM_ROLE_FALLBACK)
 
   const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
 
@@ -74,10 +91,67 @@ export default function OrganizationPeoplePage() {
   }, [])
 
   useEffect(() => {
-    if (orgTenantId) void loadMembers()
+    if (orgTenantId) {
+      void loadMembers()
+      void loadStaffCardChange()
+      void loadRoleChoices()
+    }
   }, [orgTenantId])
 
+  const loadRoleChoices = async () => {
+    const token = getOrgScopedToken() || getPersonalToken()
+    if (!token || !orgTenantId) return
+    try {
+      const res = await axios.get(`${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}/roles`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const list = Array.isArray(res.data) ? res.data : []
+      const fromSetup = teamRolesFromCatalog(list)
+      setRoleChoices(fromSetup.length > 0 ? fromSetup : TEAM_ROLE_FALLBACK)
+    } catch {
+      setRoleChoices(TEAM_ROLE_FALLBACK)
+    }
+  }
+
+  useEffect(() => {
+    if (!roleChoices.some((choice) => choice.value === inviteRole)) {
+      setInviteRole(roleChoices[0]?.value || 'member')
+    }
+  }, [roleChoices, inviteRole])
+
   const getToken = () => getOrgScopedToken() || getPersonalToken()
+
+  const profileUrl = () => `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}${SETUP_PROFILE_PATH}`
+
+  /** Organisation setting: what happens to an earlier staff card when a role changes. */
+  const loadStaffCardChange = async () => {
+    const token = getToken()
+    if (!token || !orgTenantId) return
+    try {
+      const res = await axios.get(profileUrl(), { headers: { Authorization: `Bearer ${token}` } })
+      setStaffCardChange(staffCardChangeRule(res.data?.staffCardChange))
+    } catch {
+      // Keep the default; the table still works.
+    }
+  }
+
+  const handleStaffCardChange = async (value: string) => {
+    const token = getToken()
+    const rule = staffCardChangeRule(value)
+    if (!token || !orgTenantId) return
+    const previous = staffCardChange
+    setStaffCardChange(rule)
+    setSavingStaffCardChange(true)
+    try {
+      await axios.put(profileUrl(), { staffCardChange: rule }, { headers: { Authorization: `Bearer ${token}` } })
+      notifications.show({ title: 'Saved', message: 'Applies the next time a role changes.', color: 'green' })
+    } catch (err: any) {
+      setStaffCardChange(previous)
+      notifications.show({ title: 'Could not save', message: err?.response?.data?.message || err?.message, color: 'red' })
+    } finally {
+      setSavingStaffCardChange(false)
+    }
+  }
 
   const loadMembers = async () => {
     const token = getToken()
@@ -96,6 +170,52 @@ export default function OrganizationPeoplePage() {
     } finally {
       setLoading(false)
     }
+    void loadOnboarding()
+  }
+
+  /** What each person still has to do (app, identity card, staff card, role cards). */
+  const loadOnboarding = async () => {
+    const token = getToken()
+    if (!token || !orgTenantId) return
+    try {
+      const res = await axios.get<MemberOnboarding[]>(
+        `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}${ONBOARDING_PATH}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      const map: Record<string, MemberOnboarding> = {}
+      for (const row of Array.isArray(res.data) ? res.data : []) map[row.userId] = row
+      setOnboarding(map)
+    } catch {
+      // The table still works without it.
+    }
+  }
+
+  const handleSendCards = async (userId: string, kind: MemberCardKind | 'all') => {
+    const token = getToken()
+    if (!token || !orgTenantId) return
+    setSending(`${userId}:${kind}`)
+    try {
+      const res = await axios.post(
+        `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}${sendCardsPath(userId)}`,
+        { kind },
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      const sent: string[] = res.data?.sent || []
+      const skipped: Array<{ reason: string }> = res.data?.skipped || []
+      if (res.data?.member) setOnboarding((prev) => ({ ...prev, [userId]: res.data.member }))
+      notifications.show({
+        title: sent.length > 0 ? 'Sent' : 'Nothing new to send',
+        message:
+          sent.length > 0
+            ? 'They will find it in their app inbox.'
+            : skipped[0]?.reason || 'Everything they need is already in their app.',
+        color: sent.length > 0 ? 'green' : 'gray',
+      })
+    } catch (err: any) {
+      notifications.show({ title: 'Could not send', message: err?.response?.data?.message || err?.message, color: 'red' })
+    } finally {
+      setSending(null)
+    }
   }
 
   const handleInvite = async () => {
@@ -103,13 +223,19 @@ export default function OrganizationPeoplePage() {
     if (!token || !orgTenantId || !invitePhone.trim()) return
     setInviting(true)
     try {
-      await axios.post(
+      const res = await axios.post(
         `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}/members/invite`,
-        { phone: invitePhone.trim(), role: inviteRole },
+        { phone: invitePhone.trim(), role: inviteRole, ...(inviteName.trim() ? { name: inviteName.trim() } : {}) },
         { headers: { Authorization: `Bearer ${token}` } },
       )
-      notifications.show({ title: 'Invite sent', message: invitePhone.trim(), color: 'green', icon: <IconCheck size={16} /> })
+      notifications.show({
+        title: 'On the team',
+        message: res.data?.message || invitePhone.trim(),
+        color: 'green',
+        icon: <IconCheck size={16} />,
+      })
       setInvitePhone('')
+      setInviteName('')
       setInviteOpen(false)
       void loadMembers()
     } catch (err: any) {
@@ -129,7 +255,11 @@ export default function OrganizationPeoplePage() {
         { role },
         { headers: { Authorization: `Bearer ${token}` } },
       )
-      notifications.show({ title: 'Role updated', message: roleLabel(role), color: 'green' })
+      notifications.show({
+        title: 'Role updated',
+        message: `${roleLabel(role)}. A new staff card is on its way to their app inbox.`,
+        color: 'green',
+      })
       void loadMembers()
     } catch (err: any) {
       notifications.show({ title: 'Could not change role', message: err?.response?.data?.message || err?.message, color: 'red' })
@@ -199,7 +329,19 @@ export default function OrganizationPeoplePage() {
           {orgTenantId && (
             <Card withBorder radius="md" p="lg">
               <Group justify="space-between" mb="md">
-                <Title order={4}>Team Members</Title>
+                <Box>
+                  <Title order={4}>Team Members</Title>
+                  {members.length > 0 && Object.keys(onboarding).length > 0 && (() => {
+                    const counts = readyCount(Object.values(onboarding))
+                    return (
+                      <Text size="sm" c="dimmed" mt={2}>
+                        {counts.ready === counts.total
+                          ? 'Everyone has what they need in the app.'
+                          : `${counts.ready} of ${counts.total} ready. Open a person to see what is still missing.`}
+                      </Text>
+                    )
+                  })()}
+                </Box>
                 <Badge variant="light">{members.length}</Badge>
               </Group>
 
@@ -222,12 +364,15 @@ export default function OrganizationPeoplePage() {
                       <Table.Th>Person</Table.Th>
                       <Table.Th>Role</Table.Th>
                       <Table.Th>Status</Table.Th>
+                      <Table.Th>Getting started</Table.Th>
                       <Table.Th>Joined</Table.Th>
                       <Table.Th />
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
-                    {members.map((m) => (
+                    {members.map((m) => {
+                      const ob = onboarding[m.userId]
+                      return (
                       <Table.Tr key={m.userId}>
                         <Table.Td>
                           <Text size="sm" fw={500}>{personLabel(m)}</Text>
@@ -258,6 +403,24 @@ export default function OrganizationPeoplePage() {
                           </Badge>
                         </Table.Td>
                         <Table.Td>
+                          {ob ? (
+                            <Button
+                              size="compact-xs"
+                              variant="light"
+                              color={SUMMARY_COLOR[ob.summary]}
+                              leftSection={ob.summary === 'ready' ? <IconCircleCheck size={12} /> : <IconClock size={12} />}
+                              onClick={() => setDetailUserId(m.userId)}
+                            >
+                              {SUMMARY_LABEL[ob.summary]}
+                              {ob.summary !== 'ready' && ob.summary !== 'no_app'
+                                ? ` · ${ob.cards.filter((c) => c.state === 'accepted').length}/${ob.cards.length}`
+                                : ''}
+                            </Button>
+                          ) : (
+                            <Text size="xs" c="dimmed">—</Text>
+                          )}
+                        </Table.Td>
+                        <Table.Td>
                           <Text size="xs" c="dimmed">
                             {m.createdAt ? new Date(m.createdAt).toLocaleDateString() : '—'}
                           </Text>
@@ -277,10 +440,37 @@ export default function OrganizationPeoplePage() {
                           )}
                         </Table.Td>
                       </Table.Tr>
-                    ))}
+                      )
+                    })}
                   </Table.Tbody>
                 </Table>
               )}
+            </Card>
+          )}
+
+          {orgTenantId && (
+            <Card withBorder radius="md" p="lg">
+              <Title order={4}>When a role changes</Title>
+              <Text size="sm" c="dimmed" mt={2} mb="md">
+                The person gets a new staff card in their app inbox. Choose what happens to the one they already hold.
+              </Text>
+              <Radio.Group value={staffCardChange} onChange={(value) => void handleStaffCardChange(value)}>
+                <Stack gap="sm">
+                  {STAFF_CARD_CHANGE_OPTIONS.map((option) => (
+                    <Radio
+                      key={option.value}
+                      value={option.value}
+                      label={option.label}
+                      description={option.hint}
+                      disabled={savingStaffCardChange}
+                    />
+                  ))}
+                </Stack>
+              </Radio.Group>
+              <Text size="xs" c="dimmed" mt="md">
+                When someone leaves, their staff card stops working straight away. Either way, the earlier card stays on their
+                phone until they remove it from Records.
+              </Text>
             </Card>
           )}
         </Stack>
@@ -290,27 +480,25 @@ export default function OrganizationPeoplePage() {
         <Stack gap="md">
           <TextInput
             label="Phone number"
-            description="The number they use to sign in to the app"
+            description="If they do not have an account yet, we open one and message them. They choose their own PIN the first time they sign in."
             placeholder="0774 123 456"
             value={invitePhone}
             onChange={(e) => setInvitePhone(e.currentTarget.value)}
             required
           />
+          <TextInput
+            label="Name"
+            description="What the team calls them. Their own name replaces it once they add it in the app."
+            placeholder="Tendai Moyo"
+            value={inviteName}
+            onChange={(e) => setInviteName(e.currentTarget.value)}
+          />
           <Select
             label="Role"
-            data={[
-              { value: 'member', label: 'Member' },
-              { value: 'field_worker', label: 'Field Worker' },
-              { value: 'supervisor', label: 'Supervisor / Inspector' },
-              { value: 'dispatcher', label: 'Dispatcher' },
-              { value: 'approver', label: 'Approver' },
-              { value: 'manager', label: 'Manager' },
-              { value: 'finance_manager', label: 'Finance Officer' },
-              { value: 'director', label: 'Director' },
-              { value: 'admin', label: 'Admin' },
-            ]}
-            value={inviteRole}
-            onChange={(v) => setInviteRole(v || 'member')}
+            description="Taken from the answers you gave when this organisation was set up."
+            data={roleChoices}
+            value={roleChoices.some((choice) => choice.value === inviteRole) ? inviteRole : roleChoices[0]?.value || 'member'}
+            onChange={(v) => setInviteRole(v || roleChoices[0]?.value || 'member')}
           />
           <Group justify="flex-end">
             <Button variant="default" onClick={() => setInviteOpen(false)}>Cancel</Button>
@@ -325,6 +513,98 @@ export default function OrganizationPeoplePage() {
           </Group>
         </Stack>
       </Modal>
+
+      {(() => {
+        const ob = detailUserId ? onboarding[detailUserId] : null
+        const member = detailUserId ? members.find((m) => m.userId === detailUserId) : null
+        const name = ob?.displayName || (member ? personLabel(member) : 'Team member')
+        return (
+          <Modal opened={Boolean(ob)} onClose={() => setDetailUserId(null)} title={`Getting ${name} started`} centered size="lg">
+            {ob && (
+              <Stack gap="md">
+                <Group gap="xs">
+                  <Badge color={SUMMARY_COLOR[ob.summary]} variant="light">{SUMMARY_LABEL[ob.summary]}</Badge>
+                  <Badge variant="outline" color="gray">{roleLabel(ob.role)}</Badge>
+                </Group>
+                <Text size="sm">{ob.nextStep}</Text>
+
+                <Stack gap="xs">
+                  <Paper withBorder p="sm" radius="md">
+                    <Group justify="space-between" wrap="nowrap">
+                      <Group gap="sm" wrap="nowrap">
+                        {ob.hasApp ? <IconCircleCheck size={18} color="var(--mantine-color-teal-6)" /> : <IconClock size={18} color="var(--mantine-color-gray-5)" />}
+                        <Box>
+                          <Text size="sm" fw={600}>Signed in to the app</Text>
+                          <Text size="xs" c="dimmed">
+                            {ob.hasApp ? 'They have the app and can receive cards.' : `They sign in with ${ob.phone || 'their phone number'} and a PIN. Cards are sent after that.`}
+                          </Text>
+                        </Box>
+                      </Group>
+                      <Badge size="sm" variant="light" color={ob.hasApp ? 'teal' : 'gray'}>{ob.hasApp ? 'Done' : 'Not yet'}</Badge>
+                    </Group>
+                  </Paper>
+
+                  {ob.cards.map((card) => (
+                    <Paper key={`${card.kind}:${card.workflowType || ''}`} withBorder p="sm" radius="md">
+                      <Group justify="space-between" wrap="nowrap" align="start">
+                        <Group gap="sm" wrap="nowrap" align="start">
+                          {card.state === 'accepted' ? <IconCircleCheck size={18} color="var(--mantine-color-teal-6)" /> : <IconClock size={18} color="var(--mantine-color-gray-5)" />}
+                          <Box>
+                            <Text size="sm" fw={600}>{card.label}</Text>
+                            <Text size="xs" c="dimmed">{cardPurpose(card)}</Text>
+                            {card.state === 'accepted' && card.acceptedAt && (
+                              <Text size="xs" c="dimmed">Accepted {new Date(card.acceptedAt).toLocaleDateString()}</Text>
+                            )}
+                            {card.state === 'waiting' && card.sentAt && (
+                              <Text size="xs" c="dimmed">Sent {new Date(card.sentAt).toLocaleDateString()}. It is in their app inbox.</Text>
+                            )}
+                            {cardResendHint(card) && (
+                              <Text size="xs" c="dimmed">{cardResendHint(card)}</Text>
+                            )}
+                          </Box>
+                        </Group>
+                        <Stack gap={4} align="end">
+                          <Badge size="sm" variant="light" color={CARD_STATE_COLOR[card.state]}>{CARD_STATE_LABEL[card.state]}</Badge>
+                          {cardCanResend(card) && ob.hasApp && (
+                            <Button
+                              size="compact-xs"
+                              variant="subtle"
+                              leftSection={<IconSend size={12} />}
+                              loading={sending === `${ob.userId}:${card.kind}`}
+                              onClick={() => void handleSendCards(ob.userId, card.kind)}
+                            >
+                              {card.state === 'not_sent' ? 'Send' : 'Send again'}
+                            </Button>
+                          )}
+                        </Stack>
+                      </Group>
+                    </Paper>
+                  ))}
+
+                  {ob.hasApp && !(ob.cards.find((c) => c.kind === 'employee')?.covers?.length) && (
+                    <Text size="xs" c="dimmed">
+                      Their staff card is enough for now. Who goes out and who checks the work is chosen on each job.
+                    </Text>
+                  )}
+                </Stack>
+
+                <Group justify="space-between">
+                  <Button variant="default" onClick={() => setDetailUserId(null)}>Close</Button>
+                  {ob.hasApp && ob.summary !== 'ready' && (
+                    <Button
+                      leftSection={<IconSend size={14} />}
+                      loading={sending === `${ob.userId}:all`}
+                      onClick={() => void handleSendCards(ob.userId, 'all')}
+                    >
+                      Send everything missing
+                    </Button>
+                  )}
+                </Group>
+              </Stack>
+            )}
+          </Modal>
+        )
+      })()}
     </Layout>
   )
 }

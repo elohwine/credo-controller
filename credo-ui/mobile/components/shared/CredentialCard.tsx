@@ -4,6 +4,7 @@ import { IconShieldCheck, IconChevronRight, IconCalendar } from '@tabler/icons-r
 import dayjs from 'dayjs';
 import StatusBadge from './StatusBadge';
 import { formatCredentialType, formatIssuerName } from '@/lib/format';
+import { formatTxnTime } from '@/lib/inboxAttention';
 
 export interface CredentialCardProps {
     id: string;
@@ -12,7 +13,9 @@ export interface CredentialCardProps {
     issuedAt: string;
     expiresAt?: string;
     claims?: Record<string, any>;
-    status?: 'valid' | 'archived' | 'expired';
+    status?: 'valid' | 'archived' | 'expired' | 'withdrawn' | 'replaced';
+    /** Title shown instead of the type name (for example "Job card · FR-12"). */
+    title?: string;
     onClick?: () => void;
 }
 
@@ -23,26 +26,39 @@ export default function CredentialCard({
     expiresAt,
     claims = {},
     status = 'valid',
+    title,
     onClick
 }: CredentialCardProps) {
-    const label = formatCredentialType(type);
+    const label = title || formatCredentialType(type);
     const issuerName = formatIssuerName(issuer);
     const expired = expiresAt ? dayjs(expiresAt).isBefore(dayjs()) : false;
-    const displayStatus = expired ? 'expired' : status;
+    const displayStatus = status === 'withdrawn' || status === 'replaced' || status === 'archived'
+        ? status
+        : expired ? 'expired' : status;
 
-    // Premium background based on type
+    // A card that is no longer live gets its own colour, whatever its type, so it cannot be
+    // mistaken for one that still works. Grey is expired, amber is replaced, red is withdrawn.
     const getGradient = () => {
+        if (displayStatus === 'expired' || displayStatus === 'archived') {
+            return 'linear-gradient(135deg, #495057 0%, #868e96 100%)';
+        }
+        if (displayStatus === 'replaced') {
+            return 'linear-gradient(135deg, #8a5a12 0%, #c48a2a 100%)';
+        }
+        if (displayStatus === 'withdrawn') {
+            return 'linear-gradient(135deg, #7f1d1d 0%, #c92a2a 100%)';
+        }
         const t = type.toLowerCase();
         if (t.includes('id') || t.includes('identity') || t.includes('passport')) {
-            return 'linear-gradient(135deg, #2188ca 0%, #6fb4dc 100%)'; // Blue for Identity
+            return 'linear-gradient(135deg, #0a3d62 0%, #1565a0 100%)';
         }
         if (t.includes('receipt') || t.includes('payment') || t.includes('invoice')) {
-            return 'linear-gradient(135deg, #1fb87e 0%, #4edda9 100%)'; // Green for Finance
+            return 'linear-gradient(135deg, #0e5c3d 0%, #128f5b 100%)';
         }
-        if (t.includes('employment') || t.includes('staff') || t.includes('job')) {
-            return 'linear-gradient(135deg, #7950f2 0%, #be4bdb 100%)'; // Purple for Employment
+        if (t.includes('employee') || t.includes('employment') || t.includes('staff') || t.includes('job')) {
+            return 'linear-gradient(135deg, #5f3dc4 0%, #862e9c 100%)';
         }
-        return 'linear-gradient(135deg, #495057 0%, #adb5bd 100%)'; // Gray for Other
+        return 'linear-gradient(135deg, #343a40 0%, #495057 100%)';
     };
 
     return (
@@ -77,7 +93,7 @@ export default function CredentialCard({
             <Stack gap="md" style={{ position: 'relative', zIndex: 2 }}>
                 <Group justify="space-between" align="flex-start" wrap="nowrap">
                     <Box style={{ flex: 1 }}>
-                        <Text fw={800} size="xl" lh={1.1} style={{ letterSpacing: '-0.02em' }}>
+                        <Text fw={800} size="xl" lh={1.1} c="#ffffff" style={{ letterSpacing: '-0.02em' }}>
                             {label}
                         </Text>
                         <Text size="xs" fw={500} c="rgba(255,255,255,0.8)" mt={2}>
@@ -97,13 +113,13 @@ export default function CredentialCard({
                                 Issued On
                             </Text>
                         </Group>
-                        <Text size="sm" fw={700}>
-                            {dayjs(issuedAt).format('D MMM YYYY')}
+                        <Text size="sm" fw={700} c="#ffffff">
+                            {formatTxnTime(issuedAt)}
                         </Text>
                     </Box>
 
                     <Box style={{ textAlign: 'right' }}>
-                        <StatusBadge status={displayStatus} />
+                        <StatusBadge status={displayStatus} onColor />
                     </Box>
                 </Group>
             </Stack>

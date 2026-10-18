@@ -5,6 +5,8 @@ import Layout from '@/components/Layout';
 import { UserGroupIcon, ClockIcon, CurrencyDollarIcon, BriefcaseIcon, DocumentTextIcon, UserPlusIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { BRAND, formatCurrency } from '@/lib/theme';
 import { EnvContext } from '@/pages/_app';
+import { requestStatusWords } from '@/lib/requestCatalog';
+import { getOrgScopedToken, getPersonalToken, readActiveOrganization } from '@/utils/organizationContext';
 
 
 interface Employee {
@@ -17,24 +19,16 @@ interface Employee {
   status: string;
 }
 
-interface LeaveRequest {
+/** A time-off or expense request from the platform request engine. */
+interface HrRequest {
   id: string;
-  employeeId: string;
-  leaveType: string;
-  startDate: string;
-  endDate: string;
-  status: string;
-  approvalVcId?: string;
+  title?: string;
+  amount?: number | null;
+  currency?: string | null;
+  status?: string;
 }
 
-interface ExpenseClaim {
-  id: string;
-  employeeId: string;
-  amount: number;
-  currency: string;
-  status: string;
-  approvalVcId?: string;
-}
+const WAITING_STATUSES = new Set(['submitted', 'pending', 'in_review', 'under_review']);
 
 interface OnboardingCase {
   id: string;
@@ -49,8 +43,8 @@ export default function HRHub() {
   const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
 
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
-  const [expenseClaims, setExpenseClaims] = useState<ExpenseClaim[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<HrRequest[]>([]);
+  const [expenseClaims, setExpenseClaims] = useState<HrRequest[]>([]);
   const [onboardingCases, setOnboardingCases] = useState<OnboardingCase[]>([]);
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -74,21 +68,30 @@ export default function HRHub() {
     setLoading(true);
     setError(null);
     try {
-      const [employeesRes, leaveRes, expenseRes, onboardingRes] = await Promise.all([
+      const org = readActiveOrganization();
+      const token = (org?.orgTenantId ? getOrgScopedToken() : null) || getPersonalToken();
+      const requestsOf = async (requestType: string): Promise<HrRequest[]> => {
+        if (!token) return [];
+        const res = await fetch(`${backendUrl}/api/platform/requests?requestType=${encodeURIComponent(requestType)}&limit=20`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data?.items) ? data.items : [];
+      };
+      const [employeesRes, leaveData, expenseData, onboardingRes] = await Promise.all([
         fetch(`${backendUrl}/api/payroll/employees`),
-        fetch(`${backendUrl}/api/operations/leave`),
-        fetch(`${backendUrl}/api/operations/expenses`),
+        requestsOf('hr.leave'),
+        requestsOf('finance.expense_claim'),
         fetch(`${backendUrl}/api/onboarding/cases`),
       ]);
 
       const employeesData = await employeesRes.json();
-      const leaveData = await leaveRes.json();
-      const expenseData = await expenseRes.json();
       const onboardingData = await onboardingRes.json();
 
       setEmployees(employeesData || []);
-      setLeaveRequests(leaveData || []);
-      setExpenseClaims(expenseData || []);
+      setLeaveRequests(leaveData);
+      setExpenseClaims(expenseData);
       setOnboardingCases(onboardingData?.cases || []);
     } catch (err: any) {
       setError(err.message || 'Failed to load HR data');
@@ -122,8 +125,8 @@ export default function HRHub() {
     }
   };
 
-  const pendingLeave = leaveRequests.filter((l) => l.status === 'pending').length;
-  const pendingExpenses = expenseClaims.filter((e) => e.status === 'pending').length;
+  const pendingLeave = leaveRequests.filter((l) => WAITING_STATUSES.has(String(l.status))).length;
+  const pendingExpenses = expenseClaims.filter((e) => WAITING_STATUSES.has(String(e.status))).length;
   const activeOnboarding = onboardingCases.filter((c) => c.status !== 'completed').length;
 
   return (
@@ -195,7 +198,7 @@ export default function HRHub() {
               </div>
               <div>
                 <h3 className="font-semibold" style={{ color: BRAND.dark }}>HR Operations</h3>
-                <p className="text-sm text-gray-500">Leave, expenses, approvals with VC trail</p>
+                <p className="text-sm text-gray-500">Time off and expense claims</p>
               </div>
             </div>
           </Link>
@@ -313,11 +316,10 @@ export default function HRHub() {
                 <ul className="divide-y">
                   {leaveRequests.slice(0, 5).map((req) => (
                     <li key={req.id} className="py-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium" style={{ color: BRAND.dark }}>{req.employeeId} · {req.leaveType}</span>
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${req.status === 'approved' ? 'bg-green-100 text-green-800' : req.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'}`}>{req.status}</span>
-                      </div>
-                      {req.approvalVcId && <div className="text-xs mt-1" style={{ color: BRAND.curious }}>VC: {req.approvalVcId.slice(0, 18)}...</div>}
+                      <Link href={`/requests?request=${encodeURIComponent(req.id)}`} className="flex justify-between items-center">
+                        <span className="text-sm font-medium" style={{ color: BRAND.dark }}>{req.title || 'Time off'}</span>
+                        <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-800">{requestStatusWords(req.status).label}</span>
+                      </Link>
                     </li>
                   ))}
                 </ul>
@@ -336,11 +338,10 @@ export default function HRHub() {
                 <ul className="divide-y">
                   {expenseClaims.slice(0, 5).map((claim) => (
                     <li key={claim.id} className="py-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium" style={{ color: BRAND.dark }}>{claim.employeeId} · {formatCurrency(claim.amount, claim.currency)}</span>
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${claim.status === 'approved' ? 'bg-green-100 text-green-800' : claim.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'}`}>{claim.status}</span>
-                      </div>
-                      {claim.approvalVcId && <div className="text-xs mt-1" style={{ color: BRAND.curious }}>VC: {claim.approvalVcId.slice(0, 18)}...</div>}
+                      <Link href={`/requests?request=${encodeURIComponent(claim.id)}`} className="flex justify-between items-center">
+                        <span className="text-sm font-medium" style={{ color: BRAND.dark }}>{claim.title || 'Expense claim'}{claim.amount ? ` · ${formatCurrency(claim.amount, claim.currency || 'USD')}` : ''}</span>
+                        <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-800">{requestStatusWords(claim.status).label}</span>
+                      </Link>
                     </li>
                   ))}
                 </ul>

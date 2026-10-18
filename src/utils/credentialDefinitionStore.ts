@@ -91,7 +91,11 @@ class CredentialDefinitionStore {
     })
   }
 
-  public get(id: string): CredentialDefinitionStoreRecord | undefined {
+  /**
+   * Resolve a definition by id, config id or type name. Pass the issuing tenant so a type name
+   * shared by several organisations resolves to that organisation's own definition (and DID).
+   */
+  public get(id: string, tenantId?: string): CredentialDefinitionStoreRecord | undefined {
     const db = DatabaseManager.getDatabase()
 
     // Strip common format suffixes that may be appended to the credential type name
@@ -133,6 +137,20 @@ class CredentialDefinitionStore {
       row = db
         .prepare('SELECT * FROM credential_definitions WHERE credential_definition_id = ?')
         .get(baseId) as typeof row
+    }
+
+    if (!row && tenantId) {
+      row = db
+        .prepare(
+          `
+        SELECT * FROM credential_definitions
+        WHERE tenant_id = ?
+          AND (json_extract(definition_data, '$.name') = ? OR json_extract(definition_data, '$.credentialType') LIKE ?)
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+        )
+        .get(tenantId, baseId, `%"${baseId}"%`) as typeof row
     }
 
     // If not found, try to find by credential type name in the definition_data using base ID
@@ -252,3 +270,91 @@ class CredentialDefinitionStore {
 }
 
 export const credentialDefinitionStore = new CredentialDefinitionStore()
+
+/**
+ * Credential types issued with selective disclosure (IETF SD-JWT VC, format `vc+sd-jwt`).
+ * Each claim is its own disclosure, so a share for one step reveals only the details the
+ * request names (organisation, role, status, steps) and keeps the rest on the phone.
+ * The staff card (EmployeeCredential) and the role card (OrgWorkflowActorCredential) are
+ * the two cards people present at job and request steps.
+ */
+export const SELECTIVE_DISCLOSURE_VC_TYPES = ['EmployeeCredential', 'OrgWorkflowActorCredential'] as const
+
+export const SD_JWT_CONFIG_SUFFIX = '_vc+sd-jwt'
+export const JWT_VC_JSON_CONFIG_SUFFIX = '_jwt_vc_json'
+
+export function isSelectiveDisclosureVcType(credentialType: string | undefined | null): boolean {
+  return (SELECTIVE_DISCLOSURE_VC_TYPES as readonly string[]).includes(String(credentialType || ''))
+}
+
+/**
+ * Disclosure frame for an SD-JWT card. Each ordinary claim is one disclosure.
+ * A list of steps is disclosed one step at a time, so a request can ask for a
+ * single step and the rest of the list stays on the phone.
+ */
+export function sdJwtDisclosureFrame(claims: Record<string, unknown>): Record<string, unknown> {
+  const scalars: string[] = []
+  const frame: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(claims)) {
+    if (Array.isArray(value) && value.length > 0 && value.every((item) => item == null || typeof item !== 'object')) {
+      frame[key] = { _sd: value.map((_, index) => index) }
+      continue
+    }
+    scalars.push(key)
+  }
+  if (scalars.length > 0) frame._sd = scalars
+  return frame
+}
+
+/** Issuer credential-configuration id used when offering `credentialType`. */
+export function issuerConfigurationIdFor(credentialType: string): string {
+  return `${credentialType}${isSelectiveDisclosureVcType(credentialType) ? SD_JWT_CONFIG_SUFFIX : JWT_VC_JSON_CONFIG_SUFFIX}`
+}
+
+/**
+ * Credential configurations advertised by the issuer for one definition. Every definition is
+ * offered as `jwt_vc_json`; selective-disclosure types are also offered as `vc+sd-jwt` with a
+ * `vct` equal to the credential type so the holder stores an SD-JWT record.
+ */
+export function issuerConfigurationsForDefinition(def: {
+  name: string
+  credentialType?: string[]
+  format?: string
+}): Array<Record<string, unknown> & { id: string; format: string }> {
+  const leafType =
+    Array.isArray(def.credentialType) && def.credentialType.length
+      ? def.credentialType[def.credentialType.length - 1]
+      : def.name
+  const idBases = Array.from(new Set([def.name, leafType].filter(Boolean)))
+  const common = {
+    cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
+    credential_signing_alg_values_supported: ['EdDSA', 'ES256'],
+    proof_types_supported: { jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] } },
+  }
+
+  return idBases.flatMap((base) => {
+    const jwtId = `${base}${JWT_VC_JSON_CONFIG_SUFFIX}`
+    const configs: Array<Record<string, unknown> & { id: string; format: string }> = [
+      {
+        id: jwtId,
+        format: 'jwt_vc_json',
+        scope: base,
+        ...common,
+        credential_definition: { type: def.credentialType || ['VerifiableCredential', base] },
+        display: [{ name: base, locale: 'en-US' }],
+      },
+    ]
+    if (isSelectiveDisclosureVcType(base) || def.format === 'sd_jwt') {
+      const sdId = `${base}${SD_JWT_CONFIG_SUFFIX}`
+      configs.push({
+        id: sdId,
+        format: 'vc+sd-jwt',
+        scope: `${base}:sd`,
+        vct: base,
+        ...common,
+        display: [{ name: base, locale: 'en-US' }],
+      })
+    }
+    return configs
+  })
+}

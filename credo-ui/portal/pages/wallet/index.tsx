@@ -1,6 +1,7 @@
 import React, { useState, useContext, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '@/components/Layout';
+import { StepHelp } from '@/components/help/StepHelp';
 import { EnvContext } from '@/pages/_app';
 import {
     Container,
@@ -21,7 +22,6 @@ import {
     Menu,
     Modal,
     ScrollArea,
-    Code,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -38,20 +38,39 @@ import {
     IconAlertCircle,
     IconUser,
     IconBrandWhatsapp,
+    IconTrash,
 } from '@tabler/icons-react';
 import axios from 'axios';
 import { getPersonalWalletTenantId, getPersonalWalletToken } from '@/utils/portalTenant';
-import { clearStoredOrganizationContext, getOrgScopedToken } from '@/utils/organizationContext';
+import { clearCurrentSession } from '@/lib/savedAccounts';
+import { cardLife, readArchivedCardIds, setCardArchived } from '@/lib/cardLife';
+import { formatTxnTime } from '@/lib/inboxAttention';
+import { CLAIM_LABELS, HIDDEN_CLAIMS, credentialClaimRows, plainStep } from '@/lib/recordCheck';
+import RecordCheckPanel from '@/components/records/RecordCheckPanel';
+import { clearStoredOrganizationContext, getOrgScopedToken, readActiveOrganization } from '@/utils/organizationContext';
+import { sharePurposeLine } from '@/components/finance/financeStages';
+import {
+    RECORD_SECTION_LABELS, RECORD_SECTION_ORDER, recordCardTitle, recordSectionOf, type RecordSectionKey,
+} from '@/lib/workflowCapabilities';
 
 interface WalletCredential {
     id: string;
     type: string;
     issuerDid: string;
+    /** The organisation behind the issuer key, when the card's claims do not name it. */
+    issuerName?: string;
     addedOn: string;
+    /** The issuer withdrew this card (role changed, left the organisation, or a newer card replaced it). */
+    withdrawn?: boolean;
+    revocationReason?: string;
+    /** The person filed a still-valid card themselves. */
+    archived?: boolean;
+    issuedId?: string;
     parsedDocument?: {
         credentialSubject?: Record<string, any>;
         issuer?: string | { id: string };
         issuanceDate?: string;
+        expirationDate?: string;
         type?: string[];
     };
 }
@@ -75,12 +94,31 @@ const CREDENTIAL_COLORS: Record<string, string> = {
     GenericIDCredential: 'violet',
 };
 
+/** Cards the team list already names in plain words. Same labels on portal and phone. */
+const CARD_LABELS: Record<string, string> = {
+    EmployeeCredential: 'Staff card',
+    PlatformIdentityCredential: 'Identity card',
+    PlatformIdentityVC: 'Identity card',
+    OrgWorkflowActorCredential: 'Role card (older)',
+    LeaveApprovalVC: 'Leave approved',
+    ExpenseApprovalVC: 'Expense approved',
+};
+
 function formatCredentialType(type: string): string {
+    if (CARD_LABELS[type]) return CARD_LABELS[type];
     return type
         .replace(/VC$/, '')
         .replace(/Credential$/, '')
         .replace(/([A-Z])/g, ' $1')
         .trim();
+}
+
+/** Who gave the person this record: the organisation, school or shop named on the card. */
+function credentialIssuerLabel(subject: Record<string, any> | undefined, issuer?: string | null): string {
+    const named = subject?.orgName || subject?.merchantName || subject?.schoolName || subject?.organizationName || subject?.platformName;
+    if (typeof named === 'string' && named.trim()) return named.trim();
+    if (issuer && !issuer.startsWith('did:')) return issuer;
+    return 'Verified issuer';
 }
 
 function queryValue(value: string | string[] | undefined): string | undefined {
@@ -193,41 +231,56 @@ function resolveCredentialId(match: any): string | undefined {
     return undefined;
 }
 
-function extractRequestedClaims(match: any): Array<{ label: string; value: string }> {
-    if (match?.claims && typeof match.claims === 'object' && !Array.isArray(match.claims)) {
-        const rows = Object.entries(match.claims)
-            .filter(([, value]) => value != null && String(value).trim() !== '' && !String(value).startsWith('did:'))
-            .slice(0, 6)
-            .map(([key, value]) => ({
-                label: key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (char) => char.toUpperCase()),
-                value: String(value),
-            }));
-        if (rows.length > 0) return rows;
+function prettyClaimValue(key: string, value: string): string {
+    if (key === 'stageActions') {
+        return value.split(',').map((step) => plainStep(step)).filter(Boolean).join(', ');
     }
-    const document = credentialDocument(match);
-    if (!document) return [];
+    if ((key === 'role' || key === 'memberRole') && value.includes('_')) return value.replace(/_/g, ' ');
+    if (key === 'issuedAt' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+        const when = new Date(value);
+        if (!Number.isNaN(when.getTime())) return formatTxnTime(value);
+    }
+    return value;
+}
 
-    const subject = document.credentialSubject || document.vc?.credentialSubject;
-    if (!subject || typeof subject !== 'object') return [];
-    const nested = subject.claims && typeof subject.claims === 'object' ? subject.claims : {};
-    const flat = { ...subject, ...nested };
-
-    return Object.entries(flat)
-        .filter(([key, value]) => key !== 'id' && key !== 'claims' && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') && String(value).trim() !== '')
-        .filter(([, value]) => !String(value).startsWith('did:'))
-        .slice(0, 6)
-        .map(([key, value]) => ({
-            label: key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (char) => char.toUpperCase()),
-            value: String(value),
-        }));
+/**
+ * The wallet server decides the split: `claims` are the details this request asked for and the
+ * record will reveal; `withheld` are the details that stay with the person (a selective-disclosure
+ * card). A whole card (older record, or a request that cannot name claims) has nothing withheld.
+ */
+function splitShareClaims(match: any): { shared: Array<{ label: string; value: string }>; withheld: Array<{ label: string; value: string }> } {
+    const toRows = (source: unknown, held = false): Array<{ label: string; value: string }> => {
+        const entries: Array<[string, unknown]> = source && typeof source === 'object' && !Array.isArray(source)
+            ? Object.entries(source as Record<string, unknown>)
+            : [];
+        const rows: Array<{ label: string; value: string }> = [];
+        const seen = new Set<string>();
+        for (const [key, raw] of entries) {
+            if (raw == null || HIDDEN_CLAIMS.test(key)) continue;
+            const value = prettyClaimValue(String(key), String(raw)).trim();
+            if (!value || value.startsWith('did:')) continue;
+            const label = key === 'stageActions' && held
+                ? 'Other steps on your card'
+                : key === 'stageActions' && !value.includes(',')
+                ? 'This step'
+                : CLAIM_LABELS[key] || key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (char) => char.toUpperCase());
+            const stamp = `${label}:${value}`;
+            if (seen.has(stamp)) continue;
+            seen.add(stamp);
+            rows.push({ label, value });
+        }
+        return rows;
+    };
+    return { shared: toRows(match?.claims), withheld: toRows(match?.withheld, true) };
 }
 
 function CredentialCard({ credential, onView }: { credential: WalletCredential; onView: () => void }) {
-    const displayType = formatCredentialType(credential.type);
+    const subject = credential.parsedDocument?.credentialSubject || {};
+    // Older job records were issued as a generic card; name them by what they are.
+    const displayType = recordCardTitle(credential.type, subject) || formatCredentialType(credential.type);
     const color = CREDENTIAL_COLORS[credential.type] || 'gray';
     const icon = CREDENTIAL_ICONS[credential.type] || <IconCertificate size={24} />;
 
-    const subject = credential.parsedDocument?.credentialSubject || {};
     const issuer = typeof credential.parsedDocument?.issuer === 'string'
         ? credential.parsedDocument.issuer
         : credential.parsedDocument?.issuer?.id || credential.issuerDid;
@@ -247,15 +300,42 @@ function CredentialCard({ credential, onView }: { credential: WalletCredential; 
             { label: 'Cart ID', value: subject.cartId?.slice(0, 12) || '-' },
             { label: 'Status', value: subject.status || 'issued' },
         ];
+    } else if (credential.type === 'EmployeeCredential') {
+        displayFields = credentialClaimRows(subject).filter((row) => ['Organisation', 'Role', 'You confirm'].includes(row.label));
     } else {
-        displayFields = [
-            { label: 'Name', value: subject.name || subject.username || '-' },
-            { label: 'Email', value: subject.email || '-' },
-        ];
+        displayFields = credentialClaimRows(subject).slice(0, 3);
+        if (displayFields.length === 0) {
+            displayFields = [
+                { label: 'Name', value: subject.name || subject.username || '-' },
+                { label: 'Email', value: subject.email || '-' },
+            ];
+        }
     }
+    const issuerName = credential.issuerName || credentialIssuerLabel(subject, issuer);
+    const life = cardLife({
+        withdrawn: credential.withdrawn,
+        revocationReason: credential.revocationReason,
+        expiresAt: credential.parsedDocument?.expirationDate,
+    });
+    const filedByYou = Boolean(credential.archived) && life.life === 'active';
+    const tone = filedByYou
+        ? { border: '#868e96', wash: '#f1f3f5', badge: 'gray', label: 'Archived' }
+        : life.life === 'replaced'
+        ? { border: '#e8a317', wash: '#fff8eb', badge: 'orange', label: life.label }
+        : life.life === 'withdrawn'
+            ? { border: '#e03131', wash: '#fff5f5', badge: 'red', label: life.label }
+            : life.life === 'expired'
+                ? { border: '#868e96', wash: '#f1f3f5', badge: 'gray', label: life.label }
+                : undefined;
 
     return (
-        <Card shadow="sm" padding="lg" radius="md" withBorder>
+        <Card
+            shadow="sm"
+            padding="lg"
+            radius="md"
+            withBorder
+            style={tone ? { borderColor: tone.border, background: tone.wash } : undefined}
+        >
             <Card.Section withBorder inheritPadding py="xs">
                 <Group justify="space-between">
                     <Group>
@@ -263,13 +343,17 @@ function CredentialCard({ credential, onView }: { credential: WalletCredential; 
                         <div>
                             <Text fw={600}>{displayType}</Text>
                             <Text size="xs" c="dimmed">
-                                {new Date(credential.addedOn).toLocaleDateString()}
+                                {formatTxnTime(credential.addedOn)}
                             </Text>
                         </div>
                     </Group>
-                    <Badge color={color} variant="light">
-                        ✓ Authentic
-                    </Badge>
+                    {life.life === 'active' && !filedByYou ? (
+                        <Badge color={color} variant="light">
+                            ✓ Authentic
+                        </Badge>
+                    ) : (
+                        <Badge color={tone?.badge || 'gray'} variant="filled">{tone?.label || life.label}</Badge>
+                    )}
                 </Group>
             </Card.Section>
 
@@ -286,9 +370,10 @@ function CredentialCard({ credential, onView }: { credential: WalletCredential; 
 
             <Group justify="space-between">
                 <Text size="xs" c="dimmed" style={{ maxWidth: '60%' }} truncate>
-                    From: {issuer?.includes('did:') ? 'Verified Merchant' : issuer?.slice(0, 30) + '...'}
+                    From: {issuerName}
                 </Text>
                 <Group gap="xs">
+                    {life.life === 'active' && !filedByYou && (
                     <ActionIcon
                         variant="light"
                         color="green"
@@ -305,6 +390,7 @@ function CredentialCard({ credential, onView }: { credential: WalletCredential; 
                     >
                         <IconBrandWhatsapp size={14} />
                     </ActionIcon>
+                    )}
                     <Button
                         variant="light"
                         size="xs"
@@ -323,15 +409,25 @@ export default function WalletPage() {
     const router = useRouter();
     const env = useContext(EnvContext);
     const [credentials, setCredentials] = useState<WalletCredential[]>([]);
+    const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [userEmail, setUserEmail] = useState<string>('');
     const [selectedCredential, setSelectedCredential] = useState<WalletCredential | null>(null);
     const [detailsModalOpen, setDetailsModalOpen] = useState(false);
+    const [removingCredential, setRemovingCredential] = useState(false);
     const [approvalMatches, setApprovalMatches] = useState<any[]>([]);
     const [selectedApprovalCredentialIds, setSelectedApprovalCredentialIds] = useState<string[]>([]);
     const [approvalConsentChecked, setApprovalConsentChecked] = useState(false);
     const [approvalSubmitting, setApprovalSubmitting] = useState(false);
+    const [approvalLoading, setApprovalLoading] = useState(true);
+    const [approvalError, setApprovalError] = useState<string | null>(null);
+    const [approvalAttempt, setApprovalAttempt] = useState(0);
+    const [walletReady, setWalletReady] = useState(false);
+
+    useEffect(() => {
+        setWalletReady(true);
+    }, []);
 
     const holderBackend = env?.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000';
     const fallbackQuery = parseWalletQueryParams(router.asPath || '');
@@ -354,6 +450,11 @@ export default function WalletPage() {
     const workflowRunId = queryValue(router.query.workflowRunId) || fallbackQuery.workflowRunId;
     const proofStage = queryValue(router.query.proofStage) || fallbackQuery.proofStage;
     const requestId = queryValue(router.query.requestId) || fallbackQuery.requestId;
+    // The organisation whose request this is. Only its records are offered and sent.
+    const shareOrgTenantId = queryValue(router.query.orgTenantId)
+        || fallbackQuery.orgTenantId
+        || readActiveOrganization()?.orgTenantId
+        || '';
     const returnTo = queryValue(router.query.returnTo)
         || fallbackQuery.returnTo
         || '/requests?requestType=requisition';
@@ -368,7 +469,7 @@ export default function WalletPage() {
         const isGuest = !userToken && !!guestToken;
         
         if (!token) {
-            router.push('/auth');
+            router.replace('/auth/login');
             return;
         }
 
@@ -386,7 +487,7 @@ export default function WalletPage() {
 
             // For logged in users, try to get email from storage or token
             if (!isGuest) {
-                const storedEmail = localStorage.getItem('walletEmail') || localStorage.getItem('walletPhone');
+                const storedEmail = localStorage.getItem('credoUserName') || localStorage.getItem('walletEmail') || localStorage.getItem('walletPhone');
                 setUserEmail(storedEmail || payload.email || payload.username || 'My Account');
             } else {
                 setUserEmail('Guest Session');
@@ -396,7 +497,7 @@ export default function WalletPage() {
                 `${holderBackend}/api/ssi/auth/session`,
                 { expiresInSeconds: 900 },
                 { headers: { Authorization: `Bearer ${token}` } }
-            ).then((res) => res.data?.token as string | undefined).catch(() => undefined)
+            ).then((res) => res.data?.token as string | undefined)
 
             const authToken = sessionToken || token
 
@@ -418,14 +519,21 @@ export default function WalletPage() {
                 : []
 
             setCredentials(normalized)
+            setArchivedIds(readArchivedCardIds())
+            const counts = { active: 0, expired: 0, replaced: 0, withdrawn: 0 }
+            for (const cred of normalized) {
+                counts[cardLife({
+                    withdrawn: cred.withdrawn,
+                    revocationReason: cred.revocationReason,
+                    expiresAt: cred.parsedDocument?.expirationDate,
+                }).life] += 1
+            }
         } catch (err: any) {
             console.error('Failed to fetch credentials:', err);
             if (err.response?.status === 401) {
-                // Only clear the invalid token
-                if (isGuest) localStorage.removeItem('credoTenantToken');
-                else localStorage.removeItem('walletToken');
-                
-                router.push('/auth');
+                clearCurrentSession();
+                clearStoredOrganizationContext();
+                router.replace('/auth/login?sessionExpired=1');
                 return;
             }
             setError(err.message || 'Failed to load credentials');
@@ -439,16 +547,7 @@ export default function WalletPage() {
     }, [fetchCredentials]);
 
     const handleLogout = () => {
-        // Clear User Wallet state
-        localStorage.removeItem('walletToken');
-        localStorage.removeItem('walletEmail');
-        localStorage.removeItem('walletPhone');
-        localStorage.removeItem('authToken');
-        
-        // Clear Guest/Tenant state (Full cleanup)
-        localStorage.removeItem('credoTenantId');
-        localStorage.removeItem('credoTenantToken');
-        localStorage.removeItem('tenantToken');
+        clearCurrentSession();
         clearStoredOrganizationContext();
         
         notifications.show({
@@ -456,7 +555,7 @@ export default function WalletPage() {
             message: 'You have been signed out.',
             color: 'blue',
         });
-        router.push('/auth');
+        router.replace('/auth/login');
     };
 
     const handleViewDetails = (credential: WalletCredential) => {
@@ -464,32 +563,75 @@ export default function WalletPage() {
         setDetailsModalOpen(true);
     };
 
+    /** Delete the card from this wallet. The organisation's record of what it issued is untouched. */
+    const handleRemoveCredential = async (credential: WalletCredential) => {
+        if (!window.confirm('Remove this card from this device? You cannot undo this.')) return;
+        const token = getPersonalWalletToken() || localStorage.getItem('authToken') || localStorage.getItem('auth.token') || localStorage.getItem('credoTenantToken');
+        if (!token) return;
+        setRemovingCredential(true);
+        try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            const walletId = getPersonalWalletTenantId() || payload.walletId || payload.tenantId;
+            const sessionToken = await axios.post(
+                `${holderBackend}/api/ssi/auth/session`,
+                { expiresInSeconds: 900 },
+                { headers: { Authorization: `Bearer ${token}` } }
+            ).then((res) => res.data?.token as string | undefined).catch(() => undefined);
+            await axios.delete(
+                `${holderBackend}/api/wallet/${walletId}/credentials/${encodeURIComponent(credential.id)}`,
+                { headers: { Authorization: `Bearer ${sessionToken || token}` } }
+            );
+            setCredentials((prev) => prev.filter((item) => item.id !== credential.id));
+            setDetailsModalOpen(false);
+            setSelectedCredential(null);
+            notifications.show({ title: 'Removed', message: 'The card is no longer on this device.', color: 'gray' });
+        } catch (err: any) {
+            notifications.show({ title: 'Could not remove', message: err?.response?.data?.message || err?.message, color: 'red' });
+        } finally {
+            setRemovingCredential(false);
+        }
+    };
+
     useEffect(() => {
+        if (!router.isReady || presentationMode !== 'approval') return;
+        let cancelled = false;
+        const controller = new AbortController();
         const initializeApprovalMode = async () => {
-            if (!presentationRequestUrl || presentationMode !== 'approval') return;
+            setApprovalLoading(true);
+            setApprovalError(null);
+            setApprovalMatches([]);
+            setSelectedApprovalCredentialIds([]);
+            setApprovalConsentChecked(false);
+            if (!presentationRequestUrl) {
+                setApprovalError('This sharing request is no longer available on this device. Go back to the step and open it again.');
+                setApprovalLoading(false);
+                return;
+            }
 
             const walletToken = getPersonalWalletToken();
             if (!walletToken) {
-                notifications.show({
-                    title: 'Personal wallet required',
-                    message: 'Switch to your personal holder wallet session to review consent and share claims.',
-                    color: 'orange',
-                });
+                setApprovalError('Sign in to your personal wallet to review and share records for this step.');
+                setApprovalLoading(false);
                 return;
             }
 
             try {
                 const payload = JSON.parse(atob(walletToken.split('.')[1] || ''));
                 const walletId = getPersonalWalletTenantId() || payload.walletId || payload.tenantId || payload.sub;
-                if (!walletId) return;
+                if (!walletId) throw new Error('Personal wallet identity is missing');
 
                 const res = await axios.post(
                     `${holderBackend}/api/wallet/${walletId}/exchange/matchCredentialsForPresentationDefinition`,
-                    { presentationRequest: presentationRequestUrl },
-                    { headers: { Authorization: `Bearer ${walletToken}` } },
+                    {
+                        presentationRequest: presentationRequestUrl,
+                        ...(shareOrgTenantId && { orgTenantId: shareOrgTenantId }),
+                        ...((proofStage || presentationMode) && { stage: proofStage || presentationMode }),
+                    },
+                    { headers: { Authorization: `Bearer ${walletToken}` }, signal: controller.signal },
                 );
 
-                const matches = Array.isArray(res.data) ? res.data : [];
+                if (!Array.isArray(res.data)) throw new Error('Invalid wallet matching response');
+                const matches = res.data;
                 const missingDetails = matches.some((match: any) => !match?.claims || Object.keys(match.claims).length === 0);
                 if (missingDetails && matches.length > 0) {
                     try {
@@ -500,6 +642,8 @@ export default function WalletPage() {
                         const rows = Array.isArray(listRes.data) ? listRes.data : [];
                         const byId = new Map(rows.map((row: any) => [String(row.id), row]));
                         for (const match of matches) {
+                            // A record the server already split (shared vs not shared) keeps that split.
+                            if ((match?.claims && Object.keys(match.claims).length > 0) || match?.withheld) continue;
                             const row = byId.get(String(match.id));
                             if (!row) continue;
                             if (!match.type && row.type) match.type = row.type;
@@ -508,7 +652,13 @@ export default function WalletPage() {
                             const claims: Record<string, string> = {};
                             for (const [key, value] of Object.entries({ ...subject, ...nested })) {
                                 // Internal references (ids, tenant keys) mean nothing to the person reviewing; keep readable facts.
-                                if (key === 'claims' || /id$/i.test(key) || /^(workflowType|assignmentMode|requestType|stageAction|templateId)$/i.test(key) || value == null || typeof value === 'object') continue;
+                                if (key === 'claims' || /id$/i.test(key) || /^(workflowType|assignmentMode|requestType|stageAction|templateId)$/i.test(key) || value == null) continue;
+                                if (Array.isArray(value)) {
+                                    const joined = value.map((item) => String(item).trim()).filter(Boolean).join(', ');
+                                    if (joined) claims[key] = joined;
+                                    continue;
+                                }
+                                if (typeof value === 'object') continue;
                                 const text = String(value).trim();
                                 if (!text || text.startsWith('did:')) continue;
                                 claims[key] = text;
@@ -519,6 +669,7 @@ export default function WalletPage() {
                         // The review still lists the records if the extra details cannot be loaded.
                     }
                 }
+                if (cancelled) return;
                 setApprovalMatches(matches);
                 setSelectedApprovalCredentialIds(
                     matches
@@ -526,12 +677,20 @@ export default function WalletPage() {
                         .filter((id): id is string => typeof id === 'string' && id.length > 0),
                 );
             } catch (err) {
+                if (cancelled) return;
                 console.error('Failed to match approval credentials:', err);
+                setApprovalError('Could not check your wallet records. Try again, or sign in again if your session has expired.');
+            } finally {
+                if (!cancelled) setApprovalLoading(false);
             }
         };
 
         void initializeApprovalMode();
-    }, [holderBackend, presentationMode, presentationRequestUrl, router]);
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
+    }, [holderBackend, presentationMode, presentationRequestUrl, proofStage, router.isReady, shareOrgTenantId, approvalAttempt]);
 
     const handleApprovalSubmit = async () => {
         if (!presentationRequestUrl || presentationMode !== 'approval') return;
@@ -564,7 +723,12 @@ export default function WalletPage() {
 
             const submissionRes = await axios.post(
                 `${holderBackend}/api/wallet/${walletId}/exchange/usePresentationRequest`,
-                { presentationRequest: presentationRequestUrl, selectedCredentials: credentialsToSubmit },
+                {
+                    presentationRequest: presentationRequestUrl,
+                    selectedCredentials: credentialsToSubmit,
+                    ...(shareOrgTenantId && { orgTenantId: shareOrgTenantId }),
+                    ...((proofStage || presentationMode) && { stage: proofStage || presentationMode }),
+                },
                 { headers: { Authorization: `Bearer ${walletToken}` } },
             );
 
@@ -572,9 +736,17 @@ export default function WalletPage() {
             const redirectUri = submissionRes.data?.redirectUri;
             if (!directPost && !redirectUri) throw new Error('Wallet did not return a verifier submission payload.');
 
+            // Shared with the requisition approve call below (direct-post submissions leave them empty).
+            let vpToken: string | undefined;
+            let idToken: string | undefined;
+            let presentationSubmission: any;
+            let effectiveState: string | undefined = requestId;
             if (!directPost) {
-                const { vpToken, idToken, presentationSubmission, state: redirectState } = parseRedirectUri(redirectUri);
-                const effectiveState = redirectState || requestId;
+                const parsedRedirect = parseRedirectUri(redirectUri);
+                vpToken = parsedRedirect.vpToken;
+                idToken = parsedRedirect.idToken;
+                presentationSubmission = parsedRedirect.presentationSubmission;
+                effectiveState = parsedRedirect.state || requestId;
                 if ((!vpToken && !idToken) || !effectiveState) {
                     throw new Error('Wallet submission is missing vp_token/id_token or verification state.');
                 }
@@ -651,31 +823,93 @@ export default function WalletPage() {
     };
 
     // Group credentials by type
-    const receipts = credentials.filter(c => c.type.includes('Receipt') || c.type.includes('Payment'));
-    const invoices = credentials.filter(c => c.type.includes('Invoice'));
-    const others = credentials.filter(c => !c.type.includes('Receipt') && !c.type.includes('Payment') && !c.type.includes('Invoice'));
+    const filed = (c: WalletCredential) => archivedIds.has(c.id) || cardLife({
+        withdrawn: c.withdrawn,
+        revocationReason: c.revocationReason,
+        expiresAt: c.parsedDocument?.expirationDate,
+    }).fileAway
+    const live = credentials.filter((c) => !filed(c))
+    const archivedCards = credentials.filter(filed)
+    const expiredInView = live.filter((c) => cardLife({
+        withdrawn: c.withdrawn,
+        revocationReason: c.revocationReason,
+        expiresAt: c.parsedDocument?.expirationDate,
+    }).life === 'expired').length
+    // Filed under the same words as the inbox tabs (shared with the phone); only sections that hold a card are shown.
+    const sections = RECORD_SECTION_ORDER.map((key: RecordSectionKey) => ({
+        key,
+        title: RECORD_SECTION_LABELS[key],
+        rows: live.filter((c) => recordSectionOf(c.type, c.parsedDocument?.credentialSubject) === key),
+    })).filter((section) => section.rows.length > 0);
+    const sectionIcon = (key: RecordSectionKey) =>
+        key === 'payments' || key === 'school_fees' || key === 'counter_sales'
+            ? <IconReceipt size={20} color="green" />
+            : key === 'jobs' || key === 'requisitions' || key === 'people'
+                ? <IconFileInvoice size={20} color="blue" />
+                : <IconCertificate size={20} color="violet" />;
 
-    const showApprovalConsent = presentationMode === 'approval' && presentationRequestUrl && approvalMatches.length > 0;
+    const showApprovalConsent = walletReady && presentationMode === 'approval' && !approvalLoading && !approvalError && approvalMatches.length > 0;
 
     return (
         <Layout title="My Saved Items">
             <Container size="lg" py="xl">
+                {walletReady && presentationMode === 'approval' && !showApprovalConsent && (
+                    <Paper shadow="sm" p="xl" radius="md" mb="xl" withBorder>
+                        <Stack gap="sm">
+                            <Title order={3}>Review what you are sharing</Title>
+                            {approvalLoading ? (
+                                <Group role="status">
+                                    <Loader size="sm" />
+                                    <Text>Checking your wallet records…</Text>
+                                </Group>
+                            ) : (
+                                <>
+                                    <Alert color={approvalError ? 'red' : 'orange'} title={approvalError ? 'Could not prepare sharing' : 'No matching records'}>
+                                        {approvalError || 'Your wallet has no matching record for this step. Keep the required staff or role card from your personal inbox, or ask the organization to send it again. Nothing has been shared and the step is still waiting.'}
+                                    </Alert>
+                                    <Button variant="light" onClick={() => setApprovalAttempt((attempt) => attempt + 1)}>
+                                        Check again
+                                    </Button>
+                                </>
+                            )}
+                        </Stack>
+                    </Paper>
+                )}
                 {showApprovalConsent && (
                     <Paper shadow="sm" p="xl" radius="md" mb="xl" withBorder>
                         <Stack gap="lg">
-                            <Group justify="space-between">
+                            <Group justify="space-between" align="flex-start" wrap="nowrap">
                                 <div>
                                     <Title order={3}>Review what you are sharing</Title>
                                     <Text c="dimmed" size="sm">Check the details below. Only these are shared, and only for this step.</Text>
                                 </div>
-                                <Badge color="violet" variant="light">Proof</Badge>
+                                <StepHelp
+                                    title="Sharing"
+                                    points={[
+                                        'Shared is what the other organisation will see.',
+                                        'Not shared stays on your phone.',
+                                        'You can decline. Nothing is sent until you confirm.',
+                                        'Once you share, the other organisation can keep a copy.',
+                                    ]}
+                                />
                             </Group>
 
                             <Stack gap="sm">
+                                {(() => {
+                                    const fromMatch = approvalMatches.map((match) => String((match as { purpose?: string })?.purpose || '').trim()).find(Boolean);
+                                    const line = fromMatch || sharePurposeLine({
+                                        mode: queryValue(router.query.mode) || presentationMode,
+                                        purpose: queryValue(router.query.purpose),
+                                        reference: queryValue(router.query.reference),
+                                        amount: queryValue(router.query.amount),
+                                        currency: queryValue(router.query.currency),
+                                    });
+                                    return line ? <Text fw={600}>{line}</Text> : null;
+                                })()}
                                 {approvalMatches.map((match, index) => {
                                     const cred = parseCredentialSummary(match);
                                     const credentialId = resolveCredentialId(match);
-                                    const claims = extractRequestedClaims(match);
+                                    const { shared, withheld } = splitShareClaims(match);
                                     const checked = !!credentialId && selectedApprovalCredentialIds.includes(credentialId);
 
                                     return (
@@ -695,15 +929,30 @@ export default function WalletPage() {
                                                 <Box style={{ flex: 1 }}>
                                                     <Text fw={600}>{formatCredentialType(String(cred.type || 'Credential'))}</Text>
                                                     <Text size="xs" c="dimmed">Issuer: {cred.issuer}</Text>
-                                                    <Stack gap={4} mt={6}>
-                                                        {claims.length > 0 ? claims.map((claim, idx) => (
-                                                            <Text key={`${credentialId || index}-${claim.label}-${idx}`} size="xs" c="dimmed">
+                                                    <Text size="xs" fw={700} mt={8}>Shared</Text>
+                                                    <Stack gap={2} mt={2}>
+                                                        {shared.length > 0 ? shared.map((claim) => (
+                                                            <Text key={`${credentialId || index}-shared-${claim.label}`} size="xs">
                                                                 {claim.label}: {claim.value}
                                                             </Text>
                                                         )) : (
-                                                            <Text size="xs" c="dimmed">No subject claims exposed in this credential summary.</Text>
+                                                            <Text size="xs" c="dimmed">No details from this record are needed for this step.</Text>
                                                         )}
                                                     </Stack>
+                                                    {withheld.length > 0 ? (
+                                                        <>
+                                                            <Text size="xs" fw={700} c="dimmed" mt={8}>Not shared</Text>
+                                                            <Stack gap={2} mt={2}>
+                                                                {withheld.map((claim) => (
+                                                                    <Text key={`${credentialId || index}-held-${claim.label}`} size="xs" c="dimmed">
+                                                                        {claim.label}: {claim.value}
+                                                                    </Text>
+                                                                ))}
+                                                            </Stack>
+                                                        </>
+                                                    ) : shared.length > 0 ? (
+                                                        <Text size="xs" c="dimmed" mt={6}>The whole record is shared.</Text>
+                                                    ) : null}
                                                 </Box>
                                             </Group>
                                         </Paper>
@@ -716,7 +965,7 @@ export default function WalletPage() {
                                 <Text size="sm" c="dimmed" mt={4}>
                                     {workflowRunId
                                         ? (proofStage === 'payout'
-                                            ? 'This checks that you are the person chosen to release payment for this job.'
+                                            ? 'This checks that you are the person chosen to release the worker payout for this job.'
                                             : 'This checks that you are the person chosen to sign off this job.')
                                         : requisitionAction === 'release'
                                             ? 'This checks that you are the person chosen to release the money.'
@@ -780,36 +1029,22 @@ export default function WalletPage() {
                     </Group>
                 </Paper>
 
-                {/* Stats */}
-                <SimpleGrid cols={{ base: 1, sm: 3 }} mb="xl">
-                    <Paper shadow="sm" p="md" radius="md" withBorder>
-                        <Group>
-                            <IconReceipt size={24} color="green" />
-                            <div>
-                                <Text size="xl" fw={700}>{receipts.length}</Text>
-                                <Text size="sm" c="dimmed">Receipts</Text>
-                            </div>
-                        </Group>
-                    </Paper>
-                    <Paper shadow="sm" p="md" radius="md" withBorder>
-                        <Group>
-                            <IconFileInvoice size={24} color="blue" />
-                            <div>
-                                <Text size="xl" fw={700}>{invoices.length}</Text>
-                                <Text size="sm" c="dimmed">Invoices</Text>
-                            </div>
-                        </Group>
-                    </Paper>
-                    <Paper shadow="sm" p="md" radius="md" withBorder>
-                        <Group>
-                            <IconCertificate size={24} color="violet" />
-                            <div>
-                                <Text size="xl" fw={700}>{others.length}</Text>
-                                <Text size="sm" c="dimmed">Other Documents</Text>
-                            </div>
-                        </Group>
-                    </Paper>
-                </SimpleGrid>
+                {/* Stats: one tile per section that holds a card */}
+                {sections.length > 0 && (
+                    <SimpleGrid cols={{ base: 2, sm: 3 }} mb="xl">
+                        {sections.map((section) => (
+                            <Paper key={section.key} shadow="sm" p="md" radius="md" withBorder>
+                                <Group>
+                                    {sectionIcon(section.key)}
+                                    <div>
+                                        <Text size="xl" fw={700}>{section.rows.length}</Text>
+                                        <Text size="sm" c="dimmed">{section.title}</Text>
+                                    </div>
+                                </Group>
+                            </Paper>
+                        ))}
+                    </SimpleGrid>
+                )}
 
                 {/* Error state */}
                 {error && (
@@ -826,8 +1061,14 @@ export default function WalletPage() {
                     </Box>
                 )}
 
+                {!loading && expiredInView > 0 && (
+                    <Alert color="gray" title="Some cards have expired" mb="xl">
+                        They are shown in grey. Open one and archive it so your live cards stay easy to find.
+                    </Alert>
+                )}
+
                 {/* Empty state */}
-                {!loading && credentials.length === 0 && (
+                {!loading && live.length === 0 && archivedCards.length === 0 && (
                     <Paper shadow="sm" p="xl" radius="md" withBorder ta="center">
                         <IconReceipt size={64} color="#ccc" style={{ margin: '0 auto' }} />
                         <Title order={3} mt="md">No Saved Items Yet</Title>
@@ -837,15 +1078,14 @@ export default function WalletPage() {
                     </Paper>
                 )}
 
-                {/* Receipts Section */}
-                {!loading && receipts.length > 0 && (
-                    <Box mb="xl">
+                {!loading && sections.map((section) => (
+                    <Box mb="xl" key={section.key}>
                         <Group mb="md">
-                            <IconReceipt size={20} color="green" />
-                            <Title order={4}>Payment Receipts</Title>
+                            {sectionIcon(section.key)}
+                            <Title order={4}>{section.title}</Title>
                         </Group>
                         <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }}>
-                            {receipts.map((cred) => (
+                            {section.rows.map((cred) => (
                                 <CredentialCard
                                     key={cred.id}
                                     credential={cred}
@@ -854,39 +1094,21 @@ export default function WalletPage() {
                             ))}
                         </SimpleGrid>
                     </Box>
-                )}
+                ))}
 
-                {/* Invoices Section */}
-                {!loading && invoices.length > 0 && (
+                {!loading && archivedCards.length > 0 && (
                     <Box mb="xl">
                         <Group mb="md">
-                            <IconFileInvoice size={20} color="blue" />
-                            <Title order={4}>Invoices</Title>
+                            <Title order={4}>Archived</Title>
                         </Group>
+                        <Text size="sm" c="dimmed" mb="md">
+                            Cards that were replaced or withdrawn are filed here. They stay on this device and cannot be used.
+                        </Text>
                         <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }}>
-                            {invoices.map((cred) => (
+                            {archivedCards.map((cred) => (
                                 <CredentialCard
                                     key={cred.id}
-                                    credential={cred}
-                                    onView={() => handleViewDetails(cred)}
-                                />
-                            ))}
-                        </SimpleGrid>
-                    </Box>
-                )}
-
-                {/* Other Credentials Section */}
-                {!loading && others.length > 0 && (
-                    <Box mb="xl">
-                        <Group mb="md">
-                            <IconCertificate size={20} color="violet" />
-                            <Title order={4}>Other Credentials</Title>
-                        </Group>
-                        <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }}>
-                            {others.map((cred) => (
-                                <CredentialCard
-                                    key={cred.id}
-                                    credential={cred}
+                                    credential={{ ...cred, archived: archivedIds.has(cred.id) }}
                                     onView={() => handleViewDetails(cred)}
                                 />
                             ))}
@@ -910,35 +1132,111 @@ export default function WalletPage() {
                         <Stack>
                             <Group justify="space-between">
                                 <Badge color={CREDENTIAL_COLORS[selectedCredential.type] || 'gray'} size="lg">
-                                    {formatCredentialType(selectedCredential.type)}
+                                    {recordCardTitle(selectedCredential.type, selectedCredential.parsedDocument?.credentialSubject) || formatCredentialType(selectedCredential.type)}
                                 </Badge>
-                                <Badge color="green" variant="light" leftSection={<IconShieldCheck size={12} />}>
-                                    Verified
-                                </Badge>
+                                {(() => {
+                                    const life = cardLife({
+                                        withdrawn: selectedCredential.withdrawn,
+                                        revocationReason: selectedCredential.revocationReason,
+                                        expiresAt: selectedCredential.parsedDocument?.expirationDate,
+                                    })
+                                    return life.life === 'active'
+                                        ? <Badge color="green" variant="light" leftSection={<IconShieldCheck size={12} />}>Verified</Badge>
+                                        : <Badge color={life.life === 'replaced' ? 'orange' : life.life === 'withdrawn' ? 'red' : 'gray'} variant="filled">{life.label}</Badge>
+                                })()}
                             </Group>
+                            {(() => {
+                                const life = cardLife({
+                                    withdrawn: selectedCredential.withdrawn,
+                                    revocationReason: selectedCredential.revocationReason,
+                                    expiresAt: selectedCredential.parsedDocument?.expirationDate,
+                                })
+                                const canRestore = archivedIds.has(selectedCredential.id) && !life.fileAway
+                                if (!life.note && !canRestore) return null
+                                return (
+                                    <>
+                                        {life.note && (
+                                        <Alert color={life.life === 'replaced' ? 'orange' : life.life === 'withdrawn' ? 'red' : 'gray'} variant="light">
+                                            {life.note}
+                                        </Alert>
+                                        )}
+                                        {life.life === 'expired' && !archivedIds.has(selectedCredential.id) && (
+                                            <Button
+                                                color="gray"
+                                                onClick={() => {
+                                                    setCardArchived(selectedCredential.id, true)
+                                                    setArchivedIds(readArchivedCardIds())
+                                                    setDetailsModalOpen(false)
+                                                }}
+                                            >
+                                                Archive this card
+                                            </Button>
+                                        )}
+                                        {archivedIds.has(selectedCredential.id) && !life.fileAway && (
+                                            <Button
+                                                variant="light"
+                                                onClick={() => {
+                                                    setCardArchived(selectedCredential.id, false)
+                                                    setArchivedIds(readArchivedCardIds())
+                                                    setDetailsModalOpen(false)
+                                                }}
+                                            >
+                                                Restore
+                                            </Button>
+                                        )}
+                                    </>
+                                )
+                            })()}
 
                             <Divider />
 
-                            <Text fw={600}>Claims</Text>
-                            <ScrollArea h={300}>
-                                <Code block>
-                                    {JSON.stringify(selectedCredential.parsedDocument?.credentialSubject || {}, null, 2)}
-                                </Code>
-                            </ScrollArea>
+                            <Text fw={600}>What this record says</Text>
+                            <ScrollArea.Autosize mah={300}>
+                                <Stack gap={6}>
+                                    {credentialClaimRows(selectedCredential.parsedDocument?.credentialSubject).map((row) => (
+                                        <Group key={row.label} justify="space-between" align="flex-start" wrap="nowrap" gap="md">
+                                            <Text size="sm" c="dimmed" style={{ flexShrink: 0 }}>{row.label}</Text>
+                                            <Text size="sm" fw={500} ta="right" tt={row.label === 'Role' ? 'capitalize' : undefined}>{row.value}</Text>
+                                        </Group>
+                                    ))}
+                                    {credentialClaimRows(selectedCredential.parsedDocument?.credentialSubject).length === 0 && (
+                                        <Text size="sm" c="dimmed">No details on this record.</Text>
+                                    )}
+                                </Stack>
+                            </ScrollArea.Autosize>
 
                             <Divider />
 
                             <Group justify="space-between">
-                                <Text size="sm" c="dimmed">Credential ID</Text>
-                                <Text size="sm" ff="monospace">{selectedCredential.id.slice(0, 20)}...</Text>
-                            </Group>
-                            <Group justify="space-between">
-                                <Text size="sm" c="dimmed">Issuer</Text>
-                                <Text size="sm" ff="monospace">{selectedCredential.issuerDid?.slice(0, 30)}...</Text>
+                                <Text size="sm" c="dimmed">From</Text>
+                                <Text size="sm">{selectedCredential.issuerName || credentialIssuerLabel(selectedCredential.parsedDocument?.credentialSubject, selectedCredential.issuerDid)}</Text>
                             </Group>
                             <Group justify="space-between">
                                 <Text size="sm" c="dimmed">Issued On</Text>
-                                <Text size="sm">{new Date(selectedCredential.addedOn).toLocaleString()}</Text>
+                                <Text size="sm">{formatTxnTime(selectedCredential.addedOn)}</Text>
+                            </Group>
+
+                            <Divider />
+                            {!selectedCredential.withdrawn && (
+                                <RecordCheckPanel
+                                    presetReference={selectedCredential.issuedId || selectedCredential.id}
+                                    onRevoked={() => {
+                                        setCredentials((prev) => prev.map((c) => c.id === selectedCredential.id ? { ...c, withdrawn: true } : c))
+                                        setSelectedCredential(null)
+                                    }}
+                                />
+                            )}
+                            <Group justify="flex-end">
+                                <Button
+                                    variant="subtle"
+                                    color="red"
+                                    size="xs"
+                                    leftSection={<IconTrash size={14} />}
+                                    loading={removingCredential}
+                                    onClick={() => void handleRemoveCredential(selectedCredential)}
+                                >
+                                    Remove from this device
+                                </Button>
                             </Group>
                         </Stack>
                     )}

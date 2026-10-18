@@ -138,7 +138,9 @@ export default function OrganizationRolesPage() {
                   <Title order={2}>Roles</Title>
                 </Group>
                 <Text c="dimmed" size="sm">
-                  {orgName ? `What each kind of person at ${orgName} can do` : 'Decide what each kind of person can do.'}
+                  {orgName
+                    ? `Roles at ${orgName} follow the answers from setup. Add another only when you need a kind of person those answers do not cover.`
+                    : 'Roles follow the answers from setup.'}
                 </Text>
               </Box>
               <Group gap="xs">
@@ -163,7 +165,7 @@ export default function OrganizationRolesPage() {
               ) : roles.length === 0 ? (
                 <Stack align="center" py="xl" gap="xs">
                   <IconUserShield size={40} color="var(--mantine-color-gray-4)" />
-                  <Text c="dimmed">No roles yet. Add one, for example "Finance officer".</Text>
+                  <Text c="dimmed">No roles yet. Finish the setup questions and they appear here.</Text>
                   <Button size="sm" leftSection={<IconPlus size={14} />} onClick={() => setCreateOpen(true)}>Add Role</Button>
                 </Stack>
               ) : (

@@ -6,11 +6,25 @@ import '@mantine/notifications/styles.css';
 import '@mantine/dates/styles.css';
 import type { AppProps } from "next/app";
 import { AvailableCredential } from "@/types/credentials";
-import { MantineProvider, ColorSchemeScript } from '@mantine/core';
+import { MantineProvider, localStorageColorSchemeManager } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { credentisTheme } from '@/lib/theme/credentis-theme';
+import { useActiveTabInView } from '@/lib/tabs';
 
 import Layout from "@/components/Layout";
+
+// A missing connection should fail at once and leave the last screen in place.
+// Waiting for the browser to time out is what makes the app feel stuck.
+const portalAxios = axios as typeof axios & { __offlineFastFail?: boolean }
+if (typeof window !== 'undefined' && !portalAxios.__offlineFastFail) {
+  portalAxios.__offlineFastFail = true
+  axios.interceptors.request.use((config) => {
+    if (window.navigator.onLine === false) {
+      return Promise.reject(Object.assign(new Error('offline'), { code: 'OFFLINE' }))
+    }
+    return config
+  })
+}
 
 export const EnvContext = React.createContext({} as { [key: string]: string });
 export const CredentialsContext = React.createContext([
@@ -19,6 +33,7 @@ export const CredentialsContext = React.createContext([
 ] as [AvailableCredential[], (credentials: AvailableCredential[]) => void]);
 
 export default function App({ Component, pageProps }: AppProps) {
+  useActiveTabInView();
   const [AvailableCredentials, setAvailableCredentials] = React.useState<
     AvailableCredential[]
   >([]);
@@ -146,9 +161,10 @@ export default function App({ Component, pageProps }: AppProps) {
             localStorage.setItem('credoTenantToken', tenantToken);
             localStorage.setItem('tenantToken', tenantToken);
           }
-          // Always store a personal wallet token reference for auth flows
-          if (tenantToken) {
-            localStorage.setItem('walletToken', walletToken || tenantToken);
+          // Keep any existing personal wallet token, but do not overwrite it
+          // with an anonymous bootstrap tenant token.
+          if (walletToken) {
+            localStorage.setItem('walletToken', walletToken);
           }
           console.log('[App] New portal tenant initialized:', tenantId);
         }
@@ -195,7 +211,11 @@ export default function App({ Component, pageProps }: AppProps) {
   }, []);
 
   return (
-    <MantineProvider theme={credentisTheme} defaultColorScheme="light">
+    <MantineProvider
+      theme={credentisTheme}
+      defaultColorScheme="light"
+      colorSchemeManager={localStorageColorSchemeManager({ key: 'credentis-color-scheme' })}
+    >
       <Notifications position="top-right" />
       <EnvContext.Provider value={env}>
         <CredentialsContext.Provider

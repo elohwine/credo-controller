@@ -12,7 +12,7 @@ import ErrorHandlingService from '../../errorHandlingService'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { getTenantById } from '../../persistence/TenantRepository'
 import { listTenants as listPersistenceTenants } from '../../persistence/TenantRepository'
-import { provisionTenantResources } from '../../services/TenantProvisioningService'
+import { provisionTenantResources, type TenantProvisioningResult } from '../../services/TenantProvisioningService'
 import type { CreateTenantOptions, CreateTenantResponse, TenantMetadataResponse } from '../types'
 
 @Tags('MultiTenancy')
@@ -88,6 +88,23 @@ export class MultiTenancyController extends Controller {
         askarProfile: provisioning.askarProfile,
         metadata: provisioning.metadata,
       }
+    } catch (error) {
+      throw ErrorHandlingService.handle(error)
+    }
+  }
+
+  @Post('/:tenantId/provision')
+  public async provisionTenant(
+    @Request() request: Req,
+    @Path('tenantId') tenantId: string,
+  ): Promise<TenantProvisioningResult> {
+    try {
+      const agent = request.agent as unknown as Agent<any>
+      const tenantRecord = await agent.modules.tenants.getTenantById(tenantId)
+      return await provisionTenantResources({
+        agent,
+        tenantRecord,
+      })
     } catch (error) {
       throw ErrorHandlingService.handle(error)
     }

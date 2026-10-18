@@ -9,6 +9,7 @@ import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { inventoryService } from '../../services/InventoryService'
 import { SSIAuthService } from '../../services/SSIAuthService'
 import { rootLogger } from '../../utils/pinoLogger'
+import { getEcoCashWebhookSecret, getIssuerApiKey } from '../../utils/serviceApiKey'
 
 const logger = rootLogger.child({ module: 'WhatsAppPayloadController' })
 
@@ -545,7 +546,7 @@ export class WhatsAppPayloadController extends Controller {
     }
 
     const items = JSON.parse(cart.items || '[]')
-    const apiKey = process.env.ISSUER_API_KEY || 'test-api-key-12345'
+    const apiKey = getIssuerApiKey()
     const issuerApiUrl = process.env.ISSUER_API_URL || 'http://localhost:3000'
 
     // 1. Calculate Cart Hash (Audit Trail)
@@ -693,9 +694,9 @@ export class WhatsAppPayloadController extends Controller {
     }
 
     const items = JSON.parse(cart.items || '[]')
-    const apiKey = process.env.ISSUER_API_KEY || 'test-api-key-12345'
+    const apiKey = getIssuerApiKey()
     const issuerApiUrl = process.env.ISSUER_API_URL || 'http://localhost:3000'
-    const ecocashApiKey = process.env.ECOCASH_API_KEY || '405mvFAY3Tz6o3V48JX6NDeSWGneVLaB'
+    const ecocashApiKey = process.env.ECOCASH_API_KEY || ''
     const ecocashBaseUrl = process.env.ECOCASH_BASE_URL || 'https://developers.ecocash.co.zw/api/ecocash_pay/api/v2'
     const webhookUrl = process.env.NGROK_URL
       ? `${process.env.NGROK_URL}/webhooks/ecocash`
@@ -706,7 +707,6 @@ export class WhatsAppPayloadController extends Controller {
 
     // Check sandbox mode - default to sandbox for safety
     const isSandbox = process.env.ECOCASH_SANDBOX !== 'false'
-
     try {
       // Step 1: Initiate EcoCash C2B payment
       logger.info(
@@ -721,11 +721,20 @@ export class WhatsAppPayloadController extends Controller {
 
       // Call actual EcoCash API in LIVE mode (ECOCASH_SANDBOX=false)
       if (!isSandbox) {
+        if (!ecocashApiKey) {
+          this.setStatus(503)
+          throw new Error('EcoCash API key is not configured')
+        }
+        const merchantNumber = process.env.ECOCASH_MERCHANT_NUMBER
+        if (!merchantNumber) {
+          this.setStatus(503)
+          throw new Error('EcoCash merchant number is not configured')
+        }
         try {
           const ecocashResponse = await axios.post(
             `${ecocashBaseUrl}/payment/instant/c2b`,
             {
-              merchantNumber: process.env.ECOCASH_MERCHANT_NUMBER || '0771234567',
+              merchantNumber,
               amount: cart.total,
               currency: cart.currency === 'ZWL' ? 'ZWL' : 'USD',
               customerMsisdn: body.customerMsisdn,
@@ -878,7 +887,7 @@ export class WhatsAppPayloadController extends Controller {
             await axios.post(internalWebhookUrl, webhookPayload, {
               headers: {
                 'Content-Type': 'application/json',
-                'X-API-KEY': process.env.ECOCASH_WEBHOOK_SECRET || 'test-webhook-secret',
+                'X-API-KEY': getEcoCashWebhookSecret(),
               },
             })
             logger.info({ cartId, sourceRef }, '🧪 SANDBOX: Payment auto-completed, receipt VC issued')

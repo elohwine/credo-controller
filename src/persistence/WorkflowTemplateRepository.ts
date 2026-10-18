@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/explicit-member-accessibility */
 import type { WorkflowTemplateDefinition, SectorType } from '../types/WorkflowTemplate'
 
+import { validateRequestExperience } from '../config/requestExperience'
 import { deriveInitiationForWorkflow } from '../services/workflow/initiation'
 import { getTemplateById } from '../services/workflow/templates'
 import { rootLogger } from '../utils/pinoLogger'
@@ -12,7 +13,7 @@ const TEMPLATE_COLUMNS = `
         enabled, version, steps, payment_modes as paymentModes,
         credential_policy as credentialPolicy, reconciliation_policy as reconciliationPolicy,
         evidence_policy as evidencePolicy, branding_policy as brandingPolicy, initiation_schema as initiationSchema,
-        prerequisites,
+        prerequisites, request_experience as experience,
         created_at as createdAt, updated_at as updatedAt`
 
 /**
@@ -71,7 +72,9 @@ function isLegacyFept(steps: WorkflowTemplateDefinition['steps']): boolean {
   const checkpointNames = new Set(
     steps.filter((step) => step.action === 'field.checkpoint').map((step) => String(step.config?.checkpoint || '')),
   )
-  if (!['site_inspection', 'risk_assessment', 'arrival', 'completion_review'].every((name) => checkpointNames.has(name))) {
+  if (
+    !['site_inspection', 'risk_assessment', 'arrival', 'completion_review'].every((name) => checkpointNames.has(name))
+  ) {
     return true
   }
   const hasSignoffPause = steps.some(
@@ -93,10 +96,46 @@ function isLegacyFept(steps: WorkflowTemplateDefinition['steps']): boolean {
 
   // Payment collection only starts when there is a client to charge; older hand-off steps
   // without that condition started it for internal jobs too.
-  return steps.some((step) => step.action === 'workflow.start' && !step.config?.when)
+  if (steps.some((step) => step.action === 'workflow.start' && !step.config?.when)) return true
+
+  // Materials are bought during the job: receipts come between the before and after photos, and
+  // the client is invoiced at sign-off, before any worker payout. Older orders are upgraded.
+  const pauseIndex = (reason: string) =>
+    steps.findIndex((step) => step.action === 'field.pause' && String(step.config?.reason || '') === reason)
+  if (pauseIndex('await_evidence_receipt') > pauseIndex('await_evidence_after')) return true
+  const collectionIndex = steps.findIndex((step) => step.action === 'workflow.start')
+  if (collectionIndex > pauseIndex('await_payout_release')) return true
+
+  // A site check writes a record into the organisation wallet. Templates saved before that
+  // step are upgraded so new jobs follow the current record settings.
+  return !steps.some(
+    (step) => step.action === 'credential.issue' && String(step.config?.type || '') === 'SiteInspectionVC',
+  )
+}
+
+const SCHOOL_FEE_WORKFLOW_TYPES = new Set([
+  'education_fee_payment',
+  'school_fee_payment',
+  'school_fees',
+  'tpl-education-fee',
+])
+
+/** School fees collect through the shared pay-link steps; templates saved with the old capture stub are upgraded. */
+function normalizeSchoolFeeTemplate(record: WorkflowTemplateDefinition): WorkflowTemplateDefinition {
+  if (Array.isArray(record.steps) && record.steps.some((step) => step.action === 'client.request_payment'))
+    return record
+  const template = getTemplateById('tpl-education-fee')
+  if (!template) return record
+  return {
+    ...record,
+    steps: template.steps.map((step) => ({ action: step.action, config: step.config, description: step.description })),
+  }
 }
 
 function normalizeTemplateDefinition(record: WorkflowTemplateDefinition): WorkflowTemplateDefinition {
+  if (SCHOOL_FEE_WORKFLOW_TYPES.has(String(record.workflowType || '').toLowerCase())) {
+    return normalizeSchoolFeeTemplate(record)
+  }
   if (record.workflowType !== 'field_execution_fept') {
     return record
   }
@@ -121,17 +160,18 @@ export class WorkflowTemplateRepository {
 
   save(record: WorkflowTemplateDefinition): void {
     const normalized = normalizeTemplateDefinition(record)
+    if (normalized.experience) validateRequestExperience(normalized.experience)
     const db = DatabaseManager.getDatabase()
 
     const stmt = db.prepare(`
       INSERT INTO workflow_templates (
         id, tenant_id, workflow_type, name, sector, enabled, version,
         steps, payment_modes, credential_policy, reconciliation_policy,
-        evidence_policy, branding_policy, initiation_schema, prerequisites, updated_at
+        evidence_policy, branding_policy, initiation_schema, prerequisites, request_experience, updated_at
       ) VALUES (
         @id, @tenantId, @workflowType, @name, @sector, @enabled, @version,
         @steps, @paymentModes, @credentialPolicy, @reconciliationPolicy,
-        @evidencePolicy, @brandingPolicy, @initiationSchema, @prerequisites, CURRENT_TIMESTAMP
+        @evidencePolicy, @brandingPolicy, @initiationSchema, @prerequisites, @experience, CURRENT_TIMESTAMP
       )
       ON CONFLICT(id) DO UPDATE SET
         workflow_type = @workflowType,
@@ -147,6 +187,7 @@ export class WorkflowTemplateRepository {
         branding_policy = @brandingPolicy,
         initiation_schema = @initiationSchema,
         prerequisites = @prerequisites,
+        request_experience = @experience,
         updated_at = CURRENT_TIMESTAMP
     `)
 
@@ -166,6 +207,7 @@ export class WorkflowTemplateRepository {
         evidencePolicy: JSON.stringify(normalized.evidencePolicy),
         brandingPolicy: JSON.stringify(normalized.brandingPolicy),
         initiationSchema: normalized.initiation ? JSON.stringify(normalized.initiation) : null,
+        experience: normalized.experience ? JSON.stringify(normalized.experience) : null,
         prerequisites:
           Array.isArray(normalized.prerequisites) && normalized.prerequisites.length > 0
             ? JSON.stringify(normalized.prerequisites)
@@ -294,6 +336,8 @@ export class WorkflowTemplateRepository {
   }
 
   private hydrate(row: any): WorkflowTemplateDefinition {
+    const experience = row.experience ? JSON.parse(row.experience) : undefined
+    if (experience) validateRequestExperience(experience)
     const parsedInitiation = row.initiationSchema ? JSON.parse(row.initiationSchema) : undefined
     let parsedPrerequisites: WorkflowTemplateDefinition['prerequisites']
     if (row.prerequisites) {
@@ -307,6 +351,7 @@ export class WorkflowTemplateRepository {
     return normalizeTemplateDefinition({
       ...row,
       enabled: !!row.enabled,
+      experience,
       prerequisites: parsedPrerequisites,
       steps: JSON.parse(row.steps),
       paymentModes: JSON.parse(row.paymentModes),

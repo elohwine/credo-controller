@@ -4,6 +4,7 @@ import { IconChevronRight, IconShieldCheck, IconCalendar, IconUser } from '@tabl
 import dayjs from 'dayjs';
 import StatusBadge from '@/components/shared/StatusBadge';
 import { formatCredentialType, formatIssuerName } from '@/lib/format';
+import { formatTxnTime } from '@/lib/inboxAttention';
 
 export interface ProofCardData {
   id: string;
@@ -12,7 +13,7 @@ export interface ProofCardData {
   issuedAt: string;
   expiresAt?: string;
   claims: Record<string, string>;
-  status?: 'valid' | 'archived' | 'expired';
+  status?: 'valid' | 'archived' | 'expired' | 'withdrawn' | 'replaced';
 }
 
 interface ProofCardProps {
@@ -64,7 +65,7 @@ export default function ProofCard({ proof, onClick }: ProofCardProps) {
               <Group gap={4} align="center">
                 <IconCalendar size={10} color="#94a3b8" />
                 <Text size="xs" c="dimmed">
-                  {dayjs(proof.issuedAt).format('D MMM YYYY')}
+                  {formatTxnTime(proof.issuedAt)}
                 </Text>
               </Group>
             </Group>

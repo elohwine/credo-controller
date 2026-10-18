@@ -1,5 +1,13 @@
 # Credo Controller — `platform-remodel`
 
+> **Historical handoff (status as of 2026-10-18).** This plan was written on the
+> `platform-remodel` branch at commit `370abc2`. Work now continues on `sgk`; branch,
+> commit, CI and "complete" claims below are a snapshot, not current status. The
+> architectural source of truth is
+> [docs/CONFIGURABLE_PLATFORM_IMPLEMENTATION_PLAN.md](docs/CONFIGURABLE_PLATFORM_IMPLEMENTATION_PLAN.md);
+> how organisations with their own software plug in is in
+> [docs/CONNECTED_SYSTEMS.md](docs/CONNECTED_SYSTEMS.md).
+
 ## Full Engineering Handoff & TODO Plan
 
 ### 1. Mission

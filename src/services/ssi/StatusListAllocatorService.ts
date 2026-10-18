@@ -174,6 +174,67 @@ export class StatusListAllocatorService {
     return true
   }
 
+  public transitionStatusByCredentialRef(
+    issuedCredentialRef: string,
+    action: 'revoke' | 'suspend' | 'reactivate',
+  ): boolean {
+    const db = DatabaseManager.getDatabase()
+    let statusListId: string | undefined
+    const transitioned = db.transaction(() => {
+      const row = db
+        .prepare(
+          `SELECT id, status_list_id, current_status
+             FROM credential_status_allocations
+            WHERE issued_credential_ref = ?
+            LIMIT 1`,
+        )
+        .get(issuedCredentialRef) as (AllocationRow & { current_status: string }) | undefined
+      if (!row) return false
+
+      const allowed =
+        (action === 'revoke' && row.current_status !== 'revoked') ||
+        (action === 'suspend' && row.current_status === 'valid') ||
+        (action === 'reactivate' && row.current_status === 'suspended')
+      if (!allowed) return false
+
+      const newStatus = action === 'revoke' ? 'revoked' : action === 'suspend' ? 'suspended' : 'valid'
+      const updated = db
+        .prepare(
+          `UPDATE credential_status_allocations
+              SET current_status = ?, status_updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND current_status = ?`,
+        )
+        .run(newStatus, row.id, row.current_status)
+      if (updated.changes !== 1) return false
+
+      statusListId = row.status_list_id
+      db.prepare(
+        `UPDATE credential_status_lists
+            SET signed_vc_json = NULL, published_at = NULL, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?`,
+      ).run(statusListId)
+      return true
+    })()
+
+    if (transitioned && statusListId) statusListCacheService.invalidate(statusListId)
+    return transitioned
+  }
+
+  public getStatusByCredentialRef(issuedCredentialRef: string): 'valid' | 'revoked' | 'suspended' | undefined {
+    const row = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT current_status
+           FROM credential_status_allocations
+          WHERE issued_credential_ref = ?
+          LIMIT 1`,
+      )
+      .get(issuedCredentialRef) as { current_status?: string } | undefined
+    if (row?.current_status === 'valid' || row?.current_status === 'revoked' || row?.current_status === 'suspended') {
+      return row.current_status
+    }
+    return undefined
+  }
+
   /**
    * Builds the raw binary bitstring for a status list from the current allocation
    * state.  Bit layout matches CredentialStatusService.readBitsMostSignificantFirst:
@@ -226,7 +287,10 @@ export class StatusListAllocatorService {
 
   /** Returns the URL at which a status list VC is published. */
   public buildStatusListUrl(statusListId: string): string {
-    const base = (process.env.STATUS_LIST_BASE_URL ?? 'https://localhost:3000').replace(/\/$/, '')
+    const base = (process.env.STATUS_LIST_BASE_URL || process.env.PUBLIC_BASE_URL || 'https://localhost:3000').replace(
+      /\/$/,
+      '',
+    )
     return `${base}/status-lists/${statusListId}`
   }
 

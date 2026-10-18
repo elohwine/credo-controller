@@ -156,7 +156,9 @@ class SchemaStore {
           { keyword: 'notFound', instancePath: '', schemaPath: '', params: {}, message: 'schema not found' },
         ] as any,
       }
-    const validate = this.ajv.compile(schema.jsonSchema)
+    // Ajv refuses to compile a second schema with the same $id, so reuse the compiled one.
+    const key = typeof schema.jsonSchema?.$id === 'string' ? schema.jsonSchema.$id : undefined
+    const validate = (key && this.ajv.getSchema(key)) || this.ajv.compile(schema.jsonSchema)
     const valid = validate(data)
     return { valid: !!valid, errors: validate.errors || undefined }
   }

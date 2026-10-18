@@ -14,27 +14,46 @@ import type { SectorType, WorkflowTemplateDefinition } from '../types/WorkflowTe
 
 import { Agent, W3cCredentialService } from '@credo-ts/core'
 import crypto from 'crypto'
-import { injectable, inject } from 'tsyringe'
+import { injectable, inject, container } from 'tsyringe'
 
 import { RestMultiTenantAgentModules } from '../cliAgent'
-import { getContactById, upsertContact } from '../persistence/ContactRepository'
+import { deleteContact, getContactById, upsertContact } from '../persistence/ContactRepository'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import {
   organizationRegistryRepository,
   type OrganizationCategory,
 } from '../persistence/OrganizationRegistryRepository'
-import { orgSetupProfileService, type OrgSetupProfile, type OrgSetupProfileInput } from './OrgSetupProfileService'
+import { notificationService } from './NotificationService'
+import { ensureStarterRoles } from './OrgStarterRoles'
+import { SSIAuthService } from './SSIAuthService'
+import {
+  orgSetupProfileService,
+  REQUEST_TYPE_NAMES,
+  type OrgSetupProfile,
+  type OrgSetupProfileInput,
+} from './OrgSetupProfileService'
 import { orgSetupProvisioningService } from './OrgSetupProvisioningService'
+import {
+  canSeeSetupSteps,
+  canSeeUnassignedInbound,
+  rankNextSteps,
+  type NextStepItem,
+  type NextStepsResult,
+} from './nextSteps'
 import { getTenantById, upsertTenant, type TenantPersistenceRecord } from '../persistence/TenantRepository'
 import { getWalletCredentialsByWalletId } from '../persistence/WalletCredentialRepository'
 import { WorkflowTemplateRepository } from '../persistence/WorkflowTemplateRepository'
+import { workflowRequestRepository } from '../persistence/WorkflowRequestRepository'
+import { isWorkflowRequestActionable } from './workflowRequestInbox'
+import { platformRequestService } from './PlatformRequestService'
+import { isPlatformRequestWaiting } from '../config/requestInbox'
 import { signToken } from '../utils/jwt'
 import { rootLogger } from '../utils/pinoLogger'
 
 import {
   ACTOR_PRESETS,
   OrgWorkflowActorService,
-  ROLE_FALLBACK_BY_STAGE_ACTION,
+  roleFallbackFor,
   describeActorMode,
   orgWorkflowActorService,
   type ActorFallbackEntry,
@@ -48,10 +67,8 @@ import {
 import { provisionTenantResources } from './TenantProvisioningService'
 import { workflowReadinessService, type TemplateReadinessReport } from './WorkflowReadinessService'
 import { getWorkflowTypeCandidates, normalizeWorkflowTypeAlias } from './workflow/initiation'
-import {
-  actorCredentialFingerprint,
-  orgWorkflowActorCredentialService,
-} from './OrgWorkflowActorCredentialService'
+import { issuedRecordTypes, sanitizeRecordSettings } from './workflow/recordSettings'
+import { actorCredentialFingerprint, orgWorkflowActorCredentialService } from './OrgWorkflowActorCredentialService'
 import { getDeclaredPrerequisites } from './workflow/prerequisites'
 import { getTemplateById, type WorkflowTemplate } from './workflow/templates'
 
@@ -96,6 +113,8 @@ export interface RoleRecord {
   name: string
   description?: string
   permissions: string[]
+  /** Membership role this row assigns when someone joins the team. */
+  membershipRole?: string
   createdAt: string
 }
 
@@ -171,6 +190,7 @@ export interface WorkflowFeatureCatalogItem {
 
 export interface OrgWorkflowConfiguration {
   orgTenantId: string
+  access: OrgSetupProfile['access']
   /** @deprecated derived from the first configured template; workflows are prerequisite-driven, not sector-driven. */
   sector?: SectorType
   templates: WorkflowTemplateDefinition[]
@@ -298,7 +318,13 @@ export interface OfferWorkflowActorCredentialsInput {
 
 export interface OfferWorkflowActorCredentialsResult {
   offered: Array<{ workflowType: string; stageActions: string[]; userId?: string; role?: string }>
-  alreadyCovered: Array<{ workflowType: string; stageActions: string[]; userId?: string; role?: string; outcome: string }>
+  alreadyCovered: Array<{
+    workflowType: string
+    stageActions: string[]
+    userId?: string
+    role?: string
+    outcome: string
+  }>
   skipped: Array<{ workflowType: string; stageActions: string[]; reason?: string }>
   failed: Array<{ workflowType: string; stageActions: string[]; reason?: string }>
 }
@@ -510,7 +536,7 @@ function templateOfferedByAnswers(orgTenantId: string, workflowType: string): Wo
     id: workflowType,
     tenantId: orgTenantId,
     workflowType,
-    name: builtin?.name || workflowType,
+    name: builtin?.name || REQUEST_TYPE_NAMES[workflowType] || workflowType,
     sector: 'custom',
     enabled: true,
     version: 1,
@@ -576,7 +602,7 @@ export class OrganizationService {
         displayName: params.name,
         category: params.category || 'supplier',
         description: `Trusted organization profile for ${params.name}`,
-        isPublic: true,
+        isPublic: false,
         verificationStatus: 'verified',
         issuerDid: params.issuerDid,
         verifierDid: params.verifierDid,
@@ -588,10 +614,11 @@ export class OrganizationService {
     const current = organizationRegistryRepository.findOrganizationByTenantId(params.orgTenantId)
     if (!current) return
 
+    const advertises = orgSetupProfileService.get(params.orgTenantId).kinds.includes('shop')
     const updates: Record<string, unknown> = {
       displayName: params.name,
       category: params.category || current.category,
-      isPublic: true,
+      isPublic: advertises ? current.isPublic : false,
       verificationStatus: current.verificationStatus === 'suspended' ? current.verificationStatus : 'verified',
       website: params.domain ? `https://${params.domain}` : current.website,
       metadata: {
@@ -799,7 +826,8 @@ export class OrganizationService {
         const parsed = JSON.parse(cred.credentialData || '{}')
         const subject = parsed?.credentialSubject || parsed?.vc?.credentialSubject || {}
         const nested = subject?.claims && typeof subject.claims === 'object' ? subject.claims : {}
-        const candidate = nested.displayName || subject?.displayName || nested.username || subject?.username || subject?.name
+        const candidate =
+          nested.displayName || subject?.displayName || nested.username || subject?.username || subject?.name
         if (typeof candidate === 'string' && candidate.trim().length > 0) {
           return candidate.trim()
         }
@@ -901,7 +929,8 @@ export class OrganizationService {
         })
         logger.info({ orgTenantId }, 'Org tenant fully provisioned')
       } catch (err: any) {
-        logger.warn({ error: err.message, orgTenantId }, 'Org provisioning partial failure, continuing')
+        logger.error({ error: err.message, orgTenantId }, 'Org provisioning failed')
+        throw err
       }
     }
 
@@ -947,6 +976,7 @@ export class OrganizationService {
     }
 
     this.ensurePlatformOrganizationRecord(orgTenantId, req.name)
+    if (!existingOrg) orgSetupProfileService.initializeNew(orgTenantId)
 
     // Create ownership membership if one doesn't exist
     const existingMembership = db
@@ -1073,6 +1103,10 @@ export class OrganizationService {
 
     if (role !== 'owner' && role !== 'admin') {
       throw new Error('Only org owners/admins can manage organization settings')
+    }
+
+    if (isPublic && !orgSetupProfileService.get(orgTenantId).kinds.includes('shop')) {
+      throw new Error('Only an organisation that sells or advertises can be found by others')
     }
 
     const org = organizationRegistryRepository.findOrganizationByTenantId(orgTenantId)
@@ -1384,10 +1418,16 @@ export class OrganizationService {
     const db = DatabaseManager.getDatabase()
     const org = this.ensurePlatformOrganizationRecord(orgTenantId, getTenantById(orgTenantId)?.label)
 
+    try {
+      ensureStarterRoles(orgTenantId, org.id)
+    } catch (error: any) {
+      logger.warn({ error: error?.message, orgTenantId }, 'Could not fill starter roles from the setup answers')
+    }
+
     const rows = db
       .prepare(
         `
-        SELECT id, name, description_ref, permissions, created_at
+        SELECT id, name, description_ref, permissions, membership_role, created_at
         FROM roles
         WHERE organization_id = ?
         ORDER BY created_at ASC
@@ -1398,6 +1438,7 @@ export class OrganizationService {
       name: string
       description_ref?: string | null
       permissions: string
+      membership_role?: string | null
       created_at: string
     }>
 
@@ -1406,6 +1447,7 @@ export class OrganizationService {
       name: row.name,
       description: row.description_ref || undefined,
       permissions: parseJsonColumn<string[]>(row.permissions, []),
+      membershipRole: row.membership_role || undefined,
       createdAt: row.created_at,
     }))
   }
@@ -1413,7 +1455,7 @@ export class OrganizationService {
   createRole(
     orgTenantId: string,
     createdBy: string,
-    input: { name: string; description?: string; permissions?: string[] },
+    input: { name: string; description?: string; permissions?: string[]; membershipRole?: string },
   ): RoleRecord {
     this.assertOrgAdmin(createdBy, orgTenantId)
 
@@ -1423,18 +1465,28 @@ export class OrganizationService {
     const createdAt = new Date().toISOString()
     const permissions = Array.from(new Set((input.permissions || []).map((value) => value.trim()).filter(Boolean)))
 
+    const membershipRole = OrganizationService.normalizeMembershipRole(input.membershipRole || input.name)
     db.prepare(
       `
-      INSERT INTO roles (id, organization_id, name, description_ref, permissions, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO roles (id, organization_id, name, description_ref, permissions, membership_role, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `,
-    ).run(id, org.id, input.name.trim(), input.description?.trim() || null, JSON.stringify(permissions), createdAt)
+    ).run(
+      id,
+      org.id,
+      input.name.trim(),
+      input.description?.trim() || null,
+      JSON.stringify(permissions),
+      membershipRole === 'member' && !input.membershipRole ? null : membershipRole,
+      createdAt,
+    )
 
     return {
       id,
       name: input.name.trim(),
       description: input.description?.trim() || undefined,
       permissions,
+      membershipRole: membershipRole === 'member' && !input.membershipRole ? undefined : membershipRole,
       createdAt,
     }
   }
@@ -1579,25 +1631,94 @@ export class OrganizationService {
       .catch(() => undefined)
   }
 
+  /**
+   * Someone already in the app, whether or not they are on this team.
+   * Used when an outside contact is sent a job: they are not added to the team.
+   */
+  lookupUserByPhone(orgTenantId: string, phone: string): { userId?: string; inTeam: boolean; role?: string } {
+    const db = DatabaseManager.getDatabase()
+    const phoneHash = this.hashData(this.normalizePhone(phone))
+    const user = db.prepare('SELECT id FROM ssi_users WHERE phone_hash = ?').get(phoneHash) as
+      | { id: string }
+      | undefined
+    if (!user?.id) return { inTeam: false }
+    const membership = db
+      .prepare(`SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ? AND status = 'active'`)
+      .get(user.id, orgTenantId) as { role: string } | undefined
+    return { userId: user.id, inTeam: Boolean(membership), role: membership?.role }
+  }
+
   async inviteMemberByPhone(
     orgTenantId: string,
     phone: string,
     role: string,
     invitedBy: string,
-  ): Promise<{ membershipId: string; targetUserId: string; role: string }> {
-    const db = DatabaseManager.getDatabase()
-
+  ): Promise<{ membershipId: string; targetUserId: string; role: string; accountCreated: boolean; alerted: boolean }> {
     const normalizedPhone = this.normalizePhone(phone)
-    const phoneHash = this.hashData(normalizedPhone)
-    const row = db.prepare('SELECT id FROM ssi_users WHERE phone_hash = ?').get(phoneHash) as { id: string } | undefined
-
-    if (!row?.id) {
-      throw new Error('No registered user found for that phone number')
-    }
-
+    const knownName = this.contactNameForPhone(orgTenantId, normalizedPhone)
+    const holder = await container
+      .resolve(SSIAuthService)
+      .provisionInvitedHolder(normalizedPhone, knownName || 'Team member')
     const membershipRole = OrganizationService.normalizeMembershipRole(role)
-    const result = await this.inviteMember(orgTenantId, row.id, membershipRole, invitedBy)
-    return { ...result, targetUserId: row.id, role: membershipRole }
+    const result = await this.inviteMember(orgTenantId, holder.userId, membershipRole, invitedBy)
+    this.rememberMemberPhone(orgTenantId, holder.userId, normalizedPhone)
+    const alerted =
+      result.alreadyMember && !holder.created
+        ? false
+        : await this.alertInvitedMember(orgTenantId, normalizedPhone, membershipRole, holder.created)
+    return { ...result, targetUserId: holder.userId, role: membershipRole, accountCreated: holder.created, alerted }
+  }
+
+  /** Use a name the organisation already saved for this phone, when there is one. */
+  private contactNameForPhone(orgTenantId: string, phone: string): string | undefined {
+    const db = DatabaseManager.getDatabase()
+    const rows = db
+      .prepare('SELECT name, phone FROM org_contacts WHERE org_tenant_id = ? AND phone IS NOT NULL')
+      .all(orgTenantId) as { name: string; phone: string }[]
+    const hit = rows.find((row) => this.normalizePhone(row.phone) === phone)
+    const name = hit?.name?.trim()
+    if (!name || /^(organization owner|team member)$/i.test(name)) return undefined
+    return name
+  }
+
+  /** Keep the phone on the team contact so the list can tell they have an account. */
+  private rememberMemberPhone(orgTenantId: string, userId: string, phone: string): void {
+    const existing = getContactById(`${orgTenantId}:member:${userId}`, orgTenantId)
+    if (!existing) return
+    upsertContact({
+      id: existing.id,
+      orgTenantId,
+      contactScope: 'internal',
+      name: existing.name,
+      phone,
+      email: existing.email,
+      did: existing.did,
+      notes: existing.notes,
+      walletTenantId: existing.walletTenantId,
+      linkedAt: existing.linkedAt,
+    })
+  }
+
+  /** Tell the person they were added. Their PIN is still theirs to choose. */
+  private async alertInvitedMember(
+    orgTenantId: string,
+    phone: string,
+    role: string,
+    accountCreated: boolean,
+  ): Promise<boolean> {
+    const orgName = getTenantById(orgTenantId)?.label || 'the organisation'
+    const roleWords = role.replace(/_/g, ' ')
+    const message = accountCreated
+      ? `You have been added to ${orgName} as ${roleWords}. Open the app and sign in with this phone number. The first PIN you choose is yours. Your staff card will be waiting.`
+      : `You have been added to ${orgName} as ${roleWords}. Open the app to accept your staff card.`
+    const [sms, whatsapp] = await Promise.all([
+      notificationService.sendSms(phone, message).catch(() => ({ success: false, skipped: true })),
+      notificationService.sendWhatsAppText({ to: phone, body: message }).catch(() => ({ skipped: true })),
+    ])
+    return (
+      Boolean(sms && 'success' in sms && sms.success) ||
+      !('skipped' in (whatsapp || {}) && (whatsapp as { skipped?: boolean }).skipped)
+    )
   }
 
   /**
@@ -1673,9 +1794,16 @@ export class OrganizationService {
       | undefined
     if (!user?.tenant_id) return
     try {
-      const contactId = `${orgTenantId}:owner:${userId}`
+      const contactId = role === 'owner' ? `${orgTenantId}:owner:${userId}` : `${orgTenantId}:member:${userId}`
+      // Older builds stored every member under an owner id. A field worker is not the owner.
+      if (role !== 'owner') deleteContact(`${orgTenantId}:owner:${userId}`, orgTenantId)
       const existing = getContactById(contactId, orgTenantId)
-      const name = this.memberContactName(role, await this.resolveIdentityDisplayNameAsync(user.tenant_id), existing?.name)
+      const name = this.memberContactName(
+        role,
+        await this.resolveIdentityDisplayNameAsync(user.tenant_id),
+        existing?.name,
+      )
+      const roleWords = role.replace(/_/g, ' ')
       upsertContact({
         id: contactId,
         orgTenantId,
@@ -1686,7 +1814,7 @@ export class OrganizationService {
         did: user.did || existing?.did,
         walletTenantId: user.tenant_id,
         linkedAt: new Date().toISOString(),
-        notes: existing?.notes || 'Auto-linked from organization member account',
+        notes: existing?.notes || (role === 'owner' ? 'Runs the organisation' : `On the team as ${roleWords}`),
       })
     } catch (err: any) {
       logger.warn({ error: err.message, orgTenantId, userId }, 'syncMemberContact: failed (non-critical)')
@@ -1723,6 +1851,7 @@ export class OrganizationService {
       targetUserId,
       orgTenantId,
     )
+    this.withdrawEmployeeCredentials(orgTenantId, targetUserId)
 
     logger.info({ targetUserId, orgTenantId, removedBy }, 'Member removed from org')
   }
@@ -1756,7 +1885,12 @@ export class OrganizationService {
       orgTenantId,
     )
     if (target.role !== membershipRole) {
-      this.offerEmployeeCredential(orgTenantId, targetUserId, membershipRole, 'membership')
+      // A new staff card says the new role. What happens to the card they already hold follows
+      // the organisation's staff-card rule (OrgMembershipCredentialService.ensureEmployeeCredential).
+      this.offerEmployeeCredential(orgTenantId, targetUserId, membershipRole, 'membership', {
+        reason: 'role_changed',
+        previousRole: target.role,
+      })
     }
     return { userId: targetUserId, role: membershipRole }
   }
@@ -1767,11 +1901,26 @@ export class OrganizationService {
       throw new Error('Not a member of this organization')
     }
 
-    const stored = workflowTemplateRepository.listByTenantId(orgTenantId)
-    const covered = new Set(stored.flatMap((template) => getWorkflowTypeCandidates(String(template.workflowType || ''))))
+    const profile = orgSetupProfileService.get(orgTenantId)
+    const allowsType = (type: string) => {
+      const module = orgSetupProfileService.moduleForOperation(type)
+      return (
+        profile.access.mode === 'legacy' ||
+        !module ||
+        profile.access.modules.some((item) => item.id === module && item.available)
+      )
+    }
+    const stored = workflowTemplateRepository
+      .listByTenantId(orgTenantId)
+      .filter((template) => allowsType(template.workflowType))
+    const covered = new Set(
+      stored.flatMap((template) => getWorkflowTypeCandidates(String(template.workflowType || ''))),
+    )
     const fromAnswers = orgSetupProfileService
       .get(orgTenantId)
-      .requestTypes.filter((workflowType) => !getWorkflowTypeCandidates(workflowType).some((candidate) => covered.has(candidate)))
+      .requestTypes.filter(
+        (workflowType) => !getWorkflowTypeCandidates(workflowType).some((candidate) => covered.has(candidate)),
+      )
       .map((workflowType) => templateOfferedByAnswers(orgTenantId, workflowType))
     const templates = [...stored, ...fromAnswers]
     const firstTemplate = templates.find((template) => template.sector && template.sector !== 'custom') ?? templates[0]
@@ -1779,17 +1928,64 @@ export class OrganizationService {
 
     return {
       orgTenantId,
+      access: profile.access,
       sector: firstTemplate?.sector,
       templates,
-      workflowTypes: Array.from(new Set(evaluation.templates.map((report) => report.workflowType))),
-      workflows: evaluation.templates.map((report) => ({
-        templateId: report.templateId,
-        workflowType: report.workflowType,
-        name: report.templateName,
-        ready: report.ready,
-        blocking: report.blocking.map((item) => item.key),
-      })),
+      workflowTypes: Array.from(
+        new Set(
+          evaluation.templates.filter((report) => allowsType(report.workflowType)).map((report) => report.workflowType),
+        ),
+      ),
+      workflows: evaluation.templates
+        .filter((report) => allowsType(report.workflowType))
+        .map((report) => ({
+          templateId: report.templateId,
+          workflowType: report.workflowType,
+          name: report.templateName,
+          ready: report.ready,
+          blocking: report.blocking.map((item) => item.key),
+        })),
     }
+  }
+
+  /**
+   * Save which records a workflow in use should issue. Writes only the offer
+   * modes and the optional-records switch. Running jobs keep the steps they
+   * already started; the next time a record would be issued, the new setting applies.
+   */
+  saveRecordSettings(
+    userId: string,
+    orgTenantId: string,
+    input: { workflowType?: string; vcOfferModes?: Record<string, string>; sendOptionalOffers?: boolean },
+  ): OrgWorkflowConfiguration {
+    this.assertOrgAdmin(userId, orgTenantId)
+    const workflowType = String(input.workflowType || '').trim()
+    if (!workflowType) throw new Error('Choose a workflow')
+
+    const configuration = this.getOrganizationWorkflowConfiguration(userId, orgTenantId)
+    const inUse = new Set(
+      configuration.workflowTypes.flatMap((type) => getWorkflowTypeCandidates(type).map((item) => item.toLowerCase())),
+    )
+    if (!getWorkflowTypeCandidates(workflowType).some((candidate) => inUse.has(candidate.toLowerCase()))) {
+      throw new Error('That workflow is not in use')
+    }
+
+    const wanted = new Set(getWorkflowTypeCandidates(workflowType).map((item) => item.toLowerCase()))
+    const template = configuration.templates.find(
+      (item) => item.tenantId === orgTenantId && wanted.has(String(item.workflowType || '').toLowerCase()),
+    )
+    if (!template) throw new Error('No saved copy of that workflow')
+
+    const settings = sanitizeRecordSettings(issuedRecordTypes(template.steps), input)
+    workflowTemplateRepository.save({
+      ...template,
+      credentialPolicy: {
+        ...template.credentialPolicy,
+        vcOfferModes: settings.vcOfferModes,
+        sendOptionalOffers: settings.sendOptionalOffers,
+      },
+    })
+    return this.getOrganizationWorkflowConfiguration(userId, orgTenantId)
   }
 
   /**
@@ -1820,10 +2016,15 @@ export class OrganizationService {
           const stageAction = String(item.stageAction).toLowerCase()
           const actor = resolveBestStageActor(orgTenantId, workflow.workflowType, stageAction)
           const saved = savedDefaults.find(
-            (row) => row.stageAction === stageAction && typeCandidates.has(row.workflowType.toLowerCase()) && row.enabled,
+            (row) =>
+              row.stageAction === stageAction && typeCandidates.has(row.workflowType.toLowerCase()) && row.enabled,
           )
           const needsAssignment = OrgWorkflowActorService.needsAssignment(actor)
           const moneyStep = OrgWorkflowActorService.isMoneyStage(stageAction)
+          // A role with no person on a borrowed money step is not "only for this request".
+          const unnamedRole =
+            Boolean(saved?.enabled && saved.defaultRole && !saved.defaultUserId && !saved.defaultWalletTenantId) &&
+            OrgWorkflowActorService.borrowedMoneyStep(workflow.workflowType, stageAction)
           return {
             stageAction,
             title: item.title,
@@ -1833,8 +2034,8 @@ export class OrganizationService {
             needsAssignment,
             moneyStep,
             askedOnFirstUse: !moneyStep && actor.mode === 'owner_fallback',
-            default: saved,
-            builtInRoles: ROLE_FALLBACK_BY_STAGE_ACTION[stageAction] || [],
+            default: unnamedRole ? undefined : saved,
+            builtInRoles: roleFallbackFor(workflow.workflowType, stageAction),
             stageChain: policy.stageChains[stageAction] || [],
             credential: this.describeStageActorCredential(orgTenantId, workflow.workflowType, actor, needsAssignment),
           }
@@ -1881,7 +2082,12 @@ export class OrganizationService {
       stageActions: covered,
       role: String(actor.role || 'member'),
     })
-    const status = orgWorkflowActorCredentialService.getStatus(orgTenantId, workflowType, actor.walletTenantId, fingerprint)
+    const status = orgWorkflowActorCredentialService.getStatus(
+      orgTenantId,
+      workflowType,
+      actor.walletTenantId,
+      fingerprint,
+    )
     return {
       state: status.state,
       offeredAt: status.offeredAt,
@@ -1906,7 +2112,14 @@ export class OrganizationService {
       force: input.force,
       reason: 'manual',
     })
-    const pick = (row: { workflowType: string; stageActions: string[]; userId?: string; role?: string; reason?: string; outcome: string }) => ({
+    const pick = (row: {
+      workflowType: string
+      stageActions: string[]
+      userId?: string
+      role?: string
+      reason?: string
+      outcome: string
+    }) => ({
       workflowType: row.workflowType,
       stageActions: row.stageActions,
       userId: row.userId,
@@ -1963,6 +2176,15 @@ export class OrganizationService {
     if (!defaultUserId && !defaultRole && !defaultWalletTenantId) {
       throw new Error('Choose a person, a role or a wallet for this stage')
     }
+    // Job payment and the other borrowed money steps follow who releases the money.
+    // A role with no person is not an override; If nobody is chosen is the backup.
+    if (
+      !defaultUserId &&
+      !defaultWalletTenantId &&
+      OrgWorkflowActorService.borrowedMoneyStep(workflowType, stageAction)
+    ) {
+      throw new Error('Choose a person for this step, or leave it to use who releases the money')
+    }
     if (defaultUserId) {
       const member = orgWorkflowActorService.listOrgMembers(orgTenantId).find((row) => row.userId === defaultUserId)
       if (!member) {
@@ -1981,7 +2203,7 @@ export class OrganizationService {
       enabled: true,
     })
     const actor = orgWorkflowActorService.resolveActor({ orgTenantId, workflowType, stageAction })
-    // Offer the newly designated actor their stage credential (non-blocking).
+    // One staff card lists every step this person confirms. Refresh it (non-blocking).
     orgWorkflowActorCredentialService.ensureActorCredentialInBackground({
       orgTenantId,
       workflowType,
@@ -2195,6 +2417,95 @@ export class OrganizationService {
   }
 
   /**
+   * The next things visible in the organisation Inbox, never the member's personal wallet.
+   * Setup blockers are added only for an owner or admin. At most five.
+   */
+  nextStepsFor(userId: string, orgTenantId: string): NextStepsResult {
+    const role = this.getUserOrgRole(userId, orgTenantId)
+    if (!role) {
+      throw new Error('Not a member of this organization')
+    }
+
+    const db = DatabaseManager.getDatabase()
+    const inbox: NextStepItem[] = []
+
+    if (canSeeSetupSteps(role)) {
+      const offers = db
+        .prepare(
+          `SELECT id, title, body
+               FROM wallet_pending_offers
+              WHERE resolved_at IS NULL
+                AND accepted_at IS NULL
+                AND tenant_id = ?
+                AND COALESCE(source_type, '') NOT IN (
+                  'workflow_assignment', 'workflow_request_assignment', 'ap_workflow_assignment',
+                  'requisition_stage_action', 'workflow_stage_action'
+                )
+              ORDER BY created_at ASC
+              LIMIT 8`,
+        )
+        .all(orgTenantId) as Array<{ id: string; title?: string; body?: string }>
+      for (const offer of offers) {
+        const title = String(offer.title || '').trim()
+        if (!title) continue
+        inbox.push({
+          id: offer.id,
+          kind: 'inbox',
+          title,
+          detail: String(offer.body || '').trim() || 'Open your inbox to do this.',
+          href: 'inbox',
+          inboxItemId: offer.id,
+        })
+      }
+    }
+
+    if (canSeeUnassignedInbound(role)) {
+      const requests = workflowRequestRepository.listInbound(orgTenantId, { status: 'pending', limit: 50 })
+        .filter(isWorkflowRequestActionable)
+      for (const request of requests) {
+        const title = String(request.payload?.title || request.payload?.description || request.payload?.summary || '').trim()
+        inbox.push({
+          id: request.id,
+          kind: 'inbox',
+          title: title || 'A request is waiting',
+          detail: 'Open your inbox to do this.',
+          href: 'inbox',
+          requestId: request.id,
+        })
+      }
+    }
+
+    const platformRequests = platformRequestService.list(orgTenantId, userId, undefined, undefined, 100)
+    for (const request of platformRequests.items.filter(isPlatformRequestWaiting)) {
+      inbox.push({
+        id: `platform:${request.id}`,
+        kind: 'inbox',
+        title: request.title || 'A request is waiting',
+        detail: request.description || 'Open your inbox to review this request.',
+        href: 'inbox',
+        requestId: request.id,
+      })
+    }
+
+    const setup: NextStepItem[] = []
+    if (canSeeSetupSteps(role)) {
+      const readiness = this.getOrganizationSetupReadiness(userId, orgTenantId)
+      for (const item of readiness.items) {
+        if (item.status !== 'needs_attention') continue
+        setup.push({
+          id: item.key,
+          kind: 'setup',
+          title: item.title,
+          detail: item.reason || 'Open setup to finish this.',
+          href: 'setup',
+        })
+      }
+    }
+
+    return { items: rankNextSteps({ inbox, setup, includeSetup: canSeeSetupSteps(role) }) }
+  }
+
+  /**
    * Prerequisite report for a single workflow template (Screen 4 in the onboarding
    * spec: "what does this workflow still need?").
    */
@@ -2339,6 +2650,12 @@ export class OrganizationService {
       logger.warn({ error: error.message, orgTenantId }, 'Could not refresh discovery profile after setup answers')
     }
     orgWorkflowActorCredentialService.ensureForOrganizationInBackground(orgTenantId, { reason: 'setup_profile' })
+    try {
+      const org = this.ensurePlatformOrganizationRecord(orgTenantId, getTenantById(orgTenantId)?.label)
+      ensureStarterRoles(orgTenantId, org.id)
+    } catch (error: any) {
+      logger.warn({ error: error?.message, orgTenantId }, 'Could not fill starter roles after setup answers')
+    }
     return profile
   }
 
@@ -2488,11 +2805,26 @@ export class OrganizationService {
     userId: string,
     role: string,
     source: 'membership' | 'internal_contact' | 'onboarding',
+    change?: { reason: string; previousRole?: string },
   ): void {
     void import('./OrgMembershipCredentialService')
       .then(({ orgMembershipCredentialService }) => {
-        orgMembershipCredentialService.ensureEmployeeCredentialInBackground({ orgTenantId, userId, role, source })
+        orgMembershipCredentialService.ensureEmployeeCredentialInBackground({
+          orgTenantId,
+          userId,
+          role,
+          source,
+          reason: change?.reason,
+          previousRole: change?.previousRole,
+        })
       })
+      .catch(() => undefined)
+  }
+
+  /** The person left: every staff card they hold from this organisation stops working. */
+  private withdrawEmployeeCredentials(orgTenantId: string, userId: string): void {
+    void import('./OrgMembershipCredentialService')
+      .then(({ orgMembershipCredentialService }) => orgMembershipCredentialService.memberLeft(orgTenantId, userId))
       .catch(() => undefined)
   }
 
@@ -2551,9 +2883,15 @@ export class OrganizationService {
     // This self-heals stale wallet_tenant_id caused by re-registration or wallet migration.
     if (user?.tenant_id) {
       try {
-        const contactId = `${orgTenantId}:owner:${userId}`
+        const contactId = role === 'owner' ? `${orgTenantId}:owner:${userId}` : `${orgTenantId}:member:${userId}`
+        if (role !== 'owner') deleteContact(`${orgTenantId}:owner:${userId}`, orgTenantId)
         const existing = getContactById(contactId, orgTenantId)
-        const name = this.memberContactName(role, await this.resolveIdentityDisplayNameAsync(user.tenant_id), existing?.name)
+        const name = this.memberContactName(
+          role,
+          await this.resolveIdentityDisplayNameAsync(user.tenant_id),
+          existing?.name,
+        )
+        const roleWords = role.replace(/_/g, ' ')
         upsertContact({
           id: contactId,
           orgTenantId,
@@ -2564,7 +2902,7 @@ export class OrganizationService {
           did: user.did || existing?.did,
           walletTenantId: user.tenant_id,
           linkedAt: new Date().toISOString(),
-          notes: existing?.notes || 'Auto-linked from organization member account',
+          notes: existing?.notes || (role === 'owner' ? 'Runs the organisation' : `On the team as ${roleWords}`),
         })
         this.offerEmployeeCredentialForWallet(orgTenantId, user.tenant_id, name)
       } catch (err: any) {

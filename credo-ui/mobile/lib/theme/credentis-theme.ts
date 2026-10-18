@@ -57,14 +57,21 @@ const danger: MantineColorsTuple = [
 
 export const credentisTheme = createTheme({
   colors: { credentis, brand: credentis, blue: credentis, success, warning, danger },
+  fontSizes: {
+    xs: '12px',
+    sm: '14px',
+    md: '16px',
+    lg: '18px',
+    xl: '22px',
+  },
   primaryColor: 'credentis',
   primaryShade: 6,
   autoContrast: true,
   luminanceThreshold: 0.3,
-  fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif',
+  fontFamily: 'system-ui, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
   fontFamilyMonospace: 'JetBrains Mono, Fira Code, monospace',
   headings: {
-    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif',
+    fontFamily: 'system-ui, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
     fontWeight: '600',
     sizes: {
       h1: { fontSize: '2.25rem', lineHeight: '1.2' },
@@ -87,7 +94,8 @@ export const credentisTheme = createTheme({
     sm: '0.5rem',
     md: '0.75rem',
     lg: '1rem',
-    xl: '1.5rem',
+    // Material 3 extra-large shape (28dp): dialogs, and the pill shape on buttons.
+    xl: '1.75rem',
   },
   defaultRadius: 'sm',
   shadows: {
@@ -101,14 +109,23 @@ export const credentisTheme = createTheme({
   focusRing: 'auto',
   respectReducedMotion: true,
   components: {
-    Button: { defaultProps: { radius: 'sm' } },
+    Button: { defaultProps: { radius: 'xl' } },
     TextInput: { defaultProps: { radius: 'sm' } },
     PasswordInput: { defaultProps: { radius: 'sm' } },
     Select: { defaultProps: { radius: 'sm' } },
+    // Keep portalled pickers out of the scroll-locked body's layout and above nested dialogs.
+    Combobox: { defaultProps: { floatingStrategy: 'fixed', zIndex: 2600 } },
+    Menu: { defaultProps: { zIndex: 2600 } },
+    Popover: { defaultProps: { zIndex: 2600 } },
     Card: { defaultProps: { radius: 'md', shadow: 'sm' } },
-    Paper: { defaultProps: { radius: 'sm', shadow: 'xs' } },
-    Modal: { defaultProps: { radius: 'md', centered: true } },
+    // Material 3 shape scale: cards and list containers 12dp, dialogs 28dp.
+    Paper: { defaultProps: { radius: 'md', shadow: 'xs' } },
+    Modal: { defaultProps: { radius: 'xl', centered: true, zIndex: 2200 } },
+    Drawer: { defaultProps: { zIndex: 2000 } },
     Notification: { defaultProps: { radius: 'sm' } },
+    // Android TabLayout "auto" mode: tabs fill the bar when they fit and scroll sideways when
+    // they do not (see .app-tabs-list in styles/globals.css and useActiveTabInView in lib/tabs.ts).
+    Tabs: { classNames: { list: 'app-tabs-list', tab: 'app-tabs-tab' } },
   },
   other: {
     glass: {

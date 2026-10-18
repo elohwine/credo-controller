@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react';
 import axios from 'axios';
+import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/router';
 import {
     Title, Text, Group, Paper, Badge, Button,
@@ -13,6 +14,8 @@ import { EnvContext } from '@/pages/_app';
 import { getPreferredTenantToken } from '@/utils/portalTenant';
 import { readActiveOrganization } from '@/utils/organizationContext';
 import { jobStatusColor as getStatusColor, jobStatusLabel as getStatusLabel } from '../finance/financeStages';
+import { jobHeading } from '../finance/jobAuditTrail';
+import { endPortalTask, getPortalTask } from '@/lib/portalContext';
 
 interface JobCard {
     id: string;
@@ -96,8 +99,12 @@ export default function JobCardsBoard() {
             const preferredToken = getPreferredTenantToken();
             const walletToken = localStorage.getItem('walletToken');
             const orgToken = localStorage.getItem('credoOrgToken');
+            const task = getPortalTask();
+            const taskRunId = task ? new URL(window.location.href).searchParams.get('runId') : null;
 
-            const orderedCandidates = contextMode === 'org'
+            const orderedCandidates = taskRunId
+                ? [{ token: orgToken, context: 'org' as const }]
+                : contextMode === 'org'
                 ? [
                     { token: orgToken, context: 'org' as const },
                     { token: preferredToken, context: 'org' as const },
@@ -121,16 +128,19 @@ export default function JobCardsBoard() {
 
             const responses = await Promise.all(candidates.map(async ({ token, context }) => {
                 try {
-                    const res = await axios.get(`${credoBackend}/workflows/runs?limit=50`, {
+                    const res = await axios.get(taskRunId
+                        ? `${credoBackend}/workflows/runs/${encodeURIComponent(taskRunId)}`
+                        : `${credoBackend}/workflows/runs?limit=50`, {
                         headers: { Authorization: `Bearer ${token}` },
                     });
-                    const rows = Array.isArray(res.data) ? res.data : [];
+                    const rows = taskRunId ? [res.data] : Array.isArray(res.data) ? res.data : [];
                     return rows.map((row: any) => ({
                         ...row,
                         authToken: token,
                         authContext: context,
                     }));
-                } catch {
+                } catch (error) {
+                    if (taskRunId) throw error;
                     return [];
                 }
             }));
@@ -160,6 +170,9 @@ export default function JobCardsBoard() {
             });
         } catch (err) {
             console.error('Failed to fetch job cards:', err);
+            notifications.show({ title: 'Could not load jobs', message: axios.isAxiosError(err)
+                ? String(err.response?.data?.error || err.response?.data?.message || err.message)
+                : 'The job could not be loaded. Try again.', color: 'red' });
         } finally {
             setLoading(false);
         }
@@ -184,9 +197,12 @@ export default function JobCardsBoard() {
         j.status === statusFilter ||
         (String(j.output?.workflowStage || '').toLowerCase() === statusFilter)
     );
+    const [inboxTask, setInboxTask] = useState(false);
+    useEffect(() => { setInboxTask(Boolean(getPortalTask())); }, [router.asPath]);
 
     return (
         <Box>
+            <Box style={inboxTask ? { display: 'none' } : undefined}>
             <Group justify="space-between" mb="lg">
                 <div>
                     <Title order={2} style={{ color: BRAND.dark }}>Job Cards</Title>
@@ -227,7 +243,7 @@ export default function JobCardsBoard() {
                 {filteredJobs.map(job => {
                     const state = job.output || {};
                     const input = state.workflowInput || job.input || {};
-                    const title = input.poNumber || `Job: ${job.id.substring(0, 8)}`;
+                    const heading = jobHeading(input);
                     const client = input.clientName || 'Unknown Client';
                     const location = input.location || 'Pending Location';
                     const assigneeId = String(state.assignment?.assigneeId || state.assigneeId || input.assigneeId || '');
@@ -244,8 +260,8 @@ export default function JobCardsBoard() {
                                             <IconBriefcase size={16} />
                                         </div>
                                         <div>
-                                            <Text fw={600} size="md" style={{ color: BRAND.dark }}>{title}</Text>
-                                            <Text size="xs" c="dimmed">{client}</Text>
+                                            <Text fw={600} size="md" style={{ color: BRAND.dark }} lineClamp={2}>{heading.title}</Text>
+                                            <Text size="xs" c="dimmed">{[client, input.reference || input.poNumber].filter(Boolean).join(' · ')}</Text>
                                         </div>
                                     </Group>
                                     <Badge color={getStatusColor(job.status, state.workflowStage)} variant="light">
@@ -256,8 +272,6 @@ export default function JobCardsBoard() {
                                 <Divider my="sm" />
 
                                 <Stack gap="xs" mb="lg">
-                                    <Text size="sm" lineClamp={2}>{input.description || 'No description provided'}</Text>
-
                                     <Group gap={6} mt="xs">
                                         <IconMapPin size={14} color={BRAND.viking} />
                                         <Text size="xs" c="dimmed">{location}</Text>
@@ -297,13 +311,20 @@ export default function JobCardsBoard() {
                     </Grid.Col>
                 )}
             </Grid>
+            </Box>
 
             {selectedJob && (
                 <JobCardDetail
                     job={selectedJob}
                     opened={!!selectedJob}
-                    onClose={() => setSelectedJob(null)}
+                    onClose={() => {
+                        if (getPortalTask()) {
+                            endPortalTask();
+                            void router.replace('/inbox');
+                        } else setSelectedJob(null);
+                    }}
                     onRefresh={fetchJobs}
+                    initialTab={String(router.query.stage || '') === 'receipts' ? 'receipts' : 'details'}
                 />
             )}
         </Box>

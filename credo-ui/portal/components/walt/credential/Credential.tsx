@@ -11,6 +11,7 @@ type Props = {
   title: string;
   description?: string;
   selected?: boolean;
+  actionLabel?: string;
   onClick: (id: string) => void;
 };
 
@@ -19,16 +20,23 @@ export default function Credential({
   title,
   description,
   selected = false,
+  actionLabel,
   onClick,
 }: Props) {
   return (
     <Paper
+      component="button"
+      type="button"
+      aria-label={actionLabel || title}
       onClick={() => onClick(id)}
       p="xl"
       radius="lg"
       style={{
-        width: 360,
-        height: 225,
+        width: '100%',
+        maxWidth: 360,
+        minHeight: 225,
+        height: '100%',
+        textAlign: 'left',
         cursor: 'pointer',
         background: selected
           ? 'linear-gradient(135deg, var(--mantine-color-credentis-6) 0%, var(--mantine-color-credentis-8) 100%)'
@@ -50,12 +58,12 @@ export default function Credential({
           style={{ filter: 'brightness(0) invert(1)' }}
         />
       </Box>
-      <Box mt="xl" pt="md">
-        <Text size="xl" fw={700} c="white">
-          {title.length > 20 ? title.substring(0, 20) + '...' : title}
+      <Box mt="xl">
+        <Text size="xl" fw={700} c="white" lineClamp={2}>
+          {title}
         </Text>
         {description && (
-          <Text size="sm" c="white" opacity={0.8} mt="xs">
+          <Text size="sm" c="white" opacity={0.8} mt="xs" lineClamp={2}>
             {description}
           </Text>
         )}

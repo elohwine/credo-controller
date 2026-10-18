@@ -2,6 +2,13 @@
  * Auth helpers — mirrors portal localStorage key conventions
  */
 import { resolveMobileApiBaseUrl } from './baseUrl'
+import {
+  isBoundTaskPath,
+  readInboxTask,
+  TASK_CONTEXT_KEY,
+  TASK_CONTEXT_MAX_AGE_MS,
+  type InboxTaskContext,
+} from '../../shared/taskContext'
 
 export interface UserProfile {
   phone: string
@@ -111,6 +118,13 @@ function hasValidOrgTokenForActiveOrg(activeOrgId: string | null): boolean {
   return tokenTenantId === activeOrgId
 }
 
+export const CREDENTIS_CONTEXT_CHANGED_EVENT = 'credentis-context-changed'
+
+function announceContextChanged(): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(CREDENTIS_CONTEXT_CHANGED_EVENT))
+}
+
 export function getContextMode(): ContextMode {
   if (typeof window === 'undefined') return 'personal'
 
@@ -184,9 +198,8 @@ export function getUserRole(): string | null {
     return getOrgRoleClaim()
   }
 
-  const walletToken = getWalletToken()
-  const payload = walletToken ? decodeJwtPayload(walletToken) : null
-  return (payload?.role as string | undefined) ?? 'holder'
+  // A personal wallet token's 'role' is the agent type (RestTenantAgent), not a person's role.
+  return 'holder'
 }
 
 export function getUserPhone(): string | null {
@@ -231,8 +244,74 @@ interface ApplyOrgContextInput {
   workflowTypes?: string[]
 }
 
+/**
+ * A task context is an organisation context opened from an inbox card, for that one task.
+ *
+ * Least privilege for people who act for an organisation from their personal inbox (field
+ * workers, approvers): the switch lasts only while they are on the task's own pages. Leaving
+ * them, closing the task, or finishing it puts the app back in the personal context, on the
+ * personal inbox, so nobody stays inside the organisation's sections by accident.
+ */
+export type TaskContext = InboxTaskContext
+
+export function beginTaskContext(input: { orgId: string; target?: string }): void {
+  if (typeof window === 'undefined') return
+  const task: TaskContext = { orgId: input.orgId, returnTo: '/inbox', target: input.target, startedAt: Date.now() }
+  localStorage.setItem(TASK_CONTEXT_KEY, JSON.stringify(task))
+  announceContextChanged()
+}
+
+export function getTaskContext(): TaskContext | null {
+  if (typeof window === 'undefined') return null
+  const task = readInboxTask(localStorage)
+  if (!task) {
+    if (localStorage.getItem(TASK_CONTEXT_KEY)) endTaskContext()
+    return null
+  }
+  if (getContextMode() !== 'org' || getStoredActiveOrgId() !== task.orgId) {
+    clearTaskContext()
+    return null
+  }
+  if (Date.now() - task.startedAt >= TASK_CONTEXT_MAX_AGE_MS || task.startedAt > Date.now()) {
+    endTaskContext()
+    return null
+  }
+  return task
+}
+
+export function isTaskPath(url: string): boolean {
+  const task = getTaskContext()
+  return Boolean(task && isBoundTaskPath(task, url))
+}
+
+export function bindTaskPath(url: string): boolean {
+  const task = getTaskContext()
+  if (!task || !isBoundTaskPath(task, url)) return false
+  if (!task.target) localStorage.setItem(TASK_CONTEXT_KEY, JSON.stringify({ ...task, target: url }))
+  return true
+}
+
+/** Forget the task without changing context (the person chose a context themselves). */
+export function clearTaskContext(): void {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem(TASK_CONTEXT_KEY)
+  sessionStorage.removeItem(TASK_CONTEXT_KEY)
+}
+
+/** Finish the task: back to the personal context. Returns where to go, or null when no task was open. */
+export function endTaskContext(): string | null {
+  if (typeof window === 'undefined') return null
+  const raw = localStorage.getItem(TASK_CONTEXT_KEY)
+  if (!raw) return null
+  clearTaskContext()
+  setPersonalContext()
+  return '/inbox'
+}
+
 export function setPersonalContext(): void {
   if (typeof window === 'undefined') return
+
+  clearTaskContext()
 
   localStorage.removeItem('credoOrgToken')
   localStorage.removeItem('credoTenantToken')
@@ -247,6 +326,7 @@ export function setPersonalContext(): void {
   localStorage.removeItem('credoRunningActions.v1')
   localStorage.setItem('credoContextMode', 'personal')
   localStorage.setItem('credoUserRole', 'holder')
+  announceContextChanged()
 }
 
 export function applyPersonalWalletContext(token: string, tenantId?: string | null): void {
@@ -263,6 +343,7 @@ export function applyPersonalWalletContext(token: string, tenantId?: string | nu
     localStorage.setItem('credoTenantId', normalizedTenantId)
     localStorage.setItem('tenantId', normalizedTenantId)
   }
+  announceContextChanged()
 }
 
 export function applyOrgContext({
@@ -296,6 +377,7 @@ export function applyOrgContext({
   } else {
     localStorage.removeItem('credoActiveWorkflowTypes')
   }
+  announceContextChanged()
 }
 
 /**
@@ -342,7 +424,9 @@ export function isReleaseRole(): boolean {
  * External org-interacting users (e.g. holder/member/guest) must not see FEPT ops UI.
  */
 export function isEmployeeOrgRole(): boolean {
-  const role = String(getOrgRoleClaim() || '').toLowerCase().trim()
+  const role = String(getOrgRoleClaim() || '')
+    .toLowerCase()
+    .trim()
   if (!role) return false
   // Every membership role the organization hands out (built-in or added under Roles, e.g.
   // supervisor, finance officer) is an internal role. Only clearly external parties are not.

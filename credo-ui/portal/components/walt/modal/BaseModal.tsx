@@ -4,7 +4,7 @@
 
 import { ReactNode } from 'react';
 import { Modal, Group, ActionIcon, Text, Image, Box } from '@mantine/core';
-import { IconX, IconChevronLeft } from '@tabler/icons-react';
+import { IconChevronLeft } from '@tabler/icons-react';
 
 type ModalProps = {
   show: boolean;
@@ -31,52 +31,33 @@ export default function BaseModal({
 }: ModalProps) {
   return (
     <Modal
+      title={title}
       opened={show}
       onClose={onClose}
       size={size}
       radius="lg"
       padding="lg"
       centered
-      withCloseButton={false}
+      withCloseButton={showClose}
+      closeButtonProps={{ 'aria-label': 'Close' }}
       overlayProps={{
         backgroundOpacity: 0.55,
         blur: 3,
       }}
     >
-      {/* Header */}
-      <Group justify="space-between" mb="md">
-        {showBack ? (
+      {showBack && (
+        <Group mb="md">
           <ActionIcon
             variant="subtle"
             color="gray"
             onClick={onBackPress}
+            aria-label="Back"
             radius="xl"
           >
             <IconChevronLeft size={20} />
           </ActionIcon>
-        ) : (
-          <div />
-        )}
-
-        {title && (
-          <Text fw={600} size="lg">
-            {title}
-          </Text>
-        )}
-
-        {showClose ? (
-          <ActionIcon
-            variant="light"
-            color="gray"
-            onClick={onClose}
-            radius="xl"
-          >
-            <IconX size={18} />
-          </ActionIcon>
-        ) : (
-          <div />
-        )}
-      </Group>
+        </Group>
+      )}
 
       {/* Content */}
       <Box>{children}</Box>

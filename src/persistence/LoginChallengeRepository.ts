@@ -66,6 +66,15 @@ export function deleteLoginChallenge(id: string): void {
   database.prepare('DELETE FROM login_challenges WHERE id = ?').run(id)
 }
 
+/** Use a challenge exactly once: true only for the first caller while it is unexpired. */
+export function consumeLoginChallenge(id: string): boolean {
+  const database = ensureDb()
+  return (
+    database.prepare('DELETE FROM login_challenges WHERE id = ? AND expires_at > ?').run(id, new Date().toISOString())
+      .changes === 1
+  )
+}
+
 export function cleanupExpiredChallenges(): void {
   const database = ensureDb()
   const now = new Date().toISOString()

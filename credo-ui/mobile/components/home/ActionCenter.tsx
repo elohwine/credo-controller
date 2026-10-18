@@ -1,17 +1,17 @@
 import React, { useState } from 'react';
 import {
-    Box, Stack, Text, Group, ThemeIcon, UnstyledButton,
+    Box, Stack, Group, ThemeIcon, UnstyledButton, Button,
     useMantineColorScheme, useMantineTheme, Badge, Grid, Card,
     Divider,
 } from '@mantine/core';
 import {
-    IconScan, IconPlus, IconCurrencyDollar, IconArrowUpRight,
-    IconQrcode, IconRotate, IconBuildingBank, IconInbox,
-    IconUsers, IconSearch, IconSettings, IconActivity, IconShieldCheck,
+    IconScan, IconActivity, IconShieldCheck,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
+import { Text } from '@mantine/core';
 import { isEmployeeOrgRole, getActiveOrgId, getUserRole } from '@/lib/auth';
 import QRCode from 'react-qr-code';
+import RequestSheet from '@/components/shared/RequestSheet';
 
 interface ActionCenterProps {
     contextMode: 'personal' | 'org';
@@ -27,13 +27,6 @@ interface ActionCenterProps {
 }
 
 /* ─── Zone 1 helpers ──────────────────────────────────────────────── */
-
-function truncateId(id: string | null | undefined, maxLen = 16): string {
-    if (!id) return '';
-    const clean = id.replace(/^did:[^:]+:/i, ''); // strip "did:psr:" prefix silently
-    if (clean.length <= maxLen) return clean;
-    return `${clean.slice(0, 6)}…${clean.slice(-6)}`;
-}
 
 function getInitial(name: string | null | undefined): string {
     return (name || 'U').charAt(0).toUpperCase();
@@ -56,7 +49,6 @@ function IdentityCard({
 }) {
     const [flipped, setFlipped] = useState(false);
     const displayName = userName || 'My Account';
-    const shortId = truncateId(userAccountId);
     const qrValue = userAccountId || displayName;
 
     return (
@@ -148,18 +140,8 @@ function IdentityCard({
                         <Text fw={800} size="lg" style={{ color: '#fff', lineHeight: 1.2 }}>
                             {displayName}
                         </Text>
-                        {shortId && (
-                            <Text
-                                size="10px"
-                                mt={2}
-                                mb={8}
-                                style={{ color: 'rgba(255,255,255,0.45)', fontFamily: 'monospace' }}
-                            >
-                                {shortId}
-                            </Text>
-                        )}
-                        <Group gap={4} align="center">
-                            <Text size="xs" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                        <Group gap={4} align="center" mt={8}>
+                            <Text size="xs" style={{ color: 'rgba(255,255,255,0.8)' }}>
                                 {proofCount > 0
                                     ? `${proofCount} saved document${proofCount !== 1 ? 's' : ''}`
                                     : 'No documents yet'}
@@ -168,9 +150,9 @@ function IdentityCard({
                             <Text
                                 size="10px"
                                 ml="auto"
-                                style={{ color: 'rgba(255,255,255,0.3)', cursor: 'pointer' }}
+                                style={{ color: 'rgba(255,255,255,0.7)', cursor: 'pointer' }}
                             >
-                                tap to show QR ↺
+                                Tap to show QR ↺
                             </Text>
                         </Group>
                     </Box>
@@ -219,7 +201,6 @@ function OrganisationCard({
     const orgId = getActiveOrgId();
     const role = getUserRole();
     const displayName = orgLabel || 'My Organisation';
-    const shortId = truncateId(orgId);
     const qrValue = orgId || displayName;
 
     return (
@@ -301,7 +282,7 @@ function OrganisationCard({
                                 }}
                             />
                             <Text size="xs" fw={600} style={{ color: '#fbbf24', textTransform: 'capitalize' }}>
-                                {role || 'Member'}
+                                {String(role || 'Member').replace(/[_-]+/g, ' ')}
                             </Text>
                         </Box>
                     </Group>
@@ -311,28 +292,18 @@ function OrganisationCard({
                         <Text fw={800} size="lg" style={{ color: '#fff', lineHeight: 1.2 }}>
                             {displayName}
                         </Text>
-                        {shortId && (
-                            <Text
-                                size="10px"
-                                mt={2}
-                                mb={8}
-                                style={{ color: 'rgba(255,255,255,0.45)', fontFamily: 'monospace' }}
-                            >
-                                {shortId}
-                            </Text>
-                        )}
-                        <Group gap={4} align="center">
-                            <Text size="xs" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                        <Group gap={4} align="center" mt={8}>
+                            <Text size="xs" style={{ color: 'rgba(255,255,255,0.8)' }}>
                                 {inboxCount > 0
-                                    ? `${inboxCount} pending task${inboxCount !== 1 ? 's' : ''}`
-                                    : 'All clear'}
+                                    ? `${inboxCount} wallet item${inboxCount !== 1 ? 's' : ''} waiting`
+                                    : 'Organisation identity'}
                             </Text>
                             <Text
                                 size="10px"
                                 ml="auto"
-                                style={{ color: 'rgba(255,255,255,0.3)', cursor: 'pointer' }}
+                                style={{ color: 'rgba(255,255,255,0.7)', cursor: 'pointer' }}
                             >
-                                tap to show QR ↺
+                                Tap to show QR ↺
                             </Text>
                         </Group>
                     </Box>
@@ -366,86 +337,11 @@ function OrganisationCard({
     );
 }
 
-/* ─── Zone 2 — Quick Actions Row ─────────────────────────────────── */
-
-interface QuickAction {
-    icon: React.ReactNode;
-    label: string;
-    color: string;
-    bg: string;
-    route: string;
-}
-
-function QuickActions({ router }: { router: ReturnType<typeof useRouter> }) {
-    const actions: QuickAction[] = [
-        {
-            icon: <IconScan size={24} stroke={2} color="#fff" />,
-            label: 'Scan',
-            color: '#2188ca',
-            bg: 'linear-gradient(135deg, #2188ca 0%, #155782 100%)',
-            route: '/scan',
-        },
-        {
-            icon: <IconPlus size={24} stroke={2.5} color="#fff" />,
-            label: 'Receive',
-            color: '#059669',
-            bg: 'linear-gradient(135deg, #059669 0%, #064e3b 100%)',
-            route: '/inbox',
-        },
-        {
-            icon: <IconCurrencyDollar size={24} stroke={2} color="#fff" />,
-            label: 'Pay',
-            color: '#d97706',
-            bg: 'linear-gradient(135deg, #d97706 0%, #92400e 100%)',
-            route: '/inbox?filter=payment',
-        },
-        {
-            icon: <IconArrowUpRight size={24} stroke={2} color="#fff" />,
-            label: 'Share',
-            color: '#0d9488',
-            bg: 'linear-gradient(135deg, #0d9488 0%, #0f4a4a 100%)',
-            route: '/present',
-        },
-    ];
-
-    return (
-        <Group justify="space-between" gap={0}>
-            {actions.map((action) => (
-                <UnstyledButton
-                    key={action.label}
-                    onClick={() => router.push(action.route)}
-                    style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}
-                >
-                    <Box
-                        style={{
-                            width: 58,
-                            height: 58,
-                            borderRadius: 16,
-                            background: action.bg,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            boxShadow: `0 4px 14px ${action.color}44`,
-                            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-                        }}
-                    >
-                        {action.icon}
-                    </Box>
-                    <Text size="11px" fw={500} c="dimmed">
-                        {action.label}
-                    </Text>
-                </UnstyledButton>
-            ))}
-        </Group>
-    );
-}
-
 /* ─── Main export ─────────────────────────────────────────────────── */
 
 export default function ActionCenter({
     contextMode,
     inboxCount,
-    pendingOfferCount,
     proofCount,
     assignedFieldTaskCount = 0,
     orgLabel,
@@ -458,6 +354,7 @@ export default function ActionCenter({
     const { colorScheme } = useMantineColorScheme();
     const isDark = colorScheme === 'dark';
     const router = useRouter();
+    const [requestOpened, setRequestOpened] = useState(false);
 
     const isOrg = contextMode === 'org';
     const isEmployee = isOrg && isEmployeeOrgRole();
@@ -495,11 +392,28 @@ export default function ActionCenter({
                     />
                 )}
 
-                {/* ── Zone 2: Quick Actions (4 buttons) ── */}
-                <QuickActions router={router} />
+                <Group grow>
+                    <Button leftSection={<IconScan size={20} />} onClick={() => router.push('/scan')}>
+                        Scan QR code
+                    </Button>
+                    <Button variant="light" onClick={() => setRequestOpened(true)}>
+                        Make a request
+                    </Button>
+                </Group>
+                <RequestSheet
+                    opened={requestOpened}
+                    onClose={() => setRequestOpened(false)}
+                    context={{
+                        contextMode,
+                        activeOrgTenantId: isOrg ? getActiveOrgId() || undefined : undefined,
+                        activeOrgName: orgLabel || undefined,
+                        activeWorkflowTypes,
+                        orgRole: getUserRole() || undefined,
+                    }}
+                />
 
                 {/* ── Org-only operational tiles ─────────────────────── */}
-                {isOrg && (
+                {canUseFeptUi && assignedFieldTaskCount > 0 && (
                     <>
                         <Divider
                             label={
@@ -514,40 +428,6 @@ export default function ActionCenter({
                         />
 
                         <Grid gutter="md">
-                            {canUseFeptUi && (
-                                <Grid.Col span={6}>
-                                    <UnstyledButton onClick={() => router.push('/intake')} style={{ width: '100%', height: '100%' }}>
-                                        <Card
-                                            p="md"
-                                            radius="lg"
-                                            withBorder
-                                            h="100%"
-                                            style={{
-                                                ...glassStyle,
-                                                background: isDark ? 'rgba(20, 184, 166, 0.12)' : 'rgba(20, 184, 166, 0.05)',
-                                                borderColor: isDark ? 'rgba(45, 212, 191, 0.22)' : 'rgba(45, 212, 191, 0.15)',
-                                                boxShadow: '0 4px 12px rgba(45, 212, 191, 0.08)',
-                                            }}
-                                        >
-                                            <Stack gap="xs" h="100%" justify="space-between">
-                                                <Group justify="space-between" align="flex-start">
-                                                    <ThemeIcon size={40} radius="md" variant="light" color="teal">
-                                                        <IconInbox size={24} />
-                                                    </ThemeIcon>
-                                                    <Badge color="red" size="xs" variant="filled">
-                                                        NEW
-                                                    </Badge>
-                                                </Group>
-                                                <Box>
-                                                    <Text fw={700} size="sm">Job Intake</Text>
-                                                    <Text size="xs" c="dimmed" mt={2}>Review incoming jobs</Text>
-                                                </Box>
-                                            </Stack>
-                                        </Card>
-                                    </UnstyledButton>
-                                </Grid.Col>
-                            )}
-
                             {canUseFeptUi && assignedFieldTaskCount > 0 && (
                                 <Grid.Col span={6}>
                                     <UnstyledButton onClick={() => router.push('/finance?tab=field')} style={{ width: '100%', height: '100%' }}>
@@ -582,60 +462,6 @@ export default function ActionCenter({
                                 </Grid.Col>
                             )}
 
-                            <Grid.Col span={canUseFeptUi ? 6 : 12}>
-                                <UnstyledButton onClick={() => router.push('/organizations?activeTab=discover')} style={{ width: '100%', height: '100%' }}>
-                                    <Card
-                                        p="md"
-                                        radius="lg"
-                                        withBorder
-                                        h="100%"
-                                        style={{
-                                            ...glassStyle,
-                                            background: isDark ? 'rgba(99, 102, 241, 0.12)' : 'rgba(99, 102, 241, 0.05)',
-                                            borderColor: isDark ? 'rgba(99, 102, 241, 0.22)' : 'rgba(99, 102, 241, 0.15)',
-                                            boxShadow: '0 4px 12px rgba(99, 102, 241, 0.08)',
-                                        }}
-                                    >
-                                        <Stack gap="xs" h="100%" justify="space-between">
-                                            <ThemeIcon size={40} radius="md" variant="light" color="indigo">
-                                                <IconSearch size={24} />
-                                            </ThemeIcon>
-                                            <Box>
-                                                <Text fw={700} size="sm">Find Services</Text>
-                                                <Text size="xs" c="dimmed" mt={2}>Discover &amp; connect</Text>
-                                            </Box>
-                                        </Stack>
-                                    </Card>
-                                </UnstyledButton>
-                            </Grid.Col>
-
-                            <Grid.Col span={12}>
-                                <UnstyledButton onClick={() => router.push('/settings/org')} style={{ width: '100%' }}>
-                                    <Card
-                                        p="md"
-                                        radius="lg"
-                                        withBorder
-                                        style={{
-                                            ...glassStyle,
-                                            background: isDark ? 'rgba(168, 85, 247, 0.12)' : 'rgba(168, 85, 247, 0.05)',
-                                            borderColor: isDark ? 'rgba(168, 85, 247, 0.22)' : 'rgba(168, 85, 247, 0.15)',
-                                            boxShadow: '0 4px 12px rgba(168, 85, 247, 0.08)',
-                                        }}
-                                    >
-                                        <Group justify="space-between" align="flex-start" wrap="nowrap">
-                                            <Box style={{ minWidth: 0, flex: 1 }}>
-                                                <Text fw={700} size="sm">Workflow Centre</Text>
-                                                <Text size="xs" c="dimmed" mt={2}>
-                                                    Configure and manage org workflows in one place.
-                                                </Text>
-                                            </Box>
-                                            <ThemeIcon size={40} radius="md" variant="light" color="grape">
-                                                <IconSettings size={24} />
-                                            </ThemeIcon>
-                                        </Group>
-                                    </Card>
-                                </UnstyledButton>
-                            </Grid.Col>
                         </Grid>
                     </>
                 )}

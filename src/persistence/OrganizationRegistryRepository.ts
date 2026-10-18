@@ -202,7 +202,7 @@ export class OrganizationRegistryRepository {
     minTrustScore?: number
     limit?: number
   }): OrganizationRegistry[] {
-    let sql = `SELECT * FROM organization_registry WHERE is_public = 1`
+    let sql = `SELECT * FROM organization_registry WHERE is_public = 1 AND tenant_id IN (SELECT org_tenant_id FROM org_setup_profiles WHERE kinds LIKE '%"shop"%')`
     const params: any[] = []
 
     if (filters?.category) {
@@ -257,7 +257,7 @@ export class OrganizationRegistryRepository {
     const params: any[] = [searchPattern, searchPattern, searchPattern]
 
     if (options?.publicOnly) {
-      sql += ' AND is_public = 1'
+      sql += ` AND is_public = 1 AND tenant_id IN (SELECT org_tenant_id FROM org_setup_profiles WHERE kinds LIKE '%"shop"%')`
     }
 
     if (options?.category) {

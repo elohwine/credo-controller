@@ -140,8 +140,8 @@ export const setupAgent = async ({ name, endpoints, port }: { name: string; endp
               issuer: issuerDid,
               issuanceDate: new Date().toISOString(),
               credentialSubject: {
-                id: subjectDid,
                 ...claims,
+                id: subjectDid,
               },
             }
 

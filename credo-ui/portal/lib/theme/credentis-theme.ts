@@ -184,6 +184,9 @@ export const credentisTheme = createTheme({
         highlightOnHover: true,
       },
     },
+    // Android TabLayout "auto" mode, same as the phone: tabs fill the bar when they fit and
+    // scroll sideways when they do not (.app-tabs-list in styles/globals.css, lib/tabs.ts).
+    Tabs: { classNames: { list: 'app-tabs-list', tab: 'app-tabs-tab' } },
   },
 
   // Custom properties for glass effects

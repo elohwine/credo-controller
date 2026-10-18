@@ -105,6 +105,17 @@ CREATE TABLE IF NOT EXISTS request_events (
   actor_person_id TEXT, from_status TEXT, to_status TEXT,
   payload_json TEXT NOT NULL DEFAULT '{}', created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS org_setup_profiles (
+  org_tenant_id TEXT PRIMARY KEY, kinds TEXT NOT NULL DEFAULT '[]', modules TEXT NOT NULL DEFAULT '[]',
+  approval_preset_id TEXT, approval_title TEXT, payment_choice TEXT, staff_card_change TEXT, answered_at DATETIME,
+  configuration_mode TEXT NOT NULL DEFAULT 'legacy', operating_model TEXT NOT NULL DEFAULT 'internal',
+  configuration_revision INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS org_plans (
+  org_tenant_id TEXT PRIMARY KEY, plan TEXT NOT NULL DEFAULT 'free', granted_modules TEXT NOT NULL DEFAULT '[]',
+  note TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS policy_versions (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, version TEXT NOT NULL,
   description TEXT, status TEXT NOT NULL DEFAULT 'active',
@@ -150,6 +161,8 @@ function seedPrincipal(db: Database.Database): TestPrincipal {
   db.prepare(
     `INSERT INTO org_memberships (id, user_id, org_tenant_id, role, status) VALUES (?, ?, ?, 'owner', 'active')`,
   ).run(randomUUID(), subjectRef, tenantId)
+  // An organisation that existed before answer-driven setup (migration 117 backfill).
+  db.prepare(`INSERT INTO org_setup_profiles (org_tenant_id, modules) VALUES (?, '["people_payroll"]')`).run(tenantId)
 
   return { tenantId, subjectRef, organizationId, personId }
 }

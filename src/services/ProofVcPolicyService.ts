@@ -3,6 +3,12 @@ import { EMPLOYEE_VC_TYPE } from '../config/credentials/EmployeeVC'
 import { ORG_WORKFLOW_ACTOR_VC_TYPE } from '../config/credentials/OrgWorkflowActorVC'
 import { PLATFORM_IDENTITY_VC_TYPE } from '../config/credentials/PlatformIdentityVC'
 import { DatabaseManager } from '../persistence/DatabaseManager'
+import {
+  type DeviceTrustPolicy,
+  defaultDeviceTrustPolicy,
+  deviceTrustRequired,
+  parseDeviceTrust,
+} from './DeviceTrustService'
 
 import { orgWorkflowActorService } from './OrgWorkflowActorService'
 import { TEMPLATE_PREREQUISITES } from './workflow/prerequisites'
@@ -24,6 +30,7 @@ export interface OrgProofVcPolicy {
   orgTenantId: string
   defaultAcceptedVcTypes: string[]
   actionOverrides: Record<string, string[]>
+  deviceTrust: DeviceTrustPolicy
   createdAt?: string
   updatedAt?: string
 }
@@ -31,6 +38,7 @@ export interface OrgProofVcPolicy {
 export interface OrgProofVcPolicyUpdate {
   defaultAcceptedVcTypes?: string[]
   actionOverrides?: Record<string, string[]>
+  deviceTrust?: DeviceTrustPolicy
 }
 
 const DEFAULT_POLICY_TYPES = [PLATFORM_IDENTITY_VC_TYPE]
@@ -267,12 +275,48 @@ export function stageActionForProofAction(actionKey: ProofVcActionKey): string {
   return ACTION_STAGE_MAP[actionKey]
 }
 
+/** The step a share screen is completing. Unknown values do not widen the cards that are offered. */
+export function stageActionFromClientStage(stage: unknown): string {
+  const key = String(stage || '')
+    .trim()
+    .toLowerCase()
+  const named: Record<string, string> = {
+    acknowledgement: 'acknowledge_execution',
+    payout: 'trigger_payout',
+    'field-signoff': 'acknowledge_execution',
+    'field-payout': 'trigger_payout',
+    'requisition-approve': 'approve_requisition',
+    'requisition-release': 'release_funds',
+    'requisition-ack': 'acknowledge_execution',
+  }
+  if (named[key]) return named[key]
+  return Object.values(ACTION_STAGE_MAP).includes(key as (typeof ACTION_STAGE_MAP)[ProofVcActionKey]) ? key : ''
+}
+
+function readStoredPolicy(row: {
+  org_tenant_id: string
+  default_vc_types: string
+  action_overrides: string
+  device_trust?: string | null
+  created_at?: string
+  updated_at?: string
+}): OrgProofVcPolicy {
+  return {
+    orgTenantId: row.org_tenant_id,
+    defaultAcceptedVcTypes: withPlatformFallback(uniqueVcTypes(parseJsonArray(row.default_vc_types))),
+    actionOverrides: parseActionOverrides(parseJsonObject(row.action_overrides)),
+    deviceTrust: parseDeviceTrust(parseJsonObject(row.device_trust)),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
 export function getOrCreateOrgProofVcPolicy(orgTenantId: string): OrgProofVcPolicy {
   const db = DatabaseManager.getDatabase()
   const row = db
     .prepare(
       `
-    SELECT org_tenant_id, default_vc_types, action_overrides, created_at, updated_at
+    SELECT org_tenant_id, default_vc_types, action_overrides, device_trust, created_at, updated_at
     FROM org_proof_vc_policies
     WHERE org_tenant_id = ?
     LIMIT 1
@@ -283,6 +327,7 @@ export function getOrCreateOrgProofVcPolicy(orgTenantId: string): OrgProofVcPoli
         org_tenant_id: string
         default_vc_types: string
         action_overrides: string
+        device_trust?: string | null
         created_at?: string
         updated_at?: string
       }
@@ -292,33 +337,26 @@ export function getOrCreateOrgProofVcPolicy(orgTenantId: string): OrgProofVcPoli
     const now = new Date().toISOString()
     const defaultTypes = withPlatformFallback(DEFAULT_POLICY_TYPES)
     const actionOverrides: Record<string, string[]> = {}
+    const deviceTrust = defaultDeviceTrustPolicy()
     db.prepare(
       `
       INSERT INTO org_proof_vc_policies (
-        org_tenant_id, default_vc_types, action_overrides, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?)
+        org_tenant_id, default_vc_types, action_overrides, device_trust, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?)
     `,
-    ).run(orgTenantId, JSON.stringify(defaultTypes), JSON.stringify(actionOverrides), now, now)
+    ).run(orgTenantId, JSON.stringify(defaultTypes), JSON.stringify(actionOverrides), JSON.stringify(deviceTrust), now, now)
 
     return {
       orgTenantId,
       defaultAcceptedVcTypes: defaultTypes,
       actionOverrides,
+      deviceTrust,
       createdAt: now,
       updatedAt: now,
     }
   }
 
-  const defaultAcceptedVcTypes = withPlatformFallback(uniqueVcTypes(parseJsonArray(row.default_vc_types)))
-  const actionOverrides = parseActionOverrides(parseJsonObject(row.action_overrides))
-
-  return {
-    orgTenantId: row.org_tenant_id,
-    defaultAcceptedVcTypes,
-    actionOverrides,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }
+  return readStoredPolicy(row)
 }
 
 export function updateOrgProofVcPolicy(orgTenantId: string, updates: OrgProofVcPolicyUpdate): OrgProofVcPolicy {
@@ -332,24 +370,38 @@ export function updateOrgProofVcPolicy(orgTenantId: string, updates: OrgProofVcP
 
   const actionOverrides =
     updates.actionOverrides !== undefined ? parseActionOverrides(updates.actionOverrides) : current.actionOverrides
+  const deviceTrust = updates.deviceTrust !== undefined ? parseDeviceTrust(updates.deviceTrust) : current.deviceTrust
 
   const now = new Date().toISOString()
   db.prepare(
     `
     UPDATE org_proof_vc_policies
-    SET default_vc_types = ?, action_overrides = ?, updated_at = ?
+    SET default_vc_types = ?, action_overrides = ?, device_trust = ?, updated_at = ?
     WHERE org_tenant_id = ?
   `,
-  ).run(JSON.stringify(defaultAcceptedVcTypes), JSON.stringify(actionOverrides), now, orgTenantId)
+  ).run(
+    JSON.stringify(defaultAcceptedVcTypes),
+    JSON.stringify(actionOverrides),
+    JSON.stringify(deviceTrust),
+    now,
+    orgTenantId,
+  )
 
   return {
     orgTenantId,
     defaultAcceptedVcTypes,
     actionOverrides,
+    deviceTrust,
     createdAt: current.createdAt,
     updatedAt: now,
   }
 }
+
+export function stageRequiresDeviceTrust(orgTenantId: string | undefined, stageAction: string): boolean {
+  if (!orgTenantId || !stageAction) return false
+  return deviceTrustRequired(getOrCreateOrgProofVcPolicy(orgTenantId).deviceTrust, stageAction)
+}
+
 
 export function resolveAcceptedProofVcTypes(orgTenantId: string | undefined, actionKey: ProofVcActionKey): string[] {
   if (!orgTenantId) {

@@ -5,16 +5,22 @@ import Layout from '@/components/Layout'
 import axios from 'axios'
 import { getOrgScopedToken, readActiveOrganization } from '@/utils/organizationContext'
 import {
+  MONEY_CHOICES,
   ORG_KIND_OPTIONS,
+  ORG_MODULE_OPTIONS,
   PAYMENT_CHOICES,
   SETUP_PROFILE_PATH,
+  suggestedOrgModules,
   kindsFromRequestTypes,
+  modulePlanNote,
   persistOrgProfile,
   profileFromServer,
   profileToServer,
   readOrgProfile,
   type OrgKind,
+  type OrgModule,
   type OrgProfile,
+  type OrgOperatingModel,
   type PaymentChoice,
 } from '@/utils/orgProfile'
 import {
@@ -71,16 +77,19 @@ const PROVISIONING_ITEMS = [
 ]
 
 /** One question opened on its own from the Setup checklist. */
-type SingleStep = 'kinds' | 'money' | 'payments'
-const STEP_QUESTION: Record<SingleStep, 1 | 2 | 3> = { kinds: 1, money: 2, payments: 3 }
+type SingleStep = 'kinds' | 'people' | 'money' | 'payments'
+type QuestionNumber = 1 | 2 | 3 | 4
+const QUESTION_COUNT = 4
+const STEP_QUESTION: Record<SingleStep, QuestionNumber> = { kinds: 1, people: 2, money: 3, payments: 4 }
 const STEP_LABEL: Record<SingleStep, string> = {
   kinds: 'What you do',
+  people: 'Staff leave and payroll',
   money: 'Who handles money',
   payments: 'Payments',
 }
 
 function isSingleStep(value: unknown): value is SingleStep {
-  return value === 'kinds' || value === 'money' || value === 'payments'
+  return value === 'kinds' || value === 'people' || value === 'money' || value === 'payments'
 }
 
 const OPEN_FOR_KIND: Record<OrgKind, string> = {
@@ -102,11 +111,13 @@ export default function OnboardingPage() {
   const thenSteps = String(router.query.then || '')
     .split(',')
     .filter(isSingleStep)
-  const [question, setQuestion] = useState<1 | 2 | 3>(1)
+  const [question, setQuestion] = useState<QuestionNumber>(1)
   const [presets, setPresets] = useState<ApprovalPreset[]>(FALLBACK_PRESETS)
   /** True when the organization already chose people for its money steps. */
   const [hasMoneySetup, setHasMoneySetup] = useState(false)
   const [kinds, setKinds] = useState<OrgKind[]>(['office'])
+  const [modules, setModules] = useState<OrgModule[]>([])
+  const [operatingModel, setOperatingModel] = useState<OrgOperatingModel>('internal')
   const [presetId, setPresetId] = useState('owner_handles_money')
   const [paymentChoice, setPaymentChoice] = useState<PaymentChoice>('simulated')
   const [saving, setSaving] = useState(false)
@@ -128,6 +139,8 @@ export default function OnboardingPage() {
     const saved = readOrgProfile()
     if (saved) {
       if (saved.kinds.length > 0) setKinds(saved.kinds)
+      setModules(saved.modules)
+      setOperatingModel(saved.operatingModel || 'internal')
       if (saved.approvalPresetId) setPresetId(saved.approvalPresetId)
       setPaymentChoice(saved.paymentChoice)
       // Coming back to change an answer: skip the welcome screen.
@@ -152,9 +165,11 @@ export default function OnboardingPage() {
         setSavedProfile(server)
         persistOrgProfile(server)
         if (server.kinds.length > 0) setKinds(server.kinds)
+        setModules(server.modules)
+        setOperatingModel(server.operatingModel || 'internal')
         if (server.approvalPresetId) setPresetId(server.approvalPresetId)
         setPaymentChoice(server.paymentChoice)
-        setStep('questions')
+        if (server.completedAt) setStep('questions')
       })
       .catch(() => {
         /* local answers stay */
@@ -224,7 +239,11 @@ export default function OnboardingPage() {
     try {
       const previous = savedProfile || readOrgProfile()
       const profile: OrgProfile = {
+        orgTenantId,
+        operatingModel,
+        access: previous?.access,
         kinds,
+        modules,
         approvalPresetId: presetId === KEEP_CURRENT ? previous?.approvalPresetId || '' : presetId,
         approvalTitle:
           presetId === KEEP_CURRENT
@@ -232,17 +251,19 @@ export default function OnboardingPage() {
             : presets.find((preset) => preset.id === presetId)?.title || '',
         paymentChoice,
         completedAt: new Date().toISOString(),
+        plan: previous?.plan,
       }
       // Only the answers go up. The server works out which kinds of request follow.
-      await axios.put(orgUrl(SETUP_PROFILE_PATH), profileToServer(profile), auth)
+      const result = await axios.put(orgUrl(SETUP_PROFILE_PATH), profileToServer(profile), auth)
+      const saved = profileFromServer(result.data)
+      if (saved) { setSavedProfile(saved); persistOrgProfile(saved) }
       // One money setup for the whole organization. Every money step borrows it unless changed.
-      if (presetId !== KEEP_CURRENT) {
+      if (modules.length > 0 && presetId !== KEEP_CURRENT) {
         await axios.post(orgUrl('/workflows/actors/presets'), { presetId }, auth)
       }
-      if (paymentChoice !== 'none') {
+      if (modules.length > 0 && paymentChoice !== 'none') {
         await axios.post(orgUrl('/setup/payments'), { method: paymentChoice }, auth)
       }
-      persistOrgProfile(profile)
       setStep('done')
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Could not save your answers')
@@ -264,6 +285,9 @@ export default function OnboardingPage() {
     try {
       if (single === 'kinds') {
         await axios.put(orgUrl(SETUP_PROFILE_PATH), { kinds }, auth)
+      }
+      if (single === 'people') {
+        await axios.put(orgUrl(SETUP_PROFILE_PATH), { modules }, auth)
       }
       if (single === 'money') {
         if (presetId !== KEEP_CURRENT) {
@@ -339,7 +363,7 @@ export default function OnboardingPage() {
             </Card>
 
             <Text size="sm" c="dimmed" ta="center" maw={440}>
-              3 questions, about a minute. You can stop and finish later.
+              4 questions, about a minute. You can stop and finish later.
             </Text>
 
             <Group gap="md">
@@ -360,11 +384,9 @@ export default function OnboardingPage() {
 
   if (step === 'done') {
     const nextStep = thenSteps[0]
+    // Same list as the phone app's done card (customer payments are hidden on this branch).
     const open = [
-      'Purchase requests',
-      'Supplier bills',
-      'Customer payments',
-      ...kinds.map((kind) => OPEN_FOR_KIND[kind]).filter(Boolean),
+      ...modules.map((module) => ORG_MODULE_OPTIONS.find((option) => option.id === module)?.opens || '').filter(Boolean),
     ]
     return (
       <Layout title="Saved">
@@ -412,23 +434,26 @@ export default function OnboardingPage() {
     )
   }
 
-  // ── Screen 2: Three questions about the organization ───────────────────────
+  // ── Screen 2: Four questions about the organization ────────────────────────
 
   const questionTitle =
     question === 1
       ? `What does ${orgName || 'your organization'} do?`
       : question === 2
-        ? 'Who approves and releases money?'
-        : 'How do you take payments?'
+        ? 'Which of these would be useful for your organisation?'
+        : question === 3
+          ? 'Who approves and releases money?'
+          : 'How do you take payments?'
+  const plan = savedProfile?.plan || readOrgProfile()?.plan
 
   return (
     <Layout title="About your organization">
       <Container size="sm" py={60}>
         <Stack gap="xl">
           <Box>
-            <Progress value={(question / 3) * 100} size="sm" radius="xl" mb={8} aria-label="Progress" />
+            <Progress value={(question / QUESTION_COUNT) * 100} size="sm" radius="xl" mb={8} aria-label="Progress" />
             <Text size="sm" c="dimmed" mb={6}>
-              Question {question} of 3
+              Question {question} of {QUESTION_COUNT}
             </Text>
             <Title order={2}>{questionTitle}</Title>
             {question === 1 && (
@@ -445,54 +470,114 @@ export default function OnboardingPage() {
           )}
 
           {question === 1 && (
-            <Chip.Group multiple value={kinds} onChange={(value) => setKinds(value as OrgKind[])}>
+            <Stack>
+            <Radio.Group label="How will you use the platform?" value={operatingModel} onChange={(value) => {
+              const model = value as OrgOperatingModel
+              setOperatingModel(model)
+              if (model === 'integration') setModules([])
+            }}>
+              <Stack gap="xs">
+                <Radio value="internal" label="Handle our work here" />
+                <Radio value="integration" label="Connect an existing business system" />
+                <Radio value="hybrid" label="Both" />
+              </Stack>
+            </Radio.Group>
+            <Text size="sm">Platform identity, wallets and required proofs are retained in every case.</Text>
+            {operatingModel !== 'integration' && <Chip.Group multiple value={kinds} onChange={(value) => {
+              const answers = value as OrgKind[]
+              setKinds(answers)
+              setModules(suggestedOrgModules(answers, operatingModel))
+            }}>
               <Stack gap="sm">
                 {ORG_KIND_OPTIONS.map((option) => (
-                  <Chip key={option.id} value={option.id} size="md" radius="md" variant="outline">
-                    {option.label}
-                  </Chip>
+                  <Box key={option.id}>
+                    <Chip value={option.id} size="md" radius="md" variant="outline">
+                      {option.label}
+                    </Chip>
+                    <Text size="xs" c="dimmed" mt={4} ml={4}>{option.detail}</Text>
+                  </Box>
                 ))}
+              </Stack>
+            </Chip.Group>}
+            </Stack>
+          )}
+
+          {question === 2 && (
+            <Chip.Group multiple value={modules} onChange={(value) => setModules(value as OrgModule[])}>
+              <Stack gap="sm">
+                {ORG_MODULE_OPTIONS.filter((option) => suggestedOrgModules(kinds, operatingModel).includes(option.id) || (operatingModel !== 'integration' && option.id === 'people_payroll')).map((option) => (
+                  <Box key={option.id}>
+                    <Chip value={option.id} size="md" radius="md" variant="outline">
+                      {option.label}
+                    </Chip>
+                    <Text size="xs" c="dimmed" mt={4} ml={4}>{option.detail}</Text>
+                    <Text size="xs" c="dimmed" ml={4}>{modulePlanNote(option.id, plan)}</Text>
+                  </Box>
+                ))}
+                <Text size="xs" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas are needed. Your organisation keeps its SSI identity. After setup, connect your own software under Connected systems to sign people in or send your records to their wallets.' : 'Suggested from your activity answers. Untick anything handled elsewhere; staff tools are optional.'}</Text>
               </Stack>
             </Chip.Group>
           )}
 
-          {question === 2 && (
+          {question === 3 && (
             <Radio.Group value={presetId} onChange={setPresetId}>
               <Stack gap="xs">
                 {hasMoneySetup && (
                   <Radio.Card value={KEEP_CURRENT} radius="md" p="md" withBorder>
-                    <Group wrap="nowrap" gap="sm">
-                      <Radio.Indicator />
-                      <Text size="sm" fw={600}>
-                        Keep what is set now
-                      </Text>
+                    <Group wrap="nowrap" align="flex-start" gap="sm">
+                      <Radio.Indicator mt={2} />
+                      <Stack gap={2}>
+                        <Text size="sm" fw={600}>Keep what is set now</Text>
+                        <Text size="xs" c="dimmed">Leave the people already chosen under Who does what.</Text>
+                      </Stack>
+                      {presetId === KEEP_CURRENT && (
+                        <ThemeIcon color="teal" variant="light" radius="xl" size="sm"><IconCheck size={12} /></ThemeIcon>
+                      )}
                     </Group>
                   </Radio.Card>
                 )}
-                {presets.map((preset) => (
-                  <Radio.Card key={preset.id} value={preset.id} radius="md" p="md" withBorder>
-                    <Group wrap="nowrap" gap="sm">
-                      <Radio.Indicator />
-                      <Text size="sm" fw={600}>
-                        {preset.title}
-                      </Text>
-                    </Group>
-                  </Radio.Card>
-                ))}
+                {presets.map((preset) => {
+                  const choice = MONEY_CHOICES.find((item) => item.id === preset.id)
+                  const selected = presetId === preset.id
+                  return (
+                    <Radio.Card key={preset.id} value={preset.id} radius="md" p="md" withBorder>
+                      <Group wrap="nowrap" align="flex-start" gap="sm">
+                        <Radio.Indicator mt={2} />
+                        <Stack gap={2} style={{ flex: 1 }}>
+                          <Text size="sm" fw={600}>{choice?.title || preset.title}</Text>
+                          <Text size="xs" c="dimmed">{choice?.detail || preset.detail}</Text>
+                          {choice && (
+                            <>
+                              <Text size="xs">Confirms: {choice.confirms}</Text>
+                              <Text size="xs">Releases the money: {choice.releases}</Text>
+                            </>
+                          )}
+                        </Stack>
+                        {selected && (
+                          <ThemeIcon color="teal" variant="light" radius="xl" size="sm"><IconCheck size={12} /></ThemeIcon>
+                        )}
+                      </Group>
+                    </Radio.Card>
+                  )
+                })}
               </Stack>
             </Radio.Group>
           )}
 
-          {question === 3 && (
+          {question === 4 && (
             <Radio.Group value={paymentChoice} onChange={(value) => setPaymentChoice(value as PaymentChoice)}>
               <Stack gap="xs">
                 {PAYMENT_CHOICES.map((choice) => (
                   <Radio.Card key={choice.id} value={choice.id} radius="md" p="md" withBorder>
-                    <Group wrap="nowrap" gap="sm">
-                      <Radio.Indicator />
-                      <Text size="sm" fw={600}>
-                        {choice.label}
-                      </Text>
+                    <Group wrap="nowrap" align="flex-start" gap="sm">
+                      <Radio.Indicator mt={2} />
+                      <Stack gap={2} style={{ flex: 1 }}>
+                        <Text size="sm" fw={600}>{choice.label}</Text>
+                        <Text size="xs" c="dimmed">{choice.detail}</Text>
+                      </Stack>
+                      {paymentChoice === choice.id && (
+                        <ThemeIcon color="teal" variant="light" radius="xl" size="sm"><IconCheck size={12} /></ThemeIcon>
+                      )}
                     </Group>
                   </Radio.Card>
                 ))}
@@ -520,17 +605,17 @@ export default function OnboardingPage() {
             <Button
               variant="subtle"
               color="gray"
-              onClick={() => (question === 1 ? skip() : setQuestion((current) => (current - 1) as 1 | 2 | 3))}
+              onClick={() => (question === 1 ? skip() : setQuestion((current) => (current - 1) as QuestionNumber))}
               disabled={saving}
             >
               {question === 1 ? "I'll answer later" : 'Back'}
             </Button>
-            {question < 3 ? (
+            {question < QUESTION_COUNT ? (
               <Button
                 size="md"
                 disabled={question === 1 && kinds.length === 0}
                 rightSection={<IconArrowRight size={16} />}
-                onClick={() => setQuestion((current) => (current + 1) as 1 | 2 | 3)}
+                onClick={() => setQuestion((current) => (current + 1) as QuestionNumber)}
               >
                 Continue
               </Button>

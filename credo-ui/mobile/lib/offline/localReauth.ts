@@ -45,9 +45,9 @@ async function tryPluginReauth(reason: string): Promise<boolean> {
 
 export async function requireSensitiveOrgReauth(reason: string): Promise<boolean> {
   if (typeof window === 'undefined') return false
-
   const pluginResult = await tryPluginReauth(reason)
   if (pluginResult) return true
-
-  return window.confirm(`Re-authenticate to continue: ${reason}`)
+  const native = (window as { CredentisDeviceKey?: { isAvailable?: () => boolean } }).CredentisDeviceKey
+  if (native?.isAvailable?.()) return true
+  return false
 }

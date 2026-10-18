@@ -3,12 +3,13 @@ import type { Request as ExRequest } from 'express'
 
 import { Agent } from '@credo-ts/core'
 import { randomUUID, createHash } from 'crypto'
-import { Controller, Post, Get, Route, Tags, Body, Path, Query, Request, Security } from 'tsoa'
+import { Controller, Post, Get, Route, Tags, Body, Path, Query, Request, Security, Deprecated } from 'tsoa'
 import { container } from 'tsyringe'
 
 import { SCOPES } from '../../enums'
 import { StatusException } from '../../errors'
 import { inventoryService } from '../../services/InventoryService'
+import { getIssuerApiKey } from '../../utils/serviceApiKey'
 import {
   orgWorkflowActorService,
   type OrgMemberActor,
@@ -69,7 +70,7 @@ export class FinanceController extends Controller {
 
     try {
       // Use x-api-key header for API key authentication (issuer expects this)
-      const apiKey = process.env.ISSUER_API_KEY || 'test-api-key-12345'
+      const apiKey = getIssuerApiKey()
       const response = await fetch(`${issuerApiUrl}/custom-oidc/issuer/credential-offers`, {
         method: 'POST',
         headers: {
@@ -108,8 +109,10 @@ export class FinanceController extends Controller {
   }
 
   /**
-   * Issue an InvoiceVC based on a cart reference.
+   * Issue an InvoiceVC based on a cart reference. Offer only: no pay link and no money record.
+   * School fees start `POST /workflows/education_fee_payment/execute` instead.
    */
+  @Deprecated()
   @Post('invoices/issue')
   @Security('jwt', [SCOPES.TENANT_AGENT])
   public async issueInvoice(@Body() body: InvoiceRequest, @Request() request: ExRequest): Promise<any> {
@@ -118,7 +121,7 @@ export class FinanceController extends Controller {
 
     try {
       // Use x-api-key header for API key authentication (issuer expects this)
-      const apiKey = process.env.ISSUER_API_KEY || 'test-api-key-12345'
+      const apiKey = getIssuerApiKey()
       const response = await fetch(`${issuerApiUrl}/custom-oidc/issuer/credential-offers`, {
         method: 'POST',
         headers: {
@@ -264,7 +267,7 @@ export class FinanceController extends Controller {
       }
 
       // Use x-api-key header for API key authentication (issuer expects this)
-      const apiKey = process.env.ISSUER_API_KEY || 'test-api-key-12345'
+      const apiKey = getIssuerApiKey()
       const response = await fetch(`${issuerApiUrl}/custom-oidc/issuer/credential-offers`, {
         method: 'POST',
         headers: {

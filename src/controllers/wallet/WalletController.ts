@@ -10,15 +10,20 @@ import {
   DifPresentationExchangeService,
   ClaimFormat,
   JsonTransformer,
+  SdJwtVcRecord,
 } from '@credo-ts/core'
 import { OpenId4VcIssuerService } from '@credo-ts/openid4vc'
 import * as jwt from 'jsonwebtoken'
-import { Controller, Post, Get, Route, Tags, Body, Request, Path, Query, Security } from 'tsoa'
+import { Controller, Post, Get, Delete, Route, Tags, Body, Request, Path, Query, Security } from 'tsoa'
 import { injectable } from 'tsyringe'
 import { container } from 'tsyringe'
 
 import { SCOPES } from '../../enums'
 import { UnauthorizedError } from '../../errors/errors'
+import { StatusException } from '../../errors/StatusException'
+import { DatabaseManager } from '../../persistence/DatabaseManager'
+import { deleteDevicePushToken, saveDevicePushToken } from '../../persistence/DevicePushRepository'
+import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
 import { getTenantById } from '../../persistence/TenantRepository'
 import { getWalletUserByWalletId } from '../../persistence/UserRepository'
 import {
@@ -26,7 +31,58 @@ import {
   getWalletCredentialById,
   saveWalletCredential,
 } from '../../persistence/WalletCredentialRepository'
+import { credentialLifecycleService } from '../../services/ssi/CredentialLifecycleService'
+import { didKeyUrl, tenantHolderDid, withTenantHolder } from '../../services/ssi/TenantHolder'
+import { stageActionFromClientStage } from '../../services/ProofVcPolicyService'
+import { deviceTrustService, type EnrolledDevice } from '../../services/DeviceTrustService'
+import {
+  holderActivityService,
+  type HolderActivityEntry,
+  type HolderActivityKind,
+  type HolderActivityPartner,
+} from '../../services/ssi/HolderActivityService'
+import {
+  purposeLineFromResolvedRequest,
+  stageProofService,
+  transactionDataSigners,
+  type DcqlWalletCandidate,
+} from '../../services/ssi/StageProofService'
 import { issuerMetadataCache } from '../../utils/issuerMetadataCache'
+import { canReadOrganisationRecords } from '../../services/ssi/organisationRecordsAccess'
+
+/** The id the issuer registered for a card: W3C `id`, or `jti` on a selective-disclosure card. */
+const issuedCredentialRepository = new IssuedCredentialRepository()
+
+function issuedCardId(record: any): string | undefined {
+  const cred = record?.firstCredential
+  const candidate = cred?.id || cred?.credential?.id || cred?.jti
+  return typeof candidate === 'string' && candidate ? candidate : undefined
+}
+
+/**
+ * Who gave the person a card whose claims do not name the organisation. Every card is signed
+ * with the shared platform key, so the issuer DID cannot say; the issued-card register can, and
+ * for cards older than the register the inbox offer the person accepted (same reference) can.
+ */
+function issuerNameForHeldCard(walletTenantId: string, record: any, claims: Record<string, any>): string | undefined {
+  if (claims?.orgName) return undefined
+  const fromRegister = issuedCredentialRepository.organizationNameForCredentialId(issuedCardId(record) || '')
+  if (fromRegister) return fromRegister
+  const reference = String(claims?.poNumber || claims?.reference || claims?.requisitionId || claims?.jobId || '').trim()
+  if (!reference) return undefined
+  try {
+    const row = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT json_extract(metadata, '$.orgName') AS orgName FROM wallet_pending_offers
+          WHERE tenant_id = ? AND accepted_at IS NOT NULL AND json_extract(metadata, '$.poNumber') = ?
+          ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(walletTenantId, reference) as { orgName?: string } | undefined
+    return row?.orgName ? String(row.orgName) : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * Full WalletController with scoped fetch interception for local issuer well-known metadata.
@@ -39,20 +95,30 @@ function reviewDetails(credential: unknown): { type?: string; claims: Record<str
   if (typeof credential === 'string') {
     const trimmed = credential.trim()
     if (trimmed.startsWith('{')) {
-      try { doc = JSON.parse(trimmed) } catch { doc = null }
+      try {
+        doc = JSON.parse(trimmed)
+      } catch {
+        doc = null
+      }
     } else if (trimmed.split('.').length >= 2) {
       try {
         const part = trimmed.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
         const payload = JSON.parse(Buffer.from(part, 'base64').toString('utf8'))
         doc = payload?.vc || payload
-      } catch { doc = null }
+      } catch {
+        doc = null
+      }
     }
   } else if (credential && typeof credential === 'object') {
     const direct = credential as any
     if (direct.credentialSubject || direct.type) {
       doc = direct
     } else {
-      try { doc = JsonTransformer.toJSON(credential) } catch { doc = credential }
+      try {
+        doc = JsonTransformer.toJSON(credential)
+      } catch {
+        doc = credential
+      }
       doc = doc?.vc || doc?.firstCredential || doc
     }
   }
@@ -62,7 +128,23 @@ function reviewDetails(credential: unknown): { type?: string; claims: Record<str
   const nested = subject.claims && typeof subject.claims === 'object' ? subject.claims : {}
   const claims: Record<string, string> = {}
   for (const [key, value] of Object.entries({ ...subject, ...nested })) {
-    if (key === 'claims' || /id$/i.test(key) || /^(workflowType|assignmentMode|requestType|stageAction|templateId)$/i.test(key) || value == null || value === '') continue
+    if (
+      key === 'claims' ||
+      /id$/i.test(key) ||
+      /^(workflowType|assignmentMode|requestType|stageAction|templateId)$/i.test(key) ||
+      value == null ||
+      value === ''
+    )
+      continue
+    // A list of steps is one readable line. Other nested values stay off the review.
+    if (Array.isArray(value)) {
+      const text = value
+        .map((item) => String(item).trim())
+        .filter(Boolean)
+        .join(', ')
+      if (text) claims[key] = text
+      continue
+    }
     if (typeof value === 'object') continue
     const text = String(value).trim()
     if (!text || text.startsWith('did:')) continue
@@ -183,6 +265,52 @@ function extractAndNormalizeInnerOfferUrl(wrapperOrUrl: string | undefined, maxD
   }
 }
 
+export interface PushDeviceBody {
+  token: string
+  platform: 'android'
+}
+
+export interface PushDeviceRemoveBody {
+  token: string
+}
+
+export interface DeviceKeyEnrollBody {
+  publicJwk: Record<string, unknown>
+  attestation: Record<string, unknown>
+  platform: string
+  label?: string
+}
+
+export interface DeviceAssertionChallenge {
+  nonce: string
+  audience: string
+  expiresAt: string
+}
+
+/** One page of the person's own activity. `csv` is set only for `format=csv`. */
+export interface HolderActivityPage {
+  items: HolderActivityEntry[]
+  nextCursor?: string
+  total: number
+  csv?: string
+}
+
+/** What the phone knows about a share request the person turned down. No claim values. */
+export interface DeclinedShareBody {
+  presentationRequestUrl?: string
+  orgTenantId?: string
+  orgName?: string
+  /** Share-screen mode (`field-payout`, `requisition-approve`, …) or a stage action key. */
+  stage?: string
+  stageAction?: string
+  workflowRunId?: string
+  reference?: string
+  purpose?: string
+  requestedTypes?: string[]
+  requestedClaims?: string[]
+  reason?: string
+}
+
 @Route('api/wallet')
 @Tags('WalletAPI')
 @Security('jwt', [SCOPES.TENANT_AGENT])
@@ -193,6 +321,10 @@ export class WalletController extends Controller {
     if (tokenTenantId && tokenTenantId !== walletId) {
       this.setStatus(403)
       throw new UnauthorizedError('Wallet access denied')
+    }
+    if (!canReadOrganisationRecords((request as any).user, walletId)) {
+      this.setStatus(403)
+      throw new StatusException('Only an owner or admin can open the organisation records', 403)
     }
   }
   private getAgent(request: ExRequest): Agent<RestMultiTenantAgentModules> {
@@ -206,6 +338,16 @@ export class WalletController extends Controller {
    */
   private getBaseAgentForHolder(): Agent<RestMultiTenantAgentModules> {
     return container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
+  }
+
+  /**
+   * The wallet that holds (accepts or presents) for this request. A person may act only for their
+   * own wallet; the platform API key may act for any wallet it names.
+   */
+  private holderWalletId(request: ExRequest, walletId: string): string {
+    if (!(request as any).user && request.agent === this.getBaseAgentForHolder()) return walletId
+    stageProofService.assertWalletOwnershipForActingUser(request, walletId)
+    return walletId
   }
 
   private normalizeResponse(raw: any): any {
@@ -287,6 +429,130 @@ export class WalletController extends Controller {
     }
   }
 
+  /**
+   * Selective-disclosure cards (SD-JWT) in the wallet, shaped like the W3C credentials the
+   * listings already render: `type` from `vct`, `credentialSubject` from the card's claims.
+   */
+  private async sdJwtCardsAsW3c(
+    agent: any,
+  ): Promise<Array<{ id: string; createdAt: any; firstCredential: any; compact: string }>> {
+    const envelope = new Set(['iss', 'iat', 'exp', 'nbf', 'cnf', 'vct', 'status', '_sd', '_sd_alg', 'sub', 'jti'])
+    try {
+      const records: any[] = (await agent.sdJwtVc?.getAll?.()) || []
+      return records.map((record: any) => {
+        const claims: Record<string, any> = record.firstCredential?.prettyClaims || {}
+        const vct = String(claims.vct || record.getTags?.()?.vct || '')
+        const credentialSubject: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(claims)) if (!envelope.has(key)) credentialSubject[key] = value
+        const kid = claims.cnf?.kid
+        if (typeof kid === 'string' && !credentialSubject.id) credentialSubject.id = kid.split('#')[0]
+        const toIso = (seconds: unknown) =>
+          typeof seconds === 'number' ? new Date(seconds * 1000).toISOString() : undefined
+        return {
+          id: record.id,
+          createdAt: record.createdAt,
+          compact: String(record.firstCredential?.compact || ''),
+          firstCredential: {
+            id: typeof claims.jti === 'string' ? claims.jti : undefined,
+            context: ['https://www.w3.org/2018/credentials/v1'],
+            type: ['VerifiableCredential', ...(vct ? [vct] : [])],
+            credentialSubject,
+            issuer: typeof claims.iss === 'string' ? claims.iss : '',
+            issuanceDate:
+              toIso(claims.iat) || (record.createdAt ? new Date(record.createdAt).toISOString() : undefined),
+            expirationDate: toIso(claims.exp),
+            claimFormat: 'vc+sd-jwt',
+          },
+        }
+      })
+    } catch (error: any) {
+      console.warn('[WalletController] Could not read SD-JWT cards:', error?.message)
+      return []
+    }
+  }
+
+  /** Every card in the wallet (W3C and SD-JWT), each exposing `id`, `createdAt`, `firstCredential`. */
+  private async allWalletCards(agent: any, walletId?: string): Promise<any[]> {
+    const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
+    const w3cRecords = await w3cCredentialService.getAllCredentialRecords(agent.context)
+    const cards: any[] = [...w3cRecords, ...(await this.sdJwtCardsAsW3c(agent))]
+    // A card the issuer has withdrawn (role changed, left the organisation) stays on the
+    // device until the person removes it; listings flag it so nobody tries to share it.
+    // Credo names a tenant context `tenant-<id>`; the inbox rows are keyed by the bare id.
+    const walletTenantId = String(walletId || agent?.context?.contextCorrelationId || '').replace(/^tenant-/, '')
+    const kept: any[] = []
+    for (const card of cards) {
+      try {
+        const subject = card.firstCredential?.credentialSubject || {}
+        const claims =
+          subject?.claims && typeof subject.claims === 'object' ? { ...subject, ...subject.claims } : subject
+        const life = credentialLifecycleService.heldCardLife({
+          walletTenantId,
+          credentialId: issuedCardId(card),
+          types: Array.isArray(card.firstCredential?.type) ? card.firstCredential.type : [],
+          claims,
+          createdAt: card.createdAt,
+        })
+        // A superseded card from before the issued-card register has no identity the register
+        // can end, so it is removed from the wallet instead of being filed under Archived.
+        if (life.revoked && life.legacy) {
+          await this.removeHeldCard(agent, card)
+          continue
+        }
+        card.withdrawn = life.revoked
+        card.revocationReason = life.reason
+      } catch {
+        card.withdrawn = false
+      }
+      kept.push(card)
+    }
+    return kept
+  }
+
+  /** Delete one held card (W3C or selective-disclosure) from the tenant wallet. Best effort. */
+  private async removeHeldCard(agent: any, card: any): Promise<void> {
+    try {
+      if (card.compact) {
+        await agent.sdJwtVc?.deleteById?.(card.id)
+      } else {
+        const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
+        await w3cCredentialService.removeCredentialRecord(agent.context, card.id)
+      }
+      console.info('[WalletController] Removed superseded legacy card', String(card.id).slice(0, 12))
+    } catch (error: any) {
+      console.warn('[WalletController] Could not remove superseded legacy card:', error?.message)
+    }
+  }
+
+  /**
+   * Remove a card from this device. The issuer's copy of "what was issued" is untouched; this only
+   * deletes the holder's stored card (W3C or selective-disclosure).
+   */
+  @Delete('{walletId}/credentials/{credentialId}')
+  @Security('apiKey')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
+  public async removeCredential(
+    @Request() request: ExRequest,
+    @Path() walletId: string,
+    @Path() credentialId: string,
+  ): Promise<{ removed: boolean; id: string }> {
+    this.ensureWalletAccess(request, walletId)
+    const agent = this.getAgent(request)
+    const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
+    const w3cRecords: any[] = await w3cCredentialService.getAllCredentialRecords(agent.context)
+    if (w3cRecords.some((record) => record.id === credentialId)) {
+      await w3cCredentialService.removeCredentialRecord(agent.context, credentialId)
+      return { removed: true, id: credentialId }
+    }
+    const sdRecords: any[] = (await (agent as any).sdJwtVc?.getAll?.()) || []
+    if (sdRecords.some((record) => record.id === credentialId)) {
+      await (agent as any).sdJwtVc.deleteById(credentialId)
+      return { removed: true, id: credentialId }
+    }
+    this.setStatus(404)
+    throw new Error('Credential not found')
+  }
+
   @Get('{walletId}/credentials')
   @Security('apiKey')
   @Security('jwt', [SCOPES.TENANT_AGENT])
@@ -295,8 +561,7 @@ export class WalletController extends Controller {
     // Read from TENANT's Credo wallet (Askar) - credentials are stored per-tenant
     const agent = this.getAgent(request)
     try {
-      const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
-      const credentialRecords = await w3cCredentialService.getAllCredentialRecords(agent.context)
+      const credentialRecords = await this.allWalletCards(agent, walletId)
       console.log(
         '[listCredentials] Found credentials in tenant wallet:',
         credentialRecords.length,
@@ -349,7 +614,7 @@ export class WalletController extends Controller {
         return {
           wallet: walletId,
           id: record.id,
-          document: cred,
+          document: record.compact || cred,
           disclosures: null,
           addedOn: record.createdAt || new Date().toISOString(),
           manifest: null,
@@ -357,6 +622,8 @@ export class WalletController extends Controller {
           format: cred?.claimFormat || 'jwt_vc',
           type: credentialType,
           issuerDid,
+          withdrawn: Boolean(record.withdrawn),
+          revocationReason: record.revocationReason,
         }
       })
     } catch (error: any) {
@@ -379,11 +646,12 @@ export class WalletController extends Controller {
   ): Promise<{ items: any[]; nextCursor?: string }> {
     this.ensureWalletAccess(request, walletId)
     const agent = this.getAgent(request)
-    const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
-    const credentialRecords = await w3cCredentialService.getAllCredentialRecords(agent.context)
+    const credentialRecords = await this.allWalletCards(agent, walletId)
 
     const filtered = type
-      ? credentialRecords.filter((record: any) => (record.credential?.type || []).includes(type))
+      ? credentialRecords.filter((record: any) =>
+          (record.firstCredential?.type || record.credential?.type || []).includes(type),
+        )
       : credentialRecords
 
     const offset = cursor ? Math.max(parseInt(cursor, 10) || 0, 0) : 0
@@ -402,15 +670,23 @@ export class WalletController extends Controller {
       const types = cred?.type || []
       const credentialType =
         types.find((t: string) => t !== 'VerifiableCredential') || types[0] || 'VerifiableCredential'
+      // Older records do not name the organisation in their claims; the issued-card register does.
+      const issuerDid = typeof cred?.issuer === 'string' ? cred.issuer : cred?.issuer?.id || ''
+      const issuerName = issuerNameForHeldCard(walletId, record, flatClaims)
 
       return {
         vc_id: record.id,
         vc_type: credentialType,
+        issuerDid,
+        issuerName,
         issued_at: cred?.issuanceDate || record.createdAt || new Date().toISOString(),
         amount: flatClaims.amount,
         currency: flatClaims.currency,
         status: flatClaims.status || 'ACTIVE',
+        withdrawn: Boolean(record.withdrawn),
+        revocationReason: record.revocationReason,
         thumb: flatClaims.transactionId || flatClaims.invoiceId || flatClaims.receiptId || credentialType,
+        issuedId: issuedCardId(record),
         parsedDocument: {
           '@context': (cred as any)?.context ||
             (cred as any)?.['@context'] || ['https://www.w3.org/2018/credentials/v1'],
@@ -437,8 +713,7 @@ export class WalletController extends Controller {
   ): Promise<any> {
     this.ensureWalletAccess(request, walletId)
     const agent = this.getAgent(request)
-    const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
-    const credentialRecords = await w3cCredentialService.getAllCredentialRecords(agent.context)
+    const credentialRecords = await this.allWalletCards(agent, walletId)
     const record = credentialRecords.find((r: any) => r.id === credentialId)
 
     if (!record) {
@@ -458,6 +733,8 @@ export class WalletController extends Controller {
       vc_id: record.id,
       vc_type: (cred?.type || []).find((t: string) => t !== 'VerifiableCredential') || 'VerifiableCredential',
       issued_at: cred?.issuanceDate || record.createdAt || new Date().toISOString(),
+      withdrawn: Boolean(record.withdrawn),
+      revocationReason: record.revocationReason,
       payload: {
         '@context': (cred as any)?.context || (cred as any)?.['@context'] || ['https://www.w3.org/2018/credentials/v1'],
         type: cred?.type || ['VerifiableCredential'],
@@ -482,11 +759,10 @@ export class WalletController extends Controller {
     // Check in TENANT's Credo wallet
     const agent = this.getAgent(request)
     try {
-      const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
-      const allRecords = await w3cCredentialService.getAllCredentialRecords(agent.context)
+      const allRecords = await this.allWalletCards(agent, walletId)
 
       const matchingCredentials = allRecords.filter((record: any) => {
-        const types = record.credential?.type || []
+        const types = record.firstCredential?.type || record.credential?.type || []
         return types.includes(credentialType)
       })
 
@@ -499,9 +775,9 @@ export class WalletController extends Controller {
         count: matchingCredentials.length,
         credentials: matchingCredentials.map((r: any) => ({
           id: r.id,
-          types: r.credential?.type,
-          issuer: r.credential?.issuer,
-          issuanceDate: r.credential?.issuanceDate,
+          types: r.firstCredential?.type || r.credential?.type,
+          issuer: r.firstCredential?.issuer || r.credential?.issuer,
+          issuanceDate: r.firstCredential?.issuanceDate || r.credential?.issuanceDate,
         })),
       }
     } catch (error: any) {
@@ -533,8 +809,7 @@ export class WalletController extends Controller {
   ): Promise<any> {
     const agent = this.getAgent(request)
     try {
-      const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
-      const record = await w3cCredentialService.getCredentialRecordById(agent.context, credentialId)
+      const record = (await this.allWalletCards(agent, walletId)).find((r: any) => r.id === credentialId)
       if (!record) {
         this.setStatus(404)
         throw new Error('Credential not found')
@@ -542,12 +817,12 @@ export class WalletController extends Controller {
       return {
         wallet: walletId,
         id: record.id,
-        document: record.firstCredential,
+        document: record.compact || record.firstCredential,
         disclosures: null,
         addedOn: record.createdAt || new Date().toISOString(),
         manifest: null,
         parsedDocument: null,
-        format: 'jwt_vc',
+        format: record.firstCredential?.claimFormat || 'jwt_vc',
       }
     } catch (error: any) {
       if (error.message.includes('not found')) {
@@ -790,248 +1065,207 @@ export class WalletController extends Controller {
       throw new Error('No credential offer URI provided')
     }
 
-    // Use BASE agent (not tenant agent) for OID4VC holder operations
-    // The openId4VcHolder module is registered on the base agent only
-    const agent = this.getBaseAgentForHolder()
-    console.log('[useOfferRequest] Resolving offer with BASE Credo agent...')
-    console.log('[useOfferRequest] about to call holder.resolveCredentialOffer with toResolve2:', toResolve2)
-    console.log('[useOfferRequest] original wrapper offerUri:', offerUri)
+    // Custody: the person's own wallet redeems the offer and the credential is bound to its key.
+    const holderWalletId = this.holderWalletId(request, walletId)
 
     try {
-      let resolved: any
+      return await withTenantHolder(holderWalletId, async (agent) => {
+        let resolved: any
 
-      // OPTIMIZATION: If the client already resolved the offer (e.g. to show a review screen),
-      // they can pass the raw resolved object back to avoid a second network fetch to the Issuer.
-      // Most Issuer OID4VCI implementations only allow the offer sequence to be fetched once.
-      if (body?._credoResolved) {
-        console.log('[useOfferRequest] Using pre-resolved offer content from request body')
-        resolved = body._credoResolved
-      } else {
-        try {
-          resolved = await (agent as any).openid4vc?.holder?.resolveCredentialOffer(toResolve2)
-        } catch (e: any) {
-          console.warn('[useOfferRequest] Failed resolving inner URL, error:', e?.message?.slice?.(0, 200))
-          try {
-            console.log('[useOfferRequest] Retrying resolve with original wrapper offerUri:', offerUri)
-            resolved = await (agent as any).openid4vc?.holder?.resolveCredentialOffer(offerUri)
-          } catch (e2: any) {
-            console.error('[useOfferRequest] Retry also failed:', e2?.message)
-            throw e2
-          }
-        }
-      }
-
-      const resolvedIssuer = (resolved as any)?.credentialIssuerMetadata
-      const resolvedAuthServer = (resolved as any)?.authorizationServerMetadata
-      if (resolvedIssuer || resolvedAuthServer) {
-        console.log('[useOfferRequest] Resolved issuer metadata endpoints:', {
-          credential_issuer: resolvedIssuer?.credential_issuer,
-          token_endpoint: resolvedIssuer?.token_endpoint,
-          credential_endpoint: resolvedIssuer?.credential_endpoint,
-        })
-        console.log('[useOfferRequest] Resolved auth server endpoints:', {
-          issuer: resolvedAuthServer?.issuer,
-          token_endpoint: resolvedAuthServer?.token_endpoint,
-        })
-      }
-
-      console.log('[useOfferRequest] Offer resolved, accepting using pre-authorized code flow...')
-
-      // Important: The openId4VcHolder module is on the BASE agent, so we must use
-      // a DID that exists in the BASE agent's wallet (not the tenant wallet).
-      // Get or create a DID in the base agent for holder operations.
-      let baseAgentDids = await agent.dids.getCreatedDids({ method: 'key' })
-      let holderDid: string
-
-      if (baseAgentDids.length === 0) {
-        console.log('[useOfferRequest] No DID in base agent, creating one...')
-        try {
-          const createdDid = await agent.dids.create({
-            method: 'key',
-            options: {
-              createKey: {
-                type: {
-                  kty: 'OKP',
-                  crv: 'Ed25519',
-                },
-              },
-            },
-          })
-          holderDid = createdDid.didState.did as string
-          console.log('[useOfferRequest] Created DID in base agent:', holderDid)
-        } catch (didError: any) {
-          console.error('[useOfferRequest] DID creation error:', didError.message)
-          console.error('[useOfferRequest] DID creation stack:', didError.stack)
-          throw didError
-        }
-      } else {
-        holderDid = baseAgentDids[0].did
-        console.log('[useOfferRequest] Using existing DID from base agent:', holderDid)
-      }
-
-      // For did:key, we need to add the fragment (key reference) to the DID.
-      // The fragment is the same as the method-specific identifier for did:key
-      let holderDidUrl = holderDid
-      if (holderDid.startsWith('did:key:') && !holderDid.includes('#')) {
-        // Extract the key identifier and use it as fragment
-        const keyId = holderDid.replace('did:key:', '')
-        holderDidUrl = `${holderDid}#${keyId}`
-      }
-      console.log('[useOfferRequest] Using holder DID URL for binding:', holderDidUrl)
-
-      const holderApi = (agent as any).openid4vc?.holder
-      const credentialBindingResolver = async (options: any) => {
-        console.log('[useOfferRequest] Binding params:', {
-          credentialFormat: options?.credentialFormat,
-          supportedDidMethods: options?.supportedDidMethods,
-          supportsAllDidMethods: options?.supportsAllDidMethods,
-          supportsJwk: options?.supportsJwk,
-        })
-        return { method: 'did', didUrls: [holderDidUrl], didUrl: holderDidUrl }
-      }
-
-      // Credo 0.7: pre-authorized code -> access token -> credential request. The 0.5-era
-      // `acceptCredentialOfferUsingPreAuthorizedCode` is kept only as a fallback.
-      let acceptResult: any
-      if (typeof holderApi?.requestToken === 'function' && typeof holderApi?.requestCredentials === 'function') {
-        const tokenResponse = await holderApi.requestToken({ resolvedCredentialOffer: resolved })
-        acceptResult = await holderApi.requestCredentials({
-          resolvedCredentialOffer: resolved,
-          accessToken: tokenResponse.accessToken,
-          cNonce: tokenResponse.cNonce,
-          dpop: tokenResponse.dpop,
-          verifyCredentialStatus: false,
-          credentialBindingResolver,
-        })
-      } else {
-        acceptResult = await holderApi?.acceptCredentialOfferUsingPreAuthorizedCode(resolved, { credentialBindingResolver })
-      }
-
-      // 0.7 returns `{ credentials: [{ record }] }`; unwrap to the credential objects the code below expects.
-      const rawCredentials: any[] = Array.isArray(acceptResult) ? acceptResult : acceptResult?.credentials || []
-      const credentials = rawCredentials.map((item: any) => {
-        const record = item?.record ?? item
-        return record?.firstCredential ?? record?.credential ?? record
-      })
-
-      console.log('[useOfferRequest] Credo accept result:', {
-        credentialCount: credentials.length,
-        firstCredentialType: typeof credentials[0],
-        firstCredentialFormat: credentials[0]?.claimFormat || credentials[0]?.type || 'unknown',
-      })
-
-      const { randomUUID } = await import('crypto')
-      let savedCredentialId = ''
-      let verifiableCredential = ''
-
-      // Get the TENANT agent to store credentials in the user's wallet
-      const tenantAgent = this.getAgent(request)
-      const tenantW3cService = tenantAgent.dependencyManager.resolve(W3cCredentialService)
-
-      for (const credentialRecord of credentials) {
-        const credentialId = randomUUID()
-        savedCredentialId = credentialId
-        let credentialData: any = {}
-        let vcType = 'VerifiableCredential'
-        let issuerDid = ''
-
-        // The credential may be a W3cJwtVerifiableCredential instance or a plain object
-        // Check for claimFormat (Credo) or format property
-        const format = credentialRecord.claimFormat || credentialRecord.format || ''
-
-        // Get the serialized JWT - may be in .serializedJwt or .credential property, or the record itself could be a string
-        let jwtToken: string = ''
-        if (typeof credentialRecord === 'string') {
-          jwtToken = credentialRecord
-        } else if (credentialRecord.serializedJwt) {
-          jwtToken = credentialRecord.serializedJwt
-        } else if (typeof credentialRecord.credential === 'string') {
-          jwtToken = credentialRecord.credential
-        } else if (credentialRecord.jwt) {
-          jwtToken = credentialRecord.jwt
-        }
-
-        console.log('[useOfferRequest] Processing credential:', {
-          format,
-          hasJwt: !!jwtToken,
-          jwtLength: jwtToken?.length,
-          credentialType: typeof credentialRecord,
-          credentialKeys: typeof credentialRecord === 'object' ? Object.keys(credentialRecord || {}) : [],
-        })
-
-        if (format === 'jwt_vc' || format === 'jwt_vc_json' || jwtToken) {
-          verifiableCredential = jwtToken
-          try {
-            const parts = jwtToken.split('.')
-            if (parts.length === 3) {
-              credentialData = JSON.parse(Buffer.from(parts[1], 'base64url').toString())
-              const types = credentialData?.vc?.type || []
-              vcType = types.find((t: string) => t !== 'VerifiableCredential') || types[0] || 'VerifiableCredential'
-              issuerDid = credentialData?.iss || ''
-            }
-          } catch (e) {
-            console.warn('[useOfferRequest] Could not decode JWT:', e)
-          }
-
-          // Store in TENANT'S Credo wallet (Askar) so it appears in their credential list
-          try {
-            // The credentialRecord should be a W3cJwtVerifiableCredential if from OID4VC
-            if (credentialRecord && typeof credentialRecord === 'object' && credentialRecord.credential) {
-              const storedRecord = await tenantW3cService.storeCredential(tenantAgent.context, {
-                record: W3cCredentialRecord.fromCredential(credentialRecord),
-              })
-              savedCredentialId = storedRecord.id
-              console.log('[useOfferRequest] Stored credential in tenant wallet:', storedRecord.id)
-            } else {
-              console.log(
-                '[useOfferRequest] Credential is not a W3cCredential instance, skipping tenant wallet storage',
-              )
-            }
-          } catch (storeError: any) {
-            console.warn('[useOfferRequest] Could not store in tenant wallet:', storeError?.message)
-          }
-        } else if (format === 'vc+sd-jwt') {
-          verifiableCredential = credentialRecord.compact || credentialRecord.credential || ''
-
-          // Store SD-JWT in tenant wallet
-          try {
-            if (credentialRecord && typeof credentialRecord === 'object') {
-              const storedRecord = await tenantW3cService.storeCredential(tenantAgent.context, {
-                record: W3cCredentialRecord.fromCredential(credentialRecord),
-              })
-              savedCredentialId = storedRecord.id
-              console.log('[useOfferRequest] Stored SD-JWT credential in tenant wallet:', storedRecord.id)
-            }
-          } catch (storeError: any) {
-            console.warn('[useOfferRequest] Could not store SD-JWT in tenant wallet:', storeError?.message)
-          }
+        // OPTIMIZATION: If the client already resolved the offer (e.g. to show a review screen),
+        // they can pass the raw resolved object back to avoid a second network fetch to the Issuer.
+        // Most Issuer OID4VCI implementations only allow the offer sequence to be fetched once.
+        if (body?._credoResolved) {
+          console.log('[useOfferRequest] Using pre-resolved offer content from request body')
+          resolved = body._credoResolved
         } else {
-          // Fallback: try to store whatever we have
-          verifiableCredential =
-            typeof credentialRecord === 'string' ? credentialRecord : JSON.stringify(credentialRecord)
-
           try {
-            if (credentialRecord && typeof credentialRecord === 'object') {
-              const storedRecord = await tenantW3cService.storeCredential(tenantAgent.context, {
-                record: W3cCredentialRecord.fromCredential(credentialRecord),
-              })
-              savedCredentialId = storedRecord.id
-              console.log('[useOfferRequest] Stored credential (fallback) in tenant wallet:', storedRecord.id)
+            resolved = await (agent as any).openid4vc?.holder?.resolveCredentialOffer(toResolve2)
+          } catch (e: any) {
+            console.warn('[useOfferRequest] Failed resolving inner URL, error:', e?.message?.slice?.(0, 200))
+            try {
+              console.log('[useOfferRequest] Retrying resolve with original wrapper offerUri:', offerUri)
+              resolved = await (agent as any).openid4vc?.holder?.resolveCredentialOffer(offerUri)
+            } catch (e2: any) {
+              console.error('[useOfferRequest] Retry also failed:', e2?.message)
+              throw e2
             }
-          } catch (storeError: any) {
-            console.warn('[useOfferRequest] Could not store in tenant wallet (fallback):', storeError?.message)
           }
         }
 
-        console.log('[useOfferRequest] Processed credential:', savedCredentialId)
-      }
+        const resolvedIssuer = (resolved as any)?.credentialIssuerMetadata
+        const resolvedAuthServer = (resolved as any)?.authorizationServerMetadata
+        if (resolvedIssuer || resolvedAuthServer) {
+          console.log('[useOfferRequest] Resolved issuer metadata endpoints:', {
+            credential_issuer: resolvedIssuer?.credential_issuer,
+            token_endpoint: resolvedIssuer?.token_endpoint,
+            credential_endpoint: resolvedIssuer?.credential_endpoint,
+          })
+          console.log('[useOfferRequest] Resolved auth server endpoints:', {
+            issuer: resolvedAuthServer?.issuer,
+            token_endpoint: resolvedAuthServer?.token_endpoint,
+          })
+        }
 
-      console.log('[useOfferRequest] === SUCCESS (Credo) ===')
-      return {
-        id: savedCredentialId,
-        verifiableCredential,
-        credentialCount: acceptResult.credentials?.length || 0,
-      }
+        console.log('[useOfferRequest] Offer resolved, accepting using pre-authorized code flow...')
+
+        const holderDidUrl = didKeyUrl(await tenantHolderDid(agent))
+        console.log('[useOfferRequest] Binding to wallet DID:', holderDidUrl)
+
+        const holderApi = (agent as any).openid4vc?.holder
+        const credentialBindingResolver = async (options: any) => {
+          console.log('[useOfferRequest] Binding params:', {
+            credentialFormat: options?.credentialFormat,
+            supportedDidMethods: options?.supportedDidMethods,
+            supportsAllDidMethods: options?.supportsAllDidMethods,
+            supportsJwk: options?.supportsJwk,
+          })
+          return { method: 'did', didUrls: [holderDidUrl], didUrl: holderDidUrl }
+        }
+
+        // Credo 0.7: pre-authorized code -> access token -> credential request. The 0.5-era
+        // `acceptCredentialOfferUsingPreAuthorizedCode` is kept only as a fallback.
+        let acceptResult: any
+        if (typeof holderApi?.requestToken === 'function' && typeof holderApi?.requestCredentials === 'function') {
+          const tokenResponse = await holderApi.requestToken({ resolvedCredentialOffer: resolved })
+          acceptResult = await holderApi.requestCredentials({
+            resolvedCredentialOffer: resolved,
+            accessToken: tokenResponse.accessToken,
+            cNonce: tokenResponse.cNonce,
+            dpop: tokenResponse.dpop,
+            verifyCredentialStatus: false,
+            credentialBindingResolver,
+          })
+        } else {
+          acceptResult = await holderApi?.acceptCredentialOfferUsingPreAuthorizedCode(resolved, {
+            credentialBindingResolver,
+          })
+        }
+
+        // 0.7 returns `{ credentials: [{ record }] }`; unwrap to the credential objects the code below expects.
+        const rawCredentials: any[] = Array.isArray(acceptResult) ? acceptResult : acceptResult?.credentials || []
+        const rawRecords: any[] = rawCredentials.map((item: any) => item?.record ?? item)
+        const credentials = rawRecords.map((record: any) => record?.firstCredential ?? record?.credential ?? record)
+
+        console.log('[useOfferRequest] Credo accept result:', {
+          credentialCount: credentials.length,
+          firstCredentialType: typeof credentials[0],
+          firstCredentialFormat: credentials[0]?.claimFormat || credentials[0]?.type || 'unknown',
+        })
+
+        const { randomUUID } = await import('crypto')
+        let savedCredentialId = ''
+        let verifiableCredential = ''
+
+        const tenantAgent = agent
+        const tenantW3cService = tenantAgent.dependencyManager.resolve(W3cCredentialService)
+
+        for (const [index, credentialRecord] of credentials.entries()) {
+          const credentialId = randomUUID()
+          savedCredentialId = credentialId
+          let credentialData: any = {}
+          let vcType = 'VerifiableCredential'
+          let issuerDid = ''
+
+          // Selective-disclosure card (SD-JWT): keep the whole record so the wallet can later
+          // reveal only the claims a request names. It lives in the SD-JWT store, not the W3C one.
+          const rawRecord = rawRecords[index]
+          if (rawRecord?.type === 'SdJwtVcRecord' || typeof credentialRecord?.compact === 'string') {
+            const record = rawRecord?.type === 'SdJwtVcRecord' ? rawRecord : SdJwtVcRecord.fromSdJwtVc(credentialRecord)
+            verifiableCredential = String(record.firstCredential?.compact || '')
+            try {
+              const stored = await (tenantAgent as any).sdJwtVc.store({ record })
+              savedCredentialId = stored.id
+              console.log('[useOfferRequest] Stored selective-disclosure card in tenant wallet:', stored.id)
+            } catch (storeError: any) {
+              console.warn('[useOfferRequest] Could not store SD-JWT in tenant wallet:', storeError?.message)
+            }
+            continue
+          }
+
+          // The credential may be a W3cJwtVerifiableCredential instance or a plain object
+          // Check for claimFormat (Credo) or format property
+          const format = credentialRecord.claimFormat || credentialRecord.format || ''
+
+          // Get the serialized JWT - may be in .serializedJwt or .credential property, or the record itself could be a string
+          let jwtToken: string = ''
+          if (typeof credentialRecord === 'string') {
+            jwtToken = credentialRecord
+          } else if (credentialRecord.serializedJwt) {
+            jwtToken = credentialRecord.serializedJwt
+          } else if (typeof credentialRecord.credential === 'string') {
+            jwtToken = credentialRecord.credential
+          } else if (credentialRecord.jwt) {
+            jwtToken = credentialRecord.jwt
+          }
+
+          console.log('[useOfferRequest] Processing credential:', {
+            format,
+            hasJwt: !!jwtToken,
+            jwtLength: jwtToken?.length,
+            credentialType: typeof credentialRecord,
+            credentialKeys: typeof credentialRecord === 'object' ? Object.keys(credentialRecord || {}) : [],
+          })
+
+          if (format === 'jwt_vc' || format === 'jwt_vc_json' || jwtToken) {
+            verifiableCredential = jwtToken
+            try {
+              const parts = jwtToken.split('.')
+              if (parts.length === 3) {
+                credentialData = JSON.parse(Buffer.from(parts[1], 'base64url').toString())
+                const types = credentialData?.vc?.type || []
+                vcType = types.find((t: string) => t !== 'VerifiableCredential') || types[0] || 'VerifiableCredential'
+                issuerDid = credentialData?.iss || ''
+              }
+            } catch (e) {
+              console.warn('[useOfferRequest] Could not decode JWT:', e)
+            }
+
+            // Store in TENANT'S Credo wallet (Askar) so it appears in their credential list
+            try {
+              // The credentialRecord should be a W3cJwtVerifiableCredential if from OID4VC
+              if (credentialRecord && typeof credentialRecord === 'object' && credentialRecord.credential) {
+                const storedRecord = await tenantW3cService.storeCredential(tenantAgent.context, {
+                  record: W3cCredentialRecord.fromCredential(credentialRecord),
+                })
+                savedCredentialId = storedRecord.id
+                console.log('[useOfferRequest] Stored credential in tenant wallet:', storedRecord.id)
+              } else {
+                console.log(
+                  '[useOfferRequest] Credential is not a W3cCredential instance, skipping tenant wallet storage',
+                )
+              }
+            } catch (storeError: any) {
+              console.warn('[useOfferRequest] Could not store in tenant wallet:', storeError?.message)
+            }
+          } else {
+            // Fallback: try to store whatever we have
+            verifiableCredential =
+              typeof credentialRecord === 'string' ? credentialRecord : JSON.stringify(credentialRecord)
+
+            try {
+              if (credentialRecord && typeof credentialRecord === 'object') {
+                const storedRecord = await tenantW3cService.storeCredential(tenantAgent.context, {
+                  record: W3cCredentialRecord.fromCredential(credentialRecord),
+                })
+                savedCredentialId = storedRecord.id
+                console.log('[useOfferRequest] Stored credential (fallback) in tenant wallet:', storedRecord.id)
+              }
+            } catch (storeError: any) {
+              console.warn('[useOfferRequest] Could not store in tenant wallet (fallback):', storeError?.message)
+            }
+          }
+
+          console.log('[useOfferRequest] Processed credential:', savedCredentialId)
+        }
+
+        console.log('[useOfferRequest] === SUCCESS (Credo) ===')
+        return {
+          id: savedCredentialId,
+          verifiableCredential,
+          credentialCount: acceptResult.credentials?.length || 0,
+        }
+      })
     } catch (error: any) {
       console.error('[useOfferRequest] === FAILED ===')
       console.error('[useOfferRequest] Credo error:', (error && error.message) || error)
@@ -1083,86 +1317,171 @@ export class WalletController extends Controller {
     }
   }
 
+  /**
+   * The organisation a wallet record was issued for, read from its subject.
+   * Personal records (identity) carry none and return ''.
+   */
+  private static recordOrgTenantId(verifiableCredential: any): string {
+    const record = verifiableCredential?.credentialRecord as any
+    const subject =
+      verifiableCredential?.disclosedPayload ||
+      record?.firstCredential?.credentialSubject ||
+      record?.credential?.credentialSubject ||
+      {}
+    const one = Array.isArray(subject) ? subject[0] : subject
+    return String(one?.orgTenantId || one?.claims?.orgTenantId || one?.targetOrgTenantId || '').trim()
+  }
+
+  /**
+   * A share for one organisation's request lists only that organisation's records.
+   * Records with no organisation (a personal identity card) are kept only when the
+   * organisation has nothing of its own to offer, so the person still sees something.
+   */
+  private static keepForOrganisation<T>(candidates: T[], orgTenantId: string, orgOf: (item: T) => string): T[] {
+    const wanted = String(orgTenantId || '').trim()
+    if (!wanted) return candidates
+    const own = candidates.filter((item) => orgOf(item) === wanted)
+    if (own.length > 0) return own
+    return candidates.filter((item) => !orgOf(item))
+  }
+
   @Post('{walletId}/exchange/matchCredentialsForPresentationDefinition')
   public async matchCredentialsForPresentationDefinition(
     @Request() request: ExRequest,
     @Path() walletId: string,
     @Body() body: any,
   ): Promise<any[]> {
-    const agent = this.getAgent(request)
-    const holderAgent = this.getBaseAgentForHolder()
-    const presentationRequest =
-      typeof body === 'string'
-        ? body
-        : typeof body?.presentationRequest === 'string'
-          ? body.presentationRequest
-          : typeof body?.presentationRequestUrl === 'string'
-            ? body.presentationRequestUrl
-            : typeof body?.request_uri === 'string'
-              ? body.request_uri
-              : null
+    // Matching reads the person's own wallet, the same one that would sign the share.
+    const holderWalletId = this.holderWalletId(request, walletId)
+    return withTenantHolder(holderWalletId, async (holderAgent) => {
+      const agent = holderAgent
+      const requestedOrgTenantId = typeof body?.orgTenantId === 'string' ? body.orgTenantId.trim() : ''
+      const presentationRequest =
+        typeof body === 'string'
+          ? body
+          : typeof body?.presentationRequest === 'string'
+            ? body.presentationRequest
+            : typeof body?.presentationRequestUrl === 'string'
+              ? body.presentationRequestUrl
+              : typeof body?.request_uri === 'string'
+                ? body.request_uri
+                : null
 
-    const presentationDefinition =
-      presentationRequest && typeof presentationRequest === 'string' && presentationRequest.includes('openid4vp')
-        ? await (holderAgent as any).openid4vc?.holder
-            ?.resolveOpenId4VpAuthorizationRequest(presentationRequest)
-            .then((resolved: any) => resolved?.presentationExchange?.definition)
+      const resolved =
+        presentationRequest && typeof presentationRequest === 'string' && presentationRequest.includes('openid4vp')
+          ? await (holderAgent as any).openid4vc?.holder?.resolveOpenId4VpAuthorizationRequest(presentationRequest)
+          : undefined
+      const presentationDefinition = resolved
+        ? resolved?.presentationExchange?.definition
         : typeof body === 'string'
           ? JSON.parse(body)
           : body?.presentationDefinition || body
 
-    try {
-      const difPexService = agent.dependencyManager.resolve(DifPresentationExchangeService)
-      const credentialsForRequest = await difPexService.getCredentialsForRequest(agent.context, presentationDefinition)
-
-      const matchedCredentials: any[] = []
-      for (const requirement of credentialsForRequest.requirements) {
-        for (const submissionEntry of requirement.submissionEntry) {
-          for (const verifiableCredential of submissionEntry.verifiableCredentials) {
-            const credRecord = verifiableCredential.credentialRecord
-            const vcAny = verifiableCredential as any
-
-            const readable = (credRecord as any).firstCredential || (credRecord as any).credential || credRecord
-            if ('claimFormat' in verifiableCredential && verifiableCredential.claimFormat === ClaimFormat.SdJwtDc) {
-              const sdJwtRecord = credRecord as any
-              const source = vcAny.disclosedPayload || sdJwtRecord.compactSdJwtVc || readable
-              const review = reviewDetails(source)
-              matchedCredentials.push({
-                id: sdJwtRecord.id,
-                document: typeof sdJwtRecord.compactSdJwtVc === 'string' ? sdJwtRecord.compactSdJwtVc : undefined,
-                type: review.type,
-                claims: review.claims,
-                parsedDocument: JSON.stringify(vcAny.disclosedPayload || {}),
-                disclosures: vcAny.disclosedPayload || null,
-              })
-            } else if ('credential' in credRecord || (credRecord as any).firstCredential) {
-              const review = reviewDetails(readable)
-              matchedCredentials.push({
-                id: credRecord.id,
-                type: review.type,
-                claims: review.claims,
-                parsedDocument: null,
-                disclosures: null,
-              })
-            } else {
-              const review = reviewDetails(credRecord)
-              matchedCredentials.push({
-                id: credRecord.id,
-                type: review.type,
-                claims: review.claims,
-                parsedDocument: null,
-                disclosures: null,
-              })
-            }
+      // DCQL request (the default for job and request steps): the query names the claims, so each
+      // match says what would be shared and what stays on the phone.
+      const dcqlQuery = resolved && !presentationDefinition ? stageProofService.dcqlQueryOf(resolved) : undefined
+      if (dcqlQuery) {
+        try {
+          const stageAction = stageActionFromClientStage(body?.stage)
+          const candidates = WalletController.keepForOrganisation(
+            await stageProofService.dcqlCandidatesInWallet(holderAgent, undefined, dcqlQuery),
+            requestedOrgTenantId,
+            (candidate) => candidate.orgTenantId,
+          )
+          const presentable = stageProofService.presentableCandidates(
+            candidates,
+            stageAction,
+            stageProofService.namedPersonOnRun(body?.workflowRunId, stageAction),
+          )
+          const seen = new Set<string>()
+          const matched: any[] = []
+          const purpose = purposeLineFromResolvedRequest(resolved)
+          for (const candidate of presentable.kept) {
+            const id = String(candidate.record?.id || '')
+            if (!id || seen.has(id)) continue
+            seen.add(id)
+            const shared = reviewDetails({ type: candidate.types, credentialSubject: candidate.disclosed })
+            const withheld = reviewDetails({ type: candidate.types, credentialSubject: candidate.withheld })
+            matched.push({
+              id,
+              type: shared.type || candidate.types[0],
+              claims: shared.claims,
+              withheld: withheld.claims,
+              selective: candidate.claimFormat.includes('sd-jwt'),
+              parsedDocument: null,
+              disclosures: null,
+              ...(purpose ? { purpose } : {}),
+            })
           }
+          return matched
+        } catch (error: any) {
+          request.logger?.error({ error: error.message, walletId }, 'DCQL credential matching failed')
+          return []
         }
       }
 
-      return matchedCredentials
-    } catch (error: any) {
-      request.logger?.error({ error: error.message, walletId }, 'PEX credential matching failed')
-      return []
-    }
+      try {
+        const difPexService = agent.dependencyManager.resolve(DifPresentationExchangeService)
+        const credentialsForRequest = await difPexService.getCredentialsForRequest(
+          agent.context,
+          presentationDefinition,
+        )
+
+        const matchedCredentials: any[] = []
+        for (const requirement of credentialsForRequest.requirements) {
+          for (const submissionEntry of requirement.submissionEntry) {
+            const forThisOrg = WalletController.keepForOrganisation(
+              submissionEntry.verifiableCredentials as any[],
+              requestedOrgTenantId,
+              WalletController.recordOrgTenantId,
+            )
+            for (const verifiableCredential of forThisOrg) {
+              const credRecord = verifiableCredential.credentialRecord
+              const vcAny = verifiableCredential as any
+
+              const readable = (credRecord as any).firstCredential || (credRecord as any).credential || credRecord
+              if ('claimFormat' in verifiableCredential && verifiableCredential.claimFormat === ClaimFormat.SdJwtDc) {
+                const sdJwtRecord = credRecord as any
+                const source = vcAny.disclosedPayload || sdJwtRecord.compactSdJwtVc || readable
+                const review = reviewDetails(source)
+                matchedCredentials.push({
+                  id: sdJwtRecord.id,
+                  document: typeof sdJwtRecord.compactSdJwtVc === 'string' ? sdJwtRecord.compactSdJwtVc : undefined,
+                  type: review.type,
+                  claims: review.claims,
+                  parsedDocument: JSON.stringify(vcAny.disclosedPayload || {}),
+                  disclosures: vcAny.disclosedPayload || null,
+                })
+              } else if ('credential' in credRecord || (credRecord as any).firstCredential) {
+                const review = reviewDetails(readable)
+                matchedCredentials.push({
+                  id: credRecord.id,
+                  type: review.type,
+                  claims: review.claims,
+                  parsedDocument: null,
+                  disclosures: null,
+                })
+              } else {
+                const review = reviewDetails(credRecord)
+                matchedCredentials.push({
+                  id: credRecord.id,
+                  type: review.type,
+                  claims: review.claims,
+                  parsedDocument: null,
+                  disclosures: null,
+                })
+              }
+            }
+          }
+        }
+
+        // Presentation Exchange shares the whole card: nothing is withheld.
+        return matchedCredentials.map((item) => ({ ...item, withheld: {}, selective: false }))
+      } catch (error: any) {
+        request.logger?.error({ error: error.message, walletId }, 'PEX credential matching failed')
+        return []
+      }
+    })
   }
 
   @Post('{walletId}/exchange/usePresentationRequest')
@@ -1172,7 +1491,10 @@ export class WalletController extends Controller {
     @Body() body: any,
   ): Promise<any> {
     const { presentationRequest, selectedCredentials } = body
-    console.log('[usePresentationRequest] start', { selected: Array.isArray(selectedCredentials) ? selectedCredentials.length : 0 })
+    const requestedOrgTenantId = typeof body?.orgTenantId === 'string' ? body.orgTenantId.trim() : ''
+    console.log('[usePresentationRequest] start', {
+      selected: Array.isArray(selectedCredentials) ? selectedCredentials.length : 0,
+    })
     if (
       !presentationRequest ||
       !selectedCredentials ||
@@ -1182,89 +1504,316 @@ export class WalletController extends Controller {
       this.setStatus(400)
       throw new Error('Missing presentationRequest or selectedCredentials')
     }
-    const holderAgent = this.getBaseAgentForHolder()
+    // The share is signed by the person's own wallet key.
+    const holderWalletId = this.holderWalletId(request, walletId)
     try {
-      console.log('[usePresentationRequest] Resolving request for submission...')
-      const resolved = await (holderAgent as any).openid4vc?.holder?.resolveOpenId4VpAuthorizationRequest(
-        presentationRequest,
-      )
+      return await withTenantHolder(holderWalletId, async (holderAgent) => {
+        console.log('[usePresentationRequest] Resolving request for submission...')
+        const resolved = await (holderAgent as any).openid4vc?.holder?.resolveOpenId4VpAuthorizationRequest(
+          presentationRequest,
+        )
 
-      // The review screen ticks record ids. Those records live in the person's wallet
-      // (the tenant), while the holder module that submits the proof runs on the base agent.
-      const selectedIds = new Set(
-        (Array.isArray(selectedCredentials) ? selectedCredentials : [])
-          .filter((value: unknown) => typeof value === 'string')
-          .map((value: string) => value),
-      )
-      const holder = (holderAgent as any).openid4vc?.holder
-      const definition = resolved?.presentationExchange?.definition
-      let credentialsForRequest = resolved?.presentationExchange?.credentialsForRequest
-      const tenants = (holderAgent as any).modules?.tenants
-      let tenantAgent: any
-      try {
-        if (walletId && tenants?.getTenantAgent && definition) {
-          tenantAgent = await tenants.getTenantAgent({ tenantId: walletId })
-          const difPexService = holderAgent.dependencyManager.resolve(DifPresentationExchangeService)
-          const inTenant = await difPexService.getCredentialsForRequest(tenantAgent.context, definition)
-          const hasMatch = (inTenant?.requirements || []).some((requirement: any) =>
-            (requirement.submissionEntry || []).some((entry: any) => (entry.verifiableCredentials || []).length > 0),
-          )
-          if (hasMatch) credentialsForRequest = inTenant
-        }
-      } finally {
-        await tenantAgent?.endSession?.()
-      }
-      const pexCredentials: Record<string, any[]> = {}
-      for (const requirement of credentialsForRequest?.requirements || []) {
-        const needed = Math.max(1, Number(requirement?.needsCount) || 1)
-        let taken = 0
-        for (const entry of requirement?.submissionEntry || []) {
-          if (taken >= needed) break
-          const candidates: any[] = entry?.verifiableCredentials || []
-          const ticked = candidates.filter((vc) => selectedIds.has(String(vc?.credentialRecord?.id || '')))
-          const pick = ticked[0] || candidates[0]
-          if (pick && entry?.inputDescriptorId) {
-            pexCredentials[entry.inputDescriptorId] = [pick]
-            taken += 1
+        // The review screen ticks record ids in the person's wallet.
+        const selectedIds = new Set(
+          (Array.isArray(selectedCredentials) ? selectedCredentials : [])
+            .filter((value: unknown) => typeof value === 'string')
+            .map((value: string) => value),
+        )
+        const definition = resolved?.presentationExchange?.definition
+        let credentialsForRequest = resolved?.presentationExchange?.credentialsForRequest
+
+        // DCQL: the ticked record answers; a selective-disclosure card reveals only the named claims.
+        const dcqlQuery = definition ? undefined : stageProofService.dcqlQueryOf(resolved)
+        const stageAction = stageActionFromClientStage(body?.stage)
+        let dcqlCredentials: Record<string, any[]> | undefined
+        let dcqlCandidates: DcqlWalletCandidate[] | undefined
+        if (dcqlQuery) {
+          const candidates = await stageProofService.dcqlCandidatesInWallet(holderAgent, undefined, dcqlQuery)
+          dcqlCandidates = candidates
+          dcqlCredentials = stageProofService.selectDcqlCredentials(candidates, {
+            preferIds: selectedIds,
+            orgTenantId: requestedOrgTenantId,
+            stageAction,
+            namedUserId: stageProofService.namedPersonOnRun(body?.workflowRunId, stageAction),
+          })
+          if (Object.keys(dcqlCredentials).length === 0) {
+            this.setStatus(400)
+            throw new Error('Your wallet does not hold a record this organisation accepts for this step.')
           }
         }
-      }
-      const dcqlCredentials = resolved?.dcql?.queryResult
-        ? holder?.selectCredentialsForDcqlRequest?.(resolved.dcql.queryResult)
-        : undefined
-      console.log('[usePresentationRequest] selection', {
-        selected: selectedIds.size,
-        requirements: credentialsForRequest?.requirements?.length ?? 0,
-        descriptors: Object.keys(pexCredentials).length,
-        dcql: Boolean(dcqlCredentials),
-      })
 
-      console.log('[usePresentationRequest] Accepting request...')
-      const response = await (holderAgent as any).openid4vc?.holder?.acceptOpenId4VpAuthorizationRequest({
-        authorizationRequestPayload: resolved.authorizationRequestPayload,
-        presentationExchange:
-          resolved.presentationExchange && pexCredentials && Object.keys(pexCredentials).length > 0
-            ? { credentials: pexCredentials }
-            : undefined,
-        dcql: resolved.dcql && dcqlCredentials ? { credentials: dcqlCredentials } : undefined,
-      })
+        if (definition) {
+          const difPexService = holderAgent.dependencyManager.resolve(DifPresentationExchangeService)
+          credentialsForRequest = await difPexService.getCredentialsForRequest(holderAgent.context, definition)
+        }
+        const pexCredentials: Record<string, any[]> = {}
+        for (const requirement of credentialsForRequest?.requirements || []) {
+          const needed = Math.max(1, Number(requirement?.needsCount) || 1)
+          let taken = 0
+          for (const entry of requirement?.submissionEntry || []) {
+            if (taken >= needed) break
+            // Only this organisation's records are ever sent for its request, ticked or not.
+            const candidates: any[] = WalletController.keepForOrganisation(
+              (entry?.verifiableCredentials || []) as any[],
+              requestedOrgTenantId,
+              WalletController.recordOrgTenantId,
+            )
+            const ticked = candidates.filter((vc) => selectedIds.has(String(vc?.credentialRecord?.id || '')))
+            const pick = ticked[0] || candidates[0]
+            if (pick && entry?.inputDescriptorId) {
+              pexCredentials[entry.inputDescriptorId] = [pick]
+              taken += 1
+            }
+          }
+        }
+        console.log('[usePresentationRequest] selection', {
+          selected: selectedIds.size,
+          requirements: credentialsForRequest?.requirements?.length ?? 0,
+          descriptors: Object.keys(pexCredentials).length,
+          dcql: Boolean(dcqlCredentials),
+        })
 
-      if (response?.ok === false) {
-        const detail = response?.serverResponse?.body
-        const message =
-          (typeof detail === 'object' && detail && (detail.error_description || detail.message || detail.error)) ||
-          (typeof detail === 'string' ? detail : '') ||
-          'The verifier did not accept this share. Start the step again.'
-        throw new Error(String(message))
-      }
-      // direct_post sends the share to the verifier inside accept. There is no redirect to parse.
-      const directPost = Boolean(response?.ok) && !response?.redirectUri
-      console.log('[usePresentationRequest] accepted', { directPost, redirect: Boolean(response?.redirectUri) })
-      return { redirectUri: response?.redirectUri, directPost }
+        console.log('[usePresentationRequest] Accepting request...')
+        const response = await (holderAgent as any).openid4vc?.holder?.acceptOpenId4VpAuthorizationRequest({
+          authorizationRequestPayload: resolved.authorizationRequestPayload,
+          presentationExchange:
+            resolved.presentationExchange && pexCredentials && Object.keys(pexCredentials).length > 0
+              ? { credentials: pexCredentials }
+              : undefined,
+          dcql:
+            dcqlCredentials && Object.keys(dcqlCredentials).length > 0 ? { credentials: dcqlCredentials } : undefined,
+          transactionData: transactionDataSigners(
+            resolved,
+            dcqlCredentials && Object.keys(dcqlCredentials).length > 0 ? dcqlCredentials : pexCredentials,
+          ),
+        })
+
+        if (response?.ok === false) {
+          const detail = response?.serverResponse?.body
+          const message =
+            (typeof detail === 'object' && detail && (detail.error_description || detail.message || detail.error)) ||
+            (typeof detail === 'string' ? detail : '') ||
+            'The verifier did not accept this share. Start the step again.'
+          throw new Error(String(message))
+        }
+        // The person's own record of this share: organisation, step, job, claim names sent and kept.
+        stageProofService.recordShareFromWallet({
+          walletTenantId: walletId,
+          presentationRequestUrl: presentationRequest,
+          resolved,
+          orgTenantId: requestedOrgTenantId || undefined,
+          stageAction: stageAction || undefined,
+          workflowRunId: typeof body?.workflowRunId === 'string' ? body.workflowRunId : undefined,
+          candidates: dcqlCandidates,
+          dcqlCredentials,
+          pexCredentials: Object.keys(pexCredentials).length > 0 ? pexCredentials : undefined,
+        })
+        // direct_post sends the share to the verifier inside accept. There is no redirect to parse.
+        const directPost = Boolean(response?.ok) && !response?.redirectUri
+        console.log('[usePresentationRequest] accepted', { directPost, redirect: Boolean(response?.redirectUri) })
+        return { redirectUri: response?.redirectUri, directPost }
+      })
     } catch (error: any) {
       console.error('[usePresentationRequest] Error:', error.message)
       this.setStatus(500)
       throw new Error(`Presentation failed: ${error.message}`)
     }
+  }
+
+  // ── Personal activity: who has your data, what you shared, for what ─────────
+
+  /** The wallet the signed-in person owns. A wallet token names it; a user token is looked up. */
+  private ownWalletId(request: ExRequest): string {
+    const tokenTenantId = (request as any).user?.tenantId as string | undefined
+    if (tokenTenantId) return tokenTenantId
+    const walletId = holderActivityService.walletOfUser((request as any).user?.id)
+    if (!walletId) {
+      this.setStatus(401)
+      throw new UnauthorizedError('Sign in required')
+    }
+    return walletId
+  }
+
+  /**
+   * Your own activity: cards you were given, cards withdrawn, what you shared with whom and for
+   * which step, and shares you turned down. Newest first. Only the signed-in person's wallet.
+   * `format=csv` returns the same rows as a file.
+   */
+  @Get('activity')
+  public async listActivity(
+    @Request() request: ExRequest,
+    @Query() limit?: number,
+    @Query() cursor?: string,
+    @Query() orgTenantId?: string,
+    @Query() kind?: string,
+    @Query() format?: 'json' | 'csv',
+  ): Promise<HolderActivityPage> {
+    const walletId = this.ownWalletId(request)
+    const kinds = String(kind || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean) as HolderActivityKind[]
+    if (format === 'csv') {
+      const all = holderActivityService.list(walletId, { limit: 200, orgTenantId, kind: kinds })
+      const csv = holderActivityService.toCsv(all.items)
+      if (request.res) {
+        request.res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+        request.res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="my-activity-${new Date().toISOString().slice(0, 10)}.csv"`,
+        )
+        request.res.send(csv)
+      }
+      return { items: all.items, total: all.total, csv }
+    }
+    return holderActivityService.list(walletId, { limit, cursor, orgTenantId, kind: kinds })
+  }
+
+  /** Organisations that hold a card of yours or were shared one, and what each card lets them check. */
+  @Get('activity/partners')
+  public async listActivityPartners(@Request() request: ExRequest): Promise<{ items: HolderActivityPartner[] }> {
+    const walletId = this.ownWalletId(request)
+    return { items: holderActivityService.partners(walletId) }
+  }
+
+  /**
+   * The person looked at a share request and chose not to send anything. Logged like a share, so
+   * the activity list shows requests that were turned down too.
+   */
+  @Post('activity/declined')
+  public async recordDeclinedShare(
+    @Request() request: ExRequest,
+    @Body() body: DeclinedShareBody,
+  ): Promise<{ ok: true; id?: string }> {
+    const walletId = this.ownWalletId(request)
+    const stageAction =
+      stageActionFromClientStage(body?.stage) ||
+      String(body?.stageAction || '')
+        .trim()
+        .toLowerCase()
+    const requestId = (() => {
+      try {
+        return (
+          new URL(String(body?.presentationRequestUrl || '')).searchParams.get('verification_session_id') || undefined
+        )
+      } catch {
+        return undefined
+      }
+    })()
+    const entry = holderActivityService.record({
+      walletTenantId: walletId,
+      kind: 'share_declined',
+      outcome: 'declined',
+      orgTenantId: typeof body?.orgTenantId === 'string' ? body.orgTenantId : undefined,
+      orgName: typeof body?.orgName === 'string' ? body.orgName : undefined,
+      purposeLabel: typeof body?.purpose === 'string' ? body.purpose : undefined,
+      stageAction: stageAction || undefined,
+      workflowRunId: typeof body?.workflowRunId === 'string' ? body.workflowRunId : undefined,
+      reference: typeof body?.reference === 'string' ? body.reference : undefined,
+      requestId,
+      requestedTypes: Array.isArray(body?.requestedTypes) ? body.requestedTypes.map(String) : [],
+      requestedClaims: Array.isArray(body?.requestedClaims) ? body.requestedClaims.map(String) : [],
+      reason: typeof body?.reason === 'string' ? body.reason : 'You chose not to share',
+      sourceId: requestId ? `${requestId}:declined` : undefined,
+    })
+    return { ok: true, id: entry?.id }
+  }
+
+  /**
+   * Remember this Android phone so a waiting job or record can pop up on it.
+   * The token is stored and never written to the log.
+   */
+  @Post('push-device')
+  public async registerPushDevice(@Request() request: ExRequest, @Body() body: PushDeviceBody): Promise<{ ok: true }> {
+    const tenantId = (request as any).user?.tenantId as string | undefined
+    const token = typeof body?.token === 'string' ? body.token.trim() : ''
+    if (!tenantId) {
+      this.setStatus(401)
+      throw new UnauthorizedError('Sign in required')
+    }
+    if (body?.platform !== 'android' || token.length < 20 || token.length > 4096) {
+      this.setStatus(400)
+      throw new Error('This phone could not be registered for alerts')
+    }
+    saveDevicePushToken({ tenantId, platform: 'android', token })
+    return { ok: true }
+  }
+
+  @Delete('push-device')
+  public async unregisterPushDevice(
+    @Request() request: ExRequest,
+    @Body() body: PushDeviceRemoveBody,
+  ): Promise<{ ok: true }> {
+    const tenantId = (request as any).user?.tenantId as string | undefined
+    const token = typeof body?.token === 'string' ? body.token.trim() : ''
+    if (!tenantId) {
+      this.setStatus(401)
+      throw new UnauthorizedError('Sign in required')
+    }
+    if (token) deleteDevicePushToken(tenantId, token)
+    return { ok: true }
+  }
+
+  /** A one-time nonce the enrolled phone signs with its biometric key. */
+  @Post('device-keys/challenge')
+  @Security('jwt')
+  public async createDeviceChallenge(@Request() request: ExRequest): Promise<DeviceAssertionChallenge> {
+    const tenantId = (request as any).user?.tenantId as string | undefined
+    if (!tenantId) {
+      this.setStatus(401)
+      throw new UnauthorizedError('Sign in required')
+    }
+    return deviceTrustService.createChallenge(tenantId)
+  }
+
+  /** Enroll the hardware key created after fingerprint or face confirmation. */
+  @Post('device-keys')
+  @Security('jwt')
+  public async enrollDeviceKey(
+    @Request() request: ExRequest,
+    @Body() body: DeviceKeyEnrollBody,
+  ): Promise<EnrolledDevice> {
+    const tenantId = (request as any).user?.tenantId as string | undefined
+    if (!tenantId) {
+      this.setStatus(401)
+      throw new UnauthorizedError('Sign in required')
+    }
+    if (!body?.publicJwk || !body.attestation || !body.platform) {
+      this.setStatus(400)
+      throw new StatusException('The phone key and its attestation are required.', 400)
+    }
+    return deviceTrustService.enroll({
+      walletTenantId: tenantId,
+      publicJwk: body.publicJwk,
+      attestation: body.attestation,
+      platform: body.platform,
+      label: body.label,
+    })
+  }
+
+  @Get('device-keys')
+  @Security('jwt')
+  public async listDeviceKeys(@Request() request: ExRequest): Promise<{ devices: EnrolledDevice[] }> {
+    const tenantId = (request as any).user?.tenantId as string | undefined
+    if (!tenantId) {
+      this.setStatus(401)
+      throw new UnauthorizedError('Sign in required')
+    }
+    return { devices: deviceTrustService.list(tenantId) }
+  }
+
+  @Delete('device-keys/{deviceKeyId}')
+  @Security('jwt')
+  public async revokeDeviceKey(
+    @Request() request: ExRequest,
+    @Path() deviceKeyId: string,
+  ): Promise<{ ok: true }> {
+    const tenantId = (request as any).user?.tenantId as string | undefined
+    if (!tenantId) {
+      this.setStatus(401)
+      throw new UnauthorizedError('Sign in required')
+    }
+    deviceTrustService.revoke(tenantId, deviceKeyId)
+    return { ok: true }
   }
 }

@@ -218,12 +218,14 @@ export class ReportingService {
       .get(tenantId, asOfDate) as { total: number }
     const payrollOut = payrollOutRow?.total || 0
 
-    // Accounts Receivable: Unpaid carts
+    // Money owed to this organisation. The receivable survives replacement payment links and
+    // instalment links; report the obligation, not a checkout/cart implementation detail.
     const arRow = db
       .prepare(
         `
-            SELECT SUM(total) as total FROM carts 
-            WHERE merchant_id = ? AND status = 'pending' AND created_at <= ?
+            SELECT SUM(balance_due) as total FROM financial_obligations
+            WHERE tenant_id = ? AND direction = 'receivable'
+              AND status IN ('open', 'partially_settled', 'disputed') AND created_at <= ?
         `,
       )
       .get(tenantId, asOfDate) as { total: number }
@@ -237,12 +239,14 @@ export class ReportingService {
     const nonCurrentAssets = propertyPlantEquipment
     const totalAssets = currentAssets + nonCurrentAssets
 
-    // Accounts Payable: Pending expense claims
+    // Money this organisation owes suppliers. Expense claims are staff reimbursements and are
+    // not supplier AP; the obligation layer keeps those concepts separate.
     const apRow = db
       .prepare(
         `
-            SELECT SUM(amount) as total FROM expense_claims 
-            WHERE tenant_id = ? AND status IN ('approved', 'pending') AND created_at <= ?
+            SELECT SUM(balance_due) as total FROM financial_obligations
+            WHERE tenant_id = ? AND direction = 'payable'
+              AND status IN ('open', 'partially_settled', 'disputed') AND created_at <= ?
         `,
       )
       .get(tenantId, asOfDate) as { total: number }

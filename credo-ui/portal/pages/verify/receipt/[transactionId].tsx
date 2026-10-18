@@ -5,6 +5,7 @@ import { EnvContext } from '@/pages/_app'
 import nextConfig from '@/next.config'
 import Layout from '@/components/Layout'
 import { BRAND } from '@/lib/theme'
+import { formatTxnTime } from '@/lib/inboxAttention'
 import { 
   IconCheck, 
   IconX, 
@@ -186,9 +187,9 @@ export default function ReceiptVerification() {
                   <p className="font-medium">{result.paymentMethod || 'EcoCash'}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">Date</p>
+                  <p className="text-gray-500">When</p>
                   <p className="font-medium">
-                    {result.timestamp ? new Date(result.timestamp).toLocaleDateString() : 'Today'}
+                    {result.timestamp ? formatTxnTime(result.timestamp) : 'Today'}
                   </p>
                 </div>
               </div>

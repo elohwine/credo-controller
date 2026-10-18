@@ -115,6 +115,34 @@ export function removeRunningAction(id: string): void {
   writeActions(next)
 }
 
+/**
+ * Finds an unfinished share-screen attempt for any of the given references (request, requisition,
+ * job run, payment). Works the same for every workflow: the inbox shows "Resume" instead of
+ * starting a new proof request, which the server would refuse for the first one anyway.
+ */
+export function findRunningProofResume(refs: Array<string | undefined | null>): RunningAction | undefined {
+  const wanted = refs.map((r) => String(r || '').trim()).filter(Boolean)
+  if (wanted.length === 0) return undefined
+  return getRunningActions().find((row) => {
+    if (row.status === 'completed' || !row.route.startsWith('/present')) return false
+    return wanted.some((ref) => row.refId === ref || row.route.includes(`=${encodeURIComponent(ref)}`))
+  })
+}
+
+/**
+ * Drops the resume entries for one proof-guarded step (a requisition, a job, a payment), whatever
+ * the workflow. Each attempt opens a fresh proof request, so a stored route from a finished or
+ * ended attempt must not be resumed.
+ */
+export function removeRunningProofResume(ref: string): void {
+  const trimmed = String(ref || '').trim()
+  if (!trimmed) return
+
+  const marker = `=${encodeURIComponent(trimmed)}`
+  const next = getRunningActions().filter((row) => !(row.refId === trimmed || row.route.includes(marker)))
+  writeActions(next)
+}
+
 export function markRunningActionStatus(id: string, status: RunningAction['status']): void {
   const trimmed = String(id || '').trim()
   if (!trimmed) return

@@ -12,10 +12,22 @@ import { Agent } from '@credo-ts/core'
 import { randomUUID } from 'crypto'
 import { container } from 'tsyringe'
 
-import { credentialDefinitionStore } from '../utils/credentialDefinitionStore'
+import {
+  SD_JWT_CONFIG_SUFFIX,
+  credentialDefinitionStore,
+  issuerConfigurationIdFor,
+  issuerConfigurationsForDefinition,
+} from '../utils/credentialDefinitionStore'
 import { rootLogger } from '../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'CredentialIssuanceService' })
+
+export function offerExpirationInSeconds(expiresInMs = 30 * 24 * 60 * 60 * 1000): number {
+  if (!Number.isFinite(expiresInMs) || expiresInMs <= 0) {
+    throw new Error('Credential offer lifetime must be a positive number of milliseconds')
+  }
+  return Math.max(1, Math.ceil(expiresInMs / 1000))
+}
 
 /**
  * Input for creating a credential offer
@@ -30,17 +42,26 @@ export interface IssuanceRequest {
   /** Subject DID (the holder's DID) - optional, can be provided at acceptance time */
   subjectDid?: string
 
-  /** Override issuer DID - if not provided, uses tenant's issuer DID */
+  /** Legacy field; issuer selection is governed by signAs and the tenant's credential definitions. */
   issuerDid?: string
 
   /** Tenant ID for multi-tenant scenarios (REQUIRED for credential issuance) */
   tenantId: string
 
-  /** Expiration time in milliseconds (default: 1 hour) */
+  /** Prevent silently falling back to a different supported credential configuration. */
+  requireExactCredentialType?: boolean
+
+  /** Offer/session lifetime in milliseconds (default: 30 days), not credential validity. */
   expiresInMs?: number
 
   /** Base URL for generating offer URIs (default: from env or localhost:3000) */
   baseUrl?: string
+
+  /**
+   * `organisation`: require an organisation issuer for this type. When omitted, the service
+   * prefers the organisation issuer when configured and otherwise uses the platform issuer.
+   */
+  signAs?: 'organisation' | 'platform'
 }
 
 /**
@@ -64,6 +85,9 @@ export interface IssuanceResult {
 
   /** The credential type that will be issued */
   credentialType: string[]
+
+  /** Whose issuer made the offer, and so whose DID signs the record. */
+  signedBy: 'organisation' | 'platform'
 }
 
 /**
@@ -97,7 +121,28 @@ export class CredentialIssuanceService {
         'Available modules on Base Agent',
       )
 
-      const issuerModule = (baseAgent as any).openid4vc?.issuer || baseModules.openId4VcIssuer
+      let issuerModule = (baseAgent as any).openid4vc?.issuer || baseModules.openId4VcIssuer
+      let signedBy: IssuanceResult['signedBy'] = 'platform'
+      if (request.signAs !== 'platform') {
+        const organisationIssuer = await this.organisationIssuer(tenantAgent, request.tenantId, request.credentialType)
+        if (organisationIssuer) {
+          issuerModule = organisationIssuer
+          signedBy = 'organisation'
+        } else {
+          const { getTenantById } = await import('../persistence/TenantRepository')
+          const tenantType = getTenantById(request.tenantId)?.tenantType
+          const organisationSigningRequired = request.signAs === 'organisation' || tenantType === 'ORG'
+          if (organisationSigningRequired) {
+            throw new Error(
+              `The organisation issuer for tenant ${request.tenantId} is not configured for ${request.credentialType}`,
+            )
+          }
+          logger.warn(
+            { tenantId: request.tenantId, credentialType: request.credentialType },
+            'No organisation issuer is configured for this type; the platform issuer signs it',
+          )
+        }
+      }
       if (!issuerModule) {
         throw new Error(
           `OpenID4VC issuer module is missing on base agent. Available: ${Object.keys(baseModules || {}).join(', ')}`,
@@ -114,7 +159,11 @@ export class CredentialIssuanceService {
       // Resolve a supported credential configuration id.
       // Invalid IDs can cause deep library errors, so always validate against issuer metadata.
       const requestedBaseId = request.credentialType
-      const requestedConfigId = requestedBaseId.includes('_jwt_vc') ? requestedBaseId : `${requestedBaseId}_jwt_vc_json`
+      // Staff and role cards are offered with selective disclosure (`vc+sd-jwt`); other types as `jwt_vc_json`.
+      const requestedConfigId =
+        requestedBaseId.includes('_jwt_vc') || requestedBaseId.endsWith(SD_JWT_CONFIG_SUFFIX)
+          ? requestedBaseId
+          : issuerConfigurationIdFor(requestedBaseId)
 
       const supportedIds = new Set<string>()
       const issuerAny = openId4VcIssuer as any
@@ -138,33 +187,9 @@ export class CredentialIssuanceService {
         const tenantDefinitions = credentialDefinitionStore.list(request.tenantId)
         if (tenantDefinitions.length > 0) {
           const rebuiltConfigs = Object.fromEntries(
-            tenantDefinitions.flatMap((def: any) => {
-              const leafType =
-                Array.isArray(def.credentialType) && def.credentialType.length
-                  ? def.credentialType[def.credentialType.length - 1]
-                  : def.name
-              const idBases = Array.from(new Set([def.name, leafType].filter(Boolean)))
-              return idBases.map((base) => {
-                const id = `${base}_jwt_vc_json`
-                return [
-                  id,
-                  {
-                    id,
-                    format: 'jwt_vc_json',
-                    scope: base,
-                    cryptographic_binding_methods_supported: ['did:key', 'did:web', 'did:jwk'],
-                    credential_signing_alg_values_supported: ['EdDSA', 'ES256'],
-                    proof_types_supported: {
-                      jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] },
-                    },
-                    credential_definition: {
-                      type: def.credentialType || ['VerifiableCredential', base],
-                    },
-                    display: [{ name: base, locale: 'en-US' }],
-                  },
-                ]
-              })
-            }),
+            tenantDefinitions
+              .flatMap((def: any) => issuerConfigurationsForDefinition(def))
+              .map((config) => [config.id, config]),
           )
 
           await issuerModule.updateIssuerMetadata({
@@ -186,8 +211,42 @@ export class CredentialIssuanceService {
       }
 
       let configId = requestedConfigId
+      // A workflow record the organisation has not issued before: register it now so the holder
+      // keeps a card of that type instead of whatever the issuer happened to support first.
+      if (supportedIds.size > 0 && !supportedIds.has(configId)) {
+        try {
+          const { ensureRecordModels } = await import('./modelRegistry')
+          const { getTenantById } = await import('../persistence/TenantRepository')
+          const issuerDid = getTenantById(request.tenantId)?.issuerDid
+          const registered = issuerDid ? await ensureRecordModels(request.tenantId, issuerDid, [requestedBaseId]) : []
+          if (registered.length > 0) {
+            const refreshedIssuers = await issuerModule.getAllIssuers()
+            openId4VcIssuer =
+              refreshedIssuers.find((i: any) => i.issuerId === openId4VcIssuer.issuerId) || openId4VcIssuer
+            for (const key of Object.keys((openId4VcIssuer as any)?.credentialConfigurationsSupported || {}))
+              supportedIds.add(key)
+            logger.info(
+              { tenantId: request.tenantId, credentialType: requestedBaseId },
+              'Registered record model on first use',
+            )
+          }
+        } catch (error: any) {
+          logger.warn(
+            { error: error?.message, credentialType: requestedBaseId },
+            'Could not register record model; falling back',
+          )
+        }
+      }
+      if (request.requireExactCredentialType && !supportedIds.has(configId)) {
+        throw new Error(`The issuer does not support the requested credential type: ${requestedBaseId}`)
+      }
       if (supportedIds.size > 0 && !supportedIds.has(configId)) {
         const byBaseMatch = Array.from(supportedIds).find((id) => id.startsWith(`${requestedBaseId}_`))
+        if (requestedBaseId === 'JobAssignmentVC' && !byBaseMatch) {
+          throw new Error(
+            'The issuer does not support JobAssignmentVC. Register the assignment record model before retrying.',
+          )
+        }
         configId = byBaseMatch || Array.from(supportedIds)[0]
         logger.warn(
           {
@@ -204,16 +263,9 @@ export class CredentialIssuanceService {
         issuerId: openId4VcIssuer.issuerId,
         credentialConfigurationIds: [configId],
         version: 'v1.draft11-14',
+        expirationInSeconds: offerExpirationInSeconds(request.expiresInMs),
         preAuthorizedCodeFlowConfig: {
           userPinRequired: false,
-          // The pre-authorized code must live as long as the offer we tell the holder about.
-          // A 10-minute code expired employee and role-card offers before anyone could accept them.
-          tokenStatusConfig: {
-            accessTokenLifetimeInSeconds: Math.min(
-              Math.max(60, Math.round((request.expiresInMs && request.expiresInMs > 0 ? request.expiresInMs : 24 * 60 * 60 * 1000) / 1000)),
-              30 * 24 * 60 * 60,
-            ),
-          },
         },
         issuanceMetadata: {
           claims: request.claims,
@@ -255,8 +307,9 @@ export class CredentialIssuanceService {
         preAuthorizedCode: issuanceSession?.preAuthorizedCode || '',
         credential_offer_uri: credentialOfferUri,
         credential_offer_deeplink: finalDeeplink,
-        expiresAt: new Date(Date.now() + (request.expiresInMs && request.expiresInMs > 0 ? request.expiresInMs : 24 * 60 * 60 * 1000)).toISOString(),
+        expiresAt: new Date(Date.now() + offerExpirationInSeconds(request.expiresInMs) * 1000).toISOString(),
         credentialType: ['VerifiableCredential', request.credentialType.replace(/_jwt_vc(_json)?$/, '')],
+        signedBy,
       }
     } catch (e: any) {
       logger.error(
@@ -270,6 +323,57 @@ export class CredentialIssuanceService {
         await (tenantAgent as any).endSession()
       }
     }
+  }
+
+  /**
+   * The organisation's own OpenID4VC issuer, ready to offer `credentialType`, or undefined when
+   * the organisation's wallet does not hold the DID its definition names. Credo routes the
+   * holder's token and credential requests for this issuer into the organisation's wallet.
+   */
+  private async organisationIssuer(tenantAgent: any, tenantId: string, credentialType: string): Promise<any> {
+    const baseType = credentialType.replace(/(_jwt_vc_json|_jwt_vc|_vc\+sd-jwt)$/, '')
+    let definitions = credentialDefinitionStore.list(tenantId)
+    let definition = definitions.find(
+      (def: any) =>
+        def.name === baseType || (Array.isArray(def.credentialType) && def.credentialType.includes(baseType)),
+    )
+    if (!definition) {
+      const { getTenantById } = await import('../persistence/TenantRepository')
+      const tenant = getTenantById(tenantId)
+      if (tenant?.tenantType === 'ORG' && tenant.issuerDid) {
+        const { ensureRecordModels } = await import('./modelRegistry')
+        await ensureRecordModels(tenantId, tenant.issuerDid, [baseType])
+        definitions = credentialDefinitionStore.list(tenantId)
+        definition = definitions.find(
+          (def: any) =>
+            def.name === baseType || (Array.isArray(def.credentialType) && def.credentialType.includes(baseType)),
+        )
+      }
+    }
+    if (!definition?.issuerDid) return undefined
+    if (typeof tenantAgent.dids?.getCreatedDids !== 'function') return undefined
+    const [held] = await tenantAgent.dids.getCreatedDids({ did: definition.issuerDid })
+    if (!held) return undefined
+
+    const module = tenantAgent.openid4vc?.issuer || tenantAgent.modules?.openId4VcIssuer
+    if (!module?.getAllIssuers) return undefined
+    const configurations = Object.fromEntries(
+      definitions
+        .filter((def: any) => def.issuerDid === definition.issuerDid)
+        .flatMap((def: any) => issuerConfigurationsForDefinition(def))
+        .map((config) => [config.id, config]),
+    )
+    let [issuer] = await module.getAllIssuers()
+    if (!issuer) {
+      issuer = await module.createIssuer({ credentialConfigurationsSupported: configurations, display: [] })
+    } else if (Object.keys(configurations).some((id) => !issuer.credentialConfigurationsSupported?.[id])) {
+      await module.updateIssuerMetadata({
+        issuerId: issuer.issuerId,
+        credentialConfigurationsSupported: { ...(issuer.credentialConfigurationsSupported || {}), ...configurations },
+        display: issuer.display || [],
+      })
+    }
+    return module
   }
 
   /**

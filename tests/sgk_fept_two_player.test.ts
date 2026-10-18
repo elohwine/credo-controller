@@ -9,7 +9,7 @@
 
 import 'reflect-metadata'
 import { randomUUID } from 'crypto'
-import { afterAll, beforeAll, describe, expect, test } from '@jest/globals'
+import { afterAll, beforeAll, describe, expect, jest, test } from '@jest/globals'
 
 import { ORG_WORKFLOW_ACTOR_VC_TYPE } from '../src/config/credentials/OrgWorkflowActorVC'
 import { PLATFORM_IDENTITY_VC_TYPE } from '../src/config/credentials/PlatformIdentityVC'
@@ -21,6 +21,10 @@ import { ReconciliationService } from '../src/services/ReconciliationService'
 import { workflowService } from '../src/services/WorkflowService'
 import { ActionRegistry } from '../src/services/workflow/ActionRegistry'
 import { ensureExecutableWorkflow } from '../src/services/workflow/materialize'
+import { credentialIssuanceService } from '../src/services/CredentialIssuanceService'
+import { orgSetupProfileService } from '../src/services/OrgSetupProfileService'
+import { OrganizationService } from '../src/services/OrganizationService'
+import { container } from 'tsyringe'
 
 import {
   addMember,
@@ -43,6 +47,21 @@ let databases: TestDatabases
 
 beforeAll(() => {
   databases = initTestDatabases('credo-sgk-two-player-')
+  jest.spyOn(orgWorkflowActorCredentialService, 'ensureActorCredentialInBackground').mockImplementation(() => undefined)
+  const resolve = container.resolve.bind(container)
+  jest
+    .spyOn(container, 'resolve')
+    .mockImplementation((token) =>
+      token === OrganizationService ? { lookupUserByPhone: () => ({ inTeam: false }) } : resolve(token),
+    )
+  jest.spyOn(credentialIssuanceService, 'createOffer').mockImplementation(async (input) => ({
+    offerId: `assignment-${randomUUID()}`,
+    preAuthorizedCode: '',
+    credential_offer_uri: 'https://issuer.example/assignment',
+    credential_offer_deeplink: `https://issuer.example/assignment/${randomUUID()}`,
+    expiresAt: '',
+    credentialType: ['VerifiableCredential', input.credentialType],
+  }))
   orgWorkflowActorCredentialService.setOfferFactory(async () => ({
     offerId: `offer-${randomUUID()}`,
     offerUri: 'openid-credential-offer://?credential_offer_uri=https://issuer.example/offer/actor',
@@ -78,6 +97,7 @@ beforeAll(() => {
 })
 
 afterAll(() => {
+  jest.restoreAllMocks()
   if (previousIssue) ActionRegistry.register('credential.issue', previousIssue)
   if (previousNotify) ActionRegistry.register('external.send_notification', previousNotify)
   if (previousEcoCash) ActionRegistry.register('external.ecocash_payment', previousEcoCash)
@@ -92,8 +112,10 @@ function runState(runId: string): Record<string, any> {
   return { status: row.status, ...(row.output ? JSON.parse(row.output) : {}) }
 }
 
-/** Site inspection, then the field worker's risk assessment (both happen before the job starts). */
-async function clearPreStart(runId: string, workerUserId: string) {
+/** Head out, arrive, then the site check and the safety check. Photos come after that. */
+async function clearThroughSafety(runId: string, workerUserId: string) {
+  await workflowService.resumeWorkflow(runId, { actedByUserId: workerUserId })
+  await proveArrival(runId, workerUserId)
   await workflowService.resumeWorkflow(runId, {
     actedByUserId: workerUserId,
     siteInspection: { outcome: 'passed', accessConfirmed: true, findings: 'Site clear' },
@@ -115,6 +137,12 @@ describe('SGK web3 — office member and field worker', () => {
   test('the office opens the job, the worker executes it, and sign-off stays with the office', async () => {
     issued.length = 0
     const org = seedOrganization({ name: 'SGK Construction' })
+    orgSetupProfileService.save(org.orgTenantId, {
+      operatingModel: 'internal',
+      kinds: ['field'],
+      modules: ['field_jobs', 'collections'],
+      expectedRevision: 0,
+    })
     addRole(org.organizationId, 'Field Worker')
     addRole(org.organizationId, 'Dispatcher')
 
@@ -186,6 +214,8 @@ describe('SGK web3 — office member and field worker', () => {
         receiverId: officeUserId,
         dispatcherId: officeUserId,
         amount: 180,
+        // The worker is a subcontractor paid 60 after sign-off; the client is invoiced 180.
+        payoutAmount: 60,
         currency: 'USD',
         customerMsisdn: '263771000441',
         clientName: 'Eton block B',
@@ -195,9 +225,10 @@ describe('SGK web3 — office member and field worker', () => {
       org.orgTenantId,
     )
 
+    if (start.status === 'failed') throw new Error(start.error)
     let state = runState(start.runId)
     expect(state.status).toBe('paused')
-    expect(state.pauseReason).toBe('await_site_inspection')
+    expect(state.pauseReason).toBe('await_worker_start')
     expect(state.assignment?.assigneeId).toBe(workerUserId)
     expect(state.assignment?.dispatcherId).toBe(officeUserId)
     expect(state.assignment?.assigneeId).not.toBe(org.ownerUserId)
@@ -205,19 +236,17 @@ describe('SGK web3 — office member and field worker', () => {
     const offers = DatabaseManager.getDatabase()
       .prepare(
         `SELECT tenant_id AS tenantId FROM wallet_pending_offers
-         WHERE source_type = 'workflow_stage_action' AND source_id = ? AND resolved_at IS NULL`,
+         WHERE source_type = 'workflow_stage_action' AND workflow_run_id = ? AND resolved_at IS NULL`,
       )
       .all(start.runId) as Array<{ tenantId: string }>
     expect(offers.map((row) => row.tenantId)).toEqual([`wallet-${workerUserId}`])
 
-    const jobCard = issued.find((vc) => vc.type === 'RequisitionVC')
+    const jobCard = issued.find((vc) => vc.type === 'JobAssignmentVC')
     expect(jobCard?.recipientStage).toBe('assign_field_worker')
     expect((jobCard?.claims.assignment as { assigneeId?: string })?.assigneeId).toBe(workerUserId)
 
-    // Pre-start: inspection and the worker's risk assessment, then the worker starts and proves arrival.
-    await clearPreStart(start.runId, workerUserId)
-    await workflowService.resumeWorkflow(start.runId, { actedByUserId: workerUserId })
-    await proveArrival(start.runId, workerUserId)
+    // Head out, arrive, then the site check and the safety check, before any photos.
+    await clearThroughSafety(start.runId, workerUserId)
 
     // Then the three evidence checkpoints. Resume payloads do not restate the assignee.
     await workflowService.resumeWorkflow(start.runId, {
@@ -227,18 +256,20 @@ describe('SGK web3 — office member and field worker', () => {
       photoUri: 'before.jpg',
       gps: '-17.82,31.05',
     })
-    await workflowService.resumeWorkflow(start.runId, {
-      actedByUserId: workerUserId,
-      evidenceHash: 'after-441',
-      phase: 'after',
-      photoUri: 'after.jpg',
-    })
+    // Materials bought for the job come before the work: receipts sit between the before and after photos.
     await workflowService.resumeWorkflow(start.runId, {
       actedByUserId: workerUserId,
       evidenceHash: 'receipt-441',
       phase: 'receipt',
       photoUri: 'receipt.jpg',
       notes: 'sealant',
+    })
+    await workflowService.resumeWorkflow(start.runId, {
+      actedByUserId: workerUserId,
+      evidenceHash: 'after-441',
+      phase: 'after',
+      photoUri: 'after.jpg',
+      gps: '-17.82,31.05',
     })
     // A reviewer checks the finished work, then the closer (office member) signs off; the worker does not self-acknowledge.
     expect(runState(start.runId).pauseReason).toBe('await_completion_review')
@@ -269,7 +300,12 @@ describe('SGK web3 — office member and field worker', () => {
     // Sign-off with the server-verified proof → ExecutionAckVC → wait for the payout person.
     const signedOff = await workflowService.resumeWorkflow(start.runId, {
       actedByUserId: officeUserId,
-      acknowledgementPresentation: { id: 'vp-ack-441', type: 'OpenID4VP', holderDid: 'did:key:office', verifiedBy: 'server' },
+      acknowledgementPresentation: {
+        id: 'vp-ack-441',
+        type: 'OpenID4VP',
+        holderDid: 'did:key:office',
+        verifiedBy: 'server',
+      },
     })
     expect(signedOff.status).toBe('running')
     state = runState(start.runId)
@@ -288,7 +324,12 @@ describe('SGK web3 — office member and field worker', () => {
     // Payout release with the payout person's proof → payment → receipt → reconcile.
     const finished = await workflowService.resumeWorkflow(start.runId, {
       actedByUserId: org.ownerUserId,
-      releasePresentation: { id: 'vp-payout-441', type: 'OpenID4VP', holderDid: 'did:key:finance', verifiedBy: 'server' },
+      releasePresentation: {
+        id: 'vp-payout-441',
+        type: 'OpenID4VP',
+        holderDid: 'did:key:finance',
+        verifiedBy: 'server',
+      },
     })
 
     expect(finished.status).toBe('completed')
@@ -306,21 +347,45 @@ describe('SGK web3 — office member and field worker', () => {
     expect(ack?.recipientStage).toBe('acknowledge_execution')
     expect(ack?.claims.receiverId).toBe(officeUserId)
     expect(ack?.claims.evidenceRefs).toEqual(['before-441', 'after-441', 'receipt-441'])
-    expect(issued.map((vc) => vc.type)).toEqual(['RequisitionVC', 'ReceiptVC', 'ExecutionAckVC', 'InvoiceVC', 'PaymentReceiptVC'])
+    // The client's invoice and receipt come from the pay link, not from staff records.
+    expect(issued.map((vc) => vc.type)).toEqual(['JobAssignmentVC', 'SiteInspectionVC', 'ReceiptVC', 'ExecutionAckVC'])
 
     const events = new ReconciliationService().getEvents(reference).map((event) => event.eventType)
     expect(events).toEqual(
-      expect.arrayContaining(['AGENT_ASSIGNED', 'JOB_STARTED', 'WORK_EVIDENCE_BEFORE', 'WORK_EVIDENCE_AFTER', 'EXECUTION_ACKNOWLEDGED', 'JOB_CLOSED']),
+      expect.arrayContaining([
+        'AGENT_ASSIGNED',
+        'JOB_STARTED',
+        'WORK_EVIDENCE_BEFORE',
+        'WORK_EVIDENCE_AFTER',
+        'EXECUTION_ACKNOWLEDGED',
+        'JOB_CLOSED',
+      ]),
     )
   })
 
   test('owner is not the assignee, and the job can move to another available worker without changing stage', async () => {
     const org = seedOrganization({ name: 'SGK Availability' })
+    orgSetupProfileService.save(org.orgTenantId, {
+      operatingModel: 'internal',
+      kinds: ['field'],
+      modules: ['field_jobs'],
+      expectedRevision: 0,
+    })
     addRole(org.organizationId, 'Field Worker')
     const firstWorker = `worker-a-${randomUUID()}`
     const reliefWorker = `worker-b-${randomUUID()}`
-    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, userId: firstWorker, role: 'field_worker' })
-    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, userId: reliefWorker, role: 'field_worker' })
+    addMember({
+      orgTenantId: org.orgTenantId,
+      organizationId: org.organizationId,
+      userId: firstWorker,
+      role: 'field_worker',
+    })
+    addMember({
+      orgTenantId: org.orgTenantId,
+      organizationId: org.organizationId,
+      userId: reliefWorker,
+      role: 'field_worker',
+    })
     orgWorkflowActorService.upsertDefault({
       orgTenantId: org.orgTenantId,
       workflowType: 'field_execution_fept',
@@ -346,24 +411,22 @@ describe('SGK web3 — office member and field worker', () => {
     expect(state.assignment?.assigneeId).toBe(firstWorker)
     expect(state.assignment?.assigneeId).not.toBe(org.ownerUserId)
 
-    // Availability changes can happen at the very first checkpoint, before the job starts.
-    expect(state.pauseReason).toBe('await_site_inspection')
-    const early = workflowService.reassignRun(start.runId, reliefWorker, org.ownerUserId)
-    expect(early.pauseReason).toBe('await_site_inspection')
+    // The worker can be changed at the first step, before anyone heads out.
+    expect(state.pauseReason).toBe('await_worker_start')
+    const early = await workflowService.reassignRun(start.runId, reliefWorker, org.ownerUserId)
+    expect(early.pauseReason).toBe('await_worker_start')
     expect(runState(start.runId).assignment?.assigneeId).toBe(reliefWorker)
-    const back = workflowService.reassignRun(start.runId, firstWorker, org.ownerUserId)
+    const back = await workflowService.reassignRun(start.runId, firstWorker, org.ownerUserId)
     expect(back.assigneeId).toBe(firstWorker)
 
-    await clearPreStart(start.runId, firstWorker)
-    await workflowService.resumeWorkflow(start.runId, {})
-    await proveArrival(start.runId, firstWorker)
+    await clearThroughSafety(start.runId, firstWorker)
     state = runState(start.runId)
     expect(state.pauseReason).toBe('await_evidence_before')
     const stepBefore = DatabaseManager.getDatabase()
       .prepare(`SELECT current_step AS currentStep, status FROM workflow_runs WHERE id = ?`)
       .get(start.runId) as { currentStep: number; status: string }
 
-    const moved = workflowService.reassignRun(start.runId, reliefWorker, org.ownerUserId)
+    const moved = await workflowService.reassignRun(start.runId, reliefWorker, org.ownerUserId)
     expect(moved.assigneeId).toBe(reliefWorker)
     expect(moved.pauseReason).toBe('await_evidence_before')
 
@@ -386,9 +449,14 @@ describe('SGK web3 — office member and field worker', () => {
       .all(start.runId) as Array<{ tenantId: string }>
     expect(offers.map((row) => row.tenantId)).toEqual([`wallet-${reliefWorker}`])
 
-    await workflowService.resumeWorkflow(start.runId, { evidenceHash: 'before-442', phase: 'before', photoUri: 'before.jpg' })
+    await workflowService.resumeWorkflow(start.runId, {
+      evidenceHash: 'before-442',
+      phase: 'before',
+      photoUri: 'before.jpg',
+      gps: '-17.82,31.05',
+    })
     state = runState(start.runId)
     expect(state.evidenceBefore?.capturedBy).toBe(reliefWorker)
-    expect(state.pauseReason).toBe('await_evidence_after')
+    expect(state.pauseReason).toBe('await_evidence_receipt')
   })
 })

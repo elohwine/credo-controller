@@ -1,10 +1,7 @@
 import React from 'react';
 import { Badge, Box, Card, Group, Text, ThemeIcon, useMantineColorScheme, useMantineTheme } from '@mantine/core';
 import { IconChevronRight, IconInbox, IconReceipt, IconBolt } from '@tabler/icons-react';
-import dayjs from 'dayjs';
-import relativeTime from 'dayjs/plugin/relativeTime';
-
-dayjs.extend(relativeTime);
+import { formatTxnTime } from '@/lib/inboxAttention';
 
 export type HomeActionKind = 'offer' | 'receipt' | 'request' | 'transaction';
 
@@ -62,7 +59,7 @@ export default function HomeActionQueueItem({ item, onClick }: HomeActionQueueIt
                 <Badge size="xs" color={meta.color} variant="light">{meta.label}</Badge>
                 <Text fw={700} size="sm" lineClamp={1} style={{ minWidth: 0, flex: 1 }}>{item.title}</Text>
               </Group>
-              <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>{dayjs(item.createdAt).fromNow()}</Text>
+              <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>{formatTxnTime(item.createdAt)}</Text>
             </Group>
             <Text size="xs" c="dimmed" lineClamp={1} mt={1}>{item.summary || 'Open to continue'}</Text>
             {item.family && (

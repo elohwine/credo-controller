@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import axios from 'axios'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
@@ -9,19 +9,25 @@ import {
   Box,
   Button,
   Card,
+  FileInput,
   Group,
+  Image,
   Modal,
+  NumberInput,
   Paper,
   SimpleGrid,
+  SegmentedControl,
   Select,
   Stack,
   Tabs,
+  Table,
   Text,
   TextInput,
   Textarea,
   Title,
+  UnstyledButton,
 } from '@mantine/core'
-import { IconActivity, IconAlertCircle, IconArrowRight, IconChevronRight, IconInbox, IconListDetails, IconReceipt, IconRefresh, IconShieldCheck, IconUsers } from '@tabler/icons-react'
+import { IconActivity, IconAlertCircle, IconArrowRight, IconCash, IconChevronRight, IconInbox, IconListDetails, IconReceipt, IconRefresh, IconShieldCheck, IconUserHeart, IconUsers } from '@tabler/icons-react'
 import {
   getOrgScopedToken,
   getPersonalToken,
@@ -30,24 +36,49 @@ import {
   readActiveOrganization,
   switchOrganizationContext,
 } from '@/utils/organizationContext'
-import { openOrgSwitcher } from '@/lib/portalContext'
+import { beginPortalTask, endPortalTask, getPortalTask, openOrgSwitcher, readPortalContext } from '@/lib/portalContext'
+import { captureOrganizationSwitchContext } from '../../../shared/taskContext'
+import { familyLinks, requestEventLinks } from '../../../shared/relatedWork'
+import { assertRequestDetail, requestExperienceForRow, requestIdFromStageCard, type RequestExperience } from '../../../shared/requestExperience'
+import { requestFamily } from '../../../../src/config/requestExperience'
+import { readOrgProfile } from '@/utils/orgProfile'
+import {
+  classifyBusinessCentre,
+  getWorkflowCapabilityFlags,
+  INBOX_TAB_LABELS,
+  isPeopleRequestType,
+  visibleInboxTabs,
+  type InboxTabKey,
+} from '@/lib/workflowCapabilities'
+import {
+  groupByFlowSection,
+  inboxAttention,
+  inboxFlowSection,
+  formatTxnTime,
+  inboxWhenLabel,
+  INBOX_ATTENTION_FILTERS,
+  matchesInboxAttention,
+  type InboxAttention,
+  type InboxAttentionFilter,
+} from '@/lib/inboxAttention'
+import { purchaseReceiptLine, trailFromRequest } from '@/components/finance/jobAuditTrail'
 import { notifications } from '@mantine/notifications'
 import BottomSheet from '@/components/shared/BottomSheet'
+import { FamilyStrip, RelatedWorkLinks, useRelatedWorkNavigation } from '@/components/workflows/JobHandoffsPanel'
+import JobAuditTrailPanel from '@/components/workflows/JobAuditTrailPanel'
+import RequestSheet from '@/components/requests/RequestSheet'
 import { DetailStatusCard, type DetailTimelineItem, WorkflowDetailBody, type WorkflowDetailSection } from '@/components/finance/WorkflowDetailBody'
 import { StageActorTimeline } from '@/components/finance/StageActorTimeline'
 import {
   actorsForWorkflow,
-  AP_STAGES,
-  AR_STAGES,
-  fieldRequestStages,
-  INVOICE_STAGES,
-  REQUISITION_STAGES,
-  actorDisplay,
-  actorNeedsAssignment,
-  actorForStage,
-  requestStages,
   requisitionStages,
   feptStages,
+  offerReplacement,
+  requestKindLabel,
+  stepRequiredLabel,
+  familyChain,
+  relatedWorkLine,
+  type WorkFamily,
   type FinanceStageView,
   type StagePerson,
   type WorkflowActorReport,
@@ -65,6 +96,10 @@ export type PortalRequestStatus =
 
 interface RequestRow {
   id: string
+  people?: StagePerson[]
+  inboxItemId?: string
+  experience?: RequestExperience
+  events?: unknown[]
   request_type?: string
   requestType?: string
   title?: string
@@ -83,6 +118,25 @@ interface RequestRow {
   __source?: 'platform' | 'workflow_request'
   workflowRequestId?: string
   workflowRequestContext?: 'personal' | 'org'
+  /** Mirrors PlatformRequestService.RequestNextStep: what an approved request still needs. */
+  nextStep?: {
+    toStatus: 'completed'
+    label: string
+    hint: string
+    /** `image`: a photo of the receipt or bill (uploaded here; taken live on the phone). */
+    fields: Array<{ name: string; label: string; type: 'text' | 'number' | 'image'; required?: boolean; hint?: string }>
+  }
+  /** Mirrors PlatformRequestService.RequestReceipt without the photo bytes: what was recorded when it was finished. */
+  receipt?: {
+    receiptRef?: string
+    billRef?: string
+    amount?: number
+    hasPhoto: boolean
+    record?: { id: string; type: string; label: string }
+    recordedAt?: string
+  }
+  /** Where this request sits: the job that raised it, or the request it follows. */
+  family?: WorkFamily
 }
 
 interface RequestListResponse {
@@ -92,6 +146,7 @@ interface RequestListResponse {
 
 interface RequestWorkspaceProps {
   mode: 'inbox' | 'requests'
+  category?: RequestCategoryTab
 }
 
 interface OrganizationWorkflowTemplate {
@@ -150,7 +205,19 @@ const STATUS_OPTIONS = [
   { value: 'cancelled', label: 'Cancelled' },
 ]
 
-type RequestCategoryTab = 'all' | 'school_fees' | 'fept' | 'requisitions' | 'rtc'
+/** Same tab keys and labels as the phone inbox (credo-ui/mobile/pages/inbox.tsx); receipts and archive live on the phone only. */
+type RequestCategoryTab = Extract<InboxTabKey, 'all' | 'jobs' | 'requisitions' | 'people' | 'school_fees' | 'payments' | 'supplier_bills' | 'counter_sales'>
+const REQUEST_CATEGORY_TABS: RequestCategoryTab[] = ['all', 'jobs', 'requisitions', 'people', 'school_fees', 'payments', 'supplier_bills', 'counter_sales']
+const TAB_ICONS: Record<RequestCategoryTab, React.ReactNode> = {
+  all: <IconListDetails size={14} />,
+  jobs: <IconActivity size={14} />,
+  requisitions: <IconUsers size={14} />,
+  people: <IconUserHeart size={14} />,
+  school_fees: <IconReceipt size={14} />,
+  payments: <IconReceipt size={14} />,
+  supplier_bills: <IconCash size={14} />,
+  counter_sales: <IconReceipt size={14} />,
+}
 
 function normalizeStatus(value?: string): PortalRequestStatus | string {
   return value || 'draft'
@@ -180,6 +247,11 @@ function matchesRequestTypeFilter(row: RequestRow, requestTypeFilter: string): b
     default:
       return requestType.includes(requestTypeFilter)
   }
+}
+
+/** Leave, expense claims and their records: the People & payroll module (same rule as the phone inbox). */
+function isPeopleLikeRequest(row: RequestRow): boolean {
+  return isPeopleRequestType(normalizeRequestType(row))
 }
 
 function isRequisitionLikeRequest(row: RequestRow): boolean {
@@ -222,18 +294,47 @@ function isRtcLikeRequest(row: RequestRow): boolean {
   return (
     requestType.includes('rtc')
     || workflowType.includes('rtc')
+    || requestType.includes('cash')
+    || workflowType.includes('cash-counter')
+    || workflowType.includes('cash_counter')
+  )
+}
+
+function isPaymentsLikeRequest(row: RequestRow): boolean {
+  const requestType = normalizeRequestTypeForFilter(normalizeRequestType(row))
+  const routing = getWorkflowRequestRouting(row)
+  const workflowType = normalizeRequestTypeForFilter(routing.workflowType)
+  return (
+    routing.mode === 'ar'
     || requestType.includes('collection')
     || workflowType.includes('collection')
-    || routing.mode === 'ar'
+    || requestType.includes('receivable')
+    || workflowType.includes('receivable')
+    || requestType.includes('payment')
+    || workflowType.includes('payment')
   )
+}
+
+function isSupplierBillLikeRequest(row: RequestRow): boolean {
+  return getWorkflowRequestRouting(row).mode === 'ap'
 }
 
 function matchesCategoryTab(row: RequestRow, tab: RequestCategoryTab): boolean {
   if (tab === 'all') return true
-  if (tab === 'school_fees') return isSchoolFeesLikeRequest(row)
-  if (tab === 'fept') return isFeptLikeRequest(row)
-  if (tab === 'requisitions') return isRequisitionLikeRequest(row)
-  if (tab === 'rtc') return isRtcLikeRequest(row)
+  const routing = getWorkflowRequestRouting(row)
+  const classification = classifyBusinessCentre({
+    requestType: normalizeRequestType(row),
+    workflowType: routing.workflowType,
+  })
+  // Staff requests are decided first so a request id in the context cannot file them under Jobs.
+  if (classification.centre === 'people' || isPeopleLikeRequest(row)) return tab === 'people'
+  if (tab === 'people') return false
+  if (tab === 'school_fees') return classification.centre === 'school_fees' || isSchoolFeesLikeRequest(row)
+  if (tab === 'jobs') return classification.centre === 'field_jobs' || isFeptLikeRequest(row)
+  if (tab === 'requisitions') return classification.centre === 'purchases' || isRequisitionLikeRequest(row)
+  if (tab === 'payments') return classification.centre === 'standalone_collection' || isPaymentsLikeRequest(row)
+  if (tab === 'supplier_bills') return isSupplierBillLikeRequest(row)
+  if (tab === 'counter_sales') return isRtcLikeRequest(row)
   return true
 }
 
@@ -279,7 +380,7 @@ function getWorkflowRequestRouting(row: RequestRow): {
     return { mode: 'requisition', requisitionId, transactionId, workflowRunId, workflowRequestId, workflowType, requiredAction }
   }
 
-  if (workflowTypeLower.includes('field') || workflowRunId || requestType.includes('field')) {
+  if (requestFamily(normalizeRequestType(row), workflowType)?.experience.family === 'field_jobs') {
     return { mode: 'field', requisitionId, transactionId, workflowRunId, workflowRequestId, workflowType, requiredAction }
   }
 
@@ -336,6 +437,7 @@ function getSelectedWorkflowRouting(row: RequestRow | null): ReturnType<typeof g
 interface StageCardApiRow {
   id?: string
   offerId?: string
+  offerUri?: string
   sourceType?: string
   sourceId?: string
   credentialType?: string
@@ -348,12 +450,13 @@ interface StageCardApiRow {
   claims?: Record<string, unknown>
 }
 
-const STAGE_CARD_STEP_LABEL: Record<string, string> = {
-  acknowledge_execution: 'Sign off job',
-  trigger_payout: 'Release payment',
-  review_completion: 'Review finished work',
-  inspect_site: 'Site check',
-  assign_field_worker: 'Do the job',
+interface PendingPaymentReceipt {
+  receiptRowId: string
+  sourceType?: string
+  offerUri?: string
+  credentialType?: string
+  invoiceRef?: string
+  issuedAt?: string
 }
 
 /**
@@ -367,13 +470,14 @@ function mapStageCardToRow(card: StageCardApiRow): RequestRow | null {
   if (sourceType !== 'workflow_stage_action' && credentialType !== 'workflowstageaction') return null
   if (['accepted', 'resolved'].includes(String(card.status || '').toLowerCase())) return null
   const claims = card.claims && typeof card.claims === 'object' ? card.claims : {}
+  if (requestIdFromStageCard(card.sourceId, claims)) return null
   const workflowType = String(claims.workflowType || claims.requestType || '').toLowerCase()
   const requestType = String(claims.requestType || '').toLowerCase()
   if (!/fept|field/.test(`${workflowType} ${requestType}`)) return null
   const workflowRunId = String(
     card.workflowRunId
       || claims.workflowRunId
-      || String(card.sourceId || '').replace(/:(signoff|payout|review|inspection)(:delegation:.*)?$/i, ''),
+      || String(card.sourceId || '').replace(/:(signoff|payout|review|inspection|safety-hold:[^:]+|safety-resume:[^:]+)(:delegation:.*)?$/i, ''),
   ).trim()
   if (!workflowRunId) return null
   const stageAction = String(claims.stageAction || '').toLowerCase()
@@ -384,7 +488,7 @@ function mapStageCardToRow(card: StageCardApiRow): RequestRow | null {
     id: `wsa:${cardId}`,
     request_type: 'field_job',
     requestType: 'field_job',
-    title: String(card.title || STAGE_CARD_STEP_LABEL[stageAction] || 'Job waiting for you'),
+    title: String(card.title || stepRequiredLabel({ stageAction }) || 'Job waiting for you'),
     description: String(card.body || ''),
     priority: 'high',
     status: 'submitted',
@@ -397,14 +501,101 @@ function mapStageCardToRow(card: StageCardApiRow): RequestRow | null {
       ownerOrgTenantId,
       workflowType: 'field_execution_fept',
       workflowStage: String(claims.workflowStage || ''),
-      requiredAction: STAGE_CARD_STEP_LABEL[stageAction] || stageAction,
+      stageAction,
+      requiredAction: stageAction,
       workflowRunId,
       source: 'workflow_stage_card',
+      replaces: claims.replaces,
     }),
     __source: 'workflow_request',
     workflowRequestId: cardId,
     workflowRequestContext: 'personal',
   }
+}
+
+/** A purchase, bill or payment card. Opens the request, and says which job it belongs to. */
+function mapPurchaseStageCardToRow(card: StageCardApiRow): RequestRow | null {
+  const sourceType = String(card.sourceType || '')
+  const credentialType = String(card.credentialType || '').toLowerCase()
+  if (sourceType !== 'workflow_stage_action' && credentialType !== 'workflowstageaction') return null
+  if (['accepted', 'resolved'].includes(String(card.status || '').toLowerCase())) return null
+  const claims = card.claims && typeof card.claims === 'object' ? card.claims : {}
+  const requestType = String(claims.requestType || '').toLowerCase()
+  const declaredRequestId = requestIdFromStageCard(card.sourceId, claims)
+  if (!declaredRequestId && /field|fept/.test(requestType)) return null
+  // Purchases and payments, plus what staff raise from Home: time off, expense claims, payout
+  // nudges, and general asks. Same rule as the phone inbox (`<module>.<kind>`, not a job step).
+  if (!declaredRequestId && !/requisition|purchase|payment|procurement|expense|invoice|quote|hr\.leave|payout_request|platform\.general/.test(requestType)) return null
+  const requestId = declaredRequestId || String(card.sourceId || '').replace(/:delegation:.*$/, '')
+  if (!/^[0-9a-f-]{36}$/i.test(requestId)) return null
+  const partOf = String(claims.partOfLine || '').trim()
+  const hold = String(claims.holdLine || '').trim()
+  // The organisation the request belongs to, so a personal inbox can switch into it before deciding.
+  const ownerOrgTenantId = String(claims.targetOrgTenantId || claims.orgTenantId || card.issuerTenantId || '')
+  return {
+    id: requestId,
+    __source: 'platform',
+    requestType,
+    request_type: requestType,
+    title: String(card.title || 'Request'),
+    description: [partOf, hold].filter(Boolean).join('. ') || String(card.body || ''),
+    status: String(claims.requestStatus || 'submitted'),
+    createdAt: card.createdAt,
+    context_json: JSON.stringify({ ownerOrgTenantId, workflowType: claims.workflowType, source: 'workflow_stage_card' }),
+    family: partOf
+      ? {
+          partOfLine: partOf,
+          holdLine: hold || undefined,
+          fromLabel: String(claims.fromLabel || 'From a job'),
+          chain: [],
+          root: claims.parentRunId
+            ? {
+                kind: 'job',
+                id: String(claims.parentRunId),
+                label: claims.parentReference ? `Job ${String(claims.parentReference)}` : 'Job',
+                reference: claims.parentReference ? String(claims.parentReference) : undefined,
+                title: claims.parentTitle ? String(claims.parentTitle) : undefined,
+                statusLabel: 'Waiting',
+              }
+            : undefined,
+        }
+      : undefined,
+  }
+}
+
+/** Record offers stay in the holder's inbox, separate from workflow action cards. */
+function mapRecordOfferToRow(card: StageCardApiRow, holder: 'personal' | 'org'): RequestRow | null {
+  const sourceType = String(card.sourceType || '')
+  const sources = holder === 'org'
+    ? ['workflow_vc_offer']
+    : ['workflow_vc_offer', 'org_employee', 'org_workflow_actor', 'org_delegation', 'employment_contract', 'platform_identity', 'payment', 'invoice_offer', 'quote_offer']
+  if (!sources.includes(sourceType) || !card.offerUri) return null
+  if (['accepted', 'resolved'].includes(String(card.status || '').toLowerCase())) return null
+  const claims = card.claims && typeof card.claims === 'object' ? card.claims : {}
+  const cardId = String(card.id || card.offerId || card.offerUri)
+  return {
+    id: `rec:${cardId}`,
+    request_type: holder === 'org' ? 'org_record' : 'personal_record',
+    requestType: holder === 'org' ? 'org_record' : 'personal_record',
+    title: String(card.title || 'Record'),
+    description: String(card.body || ''),
+    status: 'submitted',
+    createdAt: card.createdAt,
+    updatedAt: card.createdAt,
+    context_json: JSON.stringify({
+      source: 'record_offer',
+      offerSourceType: sourceType,
+      offerUri: card.offerUri,
+      workflowRunId: String(card.workflowRunId || claims.workflowRunId || ''),
+      replaces: claims.replaces,
+    }),
+    workflowRequestContext: holder,
+  }
+}
+
+function isRecordOfferRow(row: RequestRow | null): boolean {
+  if (!row) return false
+  return String((parseRequestContext(row) as Record<string, unknown>).source || '') === 'record_offer'
 }
 
 function normalizeWorkflowRequestStatus(status?: string): PortalRequestStatus {
@@ -445,8 +636,8 @@ function mapWorkflowRequestToRow(item: WorkflowRequestApiRow, workflowRequestCon
         : `${requestType} ${item.id}`
 
   const description = workflowStage || requiredAction
-    ? `Workflow: ${workflowType} • ${workflowStage || requiredAction || 'In review'}`
-    : `Workflow type: ${workflowType}`
+    ? `Waiting on ${String(workflowStage || requiredAction).replace(/_/g, ' ')}`
+    : 'Waiting for a decision'
 
   return {
     id: `wr:${workflowRequestContext}:${item.id}`,
@@ -574,88 +765,9 @@ function statusColor(status?: string) {
   }
 }
 
-function flowLabel(row: RequestRow): { label: string; color: string } {
-  if (isRequisitionLikeRequest(row)) return { label: 'REQUISITION FLOW', color: 'indigo' }
-  if (isSchoolFeesLikeRequest(row)) return { label: 'INVOICE FLOW', color: 'teal' }
-  if (isFeptLikeRequest(row)) return { label: 'FEPT FLOW', color: 'cyan' }
-  if (isRtcLikeRequest(row)) return { label: 'RTC FLOW', color: 'grape' }
-  return { label: 'WORKFLOW', color: 'gray' }
-}
-
-type SsiStageSummary = {
-  stage: string
-  proof: string
-  vcType: string
-  done: boolean
-}
-
-function deriveSsiStages(row: RequestRow): SsiStageSummary[] {
-  const status = String(normalizeStatus(row.status)).toLowerCase()
-  const routing = getWorkflowRequestRouting(row)
-  const workflowTypeLower = (routing.workflowType || String(row.requestType || '')).toLowerCase()
-
-  const isDone = (target: 'submitted' | 'approved' | 'in_fulfilment' | 'completed') => {
-    if (target === 'submitted') return ['submitted', 'in_review', 'approved', 'in_fulfilment', 'completed'].includes(status)
-    if (target === 'approved') return ['approved', 'in_fulfilment', 'completed'].includes(status)
-    if (target === 'in_fulfilment') return ['in_fulfilment', 'completed'].includes(status)
-    return status === 'completed'
-  }
-
-  if (routing.mode === 'requisition') {
-    return [
-      { stage: 'Request Created', proof: 'N/A', vcType: 'RequisitionVC', done: isDone('submitted') },
-      { stage: 'Approval', proof: 'OIDC4VP', vcType: 'ApprovalVC', done: isDone('approved') },
-      { stage: 'Release', proof: 'OIDC4VP', vcType: 'ReleaseAuthorizationVC', done: isDone('in_fulfilment') },
-      { stage: 'Acknowledge', proof: 'OIDC4VP', vcType: 'ExecutionAckVC', done: isDone('completed') },
-    ]
-  }
-
-  if (routing.mode === 'ap') {
-    return [
-      { stage: 'Invoice', proof: 'N/A', vcType: 'InvoiceVC', done: isDone('submitted') },
-      { stage: 'Payment Proof', proof: 'OIDC4VP', vcType: 'PaymentProofVC', done: isDone('approved') },
-      { stage: 'Remittance', proof: 'SSI', vcType: 'RemittanceAdviceVC', done: isDone('in_fulfilment') },
-      { stage: 'Receipt', proof: 'SSI', vcType: 'PaymentReceiptVC', done: isDone('completed') },
-    ]
-  }
-
-  if (routing.mode === 'ar') {
-    return [
-      { stage: 'AR Request', proof: 'N/A', vcType: 'CollectionRequestVC', done: isDone('submitted') },
-      { stage: 'Consent Proof', proof: 'OIDC4VP', vcType: 'CollectionConsentVC', done: isDone('approved') },
-      { stage: 'Settlement', proof: 'SSI', vcType: 'SettlementVC', done: isDone('in_fulfilment') },
-      { stage: 'Reconciled', proof: 'SSI', vcType: 'ReconciliationVC', done: isDone('completed') },
-    ]
-  }
-
-  if (routing.mode === 'field') {
-    return [
-      { stage: 'Field Task', proof: 'N/A', vcType: 'FieldTaskVC', done: isDone('submitted') },
-      { stage: 'Execution Proof', proof: 'OIDC4VP', vcType: 'ExecutionProofVC', done: isDone('approved') },
-      { stage: 'Evidence', proof: 'SSI', vcType: 'EvidenceBundleVC', done: isDone('in_fulfilment') },
-      { stage: 'Closure', proof: 'SSI', vcType: 'CompletionVC', done: isDone('completed') },
-    ]
-  }
-
-  if (routing.mode === 'education' || workflowTypeLower.includes('education') || workflowTypeLower.includes('school')) {
-    return [
-      { stage: 'Invoice Created', proof: 'OID4VCI', vcType: 'InvoiceVC', done: isDone('submitted') },
-      { stage: 'EcoCash Payment', proof: 'EcoCash', vcType: 'PaymentProofVC', done: isDone('approved') },
-      { stage: 'Payment Confirmed', proof: 'Webhook', vcType: 'PaymentReceiptVC', done: isDone('in_fulfilment') },
-      { stage: 'Receipt VC Issued', proof: 'OID4VCI', vcType: 'SchoolFeeReceiptVC', done: isDone('completed') },
-    ]
-  }
-
-  return [
-    { stage: 'Requested', proof: 'N/A', vcType: 'RequestVC', done: isDone('submitted') },
-    { stage: 'Reviewed', proof: 'Policy', vcType: 'ApprovalVC', done: isDone('approved') },
-    { stage: 'Fulfilment', proof: 'SSI', vcType: 'FulfilmentVC', done: isDone('in_fulfilment') },
-    { stage: 'Closed', proof: 'SSI', vcType: 'CompletionVC', done: isDone('completed') },
-  ]
-}
-
 function getRoutingActionLabel(routing: ReturnType<typeof getWorkflowRequestRouting>): string {
-  if (routing.requiredAction) return routing.requiredAction.replace(/_/g, ' ')
+  const step = stepRequiredLabel({ requiredAction: routing.requiredAction })
+  if (step) return step.toLowerCase()
 
   if (routing.mode === 'requisition') return 'approval'
   if (routing.mode === 'ap') return 'payment review'
@@ -670,36 +782,28 @@ function prettifyValue(value: string): string {
     .replace(/\b\w/g, (part) => part.toUpperCase())
 }
 
-function buildDetailTimelineItems(row: RequestRow, stages: SsiStageSummary[]): DetailTimelineItem[] {
+function buildDetailTimelineItems(row: RequestRow, people: StagePerson[]): DetailTimelineItem[] {
+  if (Array.isArray(row.events)) {
+    return trailFromRequest(row, people).steps.map((step) => ({
+      id: step.id,
+      title: step.title,
+      source: step.by || 'Recorded',
+      timestamp: step.at ? formatTxnTime(step.at) : undefined,
+      description: step.details.join(' · '),
+      content: <RelatedWorkLinks links={step.related} />,
+    }))
+  }
   const createdAt = normalizeCreatedAt(row)
   const updatedAt = row.updatedAt || row.updated_at
-
-  const workflowItems = stages.map((stage, index) => ({
-    id: `${row.id}:stage:${stage.stage}:${index}`,
-    title: stage.stage,
-    source: stage.proof === 'OIDC4VP'
-      ? 'Confirmed from a wallet'
-      : stage.proof === 'OID4VCI'
-        ? 'Sent to a wallet'
-        : stage.proof === 'EcoCash'
-          ? 'Paid with EcoCash'
-          : stage.proof === 'Webhook'
-            ? 'Confirmed automatically'
-            : 'Recorded',
-    note: stage.done ? 'Done' : 'Not yet',
-    badge: {
-      label: stage.done ? 'done' : 'pending',
-      color: stage.done ? 'teal' : 'yellow',
-    },
-  }))
 
   const auditItems: DetailTimelineItem[] = []
   if (createdAt) {
     auditItems.push({
       id: `${row.id}:created`,
       title: 'Request created',
-      source: 'portal',
-      timestamp: new Date(createdAt).toLocaleString(),
+      source: 'Recorded',
+      timestamp: formatTxnTime(createdAt),
+      content: <RelatedWorkLinks links={requestEventLinks(row.family, row.id, 'request.created')} />,
       badge: { label: 'done', color: 'teal' },
     })
   }
@@ -708,78 +812,82 @@ function buildDetailTimelineItems(row: RequestRow, stages: SsiStageSummary[]): D
       id: `${row.id}:updated`,
       title: 'Last status update',
       source: 'workflow',
-      timestamp: new Date(updatedAt).toLocaleString(),
-      badge: { label: 'pending', color: 'yellow' },
+      timestamp: formatTxnTime(updatedAt),
+      badge: { label: 'recorded', color: 'gray' },
     })
   }
 
-  return [...workflowItems, ...auditItems]
+  return auditItems
 }
 
 function stagesForInboxRow(row: RequestRow): { stages: FinanceStageView[]; hints: string[] } {
   const routing = getWorkflowRequestRouting(row)
   const workflowStage = String((parseRequestContext(row) as any).workflowStage || '')
-  const status = String(row.status || '')
-  if (routing.mode === 'requisition') {
+  if (routing.mode === 'requisition' && workflowStage) {
     return {
-      stages: workflowStage ? requisitionStages(workflowStage) : requestStages(REQUISITION_STAGES, status),
+      stages: requisitionStages(workflowStage),
       hints: ['requisition'],
     }
   }
-  if (routing.mode === 'field') {
+  if (routing.mode === 'field' && workflowStage) {
     return {
-      stages: workflowStage ? feptStages(workflowStage, parseRequestContext(row) as any) : fieldRequestStages(status),
+      stages: feptStages(workflowStage, parseRequestContext(row) as any),
       hints: ['field', 'fept'],
     }
   }
-  if (routing.mode === 'ap') return { stages: requestStages(AP_STAGES, status), hints: ['payable', 'ap'] }
-  if (routing.mode === 'ar') return { stages: requestStages(AR_STAGES, status), hints: ['receivable', 'collect', 'ar'] }
-  if (routing.mode === 'education') return { stages: requestStages(INVOICE_STAGES, status), hints: ['education', 'school', 'fee'] }
-  return { stages: requestStages(REQUISITION_STAGES, status), hints: [routing.workflowType || normalizeRequestType(row)] }
+  const experience = requestExperienceForRow(row, routing.workflowType)
+  return { stages: experience.stages, hints: [experience.workflowType] }
 }
 
-export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
+export default function RequestWorkspace({ mode, category }: RequestWorkspaceProps) {
   const router = useRouter()
+  const openRelatedWork = useRelatedWorkNavigation()
+  const [taskOnly, setTaskOnly] = useState(false)
+  useEffect(() => { setTaskOnly(Boolean(getPortalTask())) }, [router.asPath])
   const [orgTenantId, setOrgTenantId] = useState('')
   const [orgName, setOrgName] = useState('')
+  const [orgProfile, setOrgProfile] = useState<ReturnType<typeof readOrgProfile>>(null)
   const [activeWorkflowTemplateId, setActiveWorkflowTemplateId] = useState<string | null>(null)
   const [actorReports, setActorReports] = useState<WorkflowActorReport[]>([])
   const [orgMembers, setOrgMembers] = useState<StagePerson[]>([])
   const [items, setItems] = useState<RequestRow[]>([])
   const [selectedRequest, setSelectedRequest] = useState<RequestRow | null>(null)
+  const [requestView, setRequestView] = useState<'cards' | 'table'>('cards')
+  const [detailError, setDetailError] = useState('')
+  const [detailLoading, setDetailLoading] = useState(false)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [linkedOnly, setLinkedOnly] = useState(false)
+  const [attention, setAttention] = useState<InboxAttentionFilter>('all')
+  const [openedIds, setOpenedIds] = useState<Set<string>>(new Set())
   const [requestCategoryTab, setRequestCategoryTab] = useState<RequestCategoryTab>('all')
+  // Enabled workflow templates of the organisation: the same source the Money page uses for
+  // its tabs, so Inbox, Requests and Money offer the same set.
+  const [activeTemplates, setActiveTemplates] = useState<OrganizationWorkflowTemplate[]>([])
   const [createOpen, setCreateOpen] = useState(false)
-  const [createLoading, setCreateLoading] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
   // Same step as the app's inbox: an item that belongs to an organization is opened as that
   // organization, and the person confirms the switch first.
   const [orgSwitchPrompt, setOrgSwitchPrompt] = useState<{ orgTenantId: string; orgName: string; href: string; purpose: OrgSwitchPurpose } | null>(null)
   const [orgSwitching, setOrgSwitching] = useState(false)
-  const [createForm, setCreateForm] = useState({
-    requestType: 'ecommerce.order',
-    title: 'E2E Workflow Request',
-    description: 'Portal-created request for workflow execution',
-    amount: '150',
-    currency: 'USD',
-    priority: 'normal',
-    targetModule: 'finance',
-    buyerDid: 'did:key:z6MkhaXgBZDvotDkL5257faWxcqACaGc1LeWxweVMRxo59',
-    buyerPhone: '+263770000000',
-    discount: '0',
-    taxRate: '15',
-    itemsJson:
-      '[\n  {"description": "Sample Item A", "quantity": 1, "unitPrice": 100},\n  {"description": "Sample Item B", "quantity": 1, "unitPrice": 50}\n]',
-  })
 
   const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem('portal-inbox-opened')
+      const parsed = raw ? JSON.parse(raw) : []
+      if (Array.isArray(parsed)) setOpenedIds(new Set(parsed.map(String)))
+    } catch {
+      setOpenedIds(new Set())
+    }
+  }, [])
+
+  useEffect(() => {
     const activeOrg = readActiveOrganization()
+    setOrgProfile(readOrgProfile())
     if (activeOrg?.orgTenantId) {
       setOrgTenantId(activeOrg.orgTenantId)
       setOrgName(activeOrg.name)
@@ -790,7 +898,10 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
     const requestTypeFromQuery = String(router.query?.requestType || '').trim().toLowerCase()
     if (requestTypeFromQuery) {
       if (requestTypeFromQuery.includes('requis')) setRequestCategoryTab('requisitions')
-      else if (requestTypeFromQuery.includes('field') || requestTypeFromQuery.includes('fept')) setRequestCategoryTab('fept')
+      else if (requestTypeFromQuery.includes('field') || requestTypeFromQuery.includes('fept') || requestTypeFromQuery === 'jobs') setRequestCategoryTab('jobs')
+      else if (requestTypeFromQuery.includes('school') || requestTypeFromQuery.includes('education')) setRequestCategoryTab('school_fees')
+      else if (requestTypeFromQuery.includes('payable') || requestTypeFromQuery.startsWith('ap')) setRequestCategoryTab('supplier_bills')
+      else if (requestTypeFromQuery.includes('collection') || requestTypeFromQuery.includes('payment')) setRequestCategoryTab('payments')
       else setRequestCategoryTab('all')
     }
 
@@ -800,6 +911,48 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
     }
   }, [router.query])
 
+  // `?request=<id>` (alias `?requestId=`) opens that request: a child clicked on a job's
+  // "Where this fits", the request just raised on the Purchases page, or an inbox link.
+  // The list only holds the first page, so a request not on it is fetched on its own.
+  const requestIdFromQuery = String(router.query?.request || router.query?.requestId || '').trim()
+  const openedNotificationItem = useRef('')
+  useEffect(() => {
+    const itemId = typeof router.query.item === 'string' ? router.query.item : ''
+    if (!itemId || loading || openedNotificationItem.current === itemId) return
+    const row = items.find((item) => item.inboxItemId === itemId)
+    if (row) {
+      openedNotificationItem.current = itemId
+      setSelectedRequest(row)
+    } else {
+      setError('This inbox item is no longer available in this account. Refresh the inbox or check your records.')
+    }
+  }, [router.query.item, items, loading])
+  useEffect(() => {
+    if (!requestIdFromQuery || loading) return
+    const row = items.find((item) => item.id === requestIdFromQuery)
+    if (row && (row.__source !== 'platform' || Array.isArray(row.events))) {
+      setSelectedRequest(row)
+      return
+    }
+    const token = getOrgScopedToken()
+    if (!token) return
+    let cancelled = false
+    const assertCurrent = captureOrganizationSwitchContext(localStorage)
+    axios
+      .get(`${backendUrl}/api/platform/requests/${encodeURIComponent(requestIdFromQuery)}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => {
+        if (cancelled || !res.data?.id) return
+        assertCurrent()
+        setSelectedRequest({ ...(res.data as RequestRow), __source: 'platform' })
+      })
+      .catch((error) => {
+        if (!cancelled) setError(error.response?.data?.message || error.message || 'Could not open this request.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [requestIdFromQuery, items, loading])
+
   const visibleItems = useMemo(() => {
     const requisitionIdFromQuery = String(router.query?.requisitionId || '').trim()
     const transactionIdFromQuery = String(router.query?.transactionId || '').trim()
@@ -808,9 +961,12 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
     const filtered = items.filter((row) => {
       const status = normalizeStatus(row.status)
 
-      if (mode === 'inbox' && !isActionableStatus(status)) return false
-      if (statusFilter !== 'all' && status !== statusFilter) return false
-      if (!matchesCategoryTab(row, requestCategoryTab)) return false
+      if (mode === 'inbox') {
+        const state = inboxAttention({ status, isRead: openedIds.has(row.id), stillOpen: Boolean(row.nextStep) })
+        if (!matchesInboxAttention(state, attention)) return false
+      } else if (statusFilter !== 'all' && status !== statusFilter) return false
+      if (mode !== 'inbox' && linkedOnly && !relatedWorkLine(row.family)) return false
+      if (!matchesCategoryTab(row, category || requestCategoryTab)) return false
       if (requisitionIdFromQuery) {
         const context = parseRequestContext(row)
         const rowRequisitionId = String((context as any).requisitionId || '').trim()
@@ -838,32 +994,74 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
       return true
     })
 
-    return filtered
-  }, [items, mode, requestCategoryTab, statusFilter, router.query])
+    return filtered.sort((a, b) => {
+      const aTime = new Date(normalizeCreatedAt(a) || 0).getTime()
+      const bTime = new Date(normalizeCreatedAt(b) || 0).getTime()
+      return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime)
+    })
+  }, [items, mode, category, requestCategoryTab, statusFilter, linkedOnly, attention, openedIds, router.query])
 
   const requestCategoryCounts = useMemo(() => {
     const counts: Record<RequestCategoryTab, number> = {
       all: 0,
-      school_fees: 0,
-      fept: 0,
+      jobs: 0,
       requisitions: 0,
-      rtc: 0,
+      people: 0,
+      school_fees: 0,
+      payments: 0,
+      supplier_bills: 0,
+      counter_sales: 0,
     }
 
     items.forEach((row) => {
       const status = normalizeStatus(row.status)
-      if (mode === 'inbox' && !isActionableStatus(status)) return
-      if (statusFilter !== 'all' && status !== statusFilter) return
+      if (mode === 'inbox') {
+        const state = inboxAttention({ status, isRead: openedIds.has(row.id), stillOpen: Boolean(row.nextStep) })
+        if (!matchesInboxAttention(state, attention)) return
+      } else if (statusFilter !== 'all' && status !== statusFilter) return
 
-      counts.all += 1
-      if (matchesCategoryTab(row, 'school_fees')) counts.school_fees += 1
-      if (matchesCategoryTab(row, 'fept')) counts.fept += 1
-      if (matchesCategoryTab(row, 'requisitions')) counts.requisitions += 1
-      if (matchesCategoryTab(row, 'rtc')) counts.rtc += 1
+      for (const tab of REQUEST_CATEGORY_TABS) {
+        if (matchesCategoryTab(row, tab)) counts[tab] += 1
+      }
     })
 
     return counts
-  }, [items, mode, statusFilter])
+  }, [items, mode, statusFilter, attention, openedIds])
+
+  // Tabs follow what the organisation switched on at setup, plus any kind already in the list.
+  const visibleCategoryTabs = useMemo(() => {
+    const flags = getWorkflowCapabilityFlags(activeTemplates, orgProfile?.access ?? null)
+    const orgKinds = orgProfile?.kinds || []
+    return visibleInboxTabs({ flags, orgKinds, counts: requestCategoryCounts }, REQUEST_CATEGORY_TABS) as RequestCategoryTab[]
+  }, [activeTemplates, requestCategoryCounts, orgProfile])
+
+  useEffect(() => {
+    if (!visibleCategoryTabs.includes(requestCategoryTab)) setRequestCategoryTab('all')
+  }, [requestCategoryTab, visibleCategoryTabs])
+
+  // `?tab=<category>` is the short form the Money page redirect, the Purchases "New" page and the
+  // sidebar ("Staff requests") use (`?requestType=` is the older long form). The tabs only appear
+  // once the organisation's templates and rows have loaded, so the choice is applied the first
+  // time that tab is on screen and then left alone so a later click is not undone.
+  const appliedTabQueryRef = useRef('')
+  useEffect(() => {
+    const tabFromQuery = String(router.query?.tab || '').trim().toLowerCase()
+    if (!tabFromQuery || appliedTabQueryRef.current === tabFromQuery) return
+    if (!visibleCategoryTabs.includes(tabFromQuery as RequestCategoryTab)) return
+    appliedTabQueryRef.current = tabFromQuery
+    setRequestCategoryTab(tabFromQuery as RequestCategoryTab)
+  }, [router.query?.tab, visibleCategoryTabs])
+
+  const attentionCounts = useMemo(() => {
+    const counts: Record<InboxAttention, number> = { new: 0, opened: 0, done: 0 }
+    if (mode !== 'inbox') return counts
+    items.forEach((row) => {
+      if (!matchesCategoryTab(row, requestCategoryTab)) return
+      const state = inboxAttention({ status: normalizeStatus(row.status), isRead: openedIds.has(row.id), stillOpen: Boolean(row.nextStep) })
+      counts[state] += 1
+    })
+    return counts
+  }, [items, mode, requestCategoryTab, openedIds])
 
   const stats = useMemo(() => {
     const base = visibleItems
@@ -889,11 +1087,36 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
       return
     }
 
+    // No connection: keep the list already on screen. Do not replace it with an empty one.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return
+    }
+
     if (append) setLoadingMore(true)
     else setLoading(true)
     setError(null)
 
+    const loadContext = captureOrganizationSwitchContext(localStorage)
     try {
+      const task = getPortalTask()
+      if (task) {
+        const url = new URL(window.location.href)
+        const id = url.searchParams.get('requestId') || url.searchParams.get('request')
+        if (!id) throw new Error('Open the request from your inbox to continue.')
+        const startingUrl = window.location.href
+        setSelectedRequest(null)
+        const assertCurrent = captureOrganizationSwitchContext(localStorage)
+        const res = await axios.get<RequestRow>(`${backendUrl}/api/platform/requests/${encodeURIComponent(id)}`, {
+          headers: { Authorization: `Bearer ${orgToken}` },
+        })
+        assertCurrent()
+        if (window.location.href !== startingUrl) return
+        const row: RequestRow = { ...res.data, __source: 'platform' }
+        setItems([row])
+        setSelectedRequest(row)
+        setNextCursor(null)
+        return
+      }
       if (mode !== 'inbox') {
         const params: Record<string, string | number> = { limit: 25 }
         if (cursor) params.cursor = cursor
@@ -907,6 +1130,7 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
         const responseItems: RequestRow[] = (Array.isArray(res.data?.items) ? res.data.items : []).map((row) => ({
           ...row,
           __source: 'platform' as const,
+          workflowRequestContext: 'org' as const,
         }))
 
         let workflowRows: RequestRow[] = []
@@ -954,13 +1178,14 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
       }
 
       const workflowRows: RequestRow[] = []
+      const personalInbox = readPortalContext().mode !== 'org'
 
-      if (personalToken) {
+      if (personalInbox && personalToken) {
         try {
           const assignedRes = await axios.get<WorkflowRequestApiRow[]>(
             `${backendUrl}/workflow-requests/assigned`,
             {
-              params: { status: 'pending', limit: 50 },
+              params: { limit: 50 },
               headers: { Authorization: `Bearer ${personalToken}` },
             },
           )
@@ -980,20 +1205,61 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
             ? offersRes.data.offers
             : Array.isArray(offersRes.data) ? offersRes.data : []
           offers.forEach((card) => {
-            const row = mapStageCardToRow(card)
-            if (row) workflowRows.push(row)
+            const row = mapStageCardToRow(card) || mapPurchaseStageCardToRow(card) || mapRecordOfferToRow(card, 'personal')
+            if (row) workflowRows.push({ ...row, inboxItemId: card.id || card.offerId })
           })
         } catch {
           // Cards are optional; the rest of the inbox still loads.
         }
+        try {
+          const receiptsRes = await axios.get<{ pendingReceipts: PendingPaymentReceipt[] }>(
+            `${backendUrl}/api/wallet/credentials/pending-receipts`,
+            { headers: { Authorization: `Bearer ${personalToken}` } },
+          )
+          for (const receipt of receiptsRes.data.pendingReceipts) {
+            if (receipt.sourceType !== 'payment') continue
+            const row = mapRecordOfferToRow({
+              id: receipt.receiptRowId,
+              sourceType: receipt.sourceType,
+              offerUri: receipt.offerUri,
+              credentialType: receipt.credentialType,
+              title: `Payment receipt${receipt.invoiceRef ? ` · ${receipt.invoiceRef}` : ''}`,
+              body: 'Your payment was recorded. Keep this receipt in your personal records.',
+              createdAt: receipt.issuedAt,
+            }, 'personal')
+            if (row) workflowRows.push(row)
+          }
+        } catch (err) {
+          if (!loadContext.isCurrent()) return
+          notifications.show({
+            title: 'Could not load payment receipts',
+            message: axios.isAxiosError(err) ? err.response?.data?.message || err.message : 'Refresh your inbox to try again.',
+            color: 'red',
+          })
+        }
       }
 
-      if (orgToken) {
+      if (!personalInbox && orgToken) {
+        try {
+          const offersRes = await axios.get(`${backendUrl}/api/wallet/credentials/pending-offers`, {
+            params: { holder: 'organization' },
+            headers: { Authorization: `Bearer ${orgToken}` },
+          })
+          const offers: StageCardApiRow[] = Array.isArray(offersRes.data?.offers)
+            ? offersRes.data.offers
+            : Array.isArray(offersRes.data) ? offersRes.data : []
+          offers.forEach((card) => {
+            const row = mapStageCardToRow(card) || mapPurchaseStageCardToRow(card) || mapRecordOfferToRow(card, 'org')
+            if (row) workflowRows.push({ ...row, inboxItemId: card.id || card.offerId, workflowRequestContext: 'org' })
+          })
+        } catch {
+          // Organisation records are optional; the rest of the inbox still loads.
+        }
         try {
           const inboundRes = await axios.get<WorkflowRequestApiRow[]>(
             `${backendUrl}/workflow-requests/inbound`,
             {
-              params: { status: 'pending', limit: 50 },
+              params: { limit: 50 },
               headers: { Authorization: `Bearer ${orgToken}` },
             },
           )
@@ -1005,13 +1271,17 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
         }
       }
 
+      if (!loadContext.isCurrent()) return
       setItems((prev) => (append ? [...prev, ...workflowRows] : workflowRows))
       setNextCursor(null)
     } catch (err: any) {
+      if (!loadContext.isCurrent()) return
       setError(err?.response?.data?.message || err?.message || 'Failed to load requests')
     } finally {
-      setLoading(false)
-      setLoadingMore(false)
+      if (loadContext.isCurrent()) {
+        setLoading(false)
+        setLoadingMore(false)
+      }
     }
   }
 
@@ -1051,6 +1321,7 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
     if (!href) return
     const owner = ownerOrgFor(row)
     if (!owner || isActingAsOrganization(owner)) {
+      if (owner && mode === 'inbox') beginPortalTask(owner, href)
       setSelectedRequest(null)
       void router.push(href)
       return
@@ -1074,6 +1345,7 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
     setOrgSwitching(true)
     try {
       await switchOrganizationContext({ backendUrl, orgTenantId: orgSwitchPrompt.orgTenantId, orgName: orgSwitchPrompt.orgName, personalToken })
+      if (mode === 'inbox') beginPortalTask(orgSwitchPrompt.orgTenantId, orgSwitchPrompt.href)
       setSelectedRequest(null)
       // Full load so the header, menus and the finance page all pick up the organization session.
       window.location.assign(orgSwitchPrompt.href)
@@ -1086,6 +1358,16 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
 
   const openRequestDetails = (row: RequestRow) => {
     setSelectedRequest(row)
+    if (mode !== 'inbox' || !row.id || openedIds.has(row.id)) return
+    const next = new Set(openedIds)
+    next.add(row.id)
+    setOpenedIds(next)
+    try {
+      const kept = Array.from(next).slice(-500)
+      localStorage.setItem('portal-inbox-opened', JSON.stringify(kept))
+    } catch {
+      // Opening still works if the browser will not store the list.
+    }
   }
 
   const loadOrganizationWorkflows = async () => {
@@ -1109,63 +1391,11 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
         templates.find((template) => template.enabled && String(template.workflowType || '').includes('ecommerce')) ||
         templates.find((template) => template.enabled)
 
+      setActiveTemplates(templates.filter((template) => template.enabled))
       setActiveWorkflowTemplateId(match?.id || null)
     } catch {
+      setActiveTemplates([])
       setActiveWorkflowTemplateId(null)
-    }
-  }
-
-  const createRequest = async () => {
-    const token = getOrgScopedToken()
-    if (!token) {
-      setCreateError('Switch to organization context first.')
-      return
-    }
-
-    setCreateLoading(true)
-    setCreateError(null)
-
-    try {
-      let parsedItems: Array<Record<string, unknown>> = []
-      try {
-        const rawItems = JSON.parse(createForm.itemsJson)
-        if (Array.isArray(rawItems)) {
-          parsedItems = rawItems as Array<Record<string, unknown>>
-        } else {
-          throw new Error('Items JSON must be an array')
-        }
-      } catch {
-        throw new Error('Items JSON must be a valid array')
-      }
-
-      await axios.post(
-        `${backendUrl}/api/platform/requests`,
-        {
-          requestType: createForm.requestType,
-          title: createForm.title,
-          description: createForm.description,
-          amount: Number(createForm.amount),
-          currency: createForm.currency,
-          priority: createForm.priority,
-          targetModule: createForm.targetModule,
-          items: parsedItems,
-          context: {
-            items: parsedItems,
-            buyerDid: createForm.buyerDid,
-            buyerPhone: createForm.buyerPhone,
-            discount: createForm.discount,
-            taxRate: Number(createForm.taxRate),
-          },
-        },
-        { headers: { Authorization: `Bearer ${token}` } },
-      )
-
-      setCreateOpen(false)
-      await loadRequests(null, false)
-    } catch (err: any) {
-      setCreateError(err?.response?.data?.message || err?.message || 'Failed to create request')
-    } finally {
-      setCreateLoading(false)
     }
   }
 
@@ -1230,10 +1460,35 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
    * When the request was started from a job (Buy materials), the job continues on its own.
    */
   const decidePlatformRequest = async (row: RequestRow, action: 'approve' | 'reject') => {
-    const token = getOrgScopedToken()
+    const owner = ownerOrgFor(row)
+    let temporary = false
+    let token = owner && isActingAsOrganization(owner) ? getOrgScopedToken() : null
+    if (!token && owner) {
+      const personalToken = getPersonalToken()
+      if (!personalToken) {
+        setError('Sign in again, then decide on this request.')
+        return
+      }
+      try {
+        token = await switchOrganizationContext({
+          backendUrl,
+          orgTenantId: owner,
+          orgName: organizationNameFor(owner) || undefined,
+          personalToken,
+        })
+      } catch (err: any) {
+        setError(err?.response?.data?.message || err?.message || 'Could not open the organisation to decide this.')
+        return
+      }
+    }
+    if (!token) token = getOrgScopedToken()
     if (!token) {
       setError('Switch to organization context first.')
       return
+    }
+    if (owner && mode === 'inbox') {
+      beginPortalTask(owner)
+      temporary = true
     }
     const headers = { Authorization: `Bearer ${token}` }
     const transition = (toStatus: string) =>
@@ -1246,9 +1501,124 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
         if (status === 'submitted') await transition('in_review')
         await transition('approved')
       }
+      if (temporary) endPortalTask()
       await loadRequests(null, false)
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || `Could not ${action === 'approve' ? 'approve' : 'decline'} this request`)
+    } finally {
+      if (temporary) endPortalTask()
+    }
+  }
+
+  // Finish an approved request: mark a purchase bought, an order delivered, a payment paid.
+  const [finishing, setFinishing] = useState<RequestRow | null>(null)
+  const [finishValues, setFinishValues] = useState<Record<string, string | number>>({})
+  /** Photo of the receipt or bill chosen for the finish form, as a data URL. */
+  const [finishPhoto, setFinishPhoto] = useState<string | null>(null)
+  const [finishBusy, setFinishBusy] = useState(false)
+  const [finishError, setFinishError] = useState<string | null>(null)
+  /** Photo of the receipt on the request being viewed, loaded when the detail opens. */
+  const [receiptPhoto, setReceiptPhoto] = useState<string | null>(null)
+
+  useEffect(() => {
+    setDetailError('')
+    setDetailLoading(false)
+    if (!selectedRequest || selectedRequest.__source !== 'platform' || Array.isArray(selectedRequest.events)) return
+    const owner = ownerOrgFor(selectedRequest)
+    const orgToken = owner && isActingAsOrganization(owner) ? getOrgScopedToken() : null
+    const token = orgToken || getPersonalToken()
+    if (!token) return
+    const path = orgToken ? `/api/platform/requests/${encodeURIComponent(selectedRequest.id)}`
+      : `/api/platform/requests/mine/${encodeURIComponent(selectedRequest.id)}`
+    const assertCurrent = captureOrganizationSwitchContext(localStorage)
+    let cancelled = false
+    setDetailLoading(true)
+    axios.get(`${backendUrl}${path}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => {
+        if (cancelled || !assertCurrent.isCurrent()) return
+        assertRequestDetail(res.data, selectedRequest.id)
+        setSelectedRequest({ ...selectedRequest, ...(res.data as RequestRow), __source: 'platform' })
+      })
+      .catch((error) => {
+        if (!cancelled && assertCurrent.isCurrent()) {
+          setDetailError(error?.response?.status === 404
+            ? 'Full request history is available in the owning organisation. Use its action to continue in that context.'
+            : error?.response?.data?.message || error?.message || 'Could not load request history. Close the request and try again.')
+        }
+      })
+      .finally(() => { if (!cancelled) setDetailLoading(false) })
+    return () => { cancelled = true }
+  }, [selectedRequest?.id, selectedRequest?.events])
+
+  const openFinish = (row: RequestRow) => {
+    setFinishing(row)
+    setFinishValues({})
+    setFinishPhoto(null)
+    setFinishError(null)
+  }
+
+  const chooseFinishPhoto = (file: File | null) => {
+    setFinishError(null)
+    if (!file) {
+      setFinishPhoto(null)
+      return
+    }
+    if (!file.type.startsWith('image/')) {
+      setFinishError('Choose a photo of the receipt (JPEG or PNG).')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => setFinishPhoto(typeof reader.result === 'string' ? reader.result : null)
+    reader.onerror = () => setFinishError('Could not read that photo. Try another.')
+    reader.readAsDataURL(file)
+  }
+
+  useEffect(() => {
+    setReceiptPhoto(null)
+    if (!selectedRequest?.receipt?.hasPhoto) return
+    const token = getOrgScopedToken()
+    if (!token) return
+    let cancelled = false
+    axios
+      .get(`${backendUrl}/api/platform/requests/${encodeURIComponent(selectedRequest.id)}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => {
+        const photo = res.data?.receipt?.photoUri
+        if (!cancelled && typeof photo === 'string') setReceiptPhoto(photo)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [selectedRequest?.id, selectedRequest?.receipt?.hasPhoto])
+
+  const finishPlatformRequest = async () => {
+    if (!finishing?.nextStep) return
+    const token = getOrgScopedToken()
+    if (!token) {
+      setFinishError('Switch to organization context first.')
+      return
+    }
+    const imageField = finishing.nextStep.fields.find((field) => field.type === 'image')
+    if (imageField?.required && !finishPhoto) {
+      setFinishError(`${imageField.label} is needed.`)
+      return
+    }
+    setFinishBusy(true)
+    setFinishError(null)
+    try {
+      await axios.post(
+        `${backendUrl}/api/platform/requests/transition`,
+        { requestId: finishing.id, toStatus: finishing.nextStep.toStatus, payload: { ...finishValues, receiptImage: finishPhoto || undefined } },
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      notifications.show({ title: 'Done', message: 'Saved. Related work can continue when its required steps are complete.', color: 'green' })
+      setFinishing(null)
+      setSelectedRequest(null)
+      await loadRequests(null, false)
+    } catch (err: any) {
+      setFinishError(err?.response?.data?.message || err?.message || 'Could not save this')
+    } finally {
+      setFinishBusy(false)
     }
   }
 
@@ -1283,6 +1653,38 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
     }
   }
 
+  const [keepingRecordId, setKeepingRecordId] = useState<string | null>(null)
+  const keepRecordOffer = async (row: RequestRow) => {
+    const offerUri = String((parseRequestContext(row) as Record<string, unknown>).offerUri || '')
+    const personal = row.workflowRequestContext === 'personal'
+    const token = personal ? getPersonalToken() : getOrgScopedToken()
+    if (!offerUri || !token) {
+      notifications.show({ title: 'Could not keep this record', message: 'The offer or wallet session is unavailable. Refresh your inbox or sign in again.', color: 'red' })
+      return
+    }
+    setKeepingRecordId(row.id)
+    const assertContext = captureOrganizationSwitchContext(localStorage)
+    try {
+      await axios.post(
+        `${backendUrl}/api/wallet/credentials/accept-offer`,
+        { offerUri },
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      assertContext()
+      notifications.show({ title: 'Saved', message: personal ? 'Kept in your personal records.' : "Kept in the organisation's records.", color: 'green' })
+      await loadRequests(null, false)
+    } catch (err: any) {
+      if (!assertContext.isCurrent()) return
+      notifications.show({
+        title: 'Could not keep this record',
+        message: err?.response?.data?.message || err?.message || 'Please try again.',
+        color: 'red',
+      })
+    } finally {
+      setKeepingRecordId(null)
+    }
+  }
+
   const selectedContext = selectedRequest ? parseRequestContext(selectedRequest) : {}
   const selectedLegacyWorkflowRequestId = String((selectedContext as any).legacyWorkflowRequestId || '')
   const selectedRequisitionId = String((selectedContext as any).requisitionId || '')
@@ -1297,17 +1699,24 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
   const selectedIsRequisitionLike = Boolean(selectedRequest && isRequisitionLikeRequest(selectedRequest))
   const selectedIsFieldLike = Boolean(selectedRequest && normalizeRequestTypeForFilter(normalizeRequestType(selectedRequest)).includes('field'))
   const selectedIsPaymentLike = Boolean(selectedRequest && matchesRequestTypeFilter(selectedRequest, 'payment'))
-  const selectedSsiStages = selectedRequest ? deriveSsiStages(selectedRequest) : []
-  const selectedSsiIssuedCount = selectedSsiStages.filter((stage) => stage.done).length
-  const selectedTimelineItems = selectedRequest ? buildDetailTimelineItems(selectedRequest, selectedSsiStages) : []
+  const selectedProgress = selectedRequest ? stagesForInboxRow(selectedRequest) : { stages: [], hints: [] }
+  const selectedSsiIssuedCount = selectedProgress.stages.filter((stage) => stage.status === 'done').length
+  const selectedTimelineItems = selectedRequest ? buildDetailTimelineItems(selectedRequest, orgMembers) : []
   const selectedStatusLines = selectedRequest
     ? [
-      `Type: ${normalizeRequestType(selectedRequest)}`,
-      `Source: ${selectedRequest.__source || 'platform'}`,
+      `Type: ${requestKindLabel(normalizeRequestType(selectedRequest))}`,
+      selectedRequest.__source === 'workflow_request' ? 'Came in through the inbox' : 'Raised for this organisation',
     ]
     : []
+  const selectedReplaces = selectedRequest ? offerReplacement(selectedContext) : undefined
   const selectedDetailSections: WorkflowDetailSection[] = selectedRequest
     ? [
+      ...(selectedReplaces
+        ? [{
+          title: selectedReplaces.label,
+          content: <Text size="sm" c="orange.8" fw={600}>{selectedReplaces.note}</Text>,
+        }]
+        : []),
       ...(selectedRequest.description
         ? [{
           title: 'Description',
@@ -1315,12 +1724,19 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
         }]
         : []),
       {
-        title: `Progress (${selectedSsiIssuedCount} of ${selectedSsiStages.length} steps done)`,
+        title: '',
         content: (
           <StageActorTimeline
-            stages={stagesForInboxRow(selectedRequest).stages}
-            actors={actorsForWorkflow(actorReports, stagesForInboxRow(selectedRequest).hints)}
-            people={orgMembers}
+            title={`Progress (${selectedSsiIssuedCount} of ${selectedProgress.stages.length} steps done)`}
+            stages={selectedProgress.stages}
+            actors={actorsForWorkflow(actorReports, selectedProgress.hints)}
+            whoDid={Object.fromEntries(selectedProgress.stages.flatMap((stage) => {
+              const actorUserId = 'actorUserId' in stage ? stage.actorUserId : undefined
+              if (typeof actorUserId !== 'string') return []
+              const member = (selectedRequest.people || orgMembers).find((person) => person.userId === actorUserId)
+              return member?.displayName ? [[stage.key, member.displayName]] : []
+            }))}
+            people={selectedRequest.people || orgMembers}
           />
         ),
       },
@@ -1354,16 +1770,39 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
   useEffect(() => {
     if (!orgTenantId && mode !== 'inbox') return
     void loadRequests(null, false)
-  }, [statusFilter])
+  }, [statusFilter, requestIdFromQuery])
 
-  const title = mode === 'inbox' ? 'Inbox' : 'Requests'
+  const title = mode === 'inbox' ? 'Inbox' : category === 'requisitions' ? 'Purchase requests' : 'Requests'
   const description =
     mode === 'inbox'
-      ? 'Action-oriented work items in your current organization context.'
-      : 'All organizational requests visible in your current context.'
+      ? 'New items are unread. Opened means you looked, and the step is still waiting. Done is finished or declined.'
+      : category === 'requisitions'
+        ? 'Purchase and materials requests, including requests linked to jobs. Approve purchases and keep their receipts here.'
+        : 'All organizational requests visible in your current context.'
+
+  const platformRequestActions = (row: RequestRow, closeDetails?: () => void) => (
+    <>
+      {normalizeStatus(row.status) === 'draft' && (
+        <Button size="xs" variant="light" onClick={() => { void submitRequest(row.id); closeDetails?.() }}>Submit</Button>
+      )}
+      {normalizeStatus(row.status) === 'submitted' && normalizeRequestType(row).includes('ecommerce') && (
+        <Button size="xs" onClick={() => { void startWorkflow(row); closeDetails?.() }}>Start workflow</Button>
+      )}
+      {isDecidablePlatformRequest(row) && (
+        <>
+          <Button size="xs" onClick={() => { void decidePlatformRequest(row, 'approve'); closeDetails?.() }}>Approve</Button>
+          <Button size="xs" variant="light" color="red" onClick={() => { void decidePlatformRequest(row, 'reject'); closeDetails?.() }}>Decline</Button>
+        </>
+      )}
+      {row.nextStep && <Button size="xs" onClick={() => openFinish(row)}>{row.nextStep.label}</Button>}
+    </>
+  )
 
   return (
     <Stack gap="lg">
+      {taskOnly && error && <Alert color="red">{error}</Alert>}
+      {taskOnly && !selectedRequest && !error && <Text size="sm">Opening this request…</Text>}
+      <Stack gap="lg" style={{ display: taskOnly ? 'none' : undefined }}>
       <Paper withBorder radius="md" p="lg">
         <Group justify="space-between" align="start" wrap="wrap">
           <Box>
@@ -1381,6 +1820,18 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
         </Group>
       </Paper>
 
+      {mode === 'inbox' ? (
+        <SegmentedControl
+          value={attention}
+          onChange={(value) => setAttention((value as InboxAttentionFilter) || 'all')}
+          data={INBOX_ATTENTION_FILTERS.map((entry) => ({
+            value: entry.value,
+            label: entry.value === 'all'
+              ? entry.label
+              : `${entry.label}${attentionCounts[entry.value] ? ` ${attentionCounts[entry.value]}` : ''}`,
+          }))}
+        />
+      ) : (
       <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="md">
         <Paper p="sm" radius="md" withBorder>
           <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Total</Text>
@@ -1399,6 +1850,7 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
           <Text fw={700} size="lg" c="teal">{stats.completed}</Text>
         </Paper>
       </SimpleGrid>
+      )}
 
       {!orgTenantId && (
         <Alert icon={<IconAlertCircle size={16} />} color="yellow" title="Personal context">
@@ -1420,6 +1872,7 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
         </Alert>
       )}
 
+      {mode !== 'inbox' && (
       <Card withBorder radius="md" p="lg">
         <Group align="end" wrap="wrap">
           <Select
@@ -1429,19 +1882,33 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
             data={STATUS_OPTIONS}
             style={{ minWidth: 220 }}
           />
+          <Button variant={linkedOnly ? 'filled' : 'light'} onClick={() => setLinkedOnly((current) => !current)}>
+            Linked to a job
+          </Button>
         </Group>
       </Card>
+      )}
 
-      <Card withBorder radius="md" p="md">
+      {!category && <Card withBorder radius="md" p="md">
         <Tabs value={requestCategoryTab} onChange={(value) => setRequestCategoryTab((value as RequestCategoryTab) || 'all')}>
-          <Tabs.List grow>
-            <Tabs.Tab value="all" leftSection={<IconListDetails size={14} />}>All ({requestCategoryCounts.all})</Tabs.Tab>
-            {/* SGK demo branch: school fees and customer collections are not offered here. */}
-            <Tabs.Tab value="fept" leftSection={<IconActivity size={14} />}>Jobs ({requestCategoryCounts.fept})</Tabs.Tab>
-            <Tabs.Tab value="requisitions" leftSection={<IconUsers size={14} />}>Purchase requests ({requestCategoryCounts.requisitions})</Tabs.Tab>
+          <Tabs.List>
+            {visibleCategoryTabs.map((tab) => (
+              <Tabs.Tab
+                key={tab}
+                value={tab}
+                leftSection={TAB_ICONS[tab]}
+                rightSection={requestCategoryCounts[tab] > 0 ? (
+                  <Badge size="sm" circle variant={requestCategoryTab === tab ? 'filled' : 'light'} color="credentis">
+                    {requestCategoryCounts[tab] > 99 ? '99+' : requestCategoryCounts[tab]}
+                  </Badge>
+                ) : undefined}
+              >
+                {INBOX_TAB_LABELS[tab]}
+              </Tabs.Tab>
+            ))}
           </Tabs.List>
         </Tabs>
-      </Card>
+      </Card>}
 
       {error && (
         <Alert icon={<IconAlertCircle size={16} />} color="red" title="Load error">
@@ -1451,11 +1918,19 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
 
       <Card withBorder radius="md" p="lg">
         <Group justify="space-between" mb="md">
-          <Title order={4}>{mode === 'inbox' ? 'Actionable Work' : 'Request List'}</Title>
+          <Title order={4}>{mode === 'inbox' ? 'Inbox' : 'Request List'}</Title>
           <Group gap="xs">
             {mode === 'requests' && (
-              <Button onClick={() => setCreateOpen(true)}>
-                New Request
+              <SegmentedControl
+                aria-label="Request list view"
+                value={requestView}
+                onChange={(value) => setRequestView(value === 'table' ? 'table' : 'cards')}
+                data={[{ value: 'cards', label: 'Cards' }, { value: 'table', label: 'Table' }]}
+              />
+            )}
+            {mode === 'requests' && (
+              <Button onClick={() => category === 'requisitions' ? void router.push('/finance/requisitions/new') : setCreateOpen(true)}>
+                {category === 'requisitions' ? 'New requisition' : 'New Request'}
               </Button>
             )}
             <Badge variant="light">{visibleItems.length}</Badge>
@@ -1467,14 +1942,95 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
         ) : visibleItems.length === 0 ? (
           <Stack align="center" py="xl" gap="xs">
             {mode === 'inbox' ? <IconInbox size={40} color="var(--mantine-color-gray-4)" /> : <IconListDetails size={40} color="var(--mantine-color-gray-4)" />}
-            <Text c="dimmed">{mode === 'inbox' ? 'No actionable items right now.' : 'No requests found for the current filters.'}</Text>
+            <Text c="dimmed">
+              {mode === 'inbox'
+                ? attention === 'new'
+                  ? 'Nothing new. Items you have already opened are under Opened.'
+                  : attention === 'opened'
+                    ? 'Nothing you have opened is still waiting.'
+                    : attention === 'done'
+                      ? 'Nothing finished yet.'
+                      : 'No items in your inbox right now.'
+                : 'No requests found for the current filters.'}
+            </Text>
             <Anchor component={Link} href="/organization/setup" size="sm" fw={500}>
               Open organization setup
             </Anchor>
           </Stack>
+        ) : mode === 'requests' && requestView === 'table' ? (
+          <Table.ScrollContainer minWidth={740}>
+            <Table striped highlightOnHover>
+              <Table.Thead>
+                <Table.Tr>
+                  {['Request', 'Type', 'Status', 'Current step', 'Created', ''].map((label) => <Table.Th key={label}>{label}</Table.Th>)}
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {visibleItems.map((row) => {
+                  const progress = stagesForInboxRow(row)
+                  const current = progress.stages.find((stage) => stage.status === 'active' || stage.status === 'held')
+                  return (
+                    <Table.Tr key={row.id}>
+                      <Table.Td>{row.title || 'Request'}</Table.Td>
+                      <Table.Td>{requestKindLabel(normalizeRequestType(row))}</Table.Td>
+                      <Table.Td><Badge variant="light" color={statusColor(normalizeStatus(row.status))}>{statusLabel(normalizeStatus(row.status))}</Badge></Table.Td>
+                      <Table.Td>{current?.label || 'No pending step'}</Table.Td>
+                      <Table.Td>{formatTxnTime(normalizeCreatedAt(row)) || 'Not recorded'}</Table.Td>
+                      <Table.Td><Button size="compact-sm" variant="subtle" onClick={() => openRequestDetails(row)}>Open</Button></Table.Td>
+                    </Table.Tr>
+                  )
+                })}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         ) : (
           <Stack gap="sm">
-            {visibleItems.map((row) => {
+            {(mode === 'inbox' && requestCategoryTab === 'all'
+              ? groupByFlowSection(visibleItems, (row) => inboxFlowSection(
+                REQUEST_CATEGORY_TABS.filter((tab) => tab !== 'all' && matchesCategoryTab(row, tab)),
+                isRecordOfferRow(row) ? 'credential_offer' : undefined,
+              )).flatMap((section) => [
+                { kind: 'head' as const, key: section.key, label: section.label, row: null as RequestRow | null },
+                ...section.items.map((row) => ({ kind: 'row' as const, key: row.id, label: section.label, row })),
+              ])
+              : visibleItems.map((row) => ({ kind: 'row' as const, key: row.id, label: '', row }))
+            ).map((entry) => {
+              if (entry.kind === 'head') {
+                return (
+                  <Text key={`section-${entry.key}`} size="xs" fw={700} c="dimmed" tt="uppercase" mt="xs">
+                    {entry.label}
+                  </Text>
+                )
+              }
+              const row = entry.row!
+              const rowAttention = inboxAttention({ status: normalizeStatus(row.status), isRead: openedIds.has(row.id), stillOpen: Boolean(row.nextStep) })
+              if (isRecordOfferRow(row)) {
+                const recordAt = formatTxnTime(normalizeCreatedAt(row))
+                const sourceType = String(parseRequestContext(row).offerSourceType || 'workflow_vc_offer')
+                return (
+                  <Paper key={row.id} withBorder radius="md" p="md">
+                    <Group gap="xs" mb={4}>
+                      <Badge size="xs" color={rowAttention === 'new' ? 'blue' : 'gray'} variant={rowAttention === 'new' ? 'filled' : 'light'}>
+                        {rowAttention === 'new' ? 'New' : 'Opened'}
+                      </Badge>
+                      <Badge size="xs" color="teal" variant="light">Record</Badge>
+                      <Badge size="xs" color="teal" variant="outline">
+                        Your step: {['payment', 'invoice_offer', 'quote_offer'].includes(sourceType)
+                          ? 'Keep the record'
+                          : stepRequiredLabel({ itemType: 'credential_offer', sourceType })}
+                      </Badge>
+                    </Group>
+                    <Group justify="space-between" wrap="nowrap" gap="xs">
+                      <Text fw={600} size="sm">{row.title}</Text>
+                      {recordAt && <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>{recordAt}</Text>}
+                    </Group>
+                    {row.description && <Text size="xs" c="dimmed" mt={2}>{row.description}</Text>}
+                    <Button size="xs" mt="md" loading={keepingRecordId === row.id} onClick={() => void keepRecordOffer(row)}>
+                      Keep record
+                    </Button>
+                  </Paper>
+                )
+              }
               const status = normalizeStatus(row.status)
               const createdAt = normalizeCreatedAt(row)
               const requestType = normalizeRequestType(row)
@@ -1483,12 +2039,18 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
               const requisitionId = String((context as any).requisitionId || '')
               const routing = getWorkflowRequestRouting(row)
               const isLegacyWorkflowItem = row.__source === 'workflow_request' && legacyWorkflowRequestId.length > 0
-              const ssiStages = deriveSsiStages(row)
-              const issuedCount = ssiStages.filter((stage) => stage.done).length
-              const flow = flowLabel(row)
               const inboxStages = stagesForInboxRow(row)
               const currentStage = inboxStages.stages.find((stage) => stage.status === 'active')
-              const currentActor = actorForStage(actorsForWorkflow(actorReports, inboxStages.hints), currentStage?.stageAction)
+              const stepRequired = mode === 'inbox' && isActionableStatus(String(status))
+                ? stepRequiredLabel({
+                  stageAction: String((context as any).stageAction || ''),
+                  requiredAction: routing.requiredAction,
+                  workflowStage: String((context as any).workflowStage || ''),
+                  module: isLegacyWorkflowItem ? 'approvals' : undefined,
+                  workflowRequestId: legacyWorkflowRequestId || undefined,
+                })
+                : undefined
+              const replaces = offerReplacement(context)
 
               return (
                 <Paper
@@ -1496,52 +2058,66 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
                   withBorder
                   radius="md"
                   p="md"
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => openRequestDetails(row)}
                 >
+                  <UnstyledButton
+                    onClick={() => openRequestDetails(row)}
+                    aria-label={`Open ${row.title || requestKindLabel(requestType)}`}
+                    style={{ display: 'block', width: '100%' }}
+                  >
                   <Group justify="space-between" align="flex-start" wrap="nowrap">
                     <Box style={{ flex: 1, minWidth: 0 }}>
                       <Group gap="xs" mb={4} wrap="wrap">
-                        <Badge size="xs" color={flow.color} variant="light">{flow.label}</Badge>
-                        <Badge variant="light">{requestType}</Badge>
-                        <Badge color={statusColor(status)}>{statusLabel(status)}</Badge>
-                        <Badge variant="outline">{row.priority || 'normal'}</Badge>
+                        {mode === 'inbox' ? (
+                          <Badge size="xs" color={rowAttention === 'done' ? 'teal' : rowAttention === 'opened' ? 'gray' : 'blue'} variant={rowAttention === 'new' ? 'filled' : 'light'}>
+                            {rowAttention === 'new' ? 'New' : rowAttention === 'opened' ? 'Opened' : 'Done'}
+                          </Badge>
+                        ) : (
+                          <Badge size="xs" variant="light">{requestKindLabel(requestType)}</Badge>
+                        )}
+                        {mode === 'inbox' ? (
+                          <Badge size="xs" variant="light">{entry.label || INBOX_TAB_LABELS[requestCategoryTab]}</Badge>
+                        ) : null}
+                        {mode !== 'inbox' && <Badge color={statusColor(status)}>{statusLabel(status)}</Badge>}
+                        {stepRequired && (
+                          <Badge size="xs" color="teal" variant="outline">Your step: {stepRequired}</Badge>
+                        )}
                       </Group>
-                      <Text fw={600} size="sm">
-                        {row.title || row.id}
-                      </Text>
-                      {row.description && (
-                        <Text size="xs" c="dimmed" mt={2} lineClamp={2}>
-                          {row.description}
+                      <Group justify="space-between" wrap="nowrap" gap="xs">
+                        <Text fw={mode === 'inbox' && rowAttention === 'new' ? 700 : 600} size="sm" c={mode === 'inbox' && rowAttention === 'done' ? 'dimmed' : undefined}>
+                          {row.title || row.id}
+                        </Text>
+                        {mode === 'inbox' && (
+                          <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>{inboxWhenLabel(createdAt)}</Text>
+                        )}
+                      </Group>
+                      {replaces ? (
+                        <Text size="xs" c="orange.8" fw={600} mt={2} lineClamp={2}>
+                          {replaces.note}
+                        </Text>
+                      ) : (mode === 'inbox' && rowAttention === 'done') ? (
+                        <Text size="xs" c="dimmed" mt={2} lineClamp={2}>Finished</Text>
+                      ) : (row.nextStep?.label || currentStage?.label) && (
+                        <Text size="sm" c="dimmed" mt={4} lineClamp={1}>
+                          Next: {row.nextStep?.label || currentStage?.label}
                         </Text>
                       )}
                       <Group gap="sm" mt="sm" wrap="wrap">
+                        {mode !== 'inbox' && (
                         <Text size="xs" c="dimmed">
-                          {createdAt ? new Date(createdAt).toLocaleString() : '—'}
+                          {formatTxnTime(createdAt) || '—'}
                         </Text>
+                        )}
                         {typeof row.amount === 'number' && (
                           <Text size="xs" c="teal.7" fw={600}>
                             {row.currency || ''} {row.amount.toLocaleString()}
                           </Text>
                         )}
-                        <Badge size="xs" color="indigo" variant="light">{issuedCount} of {ssiStages.length} steps done</Badge>
-                        {currentStage?.stageAction && actorReports.length > 0 && (
-                          <Text size="xs" c={actorNeedsAssignment(currentActor) ? 'orange' : 'dimmed'}>
-                            {currentStage.label}: {actorDisplay(currentActor, { people: orgMembers, stageAction: currentStage.stageAction })}
-                          </Text>
-                        )}
-                      </Group>
-                      <Group gap="xs" mt="xs" wrap="wrap">
-                        {ssiStages.slice(0, 3).map((stage) => (
-                          <Badge key={`${row.id}:${stage.stage}`} size="xs" variant="outline" color={stage.done ? 'teal' : 'gray'}>
-                            {stage.stage}
-                          </Badge>
-                        ))}
                       </Group>
                     </Box>
                     <IconChevronRight size={18} color="var(--mantine-color-gray-5)" />
                   </Group>
-                  <Group gap="xs" wrap="wrap" mt="md">
+                  </UnstyledButton>
+                  {mode === 'inbox' && <Group gap="xs" wrap="wrap" mt="md">
                     {isLegacyWorkflowItem && routing.mode === 'requisition' && routing.requisitionId && (
                       <Button size="xs" onClick={(event) => { event.stopPropagation(); openInOwnerOrg(row, routing) }}>
                         Open request
@@ -1562,7 +2138,7 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
                         Open collection
                       </Button>
                     )}
-                    {isLegacyWorkflowItem && routing.mode === 'generic' && (
+                    {isLegacyWorkflowItem && routing.mode === 'generic' && rowAttention !== 'done' && (
                       <>
                         <Button
                           size="xs"
@@ -1586,7 +2162,7 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
                         </Button>
                       </>
                     )}
-                    {isLegacyWorkflowItem && routing.mode !== 'generic' && !isStageCardRow(row) && (
+                    {isLegacyWorkflowItem && routing.mode !== 'generic' && !isStageCardRow(row) && rowAttention !== 'done' && (
                       <>
                         <Button
                           size="xs"
@@ -1611,27 +2187,8 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
                         </Button>
                       </>
                     )}
-                    {status === 'draft' && (
-                      <Button size="xs" variant="light" onClick={(event) => { event.stopPropagation(); void submitRequest(row.id) }}>
-                        Submit
-                      </Button>
-                    )}
-                    {status === 'submitted' && requestType.includes('ecommerce') && (
-                      <Button size="xs" onClick={(event) => { event.stopPropagation(); void startWorkflow(row) }}>
-                        Start workflow
-                      </Button>
-                    )}
-                    {!isLegacyWorkflowItem && isDecidablePlatformRequest(row) && (
-                      <>
-                        <Button size="xs" onClick={(event) => { event.stopPropagation(); void decidePlatformRequest(row, 'approve') }}>
-                          Approve
-                        </Button>
-                        <Button size="xs" variant="light" color="red" onClick={(event) => { event.stopPropagation(); void decidePlatformRequest(row, 'reject') }}>
-                          Decline
-                        </Button>
-                      </>
-                    )}
-                  </Group>
+                    {!isLegacyWorkflowItem && rowAttention !== 'done' && platformRequestActions(row)}
+                  </Group>}
                 </Paper>
               )
             })}
@@ -1647,15 +2204,20 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
         )}
       </Card>
 
+      </Stack>
       <BottomSheet
         opened={Boolean(selectedRequest)}
-        onClose={() => setSelectedRequest(null)}
+        onClose={() => {
+          const returnTo = endPortalTask()
+          setSelectedRequest(null)
+          if (returnTo) void router.push(returnTo)
+        }}
         title={selectedRequest?.title || 'Request details'}
       >
         {selectedRequest && (
           <Stack gap="md">
             <Group gap="xs" wrap="wrap">
-              <Badge variant="light">{normalizeRequestType(selectedRequest)}</Badge>
+              <Badge variant="light">{selectedRequest.family?.fromLabel || requestKindLabel(normalizeRequestType(selectedRequest))}</Badge>
               <Badge color={statusColor(normalizeStatus(selectedRequest.status))}>{statusLabel(normalizeStatus(selectedRequest.status))}</Badge>
               <Badge variant="outline">{selectedRequest.priority || 'normal'}</Badge>
             </Group>
@@ -1671,11 +2233,29 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
               sections={selectedDetailSections}
               auditItems={selectedTimelineItems}
               auditEmptyText="No audit timeline yet."
+              showHistory={!Array.isArray(selectedRequest.events)}
             />
+            {detailLoading && <Text size="sm" c="dimmed">Loading recorded history...</Text>}
+            {detailError && <Alert color="orange">{detailError}</Alert>}
+            {Array.isArray(selectedRequest.events) && (
+              <JobAuditTrailPanel trail={trailFromRequest(selectedRequest, selectedRequest.people || orgMembers)} compact embedded subject="request" />
+            )}
+
+            {familyChain(selectedRequest.family).length > 0 && (
+              <Paper p="md" radius="md" withBorder>
+                <FamilyStrip
+                  chain={familyChain(selectedRequest.family)}
+                  holdLine={selectedRequest.family?.holdLine}
+                  onOpen={(member) => {
+                    openRelatedWork(member, familyLinks(selectedRequest.family, selectedRequest.id))
+                  }}
+                />
+              </Paper>
+            )}
 
             {(selectedIsLegacyWorkflowItem || selectedIsRequisitionLike || selectedIsFieldLike || selectedIsPaymentLike) && (
               <Stack gap="xs">
-                <Paper p="md" radius="md" withBorder>
+                {familyChain(selectedRequest.family).length === 0 && <Paper p="md" radius="md" withBorder>
                   <Group justify="space-between" align="center">
                     <Text size="xs" c="dimmed" fw={600}>WORKFLOW ROUTING</Text>
                     <Badge variant="light" color={selectedRequest?.workflowRequestContext === 'personal' ? 'blue' : 'teal'}>
@@ -1685,9 +2265,9 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
                   <Text size="sm" mt={8}>
                     Action required: {getRoutingActionLabel(selectedRouting)}.
                   </Text>
-                </Paper>
+                </Paper>}
 
-                {(selectedWorkflowType || selectedWorkflowStage || selectedRequiredAction) && (
+                {familyChain(selectedRequest.family).length === 0 && (selectedWorkflowType || selectedWorkflowStage || selectedRequiredAction) && (
                   <Paper p="md" radius="md" withBorder>
                     <Text size="xs" c="dimmed" fw={600} mb={8}>FLOW MARKERS</Text>
                     <Group gap="xs" wrap="wrap">
@@ -1744,128 +2324,102 @@ export default function RequestWorkspace({ mode }: RequestWorkspaceProps) {
                   </Group>
                 ) : null}
 
-                {!selectedIsLegacyWorkflowItem && (
-                  <Group grow>
-                    {selectedRequest.status === 'draft' && (
-                      <Button onClick={() => { void submitRequest(selectedRequest.id); setSelectedRequest(null) }}>
-                        Submit
-                      </Button>
-                    )}
-                    {selectedRequest.status === 'submitted' && normalizeRequestType(selectedRequest).toLowerCase().includes('ecommerce') && (
-                      <Button onClick={() => { void startWorkflow(selectedRequest); setSelectedRequest(null) }}>
-                        Start workflow
-                      </Button>
-                    )}
-                    {isDecidablePlatformRequest(selectedRequest) && (
-                      <>
-                        <Button onClick={() => { void decidePlatformRequest(selectedRequest, 'approve'); setSelectedRequest(null) }}>
-                          Approve
-                        </Button>
-                        <Button variant="light" color="red" onClick={() => { void decidePlatformRequest(selectedRequest, 'reject'); setSelectedRequest(null) }}>
-                          Decline
-                        </Button>
-                      </>
-                    )}
-                    {!['draft', 'submitted', 'in_review'].includes(String(normalizeStatus(selectedRequest.status))) && (
-                      <Text size="sm" c="dimmed">Nothing to do on this request right now.</Text>
-                    )}
-                  </Group>
+                {selectedRequest.receipt && (
+                  <Paper p="md" radius="md" withBorder>
+                    <Text size="xs" c="dimmed" fw={600} mb={8}>RECEIPT</Text>
+                    <Group gap="sm" wrap="nowrap" align="center">
+                      {receiptPhoto ? (
+                        <Image src={receiptPhoto} alt="Receipt" w={96} h={96} radius="sm" fit="cover" />
+                      ) : selectedRequest.receipt.hasPhoto ? (
+                        <Text size="xs" c="dimmed">Loading photo…</Text>
+                      ) : (
+                        <IconReceipt size={24} />
+                      )}
+                      <Stack gap={2}>
+                        <Text size="sm">{purchaseReceiptLine({ step: 'Recorded', ...selectedRequest.receipt, currency: selectedRequest.currency })}</Text>
+                        {selectedRequest.receipt.recordedAt && (
+                          <Text size="xs" c="dimmed">{formatTxnTime(selectedRequest.receipt.recordedAt)}</Text>
+                        )}
+                      </Stack>
+                    </Group>
+                  </Paper>
                 )}
+
               </Stack>
             )}
-
+            {!selectedIsLegacyWorkflowItem && (
+              <Group grow>
+                {platformRequestActions(selectedRequest, () => setSelectedRequest(null))}
+                {!selectedRequest.nextStep && !['draft', 'submitted', 'in_review'].includes(String(normalizeStatus(selectedRequest.status))) && (
+                  <Text size="sm" c="dimmed">Nothing to do on this request right now.</Text>
+                )}
+              </Group>
+            )}
           </Stack>
         )}
       </BottomSheet>
 
-      <Modal opened={createOpen} onClose={() => setCreateOpen(false)} title="Create Request" centered size="lg">
-        <Stack gap="md">
-          {createError && (
-            <Alert icon={<IconAlertCircle size={16} />} color="red" title="Create error">
-              {createError}
-            </Alert>
-          )}
-
-          <Group grow align="start">
-            <TextInput
-              label="Request Type"
-              value={createForm.requestType}
-              onChange={(event) => setCreateForm((prev) => ({ ...prev, requestType: event.currentTarget.value }))}
-            />
-            <TextInput
-              label="Title"
-              value={createForm.title}
-              onChange={(event) => setCreateForm((prev) => ({ ...prev, title: event.currentTarget.value }))}
-            />
-          </Group>
-
-          <Textarea
-            label="Description"
-            value={createForm.description}
-            onChange={(event) => setCreateForm((prev) => ({ ...prev, description: event.currentTarget.value }))}
-          />
-
-          <Group grow align="start">
-            <TextInput
-              label="Amount"
-              value={createForm.amount}
-              onChange={(event) => setCreateForm((prev) => ({ ...prev, amount: event.currentTarget.value }))}
-            />
-            <TextInput
-              label="Currency"
-              value={createForm.currency}
-              onChange={(event) => setCreateForm((prev) => ({ ...prev, currency: event.currentTarget.value }))}
-            />
-            <TextInput
-              label="Target Module"
-              value={createForm.targetModule}
-              onChange={(event) => setCreateForm((prev) => ({ ...prev, targetModule: event.currentTarget.value }))}
-            />
-          </Group>
-
-          <Group grow align="start">
-            <TextInput
-              label="Buyer DID"
-              value={createForm.buyerDid}
-              onChange={(event) => setCreateForm((prev) => ({ ...prev, buyerDid: event.currentTarget.value }))}
-            />
-            <TextInput
-              label="Buyer Phone"
-              value={createForm.buyerPhone}
-              onChange={(event) => setCreateForm((prev) => ({ ...prev, buyerPhone: event.currentTarget.value }))}
-            />
-          </Group>
-
-          <Group grow align="start">
-            <TextInput
-              label="Discount"
-              value={createForm.discount}
-              onChange={(event) => setCreateForm((prev) => ({ ...prev, discount: event.currentTarget.value }))}
-            />
-            <TextInput
-              label="Tax Rate"
-              value={createForm.taxRate}
-              onChange={(event) => setCreateForm((prev) => ({ ...prev, taxRate: event.currentTarget.value }))}
-            />
-          </Group>
-
-          <Textarea
-            label="Items JSON"
-            minRows={6}
-            value={createForm.itemsJson}
-            onChange={(event) => setCreateForm((prev) => ({ ...prev, itemsJson: event.currentTarget.value }))}
-          />
-
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setCreateOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => void createRequest()} loading={createLoading}>
-              Create
-            </Button>
-          </Group>
-        </Stack>
+      <Modal opened={Boolean(finishing)} onClose={() => setFinishing(null)} title={finishing?.nextStep?.label || 'Finish'} centered>
+        {finishing?.nextStep && (
+          <Stack gap="sm">
+            <Text size="sm" fw={600}>{finishing.title}</Text>
+            <Text size="sm" c="dimmed">{finishing.nextStep.hint}</Text>
+            {finishing.nextStep.fields.map((field) =>
+              field.type === 'image' ? (
+                <Stack key={field.name} gap={6}>
+                  <FileInput
+                    label={field.label}
+                    description={field.hint ? field.hint.replace(/, or use a .* record from your wallet\.?$/i, '.') : undefined}
+                    placeholder="Choose a photo"
+                    accept="image/*"
+                    required={field.required}
+                    clearable
+                    onChange={chooseFinishPhoto}
+                  />
+                  {finishPhoto && <Image src={finishPhoto} alt={field.label} radius="md" h={160} fit="contain" />}
+                </Stack>
+              ) : field.type === 'number' ? (
+                <NumberInput
+                  key={field.name}
+                  label={field.label}
+                  required={field.required}
+                  min={0}
+                  value={finishValues[field.name] as number | undefined}
+                  onChange={(value) => setFinishValues((current) => ({ ...current, [field.name]: value }))}
+                />
+              ) : (
+                <TextInput
+                  key={field.name}
+                  label={field.label}
+                  required={field.required}
+                  value={String(finishValues[field.name] ?? '')}
+                  onChange={(event) => {
+                    const next = event.currentTarget.value
+                    setFinishValues((current) => ({ ...current, [field.name]: next }))
+                  }}
+                />
+              ),
+            )}
+            {finishError && <Text size="sm" c="red">{finishError}</Text>}
+            <Group justify="flex-end">
+              <Button variant="subtle" onClick={() => setFinishing(null)}>Cancel</Button>
+              <Button loading={finishBusy} onClick={() => void finishPlatformRequest()}>Save</Button>
+            </Group>
+          </Stack>
+        )}
       </Modal>
+
+      <RequestSheet
+        opened={createOpen}
+        onClose={() => setCreateOpen(false)}
+        context={{
+          contextMode: isActingAsOrganization(orgTenantId) ? 'org' : 'personal',
+          activeOrgTenantId: orgTenantId,
+          activeOrgName: orgName,
+          orgRole: readActiveOrganization()?.role,
+          activeWorkflowTypes: activeTemplates.map((template) => template.workflowType || template.id || ''),
+        }}
+      />
 
       <Modal
         opened={Boolean(orgSwitchPrompt)}

@@ -1,4 +1,5 @@
 # FEPT Playwright Test Matrix
+
 **Credo / Justice / Trust-as-a-Service Platform**
 
 Version: 1.0  
@@ -57,6 +58,7 @@ Use these standard roles in all tests:
 ## 3. Common assertions
 
 ### Portal assertions
+
 - workflow template name visible
 - tenant branding visible
 - correct status shown
@@ -68,6 +70,7 @@ Use these standard roles in all tests:
 - no cross-role leakage
 
 ### Wallet assertions
+
 - holder sees only their proofs and invoices
 - holder can save / claim only when allowed
 - holder can present / view proofs
@@ -75,6 +78,7 @@ Use these standard roles in all tests:
 - no org admin controls visible
 
 ### Dashboard assertions
+
 - counts update correctly
 - exceptions populate correctly
 - reconciliation status updates correctly
@@ -82,6 +86,7 @@ Use these standard roles in all tests:
 - audit trail entries visible
 
 ### Atomicity / idempotency assertions
+
 - duplicate submit does not create duplicate records
 - duplicate webhook does not create duplicate receipts
 - stale link cannot resume a different workflow run
@@ -113,10 +118,14 @@ Use these checkpoints in each major test:
 ## 5. Suite A — School fee workflow
 
 ### A1. School invoice request sent to parent, payment, receipt VC, recon
+
+> 2026-10-12 status: walked by hand, not yet automated. Portal "New fee" and phone "New school fee" both start `education_fee_payment`; the parent paid on the phone pay page (simulated EcoCash), the run completed and the school kept its receipt (run `090fdf6d-e4a5-462d-8ab2-d8d08014766d`). Instalments create one link per instalment (run `89d215d5-b7b0-46b6-86cf-b94d1bed9ae7`). The receipt the parent keeps is the pay-page receipt; the school's receipt stays with the school. The `reconciled` state and the owner audit-trail view are not covered yet. Server chain: `tests/school_fee_chain.test.ts`.
+
 **Workflow:** `education_fee_payment`  
 **Actors:** bursar, parentHolder, orgOwner
 
 **Preconditions**
+
 - school tenant onboarded
 - school fee template enabled
 - parent contact preseeded or invite-by-contact enabled
@@ -125,6 +134,7 @@ Use these checkpoints in each major test:
 - auto recon enabled
 
 **Steps**
+
 1. bursar logs into org portal
 2. bursar selects school fee workflow
 3. bursar creates school fee invoice request
@@ -141,6 +151,7 @@ Use these checkpoints in each major test:
 14. owner reviews audit trail
 
 **Assertions**
+
 - invoice uses `education_fee_payment`, not generic payment link
 - invoice references student or admission number
 - wallet inbox shows the invoice and receipt only
@@ -150,6 +161,7 @@ Use these checkpoints in each major test:
 - audit trail includes bursar action, payment event, VC issuance, recon event
 
 **Failure cases**
+
 - reopening old invoice link after payment shows already paid
 - duplicate payment webhook does not create duplicate receipt
 - if parent logs out and back in, the same invoice still appears
@@ -158,14 +170,17 @@ Use these checkpoints in each major test:
 ---
 
 ### A2. School invoice to unknown contact, claim later
+
 **Actors:** bursar, parentHolder
 
 **Preconditions**
+
 - recipient contact not preseeded
 - invite-by-contact enabled
 - claim-later enabled
 
 **Steps**
+
 1. bursar creates invoice
 2. bursar enters new phone/email
 3. system creates pending holder reference
@@ -178,6 +193,7 @@ Use these checkpoints in each major test:
 10. bursar sees the same receipt and recon state
 
 **Assertions**
+
 - pending holder record is created
 - claim preserves original workflow run
 - no duplicate receipt object is created
@@ -187,9 +203,11 @@ Use these checkpoints in each major test:
 ---
 
 ### A3. School owner reviews audit trail after payment
+
 **Actors:** bursar, orgOwner
 
 **Steps**
+
 1. bursar sends invoice
 2. parent pays
 3. owner opens portal
@@ -198,6 +216,7 @@ Use these checkpoints in each major test:
 6. owner confirms invoice, payment, receipt, recon states
 
 **Assertions**
+
 - audit trail shows actor, timestamp, template, payment ref, receipt VC ID
 - portal state is synchronized without manual correction
 - no stale dashboard counts
@@ -207,10 +226,12 @@ Use these checkpoints in each major test:
 ## 6. Suite B — E-commerce delivery workflow
 
 ### B1. Merchant quote → invoice → payment → receipt → delivery ack → recon
+
 **Workflow:** `ecommerce_delivery`  
 **Actors:** merchantOwner, buyerHolder, driverVerifier, receiver, auditor
 
 **Preconditions**
+
 - e-commerce workflow enabled
 - delivery verification enabled
 - receipt consume/status-list enabled
@@ -218,6 +239,7 @@ Use these checkpoints in each major test:
 - wallet policy set
 
 **Steps**
+
 1. merchantOwner creates quote
 2. merchant converts quote to invoice
 3. merchant generates secure payment link
@@ -233,6 +255,7 @@ Use these checkpoints in each major test:
 13. merchantOwner reviews dashboard and audit trail
 
 **Assertions**
+
 - quote and invoice are tied to same workflow run
 - payment link is not generic
 - delivery verification appears only in this workflow
@@ -243,6 +266,7 @@ Use these checkpoints in each major test:
 - no duplicate receipt after webhook retry
 
 **Failure cases**
+
 - old payment link cannot be reused after completion
 - if driver scans same QR twice, second scan is rejected or marked already used
 - if buyer reopens receipt after consumption, status remains consumed
@@ -251,9 +275,11 @@ Use these checkpoints in each major test:
 ---
 
 ### B2. Guest buyer, later claim by phone/email
+
 **Actors:** merchantOwner, buyerHolder, driverVerifier
 
 **Steps**
+
 1. buyer pays as guest
 2. receipt is issued to a temporary guest reference
 3. buyer later claims receipt using same contact
@@ -262,6 +288,7 @@ Use these checkpoints in each major test:
 6. recon closes
 
 **Assertions**
+
 - guest receipt can be claimed later
 - claim preserves original workflow run
 - no duplicate wallet proof object is created
@@ -270,9 +297,11 @@ Use these checkpoints in each major test:
 ---
 
 ### B3. Delivery verifier role separation
+
 **Actors:** driverVerifier, merchantOwner, buyerHolder
 
 **Steps**
+
 1. driver logs in
 2. driver sees only assigned deliveries
 3. driver scans QR
@@ -281,6 +310,7 @@ Use these checkpoints in each major test:
 6. merchant sees completed sale
 
 **Assertions**
+
 - driver cannot edit payment data
 - driver cannot access merchant admin dashboards
 - buyer cannot see driver admin data
@@ -291,10 +321,12 @@ Use these checkpoints in each major test:
 ## 7. Suite C — Internal requisition workflow
 
 ### C1. Lunch requisition request → approvals → release → execution → ack → recon
+
 **Workflow:** `procurement_request`  
 **Actors:** requester, approver, financeOfficer, supplierOwner, receiver, orgOwner, auditor
 
 **Preconditions**
+
 - requisition workflow enabled
 - approvals required set to at least 2
 - release authorization VC enabled
@@ -302,6 +334,7 @@ Use these checkpoints in each major test:
 - auto recon enabled
 
 **Steps**
+
 1. requester creates lunch requisition
 2. manager/approver signs approval
 3. financeOfficer signs approval
@@ -314,6 +347,7 @@ Use these checkpoints in each major test:
 10. orgOwner reviews audit trail
 
 **Assertions**
+
 - approvals are role-bound and visible only to authorized org roles
 - requisition is not treated like generic e-commerce order
 - release does not occur before approvals complete
@@ -322,6 +356,7 @@ Use these checkpoints in each major test:
 - receipt / ack / recon states are linked to same workflow run
 
 **Failure cases**
+
 - duplicate approval does not create duplicate approval VC
 - if approver logs out and returns, approval step remains completed
 - stale approval link cannot be replayed
@@ -330,9 +365,11 @@ Use these checkpoints in each major test:
 ---
 
 ### C2. Requisition approval denied
+
 **Actors:** requester, approver, financeOfficer
 
 **Steps**
+
 1. requester submits
 2. approver rejects
 3. workflow stops
@@ -340,6 +377,7 @@ Use these checkpoints in each major test:
 5. audit trail stores rejection reason
 
 **Assertions**
+
 - no payout release exists
 - no receipt VC is issued
 - dashboard shows rejected state
@@ -350,10 +388,12 @@ Use these checkpoints in each major test:
 ## 8. Suite D — Cash counter workflow
 
 ### D1. Invoice → cash capture → receipt VC → batch recon
+
 **Workflow:** `cash_counter_payment`  
 **Actors:** cashier, parentHolder, orgOwner
 
 **Steps**
+
 1. cashier issues invoice
 2. parent pays cash
 3. cashier logs cash capture
@@ -362,6 +402,7 @@ Use these checkpoints in each major test:
 6. orgOwner reviews close-out report
 
 **Assertions**
+
 - no delivery step is shown
 - wallet prompt follows policy
 - receipt appears in wallet only if allowed
@@ -369,6 +410,7 @@ Use these checkpoints in each major test:
 - audit trail includes cashier identity, amount, time, receipt ID
 
 **Failure cases**
+
 - cash capture double-click does not create duplicate receipt
 - same invoice cannot be paid twice
 - batch recon cannot close unmatched invoices silently
@@ -378,10 +420,12 @@ Use these checkpoints in each major test:
 ## 9. Suite E — Mobile worker / field execution workflow
 
 ### E1. Task assignment → GPS check-in → evidence upload → completion → ack → receipt
+
 **Workflow:** `field_service_completion`  
 **Actors:** dispatcher, worker, receiver, orgOwner, auditor
 
 **Steps**
+
 1. dispatcher assigns task
 2. worker receives task on mobile app
 3. worker checks in with GPS
@@ -393,6 +437,7 @@ Use these checkpoints in each major test:
 9. orgOwner reviews audit trail
 
 **Assertions**
+
 - worker sees only assigned tasks
 - evidence is attached to the workflow run
 - photo/GPS hash appears in audit trail
@@ -404,9 +449,11 @@ Use these checkpoints in each major test:
 ## 10. Suite F — Role separation / SSI compliance
 
 ### F1. Holder vs org tenant separation
+
 **Actors:** parentHolder, bursar, orgOwner
 
 **Steps**
+
 1. parent logs in
 2. confirm holder wallet only shows own receipts
 3. bursar logs in
@@ -416,6 +463,7 @@ Use these checkpoints in each major test:
 7. switch roles and confirm persistence is correct
 
 **Assertions**
+
 - holder cannot access org admin actions
 - org admin cannot mutate holder wallet data directly
 - each role sees only allowed actions
@@ -424,9 +472,11 @@ Use these checkpoints in each major test:
 ---
 
 ### F2. Approver / signer presentation proof
+
 **Actors:** approver, orgOwner, auditor
 
 **Steps**
+
 1. approver opens approval request
 2. approver presents proof or signs approval
 3. workflow records approval VC or VP proof
@@ -434,6 +484,7 @@ Use these checkpoints in each major test:
 5. auditor reviews same record later
 
 **Assertions**
+
 - approval is attributable
 - signer role is captured
 - approval cannot be forged through UI manipulation
@@ -444,9 +495,11 @@ Use these checkpoints in each major test:
 ## 11. Suite G — Atomicity and idempotency
 
 ### G1. Old link replay after login redirect
+
 **Actors:** parentHolder, bursar
 
 **Steps**
+
 1. open invoice link
 2. auth redirect occurs
 3. login completes
@@ -456,6 +509,7 @@ Use these checkpoints in each major test:
 7. verify it cannot create a second path
 
 **Assertions**
+
 - resume token is consumed
 - old link cannot resume a new workflow run
 - no duplicate payment or receipt
@@ -464,15 +518,18 @@ Use these checkpoints in each major test:
 ---
 
 ### G2. Duplicate webhook / duplicate submit
+
 **Actors:** system, orgOwner
 
 **Steps**
+
 1. send payment webhook once
 2. send same webhook again
 3. submit approval twice
 4. submit ack twice
 
 **Assertions**
+
 - only one record is created for each event type
 - audit log shows deduped state
 - final state remains correct
@@ -483,9 +540,11 @@ Use these checkpoints in each major test:
 ## 12. Suite H — Dashboard consistency
 
 ### H1. Org dashboard sync after holder payment
+
 **Actors:** orgOwner, parentHolder
 
 **Steps**
+
 1. parent pays
 2. receipt is saved
 3. owner refreshes dashboard
@@ -493,6 +552,7 @@ Use these checkpoints in each major test:
 5. audit trail shows completion
 
 **Assertions**
+
 - no stale counts
 - no manual refresh needed if live updates exist
 - dashboard totals equal actual workflow state
@@ -501,15 +561,18 @@ Use these checkpoints in each major test:
 ---
 
 ### H2. Exception state
+
 **Actors:** orgOwner, auditor
 
 **Steps**
+
 1. trigger mismatch or incomplete payment
 2. recon dashboard flags exception
 3. owner views exception detail
 4. auditor reviews evidence
 
 **Assertions**
+
 - exception is visible
 - mismatch reason is readable
 - evidence bundle attached
@@ -520,15 +583,18 @@ Use these checkpoints in each major test:
 ## 13. Template selection tests
 
 ### T1. School fee flow must not use generic payment link
+
 **Actors:** bursar
 
 **Steps**
+
 1. create invoice
 2. verify template selection
 3. send invoice
 4. open workflow metadata
 
 **Assertions**
+
 - workflow type is `education_fee_payment`
 - generic payment link template is not selected
 - invoice page uses school branding and school logic
@@ -537,9 +603,11 @@ Use these checkpoints in each major test:
 ---
 
 ### T2. Procurement flow must not use school workflow
+
 **Actors:** requester, approver, financeOfficer
 
 **Assertions**
+
 - template is procurement
 - approval chain exists
 - release authorization exists
@@ -549,24 +617,25 @@ Use these checkpoints in each major test:
 
 ## 14. Suggested regression matrix
 
-| Test ID | Workflow | Actors | Primary goal |
-|---|---|---|---|
-| S1 | School fee | bursar, parentHolder, orgOwner | invoice → pay → receipt → recon |
-| S2 | School claim later | bursar, newParentHolder | pending contact claim path |
-| E1 | E-commerce | merchantOwner, buyerHolder, driverVerifier | quote → delivery → ack |
-| E2 | Guest buyer | merchantOwner, buyerHolder | claim later without duplicate state |
-| C1 | Cash counter | cashier, parentHolder, orgOwner | cash receipt + batch recon |
-| P1 | Procurement | requester, approver, financeOfficer | approvals → release → ack |
-| F1 | Field execution | dispatcher, worker, receiver | GPS + evidence + completion |
-| R1 | Role separation | holder, orgAdmin | no cross-role leakage |
-| G1 | Atomicity | holder, orgAdmin | one link, one run, one resume |
-| H1 | Dashboard sync | orgOwner, holder | portal/wallet state consistency |
+| Test ID | Workflow           | Actors                                     | Primary goal                        |
+| ------- | ------------------ | ------------------------------------------ | ----------------------------------- |
+| S1      | School fee         | bursar, parentHolder, orgOwner             | invoice → pay → receipt → recon     |
+| S2      | School claim later | bursar, newParentHolder                    | pending contact claim path          |
+| E1      | E-commerce         | merchantOwner, buyerHolder, driverVerifier | quote → delivery → ack              |
+| E2      | Guest buyer        | merchantOwner, buyerHolder                 | claim later without duplicate state |
+| C1      | Cash counter       | cashier, parentHolder, orgOwner            | cash receipt + batch recon          |
+| P1      | Procurement        | requester, approver, financeOfficer        | approvals → release → ack           |
+| F1      | Field execution    | dispatcher, worker, receiver               | GPS + evidence + completion         |
+| R1      | Role separation    | holder, orgAdmin                           | no cross-role leakage               |
+| G1      | Atomicity          | holder, orgAdmin                           | one link, one run, one resume       |
+| H1      | Dashboard sync     | orgOwner, holder                           | portal/wallet state consistency     |
 
 ---
 
 ## 15. Playwright helper functions
 
 Recommended helpers:
+
 - `loginAs(role)`
 - `switchTenantContext(tenantId)`
 - `createWorkflowRun(template, payload)`
@@ -605,6 +674,7 @@ The MVP is ready only when:
 Do not test this like a billing app.
 
 Test it as:
+
 - a workflow engine
 - a trust engine
 - a role-separated SSI system

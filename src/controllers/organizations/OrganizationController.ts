@@ -11,6 +11,7 @@
  */
 
 import 'reflect-metadata'
+import type { RequestExperienceDefinition } from '../../config/requestExperience'
 import type { OrganizationCategory } from '../../persistence/OrganizationRegistryRepository'
 import type {
   AssignUnassignedStagesInput,
@@ -21,26 +22,34 @@ import type {
   WorkflowActorDefaultInput,
   WorkflowActorsView,
 } from '../../services/OrganizationService'
+import type { NextStepsResult } from '../../services/nextSteps'
 import type {
   OrgWorkflowActorPolicy,
   OrgWorkflowActorPolicyPatch,
   ResolvedOrgWorkflowActor,
   WorkflowActorDefaultRecord,
 } from '../../services/OrgWorkflowActorService'
+import type {
+  OrgMemberOnboarding,
+  SendMemberCardsKind,
+  SendMemberCardsResult,
+} from '../../services/OrgMemberOnboardingService'
 import type { OrgSetupProfile, OrgSetupProfileInput } from '../../services/OrgSetupProfileService'
 import type { TemplateReadinessReport } from '../../services/WorkflowReadinessService'
 import type { SectorType, WorkflowTemplateDefinition } from '../../types/WorkflowTemplate'
 import type { Request as ExRequest } from 'express'
 
-import { Controller, Post, Get, Patch, Put, Delete, Route, Tags, Body, Request, Security, Path } from 'tsoa'
+import { Controller, Post, Get, Patch, Put, Delete, Route, Tags, Body, Request, Security, Path, Query } from 'tsoa'
 import { container } from 'tsyringe'
 
 import { AuthContext } from '../../enums'
 import { StatusException } from '../../errors'
 import { OrganizationService } from '../../services/OrganizationService'
+import { orgMemberOnboardingService } from '../../services/OrgMemberOnboardingService'
 import type { PaymentMethodChoice, PaymentSetupItem, TrustedPartner } from '../../services/OrgSetupProvisioningService'
 import { orgSetupProvisioningService } from '../../services/OrgSetupProvisioningService'
 import { getOrCreateOrgProofVcPolicy, updateOrgProofVcPolicy } from '../../services/ProofVcPolicyService'
+import { saveRequestExperience } from '../../services/RequestExperienceService'
 import { workflowHandoffService, type WorkflowHandoffSetting } from '../../services/workflow/WorkflowHandoffService'
 
 // ─── Request/Response interfaces ───
@@ -51,6 +60,8 @@ interface WorkflowHandoffPatch {
   /** Stage ids (from stageOptions) that must be done before this hand-off is available. */
   requiredStages?: string[]
   enabled?: boolean
+  /** Purchases only: continue the job once the purchase is 'approved', or once it is bought and received ('completed'). */
+  continueOn?: 'approved' | 'completed'
 }
 
 interface SelectPaymentMethodRequest {
@@ -204,6 +215,8 @@ interface RoleItem {
   name: string
   description?: string
   permissions: string[]
+  /** Team role this row gives someone. Missing on a custom permission-only role. */
+  membershipRole?: string
   createdAt: string
 }
 
@@ -211,6 +224,7 @@ interface CreateRoleRequest {
   name: string
   description?: string
   permissions?: string[]
+  membershipRole?: string
 }
 
 interface DelegationItem {
@@ -273,12 +287,20 @@ interface UpdateOrgDiscoveryVisibilityResponse {
 interface UpdateOrgProofVcPolicyRequest {
   defaultAcceptedVcTypes?: string[]
   actionOverrides?: Record<string, string[]>
+  deviceTrust?: {
+    enabled: boolean
+    requiredActions: string[]
+  }
 }
 
 interface OrgProofVcPolicyResponse {
   orgTenantId: string
   defaultAcceptedVcTypes: string[]
   actionOverrides: Record<string, string[]>
+  deviceTrust: {
+    enabled: boolean
+    requiredActions: string[]
+  }
   updatedAt?: string
 }
 
@@ -287,6 +309,20 @@ interface OrganizationWorkflowFeatureItem {
   name: string
   description: string
   recommendedSectors: SectorType[]
+}
+
+interface SaveRecordSettingsRequest {
+  /** Workflow in use, for example field jobs */
+  workflowType: string
+  /** Per record: required (always), optional, or disabled (off) */
+  vcOfferModes?: Record<string, 'required' | 'optional' | 'disabled'>
+  /** When on, records marked optional are issued */
+  sendOptionalOffers?: boolean
+}
+
+interface SaveRequestExperienceInput {
+  expectedVersion: number
+  experience: RequestExperienceDefinition
 }
 
 interface OrganizationWorkflowConfigurationResponse {
@@ -562,6 +598,10 @@ export class OrganizationController extends Controller {
         this.setStatus(404)
         throw new StatusException(error.message, 404)
       }
+      if (error.message.includes('sells or advertises')) {
+        this.setStatus(403)
+        throw new StatusException(error.message, 403)
+      }
       this.setStatus(500)
       throw error
     }
@@ -594,6 +634,7 @@ export class OrganizationController extends Controller {
       orgTenantId: policy.orgTenantId,
       defaultAcceptedVcTypes: policy.defaultAcceptedVcTypes,
       actionOverrides: policy.actionOverrides,
+      deviceTrust: policy.deviceTrust,
       updatedAt: policy.updatedAt,
     }
   }
@@ -642,12 +683,14 @@ export class OrganizationController extends Controller {
     const policy = updateOrgProofVcPolicy(orgTenantId, {
       defaultAcceptedVcTypes: body.defaultAcceptedVcTypes,
       actionOverrides: body.actionOverrides,
+      deviceTrust: body.deviceTrust,
     })
 
     return {
       orgTenantId: policy.orgTenantId,
       defaultAcceptedVcTypes: policy.defaultAcceptedVcTypes,
       actionOverrides: policy.actionOverrides,
+      deviceTrust: policy.deviceTrust,
       updatedAt: policy.updatedAt,
     }
   }
@@ -724,6 +767,43 @@ export class OrganizationController extends Controller {
       if (error.message.includes('No default template')) {
         this.setStatus(404)
         throw new StatusException(error.message, 404)
+      }
+      this.setStatus(500)
+      throw error
+    }
+  }
+
+  /**
+   * Save which records a workflow in use should issue.
+   * Owners and admins only. Does not change steps or people.
+   */
+  @Patch('/{orgTenantId}/workflows/records')
+  @Security('jwt')
+  public async saveRecordSettings(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Body() body: SaveRecordSettingsRequest,
+  ): Promise<OrganizationWorkflowConfigurationResponse> {
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+    try {
+      return this.orgService.saveRecordSettings(user.id, orgTenantId, body || { workflowType: '' })
+    } catch (error: any) {
+      const message = String(error?.message || '')
+      if (message.includes('Not a member') || message.includes('Only org owners/admins')) {
+        this.setStatus(403)
+        throw new StatusException(message, 403)
+      }
+      if (
+        message.includes('not in use') ||
+        message.includes('No saved copy') ||
+        message.includes('Choose a workflow')
+      ) {
+        this.setStatus(400)
+        throw new StatusException(message, 400)
       }
       this.setStatus(500)
       throw error
@@ -837,6 +917,32 @@ export class OrganizationController extends Controller {
 
     try {
       return this.orgService.getOrganizationSetupReadiness(user.id, orgTenantId)
+    } catch (error: any) {
+      if (error.message.includes('Not a member')) {
+        this.setStatus(403)
+        throw new StatusException('Not a member of this organization', 403)
+      }
+      this.setStatus(500)
+      throw error
+    }
+  }
+
+  /**
+   * The next thing this member should do: inbox cards first, then setup blockers for an owner or admin.
+   */
+  @Get('/{orgTenantId}/next-steps')
+  @Security('jwt')
+  public async getOrganizationNextSteps(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+  ): Promise<NextStepsResult> {
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+    try {
+      return this.orgService.nextStepsFor(user.id, orgTenantId)
     } catch (error: any) {
       if (error.message.includes('Not a member')) {
         this.setStatus(403)
@@ -1038,8 +1144,8 @@ export class OrganizationController extends Controller {
   }
 
   /**
-   * Save one hand-off choice. Owner/admin only. Only start mode, required stages and on/off
-   * can change; what moves across and whether the job waits is fixed by the platform.
+   * Save one hand-off choice. Owner/admin only. Only start mode, required stages, on/off and,
+   * for a purchase, when the job continues can change; what moves across is fixed by the platform.
    */
   @Put('/{orgTenantId}/workflows/handoffs/{handoffKey}')
   @Security('jwt')
@@ -1103,6 +1209,19 @@ export class OrganizationController extends Controller {
     } catch (error: any) {
       return this.rethrowActorConfigError(error)
     }
+  }
+
+  /** Configure the shared request experience without changing execution steps or permissions. */
+  @Put('/{orgTenantId}/workflows/{templateId}/request-experience')
+  @Security('jwt')
+  public async saveWorkflowRequestExperience(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Path() templateId: string,
+    @Body() body: SaveRequestExperienceInput,
+  ): Promise<WorkflowTemplateDefinition> {
+    this.assertHandoffAccess(request, orgTenantId, true)
+    return saveRequestExperience(orgTenantId, templateId, body.expectedVersion, body.experience)
   }
 
   /**
@@ -1231,6 +1350,74 @@ export class OrganizationController extends Controller {
   }
 
   /**
+   * The team list with what each person still has to do: sign in to the app, accept the
+   * identity card, the staff card and any role cards. Owners and admins see everyone;
+   * anyone else sees only their own row.
+   */
+  @Get('/{orgTenantId}/members/onboarding')
+  @Security('jwt')
+  public async listMemberOnboarding(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+  ): Promise<OrgMemberOnboarding[]> {
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+    if (user.tenantId !== orgTenantId) {
+      this.setStatus(403)
+      throw new StatusException('Token scope does not match organization', 403)
+    }
+    const role = this.orgService.getUserOrgRole(user.id, orgTenantId)
+    if (!role) {
+      this.setStatus(403)
+      throw new StatusException('Not a member of this organization', 403)
+    }
+    await this.orgService.refreshMemberNames(orgTenantId)
+    const rows = orgMemberOnboardingService.listForOrganization(orgTenantId)
+    if (role === 'owner' || role === 'admin') return rows
+    return rows.filter((row) => row.userId === user.id)
+  }
+
+  /**
+   * Send a team member the cards they are missing (the "Send again" button). Owner/admin only.
+   * `kind` is identity, employee, role, or all (default).
+   */
+  @Post('/{orgTenantId}/members/{targetUserId}/cards/send')
+  @Security('jwt')
+  public async sendMemberCards(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Path() targetUserId: string,
+    @Body() body: { kind?: SendMemberCardsKind },
+  ): Promise<SendMemberCardsResult> {
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+    if (user.tenantId !== orgTenantId) {
+      this.setStatus(403)
+      throw new StatusException('Token scope does not match organization', 403)
+    }
+    const role = this.orgService.getUserOrgRole(user.id, orgTenantId)
+    if (role !== 'owner' && role !== 'admin') {
+      this.setStatus(403)
+      throw new StatusException('Only owners and admins can send cards', 403)
+    }
+    try {
+      return await orgMemberOnboardingService.sendCards(orgTenantId, targetUserId, body?.kind || 'all')
+    } catch (error: any) {
+      if (/not a member/i.test(String(error?.message))) {
+        this.setStatus(404)
+        throw new StatusException('That person is not a member of this organization', 404)
+      }
+      throw error
+    }
+  }
+
+  /**
    * Invite a user to an organization.
    * Requires owner or admin role.
    */
@@ -1354,13 +1541,47 @@ export class OrganizationController extends Controller {
     }
   }
 
+  /**
+   * Is this phone already in the app? Does not add them to the team.
+   * An outside contact sent on a job uses this so they get the job card only.
+   */
+  @Get('/{orgTenantId}/members/by-phone')
+  @Security('jwt')
+  public async lookupMemberByPhone(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Query() phone: string,
+  ): Promise<{ userId?: string; inTeam: boolean; role?: string }> {
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+    if (user.tenantId !== orgTenantId) {
+      this.setStatus(403)
+      throw new StatusException('Token scope does not match organization', 403)
+    }
+    if (!phone?.trim()) {
+      this.setStatus(400)
+      throw new StatusException('phone is required', 400)
+    }
+    return this.orgService.lookupUserByPhone(orgTenantId, phone)
+  }
+
   @Post('/{orgTenantId}/members/invite')
   @Security('jwt')
   public async inviteMemberByPhone(
     @Request() request: ExRequest,
     @Path() orgTenantId: string,
     @Body() body: InviteMemberByPhoneRequest,
-  ): Promise<{ membershipId: string; targetUserId: string; role: string; message: string }> {
+  ): Promise<{
+    membershipId: string
+    targetUserId: string
+    role: string
+    accountCreated: boolean
+    alerted: boolean
+    message: string
+  }> {
     const user = (request as any).user
     if (!user?.id) {
       this.setStatus(401)
@@ -1380,7 +1601,12 @@ export class OrganizationController extends Controller {
     try {
       const result = await this.orgService.inviteMemberByPhone(orgTenantId, body.phone, body.role || 'member', user.id)
       this.setStatus(201)
-      return { ...result, message: 'Member added successfully' }
+      const message = result.accountCreated
+        ? result.alerted
+          ? 'Their account is open and they have been told. They sign in with this phone number and choose their own PIN. Their staff card is waiting.'
+          : 'Their account is open. Ask them to sign in with this phone number and choose a PIN. A message could not be sent.'
+        : 'They are on the team. Their staff card is in the app.'
+      return { ...result, message }
     } catch (error: any) {
       if (error.message.includes('Only org owners')) {
         this.setStatus(403)

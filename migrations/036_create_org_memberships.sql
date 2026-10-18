@@ -1,3 +1,4 @@
+-- SUPERSEDED: not in the DatabaseManager registry and never run. Replaced by 097.
 -- Organization Memberships: links personal user accounts to org tenants
 -- Pattern: GitHub/Clerk/Slack style — one user, many orgs
 -- A user authenticates as themselves (personal tenant), then switches org context.

@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { captureOrganizationSwitchContext } from '../../shared/taskContext'
 
 export type OrganizationMembership = {
   orgTenantId: string
@@ -34,6 +35,14 @@ export function getOrgScopedToken(): string | null {
     window.localStorage.getItem('walletToken') ||
     null
   )
+}
+
+/** The signed-in person's user id, read from the organisation token (empty when signed out). */
+export function readCurrentUserId(): string {
+  const token = getOrgScopedToken()
+  if (!token) return ''
+  const payload = decodeJwtPayload(token)
+  return String(payload?.id || payload?.userId || '')
 }
 
 export function getPersonalToken(): string | null {
@@ -157,6 +166,8 @@ export async function switchOrganizationContext(params: {
   personalToken: string
 }): Promise<string> {
   const { backendUrl, orgTenantId, orgName, personalToken } = params
+  const assertContextUnchanged =
+    typeof window === 'undefined' ? undefined : captureOrganizationSwitchContext(window.localStorage)
 
   const response = await axios.post(
     `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}/switch`,
@@ -170,32 +181,52 @@ export async function switchOrganizationContext(params: {
   }
 
   if (typeof window !== 'undefined') {
-    const resolvedName = response.data?.orgName || response.data?.name || orgName || orgTenantId
-    const role = response.data?.role || response.data?.orgRole || 'member'
-
-    // Same keys the header account picker writes, so every page sees the org session.
-    window.localStorage.setItem('credoOrgToken', orgToken)
-    window.localStorage.setItem('tenantToken', orgToken)
-    window.localStorage.setItem('credoTenantToken', orgToken)
-    window.localStorage.setItem('credoContextMode', 'org')
-    window.localStorage.setItem('credoTenantId', orgTenantId)
-    window.localStorage.setItem('tenantId', orgTenantId)
-    window.localStorage.setItem('credoOrgName', resolvedName)
-    if (response.data?.sector) window.localStorage.setItem('credoTenantSector', response.data.sector)
-    else window.localStorage.removeItem('credoTenantSector')
-    if (response.data?.workflowTypes) window.localStorage.setItem('credoActiveWorkflowTypes', JSON.stringify(response.data.workflowTypes))
-    else window.localStorage.removeItem('credoActiveWorkflowTypes')
-
-    persistActiveOrganization({ orgTenantId, name: resolvedName, role })
-    const cached = readOrganizationsFromCache()
-    persistOrganizationsToCache([
-      { orgTenantId, name: resolvedName, role },
-      ...cached.filter((org) => org.orgTenantId !== orgTenantId),
-    ])
-    window.dispatchEvent(new Event('credo:workflow-context-updated'))
+    assertContextUnchanged?.()
+    applyOrganizationSession(orgTenantId, response.data, orgName)
   }
 
   return orgToken
+}
+
+export function applyOrganizationSession(
+  orgTenantId: string,
+  session: {
+    token: string
+    orgName?: string
+    name?: string
+    role?: string
+    orgRole?: string
+    sector?: string
+    workflowTypes?: string[]
+  },
+  orgName?: string,
+): void {
+  if (!session.token) throw new Error('Organisation entry did not return a session')
+  const orgToken = session.token
+  const resolvedName = session.orgName || session.name || orgName || orgTenantId
+  const role = session.role || session.orgRole || 'member'
+
+  // Same keys the header account picker writes, so every page sees the org session.
+  window.localStorage.setItem('credoOrgToken', orgToken)
+  window.localStorage.setItem('tenantToken', orgToken)
+  window.localStorage.setItem('credoTenantToken', orgToken)
+  window.localStorage.setItem('credoContextMode', 'org')
+  window.localStorage.setItem('credoTenantId', orgTenantId)
+  window.localStorage.setItem('tenantId', orgTenantId)
+  window.localStorage.setItem('credoOrgName', resolvedName)
+  if (session.sector) window.localStorage.setItem('credoTenantSector', session.sector)
+  else window.localStorage.removeItem('credoTenantSector')
+  if (session.workflowTypes)
+    window.localStorage.setItem('credoActiveWorkflowTypes', JSON.stringify(session.workflowTypes))
+  else window.localStorage.removeItem('credoActiveWorkflowTypes')
+
+  persistActiveOrganization({ orgTenantId, name: resolvedName, role })
+  const cached = readOrganizationsFromCache()
+  persistOrganizationsToCache([
+    { orgTenantId, name: resolvedName, role },
+    ...cached.filter((org) => org.orgTenantId !== orgTenantId),
+  ])
+  window.dispatchEvent(new Event('credo:workflow-context-updated'))
 }
 
 /** True when the session is already acting as this organization. */

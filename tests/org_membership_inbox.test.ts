@@ -19,7 +19,13 @@ import {
 } from '../src/services/WorkflowStageInboxService'
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
 
-import { addDepartment, addMember, initTestDatabases, seedOrganization, type TestDatabases } from './utils/orgReadinessFixture'
+import {
+  addDepartment,
+  addMember,
+  initTestDatabases,
+  seedOrganization,
+  type TestDatabases,
+} from './utils/orgReadinessFixture'
 
 let databases: TestDatabases
 
@@ -55,10 +61,10 @@ describe('stage route mapping', () => {
       stageAction: 'record_payment',
     })
     expect(resolveStageRoute('finance.payment_request').workflowType).toBe('accounts_payable')
-    expect(resolveStageRoute('finance.expense_claim').stageAction).toBe('approve_requisition')
+    expect(resolveStageRoute('finance.expense_claim').stageAction).toBe('approve_request')
     expect(resolveStageRoute('invoice', 'accounts_receivable').stageAction).toBe('record_payment')
     expect(resolveStageRoute('requisition').workflowType).toBe('internal_requisitions')
-    expect(resolveStageRoute('field.inspection', 'field_execution_fept').stageAction).toBe('assign_field_worker')
+    expect(resolveStageRoute('field.inspection', 'field_execution_fept').stageAction).toBe('inspect_site')
     expect(resolveStageRoute('hr.onboarding').stageAction).toBe('approve_onboarding')
     expect(resolveStageRoute('department_request').stageAction).toBe('approve_requisition')
     expect(delegationCoversStage(['finance.approve'], 'record_payment', 'education_fee_payment')).toBe(true)
@@ -102,8 +108,18 @@ describe('employee and delegation offers', () => {
     const org = seedOrganization({ name: 'Delegate Ltd' })
     const delegatorUserId = `user-${randomUUID()}`
     const delegateUserId = `user-${randomUUID()}`
-    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, userId: delegatorUserId, role: 'owner' })
-    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, userId: delegateUserId, role: 'clerk' })
+    addMember({
+      orgTenantId: org.orgTenantId,
+      organizationId: org.organizationId,
+      userId: delegatorUserId,
+      role: 'owner',
+    })
+    addMember({
+      orgTenantId: org.orgTenantId,
+      organizationId: org.organizationId,
+      userId: delegateUserId,
+      role: 'clerk',
+    })
 
     const delegationId = randomUUID()
     DatabaseManager.getDatabase()
@@ -150,8 +166,18 @@ describe('stage inbox routing', () => {
     const org = seedOrganization({ name: 'Fees Ltd' })
     const actorUserId = `user-${randomUUID()}`
     const delegateUserId = `user-${randomUUID()}`
-    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, userId: actorUserId, role: 'finance_manager' })
-    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, userId: delegateUserId, role: 'clerk' })
+    addMember({
+      orgTenantId: org.orgTenantId,
+      organizationId: org.organizationId,
+      userId: actorUserId,
+      role: 'finance_manager',
+    })
+    addMember({
+      orgTenantId: org.orgTenantId,
+      organizationId: org.organizationId,
+      userId: delegateUserId,
+      role: 'clerk',
+    })
     orgWorkflowActorService.upsertDefault({
       orgTenantId: org.orgTenantId,
       workflowType: 'education_fee_payment',
@@ -219,13 +245,120 @@ describe('stage inbox routing', () => {
     expect(pending(`wallet-${clerkUserId}`, 'workflow_stage_action')).toHaveLength(1)
     expect(pending(`wallet-${org.ownerUserId}`, 'workflow_stage_action')).toHaveLength(0)
   })
+
+  test('field sign-off falls to the supervisors: each gets the card, the step, and may finish it', () => {
+    const org = seedOrganization({ name: 'Crew Ltd' })
+    const supervisorA = `user-${randomUUID()}`
+    const supervisorB = `user-${randomUUID()}`
+    const worker = `user-${randomUUID()}`
+    addMember({
+      orgTenantId: org.orgTenantId,
+      organizationId: org.organizationId,
+      userId: supervisorA,
+      role: 'supervisor',
+    })
+    addMember({
+      orgTenantId: org.orgTenantId,
+      organizationId: org.organizationId,
+      userId: supervisorB,
+      role: 'supervisor',
+    })
+    addMember({
+      orgTenantId: org.orgTenantId,
+      organizationId: org.organizationId,
+      userId: worker,
+      role: 'field_worker',
+    })
+
+    const routed = routeWorkflowStageInbox({
+      orgTenantId: org.orgTenantId,
+      requestType: 'field.signoff',
+      workflowType: 'field_execution_fept',
+      stageAction: 'acknowledge_execution',
+      sourceId: `job-${randomUUID()}`,
+      title: 'Sign off job',
+      body: 'Confirm the work is done.',
+    })
+
+    const recipients = routed.recipients.map((r) => r.userId).sort()
+    expect(recipients).toEqual([supervisorA, supervisorB].sort())
+    expect(pending(`wallet-${worker}`, 'workflow_stage_action')).toHaveLength(0)
+    expect(pending(`wallet-${org.ownerUserId}`, 'workflow_stage_action')).toHaveLength(0)
+
+    // The staff card of every supervisor lists the sign-off step; the worker's does not.
+    for (const supervisor of [supervisorA, supervisorB]) {
+      expect(
+        orgWorkflowActorCredentialService.coveredStageActions(org.orgTenantId, 'field_execution_fept', supervisor),
+      ).toContain('acknowledge_execution')
+    }
+    expect(
+      orgWorkflowActorCredentialService.coveredStageActions(org.orgTenantId, 'field_execution_fept', worker),
+    ).not.toContain('acknowledge_execution')
+
+    // The finishing endpoints ask the same question.
+    const scope = {
+      orgTenantId: org.orgTenantId,
+      workflowType: 'field_execution_fept',
+      stageAction: 'acknowledge_execution',
+    }
+    expect(orgWorkflowActorService.mayAct({ ...scope, userId: supervisorA }).allowed).toBe(true)
+    expect(orgWorkflowActorService.mayAct({ ...scope, userId: supervisorB }).why).toBe('role')
+    expect(orgWorkflowActorService.mayAct({ ...scope, userId: org.ownerUserId }).why).toBe('admin')
+    expect(orgWorkflowActorService.mayAct({ ...scope, userId: worker }).allowed).toBe(false)
+    // The person a job names for the step may act even without the role.
+    expect(orgWorkflowActorService.mayAct({ ...scope, userId: worker, namedUserId: worker }).why).toBe('named')
+  })
+
+  test('a step with a chosen person stays with that person; owners stand in', () => {
+    const org = seedOrganization({ name: 'Chosen Ltd' })
+    const chosen = `user-${randomUUID()}`
+    const otherSupervisor = `user-${randomUUID()}`
+    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, userId: chosen, role: 'supervisor' })
+    addMember({
+      orgTenantId: org.orgTenantId,
+      organizationId: org.organizationId,
+      userId: otherSupervisor,
+      role: 'supervisor',
+    })
+    orgWorkflowActorService.upsertDefault({
+      orgTenantId: org.orgTenantId,
+      workflowType: 'field_execution_fept',
+      stageAction: 'acknowledge_execution',
+      defaultUserId: chosen,
+    })
+
+    const routed = routeWorkflowStageInbox({
+      orgTenantId: org.orgTenantId,
+      requestType: 'field.signoff',
+      workflowType: 'field_execution_fept',
+      stageAction: 'acknowledge_execution',
+      sourceId: `job-${randomUUID()}`,
+      title: 'Sign off job',
+      body: 'Confirm the work is done.',
+    })
+    expect(routed.recipients.map((r) => r.userId)).toEqual([chosen])
+
+    const scope = {
+      orgTenantId: org.orgTenantId,
+      workflowType: 'field_execution_fept',
+      stageAction: 'acknowledge_execution',
+    }
+    expect(orgWorkflowActorService.mayAct({ ...scope, userId: chosen }).why).toBe('configured')
+    expect(orgWorkflowActorService.mayAct({ ...scope, userId: otherSupervisor }).allowed).toBe(false)
+    expect(orgWorkflowActorService.mayAct({ ...scope, userId: org.ownerUserId }).why).toBe('admin')
+  })
 })
 
 describe('presented evidence', () => {
   test('accepts an employee credential for the org and rejects one from another org', () => {
     const org = seedOrganization({ name: 'Evidence Ltd' })
     const actorUserId = `user-${randomUUID()}`
-    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, userId: actorUserId, role: 'approver' })
+    addMember({
+      orgTenantId: org.orgTenantId,
+      organizationId: org.organizationId,
+      userId: actorUserId,
+      role: 'approver',
+    })
     orgWorkflowActorService.upsertDefault({
       orgTenantId: org.orgTenantId,
       workflowType: 'internal_requisitions',
@@ -234,7 +367,9 @@ describe('presented evidence', () => {
     })
 
     const accepted = resolveAcceptedProofVcTypes(org.orgTenantId, 'requisition_approval')
-    expect(accepted).toEqual(expect.arrayContaining(['EmployeeCredential', 'DelegationCredential', 'OrgWorkflowActorCredential']))
+    expect(accepted).toEqual(
+      expect.arrayContaining(['EmployeeCredential', 'DelegationCredential', 'OrgWorkflowActorCredential']),
+    )
 
     const good = evaluateOrgEvidenceProof(
       {
@@ -242,7 +377,12 @@ describe('presented evidence', () => {
           verifiableCredential: [
             {
               type: ['VerifiableCredential', 'EmployeeCredential'],
-              credentialSubject: { orgTenantId: org.orgTenantId, userId: actorUserId, role: 'approver', employmentStatus: 'active' },
+              credentialSubject: {
+                orgTenantId: org.orgTenantId,
+                userId: actorUserId,
+                role: 'approver',
+                employmentStatus: 'active',
+              },
             },
           ],
         },
@@ -269,5 +409,38 @@ describe('presented evidence', () => {
 
     expect(good).toMatchObject({ present: true, valid: true, role: 'approver' })
     expect(bad).toMatchObject({ present: true, valid: false })
+  })
+
+  test('a staff card that lists other steps still counts when the job names its holder for this step', () => {
+    const org = seedOrganization({ name: 'Named Ltd' })
+    const signer = `user-${randomUUID()}`
+    const stranger = `user-${randomUUID()}`
+    const cardOf = (userId: string) => ({
+      presentation: {
+        verifiableCredential: [
+          {
+            type: ['VerifiableCredential', 'EmployeeCredential'],
+            credentialSubject: {
+              orgTenantId: org.orgTenantId,
+              userId,
+              role: 'supervisor',
+              employmentStatus: 'active',
+              stageActions: ['inspect_site'],
+            },
+          },
+        ],
+      },
+    })
+
+    const scope = { orgTenantId: org.orgTenantId, stageAction: 'acknowledge_execution' }
+    expect(evaluateOrgEvidenceProof(cardOf(signer), scope)).toMatchObject({ present: true, valid: false })
+    expect(evaluateOrgEvidenceProof(cardOf(signer), { ...scope, namedUserId: signer })).toMatchObject({
+      present: true,
+      valid: true,
+    })
+    expect(evaluateOrgEvidenceProof(cardOf(stranger), { ...scope, namedUserId: signer })).toMatchObject({
+      present: true,
+      valid: false,
+    })
   })
 })

@@ -10,7 +10,7 @@
 import type { RestMultiTenantAgentModules } from '../../cliAgent'
 import type { Request as ExRequest } from 'express'
 
-import { Agent, W3cCredentialRecord, W3cCredentialService } from '@credo-ts/core'
+import { Agent, SdJwtVcRecord, W3cCredentialRecord, W3cCredentialService } from '@credo-ts/core'
 import { randomUUID } from 'crypto'
 import { Controller, Post, Get, Delete, Route, Tags, Body, Path, Request, Security, ValidateError } from 'tsoa'
 import { container } from 'tsyringe'
@@ -20,8 +20,13 @@ import { ORG_WORKFLOW_ACTOR_OFFER_SOURCE_TYPE } from '../../config/credentials/O
 import { PLATFORM_IDENTITY_VC_TYPE } from '../../config/credentials/PlatformIdentityVC'
 import { PLATFORM_IDENTITY_OFFER_SOURCE_TYPE } from '../../services/OrgMembershipCredentialService'
 import { AuthContext, SCOPES } from '../../enums'
+import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { outboxService } from '../../services/OutboxService'
+import { custodyRebindService } from '../../services/ssi/CustodyRebindService'
+import { cardIssuerOf, holderActivityService } from '../../services/ssi/HolderActivityService'
+import { classifyOfferFailure, isCommercialDocumentOffer } from '../../services/ssi/offerClassification'
+import { redeemOfferIntoWallet, withTenantHolder } from '../../services/ssi/TenantHolder'
 import { rootLogger } from '../../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'WalletCredentialsController' })
@@ -82,6 +87,7 @@ interface PendingOfferRow {
   last_error: string | null
   accepted_at: string | null
   resolved_at: string | null
+  org_name?: string | null
 }
 
 /** Task-style rows that are rendered from their own tables, not as raw credential offers. */
@@ -204,14 +210,9 @@ export class WalletCredentialsController extends Controller {
     }
   }
 
-  private holderModule(baseAgent: Agent<RestMultiTenantAgentModules>): any {
-    return (baseAgent as any).openid4vc?.holder || (baseAgent.modules as any).openId4VcHolder
-  }
-
   /**
-   * If `rawOffer` belongs to an unresolved role-card row (`org_workflow_actor`), ask the actor
-   * credential service to issue a fresh offer for the same member/workflow. Returns the new
-   * offer URI, or null when the row is not a role card or re-issuing failed.
+   * An old per-workflow role card that can no longer be accepted is replaced by the one staff
+   * card for that person. Returns the staff-card offer, or null when this row is not a role card.
    */
   private async reissueExpiredRoleCard(
     db: ReturnType<typeof DatabaseManager.getDatabase>,
@@ -238,25 +239,31 @@ export class WalletCredentialsController extends Controller {
         meta = {}
       }
       const orgTenantId = String(meta.orgTenantId || '')
-      const workflowType = String(meta.workflowType || '')
-      const stageAction = Array.isArray(meta.stageActions) ? String(meta.stageActions[0] || '') : ''
-      if (!orgTenantId || !workflowType || !stageAction) return null
+      const userId = String(meta.userId || '')
+      if (!orgTenantId || !userId) return null
 
-      const { orgWorkflowActorCredentialService } = await import('../../services/OrgWorkflowActorCredentialService')
-      const result = await orgWorkflowActorCredentialService.ensureActorCredential({
+      const { orgMembershipCredentialService } = await import('../../services/OrgMembershipCredentialService')
+      const { EMPLOYEE_OFFER_SOURCE_TYPE } = await import('../../config/credentials/EmployeeVC')
+      const result = await orgMembershipCredentialService.ensureEmployeeCredential({
         orgTenantId,
-        workflowType,
-        stageAction,
+        userId,
+        walletTenantId: tenantId,
+        role: String(meta.role || meta.memberRole || 'employee'),
+        source: 'membership',
         force: true,
         reason: 'offer_expired_auto_resend',
       })
-      if (result.outcome !== 'offered' || !result.offerRowId) {
-        request.logger?.warn({ result }, 'Could not re-issue expired role card')
+      if (result.outcome !== 'offered' && result.outcome !== 'already_offered') {
+        request.logger?.warn({ result }, 'Could not re-issue expired role card as a staff card')
         return null
       }
       const fresh = db
-        .prepare(`SELECT offer_uri FROM wallet_pending_offers WHERE id = ? LIMIT 1`)
-        .get(result.offerRowId) as { offer_uri?: string } | undefined
+        .prepare(
+          `SELECT offer_uri FROM wallet_pending_offers
+           WHERE tenant_id = ? AND source_type = ? AND source_id = ? AND resolved_at IS NULL
+           ORDER BY datetime(created_at) DESC LIMIT 1`,
+        )
+        .get(tenantId, EMPLOYEE_OFFER_SOURCE_TYPE, `${orgTenantId}:${userId}`) as { offer_uri?: string } | undefined
       if (!fresh?.offer_uri) return null
       db.prepare(
         `UPDATE wallet_pending_offers SET resolved_at = COALESCE(resolved_at, ?), last_error = 'expired: re-sent' WHERE id = ?`,
@@ -304,27 +311,39 @@ export class WalletCredentialsController extends Controller {
       db.prepare(
         `UPDATE wallet_pending_offers SET resolved_at = COALESCE(resolved_at, ?), last_error = 'expired: re-sent' WHERE id = ?`,
       ).run(now, row.id)
+      const reopen = () =>
+        db
+          .prepare(
+            `UPDATE wallet_pending_offers SET resolved_at = NULL, last_error = 'expired: re-send failed' WHERE id = ?`,
+          )
+          .run(row.id)
 
       const { orgMembershipCredentialService } = await import('../../services/OrgMembershipCredentialService')
-      const result = await orgMembershipCredentialService.ensureEmployeeCredential({
-        orgTenantId,
-        userId,
-        walletTenantId: tenantId,
-        role: String(meta.role || meta.memberRole || 'employee'),
-        department: meta.department ? String(meta.department) : undefined,
-        source: meta.source === 'onboarding' || meta.source === 'internal_contact' ? meta.source : 'membership',
-      })
+      const result = await orgMembershipCredentialService
+        .ensureEmployeeCredential({
+          orgTenantId,
+          userId,
+          walletTenantId: tenantId,
+          role: String(meta.role || meta.memberRole || 'employee'),
+          department: meta.department ? String(meta.department) : undefined,
+          source: meta.source === 'onboarding' || meta.source === 'internal_contact' ? meta.source : 'membership',
+        })
+        .catch((error: any) => ({ outcome: 'failed', error: error?.message }) as any)
       if (result.outcome !== 'offered' && result.outcome !== 'already_offered') {
+        reopen()
         request.logger?.warn({ result }, 'Could not re-issue expired employee credential')
         return null
       }
       const fresh = db
         .prepare(
           `SELECT offer_uri FROM wallet_pending_offers
-           WHERE tenant_id = ? AND source_type = ? AND source_id = ? AND resolved_at IS NULL
+           WHERE tenant_id = ? AND source_type = ? AND source_id = ? AND resolved_at IS NULL AND id != ?
            ORDER BY datetime(created_at) DESC LIMIT 1`,
         )
-        .get(tenantId, EMPLOYEE_OFFER_SOURCE_TYPE, `${orgTenantId}:${userId}`) as { offer_uri?: string } | undefined
+        .get(tenantId, EMPLOYEE_OFFER_SOURCE_TYPE, `${orgTenantId}:${userId}`, row.id) as
+        | { offer_uri?: string }
+        | undefined
+      if (!fresh?.offer_uri) reopen()
       return fresh?.offer_uri || null
     } catch (error: any) {
       request.logger?.warn({ err: error?.message }, 'Re-issuing expired employee credential failed')
@@ -364,59 +383,40 @@ export class WalletCredentialsController extends Controller {
       db.prepare(
         `UPDATE wallet_pending_offers SET resolved_at = COALESCE(resolved_at, ?), last_error = 'expired: re-sent' WHERE id = ?`,
       ).run(now, row.id)
+      // queueOffer skips a new card while an open one exists, so the old card is closed first and
+      // reopened when no fresh offer could be made: the person never loses the card.
+      const reopen = () =>
+        db
+          .prepare(
+            `UPDATE wallet_pending_offers SET resolved_at = NULL, last_error = 'expired: re-send failed' WHERE id = ?`,
+          )
+          .run(row.id)
 
       const { SSIAuthService } = await import('../../services/SSIAuthService')
       const ssiAuthService = container.resolve(SSIAuthService)
       const displayName = meta.displayName ? String(meta.displayName) : undefined
-      const freshUri = await ssiAuthService.reissuePlatformIdentityOffer(tenantId, displayName)
+      const freshUri = await ssiAuthService.reissuePlatformIdentityOffer(tenantId, displayName).catch((error: any) => {
+        request.logger?.warn({ err: error?.message }, 'Platform identity re-issue threw')
+        return undefined
+      })
       if (!freshUri) {
+        reopen()
         request.logger?.warn({ tenantId }, 'Could not re-issue platform identity')
         return null
       }
       const fresh = db
         .prepare(
           `SELECT offer_uri FROM wallet_pending_offers
-           WHERE tenant_id = ? AND source_type = ? AND resolved_at IS NULL
+           WHERE tenant_id = ? AND source_type = ? AND resolved_at IS NULL AND id != ?
            ORDER BY datetime(created_at) DESC LIMIT 1`,
         )
-        .get(tenantId, PLATFORM_IDENTITY_OFFER_SOURCE_TYPE) as { offer_uri?: string } | undefined
+        .get(tenantId, PLATFORM_IDENTITY_OFFER_SOURCE_TYPE, row.id) as { offer_uri?: string } | undefined
+      if (!fresh?.offer_uri) reopen()
       return fresh?.offer_uri || freshUri
     } catch (error: any) {
       request.logger?.warn({ err: error?.message }, 'Re-issuing platform identity failed')
       return null
     }
-  }
-
-  /**
-   * Redeem a resolved pre-authorized offer with the Credo 0.7 holder API and return the received
-   * credentials (`{ record }` entries). Falls back to the legacy single-call API when present.
-   */
-  private async requestCredentialsFromOffer(holder: any, resolvedOffer: any, holderDidUrl: string): Promise<any[]> {
-    const credentialBindingResolver = async () => ({ method: 'did', didUrls: [holderDidUrl], didUrl: holderDidUrl })
-
-    if (typeof holder.requestToken === 'function' && typeof holder.requestCredentials === 'function') {
-      const tokenResponse = await holder.requestToken({ resolvedCredentialOffer: resolvedOffer })
-      const result = await holder.requestCredentials({
-        resolvedCredentialOffer: resolvedOffer,
-        accessToken: tokenResponse.accessToken,
-        cNonce: tokenResponse.cNonce,
-        dpop: tokenResponse.dpop,
-        verifyCredentialStatus: false,
-        credentialBindingResolver,
-      })
-      return Array.isArray(result?.credentials) ? result.credentials : Array.isArray(result) ? result : []
-    }
-
-    if (typeof holder.acceptCredentialOfferUsingPreAuthorizedCode === 'function') {
-      const legacy = await holder.acceptCredentialOfferUsingPreAuthorizedCode(resolvedOffer, {
-        userPin: undefined,
-        verifyCredentialStatus: false,
-        credentialBindingResolver,
-      })
-      return Array.isArray(legacy) ? legacy : []
-    }
-
-    throw new Error('OpenID4VC holder module does not expose a credential request API')
   }
 
   private markOfferResolved(rowId: string, reason: string): void {
@@ -443,7 +443,16 @@ export class WalletCredentialsController extends Controller {
   public async getPendingOffers(@Request() request: ExRequest): Promise<{ offers: PendingOffer[] }> {
     const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
     const context = this.resolveWalletContext(request)
-    const tenantId = context.walletTenantId
+    // `?holder=organization` with an organisation sign-in reads the organisation's own records
+    // (site inspection, completion). Without it an organisation sign-in still reads the person's.
+    const wantsOrgHolder = String((request.query as any)?.holder || '') === 'organization'
+    if (wantsOrgHolder) {
+      // Only the people who run the organisation hold its records.
+      if (context.authContext !== AuthContext.Org || !['owner', 'admin'].includes(String(context.orgRole || ''))) {
+        return { offers: [] }
+      }
+    }
+    const tenantId = wantsOrgHolder ? context.activeOrgTenantId : context.walletTenantId
 
     if (!tenantId) {
       this.setStatus(401)
@@ -453,18 +462,29 @@ export class WalletCredentialsController extends Controller {
     const offers: PendingOffer[] = []
     const db = DatabaseManager.getDatabase()
     const nowIso = new Date().toISOString()
+    custodyRebindService.scheduleRebind(tenantId)
+
+    // Same leave window or the same expense offered more than once: keep one card.
+    try {
+      const { platformRequestService } = await import('../../services/PlatformRequestService')
+      platformRequestService.collapseDuplicateApprovalOffers()
+    } catch (dedupeErr: any) {
+      request.logger?.warn({ err: dedupeErr?.message }, 'Could not collapse duplicate approval offers')
+    }
 
     try {
       const queuedRows = db
         .prepare(
           `
-          SELECT id, source_id, credential_type, offer_uri, title, body, metadata, created_at, source_type,
-                 workflow_run_id, attempt_count, last_attempt_at, last_error, accepted_at, resolved_at
-          FROM wallet_pending_offers
-          WHERE tenant_id = ?
-            AND COALESCE(source_type, '') NOT IN (${TASK_SOURCE_TYPES.map(() => '?').join(', ')})
-            AND resolved_at IS NULL
-          ORDER BY created_at DESC
+          SELECT w.id, w.source_id, w.credential_type, w.offer_uri, w.title, w.body, w.metadata, w.created_at,
+                 w.source_type, w.workflow_run_id, w.attempt_count, w.last_attempt_at, w.last_error,
+                 w.accepted_at, w.resolved_at, o.name AS org_name
+          FROM wallet_pending_offers w
+          LEFT JOIN organizations o ON o.tenant_id = w.issuer_tenant_id
+          WHERE w.tenant_id = ?
+            AND COALESCE(w.source_type, '') NOT IN (${TASK_SOURCE_TYPES.map(() => '?').join(', ')})
+            AND w.resolved_at IS NULL
+          ORDER BY w.created_at DESC
           LIMIT 200
         `,
         )
@@ -534,7 +554,7 @@ export class WalletCredentialsController extends Controller {
         offers.push({
           id: row.id,
           sourceId: row.source_id || undefined,
-          issuerName: claims.orgName ? String(claims.orgName) : 'Credentis Platform',
+          issuerName: claims.orgName ? String(claims.orgName) : row.org_name || 'Credentis Platform',
           credentialType,
           offerUri: row.offer_uri,
           createdAt: row.created_at || undefined,
@@ -562,7 +582,20 @@ export class WalletCredentialsController extends Controller {
             LIMIT 100
           `,
           )
-          .all(tenantId) as Array<Pick<PendingOfferRow, 'id' | 'source_type' | 'source_id' | 'credential_type' | 'title' | 'body' | 'metadata' | 'created_at' | 'workflow_run_id'>>
+          .all(tenantId) as Array<
+          Pick<
+            PendingOfferRow,
+            | 'id'
+            | 'source_type'
+            | 'source_id'
+            | 'credential_type'
+            | 'title'
+            | 'body'
+            | 'metadata'
+            | 'created_at'
+            | 'workflow_run_id'
+          >
+        >
 
         const seenRunIds = new Set<string>()
         for (const aRow of assignmentRows) {
@@ -596,7 +629,8 @@ export class WalletCredentialsController extends Controller {
 
           offers.push({
             id: aRow.id,
-            issuerName: meta.orgName || (meta.orgTenantId ? `Org: ${String(meta.orgTenantId).slice(0, 8)}` : 'Field Dispatcher'),
+            issuerName:
+              meta.orgName || (meta.orgTenantId ? `Org: ${String(meta.orgTenantId).slice(0, 8)}` : 'Field Dispatcher'),
             credentialType: aRow.credential_type || 'FieldTask',
             offerUri: '',
             createdAt: aRow.created_at || undefined,
@@ -701,7 +735,11 @@ export class WalletCredentialsController extends Controller {
           const status = String(row.tx_status || '').toLowerCase()
           const requiredAction = String(row.required_action || '').trim()
           const requiredActorTenant = String(row.required_actor_tenant_id || '').trim()
-          if (!requiredAction || ['completed', 'cancelled'].includes(status) || (requiredActorTenant && requiredActorTenant !== tenantId)) {
+          if (
+            !requiredAction ||
+            ['completed', 'cancelled'].includes(status) ||
+            (requiredActorTenant && requiredActorTenant !== tenantId)
+          ) {
             db.prepare(
               `UPDATE wallet_pending_offers SET resolved_at = COALESCE(resolved_at, ?), accepted_at = COALESCE(accepted_at, ?), last_attempt_at = ? WHERE id = ?`,
             ).run(nowIso, nowIso, nowIso, row.id)
@@ -757,7 +795,9 @@ export class WalletCredentialsController extends Controller {
           offers.push({
             id: row.id,
             sourceId: row.source_id || undefined,
-            issuerName: claims.orgName || (claims.targetOrgTenantId ? `Org: ${String(claims.targetOrgTenantId).slice(0, 8)}` : 'Organization'),
+            issuerName:
+              claims.orgName ||
+              (claims.targetOrgTenantId ? `Org: ${String(claims.targetOrgTenantId).slice(0, 8)}` : 'Organization'),
             credentialType: row.credential_type || 'WorkflowStageAction',
             offerUri: row.offer_uri || '',
             createdAt: row.created_at || undefined,
@@ -837,7 +877,7 @@ export class WalletCredentialsController extends Controller {
         .prepare(
           `
           SELECT apr.id AS receipt_row_id, apr.payment_id, apr.credential_type, apr.credential_offer_url,
-                 apr.issued_at, ap.amount, ap.currency, ap.merchant_tenant_id AS merchant, ap.invoice_id, ap.metadata AS payment_metadata
+                 apr.issued_at, ap.amount, ap.currency, ap.invoice_id, ap.metadata AS payment_metadata
           FROM ack_payment_receipts apr
           JOIN ack_payments ap ON apr.payment_id = ap.id
           WHERE ap.tenant_id = ? AND apr.credential_offer_url IS NOT NULL AND apr.resolved_at IS NULL
@@ -857,14 +897,15 @@ export class WalletCredentialsController extends Controller {
           status: 'pending',
           amount: r.amount ?? undefined,
           currency: r.currency ?? undefined,
-          merchant: r.merchant ?? undefined,
+          merchant: typeof metadata.merchantTenantId === 'string' ? metadata.merchantTenantId : undefined,
           invoiceRef: String(r.invoice_id || metadata.invoiceRef || '').trim() || undefined,
           metadata,
           issuedAt: r.issued_at,
         })
       }
     } catch (receiptErr: any) {
-      request.logger?.debug({ err: receiptErr?.message }, 'ack_payment_receipts unavailable')
+      logger.error({ err: receiptErr }, 'Could not load payment receipt offers')
+      throw receiptErr
     }
 
     const queuedRows = db
@@ -881,6 +922,9 @@ export class WalletCredentialsController extends Controller {
 
     for (const r of queuedRows) {
       if (!r.offer_uri) continue
+      // Only commercial documents belong here. Identity, staff and role cards are already in
+      // pending-offers; listing them again showed them as phantom "Receipt: Payment" items.
+      if (!isCommercialDocumentOffer(r.source_type, r.credential_type)) continue
       const metadata = parseJson(r.metadata)
       pendingReceipts.push({
         receiptRowId: r.id,
@@ -901,6 +945,53 @@ export class WalletCredentialsController extends Controller {
 
     pendingReceipts.sort((left, right) => String(right.issuedAt).localeCompare(String(left.issuedAt)))
     return { pendingReceipts }
+  }
+
+  /**
+   * "Send it to me again": the holder asks for a record they already earned, on a new phone or
+   * after a reset. Staff cards and payment receipts are queued through the services that issued
+   * them; payslips are asked of the organisation (its payroll person sends them from their side).
+   */
+  @Post('/resend-mine')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
+  @Security('jwt', ['wallet'])
+  public async resendMine(
+    @Request() request: ExRequest,
+    @Body() body: { item: 'staff_card' | 'receipts' | 'payslips'; orgTenantId?: string },
+  ): Promise<{ item: string; status: 'queued' | 'nothing_to_send' | 'ask_org'; count?: number; detail?: string }> {
+    const context = this.resolveWalletContext(request)
+    const walletTenantId = context.walletTenantId
+    const userId = context.userId || ((request as any).user?.sub as string | undefined)
+    if (!walletTenantId || !userId) {
+      this.setStatus(401)
+      throw new Error('Unauthorized')
+    }
+    const item = body?.item
+    const orgTenantId = String(body?.orgTenantId || '').trim()
+
+    if (item === 'staff_card') {
+      if (!orgTenantId) throw new StatusException('Say which organisation the card is from', 400)
+      const { orgMemberOnboardingService } = await import('../../services/OrgMemberOnboardingService')
+      const result = await orgMemberOnboardingService.sendCards(orgTenantId, userId, 'employee')
+      if (result.sent.length > 0) return { item, status: 'queued', count: result.sent.length }
+      if (result.alreadyHeld.length > 0)
+        return { item, status: 'nothing_to_send', detail: 'This card is already in your app.' }
+      const skipped = result.skipped[0]?.reason
+      return { item, status: 'ask_org', detail: skipped || 'The organisation has to send this card from its side.' }
+    }
+
+    if (item === 'receipts') {
+      const { SSIAuthService } = await import('../../services/SSIAuthService')
+      const count = await container.resolve(SSIAuthService).reissueReceiptsForUser(userId, walletTenantId)
+      return count > 0 ? { item, status: 'queued', count } : { item, status: 'nothing_to_send' }
+    }
+
+    if (item === 'payslips') {
+      // Payslips are issued per payroll run by the organisation; the holder asks, payroll sends.
+      return { item, status: 'ask_org', detail: 'Your payroll person sends payslips again from their side.' }
+    }
+
+    throw new StatusException('Unknown record', 400)
   }
 
   /**
@@ -932,11 +1023,14 @@ export class WalletCredentialsController extends Controller {
           )
           .get(tenantId) as { count: number }
       ).count
-    } catch {
-      paymentCount = 0
+    } catch (error) {
+      logger.error({ err: error }, 'Could not count payment receipt offers')
+      throw error
     }
     const queuedCount = (
-      db.prepare(`SELECT COUNT(*) as count FROM wallet_pending_offers WHERE tenant_id = ? AND resolved_at IS NULL`).get(tenantId) as {
+      db
+        .prepare(`SELECT COUNT(*) as count FROM wallet_pending_offers WHERE tenant_id = ? AND resolved_at IS NULL`)
+        .get(tenantId) as {
         count: number
       }
     ).count
@@ -969,13 +1063,6 @@ export class WalletCredentialsController extends Controller {
   ): Promise<{ success: boolean; credentialId?: string }> {
     const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
     const context = this.resolveWalletContext(request)
-    const tenantId = context.walletTenantId
-
-    if (!tenantId) {
-      this.setStatus(401)
-      throw new Error('Unauthorized')
-    }
-
     const rawOffer = body.offerUri || body.offerUrl
     if (!rawOffer) {
       this.setStatus(422)
@@ -983,6 +1070,33 @@ export class WalletCredentialsController extends Controller {
     }
 
     const db = DatabaseManager.getDatabase()
+
+    // A record queued for the organisation is saved in the organisation's records, not the person's.
+    const orgHeld =
+      context.authContext === AuthContext.Org && context.activeOrgTenantId
+        ? (db
+            .prepare('SELECT 1 FROM wallet_pending_offers WHERE tenant_id = ? AND offer_uri = ? LIMIT 1')
+            .get(context.activeOrgTenantId, rawOffer) as unknown)
+        : undefined
+    const tenantId = orgHeld ? context.activeOrgTenantId : context.walletTenantId
+    if (orgHeld && !['owner', 'admin'].includes(String(context.orgRole || ''))) {
+      this.setStatus(403)
+      throw new StatusException('Only an owner or admin can keep this record for the organisation.', 403)
+    }
+
+    if (!tenantId) {
+      this.setStatus(401)
+      throw new Error('Unauthorized')
+    }
+
+    const { workflowVcOfferDispatcher } = await import('../../services/workflow/WorkflowVcOfferDispatcher')
+    const assignmentOffer = workflowVcOfferDispatcher.checkJobAssignmentOffer(tenantId, rawOffer)
+    if (assignmentOffer.outcome === 'not_current') {
+      throw new StatusException(`This assignment record is no longer current: ${assignmentOffer.reason}.`, 409)
+    }
+    if (assignmentOffer.outcome === 'already_saved') {
+      throw new StatusException('This assignment record is already saved in your records.', 409)
+    }
 
     // Payment links are not credentials: acknowledging them just clears the card.
     if (/^https?:\/\//i.test(rawOffer) && (/\/pay\//i.test(rawOffer) || /\/v\/[A-Za-z0-9_-]+/.test(rawOffer))) {
@@ -993,7 +1107,7 @@ export class WalletCredentialsController extends Controller {
     }
 
     try {
-      console.log('[acceptOffer] === START (Using Base Agent for OID4VC) ===')
+      console.log('[acceptOffer] === START (tenant wallet holder) ===')
       let offerToProcess = rawOffer
 
       // DOCKER NETWORK FIX: the holder cannot reach localhost:3000 inside a container.
@@ -1005,11 +1119,6 @@ export class WalletCredentialsController extends Controller {
         offerToProcess = offerToProcess.split(encodedLocalhost).join(encodedIssuer)
       }
 
-      const holder = this.holderModule(baseAgent)
-      if (!holder?.resolveCredentialOffer) {
-        throw new Error('OpenID4VC holder module is unavailable on the base agent')
-      }
-
       const { wrapper, inner } = normalizeOffer(offerToProcess)
       const candidates = [
         wrapper,
@@ -1017,83 +1126,16 @@ export class WalletCredentialsController extends Controller {
         inner,
       ].filter((value, index, all): value is string => !!value && all.indexOf(value) === index)
 
-      let resolvedOffer: any
-      let lastError: any
-      for (const candidate of candidates) {
-        try {
-          resolvedOffer = await holder.resolveCredentialOffer(candidate)
-          break
-        } catch (err: any) {
-          lastError = err
-        }
-      }
-      if (!resolvedOffer) {
-        throw lastError || new Error('Missing offer URI')
-      }
-      console.log('[acceptOffer] Offer resolved:', {
-        issuer: resolvedOffer.metadata?.credentialIssuer?.credential_issuer,
-        offeredCredentials: resolvedOffer.offeredCredentials?.length,
-      })
-
-      // Holder binding DID lives on the base agent (holder module scope).
-      let baseAgentDids = await baseAgent.dids.getCreatedDids({ method: 'key' })
-      let holderDid: string
-      if (baseAgentDids.length === 0) {
-        const createdDid = await baseAgent.dids.create({
-          method: 'key',
-          options: { createKey: { type: { kty: 'OKP', crv: 'Ed25519' } } },
-        })
-        holderDid = createdDid.didState.did as string
-      } else {
-        holderDid = baseAgentDids[0].did
-      }
-      let holderDidUrl = holderDid
-      if (holderDid.startsWith('did:key:') && !holderDid.includes('#')) {
-        holderDidUrl = `${holderDid}#${holderDid.replace('did:key:', '')}`
-      }
-
-      // Credo 0.7 holder flow: pre-authorized code -> access token -> credential request(s).
-      // (The 0.5-era `acceptCredentialOfferUsingPreAuthorizedCode` no longer exists.)
-      const credentials: any[] = await this.requestCredentialsFromOffer(holder, resolvedOffer, holderDidUrl)
-      console.log('[acceptOffer] Credentials received:', credentials.length)
-
-      // Store in the TENANT's wallet.
-      const tenantAgent = await baseAgent.modules.tenants.getTenantAgent({ tenantId })
-      let savedCredentialId = ''
-      const acceptedTypes = new Set<string>()
-      let issuerDid = ''
-      try {
-        const w3cService = tenantAgent.dependencyManager.resolve(W3cCredentialService)
-        for (const received of credentials) {
-          const record: any = received?.record ?? received
-          const credential: any = record?.firstCredential ?? record?.credential ?? record
-          // Only array `type` fields are credential types (`record.type` is the record class name).
-          const asTypeList = (value: unknown): string[] => (Array.isArray(value) ? value.map(String) : [])
-          const types: string[] = [
-            ...asTypeList((credential as any)?.type),
-            ...asTypeList((credential as any)?.vc?.type),
-            ...asTypeList((record as any)?.vc?.type),
-          ].filter(Boolean)
-          types.forEach((type) => acceptedTypes.add(String(type)))
-          const issuer = (credential as any)?.issuer ?? (record as any)?.issuer
-          issuerDid = issuerDid || (typeof issuer === 'string' ? issuer : issuer?.id || '')
-          try {
-            const recordToStore =
-              record instanceof W3cCredentialRecord
-                ? record
-                : typeof (credential as any)?.encoded === 'string' || (credential as any)?.type
-                  ? W3cCredentialRecord.fromCredential(credential)
-                  : record
-            const storedRecord = await w3cService.storeCredential(tenantAgent.context, { record: recordToStore })
-            savedCredentialId = storedRecord.id
-            console.log('[acceptOffer] Stored credential in tenant wallet:', storedRecord.id)
-          } catch (storeError: any) {
-            console.warn('[acceptOffer] Could not store credential:', storeError?.message)
-          }
-        }
-      } finally {
-        await tenantAgent.endSession()
-      }
+      // Custody: the offer is redeemed by the person's own wallet and bound to its own key.
+      const redeemed = await withTenantHolder(
+        tenantId,
+        (tenantAgent) => redeemOfferIntoWallet(tenantAgent, candidates),
+        baseAgent,
+      )
+      console.log('[acceptOffer] Stored in tenant wallet:', redeemed.storedRecords.length)
+      const savedCredentialId = redeemed.savedCredentialId
+      const acceptedTypes = new Set<string>(redeemed.acceptedTypes)
+      const issuerDid = redeemed.issuerDid
 
       const now = new Date().toISOString()
       const leafTypes = [...acceptedTypes].filter((type) => type !== 'VerifiableCredential')
@@ -1121,13 +1163,64 @@ export class WalletCredentialsController extends Controller {
         db.prepare(
           `UPDATE ack_payment_receipts SET resolved_at = COALESCE(resolved_at, ?) WHERE credential_offer_url = ? OR credential_offer_url LIKE ?`,
         ).run(now, rawOffer, `%${rawOffer.slice(-60)}%`)
+
+        // The person's own log: "<organisation> gave you a <card>" (names only, no card data).
+        const acceptedRows = db
+          .prepare(
+            `SELECT id, source_type, issuer_tenant_id, credential_type, metadata, workflow_run_id
+               FROM wallet_pending_offers WHERE tenant_id = ? AND accepted_at = ?`,
+          )
+          .all(tenantId, now) as Array<{
+          id: string
+          source_type: string
+          issuer_tenant_id: string | null
+          credential_type: string | null
+          metadata: string | null
+          workflow_run_id: string | null
+        }>
+        for (const row of acceptedRows) {
+          let meta: Record<string, any> = {}
+          try {
+            meta = JSON.parse(row.metadata || '{}')
+          } catch {
+            meta = {}
+          }
+          const issuer = cardIssuerOf(row.source_type, row.issuer_tenant_id, meta)
+          holderActivityService.record({
+            walletTenantId: tenantId,
+            kind: 'card_received',
+            outcome: meta.replaces ? 'replaced' : 'received',
+            orgTenantId: issuer.orgTenantId,
+            orgName: issuer.orgName,
+            workflowRunId: row.workflow_run_id || undefined,
+            reference: typeof meta.poNumber === 'string' ? meta.poNumber : undefined,
+            requestedTypes: row.credential_type ? [row.credential_type] : leafTypes,
+            requestedClaims: Array.isArray(meta.stageActions) ? ['stageActions', 'role', 'orgName'] : [],
+            reason: typeof meta.replaces?.note === 'string' ? meta.replaces.note : undefined,
+            sourceId: row.id,
+            occurredAt: now,
+          })
+        }
+
+        // A newly accepted staff card replaces the earlier ones from the same organisation.
+        const acceptedStaffRows = acceptedRows.filter((row) => row.source_type === EMPLOYEE_OFFER_SOURCE_TYPE)
+        for (const row of acceptedStaffRows) {
+          try {
+            const { orgMembershipCredentialService } = await import('../../services/OrgMembershipCredentialService')
+            orgMembershipCredentialService.staffCardAccepted(tenantId, row.id)
+          } catch (retireErr: any) {
+            console.warn('[acceptOffer] Could not withdraw the earlier staff card:', retireErr?.message)
+          }
+        }
       } catch (markErr: any) {
         console.warn('[acceptOffer] Could not mark offer as accepted:', markErr?.message)
       }
 
       // Recovery index (no VC data, audit only).
       try {
-        db.prepare(`INSERT OR IGNORE INTO vc_issuance_log (id, tenant_id, vc_type, issuer_did, issued_at) VALUES (?, ?, ?, ?, ?)`).run(
+        db.prepare(
+          `INSERT OR IGNORE INTO vc_issuance_log (id, tenant_id, vc_type, issuer_did, issued_at) VALUES (?, ?, ?, ?, ?)`,
+        ).run(
           savedCredentialId || `${tenantId}:${now}:${randomUUID().slice(0, 8)}`,
           tenantId,
           leafTypes.join(',') || 'VerifiableCredential',
@@ -1162,22 +1255,30 @@ export class WalletCredentialsController extends Controller {
       logger.warn({ tenantId, err: error?.message }, 'accept-offer failed')
 
       const msg = (error && (error.message || JSON.stringify(error))) || String(error)
+      const failure = classifyOfferFailure(msg)
+      const offerGone = failure.gone
       const isExpiredOrInvalid =
-        msg.includes('Credential offer not found') ||
+        offerGone ||
         msg.includes('Invalid Credential Offer Request') ||
         /pre-authorized code has expired/i.test(msg) ||
         (msg.includes('invalid_grant') && msg.includes('expired'))
-
-      const offerVanished = msg.includes("did not contain either 'credential_offer'")
-      const offerUnusable =
-        isExpiredOrInvalid ||
-        offerVanished ||
-        msg.includes('proof_types_supported') ||
-        msg.includes('Invalid state for credential offer')
+      // Network trouble or an issuer outage says nothing about the offer: keep it and let the
+      // person try again instead of replacing it.
+      const issuerUnreachable = failure.unreachable
+      const notAnOffer = failure.notAnOffer
+      const offerUnusable = failure.unusable
 
       // Role cards, employee cards, and platform identity can be re-issued by the platform:
       // send a fresh offer and accept that one straight away (one retry only).
       if (offerUnusable && !(request as any).__roleCardReissued) {
+        const assignment = await workflowVcOfferDispatcher.reissueJobAssignmentOffer(tenantId, rawOffer)
+        if (assignment.outcome === 'not_current') {
+          throw new StatusException(`This assignment record is no longer current: ${assignment.reason}.`, 409)
+        }
+        if (assignment.outcome === 'reissued') {
+          ;(request as any).__roleCardReissued = true
+          return this.acceptOffer(request, { offerUri: assignment.offerUri })
+        }
         const reissued =
           (await this.reissueExpiredRoleCard(db, tenantId, rawOffer, request)) ||
           (await this.reissueExpiredEmployeeOffer(db, tenantId, rawOffer, request)) ||
@@ -1187,6 +1288,11 @@ export class WalletCredentialsController extends Controller {
           ;(request as any).__roleCardReissued = true
           return this.acceptOffer(request, { offerUri: reissued })
         }
+      }
+
+      if (issuerUnreachable) {
+        this.setStatus(503)
+        throw new Error('Could not reach the organisation just now. Your offer is still here; try again shortly.')
       }
 
       if (isExpiredOrInvalid) {
@@ -1202,20 +1308,29 @@ export class WalletCredentialsController extends Controller {
         } catch (cleanupErr: any) {
           request.logger?.warn({ err: cleanupErr.message }, 'Failed to flag stale offer row')
         }
+        if (offerGone) {
+          this.setStatus(410)
+          throw new Error('This offer has expired or was withdrawn. Ask the organization to send it again.')
+        }
         this.setStatus(409)
-        throw new Error('Credential offer expired. Ask the issuer to re-offer it (organizations can re-offer actor credentials from Setup → Workflow Actors).')
+        throw new Error(
+          'Credential offer expired. Ask the issuer to re-offer it (organizations can re-offer actor credentials from Setup → Workflow Actors).',
+        )
       }
 
-      if (msg.includes('Invalid state for credential offer') || (msg.includes('invalid_request') && msg.includes('Invalid state'))) {
+      if (
+        msg.includes('Invalid state for credential offer') ||
+        (msg.includes('invalid_request') && msg.includes('Invalid state'))
+      ) {
         this.setStatus(409)
-        throw new Error('Credential offer is no longer valid or has an invalid state. Request a fresh credential offer from the issuer and try again.')
+        throw new Error(
+          'Credential offer is no longer valid or has an invalid state. Request a fresh credential offer from the issuer and try again.',
+        )
       }
 
-      // The holder library reports an expired / removed offer (the issuer answered 404 for the
-      // credential_offer_uri) as a missing-param error. Say what actually happened.
-      if (offerVanished) {
-        this.setStatus(410)
-        throw new Error('This offer has expired or was withdrawn. Ask the organization to send it again.')
+      if (notAnOffer) {
+        this.setStatus(400)
+        throw new Error('This link is not a credential offer. Ask the organization to send it again.')
       }
 
       this.setStatus(400)

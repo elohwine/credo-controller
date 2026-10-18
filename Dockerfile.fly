@@ -1,0 +1,125 @@
+# Combined Fly image: Credo API + SSI-to-OIDC bridge on one machine.
+# Local docker-compose keeps using Dockerfile. This file is only for fly deploy.
+#
+# Processes and users:
+#   postgres OS user  -> Postgres 16, loopback :5432, data in /data/postgres
+#   credo OS user     -> Hydra, vclogin, Credo API (entrypoint starts them)
+#   caddy             -> foreground on :8080, started by the entrypoint
+# Hydra admin :4445, Postgres and Redis are never published.
+
+# --------------------------------------------
+# vclogin (Next 14). Built on Node 20 as upstream, run on Node 24 below.
+# --------------------------------------------
+FROM node:20-alpine AS vclogin-builder
+
+RUN npm install -g pnpm@10
+WORKDIR /src
+COPY deploy/fly/vclogin-src/package.json deploy/fly/vclogin-src/pnpm-lock.yaml deploy/fly/vclogin-src/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY deploy/fly/vclogin-src/ ./
+RUN pnpm run build
+
+# --------------------------------------------
+# Credo compile. Kept aligned with Dockerfile (do not change that file).
+# --------------------------------------------
+FROM node:24.12.0 AS credo-base
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    python3 \
+    python3-pip \
+    pkg-config \
+    libssl-dev \
+    cmake \
+    git \
+    curl \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+FROM credo-base AS credo-dependencies
+
+COPY package.json yarn.lock ./
+COPY patches ./patches
+RUN yarn install --frozen-lockfile --network-timeout 600000
+RUN yarn postinstall
+RUN node -e "try { const { askarNodeJS } = require('@openwallet-foundation/askar-nodejs'); console.log('Askar loaded:', !!askarNodeJS); } catch (e) { console.error(e.message); process.exit(1); }" || \
+    (echo "ERROR: Askar native binding failed to load" && exit 1)
+
+FROM credo-dependencies AS credo-builder
+
+COPY tsconfig.json tsconfig.build.json tsconfig.eslint.json ./
+COPY tsoa.json ./
+COPY scripts ./scripts
+COPY src ./src
+COPY migrations ./migrations
+COPY samples ./samples
+COPY bin ./bin
+RUN yarn build
+RUN test -f build/index.js && test -f src/routes/routes.ts && test -f src/routes/swagger.json
+
+# --------------------------------------------
+# Runtime. Node 24 for Credo; vclogin Next 14 runs on the same runtime.
+# --------------------------------------------
+FROM node:24.12.0-slim AS production
+
+# Bookworm's default Postgres is 15. Node 24-slim is Debian 12, so use the PGDG
+# bookworm repo for Postgres 16 (same major as compose.credentis.yaml).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl gnupg \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+      | gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+      libssl3 \
+      sqlite3 \
+      tini \
+      wget \
+      postgresql-16 \
+      postgresql-client-16 \
+      redis-server \
+    && rm -rf /var/lib/apt/lists/*
+
+# Caddy static binary. No apt repo, no extra services.
+ARG CADDY_VERSION=2.8.4
+RUN wget -q "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz" -O /tmp/caddy.tgz \
+    && tar -C /usr/local/bin -xzf /tmp/caddy.tgz caddy \
+    && rm /tmp/caddy.tgz \
+    && caddy version
+
+ARG HYDRA_VERSION=2.2.0
+RUN wget -q "https://github.com/ory/hydra/releases/download/v${HYDRA_VERSION}/hydra_${HYDRA_VERSION}-linux_static-nosqlite_64bit.tar.gz" -O /tmp/hydra.tgz \
+    && tar -C /usr/local/bin -xzf /tmp/hydra.tgz hydra \
+    && rm /tmp/hydra.tgz \
+    && chmod 755 /usr/local/bin/hydra \
+    && hydra version
+
+WORKDIR /app
+
+RUN groupadd -r credo && useradd -r -g credo -m -d /home/credo credo \
+    && mkdir -p /home/credo /data /opt/vclogin /etc/caddy /var/run/postgresql \
+    && chown -R credo:credo /home/credo /opt/vclogin \
+    && chown postgres:postgres /var/run/postgresql
+
+COPY --from=credo-builder --chown=credo:credo /app/build ./build
+COPY --from=credo-builder --chown=credo:credo /app/bin ./bin
+COPY --from=credo-builder --chown=credo:credo /app/src/routes ./src/routes
+COPY --from=credo-builder --chown=credo:credo /app/migrations ./migrations
+COPY --from=credo-builder --chown=credo:credo /app/samples ./samples
+COPY --from=credo-builder --chown=credo:credo /app/package.json ./
+COPY --from=credo-builder --chown=credo:credo /app/node_modules ./node_modules
+
+COPY --from=vclogin-builder --chown=credo:credo /src /opt/vclogin
+
+COPY deploy/fly/Caddyfile /etc/caddy/Caddyfile
+COPY deploy/fly/entrypoint.sh /entrypoint.sh
+RUN chmod 755 /entrypoint.sh \
+    && mkdir -p /app/data && chown credo:credo /app/data
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/entrypoint.sh"]

@@ -61,6 +61,10 @@ export class CredoPresentationVerificationService {
       throw new Error(`Unsupported presentation protocol: ${context.protocol}`)
     }
 
+    if (ssiTrustService.hasVerifiedResult(input.tenantId, input.requestId)) {
+      return this.recordFailure(input, 'presentation_already_used')
+    }
+
     const { verificationAgent, release } = await this.resolveVerificationAgent(input)
     const verifier =
       (verificationAgent as any)?.openid4vc?.verifier || (verificationAgent.modules as any).openId4VcVerifier
@@ -109,8 +113,9 @@ export class CredoPresentationVerificationService {
       const statusResults = await Promise.all(
         credentials.map((credential: any) =>
           credentialStatusService.resolve({
-            credentialId: credential?.id || credential?.jti || credential?.vc?.id,
-            credentialStatus: credential?.credentialStatus || credential?.vc?.credentialStatus,
+            credentialId: credential?.id || credential?.jti || credential?.vc?.id || credential?.prettyClaims?.jti,
+            credentialStatus:
+              credential?.credentialStatus || credential?.vc?.credentialStatus || credential?.prettyClaims?.status,
             issuerRef: this.extractIssuerRef(credential),
             request: statusRequest,
           }),
@@ -170,15 +175,21 @@ export class CredoPresentationVerificationService {
             ? 'verifier_session_mismatch'
             : !stateBound
               ? 'protocol_state_mismatch'
-              : !schemaVerified
-                ? 'presentation_query_not_satisfied'
-                : trust.decision !== 'trusted'
-                  ? 'issuer_untrusted'
-                  : !statusChecked
-                    ? 'credential_status_unverified'
-                    : statusInvalid
-                      ? 'credential_status_invalid'
-                      : 'verification_failed'
+              : !holderBindingVerified
+                ? 'holder_binding_failed'
+                : !audienceVerified
+                  ? 'audience_mismatch'
+                  : !nonceVerified
+                    ? 'nonce_mismatch'
+                    : !schemaVerified
+                      ? 'presentation_query_not_satisfied'
+                      : trust.decision !== 'trusted'
+                        ? 'issuer_untrusted'
+                        : statusInvalid
+                          ? 'credential_status_invalid'
+                          : !statusChecked
+                            ? 'credential_status_unverified'
+                            : 'verification_failed'
 
       const recorded = ssiTrustService.recordVerification({
         requestId: input.requestId,
@@ -269,6 +280,9 @@ export class CredoPresentationVerificationService {
   private extractCredentials(presentations: unknown[]): unknown[] {
     return presentations.flatMap((presentation: any) => {
       const resolved = presentation?.resolvedPresentation ?? presentation
+      // A selective-disclosure card is its own presentation: the disclosed claims sit on
+      // `prettyClaims`, with `jti` and `status` always visible.
+      if (resolved?.prettyClaims && typeof resolved.prettyClaims === 'object') return [resolved]
       const values = resolved?.verifiableCredential
       if (Array.isArray(values)) return values
       return values ? [values] : []
@@ -280,7 +294,7 @@ export class CredoPresentationVerificationService {
     for (const credential of credentials) {
       if (!credential || typeof credential !== 'object') continue
       const value: any = credential
-      const id = value.id || value.jti || value.vc?.id || value.resolvedCredential?.id
+      const id = value.id || value.jti || value.vc?.id || value.resolvedCredential?.id || value.prettyClaims?.jti
       if (id) ids.push(String(id))
     }
     return Array.from(new Set(ids))

@@ -5,6 +5,7 @@
   "bundledWebRuntime": false,
   "server": {
     "allowNavigation": [
+      "credentis.fly.dev",
       "*.credentis.app",
       "*.credentis.co.zw",
       "*.ngrok-free.app",

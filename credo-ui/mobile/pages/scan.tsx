@@ -6,14 +6,15 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconScan, IconCheck, IconX, IconAlertCircle, IconShieldCheck, IconQrcode, IconTruck, IconCamera
+  IconScan, IconCheck, IconX, IconAlertCircle
 } from '@tabler/icons-react';
 import AppShellMobile from '@/components/layout/AppShellMobile';
 import ScanModeSheet, { ScanMode } from '@/components/scan/ScanModeSheet';
 import QrScanner from '@/components/scan/QrScanner';
 import EvidenceCapture, { EvidencePayload } from '@/components/scan/EvidenceCapture';
 import api from '@/lib/api';
-import { getOrgToken, getActiveOrgId } from '@/lib/auth';
+import { getOrgToken, getActiveOrgId, getContextMode } from '@/lib/auth';
+import { walletQrKind, shouldAcceptScannedOffer } from '@/lib/walletScan';
 import { getCachedOrgContextBundle, refreshOrgContextBundle, type OrgContextBundleCacheEntry } from '@/lib/offline/orgContextBundle';
 import { evaluateScanModePolicy } from '@/lib/offline/scanPolicy';
 import { getCachedVerifierBundle, refreshVerifierBundle, type VerifierBundleCacheEntry } from '@/lib/offline/verifierBundle';
@@ -116,27 +117,11 @@ function normalizeCredentialOfferUri(rawValue: string): string {
 }
 
 function isLikelyCredentialOffer(rawValue: string): boolean {
-  const trimmed = rawValue.trim();
-  if (!trimmed) return false;
-
-  return (
-    trimmed.startsWith('openid-credential-offer://') ||
-    trimmed.startsWith('openid-initiate-issuance://') ||
-    trimmed.includes('credential_offer_uri=') ||
-    trimmed.includes('credential_offer_url=')
-  );
+  return walletQrKind(rawValue) === 'credential-offer';
 }
 
 function isLikelyPresentationRequest(rawValue: string): boolean {
-  const trimmed = rawValue.trim();
-  if (!trimmed) return false;
-
-  return (
-    trimmed.startsWith('openid4vp://') ||
-    trimmed.startsWith('openid-vc://') ||
-    trimmed.includes('presentation_request_url') ||
-    trimmed.includes('request_uri=')
-  );
+  return walletQrKind(rawValue) === 'presentation-request';
 }
 
 function safeDecodeUriComponent(value: string): string {
@@ -275,7 +260,7 @@ export default function ScanPage() {
   const [hasOrgSession, setHasOrgSession] = useState(false);
 
   useEffect(() => {
-    setHasOrgSession(!!getOrgToken() && !!getActiveOrgId());
+    setHasOrgSession(getContextMode() === 'org' && !!getOrgToken() && !!getActiveOrgId());
   }, []);
 
   useEffect(() => {
@@ -399,7 +384,9 @@ export default function ScanPage() {
   };
 
   const handleScanButton = () => {
-    setResult(null); setError(null); setModeSheetOpen(true);
+    setResult(null); setError(null);
+    setMode((current) => current || 'wallet');
+    setState('scanning');
     setDetectedPayloadKind(null);
   };
 
@@ -451,7 +438,7 @@ export default function ScanPage() {
 
       // Always prioritize credential-offer intake so holder flows can accept offers in-app,
       // even when wrappers include request_uri-like query parameters.
-      if (mode === 'save-credential' || parsedPayload.kind === 'credential-offer') {
+      if (shouldAcceptScannedOffer(parsedPayload.kind, mode)) {
         const offerUri = parsedPayload.offerUri || normalizeCredentialOfferUri(parsedPayload.raw);
         await api.post('/api/wallet/credentials/accept-offer', { offerUri });
         setResult({ success: true, title: 'Credential saved!', detail: 'Added to your wallet.' });
@@ -625,7 +612,7 @@ export default function ScanPage() {
                 ? 'Scan the QR shown on the portal to prove authority and release funds for this requisition.'
                 : mode === 'acknowledge-requisition'
                   ? 'Scan the QR shown on the portal to prove authority and acknowledge this requisition.'
-              : 'Save credentials, verify presentations, or capture field evidence.'}
+              : 'Scan to sign in, review a request to share details, or receive a credential.'}
           </Text>
         </Box>
         {hasOrgSession && (
@@ -649,6 +636,11 @@ export default function ScanPage() {
           </Paper>
         )}
         <Divider />
+        {hasOrgSession && state === 'idle' && (
+          <Button variant="subtle" onClick={() => setModeSheetOpen(true)}>
+            Organisation scan actions
+          </Button>
+        )}
 
         {(state === 'idle' || state === 'result') && (
           <Stack gap="lg">
@@ -686,9 +678,9 @@ export default function ScanPage() {
 
             <Center py="xl">
               <Stack align="center" gap="lg">
-                <Box onClick={handleScanButton} style={{ width: 120, height: 120, borderRadius: '50%', background: '#2188ca', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 8px 24px rgba(33,136,202,0.35)' }}>
+                <Button aria-label="Scan QR code" onClick={handleScanButton} style={{ width: 120, height: 120, borderRadius: '50%', background: '#2188ca', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 8px 24px rgba(33,136,202,0.35)' }}>
                   <IconScan size={52} color="#ffffff" />
-                </Box>
+                </Button>
                 <Text fw={600} size="lg">Tap to Scan</Text>
                 <Text size="sm" c="dimmed" ta="center">
                   {mode === 'approve-requisition'
@@ -697,48 +689,17 @@ export default function ScanPage() {
                       ? 'Point your camera at the portal release QR'
                       : mode === 'acknowledge-requisition'
                         ? 'Point your camera at the portal acknowledge QR'
-                    : 'Select an action to launch the camera'}
+                    : 'Scan a credential offer or a sign-in / sharing request'}
                 </Text>
               </Stack>
             </Center>
 
-            <Stack gap="xs">
-              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Quick actions</Text>
-              {/* Org-only scan modes — hidden in holder-only sessions (matrix §20.3) */}
-              {hasOrgSession && (
-                <>
-                  <Button variant="light" color="indigo" leftSection={<IconShieldCheck size={16} />} fullWidth radius="md" onClick={() => void handleModeSelect('approve-requisition')}>
-                    Scan To Approve
-                  </Button>
-                  <Button variant="light" color="violet" leftSection={<IconTruck size={16} />} fullWidth radius="md" onClick={() => void handleModeSelect('verify-delivery')}>
-                    Verify Delivery
-                  </Button>
-                  <Button variant="light" color="green" leftSection={<IconShieldCheck size={16} />} fullWidth radius="md" onClick={() => void handleModeSelect('verify-presentation')}>
-                    Verify Presentation
-                  </Button>
-                  <Button
-                    variant="light"
-                    color="orange"
-                    leftSection={<IconCamera size={16} />}
-                    fullWidth
-                    radius="md"
-                    onClick={() => void handleModeSelect('capture-evidence')}
-                  >
-                    Capture Evidence
-                  </Button>
-                </>
-              )}
-              {/* Save Credential is always available — holder domain action */}
-              <Button variant="light" color="credentis" leftSection={<IconQrcode size={16} />} fullWidth radius="md" onClick={() => { setMode('save-credential'); setState('scanning'); }}>
-                Save Credential
-              </Button>
-            </Stack>
           </Stack>
         )}
 
         {state === 'scanning' && (
           <Paper p={0} radius="lg" style={{ overflow: 'hidden' }}>
-            <Box px="md" pt="md" pb="sm"><Badge color="blue" size="sm">{mode}</Badge></Box>
+            <Box px="md" pt="md" pb="sm"><Badge color="blue" size="sm">{mode === 'wallet' ? 'Sign in, share or receive' : mode}</Badge></Box>
             {hasOrgSession && mode === 'verify-presentation' && (
               <Box px="md" pb="sm">
                 <Paper p="sm" radius="md" withBorder>
@@ -815,7 +776,7 @@ export default function ScanPage() {
 
         {state === 'capture-evidence' && (
           <Paper radius="lg" style={{ overflow: 'hidden' }}>
-            <EvidenceCapture onCapture={handleEvidenceCapture} onCancel={reset} workflowLabel="Current workflow" />
+            <EvidenceCapture onCapture={handleEvidenceCapture} onCancel={reset} workflowLabel="This job" />
           </Paper>
         )}
 

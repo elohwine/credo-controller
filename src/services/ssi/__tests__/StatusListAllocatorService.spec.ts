@@ -140,6 +140,25 @@ describe('StatusListAllocatorService', () => {
     expect(bit).toBe(0)
   })
 
+  it('allows suspending and reactivating, but does not reactivate a revoked credential', () => {
+    const allocation = service.allocate(
+      organizationId,
+      'did:key:issuer-transition',
+      'revocation',
+      'credential-transition',
+    )
+
+    expect(service.transitionStatusByCredentialRef('credential-transition', 'suspend')).toBe(true)
+    expect(service.transitionStatusByCredentialRef('credential-transition', 'reactivate')).toBe(true)
+    expect(service.transitionStatusByCredentialRef('credential-transition', 'revoke')).toBe(true)
+    expect(service.transitionStatusByCredentialRef('credential-transition', 'reactivate')).toBe(false)
+
+    const row = db
+      .prepare(`SELECT current_status FROM credential_status_allocations WHERE id = ?`)
+      .get(allocation.allocationId) as { current_status: string }
+    expect(row.current_status).toBe('revoked')
+  })
+
   it('invalidates cached signed_vc_json when status changes', () => {
     const allocation = service.allocate(organizationId, 'did:key:issuer9', 'revocation')
     // Manually set a cached VC

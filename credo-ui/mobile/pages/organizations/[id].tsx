@@ -1,15 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Box, Stack, Text, Title, Group, Button, Badge, Paper, ThemeIcon, Divider, Avatar, Modal, TextInput, Textarea, Skeleton, Alert
+  Box, Stack, Text, Title, Group, Button, Badge, Paper, ThemeIcon, Divider, Avatar, Modal, TextInput, Textarea, Skeleton, Alert, Select
 } from '@mantine/core';
 import {
-  IconBuilding, IconShieldCheck, IconStar, IconWorld, IconPhone, IconMail, IconMapPin, IconArrowLeft, IconCheck, IconAlertCircle, IconFileText, IconQrcode
+  IconBuilding, IconShieldCheck, IconStar, IconWorld, IconPhone, IconMail, IconMapPin, IconArrowLeft, IconCheck, IconAlertCircle, IconFileText, IconQrcode, IconMessagePlus
 } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
 import { notifications } from '@mantine/notifications';
 import AppShellMobile from '@/components/layout/AppShellMobile';
-import { getWalletToken, isAuthenticated } from '@/lib/auth';
+import { getPersonalWalletToken, getUserName, getWalletToken, isAuthenticated } from '@/lib/auth';
 import api from '@/lib/api';
+import { readOrgProfile } from '@/lib/orgProfile';
+
+/** What a person can ask another organisation for. Same words as the Request sheet. */
+type AskKind = 'quote' | 'invoice' | 'service';
+const ASK_KINDS: Array<{ value: AskKind; label: string; hint: string }> = [
+  { value: 'quote', label: 'Ask for a quote', hint: 'Tell them what you need and they send a price.' },
+  { value: 'invoice', label: 'Ask for a bill', hint: 'They send a bill you can pay from the app.' },
+  { value: 'service', label: 'Book a service', hint: 'They confirm and tell you what happens next.' },
+];
 
 interface Organization {
   id: string;
@@ -169,9 +178,6 @@ function ServiceCard({ service, onRequest }: { service: Service; onRequest: () =
   );
 }
 
-/** SGK demo branch: the public store stays in the code but is not offered. */
-const SHOW_STORE = false;
-
 export default function OrganizationDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -180,9 +186,12 @@ export default function OrganizationDetailPage() {
   const [loading, setLoading] = useState(true);
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
-  const [requestPayload, setRequestPayload] = useState<Record<string, any>>({});
+  const [askKind, setAskKind] = useState<AskKind>('quote');
+  const [askText, setAskText] = useState('');
+  const [askName, setAskName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const askFromHome = typeof router.query.ask === 'string' ? router.query.ask : '';
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -330,78 +339,70 @@ export default function OrganizationDetailPage() {
     }
   };
 
-  const openRequestModal = (service: Service) => {
+  const openRequestModal = (service: Service | null, kind: AskKind = 'service') => {
     setSelectedService(service);
-    setRequestPayload({});
+    setAskKind(service ? 'service' : kind);
+    setAskText('');
+    setAskName(getUserName() || '');
     setRequestModalOpen(true);
   };
 
+  // Came from Home → Request → "Ask for a quote / bill / service": open the form straight away.
+  useEffect(() => {
+    if (!profile || source !== 'discover' || !askFromHome) return;
+    const kind = ASK_KINDS.find((entry) => entry.value === askFromHome)?.value;
+    if (kind) openRequestModal(null, kind);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.org.id, askFromHome]);
+
+  /**
+   * Ask this organisation for a quote, a bill, or a service. The organisation adds you to its
+   * contacts if you are new, and the request lands with the person who handles it.
+   */
   const submitRequest = async () => {
-    if (!selectedService || !profile) return;
+    if (!profile) return;
+    const token = getPersonalWalletToken() || getWalletToken();
+    if (!token) {
+      notifications.show({ title: 'Sign in first', message: 'Sign in to send a request.', color: 'red' });
+      return;
+    }
+    if (!askText.trim()) {
+      notifications.show({ title: 'Say what you need', message: 'A sentence or two is enough.', color: 'orange' });
+      return;
+    }
 
     setSubmitting(true);
     try {
-      const token = getWalletToken();
-      if (!token) {
-        notifications.show({
-          title: 'Authentication Required',
-          message: 'Please log in to request credentials',
-          color: 'red',
-        });
-        return;
-      }
-
-      // Use workflow execution endpoint from P4 if template is bound
-      if (selectedService.workflowTemplateId) {
-        await api.post(
-          `/api/discovery/organizations/${profile.org.id}/workflows/${selectedService.workflowTemplateId}/execute`,
-          {
-            context: {
-              serviceId: selectedService.id,
-              serviceName: selectedService.name,
-              ...requestPayload,
-            },
+      const kindWords = ASK_KINDS.find((entry) => entry.value === askKind) || ASK_KINDS[0];
+      await api.post(
+        '/workflow-requests',
+        {
+          targetOrgTenantId: profile.org.tenantId || profile.org.id,
+          requesterName: askName.trim() || undefined,
+          requestType: askKind,
+          payload: {
+            title: selectedService ? selectedService.name : kindWords.label,
+            description: askText.trim(),
+            serviceId: selectedService?.id,
+            serviceName: selectedService?.name,
+            workflowTemplateId: selectedService?.workflowTemplateId,
           },
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
+        },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
 
-        notifications.show({
-          title: 'Workflow Started',
-          message: `Workflow for ${selectedService.name} has been initiated`,
-          color: 'green',
-          icon: <IconCheck />,
-        });
-      } else {
-        // Fall back to legacy VC request flow for services without workflow templates
-        await api.post(
-          '/api/vc-requests',
-          {
-            serviceId: selectedService.id,
-            requestPayload: requestPayload,
-            consent: true,
-          },
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
-
-        notifications.show({
-          title: 'Request Submitted',
-          message: `Your request for ${selectedService.name} has been submitted`,
-          color: 'green',
-          icon: <IconCheck />,
-        });
-      }
-
-      setRequestModalOpen(false);
-      router.push('/inbox'); // Navigate to inbox to track request
-    } catch (error: any) {
-      console.error('Failed to submit request:', error);
       notifications.show({
-        title: 'Submission Failed',
-        message: error.response?.data?.message || 'Failed to submit request',
+        title: 'Sent',
+        message: `${profile.org.displayName} has your request. Their answer arrives in your inbox.`,
+        color: 'green',
+        icon: <IconCheck />,
+      });
+      setRequestModalOpen(false);
+      void router.push('/my-requests');
+    } catch (error: any) {
+      notifications.show({
+        title: 'Not sent',
+        message: error.response?.data?.message || error.message || 'Try again in a moment.',
         color: 'red',
         icon: <IconAlertCircle />,
       });
@@ -439,6 +440,9 @@ export default function OrganizationDetailPage() {
 
   const { org, services, catalogItems = [], trustBadges = [], paymentRails = [], qrCodeUrl, didDocumentUrl, shopUrl } = profile;
   const storeVisibilityLabel = profile.isPublic === false ? 'Private storefront' : profile.isPublic === true ? 'Public storefront' : 'Store visibility unknown';
+  const showStore = source === 'my-orgs'
+    ? (readOrgProfile()?.kinds || []).includes('shop')
+    : profile.isPublic === true;
 
   return (
     <AppShellMobile>
@@ -447,7 +451,7 @@ export default function OrganizationDetailPage() {
         <Box
           p="md"
           style={{
-            background: 'rgba(255,255,255,0.74)',
+            background: 'light-dark(color-mix(in srgb, var(--mantine-color-white) 74%, transparent), color-mix(in srgb, var(--mantine-color-dark-6) 78%, transparent))',
             borderBottom: '1px solid rgba(148,163,184,0.2)',
             backdropFilter: 'blur(12px) saturate(150%)',
           }}
@@ -502,7 +506,14 @@ export default function OrganizationDetailPage() {
 
           {source === 'discover' && (
             <Stack mt="md" gap="sm">
-              {SHOW_STORE && (
+              <Button
+                fullWidth
+                leftSection={<IconMessagePlus size={18} />}
+                onClick={() => openRequestModal(null, 'quote')}
+              >
+                Ask for a quote or a service
+              </Button>
+              {showStore && (
               <Button
                 fullWidth
                 variant="filled"
@@ -554,7 +565,7 @@ export default function OrganizationDetailPage() {
             </Stack>
           )}
 
-          {SHOW_STORE && source === 'my-orgs' && (
+          {showStore && source === 'my-orgs' && (
             <Paper m="md" p="md" radius="md" withBorder style={{ background: 'linear-gradient(135deg, rgba(14,165,233,0.08), rgba(13,148,136,0.06))' }}>
               <Stack gap="sm">
                 <Group justify="space-between" align="start">
@@ -691,7 +702,7 @@ export default function OrganizationDetailPage() {
             )}
           </Paper>
 
-          {SHOW_STORE && (
+          {showStore && (
           <Paper p="md" radius="md" withBorder>
             <Group justify="space-between" mb="xs">
               <Text size="sm" fw={600}>
@@ -794,61 +805,62 @@ export default function OrganizationDetailPage() {
       <Modal
         opened={requestModalOpen}
         onClose={() => setRequestModalOpen(false)}
-        title={selectedService?.name}
+        title={selectedService ? selectedService.name : `Ask ${org.displayName}`}
         size="lg"
       >
-        {selectedService && (
-          <Stack gap="md">
+        <Stack gap="md">
+          {selectedService ? (
             <Alert color="blue" icon={<IconAlertCircle />}>
-              You are about to request: <strong>{selectedService.name}</strong>
+              You are asking {org.displayName} for <strong>{selectedService.name}</strong>
+              {selectedService.feeAmount > 0 ? ` (${selectedService.feeCurrency} ${selectedService.feeAmount})` : ''}.
             </Alert>
-
-            {selectedService.requirements?.length > 0 && (
-              <Box>
-                <Text size="sm" fw={500} mb="xs">
-                  Requirements:
-                </Text>
-                <Stack gap={4}>
-                  {selectedService.requirements.map((req, i) => (
-                    <Group key={i} gap={4} wrap="nowrap">
-                      <IconCheck size={14} color="green" />
-                      <Text size="sm">{req}</Text>
-                    </Group>
-                  ))}
-                </Stack>
-              </Box>
-            )}
-
-            <TextInput label="Notes (Optional)" placeholder="Add any additional information..." />
-
-            <Textarea
-              label="Request Details"
-              placeholder="Provide information as per requirements..."
-              minRows={3}
-              value={JSON.stringify(requestPayload, null, 2)}
-              onChange={(e) => {
-                try {
-                  setRequestPayload(JSON.parse(e.target.value || '{}'));
-                } catch {
-                  // Invalid JSON, ignore
-                }
-              }}
+          ) : (
+            <Select
+              label="What do you want to ask for"
+              data={ASK_KINDS.map((entry) => ({ value: entry.value, label: entry.label }))}
+              value={askKind}
+              onChange={(value) => setAskKind((value as AskKind) || 'quote')}
+              description={ASK_KINDS.find((entry) => entry.value === askKind)?.hint}
             />
+          )}
 
-            <Text size="xs" c="dimmed">
-              Note: Your request will be reviewed by {org.displayName}. You'll be notified once processed.
-            </Text>
+          {selectedService && selectedService.requirements?.length > 0 && (
+            <Box>
+              <Text size="sm" fw={500} mb="xs">They will need:</Text>
+              <Stack gap={4}>
+                {selectedService.requirements.map((req, i) => (
+                  <Group key={i} gap={4} wrap="nowrap">
+                    <IconCheck size={14} color="green" />
+                    <Text size="sm">{req}</Text>
+                  </Group>
+                ))}
+              </Stack>
+            </Box>
+          )}
 
-            <Group justify="flex-end">
-              <Button variant="subtle" onClick={() => setRequestModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={submitRequest} loading={submitting}>
-                Submit Request
-              </Button>
-            </Group>
-          </Stack>
-        )}
+          <Textarea
+            label="What you need"
+            placeholder="A sentence or two: what, how many, by when."
+            minRows={3}
+            value={askText}
+            onChange={(e) => setAskText(e.currentTarget.value)}
+            required
+          />
+          <TextInput
+            label="Your name, as they should see it"
+            value={askName}
+            onChange={(e) => setAskName(e.currentTarget.value)}
+          />
+
+          <Text size="xs" c="dimmed">
+            {org.displayName} sees your name and what you wrote, nothing else. Their answer arrives in your inbox.
+          </Text>
+
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setRequestModalOpen(false)}>Cancel</Button>
+            <Button onClick={submitRequest} loading={submitting}>Send</Button>
+          </Group>
+        </Stack>
       </Modal>
     </AppShellMobile>
   );

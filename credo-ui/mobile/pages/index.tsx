@@ -1,12 +1,15 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Box, Stack, Text, Title, Group, Skeleton, Divider, Button, Badge, Paper, ThemeIcon, useMantineColorScheme, useMantineTheme,
-  ScrollArea, Anchor,
+  Box, Stack, Text, Title, Group, Skeleton, Divider, Button, Badge, Paper, ThemeIcon, UnstyledButton, useMantineColorScheme, useMantineTheme,
+  ScrollArea, Anchor, Alert,
 } from '@mantine/core';
 import { IconRefresh, IconActivity, IconChevronRight, IconInbox, IconWallet, IconArrowRight } from '@tabler/icons-react';
-import CredentialPreviewCard, { WalletCard, deriveCardKind } from '@/components/home/CredentialPreviewCard';
+import CredentialPreviewCard, { WalletCard, credentialTypeName, deriveCardKind } from '@/components/home/CredentialPreviewCard';
 import { useRouter } from 'next/router';
 import AppShellMobile from '@/components/layout/AppShellMobile';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys, STALE_TIME } from '@/lib/queries/keys';
+import { useSessionStore } from '@/lib/state/session';
 import ActionCenter from '@/components/home/ActionCenter';
 import HomeActionQueueItem, { HomeActionKind } from '@/components/home/HomeActionQueueItem';
 import {
@@ -22,13 +25,15 @@ import {
   isAuthenticated,
 } from '@/lib/auth';
 import api from '@/lib/api';
+import { friendlyRequestError } from '@/lib/requestError';
 import { getRunningActions, RunningAction } from '@/lib/runningActions';
 import { formatCredentialType } from '@/lib/format';
-import { getFriendlyActivityActionLabel, getFriendlyActivitySummary, toFeptStageLabel } from '@/lib/uxCopy';
+import { RECORD_SECTION_LABELS, recordCardTitle, recordSectionOf } from '@/lib/workflowCapabilities';
+import { formatTxnTime } from '@/lib/inboxAttention';
+import { getFriendlyActivityActionLabel, getFriendlyActivitySummary, offerReplacement, stepRequiredLabel, toFeptStageLabel } from '@/lib/uxCopy';
+import { describeHolderActivity, type HolderActivityEntry } from '@/lib/holderActivity';
+import { nextStepCard, type NextStepItem } from '@/lib/nextSteps';
 import dayjs from 'dayjs';
-import relativeTime from 'dayjs/plugin/relativeTime';
-
-dayjs.extend(relativeTime);
 
 type AuditContext = 'organization' | 'personal' | 'guest' | 'service';
 
@@ -41,6 +46,8 @@ type RecentTransactionRow = {
   occurredAt: string;
   flowType: 'PAYMENT' | 'WORKFLOW' | 'FIELD_EXECUTION' | 'CREDENTIAL' | 'SYSTEM';
   actionHash?: string;
+  /** A row from your own activity log (opens the personal Activity page). */
+  personal?: boolean;
 };
 
 type UnreadInboxRow = {
@@ -62,15 +69,6 @@ type HomeQueueRow = {
   family?: string;
 };
 
-function credentialFamily(typeLabel: string): string {
-  const normalized = String(typeLabel || '').toLowerCase();
-  if (/(receipt|invoice|payment|transaction|quote)/.test(normalized)) return 'Payments';
-  if (/(employment|staff|employee|worker|payroll)/.test(normalized)) return 'Employment';
-  if (/(education|student|school|tuition|fees)/.test(normalized)) return 'Education';
-  if (/(id|identity|kyc|membership|passport|national)/.test(normalized)) return 'Identity';
-  return 'General';
-}
-
 function homeQueueUrgencyScore(row: HomeQueueRow): number {
   const title = row.title.toLowerCase();
   if (row.kind === 'request') return 400;
@@ -82,9 +80,9 @@ function homeQueueUrgencyScore(row: HomeQueueRow): number {
 }
 
 function formatAuditTimestamp(value: unknown): string {
-  const parsed = dayjs(typeof value === 'string' || typeof value === 'number' || value instanceof Date ? value : undefined);
-  if (!parsed.isValid()) return dayjs().format('YYYY-MM-DD HH:mm:ss Z');
-  return parsed.format('YYYY-MM-DD HH:mm:ss Z');
+  if (!(typeof value === 'string' || typeof value === 'number' || value instanceof Date)) return '';
+  const parsed = dayjs(value);
+  return parsed.isValid() ? parsed.toISOString() : '';
 }
 
 const FLOW_COLOR: Record<RecentTransactionRow['flowType'], string> = {
@@ -267,30 +265,91 @@ function isActionNoise(entry: any): boolean {
   return false;
 }
 
+interface HomeSnapshot {
+  nextSteps: NextStepItem[];
+  orgAttentionError?: string;
+  pendingOfferCount: number;
+  inboxCount: number;
+  assignedFieldTaskCount: number;
+  proofCount: number;
+  walletCredentials: WalletCard[];
+  expiringCount: number;
+  recentTransactions: RecentTransactionRow[];
+  unreadInboxRows: UnreadInboxRow[];
+  activeWorkflowTypes: string[];
+  hasIdentityOffer: boolean;
+}
+
+function emptyHomeSnapshot(): HomeSnapshot {
+  return {
+    nextSteps: [],
+    pendingOfferCount: 0,
+    inboxCount: 0,
+    assignedFieldTaskCount: 0,
+    proofCount: 0,
+    walletCredentials: [],
+    expiringCount: 0,
+    recentTransactions: [],
+    unreadInboxRows: [],
+    activeWorkflowTypes: [],
+    hasIdentityOffer: false,
+  };
+}
+
+const EMPTY_HOME_SNAPSHOT = emptyHomeSnapshot();
+
 export default function HomePage() {
   const theme = useMantineTheme();
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
   const router = useRouter();
-  const [inboxCount, setInboxCount] = useState(0);
-  const [pendingOfferCount, setPendingOfferCount] = useState(0);
-  const [assignedFieldTaskCount, setAssignedFieldTaskCount] = useState(0);
-  const [proofCount, setProofCount] = useState(0);
-  const [walletCredentials, setWalletCredentials] = useState<WalletCard[]>([]);
-  const [expiringCount, setExpiringCount] = useState(0);
   const [userName, setUserName] = useState<string | null>(null);
   const [userAccountId, setUserAccountId] = useState<string | null>(null);
   const [orgLabel, setOrgLabel] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
-  const [recentTransactions, setRecentTransactions] = useState<RecentTransactionRow[]>([]);
-  const [unreadInboxRows, setUnreadInboxRows] = useState<UnreadInboxRow[]>([]);
-  const [activeWorkflowTypes, setActiveWorkflowTypes] = useState<string[]>([]);
   const [runningActions, setRunningActions] = useState<RunningAction[]>([]);
-  const [hasIdentityOffer, setHasIdentityOffer] = useState(false);
-  const autoRefreshLockRef = useRef(false);
+  // The home summary lives in the shared cache per account + context: it shows at once on
+  // return and is checked again in the background (on return to the app, on pull, when stale).
+  const queryClient = useQueryClient();
+  const scope = useSessionStore((state) => state.scope);
+  const homeKey = useMemo(() => queryKeys.home(scope), [scope]);
+  const fetchHomeRef = useRef<(expectedScope: string) => Promise<HomeSnapshot>>(async () => emptyHomeSnapshot());
+  const homeQuery = useQuery<HomeSnapshot>({
+    queryKey: homeKey,
+    queryFn: () => fetchHomeRef.current(scope),
+    enabled: mounted && isAuthenticated(),
+    staleTime: STALE_TIME.home,
+    meta: { persist: true },
+  });
+  const home = homeQuery.data ?? EMPTY_HOME_SNAPSHOT;
+  const {
+    nextSteps,
+    pendingOfferCount,
+    inboxCount,
+    assignedFieldTaskCount,
+    proofCount,
+    walletCredentials,
+    expiringCount,
+    recentTransactions,
+    unreadInboxRows,
+    activeWorkflowTypes,
+    hasIdentityOffer,
+  } = home;
+  // Only the very first load (nothing saved for this account yet) hides the lists.
+  const loading = !homeQuery.data && homeQuery.isFetching;
+  const loadHomeData = useCallback(async () => {
+    readLocalHome();
+    await queryClient.refetchQueries({ queryKey: homeKey, exact: true }).catch(() => undefined);
+  }, [queryClient, homeKey]);
 
+  // What is actually waiting. Recent activity has its own list below, so it is not
+  // previewed here — that mix made the card say "All caught up" while listing items.
+  // An organisation home does not load wallet offers; the next-step read is what is waiting.
+  const waitingInbox = useMemo(
+    () => nextSteps.filter((item) => item.kind === 'inbox'),
+    [nextSteps],
+  );
   const homeQueueRows = useMemo<HomeQueueRow[]>(() => {
     const unreadRows: HomeQueueRow[] = unreadInboxRows.map((row) => ({
       id: `inbox-${row.id}`,
@@ -298,84 +357,57 @@ export default function HomePage() {
       summary: row.summary,
       createdAt: row.createdAt,
       route: row.route || '/inbox',
-      kind: row.kind === 'receipt' ? 'receipt' : 'offer',
+      kind: row.kind === 'receipt' ? 'receipt' : row.kind === 'request' ? 'request' : 'offer',
       family: row.kind === 'receipt' || row.kind === 'request' ? 'Payments' : undefined,
     }));
-
-    const txnRows: HomeQueueRow[] = recentTransactions.map((row) => ({
-      id: `txn-${row.id}`,
-      title: row.title,
-      summary: row.summary,
-      createdAt: row.occurredAt,
-      route: `/activity?ref=${encodeURIComponent(row.ref)}`,
-      kind: 'transaction',
-      family: FLOW_LABEL[row.flowType],
+    if (unreadRows.length > 0) {
+      return unreadRows
+        .sort((a, b) => {
+          const scoreDelta = homeQueueUrgencyScore(b) - homeQueueUrgencyScore(a);
+          if (scoreDelta !== 0) return scoreDelta;
+          return dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf();
+        })
+        .slice(0, 3);
+    }
+    return waitingInbox.slice(0, 3).map((item) => ({
+      id: item.id,
+      title: item.title,
+      summary: item.detail,
+      createdAt: '',
+      route: item.requestId
+        ? `/inbox?filter=requests&request=${encodeURIComponent(item.requestId)}`
+        : item.inboxItemId ? `/inbox?item=${encodeURIComponent(item.inboxItemId)}` : '/inbox',
+      kind: 'request' as const,
     }));
+  }, [unreadInboxRows, waitingInbox]);
+  // The recommendations are capped, not an authoritative inbox total.
+  const waitingCount = getContextMode() === 'org' ? null : inboxCount;
 
-    const sortedUnread = unreadRows
-      .sort((a, b) => {
-        const scoreDelta = homeQueueUrgencyScore(b) - homeQueueUrgencyScore(a);
-        if (scoreDelta !== 0) return scoreDelta;
-        return dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf();
-      })
-      .slice(0, 4);
 
-    const sortedTxn = txnRows
-      .sort((a, b) => dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf())
-      .slice(0, 4);
-
-    const dedupedTxn = sortedTxn.filter((row, index, rows) => {
-      const signature = `${row.title}|${row.summary}`.toLowerCase();
-      return rows.findIndex((entry) => `${entry.title}|${entry.summary}`.toLowerCase() === signature) === index;
-    }).slice(0, 2);
-
-    return [...sortedUnread, ...dedupedTxn].slice(0, 6);
-  }, [recentTransactions, unreadInboxRows]);
-
-  useEffect(() => {
-    setMounted(true);
-    if (!isAuthenticated()) return;
-    void loadHomeData();
-  }, []);
-
-  useEffect(() => {
-    const handleAutoRefresh = () => {
-      if (!isAuthenticated()) return;
-      if (autoRefreshLockRef.current) return;
-      autoRefreshLockRef.current = true;
-      void loadHomeData({ silent: true }).finally(() => {
-        window.setTimeout(() => {
-          autoRefreshLockRef.current = false;
-        }, 900);
-      });
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState !== 'visible') return;
-      handleAutoRefresh();
-    };
-
-    window.addEventListener('focus', handleAutoRefresh);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      window.removeEventListener('focus', handleAutoRefresh);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, []);
-
-  const loadHomeData = async (options?: { silent?: boolean }) => {
-    const silent = Boolean(options?.silent);
-    if (!silent) setLoading(true);
+  const readLocalHome = () => {
     setRunningActions(getRunningActions().filter((entry) => entry.status !== 'completed').slice(0, 4));
     setUserName(getUserName());
     setUserAccountId(getPersonalWalletTenantId());
     setOrgLabel(getActiveOrgLabel());
     setUserRole(getUserRole());
+  };
+
+  useEffect(() => {
+    setMounted(true);
+    readLocalHome();
+  }, []);
+
+
+  fetchHomeRef.current = async (expectedScope): Promise<HomeSnapshot> => {
+    const requestedScope = useSessionStore.getState().scope;
+    if (requestedScope !== expectedScope) throw new Error('Home context changed before loading.');
+    const snap: HomeSnapshot = emptyHomeSnapshot();
+    readLocalHome();
     const contextMode = getContextMode();
     try {
       const storedWorkflows = localStorage.getItem('credoActiveWorkflowTypes');
       const workflows = storedWorkflows ? JSON.parse(storedWorkflows) : [];
-      setActiveWorkflowTypes(workflows);
+      snap.activeWorkflowTypes = (workflows);
 
       // Proactive sync: refresh org workflow state so portal-side activation appears quickly.
       const activeOrgId = getActiveOrgId();
@@ -384,11 +416,11 @@ export default function HomePage() {
         const contextChanged = await syncOrgContextFromServer();
         if (contextChanged || !workflows || workflows.length === 0) {
           const updatedWorkflows = localStorage.getItem('credoActiveWorkflowTypes');
-          setActiveWorkflowTypes(updatedWorkflows ? JSON.parse(updatedWorkflows) : []);
+          snap.activeWorkflowTypes = (updatedWorkflows ? JSON.parse(updatedWorkflows) : []);
         }
       }
     } catch {
-      setActiveWorkflowTypes([]);
+      snap.activeWorkflowTypes = ([]);
     }
 
     const preferredToken = getPreferredToken();
@@ -396,6 +428,21 @@ export default function HomePage() {
     const activeOrgId = getActiveOrgId();
     const personalTenantId = getPersonalWalletTenantId();
     const credentialTenantId = contextMode === 'org' ? activeOrgId : personalTenantId;
+    const orgToken = getOrgToken();
+
+    if (contextMode === 'org' && activeOrgId && getOrgToken()) {
+      try {
+        const stepsRes = await api.get(`/api/organizations/${encodeURIComponent(activeOrgId)}/next-steps`, {
+          headers: { Authorization: `Bearer ${orgToken}` },
+        });
+        snap.nextSteps = (Array.isArray(stepsRes.data?.items) ? stepsRes.data.items : []);
+      } catch (error) {
+        snap.nextSteps = ([]);
+        snap.orgAttentionError = friendlyRequestError(error, 'Could not load organisation attention items.');
+      }
+    } else {
+      snap.nextSteps = ([]);
+    }
 
     try {
       if (preferredToken) {
@@ -416,7 +463,7 @@ export default function HomePage() {
 
           const offerUris = new Set(offers.map((o: any) => o?.offerUri).filter(Boolean));
           const receiptCount = receipts.filter((r: any) => /receipt/i.test(String(r?.credentialType ?? '')) && !(r?.offerUri && offerUris.has(r.offerUri))).length;
-          setHasIdentityOffer(offers.some((o: any) => String(o?.credentialType || '').toLowerCase().includes('platformidentity')))
+          snap.hasIdentityOffer = (offers.some((o: any) => String(o?.credentialType || '').toLowerCase().includes('platformidentity')))
           const assignedFieldCount = offers.filter((o: any) => {
             const sourceType = String(o?.sourceType || '').toLowerCase();
             const credType = String(o?.credentialType || '').toLowerCase();
@@ -434,8 +481,10 @@ export default function HomePage() {
                 || o?.claims?.type
                 || 'Credential offer'
               );
-              const credentialLabel = formatCredentialType(rawType);
-              const family = credentialFamily(credentialLabel);
+              const connectedTitle = sourceType === 'connected_system_record' ? String(o?.title || '').trim() : '';
+              const credentialLabel = recordCardTitle(rawType, o?.claims) || connectedTitle || formatCredentialType(rawType);
+              // Same section words as My Records and the inbox tabs.
+              const family = RECORD_SECTION_LABELS[recordSectionOf(rawType, o?.claims)];
 
               let title = `${credentialLabel} offer`;
               let summary = `From ${issuerName}`;
@@ -444,7 +493,11 @@ export default function HomePage() {
               else if (sourceType === 'proof_request') title = 'Proof request';
               else if (sourceType.includes('workflow')) title = 'Workflow action';
 
-              if (sourceType === 'payment_link') {
+              const replaces = offerReplacement(o?.claims);
+              if (replaces) {
+                title = replaces.label;
+                summary = replaces.note;
+              } else if (sourceType === 'payment_link') {
                 summary = issuerName ? `From ${issuerName} · Tap to pay` : 'Tap to pay';
               } else if (sourceType === 'invoice_offer') {
                 summary = issuerName ? `Issued by ${issuerName}` : 'Invoice ready';
@@ -479,16 +532,16 @@ export default function HomePage() {
             .sort((a, b) => dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf())
             .slice(0, 5);
 
-          setUnreadInboxRows(unreadRows);
+          snap.unreadInboxRows = (unreadRows);
 
-          setPendingOfferCount(offers.length);
-          setInboxCount(offers.length + receiptCount);
-          setAssignedFieldTaskCount(assignedFieldCount);
+          snap.pendingOfferCount = (offers.length);
+          snap.inboxCount = (offers.length + receiptCount);
+          snap.assignedFieldTaskCount = (assignedFieldCount);
         } else {
-          setPendingOfferCount(0);
-          setInboxCount(0);
-          setAssignedFieldTaskCount(0);
-          setUnreadInboxRows([]);
+          snap.pendingOfferCount = (0);
+          snap.inboxCount = (0);
+          snap.assignedFieldTaskCount = (0);
+          snap.unreadInboxRows = ([]);
         }
 
         if (credentialTenantId) {
@@ -501,25 +554,23 @@ export default function HomePage() {
               : Array.isArray(credsRes.data?.credentials)
                 ? credsRes.data.credentials
                 : [];
-            setProofCount(rawCreds.length);
+            snap.proofCount = (rawCreds.length);
 
             // Build wallet card previews for Zone 3
             const now = new Date();
             let expiring = 0;
             const cards: WalletCard[] = rawCreds.slice(0, 6).map((c: any): WalletCard => {
-              const rawType = String(
-                c?.type?.[c.type.length - 1] ?? c?.credentialSubject?.type ?? c?.credentialType ?? 'Document'
-              );
+              const typeValue = c?.type ?? c?.parsedDocument?.type ?? c?.credentialType;
+              const rawType = Array.isArray(typeValue) ? typeValue.join(' ') : String(typeValue || 'Document');
               const kind = deriveCardKind(rawType);
-              const label = rawType
-                .replace(/VC$|Credential$/i, '')
-                .replace(/([a-z])([A-Z])/g, '$1 $2')
-                .trim() || 'Document';
-              const expiryDate = c?.expirationDate ? new Date(c.expirationDate) : null;
+              const label = credentialTypeName(typeValue);
+              const expiryRaw = c?.expirationDate || c?.parsedDocument?.expirationDate;
+              const expiryDate = expiryRaw ? new Date(expiryRaw) : null;
               const isExpiring = expiryDate && expiryDate > now && (expiryDate.getTime() - now.getTime()) < 30 * 24 * 60 * 60 * 1000;
               const isExpired = expiryDate && expiryDate <= now;
               if (isExpiring) expiring++;
-              const issueStr = c?.issuanceDate ? new Date(c.issuanceDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : undefined;
+              const issuedRaw = c?.issuanceDate || c?.parsedDocument?.issuanceDate || c?.addedOn;
+              const issueStr = issuedRaw ? new Date(issuedRaw).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : undefined;
               return {
                 id: String(c?.id ?? c?.credentialId ?? Math.random()),
                 label,
@@ -530,15 +581,44 @@ export default function HomePage() {
                 meta: isExpiring ? 'Expiring soon' : issueStr ? `Issued ${issueStr}` : undefined,
               };
             });
-            setWalletCredentials(cards);
-            setExpiringCount(expiring);
+            snap.walletCredentials = (cards);
+            snap.expiringCount = (expiring);
           } catch {
-            setProofCount(0);
-            setWalletCredentials([]);
-            setExpiringCount(0);
+            snap.proofCount = (0);
+            snap.walletCredentials = ([]);
+            snap.expiringCount = (0);
           }
         }
 
+        if (contextMode !== 'org' && walletToken) {
+          // Your own activity: cards you were given, what you shared and with whom. The
+          // organisation audit feed is not yours to read in a personal account.
+          try {
+            const res = await api.get('/api/wallet/activity', {
+              params: { limit: 3, ts: Date.now() },
+              headers: { Authorization: `Bearer ${walletToken}` },
+              skipAuthRedirect: true as any,
+            } as any);
+            const items: HolderActivityEntry[] = Array.isArray(res.data?.items) ? res.data.items : [];
+            snap.recentTransactions = (
+              items.map((entry): RecentTransactionRow => {
+                const line = describeHolderActivity(entry, { labelStep: (step) => stepRequiredLabel({ stageAction: step }) });
+                return {
+                  id: entry.id,
+                  ref: entry.id,
+                  title: line.title,
+                  summary: line.summary,
+                  context: 'personal',
+                  occurredAt: entry.occurredAt,
+                  flowType: entry.kind.startsWith('card') ? 'CREDENTIAL' : 'WORKFLOW',
+                  personal: true,
+                };
+              })
+            );
+          } catch {
+            snap.recentTransactions = ([]);
+          }
+        } else {
         try {
           const tokenCandidates = [
             contextMode === 'org' ? getOrgToken() : getWalletToken(),
@@ -585,18 +665,23 @@ export default function HomePage() {
             .filter((row): row is RecentTransactionRow => !!row)
             .slice(0, 4);
 
-          setRecentTransactions(mapped);
+          snap.recentTransactions = (mapped);
         } catch {
-          setRecentTransactions([]);
+          snap.recentTransactions = ([]);
+        }
         }
       }
     } finally {
-      if (!silent) setLoading(false);
+      // Partial answers are still the latest picture; each part above already fell back on its own.
     }
+    if (useSessionStore.getState().scope !== requestedScope) throw new Error('Home context changed while loading.');
+    return snap;
   };
+
 
   const today = dayjs().format('ddd, D MMM');
   const isOrgContext = getContextMode() === 'org' && !!getActiveOrgId();
+  const setupStep = isOrgContext ? nextStepCard(nextSteps.filter((item) => item.kind === 'setup'), 'phone') : null;
   const isIssuer = ['owner', 'admin', 'issuer'].includes(userRole ?? '');
 
   if (!mounted) {
@@ -637,13 +722,13 @@ export default function HomePage() {
                   size="sm"
                   leftSection={<Box style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} />}
                 >
-                  Verified Holder
+                  Account verified
                 </Badge>
                 {orgLabel && <Badge color="credentis" variant="light" size="sm">{orgLabel}</Badge>}
-                {userRole && !orgLabel && <Badge color="gray" variant="light" size="sm" tt="capitalize">{userRole}</Badge>}
+                {userRole && userRole !== 'holder' && !orgLabel && <Badge color="gray" variant="light" size="sm" tt="capitalize">{userRole}</Badge>}
               </Group>
             </Box>
-            <Button variant="subtle" color="gray" size="xs" leftSection={<IconRefresh size={14} />} onClick={() => void loadHomeData()} loading={loading}>
+            <Button variant="subtle" color="gray" size="xs" leftSection={<IconRefresh size={14} />} onClick={() => void loadHomeData()} loading={homeQuery.isFetching}>
               Refresh
             </Button>
           </Group>
@@ -722,7 +807,7 @@ export default function HomePage() {
             }}
             onClick={() => router.push('/inbox')}
           >
-            <Group justify="space-between" align="flex-start" mb={homeQueueRows.length > 0 ? 10 : 0} wrap="nowrap">
+            <Group justify="space-between" align="flex-start" mb={homeQueueRows.length > 0 || setupStep ? 10 : 0} wrap="nowrap">
               <Group gap={10} align="center" wrap="nowrap">
                 <Box
                   style={{
@@ -741,11 +826,13 @@ export default function HomePage() {
                 <Box>
                   <Text fw={700} size="sm">Needs your attention</Text>
                   <Text size="xs" c="dimmed">
-                    {inboxCount > 0 ? `${inboxCount} waiting for you` : 'All caught up'}
+                    {waitingCount === null
+                      ? homeQueueRows.length > 0 ? 'Organisation items to review' : 'Review your organisation inbox'
+                      : waitingCount > 0 ? `${waitingCount} waiting for you` : setupStep ? 'Setup is not finished' : 'All caught up'}
                   </Text>
                 </Box>
               </Group>
-              {inboxCount > 0 && (
+              {waitingCount !== null && waitingCount > 0 && (
                 <Badge
                   size="lg"
                   circle
@@ -753,10 +840,25 @@ export default function HomePage() {
                   variant={isDark ? 'filled' : 'light'}
                   style={{ flexShrink: 0 }}
                 >
-                  {inboxCount > 99 ? '99+' : inboxCount}
+                  {waitingCount > 99 ? '99+' : waitingCount}
                 </Badge>
               )}
             </Group>
+
+            {/* Setup steps are not inbox items, so the org home shows them here instead of a separate card. */}
+            {home.orgAttentionError && <Alert color="red" mb="sm">{home.orgAttentionError}</Alert>}
+            {isOrgContext && setupStep && (
+              <Text
+                size="xs"
+                fw={600}
+                c="credentis"
+                mb={10}
+                truncate
+                onClick={(e) => { e.stopPropagation(); router.push(setupStep.href); }}
+              >
+                {setupStep.sentence}
+              </Text>
+            )}
 
             {/* 3-line preview */}
             {homeQueueRows.length > 0 && (
@@ -768,7 +870,9 @@ export default function HomePage() {
                         row.kind === 'receipt' ? theme.colors.blue[isDark ? 4 : 6] :
                           theme.colors.gray[4];
                   return (
-                    <Group key={row.id} gap={8} align="center" wrap="nowrap">
+                    <UnstyledButton type="button" key={row.id}
+                      style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%', minHeight: 48 }}
+                      onClick={event => { event.stopPropagation(); void router.push(row.route); }}>
                       <Box
                         style={{
                           width: 7,
@@ -781,10 +885,10 @@ export default function HomePage() {
                       <Text size="xs" fw={600} style={{ flexShrink: 0, maxWidth: 130 }} truncate>
                         {row.title}
                       </Text>
-                      <Text size="xs" c="dimmed" truncate style={{ flex: 1 }}>
+                      <Text size="xs" c="dimmed" truncate style={{ flex: 1 }} lineClamp={1}>
                         — {row.summary}
                       </Text>
-                    </Group>
+                    </UnstyledButton>
                   );
                 })}
               </Stack>
@@ -799,6 +903,10 @@ export default function HomePage() {
             >
               Open inbox
             </Button>
+            {isOrgContext && <Button fullWidth variant="subtle" mt="xs"
+              onClick={event => { event.stopPropagation(); void router.push('/requests'); }}>
+              Requests & history
+            </Button>}
           </Paper>
         )}
 
@@ -807,19 +915,30 @@ export default function HomePage() {
           <Box>
             <Group justify="space-between" mb={8} align="center">
               <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Recent activity</Text>
-              <Anchor size="xs" c="credentis" onClick={() => router.push('/activity')} style={{ cursor: 'pointer' }}>
+              <Anchor
+                size="xs"
+                c="credentis"
+                onClick={() => router.push(isOrgContext ? '/activity' : '/activity?lens=personal')}
+                style={{ cursor: 'pointer' }}
+              >
                 View all →
               </Anchor>
             </Group>
             <Stack gap={6}>
-              {recentTransactions.slice(0, 2).map((row) => (
+              {recentTransactions.slice(0, isOrgContext ? 2 : 3).map((row) => (
                 <Paper
                   key={row.id}
                   p="xs"
                   radius="md"
                   withBorder
                   style={{ cursor: 'pointer' }}
-                  onClick={() => router.push(`/activity?ref=${encodeURIComponent(row.ref)}`)}
+                  onClick={() =>
+                    router.push(
+                      row.personal
+                        ? `/activity?lens=personal&entry=${encodeURIComponent(row.id)}`
+                        : `/activity?ref=${encodeURIComponent(row.ref)}`,
+                    )
+                  }
                 >
                   <Group justify="space-between" align="flex-start" wrap="nowrap">
                     <Box style={{ minWidth: 0, flex: 1 }}>
@@ -827,7 +946,7 @@ export default function HomePage() {
                       <Text size="xs" c="dimmed" lineClamp={1}>{row.summary}</Text>
                     </Box>
                     <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
-                      {dayjs(row.occurredAt).fromNow()}
+                      {formatTxnTime(row.occurredAt)}
                     </Text>
                   </Group>
                 </Paper>
@@ -843,4 +962,3 @@ export default function HomePage() {
     </AppShellMobile>
   );
 }
-

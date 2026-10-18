@@ -3,10 +3,7 @@ import { Box, Card, Group, Stack, Text, ThemeIcon, Title, Badge, useMantineColor
 import {
     IconCreditCard, IconShieldCheck, IconReceipt, IconClipboardText, IconActivity, IconChevronRight, IconLock
 } from '@tabler/icons-react';
-import dayjs from 'dayjs';
-import relativeTime from 'dayjs/plugin/relativeTime';
-
-dayjs.extend(relativeTime);
+import { formatTxnTime } from '@/lib/inboxAttention';
 
 export interface AuditEntry {
     id: string;
@@ -94,7 +91,7 @@ export default function AuditTrailFeed({ entries }: AuditTrailFeedProps) {
                                         {entry.title}
                                     </Text>
                                     <Text size="xs" c="dimmed">
-                                        {entry.occurredAt}
+                                        {formatTxnTime(entry.occurredAt)}
                                     </Text>
                                 </Group>
 

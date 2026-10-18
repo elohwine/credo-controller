@@ -129,6 +129,41 @@ Askar version: 0.2.3
 
 ## Build and Run
 
+### Android overlay regression checks
+
+The mobile app uses viewport-fixed, portalled Combobox dropdowns above nested
+dialogs. Android safe-area publication skips unchanged inset callbacks and
+replays the latest values after a full WebView page load. This avoids redundant
+native-to-WebView calls and CSS writes during native inset dispatch.
+
+Run the targeted checks from the repository root:
+
+```bash
+yarn test credo-ui/mobile/lib/theme/credentis-theme.test.ts --runInBand
+cd credo-ui/mobile
+npx tsc --noEmit --incremental false
+cd android
+./gradlew :app:testDebugUnitTest --tests com.credentis.mobile.SafeAreaInsetsStateTest
+```
+
+Desktop browser checks do not validate Android WebView rendering. For an APK
+smoke test, rebuild and sync the web assets before building the native release.
+Use `npm run android:release` from `credo-ui/mobile` with a reachable HTTPS API
+URL. Install the resulting APK on the affected phone and verify:
+
+- Jobs → New job → How will the client pay: the sheet and option list stay
+  stable, and each payment term can be selected.
+- Searchable people pickers and multi-select roles: search, scroll, selection,
+  and dismissal still work, including with the keyboard open.
+- Activity/job timeline → stage evidence/summary: the preview stays stable;
+  closing it leaves the parent timeline visible and usable.
+- Repeat after scrolling the sheet, rotating the phone, resuming the app, and
+  reloading the WebView. Safe areas and close controls remain usable.
+
+Record the APK version, Android version, and Android System WebView version
+when reporting any remaining flicker. Passing builds and desktop checks alone
+must not be reported as confirmation that the on-device issue is fixed.
+
 ### Development Mode
 
 ```bash

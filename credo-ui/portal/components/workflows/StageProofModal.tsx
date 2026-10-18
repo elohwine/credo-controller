@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/router';
-import { Modal, Stack, Text, Paper, Button, Center, Loader, Alert } from '@mantine/core';
-import { IconWallet, IconExternalLink, IconCopy, IconId } from '@tabler/icons-react';
+import { Modal, Stack, Text, Paper, Button, Center, Loader, Alert, Collapse, Group, UnstyledButton } from '@mantine/core';
+import { IconWallet, IconExternalLink, IconCopy, IconId, IconChevronDown } from '@tabler/icons-react';
 import QRCode from 'react-qr-code';
 
 interface StageProofModalProps {
@@ -55,6 +55,7 @@ export default function StageProofModal({
     opened, onClose, title, description, requestUrl, requestId, review, creating, error,
 }: StageProofModalProps) {
     const router = useRouter();
+    const [moreOpen, setMoreOpen] = useState(false);
     const walletLink = requestUrl ? toWalletLink(requestUrl) : '';
     const canShowQr = walletLink.length > 0 && walletLink.length <= MAX_QR_LINK_LENGTH;
     const missingRoleCard = isMissingRoleCardError(error);
@@ -76,7 +77,7 @@ export default function StageProofModal({
     };
 
     return (
-        <Modal opened={opened} onClose={onClose} title={title} centered>
+        <Modal opened={opened} onClose={() => { setMoreOpen(false); onClose(); }} title={title} centered>
             <Stack align="center" py="sm">
                 <Text size="sm" ta="center" c="dimmed">{description}</Text>
                 {creating && <Center py="lg"><Loader /></Center>}
@@ -92,34 +93,44 @@ export default function StageProofModal({
                         <Text size="xs" c="dimmed" ta="center">
                             You will see exactly what is shared before you confirm.
                         </Text>
-                        {canShowQr ? (
-                            <>
-                                <Text size="xs" c="dimmed" ta="center" mt="xs">
-                                    Or scan with this app, or with any other wallet, on your phone.
-                                </Text>
-                                <Paper p="md" radius="md" withBorder bg="white">
-                                    <QRCode value={walletLink} size={160} />
-                                </Paper>
-                            </>
-                        ) : (
-                            <Text size="xs" c="dimmed" ta="center" mt="xs">
-                                Scanning is not available for this link. Use the button above, or open it in a wallet on this device.
-                            </Text>
-                        )}
-                        <Button
-                            variant="subtle" color="gray" size="xs" fullWidth
-                            leftSection={<IconExternalLink size={14} />}
-                            onClick={() => window.open(walletLink, '_blank')}
-                        >
-                            Open in a wallet on this device
-                        </Button>
-                        <Button
-                            variant="subtle" color="gray" size="xs" fullWidth
-                            leftSection={<IconCopy size={14} />}
-                            onClick={() => navigator.clipboard?.writeText(walletLink || requestUrl)}
-                        >
-                            Copy link
-                        </Button>
+                        <UnstyledButton onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen}>
+                            <Group gap={6} justify="center">
+                                <Text size="sm" c="dimmed">Other ways</Text>
+                                <IconChevronDown size={16} style={{ transform: moreOpen ? 'rotate(180deg)' : undefined }} />
+                            </Group>
+                        </UnstyledButton>
+                        <Collapse in={moreOpen}>
+                            <Stack align="center" gap="xs" w="100%">
+                                {canShowQr ? (
+                                    <>
+                                        <Text size="xs" c="dimmed" ta="center">
+                                            Scan with this app, or with any other wallet, on your phone.
+                                        </Text>
+                                        <Paper p="md" radius="md" withBorder bg="white">
+                                            <QRCode value={walletLink} size={160} />
+                                        </Paper>
+                                    </>
+                                ) : (
+                                    <Text size="xs" c="dimmed" ta="center">
+                                        Scanning is not available for this link.
+                                    </Text>
+                                )}
+                                <Button
+                                    variant="subtle" color="gray" size="xs" fullWidth
+                                    leftSection={<IconExternalLink size={14} />}
+                                    onClick={() => window.open(walletLink, '_blank')}
+                                >
+                                    Open in a wallet on this device
+                                </Button>
+                                <Button
+                                    variant="subtle" color="gray" size="xs" fullWidth
+                                    leftSection={<IconCopy size={14} />}
+                                    onClick={() => navigator.clipboard?.writeText(walletLink || requestUrl)}
+                                >
+                                    Copy link
+                                </Button>
+                            </Stack>
+                        </Collapse>
                     </>
                 )}
                 {!creating && !requestUrl && !error && (

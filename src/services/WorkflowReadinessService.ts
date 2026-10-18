@@ -23,11 +23,12 @@ import type {
 
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { organizationRegistryRepository } from '../persistence/OrganizationRegistryRepository'
+import { ensureStarterRoles } from './OrgStarterRoles'
 import { getTenantById } from '../persistence/TenantRepository'
 import { WorkflowTemplateRepository } from '../persistence/WorkflowTemplateRepository'
 import { rootLogger } from '../utils/pinoLogger'
 
-import { orgSetupProfileService } from './OrgSetupProfileService'
+import { orgSetupProfileService, REQUEST_TYPE_NAMES } from './OrgSetupProfileService'
 import { OrgWorkflowActorService, orgWorkflowActorService } from './OrgWorkflowActorService'
 import { getWorkflowTypeCandidates, normalizeWorkflowTypeAlias } from './workflow/initiation'
 import {
@@ -211,7 +212,16 @@ export class WorkflowReadinessService {
         `SELECT COUNT(*) as cnt FROM departments WHERE organization_id = ? AND status = 'active'`,
         organizationId,
       ),
-      roleCount: count(`SELECT COUNT(*) as cnt FROM roles WHERE organization_id = ?`, organizationId),
+      roleCount: (() => {
+        if (organizationId) {
+          try {
+            ensureStarterRoles(orgTenantId, organizationId)
+          } catch (error) {
+            logger.debug({ error }, 'Starter roles were not filled before the readiness count')
+          }
+        }
+        return count(`SELECT COUNT(*) as cnt FROM roles WHERE organization_id = ?`, organizationId)
+      })(),
       authorityGrantCount: count(
         `SELECT COUNT(*) as cnt FROM authority_grants
          WHERE organization_id = ? AND status = 'active'
@@ -241,13 +251,14 @@ export class WorkflowReadinessService {
         `SELECT COUNT(*) as cnt FROM verifier_registrations WHERE organization_id = ? AND status = 'active'`,
         organizationId,
       ),
-      paymentServiceCount: count(
-        `SELECT COUNT(*) as cnt
+      paymentServiceCount:
+        count(
+          `SELECT COUNT(*) as cnt
          FROM service_catalog sc
          JOIN organization_registry o ON o.id = sc.org_id
          WHERE o.tenant_id = ? AND sc.service_type = 'payment' AND sc.is_active = 1`,
-        orgTenantId,
-      ) +
+          orgTenantId,
+        ) +
         count(
           `SELECT COUNT(*) as cnt
            FROM provider_configs pc
@@ -305,7 +316,13 @@ export class WorkflowReadinessService {
     }
 
     return {
-      definition: { id: templateRef, workflowType: canonical || templateRef, paymentModes: [], evidencePolicy: {} },
+      definition: {
+        id: templateRef,
+        workflowType: canonical || templateRef,
+        name: REQUEST_TYPE_NAMES[normalize(templateRef)],
+        paymentModes: [],
+        evidencePolicy: {},
+      },
       configured: false,
       candidates,
     }
@@ -355,9 +372,7 @@ export class WorkflowReadinessService {
           ? base
           : notReady('Create at least one active department for structured request routing')
       case 'roles':
-        return facts.roleCount > 0
-          ? base
-          : notReady('Create starter roles (for example: Approver, Finance Manager, Employee)')
+        return facts.roleCount > 0 ? base : notReady('The roles from your setup answers are not ready yet')
       case 'authorities':
         return facts.authorityGrantCount > 0 ? base : notReady('No active authority grants found for this workflow')
       case 'delegations':
@@ -383,7 +398,9 @@ export class WorkflowReadinessService {
       case 'payment_provider':
         return facts.paymentServiceCount > 0
           ? base
-          : notReady('Set up a payment service (practice mode works for now) before this workflow can take or release money')
+          : notReady(
+              'Set up a payment service (practice mode works for now) before this workflow can take or release money',
+            )
       case 'stage_actor': {
         const stageAction = normalize(prerequisite.stageAction)
         if (!stageAction) return base
@@ -435,7 +452,10 @@ export class WorkflowReadinessService {
     )
 
     const applicable = declared.filter((prerequisite) => prerequisiteApplies(prerequisite, definition))
-    const merged = this.mergePrerequisites([...CORE_PREREQUISITES, ...applicable])
+    // A calculation that declares no organisation needs (the quote test on an empty database)
+    // is not asked for an owner, members, roles or an issuer. A field job still is.
+    const organisationChecklist = declared.length > 0 ? CORE_PREREQUISITES : []
+    const merged = this.mergePrerequisites([...organisationChecklist, ...applicable])
 
     const items = merged.map((prerequisite) => this.evaluatePrerequisite(prerequisite, facts, orgTenantId, definition))
     const blocking = items.filter(
@@ -543,6 +563,7 @@ export class WorkflowReadinessService {
    */
   public assertExecutable(orgTenantId: string, templateRef: string): TemplateReadinessReport {
     const report = this.evaluateTemplate(orgTenantId, templateRef)
+    const facts = this.collectFacts(orgTenantId)
     if (!report.ready) {
       throw new WorkflowPrerequisitesError(report)
     }

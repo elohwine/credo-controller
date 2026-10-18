@@ -180,6 +180,19 @@
   color: #0f3f5e; /* Dark Credentis for contrast */
 }
 
+/* These cards keep a light surface in both schemes, so their words stay dark. */
+[data-mantine-color-scheme='dark'] .glass-surface,
+[data-mantine-color-scheme='dark'] .glass-card,
+[data-mantine-color-scheme='dark'] .glass-credential,
+[data-mantine-color-scheme='dark'] .glass-surface .mantine-Text-root,
+[data-mantine-color-scheme='dark'] .glass-card .mantine-Text-root,
+[data-mantine-color-scheme='dark'] .glass-credential .mantine-Text-root,
+[data-mantine-color-scheme='dark'] .glass-surface .mantine-Badge-label,
+[data-mantine-color-scheme='dark'] .glass-card .mantine-Badge-label,
+[data-mantine-color-scheme='dark'] .glass-credential .mantine-Badge-label {
+  color: #0f3f5e;
+}
+
 .glass-surface h1,
 .glass-surface h2,
 .glass-surface h3,

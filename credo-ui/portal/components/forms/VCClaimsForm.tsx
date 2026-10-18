@@ -1,5 +1,14 @@
 import React from 'react';
-import InputField from '@/components/walt/forms/Input';
+
+export type ClaimsSchema = {
+    type?: string;
+    title?: string;
+    description?: string;
+    format?: string;
+    enum?: Array<string | number | boolean>;
+    properties?: Record<string, ClaimsSchema>;
+    required?: string[];
+};
 
 // Credential-type-specific field schemas tailored for Zimbabwean market
 export const CredentialSchemas: Record<string, Array<{
@@ -93,9 +102,84 @@ type Props = {
     credentialType: string;
     claims: Record<string, any>;
     onChange: (claims: Record<string, any>) => void;
+    schema?: ClaimsSchema;
 };
 
-export default function VCClaimsForm({ credentialType, claims, onChange }: Props) {
+export default function VCClaimsForm({ credentialType, claims, onChange, schema: registeredSchema }: Props) {
+    if (registeredSchema) {
+        return (
+            <div className="space-y-4">
+                {Object.entries(registeredSchema.properties || {}).filter(([key]) => key !== 'id').map(([key, field]) => {
+                    const label = field.title || key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (letter) => letter.toUpperCase());
+                    const required = registeredSchema.required?.includes(key);
+                    const inputId = `credential-claim-${key}`;
+                    const update = (value: unknown) => {
+                        const next = { ...claims };
+                        if (value === undefined || value === '') delete next[key];
+                        else next[key] = value;
+                        onChange(next);
+                    };
+                    const inputClass = "w-full border border-gray-300 rounded-md p-2 text-sm";
+                    return (
+                        <div key={key} className="flex flex-col gap-1">
+                            <label htmlFor={inputId} className="text-sm font-medium text-gray-700">
+                                {label}{required ? ' *' : ''}
+                            </label>
+                            {field.type === 'object' || field.type === 'array' ? (
+                                <textarea
+                                    id={inputId}
+                                    aria-label={label}
+                                    required={required}
+                                    rows={3}
+                                    className={inputClass}
+                                    defaultValue={claims[key] === undefined ? '' : JSON.stringify(claims[key], null, 2)}
+                                    placeholder={field.type === 'array' ? 'JSON array' : 'JSON object'}
+                                    onChange={(event) => {
+                                        const input = event.currentTarget;
+                                        if (!input.value.trim()) {
+                                            input.setCustomValidity('');
+                                            update(undefined);
+                                            return;
+                                        }
+                                        try {
+                                            const value: unknown = JSON.parse(input.value);
+                                            if (field.type === 'array' ? !Array.isArray(value) : !value || typeof value !== 'object' || Array.isArray(value)) {
+                                                throw new Error(`Enter a JSON ${field.type}.`);
+                                            }
+                                            input.setCustomValidity('');
+                                            update(value);
+                                        } catch {
+                                            input.setCustomValidity(`Enter a valid JSON ${field.type}.`);
+                                            input.reportValidity();
+                                        }
+                                    }}
+                                />
+                            ) : field.type === 'boolean' ? (
+                                <select id={inputId} className={inputClass} required={required} value={claims[key] === undefined ? '' : String(claims[key])}
+                                    onChange={(event) => update(event.target.value === '' ? undefined : event.target.value === 'true')}>
+                                    <option value="">Select</option><option value="true">Yes</option><option value="false">No</option>
+                                </select>
+                            ) : field.enum ? (
+                                <select id={inputId} className={inputClass} required={required} value={claims[key] ?? ''}
+                                    onChange={(event) => update(field.enum?.find((value) => String(value) === event.target.value))}>
+                                    <option value="">Select</option>
+                                    {field.enum.map((value) => <option key={String(value)} value={String(value)}>{String(value)}</option>)}
+                                </select>
+                            ) : (
+                                <input id={inputId} className={inputClass} required={required} value={claims[key] ?? ''}
+                                    type={field.type === 'number' || field.type === 'integer' ? 'number' : field.format === 'date' ? 'date' : field.format === 'email' ? 'email' : 'text'}
+                                    step={field.type === 'integer' ? 1 : 'any'}
+                                    placeholder={field.format === 'date-time' ? 'YYYY-MM-DDTHH:mm:ssZ' : undefined}
+                                    onChange={(event) => update(event.target.value === '' ? undefined : field.type === 'number' || field.type === 'integer' ? Number(event.target.value) : event.target.value)}
+                                />
+                            )}
+                            {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
     // Get schema for this credential type (or default)
     const schema = CredentialSchemas[credentialType] || DefaultSchema;
 

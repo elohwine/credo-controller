@@ -1,11 +1,18 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import dayjs from 'dayjs';
+import { isPlatformRequestWaiting, type PlatformInboxRequest } from '../../shared/requestInbox';
 import {
   Stack, Title, Text, Box, Divider, Button, Center, ThemeIcon, Paper,
-  Loader, Alert, Group, Badge, ActionIcon, Tabs, Textarea, Modal,
+  Loader, Alert, Group, Badge, ActionIcon, Tabs, Textarea, Modal, SegmentedControl, NumberInput, TextInput,
   useMantineColorScheme, useMantineTheme,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys, STALE_TIME } from '@/lib/queries/keys';
+import { useSessionStore } from '@/lib/state/session';
+import { useActivityStore } from '@/lib/state/activity';
+import { useUiStore } from '@/lib/state/ui';
+import { ListSkeleton } from '@/components/feedback/ListSkeleton';
 import { IconInbox, IconRefresh, IconCheck, IconX, IconAlertCircle, IconReceipt, IconTrash, IconShieldCheck, IconPlayerPlay, IconActivity, IconChevronRight, IconChevronDown } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
 import AppShellMobile from '@/components/layout/AppShellMobile';
@@ -14,17 +21,42 @@ import BottomSheet from '@/components/shared/BottomSheet';
 import StatusBadge from '@/components/shared/StatusBadge';
 import EmptyState from '@/components/shared/EmptyState';
 import ErrorAlert from '@/components/shared/ErrorAlert';
+import ReceiptProofField, { receiptProofPayload, type ReceiptProof } from '@/components/shared/ReceiptProofField';
 import api, { safeArray } from '@/lib/api';
 import { formatCredentialType } from '@/lib/format';
-import { getInboxDisplayDescription, getInboxDisplayTitle, getInboxPrimaryActionLabel } from '@/lib/uxCopy';
-import { applyOrgContext, getActiveOrgId, getWalletToken, getActiveOrgLabel, getOrgRoleClaim, isEmployeeOrgRole, isOrgActionRole, getContextMode, getOrgToken, getPersonalWalletTenantId, getPersonalWalletToken } from '@/lib/auth';
-import { getRunningActions, removeRunningAction, RunningAction, upsertRunningAction } from '@/lib/runningActions';
+import { SAFETY_HOLD_COPY, fieldStepExplanation, getInboxDisplayDescription, getInboxDisplayTitle, getInboxPrimaryActionLabel, offerReplacement, stepRequiredLabel } from '@/lib/uxCopy';
+import { applyOrgContext, beginTaskContext, endTaskContext, getTaskContext, getActiveOrgId, getWalletToken, getActiveOrgLabel, getOrgRoleClaim, isEmployeeOrgRole, isOrgActionRole, getContextMode, getOrgToken, getPersonalWalletTenantId, getPersonalWalletToken } from '@/lib/auth';
+import { findRunningProofResume, getRunningActions, removeRunningAction, RunningAction, upsertRunningAction } from '@/lib/runningActions';
 import { getOfflineStorageAdapter } from '@/lib/offline/storage';
 import { getOfflineSyncEngine, OfflineSyncState } from '@/lib/offline/syncEngine';
 import { getMobileOfflineFlags } from '@/lib/offline/flags';
 import { flushOfflineQueueToServer } from '@/lib/offline/queueSync';
 import { getCachedWalletSnapshot } from '@/lib/offline/walletSnapshotSync';
-import { resolveCanonicalWorkflowType } from '@/lib/workflowCapabilities';
+import {
+  classifyBusinessCentre,
+  getWorkflowCapabilityFlags,
+  INBOX_TAB_LABELS,
+  INBOX_TAB_ORDER,
+  isPeopleRequestType,
+  resolveCanonicalWorkflowType,
+  visibleInboxTabs,
+  type InboxTabKey,
+  type WorkflowTemplateLike,
+} from '@/lib/workflowCapabilities';
+import { readOrgProfile } from '@/lib/orgProfile';
+import { captureOrganizationSwitchContext } from '../../shared/taskContext';
+import { requestIdFromStageCard } from '../../shared/requestExperience';
+import { requestFamily } from '../../../src/config/requestExperience';
+import {
+  groupByFlowSection,
+  inboxAttention,
+  inboxFlowSection,
+  inboxWhenLabel,
+  INBOX_ATTENTION_FILTERS,
+  matchesInboxAttention,
+  type InboxAttention,
+  type InboxAttentionFilter,
+} from '@/lib/inboxAttention';
 
 const MODULE_BY_FEATURE: Record<string, string> = {
   ECOMMERCE: 'ecommerce',
@@ -52,13 +84,9 @@ type InboxSyncMeta = {
   lastError?: string;
 };
 
-type InboxWorkflowSections = {
-  finance: boolean;
-  ops: boolean;
-};
-
 function inboxScopeId(): string {
-  return getPersonalWalletTenantId() || 'signed-out';
+  if (getContextMode() === 'org') return `org:${getActiveOrgId() || 'none'}`;
+  return `personal:${getPersonalWalletTenantId() || 'signed-out'}`;
 }
 
 function inboxItemCacheKey(): string {
@@ -146,7 +174,11 @@ function writeInboxItemCache(entries: CachedInboxEntry[]): void {
   }
 }
 
-function mergeWithInboxCache(liveItems: InboxItemData[], deleted: Record<string, boolean>): InboxItemData[] {
+function mergeWithInboxCache(
+  liveItems: InboxItemData[],
+  deleted: Record<string, boolean>,
+  authoritative = false,
+): InboxItemData[] {
   const now = Date.now();
   const ttlMs = INBOX_CACHE_TTL_DAYS * 24 * 60 * 60 * 1000;
   const cacheEntries = readInboxItemCache();
@@ -158,13 +190,19 @@ function mergeWithInboxCache(liveItems: InboxItemData[], deleted: Record<string,
     byKey.set(key, item);
   }
 
-  for (const entry of cacheEntries) {
-    const key = entry.key || getInboxItemKey(entry.item);
-    if (!key || deleted[key]) continue;
-    const seenMs = Date.parse(entry.lastSeenAt || '') || 0;
-    if (seenMs && now - seenMs > ttlMs) continue;
-    if (!byKey.has(key)) {
-      byKey.set(key, entry.item);
+  // A successful load is the list. The cache is only for a failed load, so a card the
+  // server has closed (a duplicate leave record, an accepted offer) does not come back.
+  let resurrected = 0;
+  if (!authoritative) {
+    for (const entry of cacheEntries) {
+      const key = entry.key || getInboxItemKey(entry.item);
+      if (!key || deleted[key]) continue;
+      const seenMs = Date.parse(entry.lastSeenAt || '') || 0;
+      if (seenMs && now - seenMs > ttlMs) continue;
+      if (!byKey.has(key)) {
+        byKey.set(key, entry.item);
+        resurrected += 1;
+      }
     }
   }
 
@@ -234,13 +272,25 @@ function normalizeRunId(value: unknown): string | null {
   return runId;
 }
 
+/** What the message is about: the work itself, then where, then the offer sentence. A stage name is not enough. */
+function jobAboutLine(work: unknown, place: unknown, fallback: unknown): string {
+  const job = String(work || '').trim();
+  const where = String(place || '').trim();
+  const message = String(fallback || '').trim();
+  const lead = job || (message && !/^stage\s/i.test(message) ? message : '');
+  if (lead && where && !lead.toLowerCase().includes(where.toLowerCase())) return `${lead} · ${where}`;
+  if (lead) return lead;
+  if (where) return where;
+  return message;
+}
+
 function getFieldRunActionLabel(stage: string): string {
   const labels: Record<string, string> = {
     ASSIGNED: 'Start job',
     IN_PROGRESS: 'Add photos',
     EVIDENCE_CAPTURED: 'Waiting for sign-off',
     ACKNOWLEDGED: 'Waiting for payment',
-    PAYMENT_TRIGGERED: 'Waiting for receipt',
+    PAYMENT_TRIGGERED: 'Worker paid',
     RECEIPT_ISSUED: 'Closing',
     RECONCILED: 'Closed',
     COMPLETED: 'Closed',
@@ -296,6 +346,19 @@ function getRequisitionStageActionUiCopy(stageAction: string): { title: string; 
 
 function getAssignmentRequestUiCopy(requestTypeRaw: string): { title: string; actionLabel: string } {
   const requestType = String(requestTypeRaw || '').toLowerCase();
+  // What staff raise from Home (Request sheet). Same words as requestCatalog.requestKindLabel.
+  if (requestType === 'hr.leave') {
+    return { title: 'Leave request', actionLabel: 'Decide' };
+  }
+  if (requestType === 'finance.expense_claim') {
+    return { title: 'Expense claim', actionLabel: 'Decide' };
+  }
+  if (requestType === 'finance.payout_request') {
+    return { title: 'Payout reminder', actionLabel: 'Release worker payout' };
+  }
+  if (requestType === 'platform.general') {
+    return { title: 'Request from a member', actionLabel: 'Decide' };
+  }
   if (requestType.includes('requis')) {
     return { title: 'Requisition Approval Request', actionLabel: 'Open Requisition' };
   }
@@ -582,8 +645,8 @@ function toRunningActionFromItem(item: InboxItemData): RunningActionDraft | null
     return {
       id: `ar-collection:${transactionId}`,
       type: 'workflow',
-      title: getInboxDisplayTitle(item) || item.title || 'AR collection assignment',
-      description: getInboxDisplayDescription(item) || item.description,
+      title: item.title || getInboxDisplayTitle(item) || 'AR collection assignment',
+      description: item.description || getInboxDisplayDescription(item),
       route: `/finance?${params.toString()}`,
       refId: transactionId,
       orgTenantId: item.actingOrgTenantId || item.ownerOrgTenantId,
@@ -607,8 +670,8 @@ function toRunningActionFromItem(item: InboxItemData): RunningActionDraft | null
     return {
       id: `payment:${paymentToken}`,
       type: 'payment',
-      title: getInboxDisplayTitle(item) || item.title || `Payment ${paymentToken}`,
-      description: getInboxDisplayDescription(item) || item.description,
+      title: item.title || getInboxDisplayTitle(item) || `Payment ${paymentToken}`,
+      description: item.description || getInboxDisplayDescription(item),
       route,
       refId: paymentToken,
       orgTenantId: item.ownerOrgTenantId,
@@ -620,8 +683,8 @@ function toRunningActionFromItem(item: InboxItemData): RunningActionDraft | null
     return {
       id: `field:${item.workflowRunId}`,
       type: 'field_run',
-      title: getInboxDisplayTitle(item) || item.title || 'Field run in progress',
-      description: getInboxDisplayDescription(item) || item.description,
+      title: item.title || getInboxDisplayTitle(item) || 'Field run in progress',
+      description: item.description || getInboxDisplayDescription(item),
       route: `/finance?tab=field&runId=${encodeURIComponent(item.workflowRunId)}${item.ownerOrgTenantId ? `&orgTenantId=${encodeURIComponent(item.ownerOrgTenantId)}` : ''}`,
       refId: item.workflowRunId,
       orgTenantId: item.ownerOrgTenantId,
@@ -636,8 +699,8 @@ function toRunningActionFromItem(item: InboxItemData): RunningActionDraft | null
     return {
       id: `requisition:${ref}`,
       type: 'requisition',
-      title: getInboxDisplayTitle(item) || item.title || 'Requisition approval',
-      description: getInboxDisplayDescription(item) || item.description,
+      title: item.title || getInboxDisplayTitle(item) || 'Requisition approval',
+      description: item.description || getInboxDisplayDescription(item),
       route: `/finance?tab=requisitions${item.workflowRequestId ? `&requestId=${encodeURIComponent(item.workflowRequestId)}` : ''}${requisitionPart}${orgPart}`,
       refId: ref,
       orgTenantId: item.actingOrgTenantId || item.ownerOrgTenantId,
@@ -651,8 +714,8 @@ function toRunningActionFromItem(item: InboxItemData): RunningActionDraft | null
     return {
       id: `ap:${transactionId}`,
       type: 'workflow',
-      title: getInboxDisplayTitle(item) || item.title || 'AP workflow action',
-      description: getInboxDisplayDescription(item) || item.description,
+      title: item.title || getInboxDisplayTitle(item) || 'AP workflow action',
+      description: item.description || getInboxDisplayDescription(item),
       route: `/finance?tab=ap&transactionId=${encodeURIComponent(transactionId)}${orgPart}`,
       refId: transactionId,
       orgTenantId: item.actingOrgTenantId || item.ownerOrgTenantId,
@@ -664,8 +727,8 @@ function toRunningActionFromItem(item: InboxItemData): RunningActionDraft | null
     return {
       id: `proof:${item.id}`,
       type: 'proof',
-      title: getInboxDisplayTitle(item) || item.title || 'Proof request',
-      description: getInboxDisplayDescription(item) || item.description,
+      title: item.title || getInboxDisplayTitle(item) || 'Proof request',
+      description: item.description || getInboxDisplayDescription(item),
       route: `/present?request_uri=${encodeURIComponent(item.offerUri)}`,
       refId: item.offerUri,
       orgTenantId: item.ownerOrgTenantId,
@@ -777,9 +840,10 @@ interface WorkflowGroupRowProps {
   isExpanded: boolean
   onToggleExpand: () => void
   onItemClick: (item: InboxItemData) => void
+  attention?: InboxAttention
 }
 
-function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick }: WorkflowGroupRowProps) {
+function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick, attention: attentionProp }: WorkflowGroupRowProps) {
   const { colorScheme } = useMantineColorScheme()
   const theme = useMantineTheme()
   const isDark = colorScheme === 'dark'
@@ -789,9 +853,9 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick }: Wo
   const flowColor = GROUP_FLOW_COLORS[primaryItem.flowType || 'SYSTEM'] || 'gray'
   const borderAccent = theme.colors[flowColor]?.[isDark ? 5 : 6] || theme.colors.gray[4]
   const amountText = fmtMoney(primaryItem.amount, primaryItem.currency)
-  const stageLabel = primaryItem.workflowStage
-    ? primaryItem.workflowStage.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-    : null
+  const attention = attentionProp || inboxAttention({ status: primaryItem.status, isRead: primaryItem.isRead === true })
+  const attentionWord = attention === 'new' ? 'New' : attention === 'opened' ? 'Opened' : 'Done'
+  const stepLine = stepRequiredLabel(primaryItem)
 
   return (
     <Paper
@@ -805,14 +869,14 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick }: Wo
           {orgLabel && (
             <Badge size="xs" variant="light" color="violet">{orgLabel}</Badge>
           )}
-          <Badge size="xs" variant="light" color={flowColor}>
-            {primaryItem.flowType || 'INBOX'}
+          <Badge size="xs" variant={attention === 'new' ? 'filled' : 'light'} color={attention === 'done' ? 'teal' : attention === 'opened' ? 'gray' : 'blue'}>
+            {attentionWord}
           </Badge>
-          {stageLabel && (
-            <Badge size="xs" variant="dot" color="blue">{stageLabel}</Badge>
+          {stepLine && attention !== 'done' && (
+            <Badge size="xs" variant="outline" color="teal">Your step: {stepLine}</Badge>
           )}
-          {primaryItem.isRead === false && (
-            <Box style={{ width: 7, height: 7, borderRadius: '50%', background: isDark ? theme.colors.teal[4] : theme.colors.teal[6], flexShrink: 0 }} />
+          {attention === 'new' && (
+            <Box style={{ width: 7, height: 7, borderRadius: '50%', background: isDark ? theme.colors.blue[4] : theme.colors.blue[6], flexShrink: 0 }} />
           )}
         </Group>
         <Group justify="space-between" align="flex-start" wrap="nowrap">
@@ -822,15 +886,15 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick }: Wo
                 Organization: {orgLabel}
               </Text>
             )}
-            <Text fw={700} size="sm" truncate>{primaryItem.title}</Text>
+            <Text fw={attention === 'new' ? 700 : 600} size="sm" truncate c={attention === 'done' ? 'dimmed' : undefined}>{primaryItem.title}</Text>
             <Text size="xs" c="dimmed" lineClamp={2} mt={2}>{primaryItem.description}</Text>
             {amountText && <Text fw={700} size="sm" c="teal.7" mt={4}>{amountText}</Text>}
           </Box>
           <Stack gap={4} align="flex-end" style={{ flexShrink: 0 }}>
-            <Badge size="sm" color={primaryItem.priority === 'high' ? 'red' : 'gray'} variant={primaryItem.priority === 'high' ? 'filled' : 'light'}>
+            <Badge size="sm" variant="light" color="gray">
               {primaryItem.actionLabel || 'Open'}
             </Badge>
-            <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{dayjs(primaryItem.createdAt).fromNow()}</Text>
+            <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{inboxWhenLabel(primaryItem.createdAt)}</Text>
             <IconChevronRight size={13} color={theme.colors.gray[5]} />
           </Stack>
         </Group>
@@ -856,19 +920,22 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick }: Wo
           </Box>
           {isExpanded && (
             <Stack gap={0}>
-              {secondaryItems.map((item, idx) => (
+              {secondaryItems.map((item, idx) => {
+                const stepAttention = inboxAttention({ status: item.status, isRead: item.isRead === true })
+                const stepWord = stepAttention === 'new' ? 'New' : stepAttention === 'opened' ? 'Opened' : 'Done'
+                return (
                 <Box key={item.id}>
                   <Divider />
                   <Box
                     px="sm"
                     py="xs"
-                    style={{ cursor: 'pointer', opacity: item.status === 'completed' ? 0.6 : 1 }}
+                    style={{ cursor: 'pointer', opacity: stepAttention === 'done' ? 0.6 : 1 }}
                     onClick={() => onItemClick(item)}
                   >
                     <Group justify="space-between" align="center" wrap="nowrap">
                       <Group gap={6} style={{ flex: 1, minWidth: 0 }}>
-                        <Badge size="xs" variant="light" color={GROUP_FLOW_COLORS[item.flowType || 'SYSTEM'] || 'gray'}>
-                          {item.flowType || 'SYSTEM'}
+                        <Badge size="xs" variant="light" color={stepAttention === 'done' ? 'teal' : stepAttention === 'opened' ? 'gray' : 'blue'}>
+                          {stepWord}
                         </Badge>
                         <Text size="xs" fw={500} truncate>{item.title}</Text>
                         {item.amount != null && (
@@ -876,13 +943,14 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick }: Wo
                         )}
                       </Group>
                       <Group gap={4} style={{ flexShrink: 0 }}>
-                        <Text size="xs" c="dimmed">{dayjs(item.createdAt).fromNow()}</Text>
+                        <Text size="xs" c="dimmed">{inboxWhenLabel(item.createdAt)}</Text>
                         <IconChevronRight size={11} color={theme.colors.gray[5]} />
                       </Group>
                     </Group>
                   </Box>
                 </Box>
-              ))}
+                )
+              })}
             </Stack>
           )}
         </>
@@ -917,6 +985,9 @@ async function fetchOrganizationBranding(orgTenantId: string): Promise<{ display
 
 type OrgSwitchPurpose = 'job' | 'requisition' | 'payable' | 'collection' | 'request';
 
+/** What the person is about to open, shown in the switch prompt so they know the step before agreeing. */
+type OrgSwitchDetail = { title?: string; step?: string; explanation?: string };
+
 const ORG_SWITCH_COPY: Record<OrgSwitchPurpose, { banner: string; action: string }> = {
   job: { banner: 'This job belongs to an organization you work with.', action: 'open this job' },
   requisition: { banner: 'This approval is for an organization you work with.', action: 'open this request' },
@@ -928,34 +999,94 @@ const ORG_SWITCH_COPY: Record<OrgSwitchPurpose, { banner: string; action: string
 export default function InboxPage() {
   const router = useRouter();
   const filterParam = String((router.query.filter as string) ?? 'all').toLowerCase();
-  const initialTab = filterParam === 'receipt' || filterParam === 'receipts'
+  const initialTab: InboxTabKey = filterParam === 'requests' ? 'requests' : filterParam === 'receipt' || filterParam === 'receipts'
     ? 'receipts'
-      : filterParam === 'archived'
-        ? 'archived'
-      : filterParam === 'running' || filterParam === 'actions' || filterParam === 'requisitions' || filterParam === 'field'
-        ? 'ops'
-        : filterParam === 'requests' || filterParam === 'ecommerce' || filterParam === 'education' || filterParam === 'cash' || filterParam === 'payments' || filterParam === 'payment'
-          ? 'finance'
-          : filterParam === 'unread'
-            ? 'all'
-          : 'all';
+    : filterParam === 'archived'
+      ? 'archived'
+      : filterParam === 'field' || filterParam === 'jobs'
+        ? 'jobs'
+        : filterParam === 'requisitions' || filterParam === 'purchase_requests'
+          ? 'requisitions'
+          : filterParam === 'education' || filterParam === 'school_fees'
+            ? 'school_fees'
+            : filterParam === 'cash' || filterParam === 'counter_sales'
+              ? 'counter_sales'
+              : filterParam === 'supplier_bills' || filterParam === 'ap'
+                ? 'supplier_bills'
+                : filterParam === 'ecommerce' || filterParam === 'payments' || filterParam === 'payment'
+                  ? 'payments'
+                  : 'all';
 
-  const [items, setItems] = useState<InboxItemData[]>([]);
-  const [filter, setFilter] = useState(initialTab);
-  const [loading, setLoading] = useState(true);
+  // The list lives in the shared cache, filed under this account + context: coming back to the
+  // inbox (or switching back to this account) shows it at once while it is checked again.
+  const queryClient = useQueryClient();
+  const scope = useSessionStore((state) => state.scope);
+  const inboxKey = useMemo(() => queryKeys.inbox(scope), [scope]);
+  const fetchInboxRef = useRef<(expectedScope: string) => Promise<InboxItemData[]>>(async () => []);
+  const inboxQuery = useQuery<InboxItemData[]>({
+    queryKey: inboxKey,
+    queryFn: () => fetchInboxRef.current(scope),
+    staleTime: STALE_TIME.inbox,
+    meta: { persist: true },
+    // Before the saved cache is read back, show this account's last list kept by the inbox itself.
+    placeholderData: () => {
+      const personal = getContextMode() !== 'org';
+      const cached = readInboxItemCache()
+        .map((entry) => entry.item)
+        .filter((item) => (item.authContext === 'personal' ? personal : !personal));
+      return cached.length ? cached : undefined;
+    },
+  });
+  const items = useMemo(() => inboxQuery.data ?? [], [inboxQuery.data]);
+  const setItems = useCallback((update: InboxItemData[] | ((prev: InboxItemData[]) => InboxItemData[])) => {
+    queryClient.setQueryData<InboxItemData[]>(inboxKey, (prev) =>
+      typeof update === 'function' ? update(prev ?? []) : update,
+    );
+  }, [queryClient, inboxKey]);
+  const loading = inboxQuery.isFetching;
+  const firstLoad = items.length === 0 && (inboxQuery.isPending || (inboxQuery.isFetching && !inboxQuery.isFetched));
+  const [filter, setFilter] = useState<InboxTabKey>(initialTab);
+  useEffect(() => { if (router.isReady) setFilter(initialTab); }, [router.isReady, initialTab]);
+  const [attention, setAttention] = useState<InboxAttentionFilter>('all');
   const [error, setError] = useState<string | null>(null);
+  // Background and pull refreshes show in the header; this button spins only when it was tapped.
+  const [manualRefresh, setManualRefresh] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InboxItemData | null>(null);
+  const openedNotificationItem = useRef('');
+  useEffect(() => {
+    const itemId = typeof router.query.item === 'string' ? router.query.item : '';
+    if (!itemId || loading || openedNotificationItem.current === itemId) return;
+    const match = items.find((item) => item.id === itemId);
+    if (match) {
+      openedNotificationItem.current = itemId;
+      setSelectedItem(match);
+    } else {
+      setError('This inbox item is no longer available in this account. Refresh the inbox or check your records.');
+    }
+  }, [router.query.item, items, loading]);
+  useEffect(() => {
+    const requestId = String(router.query.request || '').trim();
+    if (!requestId || items.length === 0) return;
+    const match = items.find((item) => item.platformRequestId === requestId || item.workflowRequestId === requestId);
+    if (match) setSelectedItem(match);
+  }, [router.query.request, items]);
   const [actionLoading, setActionLoading] = useState(false);
   const [decisionReason, setDecisionReason] = useState('');
+  const [nextStepValues, setNextStepValues] = useState<Record<string, string | number>>({});
+  const [receiptProof, setReceiptProof] = useState<ReceiptProof | null>(null);
   const [metaState, setMetaState] = useState<InboxMetaState>(emptyMetaState);
   const [syncMeta, setSyncMeta] = useState<InboxSyncMeta>({});
   const [syncMetaReady, setSyncMetaReady] = useState(false);
-  const [workflowSections, setWorkflowSections] = useState<InboxWorkflowSections>({ finance: false, ops: false });
+  // Enabled workflow templates of the active organisation: the same source the Money page
+  // uses to decide which tabs it shows, so inbox tabs and Money tabs stay in step.
+  const [activeTemplates, setActiveTemplates] = useState<WorkflowTemplateLike[]>([]);
   const [syncEngineState, setSyncEngineState] = useState<OfflineSyncState>({ isRunning: false, isSyncing: false });
   const [online, setOnline] = useState<boolean>(true);
   const [onlineReady, setOnlineReady] = useState(false);
   const [switchConsentOpen, setSwitchConsentOpen] = useState(false);
-  const [switchConsentTarget, setSwitchConsentTarget] = useState<{ orgTenantId: string; orgName: string; purpose: OrgSwitchPurpose } | null>(null);
+  const [switchConsentTarget, setSwitchConsentTarget] = useState<{ orgTenantId: string; orgName: string; purpose: OrgSwitchPurpose; detail?: OrgSwitchDetail } | null>(null);
+  const blockScreen = useUiStore((state) => state.block);
+  const unblockScreen = useUiStore((state) => state.unblock);
   const [expandedGroupKey, setExpandedGroupKey] = useState<string | null>(null);
   const switchConsentResolverRef = useRef<((approved: boolean) => void) | null>(null);
   const orgBrandingCacheRef = useRef<Record<string, { displayName?: string; logoUrl?: string }>>({});
@@ -1023,23 +1154,28 @@ export default function InboxPage() {
     };
   }, []);
 
-  const ensureOrgContextForApproval = useCallback(async (orgTenantId?: string, orgNameHint?: string, purpose: OrgSwitchPurpose = 'request') => {
+  const ensureOrgContextForApproval = useCallback(async (orgTenantId?: string, orgNameHint?: string, purpose: OrgSwitchPurpose = 'request', detail?: OrgSwitchDetail) => {
     if (!orgTenantId) return true;
+    const assertContextUnchanged = captureOrganizationSwitchContext(localStorage);
 
     const currentMode = getContextMode();
     const currentOrgId = getActiveOrgId();
-    if (currentMode === 'org' && currentOrgId === orgTenantId) return true;
+    if (currentMode === 'org' && currentOrgId === orgTenantId) {
+      beginTaskContext({ orgId: orgTenantId });
+      return true;
+    }
 
     const orgName = orgNameHint || orgTenantId;
     const consentGranted = await new Promise<boolean>((resolve) => {
       switchConsentResolverRef.current = resolve;
-      setSwitchConsentTarget({ orgTenantId, orgName, purpose });
+      setSwitchConsentTarget({ orgTenantId, orgName, purpose, detail });
       setSwitchConsentOpen(true);
     });
 
     if (!consentGranted) {
       return false;
     }
+    assertContextUnchanged();
 
     const holderToken = getWalletToken();
     if (!holderToken) throw new Error('Missing holder wallet token for org context switch');
@@ -1049,6 +1185,7 @@ export default function InboxPage() {
       skipAuthRedirect: true as any,
     } as any);
 
+    assertContextUnchanged();
     const orgToken = switchRes.data?.token as string | undefined;
     if (!orgToken) throw new Error('Failed to switch organization context');
 
@@ -1066,9 +1203,15 @@ export default function InboxPage() {
       sector: switchRes.data?.sector,
       workflowTypes: switchRes.data?.workflowTypes,
     });
+    beginTaskContext({ orgId: orgTenantId });
 
     return true;
   }, []);
+
+  useEffect(() => {
+    const task = getTaskContext();
+    if (!selectedItem && !actionLoading && task && !task.target) endTaskContext();
+  }, [selectedItem, actionLoading]);
 
   const resolveSwitchConsent = useCallback((approved: boolean) => {
     const resolver = switchConsentResolverRef.current;
@@ -1078,8 +1221,18 @@ export default function InboxPage() {
     if (resolver) resolver(approved);
   }, []);
 
-  const syncAndFetch = useCallback(async () => {
-    setLoading(true);
+  const metaReadRef = useRef(metaState.read);
+  metaReadRef.current = metaState.read;
+  const metaDeletedRef = useRef(metaState.deleted);
+  metaDeletedRef.current = metaState.deleted;
+
+  fetchInboxRef.current = async (expectedScope): Promise<InboxItemData[]> => {
+    if (useSessionStore.getState().scope !== expectedScope) throw new Error('Inbox context changed.');
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      // Keep what is on screen; the list is checked again when the network returns.
+      throw Object.assign(new Error('offline'), { code: 'OFFLINE' });
+    }
+    const metaState = { read: metaReadRef.current, deleted: metaDeletedRef.current };
     setError(null);
     const startedAt = new Date().toISOString();
     const initialMeta: InboxSyncMeta = {
@@ -1101,28 +1254,24 @@ export default function InboxPage() {
       const activeOrgId = getActiveOrgId();
 
       // Fetch enabled workflow templates — single source of truth replacing deprecated features
-      let enabledWorkflowTypes: string[] = [];
+      let enabledTemplates: WorkflowTemplateLike[] = [];
       if (activeOrgId && orgHeaders) {
         try {
           const wfRes = await api.get(`/api/organizations/${activeOrgId}/workflows`, { headers: orgHeaders });
-          enabledWorkflowTypes = (wfRes.data?.templates ?? [])
-            .filter((t: any) => t.enabled)
-            .map((t: any) => String(t.workflowType ?? '').toLowerCase());
+          enabledTemplates = safeArray(wfRes.data?.templates).filter((t: any) => t?.enabled);
         } catch (e) {
           console.warn('Workflow templates fetch failed — inbox gating skipped', e);
         }
       }
+      if (useSessionStore.getState().scope !== expectedScope) throw new Error('Inbox context changed.');
+      setActiveTemplates(enabledTemplates);
+      const enabledWorkflowTypes = enabledTemplates.map((t) => String(t.workflowType ?? '').toLowerCase());
 
       const operationalWorkflowTypes = Array.from(new Set(
         enabledWorkflowTypes
           .map((workflowType) => toOperationalWorkflowType(workflowType))
           .filter((workflowType): workflowType is Exclude<ReturnType<typeof toOperationalWorkflowType>, null> => Boolean(workflowType))
       ));
-
-      setWorkflowSections({
-        finance: operationalWorkflowTypes.some((workflowType) => ['ecommerce', 'education_fees', 'cash_counter'].includes(workflowType)),
-        ops: operationalWorkflowTypes.some((workflowType) => ['internal_requisitions', 'field_execution'].includes(workflowType)),
-      });
 
       // Auto-sync receipts — only when a personal wallet token is available.
       // Calling with an org token (or no token) causes 401 which clears auth and breaks the session.
@@ -1147,10 +1296,16 @@ export default function InboxPage() {
       let requisitions: any[] = [];
       let assignedApprovals: any[] = [];
       let inboundOrgRequests: any[] = [];
+      let platformOrgRequests: PlatformInboxRequest[] = [];
       let exceptions: any[] = [];
       let fieldRuns: any[] = [];
 
-      if (holderToken) {
+      // A person who also runs the organisation still has two inboxes. The organisation
+      // inbox never includes their personal cards, and their personal inbox never includes
+      // the organisation's work.
+      const personalInbox = contextMode !== 'org';
+
+      if (personalInbox && holderToken) {
         // Note: AbortController signals are NOT supported by CapacitorHttp (which
         // patches fetch/XHR natively on Android). Using signals causes silent failures.
         // Use the axios-level timeout (20s) set in api.ts instead.
@@ -1194,7 +1349,7 @@ export default function InboxPage() {
 
       }
 
-      if ((holderOffersFailed || holderReceiptsFailed) && holderToken) {
+      if (personalInbox && (holderOffersFailed || holderReceiptsFailed) && holderToken) {
         const walletId = getPersonalWalletTenantId();
         const cachedSnapshot = walletId ? getCachedWalletSnapshot(walletId) : null;
         if (cachedSnapshot) {
@@ -1212,7 +1367,7 @@ export default function InboxPage() {
         }
       }
 
-      if (activeOrgId && orgHeaders && operationalWorkflowTypes.includes('internal_requisitions')) {
+      if (!personalInbox && activeOrgId && orgHeaders && operationalWorkflowTypes.includes('internal_requisitions')) {
         try {
           const reqRes = await api.get('/api/finance/requisitions', { headers: orgHeaders });
           requisitions = Array.isArray(reqRes.data) ? reqRes.data : [];
@@ -1223,19 +1378,29 @@ export default function InboxPage() {
 
       // Fetch inbound workflow requests for org approvers (owner/admin/approver seeing requests
       // submitted by holders that need org action, regardless of specific assignee).
-      if (activeOrgId && orgHeaders) {
+      if (!personalInbox && activeOrgId && orgHeaders) {
         try {
+          const orgOffers = await api.get('/api/wallet/credentials/pending-offers?holder=organization', { headers: orgHeaders });
+          const rows = safeArray(orgOffers.data?.offers ?? orgOffers.data);
+          offers = offers.concat(rows.map((row: any) => ({ ...row, _context: 'org', _token: orgHeaders.Authorization?.slice(7) })));
+        } catch (e) {
+          console.warn('Organisation records fetch failed', e);
+        }
+        if (['owner', 'admin', 'manager', 'approver'].includes(getOrgRoleClaim() || '')) try {
           const inboundRes = await api.get('/workflow-requests/inbound?status=pending&limit=50', { headers: orgHeaders });
           inboundOrgRequests = safeArray(inboundRes.data).map((row: any) => ({ ...row, _context: 'org', _token: orgHeaders.Authorization?.slice(7) }));
         } catch (e) {
           console.warn('Inbound org workflow requests fetch failed', e);
         }
+        const platformRes = await api.get<{ items: PlatformInboxRequest[] }>('/api/platform/requests', {
+          headers: orgHeaders, params: { limit: 100 },
+        });
+        platformOrgRequests = platformRes.data.items.filter(isPlatformRequestWaiting);
       }
 
-      if (activeOrgId && operationalWorkflowTypes.includes('field_execution')) {
+      if (!personalInbox && activeOrgId && operationalWorkflowTypes.includes('field_execution')) {
         try {
-          // Field inbox actions are assignee-driven; prefer wallet context first.
-          const runHeaderCandidates = [walletHeaders, orgHeaders].filter(Boolean) as Array<Record<string, string>>;
+          const runHeaderCandidates = [orgHeaders].filter(Boolean) as Array<Record<string, string>>;
           for (const headers of runHeaderCandidates) {
             try {
               const runRes = await api.get('/workflows/runs?limit=25', { headers });
@@ -1255,7 +1420,7 @@ export default function InboxPage() {
         }
       }
 
-      if (activeOrgId && orgHeaders && operationalWorkflowTypes.some((workflowType) => ['ecommerce', 'education_fees', 'cash_counter', 'field_execution'].includes(workflowType))) {
+      if (!personalInbox && activeOrgId && orgHeaders && operationalWorkflowTypes.some((workflowType) => ['ecommerce', 'education_fees', 'cash_counter', 'field_execution'].includes(workflowType))) {
         try {
           const exceptionRes = await api.get(`/api/reconciliation/exceptions?tenantId=${activeOrgId}&limit=20`, { headers: orgHeaders });
           exceptions = exceptionRes.data?.exceptions ?? [];
@@ -1264,13 +1429,13 @@ export default function InboxPage() {
         }
       }
 
-      const mappedReceipts: InboxItemData[] = receipts.map((r: any) => {
+      const mappedReceipts: InboxItemData[] = receipts.flatMap((r: any): InboxItemData[] => {
         const credentialType = String(r.credentialType || r.credential_type || '').toLowerCase();
         const sourceType = String(r.sourceType || r.source_type || '').toLowerCase();
         const paymentLinkId = String(r.paymentLinkId || r.payment_link_id || r.metadata?.paymentLinkId || r.metadata?.payment_link_id || r.claims?.paymentLinkId || r.sourceId || r.source_id || '').trim() || undefined;
         const invoiceRef = String(r.invoiceRef || r.invoice_id || r.invoiceId || r.metadata?.invoiceRef || r.metadata?.invoiceId || r.claims?.invoiceId || '').trim() || undefined;
         const quoteId = String(r.quoteId || r.metadata?.quoteId || r.claims?.quoteId || '').trim() || undefined;
-        const merchantName = String(r.merchantName || r.payment_link_merchant_name || r.metadata?.merchantName || r.claims?.merchantName || activeOrgLabel || '').trim() || undefined;
+        const merchantName = String(r.merchantName || r.payment_link_merchant_name || r.metadata?.merchantName || r.claims?.merchantName || '').trim() || undefined;
         const paymentUrl = String(r.paymentUrl || r.metadata?.paymentUrl || r.claims?.paymentUrl || '').trim() || undefined;
         const amount = Number.isFinite(Number(r.amount)) ? Number(r.amount) : undefined;
         const currency = String(r.currency || 'USD').trim() || 'USD';
@@ -1311,9 +1476,12 @@ export default function InboxPage() {
           description = 'Verify and save your transaction receipt to your wallet';
           actionLabel = 'Save';
           priority = 'high';
+        } else {
+          // Not a receipt, invoice or quote: other cards come from pending-offers.
+          return [];
         }
 
-        return {
+        return [{
           id: r.id ?? r.receiptRowId ?? r.offerId ?? r.linkId,
           title,
           description,
@@ -1333,9 +1501,9 @@ export default function InboxPage() {
           quoteId,
           paymentUrl,
           ownerOrgTenantId: activeOrgId || undefined,
-          ownerDisplayName: merchantName || activeOrgLabel || undefined,
+          ownerDisplayName: merchantName,
           flowType,
-        };
+        }];
       });
 
       const runStageById = new Map<string, string>();
@@ -1372,7 +1540,7 @@ export default function InboxPage() {
         }
       }
 
-      const mappedOffers: InboxItemData[] = offers.map((o: any) => {
+      const mapOffer = (o: any): InboxItemData => {
         if (o.sourceType === 'requisition_stage_action' || String(o.credentialType || '').toLowerCase() === 'requisitionstageaction') {
           const claim = o.claims || {};
           const stageAction = String(claim.stageAction || '').toLowerCase();
@@ -1394,6 +1562,7 @@ export default function InboxPage() {
             createdAt: o.createdAt ?? new Date().toISOString(),
             actionLabel: stageCopy.actionLabel,
             itemType: 'workflow' as const,
+            stageAction: stageAction || undefined,
             workflowRequestId,
             workflowRequestType: 'requisition',
             requisitionId,
@@ -1413,41 +1582,40 @@ export default function InboxPage() {
           const delegated = String(claim.routedVia || '') === 'delegation';
           const targetOrgTenantId = claim.targetOrgTenantId || claim.orgTenantId || undefined;
           const workflowTypeLower = String(claim.workflowType || requestType).toLowerCase();
-          const isFieldStage = workflowTypeLower.includes('fept') || workflowTypeLower.includes('field');
+          const declaredRequestId = requestIdFromStageCard(o.sourceId, claim);
+          const isFieldStage = !declaredRequestId &&
+            requestFamily(requestType, workflowTypeLower)?.experience.family === 'field_jobs';
           const stageAction = String(claim.stageAction || '').toLowerCase();
           const stageRunId = isFieldStage
             ? normalizeRunId(
               o.workflowRunId
               || claim.workflowRunId
-              || String(o.sourceId || '').replace(/:(signoff|payout|review|inspection)(:delegation:.*)?$/i, ''),
+              || String(o.sourceId || '').replace(/:(signoff|payout|review|inspection|safety-hold:[^:]+|safety-resume:[^:]+)(:delegation:.*)?$/i, ''),
             )
             : undefined;
           if (isFieldStage && stageRunId) {
             // Field stage cards open the assigned job instead of the generic approve/reject form.
             const stage = String(runStageById.get(stageRunId) || claim.workflowStage || 'ASSIGNED').toUpperCase();
-            const stageActionLabel = stageAction === 'acknowledge_execution'
-              ? 'Sign off job'
-              : stageAction === 'trigger_payout'
-                ? 'Release payment'
-                : stageAction === 'review_completion'
-                  ? 'Review work'
-                  : stageAction === 'inspect_site'
-                    ? 'Site check'
-                    : null;
+            const stageActionLabel = stepRequiredLabel({ stageAction, workflowStage: stage }) || null;
             return {
               id: o.id ?? o.offerId,
               title: o.title || requestCopy.title,
-              description: delegated
-                ? `Passed to you. ${o.body || requestCopy.title}`
-                : (o.body || 'This job is assigned to you.'),
+              description: jobAboutLine(
+                claim.description,
+                claim.location,
+                delegated ? `Passed to you. ${o.body || requestCopy.title}` : (o.body || 'This job is assigned to you.'),
+              ),
               module: 'field',
               flowType: 'WORKFLOW' as const,
               status: 'pending' as const,
               priority: 'high' as const,
               createdAt: o.createdAt ?? new Date().toISOString(),
-              actionLabel: stageActionLabel || (stage === 'ASSIGNED' ? 'Start job' : stage === 'IN_PROGRESS' ? 'Add photos' : 'Open'),
+              actionLabel: stageActionLabel || 'Open',
               itemType: 'workflow' as const,
+              stageAction: stageAction || undefined,
               workflowRunId: stageRunId,
+              holdId: claim.holdId ? String(claim.holdId) : undefined,
+              holdFixBy: claim.holdFixBy ? String(claim.holdFixBy) : undefined,
               workflowStage: stage,
               workflowRequestType: requestType,
               amount: Number.isFinite(Number(claim.amount)) ? Number(claim.amount) : undefined,
@@ -1461,24 +1629,40 @@ export default function InboxPage() {
             };
           }
           // Organization requests (purchases, quotes, general asks) are approved or declined right here.
-          const platformRequestId = /^[a-z]+\.[a-z_]+$/i.test(requestType) && !requestType.toLowerCase().startsWith('field.')
+          const platformRequestId = declaredRequestId || (/^[a-z]+\.[a-z_]+$/i.test(requestType) && !requestType.toLowerCase().startsWith('field.')
             ? String(o.sourceId || '').replace(/:delegation:.*$/, '') || undefined
+            : undefined);
+          const platformNextStep = platformRequestId && claim.requestStep === 'follow_up'
+            ? {
+                label: String(claim.nextStepLabel || 'Finish'),
+                hint: claim.nextStepHint ? String(claim.nextStepHint) : undefined,
+                fields: Array.isArray(claim.nextStepFields) ? claim.nextStepFields : [],
+              }
             : undefined;
+          const partOfLine = String(claim.partOfLine || '').trim() || undefined;
+          const holdLine = String(claim.holdLine || '').trim() || undefined;
+          const familyBody = [partOfLine, holdLine].filter(Boolean).join('. ');
           return {
             id: o.id ?? o.offerId,
             title: o.title || requestCopy.title,
-            description: delegated
-              ? `Passed to you. ${o.body || requestCopy.title}`
-              : (o.body || 'Waiting for your decision.'),
+            description: familyBody
+              || (delegated
+                ? `Passed to you. ${o.body || requestCopy.title}`
+                : (o.body || 'Waiting for your decision.')),
+            partOfLine,
+            holdLine,
+            holdsParent: Boolean(claim.holdsParent),
             module: 'approvals',
             flowType: 'WORKFLOW' as const,
             status: 'pending' as const,
             priority: 'high' as const,
             createdAt: o.createdAt ?? new Date().toISOString(),
-            actionLabel: platformRequestId ? 'Approve' : requestCopy.actionLabel,
+            actionLabel: platformNextStep ? platformNextStep.label : platformRequestId ? 'Approve' : requestCopy.actionLabel,
             itemType: 'workflow' as const,
+            stageAction: stageAction || undefined,
             workflowRequestType: requestType,
             platformRequestId,
+            platformNextStep,
             amount: Number.isFinite(Number(claim.amount)) ? Number(claim.amount) : undefined,
             currency: String(claim.currency || 'USD').trim() || 'USD',
             actingOrgTenantId: targetOrgTenantId,
@@ -1660,6 +1844,7 @@ export default function InboxPage() {
             authContext: o._context,
             authToken: o._token,
             itemType: 'payment_link' as const,
+            workflowRequestType: /school|education|fee/i.test(`${typeLabel} ${claim.schoolName || ''} ${o.credentialType || ''}`) ? 'school_fees' : undefined,
             invoiceRef,
             paymentUrl,
             paymentCode,
@@ -1739,6 +1924,7 @@ export default function InboxPage() {
             authContext: o._context,
             authToken: o._token,
             itemType: 'invoice_offer' as const,
+            workflowRequestType: /school|education|fee/i.test(`${typeLabel} ${claim.schoolName || ''}`) ? 'school_fees' : undefined,
             invoiceRef,
             paymentUrl,
             paymentCode,
@@ -1759,7 +1945,7 @@ export default function InboxPage() {
           return {
             id: o.id ?? o.offerId,
             title: o.title || `Field Job: ${meta.poNumber || o.workflowRunId || 'Unknown'}`,
-            description: o.body || `Location: ${meta.location || 'Field site'} — Stage: ${stage}`,
+            description: jobAboutLine(meta.description, meta.location, o.body),
             module: 'field',
             flowType: 'WORKFLOW' as const,
             status: 'pending' as const,
@@ -1783,7 +1969,7 @@ export default function InboxPage() {
         const orgLabel = claim.orgName || o.issuerName;
         const credentialTitle =
           o.sourceType === 'org_employee' || credentialType === 'EmployeeCredential'
-            ? `Employee credential${orgLabel ? ` · ${orgLabel}` : ''}`
+            ? `Staff card${orgLabel ? ` · ${orgLabel}` : ''}`
             : o.sourceType === 'org_delegation' || credentialType === 'DelegationCredential'
               ? `Delegation${orgLabel ? ` · ${orgLabel}` : ''}`
               : o.sourceType === 'employment_contract' || credentialType === 'EmploymentContractVC'
@@ -1793,11 +1979,23 @@ export default function InboxPage() {
                   : o.sourceType === 'workflow_vc_offer'
                     ? (o.title || `Job record${orgLabel ? ` · ${orgLabel}` : ''}`)
                   : o.sourceType === 'platform_identity' || credentialType === 'PlatformIdentityCredential'
-                    ? 'Platform identity'
-                    : formatCredentialType(credentialType || 'Credential Offer');
+                    ? 'Identity card'
+                    : o.sourceType === 'connected_system_record' && o.title
+                      ? `${o.title}${orgLabel ? ` · ${orgLabel}` : ''}`
+                      : formatCredentialType(credentialType || 'Credential Offer');
         const credentialBody =
           o.body
           || (orgLabel ? `From ${orgLabel}` : o.issuerName ? `From ${o.issuerName}` : 'Waiting for you to add it to your wallet');
+        // A record that answers a staff request (leave approved, expense approved) belongs to
+        // Staff requests. Records issued from a job (job card, completion record, material
+        // receipts) belong to the Jobs tab.
+        // The pending-offers API returns the offer's metadata as `claims`.
+        const offerRequestType = String(claim.requestType || o.metadata?.requestType || o.requestType || '');
+        const peopleRecordOffer = o.sourceType === 'workflow_vc_offer'
+          && (isPeopleRequestType(offerRequestType) || /^(LeaveApproval|ExpenseApproval)/.test(credentialType));
+        const jobRecordOffer = o.sourceType === 'workflow_vc_offer'
+          && !peopleRecordOffer
+          && Boolean(o.workflowRunId || o.workflow_run_id || o.metadata?.workflowRunId || claim.workflowRunId);
 
         return {
           id: o.id ?? o.offerId,
@@ -1814,9 +2012,20 @@ export default function InboxPage() {
           authContext: o._context,
           authToken: o._token,
           itemType: 'credential_offer' as const,
+          sourceType: o.sourceType || undefined,
+          workflowRequestType: peopleRecordOffer ? (offerRequestType || 'hr_requests') : jobRecordOffer ? 'field_execution' : undefined,
           ownerDisplayName: o.issuerName || undefined,
         }
-      }).filter(Boolean);
+      };
+      // Any card that replaces one the person already holds says so, whatever kind it is.
+      const mappedOffers: InboxItemData[] = offers
+        .map((o: any) => {
+          const item = mapOffer(o);
+          if (!item) return item;
+          const replaces = offerReplacement(o.claims);
+          return replaces && !item.replaces ? { ...item, replaces } : item;
+        })
+        .filter(Boolean);
 
       const mergedMappedOffers = mergeInvoiceAndPaymentOffers(mappedOffers)
         .filter((item) => !item.id.startsWith('deduped-'));
@@ -1888,6 +2097,27 @@ export default function InboxPage() {
         };
       });
 
+      const mappedPlatformRequests: InboxItemData[] = platformOrgRequests.map(row => ({
+        id: `platform-request:${row.id}`,
+        platformRequestId: row.id,
+        title: row.title || 'Organisation request',
+        description: row.description || row.nextStep?.hint || 'Review the request and its next step.',
+        module: 'approvals',
+        flowType: 'WORKFLOW',
+        status: 'pending',
+        priority: 'high',
+        createdAt: row.created_at || '',
+        itemType: 'workflow',
+        workflowRequestType: row.request_type,
+        platformNextStep: row.nextStep,
+        actionLabel: row.nextStep?.label || 'Approve',
+        actingOrgTenantId: activeOrgId || undefined,
+        ownerOrgTenantId: activeOrgId || undefined,
+        ownerDisplayName: activeOrgLabel || undefined,
+        authContext: 'org',
+        authToken: orgToken || undefined,
+      }));
+
       const operationalType = operationalWorkflowTypes.find((workflowType) => ['ecommerce', 'education_fees', 'cash_counter', 'field_execution'].includes(workflowType));
       const operationalModule = operationalType ? (MODULE_BY_FEATURE[operationalType.toUpperCase()] ?? operationalType) : 'ecommerce';
       const mappedExceptions: InboxItemData[] = exceptions.map((entry: any) => ({
@@ -1911,21 +2141,25 @@ export default function InboxPage() {
         const poRef = workflowInput.poNumber || workflowInput.reference || run.id;
         const location = workflowInput.location || 'Field site';
         const terminalStages = new Set(['RECONCILED', 'COMPLETED', 'CANCELLED', 'REVOKED']);
-        const stageLabel = stage ? stage.replace(/_/g, ' ') : String(run.status || '').toUpperCase();
 
         return {
           id: `field-${run.id}`,
           title: `Field Job: ${poRef}`,
-          description: `Stage ${stageLabel} at ${location}`,
+          description: jobAboutLine(workflowInput.description || workflowInput.notes, location === 'Field site' ? '' : location, ''),
           module: 'field',
           flowType: 'WORKFLOW' as const,
           status: terminalStages.has(stage) || String(run.status || '').toLowerCase() === 'completed' ? 'completed' : 'pending',
           priority: stage === 'ASSIGNED' || stage === 'IN_PROGRESS' || stage === 'EVIDENCE_CAPTURED' ? 'high' as const : 'medium' as const,
           createdAt: run.createdAt || run.created_at || new Date().toISOString(),
-          actionLabel: getFieldRunActionLabel(stage),
+          actionLabel: stepRequiredLabel({
+            workflowStage: stage,
+            pauseReason: String(run.output?.pauseReason || ''),
+            module: 'field',
+          }) || getFieldRunActionLabel(stage),
           itemType: 'workflow' as const,
           workflowRunId: run.id,
           workflowStage: stage,
+          pauseReason: String(run.output?.pauseReason || ''),
           amount: Number.isFinite(Number(workflowInput.amount)) ? Number(workflowInput.amount) : Number.isFinite(Number(workflowInput.budget)) ? Number(workflowInput.budget) : undefined,
           currency: String(workflowInput.currency || 'USD').trim() || 'USD',
           ownerOrgTenantId: activeOrgId || undefined,
@@ -1965,19 +2199,32 @@ export default function InboxPage() {
         })
 
       const dedupeKey = (item: InboxItemData) =>
+        item.platformRequestId ? `platform-request:${item.platformRequestId}` :
         item.workflowRequestId && (item.itemType === 'workflow' || item.itemType === 'ar_collection')
           ? `workflow-request:${item.workflowRequestId}`
           : item.workflowRunId && item.itemType === 'workflow'
             ? `workflow:${item.workflowRunId}`
             : item.offerUri || `${item.itemType}:${item.id}`;
-      const merged = [...dedupedReceipts, ...mergedMappedOffers, ...mappedFieldRuns, ...mappedAssignedApprovals, ...mappedRequisitions, ...mappedExceptions, ...storedRunningItems];
-      const seen = new Set<string>();
-      const mapped = merged.filter((item) => {
+      const merged = [...dedupedReceipts, ...mergedMappedOffers, ...mappedFieldRuns, ...mappedAssignedApprovals, ...mappedPlatformRequests, ...mappedRequisitions, ...mappedExceptions, ...storedRunningItems];
+      const seen = new Map<string, InboxItemData>();
+      for (const item of merged) {
         const key = dedupeKey(item);
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+        const kept = seen.get(key);
+        if (!kept) {
+          seen.set(key, item);
+          continue;
+        }
+        const keptAbout = String(kept.description || '').trim();
+        const nextAbout = String(item.description || '').trim();
+        const keptIsStageOnly = /^stage\s/i.test(keptAbout);
+        const incomingIsWork = item.id.startsWith('field-') && Boolean(nextAbout) && !/^stage\s/i.test(nextAbout);
+        if ((!keptAbout || keptIsStageOnly) && nextAbout) {
+          seen.set(key, { ...kept, description: nextAbout });
+        } else if (incomingIsWork && !keptAbout.includes(nextAbout)) {
+          seen.set(key, { ...kept, description: nextAbout });
+        }
+      }
+      const mapped = [...seen.values()];
 
       const brandingOrgIds = Array.from(new Set(
         mapped
@@ -2020,7 +2267,8 @@ export default function InboxPage() {
         };
       });
 
-      const mergedWithCache = mergeWithInboxCache(sorted, metaState.deleted)
+      if (useSessionStore.getState().scope !== expectedScope) throw new Error('Inbox context changed.');
+      const mergedWithCache = mergeWithInboxCache(sorted, metaState.deleted, navigator.onLine !== false && !holderOffersFailed)
         .map((item) => {
           const key = getInboxItemKey(item);
           return {
@@ -2029,8 +2277,11 @@ export default function InboxPage() {
           };
         });
 
-      setItems(mergedWithCache);
-
+      const scopedItems = mergedWithCache.filter((item) => {
+        if (item.authContext === 'personal') return personalInbox;
+        if (item.authContext === 'org') return !personalInbox;
+        return !personalInbox;
+      });
       const completedMeta: InboxSyncMeta = {
         ...initialMeta,
         lastSyncAt: new Date().toISOString(),
@@ -2048,7 +2299,9 @@ export default function InboxPage() {
           color: 'yellow',
         });
       }
+      return scopedItems;
     } catch (err: any) {
+      if (useSessionStore.getState().scope !== expectedScope) throw err;
       const failedMeta: InboxSyncMeta = {
         ...initialMeta,
         lastError: err?.response?.data?.message ?? err?.message ?? 'Sync failed',
@@ -2063,12 +2316,22 @@ export default function InboxPage() {
         message,
         color: 'red',
       });
-    } finally {
-      setLoading(false);
+      // Failing keeps the last list on screen instead of emptying it.
+      throw err;
     }
-  }, [metaState.read]);
+  };
 
-  useEffect(() => { syncAndFetch(); }, [syncAndFetch]);
+  const syncAndFetch = useCallback(async () => {
+    await queryClient.refetchQueries({ queryKey: inboxKey, exact: true }).catch(() => undefined);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.home(scope) }),
+      queryClient.invalidateQueries({ queryKey: [scope, 'org-requests'] }),
+      queryClient.invalidateQueries({ queryKey: [scope, 'org-request'] }),
+    ]);
+  }, [queryClient, inboxKey, scope]);
+
+  // Every screen shows the same Activity count for this account + context.
+  const publishInboxCount = useActivityStore((state) => state.setInboxNew);
 
   useEffect(() => {
     if (!getMobileOfflineFlags().offlineSyncEnabled) {
@@ -2119,6 +2382,11 @@ export default function InboxPage() {
     setItems((prev) => prev.map((entry) => (getInboxItemKey(entry) === key ? { ...entry, isRead } : entry)));
   }, []);
 
+  const openInboxItem = useCallback((item: InboxItemData) => {
+    if (item.isRead !== true) setReadState(item, true);
+    setSelectedItem({ ...item, isRead: true });
+  }, [setReadState]);
+
   const setArchivedState = useCallback((item: InboxItemData, archived: boolean) => {
     const key = getInboxItemKey(item);
     setMetaState((prev) => ({
@@ -2131,7 +2399,10 @@ export default function InboxPage() {
     }
   }, [selectedItem]);
 
+  // An expired offer or link is filed under Archived on its own, the same way the wallet files
+  // a replaced or withdrawn card (`cardLife.fileAway`). It stays as a record; it cannot be acted on.
   const isArchived = useCallback((item: InboxItemData) => {
+    if (isExpiredItem(item)) return true;
     const key = getInboxItemKey(item);
     return Boolean(metaState.archived[key]);
   }, [metaState.archived]);
@@ -2164,8 +2435,10 @@ export default function InboxPage() {
           });
           dismissItem(selectedItem.id);
           notifications.show({
-            title: selectedItem.itemType === 'receipt_offer' ? 'Receipt Saved' : 'Credential Accepted',
-            message: 'Item has been added to your wallet',
+            title: selectedItem.itemType === 'receipt_offer' ? 'Receipt saved' : 'Saved',
+            message: selectedItem.authContext && selectedItem.authContext !== 'personal'
+              ? "Kept in the organisation's records."
+              : 'Kept in your records.',
             color: 'green',
           });
         } else {
@@ -2323,6 +2596,21 @@ export default function InboxPage() {
           const headers = { Authorization: `Bearer ${orgToken}` };
           const transition = (toStatus: string, payload?: Record<string, unknown>) =>
             api.post('/api/platform/requests/transition', { requestId: selectedItem.platformRequestId, toStatus, payload }, { headers });
+          if (selectedItem.platformNextStep) {
+            // Approved already: mark it bought, delivered or paid with the receipt or bill
+            // number and a photo of it (or a wallet receipt record).
+            const imageField = selectedItem.platformNextStep.fields.find((field) => field.type === 'image');
+            if (imageField?.required && !receiptProof) {
+              throw new Error(`${imageField.label} is needed, or a receipt record from your wallet.`);
+            }
+            await transition('completed', { ...nextStepValues, ...receiptProofPayload(receiptProof) });
+            notifications.show({ title: 'Saved', message: selectedItem.partOfLine ? 'The job continues.' : 'Anything waiting on it continues now.', color: 'green' });
+            setSelectedItem(null);
+            setNextStepValues({});
+            setReceiptProof(null);
+            await syncAndFetch();
+            return;
+          }
           if (action === 'approve') {
             try {
               await transition('in_review');
@@ -2753,20 +3041,68 @@ export default function InboxPage() {
     }
 
     setActionLoading(true);
+    const step = stepRequiredLabel(item);
     try {
       if (item.ownerOrgTenantId) {
-        const switched = await ensureOrgContextForApproval(item.ownerOrgTenantId, item.ownerDisplayName || activeOrgLabel || undefined, 'job');
+        const switched = await ensureOrgContextForApproval(item.ownerOrgTenantId, item.ownerDisplayName || activeOrgLabel || undefined, 'job', {
+          title: item.title || getInboxDisplayTitle(item),
+          step,
+          explanation: fieldStepExplanation(step),
+        });
         if (!switched) return;
       }
 
       const running = toRunningActionFromItem(item);
       if (running) upsertRunningAction(running);
 
+      // Stays up across the move to the Jobs screen, which takes it down once it is drawing the job.
+      blockScreen({ key: 'open-job', title: 'Opening the job…', detail: item.title || getInboxDisplayTitle(item) || 'Loading the job and its steps.' });
       setSelectedItem(null);
       setDecisionReason('');
       await router.push(`/finance?tab=field&runId=${encodeURIComponent(runId)}${item.ownerOrgTenantId ? `&orgTenantId=${encodeURIComponent(item.ownerOrgTenantId)}` : ''}`);
     } catch (err: any) {
+      unblockScreen('open-job');
       notifications.show({ title: 'Could not open the job', message: err.response?.data?.message ?? err.message, color: 'red' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  /** The organisation marks a worker's safety hold resolved straight from its inbox card. */
+  const handleResolveSafetyHoldFromInbox = async (item: InboxItemData) => {
+    const runId = normalizeRunId(item.workflowRunId);
+    const holdId = String(item.holdId || '');
+    const note = decisionReason.trim();
+    if (!runId || !holdId) return;
+    if (!note) {
+      notifications.show({ title: 'Say what was done', message: 'Write a short note on how the issue was sorted before you mark it resolved.', color: 'orange' });
+      return;
+    }
+    setActionLoading(true);
+    try {
+      if (item.ownerOrgTenantId) {
+        const switched = await ensureOrgContextForApproval(item.ownerOrgTenantId, item.ownerDisplayName || activeOrgLabel || undefined, 'job');
+        if (!switched) return;
+      }
+      const orgToken = getOrgToken();
+      if (!orgToken) throw new Error('Open the organization first, then try again.');
+      await api.post(
+        `/workflows/runs/${encodeURIComponent(runId)}/holds/${encodeURIComponent(holdId)}/resolve`,
+        { note },
+        { headers: { Authorization: `Bearer ${orgToken}`, 'x-idempotency-key': `safety-hold-resolve:${runId}:${holdId}` } },
+      );
+      notifications.show({ title: 'Issue marked resolved', message: 'The worker has been told to redo the safety check.', color: 'green' });
+      setDecisionReason('');
+      setSelectedItem(null);
+      dismissItem(item.id);
+    } catch (err: any) {
+      const status = err.response?.status;
+      const message = err.response?.data?.error || err.response?.data?.message || err.message;
+      notifications.show({
+        title: status === 403 ? 'You cannot resolve this hold' : 'Could not mark it resolved',
+        message,
+        color: 'red',
+      });
     } finally {
       setActionLoading(false);
     }
@@ -2774,31 +3110,53 @@ export default function InboxPage() {
 
   const activeItems = items.filter((item) => !isDeleted(item));
   const pendingCount = activeItems.filter((i) => i.status === 'pending' && !isArchived(i)).length;
+  const countReady = inboxQuery.isFetched && !inboxQuery.isPlaceholderData;
+  useEffect(() => {
+    if (countReady) publishInboxCount(scope, pendingCount);
+  }, [countReady, publishInboxCount, scope, pendingCount]);
   const expiredCount = items.filter(isExpiredItem).length;
-  const isFinanceFlowItem = (item: InboxItemData) =>
-    item.itemType === 'ar_collection'
-    || String(item.workflowRequestType || '').toLowerCase() === 'ar_collection'
-    ||
-    item.itemType === 'payment_link'
-    || item.itemType === 'invoice_offer'
-    || (item.module === 'finance' && item.itemType !== 'receipt_offer');
+  // Which workflow tabs an item belongs to. Same tab keys as the portal Inbox so a person
+  // finds the same item under the same tab on the phone and on the website.
+  const inboxTabsForItem = (item: InboxItemData): InboxTabKey[] => {
+    const tabs: InboxTabKey[] = [];
+    if (item.workflowRequestId || item.platformRequestId) tabs.push('requests');
+    const requestType = String(item.workflowRequestType || '').toLowerCase();
+    const module = String(item.module || '').toLowerCase();
+    const classification = classifyBusinessCentre({ requestType, workflowType: module });
+    // Staff requests (leave, expense claims and their records) are decided first so a request
+    // id in `workflowRunId` cannot file them under Jobs.
+    if (classification.centre === 'people' || isPeopleRequestType(requestType)) {
+      tabs.push('people');
+      return tabs;
+    }
+    if (classification.centre === 'field_jobs' || module === 'field' || Boolean(item.workflowRunId)) tabs.push('jobs');
+    if (classification.centre === 'purchases' || module === 'requisitions' || Boolean(item.requisitionId)) tabs.push('requisitions');
+    if (classification.centre === 'school_fees') tabs.push('school_fees');
+    if (
+      classification.centre === 'standalone_collection'
+      ||
+      item.itemType === 'ar_collection'
+      || item.itemType === 'payment_link'
+      || item.itemType === 'invoice_offer'
+      || requestType === 'ar_collection'
+      || (item.itemType === 'credential_offer' && module === 'finance')
+    ) tabs.push('payments');
+    if (requestType === 'ap_workflow' || (module === 'approvals' && Boolean(item.transactionId))) tabs.push('supplier_bills');
+    if (classification.centre === 'commerce' && (/rtc|cash[-_ ]?counter|counter[-_ ]?sale/.test(requestType) || module === 'cash_counter')) tabs.push('counter_sales');
+    if (item.itemType === 'receipt_offer') tabs.push('receipts');
+    return tabs;
+  };
 
-  const isOpsFlowItem = (item: InboxItemData) =>
-    String(item.id || '').startsWith('running-')
-    || item.itemType === 'workflow'
-    || item.module === 'approvals'
-    || item.module === 'field'
-    || item.module === 'present';
+  const liveItems = activeItems.filter((item) => !isArchived(item));
+  const tabCounts: Partial<Record<InboxTabKey, number>> = { all: liveItems.length, archived: activeItems.length - liveItems.length };
+  for (const item of liveItems) {
+    for (const tab of inboxTabsForItem(item)) tabCounts[tab] = (tabCounts[tab] ?? 0) + 1;
+  }
+  const capabilityFlags = getWorkflowCapabilityFlags(activeTemplates);
+  const orgKinds = (readOrgProfile()?.kinds || []) as string[];
+  const inboxTabs = visibleInboxTabs({ flags: capabilityFlags, orgKinds, counts: tabCounts }, INBOX_TAB_ORDER);
 
-  const financeCount = activeItems.filter((item) => !isArchived(item) && isFinanceFlowItem(item)).length;
-  const opsCount = activeItems.filter((item) => !isArchived(item) && isOpsFlowItem(item)).length;
-  const isCommerceTrailItem = (item: InboxItemData) => item.itemType === 'receipt_offer' || item.itemType === 'invoice_offer' || item.itemType === 'credential_offer' || item.itemType === 'payment_link';
-  const receiptsCount = activeItems.filter((item) => !isArchived(item) && isCommerceTrailItem(item)).length;
-  const archivedCount = activeItems.filter((item) => isArchived(item)).length;
-  const showFinanceTab = workflowSections.finance;
-  const showOpsTab = workflowSections.ops;
-
-  const hiddenActiveFilter = (filter === 'finance' && !showFinanceTab) || (filter === 'ops' && !showOpsTab);
+  const hiddenActiveFilter = !inboxTabs.includes(filter);
 
   useEffect(() => {
     if (hiddenActiveFilter) {
@@ -2806,17 +3164,19 @@ export default function InboxPage() {
     }
   }, [hiddenActiveFilter]);
 
+  const itemAttention = (item: InboxItemData): InboxAttention =>
+    inboxAttention({ status: item.status, isRead: item.isRead === true, archived: isArchived(item) });
+
   const priorityRank: Record<string, number> = { high: 0, medium: 1, low: 2 };
   const filteredItems = activeItems.filter((item) => {
     if (filter === 'archived') return isArchived(item);
-    if (isArchived(item)) return false;
-    if (filter === 'all') return true;
-    if (filter === 'finance') return isFinanceFlowItem(item);
-    if (filter === 'ops') return isOpsFlowItem(item);
-    if (filter === 'receipts') return isCommerceTrailItem(item);
-    return true;
+    // Filed on its own because it expired: shown under Archived only, like a replaced card.
+    if (isExpiredItem(item)) return false;
+    if (filter !== 'all' && !inboxTabsForItem(item).includes(filter)) return false;
+    if (isArchived(item)) return attention === 'done' || attention === 'all';
+    return matchesInboxAttention(itemAttention(item), attention);
   }).sort((a, b) => {
-    if (filter === 'finance') {
+    if (filter === 'payments' || filter === 'school_fees' || filter === 'counter_sales') {
       const financeRank = (item: InboxItemData) => {
         if (item.itemType === 'invoice_offer') return 0;
         if (item.itemType === 'payment_link') return 1;
@@ -2826,7 +3186,7 @@ export default function InboxPage() {
       if (rankDiff !== 0) return rankDiff;
     }
 
-    if (filter === 'ops') {
+    if (filter === 'jobs' || filter === 'requisitions' || filter === 'supplier_bills') {
       const opsRank = (item: InboxItemData) => {
         if (item.module === 'field' || item.workflowRunId) return 0;
         if (item.module === 'approvals' || item.workflowRequestId) return 1;
@@ -2836,18 +3196,25 @@ export default function InboxPage() {
       if (rankDiff !== 0) return rankDiff;
     }
 
-    const unreadWeightA = a.isRead === false ? 0 : 1;
-    const unreadWeightB = b.isRead === false ? 0 : 1;
-    if (unreadWeightA !== unreadWeightB) return unreadWeightA - unreadWeightB;
+    const createdDiff = dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf();
+    if (createdDiff !== 0) return createdDiff;
 
     const priorityDiff = (priorityRank[a.priority] ?? 99) - (priorityRank[b.priority] ?? 99);
     if (priorityDiff !== 0) return priorityDiff;
 
-    const createdDiff = dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf();
-    if (createdDiff !== 0) return createdDiff;
-
     return String(a.title).localeCompare(String(b.title));
   });
+
+  const attentionCounts = activeItems.reduce(
+    (counts, item) => {
+      if (filter !== 'archived' && isExpiredItem(item)) return counts;
+      if (filter !== 'archived' && filter !== 'all' && !inboxTabsForItem(item).includes(filter)) return counts;
+      if (filter === 'archived' && !isArchived(item)) return counts;
+      counts[itemAttention(item)] += 1;
+      return counts;
+    },
+    { new: 0, opened: 0, done: 0 } as Record<InboxAttention, number>,
+  );
 
   const visibleItems = filteredItems.slice(0, 20);
 
@@ -2856,8 +3223,14 @@ export default function InboxPage() {
       <Stack gap="md" px="md" pt="md">
         <Group justify="space-between" align="center">
           <Box>
-            <Title order={3}>Today’s priorities</Title>
-            {pendingCount > 0 && <Text size="sm" c="dimmed">{pendingCount} item{pendingCount !== 1 ? 's' : ''} need your attention</Text>}
+            <Title order={3}>Inbox</Title>
+            <Text size="sm" c="dimmed">
+              {attentionCounts.new > 0
+                ? `${attentionCounts.new} new`
+                : pendingCount > 0
+                  ? `${pendingCount} still waiting`
+                  : 'Nothing new'}
+            </Text>
             <Group gap="xs" mt={6}>
               <Badge size="sm" color={onlineReady ? (online ? 'green' : 'gray') : 'blue'} variant="light">
                 {onlineReady ? (online ? 'Online' : 'Offline') : 'Status'}
@@ -2874,41 +3247,81 @@ export default function InboxPage() {
             </Group>
           </Box>
           <Group gap="xs">
-            {expiredCount > 0 && (
-              <ActionIcon variant="light" color="red" size="lg" title={`Clear ${expiredCount} expired`} onClick={clearExpired}>
-                <IconTrash size={16} />
-              </ActionIcon>
+            {filter === 'archived' && expiredCount > 0 && (
+              <Button variant="subtle" color="gray" size="xs" leftSection={<IconTrash size={14} />} onClick={clearExpired}>
+                Clear {expiredCount} expired
+              </Button>
             )}
-            <ActionIcon variant="subtle" color="gray" size="lg" onClick={syncAndFetch} loading={loading}>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="lg"
+              aria-label="Refresh inbox"
+              onClick={() => {
+                setManualRefresh(true);
+                void syncAndFetch().finally(() => setManualRefresh(false));
+              }}
+              loading={manualRefresh}
+            >
               <IconRefresh size={18} />
             </ActionIcon>
           </Group>
         </Group>
 
-        <Tabs value={filter} onChange={(v) => setFilter(v ?? 'all')}>
-          <Tabs.List grow>
-            <Tabs.Tab value="all">All</Tabs.Tab>
-            {showFinanceTab && (
-              <Tabs.Tab value="finance">Finance {financeCount > 0 ? `(${financeCount})` : ''}</Tabs.Tab>
-            )}
-            {showOpsTab && (
-              <Tabs.Tab value="ops">Ops {opsCount > 0 ? `(${opsCount})` : ''}</Tabs.Tab>
-            )}
-            <Tabs.Tab value="receipts">Receipts {receiptsCount > 0 ? `(${receiptsCount})` : ''}</Tabs.Tab>
-            <Tabs.Tab value="archived">Archived {archivedCount > 0 ? `(${archivedCount})` : ''}</Tabs.Tab>
+        {filter !== 'archived' && (
+          <SegmentedControl
+            fullWidth
+            value={attention}
+            onChange={(value) => setAttention((value as InboxAttentionFilter) || 'all')}
+            data={INBOX_ATTENTION_FILTERS.map((entry) => ({
+              value: entry.value,
+              label: entry.value === 'all' ? entry.label : `${entry.label}${attentionCounts[entry.value] ? ` ${attentionCounts[entry.value]}` : ''}`,
+            }))}
+          />
+        )}
+
+        <Tabs value={filter} onChange={(v) => setFilter((v as InboxTabKey) ?? 'all')}>
+          <Tabs.List>
+            {inboxTabs.map((tab) => {
+              const count = tab === 'all' ? 0 : (tabCounts[tab] ?? 0);
+              return (
+                <Tabs.Tab
+                  key={tab}
+                  value={tab}
+                  rightSection={count > 0 ? (
+                    <Badge size="sm" circle variant={filter === tab ? 'filled' : 'light'} color="credentis">
+                      {count > 99 ? '99+' : count}
+                    </Badge>
+                  ) : undefined}
+                >
+                  {INBOX_TAB_LABELS[tab]}
+                </Tabs.Tab>
+              );
+            })}
           </Tabs.List>
         </Tabs>
+        {getContextMode() === 'org' && (
+          <Button variant="subtle" onClick={() => router.push('/requests')}>Requests history and audit</Button>
+        )}
         <Divider />
 
         {error && <ErrorAlert message={error} />}
 
-        {loading ? (
-          <Center py="xl"><Loader color="credentis" /></Center>
+        {firstLoad ? (
+          <ListSkeleton rows={5} label="Loading your inbox" />
         ) : filteredItems.length === 0 ? (
           <EmptyState
             icon={<IconInbox size={28} />}
-            title="All caught up"
-            description="No items in your inbox right now."
+            title={attention === 'new' ? 'Nothing new' : attention === 'opened' ? 'Nothing opened' : attention === 'done' ? 'Nothing finished' : 'All caught up'}
+            description={
+              attention === 'new'
+                ? 'Items you have already opened are under Opened. Finished ones are under Done.'
+                : attention === 'opened'
+                  ? 'Open a new item and it stays here until you finish it.'
+                  : attention === 'done'
+                    ? 'Approved, declined, and filed-away items show up here.'
+                    : 'No items in your inbox right now.'
+            }
           />
         ) : (
           <Box
@@ -2919,29 +3332,41 @@ export default function InboxPage() {
               WebkitOverflowScrolling: 'touch',
             }}
           >
-            <Stack gap="xs">
-              {groupInboxItems(visibleItems).map((entry) => {
-                if (entry.type === 'standalone') {
-                  return (
-                    <InboxItem
-                      key={entry.data.id}
-                      item={entry.data}
-                      onClick={setSelectedItem}
-                    />
-                  )
-                }
-                return (
-                  <WorkflowGroupRow
-                    key={entry.data.key}
-                    group={entry.data}
-                    isExpanded={expandedGroupKey === entry.data.key}
-                    onToggleExpand={() =>
-                      setExpandedGroupKey((prev) => (prev === entry.data.key ? null : entry.data.key))
+            <Stack gap="md">
+              {(filter === 'all'
+                ? groupByFlowSection(visibleItems, (item) => inboxFlowSection(inboxTabsForItem(item), item.itemType))
+                : [{ key: 'updates' as const, label: '', items: visibleItems }]
+              ).map((section) => (
+                <Stack key={section.key} gap="xs">
+                  {section.label && (
+                    <Text size="xs" fw={700} c="dimmed" tt="uppercase">{section.label}</Text>
+                  )}
+                  {groupInboxItems(section.items).map((entry) => {
+                    if (entry.type === 'standalone') {
+                      return (
+                        <InboxItem
+                          key={entry.data.id}
+                          item={entry.data}
+                          attention={itemAttention(entry.data)}
+                          onClick={openInboxItem}
+                        />
+                      )
                     }
-                    onItemClick={setSelectedItem}
-                  />
-                )
-              })}
+                    return (
+                      <WorkflowGroupRow
+                        key={entry.data.key}
+                        group={entry.data}
+                        attention={itemAttention(entry.data.primaryItem)}
+                        isExpanded={expandedGroupKey === entry.data.key}
+                        onToggleExpand={() =>
+                          setExpandedGroupKey((prev) => (prev === entry.data.key ? null : entry.data.key))
+                        }
+                        onItemClick={openInboxItem}
+                      />
+                    )
+                  })}
+                </Stack>
+              ))}
             </Stack>
           </Box>
         )}
@@ -2959,21 +3384,76 @@ export default function InboxPage() {
       </Stack>
 
       <BottomSheet
-        opened={!!selectedItem} onClose={() => { setSelectedItem(null); setDecisionReason(''); }}
+        opened={!!selectedItem} onClose={() => { setSelectedItem(null); setDecisionReason(''); setNextStepValues({}); setReceiptProof(null); }}
         title={selectedItem?.title ?? ''}
       >
         {selectedItem && (
           <Stack gap="md" pb="lg">
+            {selectedItem.replaces && (
+              <Alert color="orange" variant="light" icon={<IconAlertCircle size={16} />} title={selectedItem.replaces.label}>
+                {selectedItem.replaces.note}
+              </Alert>
+            )}
             <Text size="sm" c="dimmed">{selectedItem.description}</Text>
+            {inboxWhenLabel(selectedItem.createdAt) && (
+              <Text size="xs" c="dimmed">{inboxWhenLabel(selectedItem.createdAt)}</Text>
+            )}
             <Group gap="xs">
-              <Badge color={selectedItem.itemType === 'receipt_offer' ? 'green' : (selectedItem.itemType === 'payment_link' || selectedItem.itemType === 'invoice_offer') ? 'teal' : 'blue'} variant="light" leftSection={selectedItem.itemType === 'receipt_offer' ? <IconReceipt size={12} /> : undefined}>
-                {selectedItem.module}
-              </Badge>
-              <Badge color={selectedItem.isRead ? 'gray' : 'blue'} variant={selectedItem.isRead ? 'light' : 'filled'}>
-                {selectedItem.isRead ? 'Read' : 'Unread'}
+              <Badge color={itemAttention(selectedItem) === 'done' ? 'teal' : itemAttention(selectedItem) === 'opened' ? 'gray' : 'blue'} variant={itemAttention(selectedItem) === 'new' ? 'filled' : 'light'}>
+                {itemAttention(selectedItem) === 'new' ? 'New' : itemAttention(selectedItem) === 'opened' ? 'Opened' : 'Done'}
               </Badge>
               <StatusBadge status={selectedItem.status === 'pending' ? 'pending' : 'done'} />
             </Group>
+
+            {selectedItem.module === 'field' && selectedItem.workflowRunId && (() => {
+              const step = stepRequiredLabel(selectedItem);
+              const explanation = fieldStepExplanation(step);
+              const forOrg = selectedItem.ownerDisplayName || (selectedItem.ownerOrgTenantId ? activeOrgLabel : '');
+              if (!step && !forOrg) return null;
+              return (
+                <Paper withBorder radius="md" p="sm">
+                  <Stack gap={4}>
+                    {step && <Text size="xs" c="dimmed" tt="uppercase" fw={600}>This step</Text>}
+                    {step && <Text fw={700}>{step}</Text>}
+                    {explanation && <Text size="sm">{explanation}</Text>}
+                    {forOrg && <Text size="xs" c="dimmed">You act for {forOrg} on this job.</Text>}
+                    {selectedItem.status === 'pending' && (
+                      <Text size="xs" c="dimmed">Open the job to see every step, what is done and who each step waits on.</Text>
+                    )}
+                  </Stack>
+                </Paper>
+              );
+            })()}
+
+            {/* Any step started on the share screen and not finished: resume it, whatever the workflow. */}
+            {selectedItem.status === 'pending' && !isRequisitionApproval(selectedItem) && (() => {
+              const running = findRunningProofResume([
+                selectedItem.workflowRequestId,
+                selectedItem.requisitionId,
+                selectedItem.workflowRunId,
+                selectedItem.transactionId,
+              ]);
+              if (!running) return null;
+              return (
+                <>
+                  <Alert color="yellow" variant="light" icon={<IconAlertCircle size={14} />}>
+                    You started this step earlier. Resume it to finish.
+                  </Alert>
+                  <Button
+                    fullWidth
+                    size="lg"
+                    color="indigo"
+                    loading={actionLoading}
+                    onClick={() => {
+                      setSelectedItem(null);
+                      void router.push(running.route);
+                    }}
+                  >
+                    Resume step
+                  </Button>
+                </>
+              );
+            })()}
 
             {selectedItem.itemType === 'ar_collection' && (
               <Paper withBorder radius="md" p="sm">
@@ -3014,19 +3494,21 @@ export default function InboxPage() {
                   setSelectedItem((prev) => (prev ? { ...prev, isRead: !prev.isRead } : prev));
                 }}
               >
-                {selectedItem.isRead ? 'Mark Unread' : 'Mark Read'}
+                {selectedItem.isRead ? 'Mark as new' : 'Mark as opened'}
               </Button>
-              <Button
-                size="sm"
-                variant="light"
-                color={isArchived(selectedItem) ? 'teal' : 'gray'}
-                onClick={() => {
-                  const nextArchived = !isArchived(selectedItem);
-                  setArchivedState(selectedItem, nextArchived);
-                }}
-              >
-                {isArchived(selectedItem) ? 'Unarchive' : 'Archive'}
-              </Button>
+              {!isExpiredItem(selectedItem) && (
+                <Button
+                  size="sm"
+                  variant="light"
+                  color={isArchived(selectedItem) ? 'teal' : 'gray'}
+                  onClick={() => {
+                    const nextArchived = !isArchived(selectedItem);
+                    setArchivedState(selectedItem, nextArchived);
+                  }}
+                >
+                  {isArchived(selectedItem) ? 'Unarchive' : 'Archive'}
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="light"
@@ -3043,8 +3525,8 @@ export default function InboxPage() {
 
             {isExpiredItem(selectedItem) ? (
               <Stack gap="xs" mt="sm">
-                <Text size="sm" c="red.7" fw={500}>This offer has expired and can no longer be accepted.</Text>
-                <Button fullWidth size="lg" color="red" variant="light" leftSection={<IconTrash size={18} />} onClick={() => handleAction('dismiss')}>
+                <Text size="sm" c="dimmed" fw={500}>This expired, so it was filed under Archived. It can no longer be accepted.</Text>
+                <Button fullWidth size="lg" color="gray" variant="light" leftSection={<IconTrash size={18} />} onClick={() => handleAction('dismiss')}>
                   Remove
                 </Button>
               </Stack>
@@ -3176,7 +3658,56 @@ export default function InboxPage() {
 
                 {/* Workflow actions: field task execution must be available to assignees,
                     while org-role gating still applies to org approval actions. */}
-                {selectedItem.itemType === 'workflow' && (
+                {selectedItem.itemType === 'workflow' && selectedItem.platformNextStep && (
+                  <>
+                    {selectedItem.platformNextStep.hint && (
+                      <Text size="sm" c="dimmed">{selectedItem.platformNextStep.hint}</Text>
+                    )}
+                    {selectedItem.platformNextStep.fields.map((field) =>
+                      field.type === 'image' ? (
+                        <ReceiptProofField
+                          key={field.name}
+                          label={field.label}
+                          hint={field.hint}
+                          required={field.required}
+                          value={receiptProof}
+                          onChange={setReceiptProof}
+                        />
+                      ) : field.type === 'number' ? (
+                        <NumberInput
+                          key={field.name}
+                          label={field.label}
+                          required={field.required}
+                          min={0}
+                          value={nextStepValues[field.name] as number | undefined}
+                          onChange={(value) => setNextStepValues((current) => ({ ...current, [field.name]: value }))}
+                        />
+                      ) : (
+                        <TextInput
+                          key={field.name}
+                          label={field.label}
+                          required={field.required}
+                          value={String(nextStepValues[field.name] ?? '')}
+                          onChange={(event) => {
+                            const next = event.currentTarget.value;
+                            setNextStepValues((current) => ({ ...current, [field.name]: next }));
+                          }}
+                        />
+                      ),
+                    )}
+                    <Button
+                      fullWidth
+                      size="lg"
+                      color="teal"
+                      leftSection={<IconCheck size={18} />}
+                      loading={actionLoading}
+                      onClick={() => handleAction('approve')}
+                    >
+                      {selectedItem.platformNextStep.label}
+                    </Button>
+                  </>
+                )}
+                {selectedItem.itemType === 'workflow' && !selectedItem.platformNextStep && (
                   <>
                     {selectedItem.module === 'approvals' && !isRequisitionApproval(selectedItem) && (
                       <Textarea
@@ -3189,13 +3720,12 @@ export default function InboxPage() {
                       />
                     )}
                     {selectedItem.module === 'approvals' && isRequisitionApproval(selectedItem) && selectedItem.workflowRequestId && (() => {
-                      const runningId = `requisition:${selectedItem.workflowRequestId}`;
-                      const alreadyRunning = getRunningActions().some((a: any) => a.id === runningId);
+                      const running = findRunningProofResume([selectedItem.workflowRequestId, selectedItem.requisitionId]);
                       return (
                         <>
-                          {alreadyRunning && (
+                          {running && (
                             <Alert color="yellow" variant="light" icon={<IconAlertCircle size={14} />}>
-                              Approval already in progress — tap &ldquo;Open Requisition&rdquo; to continue.
+                              You started this approval earlier. Resume it to finish.
                             </Alert>
                           )}
                           <Button
@@ -3203,10 +3733,16 @@ export default function InboxPage() {
                             size="lg"
                             color="indigo"
                             loading={actionLoading}
-                            disabled={alreadyRunning}
-                            onClick={() => handleAction('approve')}
+                            onClick={() => {
+                              if (running) {
+                                setSelectedItem(null);
+                                void router.push(running.route);
+                                return;
+                              }
+                              void handleAction('approve');
+                            }}
                           >
-                            Approve In App
+                            {running ? 'Resume approval' : 'Approve In App'}
                           </Button>
                         </>
                       );
@@ -3239,6 +3775,31 @@ export default function InboxPage() {
                         Remove From Running
                       </Button>
                     )}
+                    {selectedItem.module === 'field' && selectedItem.workflowRunId && selectedItem.stageAction === 'resolve_safety_hold' && selectedItem.holdId ? (
+                      <Stack gap="xs">
+                        <Text size="xs" c="dimmed">{SAFETY_HOLD_COPY.inboxResolveHelp}</Text>
+                        <Textarea
+                          label={SAFETY_HOLD_COPY.resolveNoteLabel}
+                          placeholder="For example: site electrician isolated the supply at 14:10"
+                          value={decisionReason}
+                          onChange={(e) => setDecisionReason(e.currentTarget.value)}
+                          autosize
+                          minRows={2}
+                        />
+                        <Button
+                          fullWidth
+                          size="lg"
+                          color="blue"
+                          variant="light"
+                          leftSection={<IconCheck size={18} />}
+                          loading={actionLoading}
+                          disabled={!decisionReason.trim()}
+                          onClick={() => void handleResolveSafetyHoldFromInbox(selectedItem)}
+                        >
+                          {SAFETY_HOLD_COPY.resolveButton}
+                        </Button>
+                      </Stack>
+                    ) : null}
                     {selectedItem.module === 'field' && selectedItem.workflowRunId ? (
                       <Button
                         fullWidth
@@ -3289,15 +3850,25 @@ export default function InboxPage() {
       <Modal
         opened={switchConsentOpen}
         onClose={() => resolveSwitchConsent(false)}
-        title="Switch to Organization Context"
+        title="Open for your organisation"
         centered
       >
         <Stack gap="sm">
           <Alert color="blue" variant="light" icon={<IconShieldCheck size={16} />}>
             {ORG_SWITCH_COPY[switchConsentTarget?.purpose || 'request'].banner}
           </Alert>
+          {switchConsentTarget?.detail && (switchConsentTarget.detail.title || switchConsentTarget.detail.step) && (
+            <Paper withBorder radius="md" p="sm">
+              <Stack gap={4}>
+                {switchConsentTarget.detail.title && <Text fw={700} size="sm">{switchConsentTarget.detail.title}</Text>}
+                {switchConsentTarget.detail.step && <Text size="sm">Your step: {switchConsentTarget.detail.step}</Text>}
+                {switchConsentTarget.detail.explanation && <Text size="xs" c="dimmed">{switchConsentTarget.detail.explanation}</Text>}
+              </Stack>
+            </Paper>
+          )}
           <Text size="sm" c="dimmed">
             Continue as <Text span fw={700}>{switchConsentTarget?.orgName || switchConsentTarget?.orgTenantId}</Text> to {ORG_SWITCH_COPY[switchConsentTarget?.purpose || 'request'].action}.
+            You return to your personal inbox when you close or leave this task.
           </Text>
           <Group grow mt="sm">
             <Button variant="default" onClick={() => resolveSwitchConsent(false)}>

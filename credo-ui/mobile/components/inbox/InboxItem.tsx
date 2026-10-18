@@ -1,9 +1,11 @@
 import React from 'react';
 import { Card, Group, Text, Stack, Box, Badge, Avatar, useMantineColorScheme, useMantineTheme } from '@mantine/core';
-import { IconChevronRight, IconAlertTriangle } from '@tabler/icons-react';
+import { IconChevronRight } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { formatCredentialType } from '@/lib/format';
+import { OfferReplacementNote, fieldJobStatusLabel, stepRequiredLabel, toFeptStageLabel } from '@/lib/uxCopy';
+import { inboxAttention, inboxWhenLabel, type InboxAttention } from '@/lib/inboxAttention';
 
 dayjs.extend(relativeTime);
 
@@ -21,13 +23,15 @@ export interface InboxItemData {
   /** Present for credential offer items — used by accept-offer endpoint */
   offerUri?: string;
   /** Optional auth context for offer acceptance routing */
-  authContext?: 'personal' | 'organization';
+  authContext?: 'personal' | 'organization' | 'org';
   /** Transaction flow label for quick visual separation */
   flowType?: 'PAYMENT' | 'REQUEST' | 'WORKFLOW' | 'RECEIPT' | 'SYSTEM';
   /** Optional token to ensure acceptance uses the same context that produced the inbox row */
   authToken?: string;
   /** Discriminates between credential offers, receipt offers, and workflow tasks */
   itemType?: 'credential_offer' | 'workflow' | 'receipt_offer' | 'payment_link' | 'invoice_offer' | 'ar_collection';
+  /** Where a waiting record came from, e.g. `workflow_vc_offer` for a job record */
+  sourceType?: string;
   /** Shared invoice correlation key used for de-duplicating invoice + payment cards */
   invoiceRef?: string;
   /** Optional quote correlation key for commerce trails */
@@ -40,8 +44,14 @@ export interface InboxItemData {
   currency?: string;
   /** For field execution items — the underlying workflow run id */
   workflowRunId?: string;
+  /** For a safety-hold card: the hold the organisation can mark resolved from the inbox. */
+  holdId?: string;
+  /** Who the worker said must fix the hold: 'organisation' (default) or 'worker' (on site). */
+  holdFixBy?: string;
   /** For field execution items — current FEPT stage (ASSIGNED, IN_PROGRESS, etc.) */
   workflowStage?: string;
+  /** Why a field job is paused. The step line uses this ahead of the coarse stage. */
+  pauseReason?: string;
   /** For delegated approval notifications in personal inbox. */
   workflowRequestId?: string;
   workflowRequestType?: string;
@@ -49,7 +59,20 @@ export interface InboxItemData {
   transactionId?: string;
   /** For organization requests (purchases, quotes) the person approves or declines from the phone. */
   platformRequestId?: string;
+  /** "Part of job FR-…" when this card belongs to a job or another request. */
+  partOfLine?: string;
+  holdLine?: string;
+  holdsParent?: boolean;
+  /** An approved organization request that still has to be marked bought, delivered or paid. */
+  platformNextStep?: {
+    label: string;
+    hint?: string;
+    /** `image`: a live photo of the receipt or bill, or a wallet receipt record standing in. */
+    fields: Array<{ name: string; label: string; type: 'text' | 'number' | 'image'; required?: boolean; hint?: string }>;
+  };
   requiredAction?: string;
+  /** The step key stored on the card (sign-off, payment release, approval…); shown as "Your step". */
+  stageAction?: string;
   proofRequestId?: string;
   proofResponseId?: string;
   trustStatus?: 'pending' | 'proof_presented' | 'settled' | 'disputed' | 'revoked';
@@ -60,6 +83,8 @@ export interface InboxItemData {
   ownerLogoUrl?: string;
   assignmentRole?: string;
   isRead?: boolean;
+  /** Set when this card replaces one the person already holds; shown as a badge plus the reason. */
+  replaces?: OfferReplacementNote;
 }
 
 export function isExpiredItem(item: InboxItemData): boolean {
@@ -75,20 +100,6 @@ export function isExpiredItem(item: InboxItemData): boolean {
   return false;
 }
 
-const PRIORITY_COLOR: Record<string, string> = {
-  high: 'red',
-  medium: 'orange',
-  low: 'gray',
-};
-
-const FLOW_COLOR: Record<string, string> = {
-  PAYMENT: 'teal',
-  REQUEST: 'indigo',
-  WORKFLOW: 'blue',
-  RECEIPT: 'green',
-  SYSTEM: 'gray',
-};
-
 const FEPT_STAGE_COLOR: Record<string, string> = {
   REQUEST_CREATED: 'blue',
   ASSIGNED: 'indigo',
@@ -103,53 +114,53 @@ const FEPT_STAGE_COLOR: Record<string, string> = {
   CANCELLED: 'gray',
 };
 
-function prettifyStage(stage: string): string {
-  const normalized = String(stage || '').trim();
-  if (!normalized) return 'Pending';
-  return normalized
-    .toLowerCase()
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+/** A stored id, not a name a person can read. */
+function looksLikeId(value: string): boolean {
+  const text = value.trim();
+  if (!text) return false;
+  if (/^did:/i.test(text)) return true;
+  if (/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(text)) return true;
+  if (/^[0-9a-f]{16,}$/i.test(text)) return true;
+  return false;
 }
 
-function getFlowBadge(item: InboxItemData): { label: string; color: string } {
-  if (item.itemType === 'ar_collection') return { label: 'AR COLLECTION', color: 'blue' };
-  if (item.itemType === 'payment_link' || item.itemType === 'invoice_offer') return { label: 'PAYMENT FLOW', color: 'teal' };
-  if (item.itemType === 'receipt_offer') return { label: 'RECEIPT FLOW', color: 'green' };
-  if (item.module === 'field' || item.workflowRunId) return { label: 'FEPT', color: 'teal' };
-  if (item.module === 'approvals' && item.workflowRequestId) {
-    const requestType = String(item.workflowRequestType || '').toLowerCase();
-    if (requestType === 'ap_workflow' || item.transactionId) {
-      return { label: 'AP WORKFLOW', color: 'blue' };
-    }
-    return { label: 'REQUISITION FLOW', color: 'indigo' };
-  }
-  if (item.module === 'present') return { label: 'PROOF REQUEST', color: 'indigo' };
-  return { label: item.flowType || 'INBOX', color: FLOW_COLOR[item.flowType || 'SYSTEM'] || 'gray' };
+/** Drop a trailing id so "Invoice e7173…" reads as "Invoice". Keep the words. */
+function readableTitle(title: string): string {
+  const text = String(title || '').trim();
+  if (!text) return 'Update';
+  const withoutId = text
+    .replace(/\s+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '')
+    .replace(/\s+did:[^\s]+/gi, '')
+    .trim();
+  if (withoutId && !looksLikeId(withoutId)) return withoutId;
+  return text;
 }
 
 function getStageBadge(item: InboxItemData): { label: string; color: string } {
   if (item.itemType === 'ar_collection') {
     const trust = String(item.trustStatus || 'pending').toLowerCase();
     if (trust === 'settled') return { label: 'Settled', color: 'green' };
-    if (trust === 'proof_presented') return { label: 'Proof Presented', color: 'indigo' };
+    if (trust === 'proof_presented') return { label: 'Proof shared', color: 'indigo' };
     if (trust === 'disputed') return { label: 'Disputed', color: 'red' };
-    if (trust === 'revoked') return { label: 'Revoked', color: 'orange' };
-    return { label: 'Consent Pending', color: 'blue' };
+    if (trust === 'revoked') return { label: 'Cancelled', color: 'orange' };
+    return { label: 'Waiting to confirm', color: 'blue' };
   }
 
   if (item.workflowStage) {
     const stage = String(item.workflowStage).toUpperCase();
+    const pause = String(item.pauseReason || '').trim();
+    if (pause) {
+      return { label: fieldJobStatusLabel('paused', stage, pause), color: 'orange' };
+    }
     return {
-      label: prettifyStage(stage),
+      label: toFeptStageLabel(stage),
       color: FEPT_STAGE_COLOR[stage] || 'gray',
     };
   }
 
-  if (item.itemType === 'payment_link') return { label: 'Awaiting Payment', color: 'teal' };
-  if (item.itemType === 'invoice_offer') return { label: 'Invoice Issued', color: 'indigo' };
-  if (item.itemType === 'receipt_offer') return { label: 'Receipt Available', color: 'green' };
+  if (item.itemType === 'payment_link') return { label: 'Waiting for payment', color: 'teal' };
+  if (item.itemType === 'invoice_offer') return { label: 'Invoice sent', color: 'indigo' };
+  if (item.itemType === 'receipt_offer') return { label: 'Receipt ready', color: 'green' };
 
   const status = String(item.status || '').toLowerCase();
   const colorByStatus: Record<string, string> = {
@@ -158,8 +169,14 @@ function getStageBadge(item: InboxItemData): { label: string; color: string } {
     rejected: 'red',
     completed: 'teal',
   };
+  const statusWords: Record<string, string> = {
+    pending: 'Waiting',
+    approved: 'Approved',
+    rejected: 'Declined',
+    completed: 'Done',
+  };
   return {
-    label: prettifyStage(status || 'pending'),
+    label: statusWords[status] || 'Waiting',
     color: colorByStatus[status] || 'gray',
   };
 }
@@ -179,15 +196,10 @@ function formatMoney(amount: number | undefined, currency = 'USD'): string | nul
 }
 
 function getSenderName(item: InboxItemData): string {
-  const counterparty = String(item.counterpartyOrgName || '').trim();
-  if (counterparty) return counterparty;
-  const owner = String(item.ownerDisplayName || '').trim();
-  if (owner) return owner;
-  const actingOrg = String(item.actingOrgTenantId || '').trim();
-  if (actingOrg) return actingOrg;
-  const ownerOrg = String(item.ownerOrgTenantId || '').trim();
-  if (ownerOrg) return ownerOrg;
-  return 'Inbox';
+  const named = [item.counterpartyOrgName, item.ownerDisplayName]
+    .map((value) => String(value || '').trim())
+    .find((value) => value && !looksLikeId(value));
+  return named || 'Your organisation';
 }
 
 function getSenderPrefix(item: InboxItemData): string {
@@ -206,26 +218,31 @@ function getInitials(value: string): string {
 interface InboxItemProps {
   item: InboxItemData;
   onClick: (item: InboxItemData) => void;
+  /** Filed-away cards count as done even when the status is still waiting. */
+  attention?: InboxAttention;
 }
 
-export default function InboxItem({ item, onClick }: InboxItemProps) {
+export default function InboxItem({ item, onClick, attention }: InboxItemProps) {
   const theme = useMantineTheme();
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
   const expired = isExpiredItem(item);
-  const isUnread = item.isRead === false;
-  const displayTitle = item.itemType === 'credential_offer' || item.itemType === 'receipt_offer'
+  const attentionState = attention || inboxAttention({ status: item.status, isRead: item.isRead === true });
+  const isNew = attentionState === 'new';
+  // A title the server already wrote in words ("Site inspection · FR-…") is shown as it is;
+  // only a bare type name ("SiteInspectionVC") is turned into words.
+  const titleIsTypeName = !/\s/.test(String(item.title || '').trim()) || /VerifiableCredential/.test(String(item.title || ''));
+  const displayTitle = (item.itemType === 'credential_offer' || item.itemType === 'receipt_offer') && titleIsTypeName
     ? formatCredentialType(item.title)
-    : item.title;
-  const flowBadge = getFlowBadge(item);
+    : readableTitle(item.title);
   const stageBadge = getStageBadge(item);
   const senderName = getSenderName(item);
   const senderPrefix = getSenderPrefix(item);
-  const metaLabel = item.ownerDisplayName || item.assignmentRole || item.module;
-  const rightLabel = item.actionLabel || (item.itemType === 'payment_link' ? 'Pay now' : 'Open');
-  const rightTone = expired
-    ? 'red'
-    : item.itemType === 'payment_link' || item.itemType === 'invoice_offer'
+  const stepRequired = stepRequiredLabel(item);
+  const rawRightLabel = item.actionLabel || (item.itemType === 'payment_link' ? 'Pay now' : 'Open');
+  // The step badge already says what to do; do not repeat the same words on the right.
+  const rightLabel = stepRequired && rawRightLabel.toLowerCase() === stepRequired.toLowerCase() ? 'Open' : rawRightLabel;
+  const rightTone = item.itemType === 'payment_link' || item.itemType === 'invoice_offer'
       ? 'teal'
       : item.module === 'field'
         ? 'teal'
@@ -233,38 +250,24 @@ export default function InboxItem({ item, onClick }: InboxItemProps) {
           ? 'indigo'
           : 'gray';
   const moneyValue = formatMoney(item.amount, item.currency || 'USD');
-  const valueHint = item.invoiceRef
-    ? `INV ${item.invoiceRef}`
-    : item.paymentCode
-      ? `PAY ${item.paymentCode}`
-      : item.workflowRunId
-        ? item.workflowRunId
-        : item.workflowRequestId
-          ? item.workflowRequestId
-          : null;
-  const surface = expired
-    ? isDark
-      ? theme.colors.red[9]
-      : theme.colors.red[0]
-    : isDark
-      ? theme.colors.dark[6]
-      : theme.white;
-  const borderColor = expired
-    ? theme.colors.red[isDark ? 6 : 3]
-    : isDark
-      ? theme.colors.dark[4]
-      : theme.colors.gray[2];
+  const hintSource = [item.invoiceRef, item.paymentCode]
+    .map((value) => String(value || '').trim())
+    .find((value) => value && !looksLikeId(value));
+  const valueHint = hintSource ? hintSource : null;
+  const surface = isDark ? theme.colors.dark[6] : theme.white;
+  const borderColor = isDark ? theme.colors.dark[4] : theme.colors.gray[2];
   return (
     <Card
-      p="sm"
+      p="md"
       radius="md"
       withBorder
       style={{
         cursor: 'pointer',
+        minHeight: 104,
         width: '100%',
         border: `1px solid ${borderColor}`,
         background: surface,
-        opacity: expired ? 0.85 : 1,
+        opacity: expired ? 0.72 : 1,
       }}
       onClick={() => onClick(item)}
     >
@@ -276,39 +279,45 @@ export default function InboxItem({ item, onClick }: InboxItemProps) {
           <Text size="xs" c="dimmed" lineClamp={1}>
             {senderPrefix}: {senderName}
           </Text>
-          <Group gap={6} wrap="nowrap" align="center">
-            {isUnread && (
-              <Box
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: isDark ? theme.colors.teal[4] : theme.colors.teal[6],
-                  flexShrink: 0,
-                }}
-              />
-            )}
-            <Text fw={isUnread ? 700 : 600} size="sm" truncate>
-              {displayTitle}
+          <Group gap={6} wrap="nowrap" align="baseline" justify="space-between">
+            <Group gap={6} wrap="nowrap" align="center" style={{ minWidth: 0, flex: 1 }}>
+              {isNew && (
+                <Box
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: '50%',
+                    background: isDark ? theme.colors.blue[4] : theme.colors.blue[6],
+                    flexShrink: 0,
+                  }}
+                />
+              )}
+              <Text fw={isNew ? 700 : 600} size="sm" truncate c={attentionState === 'done' ? 'dimmed' : undefined}>
+                {displayTitle}
+              </Text>
+            </Group>
+            <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>{inboxWhenLabel(item.createdAt)}</Text>
+          </Group>
+
+          {item.replaces ? (
+            <Text size="xs" c="orange.8" fw={600} mt={6} lineClamp={2}>
+              {item.replaces.note}
             </Text>
-          </Group>
-          <Group gap={6} mt={4} wrap="wrap">
-            <Badge size="xs" color={flowBadge.color} variant="light">{flowBadge.label}</Badge>
-            <Badge size="sm" color={stageBadge.color} variant="light">{stageBadge.label}</Badge>
-            {expired && <Badge size="xs" color="red" variant="light">Expired</Badge>}
-            {!expired && item.priority === 'high' && (
-              <Badge size="xs" color={PRIORITY_COLOR[item.priority] || 'gray'} variant="dot">Priority</Badge>
+          ) : (
+            <Text size="xs" c="dimmed" mt={6} lineClamp={2}>
+              {item.description}
+            </Text>
+          )}
+
+          <Group gap={6} mt={8} wrap="wrap">
+            {item.replaces && (
+              <Badge size="xs" color="orange" variant="filled">{item.replaces.label}</Badge>
             )}
-            <Text size="xs" c="dimmed">{dayjs(item.createdAt).format('D MMM YYYY')}</Text>
-          </Group>
-
-          <Text size="xs" c="dimmed" mt={3} lineClamp={2}>
-            {item.description}
-          </Text>
-
-          <Group gap={6} mt={4} wrap="wrap">
-            {metaLabel && <Badge size="xs" color="gray" variant="dot">{metaLabel}</Badge>}
-            {item.assignmentRole && <Badge size="xs" color="indigo" variant="light">Role: {item.assignmentRole}</Badge>}
+            <Badge size="xs" color={stageBadge.color} variant="light">{stageBadge.label}</Badge>
+            {stepRequired && !expired && item.status === 'pending' && (
+              <Badge size="xs" color="teal" variant="outline">Your step: {stepRequired}</Badge>
+            )}
+            {expired && <Badge size="xs" color="gray" variant="light">Expired</Badge>}
           </Group>
         </Box>
 
@@ -329,7 +338,7 @@ export default function InboxItem({ item, onClick }: InboxItemProps) {
             </Text>
           )}
           <Box mt={6}>
-            {expired ? <IconAlertTriangle size={14} color={theme.colors.red[5]} /> : <IconChevronRight size={14} color={theme.colors.gray[5]} />}
+            <IconChevronRight size={14} color={theme.colors.gray[5]} />
           </Box>
         </Box>
       </Group>

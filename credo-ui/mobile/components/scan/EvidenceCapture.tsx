@@ -10,7 +10,7 @@
  * - "Use a record from my wallet" only applies to receipts and confirmations, where a digital
  *   record can replace a photo. Before and after photos are always taken live.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Stack,
   Button,
@@ -24,16 +24,15 @@ import {
   Group,
   Textarea,
   Divider,
-  Modal,
   Paper,
   ActionIcon,
   UnstyledButton,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { IconCamera, IconAlertCircle, IconCheck, IconMapPin, IconShieldCheck, IconPlus, IconX, IconFileText } from '@tabler/icons-react';
-import { Capacitor } from '@capacitor/core';
-import { decodeJwtPayload, getWalletToken } from '@/lib/auth';
-import api from '@/lib/api';
+import { captureLivePhotoDataUrl, sha256Hex } from '@/lib/evidenceHash';
+import { clearCameraPending, clearPhotoDraft, loadPhotoDraft, markCameraPending, savePhotoDraft } from '@/lib/photoDraft';
+import { purchaseReceiptLine, type PurchaseReceipt } from '@/lib/jobAuditTrail';
+import WalletRecordPickerButton, { walletRecordLabel } from './WalletRecordPicker';
 
 export type EvidenceStage = 'before' | 'after' | 'receipt' | 'acknowledgement';
 
@@ -68,7 +67,7 @@ interface CapturedShot {
   id: string;
   dataUrl: string;
   capturedAt: string;
-  gps: { lat: number; lng: number } | null;
+  gps: { lat: number; lng: number; accuracy?: number } | null;
 }
 
 interface AttachedRecord {
@@ -82,27 +81,44 @@ interface EvidenceCaptureProps {
   onCancel: () => void;
   workflowLabel?: string;
   evidenceStage?: EvidenceStage;
+  /** Receipts only: the worker bought nothing for this job, so there is no receipt to add. */
+  onNoReceipt?: () => Promise<void> | void;
+  /** Receipts only: receipts that came back from "Buy materials", offered instead of a photo. */
+  purchaseReceipts?: PurchaseReceipt[];
+  onUsePurchaseReceipts?: () => Promise<void> | void;
+  /** Keeps photos on the phone until the step is saved, even if Android closes the app. */
+  draftKey?: string;
 }
 
-async function sha256Hex(dataUrl: string): Promise<string> {
-  const base64 = dataUrl.split(',')[1] ?? dataUrl;
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-export default function EvidenceCapture({ onCapture, onCancel, workflowLabel, evidenceStage = 'before' }: EvidenceCaptureProps) {
-  const [shots, setShots] = useState<CapturedShot[]>([]);
+export default function EvidenceCapture({
+  onCapture,
+  onCancel,
+  workflowLabel,
+  evidenceStage = 'before',
+  onNoReceipt,
+  purchaseReceipts = [],
+  onUsePurchaseReceipts,
+  draftKey,
+}: EvidenceCaptureProps) {
+  const [shots, setShots] = useState<CapturedShot[]>(() => (draftKey ? loadPhotoDraft(draftKey) : []));
+  const [draftNotKept, setDraftNotKept] = useState(false);
+  const draftLoaded = useRef(draftKey);
   const [records, setRecords] = useState<AttachedRecord[]>([]);
   const [activeShotId, setActiveShotId] = useState<string | null>(null);
   const [workFinished, setWorkFinished] = useState(false);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [askingLocation, setAskingLocation] = useState(false);
+  useEffect(() => {
+    if (!draftKey) return;
+    if (draftLoaded.current !== draftKey) {
+      draftLoaded.current = draftKey;
+      setShots(loadPhotoDraft(draftKey));
+      return;
+    }
+    setDraftNotKept(!savePhotoDraft(draftKey, shots));
+  }, [draftKey, shots]);
   const activeShot = shots.find((shot) => shot.id === activeShotId) || shots[0] || null;
 
   const stageMeta: Record<EvidenceStage, { title: string; helper: string; button: string }> = {
@@ -117,8 +133,8 @@ export default function EvidenceCapture({ onCapture, onCancel, workflowLabel, ev
       button: 'Save after photo',
     },
     receipt: {
-      title: 'Receipts',
-      helper: 'Add a receipt for parts or materials used on this job.',
+      title: 'Receipts for materials',
+      helper: 'Add the receipts for parts or materials bought for this job. Bought nothing? Say so and carry on to the work.',
       button: 'Save receipt',
     },
     acknowledgement: {
@@ -133,30 +149,49 @@ export default function EvidenceCapture({ onCapture, onCancel, workflowLabel, ev
   const isPhotoOnlyStage = evidenceStage === 'before' || evidenceStage === 'after';
   const needsFinishedConfirmation = evidenceStage === 'after' && !workFinished;
 
+  const locationRequired = evidenceStage === 'before' || evidenceStage === 'after';
+
+  const readLocation = async (): Promise<{ lat: number; lng: number; accuracy?: number }> => {
+    const { Geolocation } = await import('@capacitor/geolocation');
+    let permission = await Geolocation.checkPermissions();
+    const granted = (status?: string) => status === 'granted';
+    if (!granted(permission.location) && !granted(permission.coarseLocation)) {
+      setAskingLocation(true);
+      permission = await Geolocation.requestPermissions();
+      setAskingLocation(false);
+    }
+    if (!granted(permission.location) && !granted(permission.coarseLocation)) {
+      throw new Error('Location is off for this app. Allow location so the photo shows where it was taken.');
+    }
+    const pos = await Promise.race([
+      Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Location timed out. Turn location on and try the photo again.')), 16000)),
+    ]);
+    return { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
+  };
+
   const capturePhoto = async () => {
     setError(null);
     setLoading(true);
     try {
-      const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera');
-      const photo = await Camera.getPhoto({
-        quality: 80,
-        allowEditing: false,
-        resultType: CameraResultType.DataUrl,
-        source: CameraSource.Camera,
-      });
-
-      if (!photo.dataUrl) throw new Error('No image returned');
-      let gps: { lat: number; lng: number } | null = null;
+      let gps: { lat: number; lng: number; accuracy?: number } | null = null;
+      if (locationRequired) {
+        gps = await readLocation();
+      } else {
+        try { gps = await readLocation(); } catch { gps = null; }
+      }
+      if (draftKey && typeof window !== 'undefined') {
+        markCameraPending(draftKey, `${window.location.pathname}${window.location.search}`, gps);
+      }
+      let dataUrl: string;
       try {
-        const { Geolocation } = await import('@capacitor/geolocation');
-        const pos = await Geolocation.getCurrentPosition({ timeout: 8000 });
-        gps = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      } catch {
-        gps = null;
+        dataUrl = await captureLivePhotoDataUrl();
+      } finally {
+        clearCameraPending();
       }
       const shot: CapturedShot = {
         id: `${Date.now()}-${shots.length}`,
-        dataUrl: photo.dataUrl,
+        dataUrl,
         capturedAt: new Date().toISOString(),
         gps,
       };
@@ -203,48 +238,16 @@ export default function EvidenceCapture({ onCapture, onCancel, workflowLabel, ev
         receiptVc: record && !/performance/i.test(recordType) ? record : undefined,
         evidenceStage,
       }));
+      if (draftKey) clearPhotoDraft(draftKey);
     } catch (err: any) {
-      setError(err?.message ?? 'Failed to process image');
+      setError(`${err?.message ?? 'The photo could not be sent.'} Your photos are kept on this phone; tap save to try again.`);
     } finally {
       setLoading(false);
     }
   };
 
-  const [vcModalOpen, setVcModalOpen] = useState(false);
-  const [availableVcs, setAvailableVcs] = useState<any[]>([]);
-  const [vcLoading, setVcLoading] = useState(false);
-
-  const fetchWalletVcs = async () => {
-    setVcLoading(true);
-    try {
-      const token = getWalletToken();
-      if (!token) return;
-      const payload = decodeJwtPayload(token);
-      const walletId = payload?.tenantId ?? payload?.sub;
-      if (!walletId) return;
-
-      const res = await api.get(`/api/wallet/${walletId}/credentials/list?limit=100`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const items = Array.isArray(res.data?.items) ? res.data.items : (Array.isArray(res.data) ? res.data : []);
-      // Filter for relevant ones
-      const relevant = items.filter((item: any) => {
-        const type = String(item.vc_type || item.type || '');
-        return /performance|receipt|work|delivery|job/i.test(type);
-      });
-      setAvailableVcs(relevant);
-      setVcModalOpen(true);
-    } catch (err: any) {
-      notifications.show({ title: 'Wallet', message: 'Could not load records from your wallet.', color: 'red' });
-    } finally {
-      setVcLoading(false);
-    }
-  };
-
   const handleSelectVc = (vc: any) => {
-    const label = String(vc.vc_type || vc.type || 'Record').replace(/VC$/, '').replace(/([a-z])([A-Z])/g, '$1 $2');
-    setRecords((current) => [...current, { id: String(vc.id || `${Date.now()}`), label, vc }]);
-    setVcModalOpen(false);
+    setRecords((current) => [...current, { id: String(vc.id || `${Date.now()}`), label: walletRecordLabel(vc), vc }]);
   };
 
   return (
@@ -257,7 +260,16 @@ export default function EvidenceCapture({ onCapture, onCancel, workflowLabel, ev
 
       <Alert color="blue" variant="light" title={currentStage.title} icon={<IconShieldCheck size={18} />}>
         <Text size="xs">{currentStage.helper}</Text>
+        {locationRequired && (
+          <Text size="xs" mt={6}>This photo needs this phone’s location. You will be asked to allow it before the camera opens.</Text>
+        )}
       </Alert>
+
+      {draftNotKept && (
+        <Alert color="yellow" variant="light" radius="sm">
+          This phone is low on space, so these photos are only kept while this screen is open. Save them before leaving.
+        </Alert>
+      )}
 
       {error && (
         <Alert icon={<IconAlertCircle size={16} />} color="red" radius="sm">
@@ -286,17 +298,7 @@ export default function EvidenceCapture({ onCapture, onCancel, workflowLabel, ev
             <Text size="xs">If you already have a matching record in your wallet, use it. Otherwise take a photo.</Text>
           </Alert>
 
-          {/* VC Selection */}
-          <Button
-            variant="filled"
-            color="teal"
-            size="lg"
-            leftSection={<IconShieldCheck size={20} />}
-            onClick={fetchWalletVcs}
-            loading={vcLoading}
-          >
-            Use a record from my wallet
-          </Button>
+          <WalletRecordPickerButton onSelect={handleSelectVc} />
 
           <Divider label="OR TAKE A PHOTO" labelPosition="center" />
         </>
@@ -434,7 +436,63 @@ export default function EvidenceCapture({ onCapture, onCancel, workflowLabel, ev
             onClick={handleAttach}
             loading={loading}
           >
-            {currentStage.button}{shots.length + records.length > 1 ? ` (${shots.length + records.length})` : ''}
+            {loading ? 'Sending to the job…' : currentStage.button}{!loading && shots.length + records.length > 1 ? ` (${shots.length + records.length})` : ''}
+          </Button>
+        )}
+        {evidenceStage === 'receipt' && onUsePurchaseReceipts && purchaseReceipts.length > 0 && shots.length === 0 && records.length === 0 && (
+          <Paper p="sm" radius="md" withBorder>
+            <Stack gap={6}>
+              <Text size="sm" fw={600}>Receipts from buying materials</Text>
+              {purchaseReceipts.map((receipt, index) => (
+                <Group key={index} gap={8} wrap="nowrap" align="center">
+                  {receipt.photoUri ? (
+                    <Image src={receipt.photoUri} alt={purchaseReceiptLine(receipt)} w={48} h={48} radius="sm" style={{ objectFit: 'cover' }} />
+                  ) : (
+                    <IconFileText size={20} />
+                  )}
+                  <Text size="xs">{purchaseReceiptLine(receipt)}</Text>
+                </Group>
+              ))}
+              <Button
+                fullWidth
+                color="teal"
+                disabled={loading}
+                onClick={async () => {
+                  setLoading(true);
+                  setError(null);
+                  try {
+                    await onUsePurchaseReceipts();
+                  } catch (err: any) {
+                    setError(err?.message || 'Could not use these receipts');
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+              >
+                Use these receipts
+              </Button>
+            </Stack>
+          </Paper>
+        )}
+        {evidenceStage === 'receipt' && onNoReceipt && shots.length === 0 && records.length === 0 && (
+          <Button
+            variant="light"
+            color="gray"
+            fullWidth
+            disabled={loading}
+            onClick={async () => {
+              setLoading(true);
+              setError(null);
+              try {
+                await onNoReceipt();
+              } catch (err: any) {
+                setError(err?.message || 'Could not carry on');
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            No materials bought – carry on
           </Button>
         )}
         <Button variant="subtle" color="gray" fullWidth onClick={onCancel} disabled={loading}>
@@ -443,25 +501,6 @@ export default function EvidenceCapture({ onCapture, onCancel, workflowLabel, ev
       </Stack>
       )}
 
-      <Modal opened={vcModalOpen} onClose={() => setVcModalOpen(false)} title="Choose a record" centered radius="lg">
-        <Stack gap="sm">
-          {availableVcs.length === 0 ? (
-            <Text size="sm" c="dimmed" ta="center" py="xl">No matching records in your wallet yet. Take a photo instead.</Text>
-          ) : (
-            availableVcs.map((vc) => (
-              <Paper key={vc.id} withBorder p="sm" radius="md" style={{ cursor: 'pointer' }} onClick={() => handleSelectVc(vc)}>
-                <Group justify="space-between">
-                  <Box>
-                    <Text fw={600} size="sm">{vc.vc_type || vc.type}</Text>
-                    <Text size="xs" c="dimmed">{vc.issuer_name || 'Issued to you'}</Text>
-                  </Box>
-                  <IconShieldCheck size={20} color="teal" />
-                </Group>
-              </Paper>
-            ))
-          )}
-        </Stack>
-      </Modal>
     </Stack>
   );
 }

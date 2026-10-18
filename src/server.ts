@@ -70,6 +70,35 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   initTenantStore()
   initWalletUserStore()
 
+  // Personal activity log: fill in cards accepted and job shares made before the log existed.
+  try {
+    const { holderActivityService } = await import('./services/ssi/HolderActivityService')
+    holderActivityService.backfill()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    agent?.config?.logger?.warn?.(`Personal activity backfill failed: ${msg}`)
+  }
+
+  // Only one staff card is valid per membership: withdraw cards superseded before that rule existed.
+  try {
+    const { credentialLifecycleService } = await import('./services/ssi/CredentialLifecycleService')
+    credentialLifecycleService.withdrawSupersededStaffCards()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    agent?.config?.logger?.warn?.(`Superseded staff card sweep failed: ${msg}`)
+  }
+
+  // Migration 115 keeps old supplier bills and collection links in the same typed transaction /
+  // obligation / settlement projection as new rows. Existing domain ids remain unchanged.
+  try {
+    const { businessTransactionService } = await import('./services/BusinessTransactionService')
+    const adopted = businessTransactionService.backfillExistingFinanceRows()
+    agent?.config?.logger?.info?.(`Finance transaction links ready: ${JSON.stringify(adopted)}`)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    agent?.config?.logger?.warn?.(`Finance transaction link backfill failed: ${msg}`)
+  }
+
   // Initialize shortlink service for verification QRs
   try {
     ShortlinkService.initialize()
@@ -80,12 +109,26 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   }
 
   // Initialize trigger service for scheduled workflows
+  const { outboxService } = await import('./services/OutboxService')
+  outboxService.start()
+
   try {
     await triggerService.initialize()
     agent?.config?.logger?.info?.('TriggerService initialized')
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     agent?.config?.logger?.warn?.(`TriggerService initialization failed: ${msg}`)
+  }
+
+  try {
+    const { receivableReminderService } = await import('./services/ReceivableReminderService')
+    await receivableReminderService.processDue()
+    const timer = setInterval(() => void receivableReminderService.processDue(), 60 * 60 * 1000)
+    timer.unref()
+    agent?.config?.logger?.info?.('Receivable reminders initialized')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    agent?.config?.logger?.warn?.(`Receivable reminders failed to initialize: ${msg}`)
   }
 
   // await otelSDK.start()
@@ -113,6 +156,8 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   const app = config.app ?? express()
   if (config.cors) {
     const allowedOrigins = [
+      'https://localhost',
+      'capacitor://localhost',
       'http://localhost:3000',
       'http://localhost:3001',
       'http://localhost:3002',
@@ -145,6 +190,9 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
       'https://credentis-portal.fly.dev',
       'https://credentis-wallet.fly.dev',
       'https://credentis-api.fly.dev',
+      process.env.PUBLIC_BASE_URL,
+      process.env.PORTAL_UI_URL,
+      process.env.WALLET_UI_URL,
       // Docker Internal IPs
       'http://172.16.0.0:3000',
       'http://172.16.0.0:4000',
@@ -189,7 +237,19 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
         },
         credentials: true,
         methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization', 'x-correlation-id', 'x-api-key', 'x-tenant-id', 'x-idempotency-key'],
+        allowedHeaders: [
+          'Content-Type',
+          'Authorization',
+          'x-correlation-id',
+          'x-api-key',
+          'x-login-poll-token',
+          'ngrok-skip-browser-warning',
+          'x-tenant-id',
+          'x-idempotency-key',
+          'x-context-mode',
+          'x-context-tenant-id',
+          'x-context-guard-version',
+        ],
         exposedHeaders: ['x-correlation-id'],
       }),
     )
@@ -216,7 +276,14 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   agent.config.logger.info(`Setting API key: ${effectiveApiKey}`)
   setDynamicApiKey(effectiveApiKey)
 
-  app.use(bodyParser.json({ limit: '50mb' }))
+  app.use(
+    bodyParser.json({
+      limit: '50mb',
+      verify: (req, _res, buffer) => {
+        if (req.url?.split('?')[0] === '/wa/webhook') (req as any).rawBody = Buffer.from(buffer)
+      },
+    }),
+  )
   // Correlation ID middleware
   app.use((req: ExRequest, res: ExResponse, next: NextFunction) => {
     const headerName = 'x-correlation-id'
@@ -305,6 +372,11 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     } else if (result.type === 'credential') {
       res.redirect(`${baseUrl}/verify/${result.targetId}`)
       return
+    } else if (result.type === 'payment') {
+      // A pay link is texted to a client: open the pay page on the phone app (the website has the same page).
+      const payBase = process.env.MOBILE_APP_URL || baseUrl
+      res.redirect(`${payBase}/pay/${encodeURIComponent(code)}`)
+      return
     } else {
       res.redirect(`${baseUrl}/verify?id=${result.targetId}`)
       return
@@ -343,6 +415,18 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
       req.path.startsWith('/oidc/issuer/credentials/')
     ) {
       req.url = req.url.replace(/^\/oidc\/issuer/, '/custom-oidc/issuer')
+    }
+    next()
+  })
+
+  // Back-compat alias: keep legacy OIDC verifier app endpoints reachable even
+  // though Credo's own verifier router is mounted under /oidc/verifier.
+  app.use((req: ExRequest, res: ExResponse, next: NextFunction) => {
+    if (
+      /^\/oidc\/verifier\/(formats|presentation-requests|verify)\/?$/.test(req.path) ||
+      /^\/oidc\/verifier\/(formats|presentation-requests|verify)\?/.test(req.url)
+    ) {
+      req.url = `/api${req.url}`
     }
     next()
   })
@@ -421,7 +505,19 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     agent.config.logger.info('Mounting OpenID4VC Verifier routes at /oidc/verifier')
     const verifierRouter =
       (agent as any)?.openid4vc?.verifier?.config?.router || modules.openId4VcVerifier?.config?.router
-    app.use('/oidc/verifier', verifierRouter)
+    app.use('/oidc/verifier', (req: ExRequest, res: ExResponse, next: NextFunction) => {
+      const normalizedPath = req.path.endsWith('/') && req.path.length > 1 ? req.path.slice(0, -1) : req.path
+      // These endpoints are implemented by the application's OidcVerifierController.
+      // Skip Credo's router here to avoid path collisions that surface as 404.
+      if (
+        normalizedPath === '/presentation-requests' ||
+        normalizedPath === '/verify' ||
+        normalizedPath === '/formats'
+      ) {
+        return next()
+      }
+      return verifierRouter(req, res, next)
+    })
   }
 
   // ── Status List endpoint ─────────────────────────────────────────────────
@@ -451,7 +547,10 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
       }
 
       // Cache miss or stale; refresh with option to serve stale if available
-      const agentForSigning = req.agent ? (req.agent as unknown as Agent<any>) : null
+      // Lists are signed lazily: first read after issuance or a status change.
+      if (!statusListPublisherService.getSignedVc(statusListId)) {
+        await statusListPublisherService.publishWithOwningAgent(statusListId, agent as unknown as Agent<any>)
+      }
       const refreshed = await statusListCacheService.get(statusListId, true)
       if (!refreshed || !refreshed.vc) {
         res.status(404).json({ error: 'Status list not found or not yet published' })

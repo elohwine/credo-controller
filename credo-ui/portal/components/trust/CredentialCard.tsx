@@ -15,6 +15,7 @@ import React from 'react';
 import { Paper, Badge, Text, Group, Stack, Box } from '@mantine/core';
 import { motion } from 'framer-motion';
 import { TiltCard } from '../reactbits';
+import { formatTxnTime } from '@/lib/inboxAttention';
 
 interface CredentialCardProps {
   credentialType: string;
@@ -150,7 +151,7 @@ export const CredentialCard: React.FC<CredentialCardProps> = ({
 
         {/* Footer */}
         <Text size="xs" c="dimmed" ta="right" mt="xs">
-          Issued {new Date(issuedAt).toLocaleDateString()}
+          Issued {formatTxnTime(issuedAt)}
         </Text>
       </Stack>
     </Paper>
