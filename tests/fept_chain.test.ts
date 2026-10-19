@@ -12,9 +12,11 @@ import 'reflect-metadata'
 import { afterAll, beforeAll, describe, expect, jest, test } from '@jest/globals'
 
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
+import { JobIntakeRepository } from '../src/persistence/JobIntakeRepository'
 import { notificationService } from '../src/services/NotificationService'
 import { orgWorkflowActorCredentialService } from '../src/services/OrgWorkflowActorCredentialService'
 import { paymentLinkService } from '../src/services/PaymentLinkService'
+import { JobIntakeController } from '../src/controllers/platform/JobIntakeController'
 import { ReconciliationService } from '../src/services/ReconciliationService'
 import { workflowReadinessService } from '../src/services/WorkflowReadinessService'
 import { workflowService } from '../src/services/WorkflowService'
@@ -118,7 +120,6 @@ function childRuns(parentRunId: string) {
 describe('FEPT chain — org setup → evidence → acknowledgement → follow-on payment → reconciliation', () => {
   let org: SeededOrganization
   let workerUserId: string
-  let feptWorkflowId: string
   const reference = 'PO-FEPT-001'
 
   beforeAll(() => {
@@ -141,7 +142,6 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
 
     const workflow = ensureExecutableWorkflow(org.orgTenantId, fept.id)
     if (!workflow) throw new Error('FEPT workflow could not be materialized')
-    feptWorkflowId = workflow.id
   })
 
   test('both templates are operational once actors and payment provider exist', () => {
@@ -152,23 +152,52 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
   test('runs the full checkpoint chain with VC issuance and a follow-on payment workflow', async () => {
     issued.length = 0
 
-    // 1. Dispatcher creates the job — assignee resolved from the configured field worker actor.
-    const start = await workflowService.executeWorkflow(
-      feptWorkflowId,
+    // A dispatcher files the PO and source document first, then assigns it through the intake API.
+    const intake = new JobIntakeRepository().create(
+      org.orgTenantId,
+      org.ownerUserId,
       {
         reference,
-        requestId: 'REQ-1',
-        requesterId: org.ownerUserId,
+        poNumber: reference,
+        description: 'Repair the client site equipment',
         amount: 250,
         // A subcontractor job: the client is invoiced 250 and the worker is paid 90 after sign-off.
         payoutAmount: 90,
         currency: 'USD',
-        customerMsisdn: '263771234567',
         clientName: 'Acme',
+        clientPhone: '263771234567',
+        requireConcealedWorkPhoto: true,
+        attachments: [{
+          filename: 'client-po.txt',
+          mediaType: 'text/plain',
+          contentBase64: Buffer.from('PO-FEPT-001').toString('base64'),
+        }],
       },
-      org.orgTenantId,
     )
-    const runId = start.runId
+    const dispatch = await new JobIntakeController().assign(
+      { user: { tenantId: org.orgTenantId, id: org.ownerUserId, orgRole: 'owner' }, headers: {} } as any,
+      intake.id,
+      { assigneeId: workerUserId },
+    )
+    expect(dispatch).toMatchObject({ status: 'assigned', intake: { status: 'assigned', assignedTo: workerUserId } })
+    const runId = dispatch.runId
+    const runInput = DatabaseManager.getDatabase()
+      .prepare('SELECT input, trigger_ref AS triggerRef FROM workflow_runs WHERE id = ?')
+      .get(runId) as { input: string; triggerRef: string }
+    expect(runInput.triggerRef).toBe(`job-intake:${intake.id}:attempt:1`)
+    expect(JSON.parse(runInput.input)).toMatchObject({
+      requestId: intake.id,
+      jobIntakeId: intake.id,
+      assigneeId: workerUserId,
+      customerMsisdn: '263771234567',
+      sourceAttachments: [{ id: intake.attachments[0].id, filename: 'client-po.txt' }],
+    })
+    const repeatedDispatch = await new JobIntakeController().assign(
+      { user: { tenantId: org.orgTenantId, id: org.ownerUserId, orgRole: 'owner' }, headers: {} } as any,
+      intake.id,
+      { assigneeId: workerUserId },
+    )
+    expect(repeatedDispatch.runId).toBe(runId)
     let state = runState(runId)
     expect(runStatus(runId).status).toBe('paused')
     expect(state.pauseReason).toBe('await_worker_start')
@@ -177,7 +206,7 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
     expect(state.issuedCredentials?.JobAssignmentVC).toBeDefined()
     expect(issued.map((vc) => vc.type)).toEqual(['JobAssignmentVC'])
     expect(issued[0].recipientStage).toBe('assign_field_worker')
-    expect(issued[0].claims.requisitionId).toBe('REQ-1')
+    expect(issued[0].claims.requisitionId).toBe(intake.id)
     expect(reconciliationEvents(reference)).toContain('AGENT_ASSIGNED')
 
     // 2a. The worker accepts and heads out. Nothing on site has been checked yet.
@@ -427,10 +456,35 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
     })
     state = runState(runId)
     expect(state.evidenceReceipt?.evidenceHash).toBe('hash-receipt')
-    expect(state.pauseReason).toBe('await_evidence_after')
+    expect(state.pauseReason).toBe('await_evidence_concealed')
     expect(reconciliationEvents(reference)).toContain('WORK_EVIDENCE_RECEIPT')
 
-    // 6. AFTER evidence → wait for the work review.
+    // 6. Configured concealed-work evidence is a required, location-sealed checkpoint before after photos.
+    const afterConcealedTooEarly = await workflowService.resumeWorkflow(runId, {
+      evidenceHash: 'hash-after',
+      phase: 'after',
+      photoUri: 'after.jpg',
+      gps: '-17.8,31.0',
+    })
+    expect(afterConcealedTooEarly.status).toBe('failed')
+    expect(afterConcealedTooEarly.error).toMatch(/waiting for concealed evidence, not after/)
+    expect(runState(runId).evidenceAfter).toBeUndefined()
+    DatabaseManager.getDatabase()
+      .prepare(`UPDATE workflow_runs SET status = 'paused', error = NULL WHERE id = ?`)
+      .run(runId)
+    await workflowService.resumeWorkflow(runId, {
+      evidenceHash: 'hash-concealed',
+      phase: 'concealed',
+      photoUri: 'concealed.jpg',
+      gps: '-17.8,31.0',
+      deviceCapturedAt: new Date().toISOString(),
+    })
+    state = runState(runId)
+    expect(state.evidenceConcealed?.evidenceHash).toBe('hash-concealed')
+    expect(state.pauseReason).toBe('await_evidence_after')
+    expect(reconciliationEvents(reference)).toContain('WORK_EVIDENCE_CONCEALED')
+
+    // 7. AFTER evidence → wait for the work review.
     await workflowService.resumeWorkflow(runId, {
       evidenceHash: 'hash-after',
       phase: 'after',
@@ -536,6 +590,7 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
     expect(ackVc.recipientStage).toBe('acknowledge_execution')
     expect(ackVc.claims.completionStatus).toBe('acknowledged')
     expect(ackVc.claims.evidenceRefs).toEqual(['hash-before', 'hash-after', 'hash-receipt'])
+    expect(ackVc.claims.concealedEvidenceRef).toBe('hash-concealed')
     expect(Object.keys(state.issuedCredentials)).toEqual(
       expect.arrayContaining(['JobAssignmentVC', 'ReceiptVC', 'ExecutionAckVC']),
     )

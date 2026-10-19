@@ -152,6 +152,26 @@ describe('run endpoint access before read, replay or mutation', () => {
     expect(resume).toHaveBeenCalledWith(run.id, {}, worker)
   })
 
+  test('the current worker can submit the configured concealed-work evidence phase', async () => {
+    const { app, run, org, worker } = fixture('await_evidence_concealed')
+    const resume = jest.spyOn(workflowService, 'resumeWorkflow').mockResolvedValue({ runId: run.id, status: 'paused' })
+    await request(app)
+      .post(`/runs/${run.id}/resume`)
+      .set('x-test-user', worker)
+      .set('x-test-tenant', org.orgTenantId)
+      .send({
+        phase: 'concealed',
+        evidenceHash: 'sealed-concealed-photo',
+        gps: { lat: -17.8, lng: 31.0 },
+      })
+      .expect(200)
+    expect(resume).toHaveBeenCalledWith(
+      run.id,
+      expect.objectContaining({ phase: 'concealed', evidenceHash: 'sealed-concealed-photo' }),
+      worker,
+    )
+  })
+
   test.each(['await_acknowledgement', 'await_payout_release'])(
     'generic resume cannot bypass wallet proof at %s',
     async (reason) => {

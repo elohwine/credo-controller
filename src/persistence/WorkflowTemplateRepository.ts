@@ -35,7 +35,7 @@ function feptCanonicalOutputVCs(): string[] {
 
 /**
  * A persisted FEPT template is "legacy" when it predates the checkpoint model:
- * - no assign / pause / configured transitions / before+after captures, or
+ * - no assign / pause / configured transitions / before+after captures / optional concealed-work capture, or
  * - it issues credentials BEFORE assignment (the old "issue everything up front" shape).
  *
  * Credential issuance AFTER assignment / evidence checkpoints is the current model
@@ -62,8 +62,20 @@ function isLegacyFept(steps: WorkflowTemplateDefinition['steps']): boolean {
   const hasAfterCapture = steps.some(
     (step) => step.action === 'field.capture_evidence' && String(step.config?.phase || '').toLowerCase() === 'after',
   )
+  const hasConcealedWorkCapture = steps.some(
+    (step) =>
+      step.action === 'field.capture_evidence' &&
+      String(step.config?.phase || '').toLowerCase() === 'concealed',
+  )
 
-  if (assignIndex === -1 || !hasPause || !hasConfiguredTransition || !hasBeforeCapture || !hasAfterCapture) {
+  if (
+    assignIndex === -1 ||
+    !hasPause ||
+    !hasConfiguredTransition ||
+    !hasBeforeCapture ||
+    !hasAfterCapture ||
+    !hasConcealedWorkCapture
+  ) {
     return true
   }
 

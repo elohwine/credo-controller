@@ -86,6 +86,8 @@ export interface AuthorityDecisionInput {
   requiredPermission?: string
   separationOfDutiesPersonIds?: string[]
   ssiEvidence?: SsiEvidenceInput[]
+  /** Read-only policy preview; evaluates the same rules without writing an audit decision. */
+  skipAudit?: boolean
 }
 
 export interface AuthorityDecision {

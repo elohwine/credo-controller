@@ -76,6 +76,21 @@ not on the machine's ephemeral root filesystem. The entrypoint restores `/data`
 traversal permissions after creating SQLite/app directories; the Postgres directory
 itself remains mode `700`, owned by `postgres`.
 
+All SQLite stores must also remain on the volume: `PERSISTENCE_DB_PATH=/data/persistence.db`,
+`TENANT_DB_PATH=/data/tenants.db` and `OIDC_DB_PATH=/data/oidc.db`. Tenant and OIDC
+store defaults follow the directory of `PERSISTENCE_DB_PATH` when their own overrides
+are absent. `/app/data` is ephemeral and must not hold canonical tenant metadata:
+losing that store makes surviving memberships display “Unknown” and causes workflow
+readiness to report missing issuer/verifier identities.
+
+For a deployment made before these paths were configured, back up both databases
+before changing anything. Recover missing canonical tenant rows from the surviving
+`persistence.db` tenant mirrors only after verifying their original DID/key/profile
+references and metadata; preserve existing canonical rows. Store the recovered
+database on `/data`, keep ownership with `credo`, and verify organisation lookup and
+workflow readiness after deployment. Do not recreate tenant identities, memberships
+or jobs to hide a missing metadata store.
+
 ## Android release
 
 From `credo-ui/mobile`, run `npm run android:release`. The signed release defaults

@@ -33,6 +33,7 @@ import { formatTxnTime } from '@/lib/inboxAttention';
 import { getFriendlyActivityActionLabel, getFriendlyActivitySummary, offerReplacement, stepRequiredLabel, toFeptStageLabel } from '@/lib/uxCopy';
 import { describeHolderActivity, type HolderActivityEntry } from '@/lib/holderActivity';
 import { nextStepCard, type NextStepItem } from '@/lib/nextSteps';
+import { workflowAttentionPreview } from '@/lib/workflowAttention';
 import dayjs from 'dayjs';
 
 type AuditContext = 'organization' | 'personal' | 'guest' | 'service';
@@ -473,6 +474,7 @@ export default function HomePage() {
           const unreadRows: UnreadInboxRow[] = [
             ...offers.map((o: any) => {
               const sourceType = String(o?.sourceType || '').toLowerCase();
+              const workflowPreview = sourceType.includes('workflow') ? workflowAttentionPreview(o) : null;
               const invoiceRef = String(o?.claims?.invoiceRef || o?.claims?.invoiceId || '').trim();
               const issuerName = String(o?.issuerName || o?.issuer || 'Unknown issuer').trim();
               const rawType = String(
@@ -491,7 +493,7 @@ export default function HomePage() {
               if (sourceType === 'payment_link') title = invoiceRef ? `Payment due · ${invoiceRef}` : 'Payment link';
               else if (sourceType === 'invoice_offer') title = invoiceRef ? `Invoice · ${invoiceRef}` : 'Invoice offer';
               else if (sourceType === 'proof_request') title = 'Proof request';
-              else if (sourceType.includes('workflow')) title = 'Workflow action';
+              else if (workflowPreview) title = workflowPreview.title;
 
               const replaces = offerReplacement(o?.claims);
               if (replaces) {
@@ -503,8 +505,8 @@ export default function HomePage() {
                 summary = issuerName ? `Issued by ${issuerName}` : 'Invoice ready';
               } else if (sourceType === 'proof_request') {
                 summary = issuerName ? `Requested by ${issuerName}` : 'Proof needed';
-              } else if (sourceType.includes('workflow')) {
-                summary = issuerName ? `Action from ${issuerName}` : 'Needs your action';
+              } else if (workflowPreview) {
+                summary = workflowPreview.summary;
               }
 
               return {
@@ -512,7 +514,7 @@ export default function HomePage() {
                 title,
                 summary,
                 createdAt: String(o?.createdAt || new Date().toISOString()),
-                route: '/inbox',
+                route: workflowPreview?.route || '/inbox',
                 kind: sourceType === 'payment_link' ? 'request' : 'offer',
                 family: sourceType === 'payment_link' ? 'Payments' : family,
               };
@@ -882,12 +884,10 @@ export default function HomePage() {
                           flexShrink: 0,
                         }}
                       />
-                      <Text size="xs" fw={600} style={{ flexShrink: 0, maxWidth: 130 }} truncate>
-                        {row.title}
-                      </Text>
-                      <Text size="xs" c="dimmed" truncate style={{ flex: 1 }} lineClamp={1}>
-                        — {row.summary}
-                      </Text>
+                      <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                        <Text size="sm" fw={600} lineClamp={2}>{row.title}</Text>
+                        <Text size="xs" c="dimmed" lineClamp={2}>{row.summary}</Text>
+                      </Stack>
                     </UnstyledButton>
                   );
                 })}

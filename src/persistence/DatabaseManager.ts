@@ -175,6 +175,7 @@ export class DatabaseManager {
       { version: 126, file: '126_connected_systems.sql', name: 'connected_systems' },
       { version: 127, file: '127_organization_entry_proofs.sql', name: 'organization_entry_proofs' },
       { version: 128, file: '128_device_trust.sql', name: 'device_trust' },
+      { version: 129, file: '129_job_intake.sql', name: 'job_intake' },
     ]
 
     for (const migration of migrationFiles) {

@@ -844,7 +844,7 @@ export const FieldExecutionProofTemplate: WorkflowTemplate = {
   id: 'tpl-fept-field-execution',
   name: 'Field Execution & Proof (FEPT)',
   description:
-    'Mobile field workflow: assignment, the worker heads out, arrival on site, then the site check and safety check, BEFORE evidence, receipts for materials bought for the job (or none), work, AFTER evidence, completion review, customer sign-off, client invoice, an optional worker payout, and reconciliation.',
+    'Mobile field workflow: assignment, the worker heads out, arrival on site, then the site check and safety check, BEFORE evidence, receipts for materials bought for the job (or none), optional concealed-work evidence, work, AFTER evidence, completion review, customer sign-off, client invoice, an optional worker payout, and reconciliation.',
   category: 'utilities',
   industry: ['delivery', 'field-service', 'procurement', 'operations'],
   triggerTypes: ['manual', 'webhook'],
@@ -852,6 +852,9 @@ export const FieldExecutionProofTemplate: WorkflowTemplate = {
     type: 'object',
     properties: {
       reference: { type: 'string', title: 'Workflow Reference' },
+      poNumber: { type: 'string', title: 'Client PO / store number' },
+      problemType: { type: 'string', title: 'Problem type' },
+      vehicleReference: { type: 'string', title: 'Assigned vehicle reference' },
       requestId: { type: 'string', title: 'Request ID' },
       requesterId: { type: 'string', title: 'Requester ID' },
       assigneeId: { type: 'string', title: 'Field Worker ID' },
@@ -876,6 +879,11 @@ export const FieldExecutionProofTemplate: WorkflowTemplate = {
       requireSiteInspection: { type: 'boolean', title: 'Require pre-job site inspection', default: true },
       requireRiskAssessment: { type: 'boolean', title: 'Require field worker risk assessment', default: true },
       requireArrivalProof: { type: 'boolean', title: 'Require arrival proof (GPS / site code)', default: true },
+      requireConcealedWorkPhoto: {
+        type: 'boolean',
+        title: 'Require a photo before concealed work is covered',
+        default: false,
+      },
       requireCompletionReview: { type: 'boolean', title: 'Require completion review before sign-off', default: true },
       requireCustomerSignoff: { type: 'boolean', title: 'Require customer sign-off before the invoice', default: true },
       requirePayoutRelease: {
@@ -912,6 +920,9 @@ export const FieldExecutionProofTemplate: WorkflowTemplate = {
           requisitionId: 'input.requestId',
           jobId: 'runId',
           reference: 'input.reference',
+          poNumber: 'input.poNumber',
+          problemType: 'input.problemType',
+          vehicleReference: 'input.vehicleReference',
           requesterId: 'input.requesterId',
           assignment: 'state.assignment',
           location: 'input.location',
@@ -1028,6 +1039,26 @@ export const FieldExecutionProofTemplate: WorkflowTemplate = {
     },
     {
       action: 'field.pause',
+      config: {
+        reason: 'await_evidence_concealed',
+        requireFlag: 'requireConcealedWorkPhoto',
+        requiredByDefault: false,
+      },
+      description: 'Optionally pause for a live photo of work that will be covered up',
+    },
+    {
+      action: 'field.capture_evidence',
+      config: {
+        phase: 'concealed',
+        requireGps: true,
+        requirePhoto: true,
+        requireFlag: 'requireConcealedWorkPhoto',
+        requiredByDefault: false,
+      },
+      description: 'Optionally capture a sealed in-progress photo before pipework or wiring is covered',
+    },
+    {
+      action: 'field.pause',
       config: { reason: 'await_evidence_after' },
       description: 'Pause until the worker captures AFTER-work evidence from the mobile app',
     },
@@ -1079,6 +1110,7 @@ export const FieldExecutionProofTemplate: WorkflowTemplate = {
             'state.evidenceAfter.evidenceHash',
             'state.evidenceReceipt.evidenceHash',
           ],
+          concealedEvidenceRef: 'state.evidenceConcealed.evidenceHash',
         },
       },
       description: 'Issue completion acknowledgement (ExecutionAckVC completion profile)',
@@ -1160,6 +1192,12 @@ export const FieldExecutionProofTemplate: WorkflowTemplate = {
     { field: 'requireApproval', label: 'Require Approval Step', type: 'boolean', default: true },
     { field: 'requireGps', label: 'Require GPS Evidence', type: 'boolean', default: true },
     { field: 'requirePhoto', label: 'Require Photo Evidence', type: 'boolean', default: true },
+    {
+      field: 'requireConcealedWorkPhoto',
+      label: 'Require a photo before concealed work is covered',
+      type: 'boolean',
+      default: false,
+    },
     { field: 'requireAcknowledgementSignature', label: 'Require Ack Signature', type: 'boolean', default: false },
     {
       field: 'reconciliationMode',

@@ -44,7 +44,8 @@ interface TenantRow {
 
 let db: Database | undefined
 
-const DEFAULT_DB_PATH = () => path.resolve(process.cwd(), 'data', 'tenants.db')
+const DEFAULT_DB_PATH = () =>
+  path.resolve(process.env.PERSISTENCE_DB_PATH ? path.dirname(process.env.PERSISTENCE_DB_PATH) : 'data', 'tenants.db')
 
 export const TENANT_TABLE_SQL = `CREATE TABLE IF NOT EXISTS tenants (
   id TEXT PRIMARY KEY,

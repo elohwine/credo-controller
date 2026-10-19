@@ -6,13 +6,16 @@ import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import {
   platformRequestService,
-  CreatePlatformRequestInput,
   MODULE_OFF_MESSAGE,
+} from '../../services/PlatformRequestService'
+import type {
+  CreatePlatformRequestInput,
   RaiseRequestInput,
   RequestOptions,
   RequestStatus,
 } from '../../services/PlatformRequestService'
-import { requestHandoffService, type SpawnedRequest } from '../../services/RequestHandoffService'
+import { requestHandoffService } from '../../services/RequestHandoffService'
+import type { SpawnedRequest } from '../../services/RequestHandoffService'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 
 type AuthenticatedClaims = {
@@ -134,6 +137,31 @@ export class RequestController {
     return result
   }
 
+  @Post('/{requestId}/decision')
+  public async decide(
+    @Request() request: ExRequest,
+    @Path() requestId: string,
+    @Body() body: { decision: 'approve' | 'reject'; reason?: string },
+  ) {
+    const principal = getPrincipal(request)
+    if (!['approve', 'reject'].includes(body?.decision)) {
+      throw new StatusException('Decision must be approve or reject', 400)
+    }
+    const db = DatabaseManager.getDatabase()
+    const action = `request-decision:${requestId}:${body.decision}`
+    const idempotency = IdempotencyGuard.guard(db, request, principal.tenantId, action)
+    if (idempotency.duplicate) return idempotency.response
+    const result = platformRequestService.decideBySubject(
+      requestId,
+      principal.tenantId,
+      principal.subjectRef,
+      body.decision,
+      body.reason,
+    )
+    if (idempotency.key) IdempotencyGuard.record(db, idempotency.key, principal.tenantId, action, result)
+    return result
+  }
+
   @Get('/')
   public async list(
     @Request() request: ExRequest,
@@ -149,7 +177,9 @@ export class RequestController {
   @Get('/{requestId}')
   public async get(@Request() request: ExRequest, @Path() requestId: string): Promise<any> {
     const principal = getPrincipal(request)
-    return platformRequestService.getForTenant(requestId, principal.tenantId)
+    const detail = platformRequestService.getForSubject(requestId, principal.tenantId, principal.subjectRef)
+    if (!detail) throw new StatusException('Request not found', 404)
+    return detail
   }
 
   /**

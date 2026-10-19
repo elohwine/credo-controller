@@ -741,7 +741,6 @@ function JobEvidenceTabs({
         title={preview?.label}
         size="lg"
         centered
-        zIndex={1000}
       >
         <Stack gap="sm">
           {preview?.src && <Image src={preview.src} alt={preview.label} fit="contain" mah="70vh" />}
@@ -919,7 +918,6 @@ function DetailTimelineList({
         title={preview?.label}
         size="lg"
         centered
-        zIndex={1000}
       >
         <Stack gap="sm">
           {preview?.src && <Image src={preview.src} alt={preview.label} fit="contain" mah="70vh" />}
@@ -1131,6 +1129,10 @@ function fieldPauseLine(pauseReason: string, who: string): string | undefined {
         ? 'You to confirm arrival (location or site code)'
         : `${name} to confirm arrival (location or site code)`,
     await_evidence_before: name === 'You' ? 'Before photos (take them before any work)' : `Before photos from ${name}`,
+    await_evidence_concealed:
+      name === 'You'
+        ? 'Photo the in-progress work before it is covered'
+        : `In-progress photo before work is covered from ${name}`,
     await_evidence_after:
       name === 'You' ? 'Finish the work, then take after photos' : `${name} to finish and take after photos`,
     await_evidence_receipt:
@@ -1475,7 +1477,7 @@ async function ensureOnTeam(selection: string | null | undefined, role: string):
   return userId ? { assigneeId: userId, assigneeUserId: userId } : {}
 }
 
-function inferNextEvidencePhase(run: any): 'before' | 'after' | 'receipt' {
+function inferNextEvidencePhase(run: any): 'before' | 'concealed' | 'after' | 'receipt' {
   const output = run?.output || {}
   const beforeHash = output?.evidenceBefore?.evidenceHash || output?.evidence?.before?.evidenceHash
   const receiptDone = Boolean(
@@ -1483,8 +1485,13 @@ function inferNextEvidencePhase(run: any): 'before' | 'after' | 'receipt' {
       output?.evidenceReceipt?.skipped ||
       output?.evidence?.receipt?.evidenceHash,
   )
-  // Before photos → receipts for materials (or none) → after photos.
+  const concealedDone = Boolean(output?.evidenceConcealed?.evidenceHash || output?.evidence?.concealed?.evidenceHash)
+  const concealedFlag = String(run?.input?.requireConcealedWorkPhoto ?? '').trim().toLowerCase()
+  const concealedRequired =
+    Boolean(run?.input?.requireConcealedWorkPhoto) && !['false', '0', 'no', 'off'].includes(concealedFlag)
+  // Before photos → receipts for materials (or none) → optional concealed-work photo → after photos.
   if (!beforeHash) return 'before'
+  if (concealedRequired && !concealedDone) return 'concealed'
   return receiptDone ? 'after' : 'receipt'
 }
 
@@ -1668,6 +1675,8 @@ export default function FinancePage() {
   const [creatingRequisition, setCreatingRequisition] = useState(false)
   const [selectedRequisitionId, setSelectedRequisitionId] = useState<string | null>(null)
   const [chainRequest, setChainRequest] = useState<any>(null)
+  const [chainDecisionReason, setChainDecisionReason] = useState('')
+  const [chainDecisionLoading, setChainDecisionLoading] = useState(false)
   /** History of a client payment or a supplier bill without a purchase chain (same panel as a job). */
   const [historyItem, setHistoryItem] = useState<null | { title: string; trail: JobAuditTrail }>(null)
   const [listView, setListView] = useFinanceListView()
@@ -1723,6 +1732,8 @@ export default function FinancePage() {
   const [showFieldRun, setShowFieldRun] = useState(false)
   const [creatingFieldRun, setCreatingFieldRun] = useState(false)
   const [fieldRunForm, setFieldRunForm] = useState({
+    poNumber: '',
+    problemType: '',
     description: '',
     clientName: '',
     clientPhone: '',
@@ -1735,6 +1746,8 @@ export default function FinancePage() {
     firstDueDate: dayjs().format('YYYY-MM-DD'),
     firstPaymentAmount: '',
     location: '',
+    vehicleReference: '',
+    requireConcealedWorkPhoto: false,
     scheduledDate: dayjs().add(1, 'day').format('YYYY-MM-DD'),
     assigneeId: 'stage-actor',
     receiverId: 'stage-actor',
@@ -3034,6 +3047,67 @@ export default function FinancePage() {
       })
   }, [])
 
+  const decideChainRequest = useCallback(async (decision: 'approve' | 'reject') => {
+    if (!chainRequest?.id) return
+    const reason = chainDecisionReason.trim()
+    if (decision === 'reject' && !reason) {
+      notifications.show({ title: 'Reason needed', message: 'Say why you are declining this request.', color: 'yellow' })
+      return
+    }
+    const token = getPreferredToken()
+    if (!token || getContextMode() !== 'org') {
+      notifications.show({ title: 'Organization context required', message: 'Open this request in its organization to decide it.', color: 'yellow' })
+      return
+    }
+    const permissionKey = decision === 'approve' ? 'canApprove' : 'canReject'
+    if (!chainRequest.decision?.[permissionKey]) {
+      notifications.show({
+        title: 'Request is not assigned to you',
+        message: chainRequest.decision?.actorLabel
+          ? `This step is assigned to ${chainRequest.decision.actorLabel}.`
+          : 'Your current organization role cannot decide this request.',
+        color: 'yellow',
+      })
+      return
+    }
+
+    setChainDecisionLoading(true)
+    try {
+      const assertCurrent = captureOrganizationSwitchContext(localStorage)
+      const headers = { Authorization: `Bearer ${token}` }
+      await api.post(
+        `/api/platform/requests/${encodeURIComponent(chainRequest.id)}/decision`,
+        { decision, reason: decision === 'reject' ? reason : undefined },
+        {
+          headers: {
+            ...headers,
+            'x-idempotency-key': `request-decision:${chainRequest.id}:${decision}:${chainRequest.decision?.version || chainRequest.updated_at || chainRequest.status}`,
+          },
+        },
+      )
+      const res = await api.get(`/api/platform/requests/${encodeURIComponent(chainRequest.id)}`, { headers })
+      assertCurrent()
+      if (res.data?.id !== chainRequest.id) throw new Error('The request response did not match the item you decided.')
+      setChainRequest(res.data)
+      setChainDecisionReason('')
+      notifications.show({
+        title: decision === 'approve' ? 'Request approved' : 'Request declined',
+        message: decision === 'approve'
+          ? 'Approval is recorded. The linked job remains on hold until the purchase or required fulfillment is recorded.'
+          : 'The request was declined.',
+        color: decision === 'approve' ? 'green' : 'orange',
+      })
+    } catch (error: any) {
+      notifications.show({
+        title: 'Could not update request',
+        message: error.response?.data?.message || error.response?.data?.error || error.message || 'Try again.',
+        color: 'red',
+      })
+    } finally {
+      setChainDecisionLoading(false)
+    }
+  }, [chainDecisionReason, chainRequest])
+
   useEffect(() => {
     if (!canLoadFinance) return
     const requestId = typeof router.query.requestId === 'string' ? router.query.requestId : ''
@@ -3839,6 +3913,7 @@ export default function FinancePage() {
       const assignee = await ensureOnTeam(fieldRunForm.assigneeId, 'field_worker')
       const receiver = await ensureOnTeam(fieldRunForm.receiverId, 'member')
       const payoutAmount = parseFloat(fieldRunForm.payoutAmount)
+      const reference = `FR-${Date.now()}`
       const body = {
         amount,
         // Only a job that pays a worker or subcontractor has a payout step.
@@ -3856,12 +3931,16 @@ export default function FinancePage() {
             }
           : {}),
         description: fieldRunForm.description,
+        poNumber: fieldRunForm.poNumber.trim(),
+        ...(fieldRunForm.problemType ? { problemType: fieldRunForm.problemType } : {}),
+        ...(fieldRunForm.vehicleReference.trim() ? { vehicleReference: fieldRunForm.vehicleReference.trim() } : {}),
+        requireConcealedWorkPhoto: fieldRunForm.requireConcealedWorkPhoto,
         clientName: fieldRunForm.clientName.trim(),
         ...(fieldRunForm.clientPhone.trim() ? { customerMsisdn: fieldRunForm.clientPhone.trim() } : {}),
         location: fieldRunForm.location,
         scheduledDate: fieldRunForm.scheduledDate,
-        reference: `FR-${Date.now()}`,
-        requestId: `FR-${Date.now()}`, // Required by template
+        reference,
+        requestId: reference, // Required by template
         ...assignee,
         ...(receiver.assigneeUserId ? { receiverId: receiver.assigneeUserId } : {}),
         triggerRef: `manual-finance-${Date.now()}`,
@@ -3878,6 +3957,8 @@ export default function FinancePage() {
 
       setShowFieldRun(false)
       setFieldRunForm({
+        poNumber: '',
+        problemType: '',
         description: '',
         clientName: '',
         clientPhone: '',
@@ -3890,6 +3971,8 @@ export default function FinancePage() {
         firstDueDate: dayjs().format('YYYY-MM-DD'),
         firstPaymentAmount: '',
         location: '',
+        vehicleReference: '',
+        requireConcealedWorkPhoto: false,
         scheduledDate: dayjs().add(1, 'day').format('YYYY-MM-DD'),
         assigneeId: 'stage-actor',
         receiverId: 'stage-actor',
@@ -4150,7 +4233,7 @@ export default function FinancePage() {
     }
 
     const pausePhase = getFieldPauseReason(run).replace('await_evidence_', '')
-    const phase = ['before', 'after', 'receipt'].includes(pausePhase) ? pausePhase : inferNextEvidencePhase(run)
+    const phase = ['before', 'concealed', 'after', 'receipt'].includes(pausePhase) ? pausePhase : inferNextEvidencePhase(run)
     void router.push(
       `/activity?ref=${encodeURIComponent(normalizedRunId)}&capture=1&phase=${encodeURIComponent(phase)}`,
     )
@@ -7665,6 +7748,22 @@ export default function FinancePage() {
           />
 
           <TextInput
+            label="Client PO / store number (if provided)"
+            placeholder="e.g. PO-2026-004"
+            value={fieldRunForm.poNumber}
+            onChange={(e) => setFieldRunForm({ ...fieldRunForm, poNumber: e.currentTarget.value })}
+          />
+
+          <Select
+            label="Problem type"
+            placeholder="Select a type"
+            clearable
+            data={['Plumbing', 'Electrical', 'Painting', 'HVAC', 'General maintenance', 'Other']}
+            value={fieldRunForm.problemType}
+            onChange={(value) => setFieldRunForm({ ...fieldRunForm, problemType: value || '' })}
+          />
+
+          <TextInput
             label="Client / site name"
             value={fieldRunForm.clientName}
             onChange={(e) => setFieldRunForm({ ...fieldRunForm, clientName: e.currentTarget.value })}
@@ -7790,6 +7889,19 @@ export default function FinancePage() {
           />
 
           <TextInput
+            label="Assigned vehicle (optional)"
+            placeholder="Registration or fleet reference"
+            value={fieldRunForm.vehicleReference}
+            onChange={(e) => setFieldRunForm({ ...fieldRunForm, vehicleReference: e.currentTarget.value })}
+          />
+          <Checkbox
+            label="Require a photo before work is covered"
+            description="Adds an in-progress, location-sealed photo step for work that will be hidden."
+            checked={fieldRunForm.requireConcealedWorkPhoto}
+            onChange={(e) => setFieldRunForm({ ...fieldRunForm, requireConcealedWorkPhoto: e.currentTarget.checked })}
+          />
+
+          <TextInput
             label="Date"
             type="date"
             value={fieldRunForm.scheduledDate}
@@ -7864,7 +7976,6 @@ export default function FinancePage() {
                 : 'Review Finished Work'
         })()}
         centered
-        zIndex={400}
       >
         {checkpointRun &&
           (() => {
@@ -8423,7 +8534,7 @@ export default function FinancePage() {
                               ))}
                             {canDoFieldSteps &&
                               (stage === 'IN_PROGRESS' || stage === 'EVIDENCE_CAPTURED') &&
-                              (['await_evidence_before', 'await_evidence_after', 'await_evidence_receipt'].includes(
+                              (['await_evidence_before', 'await_evidence_concealed', 'await_evidence_after', 'await_evidence_receipt'].includes(
                                 pauseReason,
                               ) ||
                                 (stage === 'IN_PROGRESS' && !knownPause)) && (
@@ -8436,12 +8547,16 @@ export default function FinancePage() {
                                 >
                                   {pauseReason === 'await_evidence_receipt'
                                     ? 'Add receipts for materials'
+                                    : pauseReason === 'await_evidence_concealed'
+                                      ? 'Photo work before it is covered'
                                     : pauseReason === 'await_evidence_after'
                                       ? 'Work done – take after photos'
                                       : pauseReason === 'await_evidence_before'
                                         ? 'Take before photos'
                                         : inferNextEvidencePhase(run) === 'before'
                                           ? 'Take before photos'
+                                          : inferNextEvidencePhase(run) === 'concealed'
+                                            ? 'Photo work before it is covered'
                                           : inferNextEvidencePhase(run) === 'after'
                                             ? 'Take after photos'
                                             : 'Add receipts for materials'}
@@ -8500,6 +8615,7 @@ export default function FinancePage() {
                                 'await_arrival',
                                 'await_risk_assessment',
                                 'await_evidence_before',
+                                'await_evidence_concealed',
                                 'await_evidence_after',
                                 'await_evidence_receipt',
                               ].includes(pauseReason) && (
@@ -8667,6 +8783,7 @@ export default function FinancePage() {
           if (returnToInbox()) return
           setChainRequest(null)
           setHistoryItem(null)
+          setChainDecisionReason('')
         }}
         position="bottom"
         size="90%"
@@ -8682,6 +8799,58 @@ export default function FinancePage() {
               currency={chainRequest.currency}
               lines={chainRequest.description ? [{ text: chainRequest.description }] : []}
             />
+          )}
+          {chainRequest && ['submitted', 'in_review'].includes(String(chainRequest.status || '').toLowerCase()) && (
+            <Paper withBorder radius="md" p="sm">
+              <Stack gap="xs">
+                <Group justify="space-between" align="center">
+                  <Text size="sm" fw={700}>Current step</Text>
+                  <Badge color="blue" variant="light">{chainRequest.decision?.stageLabel || 'Review and decide'}</Badge>
+                </Group>
+                <Text size="sm" c="dimmed">
+                  Assigned to {chainRequest.decision?.actorLabel || 'the configured organization actor'}.
+                </Text>
+                {chainRequest.decision?.canApprove && (
+                  <Button
+                    fullWidth
+                    color="teal"
+                    loading={chainDecisionLoading}
+                    onClick={() => void decideChainRequest('approve')}
+                  >
+                    Approve request
+                  </Button>
+                )}
+                {chainRequest.decision?.canReject && (
+                  <>
+                    <Textarea
+                      label="Reason for declining"
+                      placeholder="Explain why this request cannot proceed"
+                      minRows={2}
+                      autosize
+                      value={chainDecisionReason}
+                      onChange={(event) => setChainDecisionReason(event.currentTarget.value)}
+                    />
+                    <Button
+                      fullWidth
+                      color="red"
+                      variant="light"
+                      loading={chainDecisionLoading}
+                      disabled={!chainDecisionReason.trim()}
+                      onClick={() => void decideChainRequest('reject')}
+                    >
+                      Decline request
+                    </Button>
+                  </>
+                )}
+                {!chainRequest.decision?.canApprove && !chainRequest.decision?.canReject && (
+                  <Alert color={chainRequest.decision?.canAct ? 'yellow' : 'blue'} variant="light" icon={<IconShieldCheck size={16} />}>
+                    {chainRequest.decision?.canAct
+                      ? 'You are assigned to this step, but your organization authority does not permit this decision.'
+                      : `Waiting for ${chainRequest.decision?.actorLabel || 'the assigned stage actor'} to act.`}
+                  </Alert>
+                )}
+              </Stack>
+            </Paper>
           )}
           {chainRequest && familyLinks(chainRequest.family, chainRequest.id).length > 0 && (
             <FamilyStrip
@@ -9002,7 +9171,6 @@ export default function FinancePage() {
             title={title}
             size="lg"
             centered
-            zIndex={400}
           >
             <Stack align="center" gap="md">
               <Text size="sm" ta="center">
@@ -9606,7 +9774,6 @@ export default function FinancePage() {
         onClose={() => setSelectedCredentialArtifact(null)}
         title={selectedCredentialArtifact?.title || 'Record'}
         centered
-        zIndex={400}
       >
         {selectedCredentialArtifact && (
           <Stack gap="sm">

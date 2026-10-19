@@ -22,6 +22,8 @@ import {
     Menu,
     Modal,
     ScrollArea,
+    TextInput,
+    Tabs,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -34,11 +36,12 @@ import {
     IconDotsVertical,
     IconEye,
     IconDownload,
-    IconShieldCheck,
+
     IconAlertCircle,
     IconUser,
-    IconBrandWhatsapp,
+
     IconTrash,
+    IconSearch,
 } from '@tabler/icons-react';
 import axios from 'axios';
 import { getPersonalWalletTenantId, getPersonalWalletToken } from '@/utils/portalTenant';
@@ -85,14 +88,6 @@ const CREDENTIAL_ICONS: Record<string, React.ReactNode> = {
     VerifiableCredential: <IconCertificate size={24} />,
 };
 
-const CREDENTIAL_COLORS: Record<string, string> = {
-    PaymentReceiptVC: 'green',
-    PaymentReceipt: 'green',
-    InvoiceVC: 'blue',
-    Invoice: 'blue',
-    GenericID: 'violet',
-    GenericIDCredential: 'violet',
-};
 
 /** Cards the team list already names in plain words. Same labels on portal and phone. */
 const CARD_LABELS: Record<string, string> = {
@@ -118,7 +113,7 @@ function credentialIssuerLabel(subject: Record<string, any> | undefined, issuer?
     const named = subject?.orgName || subject?.merchantName || subject?.schoolName || subject?.organizationName || subject?.platformName;
     if (typeof named === 'string' && named.trim()) return named.trim();
     if (issuer && !issuer.startsWith('did:')) return issuer;
-    return 'Verified issuer';
+    return 'Issuer not named';
 }
 
 function queryValue(value: string | string[] | undefined): string | undefined {
@@ -274,43 +269,18 @@ function splitShareClaims(match: any): { shared: Array<{ label: string; value: s
     return { shared: toRows(match?.claims), withheld: toRows(match?.withheld, true) };
 }
 
-function CredentialCard({ credential, onView }: { credential: WalletCredential; onView: () => void }) {
+function CredentialCard({ credential, onView, detail = false }: { credential: WalletCredential; onView?: () => void; detail?: boolean }) {
     const subject = credential.parsedDocument?.credentialSubject || {};
     // Older job records were issued as a generic card; name them by what they are.
     const displayType = recordCardTitle(credential.type, subject) || formatCredentialType(credential.type);
-    const color = CREDENTIAL_COLORS[credential.type] || 'gray';
+
     const icon = CREDENTIAL_ICONS[credential.type] || <IconCertificate size={24} />;
 
     const issuer = typeof credential.parsedDocument?.issuer === 'string'
         ? credential.parsedDocument.issuer
         : credential.parsedDocument?.issuer?.id || credential.issuerDid;
 
-    // Extract key display fields based on credential type
-    let displayFields: { label: string; value: string }[] = [];
 
-    if (credential.type.includes('Receipt') || credential.type.includes('Payment')) {
-        displayFields = [
-            { label: 'Amount', value: subject.amount || subject.totalAmount || '-' },
-            { label: 'Merchant', value: subject.merchantName || subject.merchant || '-' },
-            { label: 'Date', value: subject.paymentDate || subject.timestamp || credential.addedOn?.split('T')[0] || '-' },
-        ];
-    } else if (credential.type.includes('Invoice')) {
-        displayFields = [
-            { label: 'Total', value: subject.total || subject.amount || '-' },
-            { label: 'Cart ID', value: subject.cartId?.slice(0, 12) || '-' },
-            { label: 'Status', value: subject.status || 'issued' },
-        ];
-    } else if (credential.type === 'EmployeeCredential') {
-        displayFields = credentialClaimRows(subject).filter((row) => ['Organisation', 'Role', 'You confirm'].includes(row.label));
-    } else {
-        displayFields = credentialClaimRows(subject).slice(0, 3);
-        if (displayFields.length === 0) {
-            displayFields = [
-                { label: 'Name', value: subject.name || subject.username || '-' },
-                { label: 'Email', value: subject.email || '-' },
-            ];
-        }
-    }
     const issuerName = credential.issuerName || credentialIssuerLabel(subject, issuer);
     const life = cardLife({
         withdrawn: credential.withdrawn,
@@ -328,82 +298,42 @@ function CredentialCard({ credential, onView }: { credential: WalletCredential; 
                 ? { border: '#868e96', wash: '#f1f3f5', badge: 'gray', label: life.label }
                 : undefined;
 
-    return (
-        <Card
-            shadow="sm"
-            padding="lg"
-            radius="md"
-            withBorder
-            style={tone ? { borderColor: tone.border, background: tone.wash } : undefined}
-        >
-            <Card.Section withBorder inheritPadding py="xs">
-                <Group justify="space-between">
-                    <Group>
-                        <Box c={color}>{icon}</Box>
-                        <div>
-                            <Text fw={600}>{displayType}</Text>
-                            <Text size="xs" c="dimmed">
-                                {formatTxnTime(credential.addedOn)}
-                            </Text>
-                        </div>
-                    </Group>
-                    {life.life === 'active' && !filedByYou ? (
-                        <Badge color={color} variant="light">
-                            ✓ Authentic
-                        </Badge>
-                    ) : (
-                        <Badge color={tone?.badge || 'gray'} variant="filled">{tone?.label || life.label}</Badge>
-                    )}
-                </Group>
-            </Card.Section>
-
-            <Stack gap="xs" mt="md">
-                {displayFields.map((field, idx) => (
-                    <Group key={idx} justify="space-between">
-                        <Text size="sm" c="dimmed">{field.label}</Text>
-                        <Text size="sm" fw={500}>{field.value}</Text>
-                    </Group>
-                ))}
-            </Stack>
-
-            <Divider my="sm" />
-
-            <Group justify="space-between">
-                <Text size="xs" c="dimmed" style={{ maxWidth: '60%' }} truncate>
-                    From: {issuerName}
-                </Text>
-                <Group gap="xs">
-                    {life.life === 'active' && !filedByYou && (
-                    <ActionIcon
-                        variant="light"
-                        color="green"
-                        size="sm"
-                        onClick={() => {
-                            const msg = encodeURIComponent(
-                                `${credential.type.includes('Receipt') ? '🧾 Receipt' : '📝 Invoice'}\n\n` +
-                                `${displayFields.map(f => `${f.label}: ${f.value}`).join('\n')}\n\n` +
-                                `✅ Verified Authentic`
-                            );
-                            window.open(`https://wa.me/?text=${msg}`, '_blank');
-                        }}
-                        title="Share to WhatsApp"
-                    >
-                        <IconBrandWhatsapp size={14} />
-                    </ActionIcon>
-                    )}
-                    <Button
-                        variant="light"
-                        size="xs"
-                        leftSection={<IconEye size={14} />}
-                        onClick={onView}
-                    >
-                        View
-                    </Button>
-                </Group>
+    const content = (
+        <Stack gap="lg" justify="space-between" style={{ minHeight: detail ? 190 : 205 }}>
+            <Group justify="space-between" align="flex-start" wrap="nowrap">
+                <Box p="sm" style={{ borderRadius: 14, background: 'rgba(255,255,255,0.15)' }}>{icon}</Box>
+                <Badge variant="outline" color="white" size="sm">{tone?.label || life.label}</Badge>
             </Group>
-        </Card>
+            <Box>
+                <Text size={detail ? 'xl' : 'lg'} fw={700} c="white" lineClamp={2}>{displayType}</Text>
+                <Text size="sm" c="white" opacity={0.85} mt={4} lineClamp={2}>{issuerName}</Text>
+            </Box>
+            <Group justify="space-between" wrap="nowrap">
+                <Text size="xs" c="white" opacity={0.8}>Saved {formatTxnTime(credential.addedOn)}</Text>
+                {!detail && <IconEye size={18} aria-hidden />}
+            </Group>
+        </Stack>
+    );
+    const style = {
+        width: '100%',
+        textAlign: 'left' as const,
+        color: 'white',
+        background: tone
+            ? 'linear-gradient(135deg, #66788a, #394b5c)'
+            : 'linear-gradient(135deg, #2188CA, #0F3F5E)',
+        border: 0,
+    };
+    return detail ? (
+        <Paper radius="xl" p="xl" style={style}>{content}</Paper>
+    ) : (
+        <Paper component="button" type="button" onClick={onView} aria-label={`View ${displayType} from ${issuerName}`}
+            radius="xl" p="xl" shadow="md" style={{ ...style, cursor: 'pointer' }}>
+            {content}
+        </Paper>
     );
 }
+
+type OrgPendingRecord = { id: string; credentialType: string; offerUri: string; title?: string; issuerName?: string; createdAt?: string };
 
 export default function WalletPage() {
     const router = useRouter();
@@ -424,6 +354,16 @@ export default function WalletPage() {
     const [approvalError, setApprovalError] = useState<string | null>(null);
     const [approvalAttempt, setApprovalAttempt] = useState(0);
     const [walletReady, setWalletReady] = useState(false);
+    const [category, setCategory] = useState('all');
+    const [walletTab, setWalletTab] = useState<string | null>('saved');
+    const [search, setSearch] = useState('');
+    const [orgPending, setOrgPending] = useState<OrgPendingRecord[]>([]);
+    const [addingOfferId, setAddingOfferId] = useState<string | null>(null);
+    const requestedHolder = walletReady && router.isReady
+        ? (queryValue(router.query.holder) || parseWalletQueryParams(router.asPath || '').holder)
+        : undefined;
+    const orgRecords = requestedHolder === 'organization';
+    const activeOrg = orgRecords ? readActiveOrganization() : null;
 
     useEffect(() => {
         setWalletReady(true);
@@ -458,6 +398,65 @@ export default function WalletPage() {
     const returnTo = queryValue(router.query.returnTo)
         || fallbackQuery.returnTo
         || '/requests?requestType=requisition';
+
+    /** The organisation's own records: what it holds and what is waiting to be added. */
+    const fetchOrganisationRecords = useCallback(async () => {
+        const org = readActiveOrganization();
+        const token = window.localStorage.getItem('credoOrgToken');
+        if (!org?.orgTenantId || !token) {
+            setError('Switch to an organisation to see its records.');
+            setLoading(false);
+            return;
+        }
+        setLoading(true);
+        setError(null);
+        setUserEmail(org.name || 'Organisation');
+        const headers = { Authorization: `Bearer ${token}` };
+        try {
+            const [listResponse, pendingResponse] = await Promise.all([
+                axios.get(`${holderBackend}/api/wallet/${encodeURIComponent(org.orgTenantId)}/credentials/list?limit=100`, { headers }),
+                axios.get(`${holderBackend}/api/wallet/credentials/pending-offers?holder=organization`, { headers })
+                    .catch(() => ({ data: { offers: [] } })),
+            ]);
+            const items = listResponse.data?.items || [];
+            setCredentials(Array.isArray(items) ? items.map((item: any) => ({
+                id: item.vc_id || item.id,
+                type: item.vc_type || item.type,
+                parsedDocument: item.parsedDocument || item.parsed_document,
+                issuerDid: item.issuerDid,
+                addedOn: item.issued_at || item.addedOn,
+                ...item,
+            })) : []);
+            setArchivedIds(readArchivedCardIds());
+            const offers = Array.isArray(pendingResponse.data?.offers) ? pendingResponse.data.offers : [];
+            setOrgPending(offers.filter((offer: any) => /^openid-credential-offer:/i.test(String(offer?.offerUri || ''))));
+        } catch (err: any) {
+            setCredentials([]);
+            setOrgPending([]);
+            setError(err?.response?.status === 403
+                ? 'Only an owner or admin can open the organisation records.'
+                : err?.response?.data?.message || err.message || 'Could not load the organisation records');
+        } finally {
+            setLoading(false);
+        }
+    }, [holderBackend]);
+
+    const addOrganisationRecord = async (offer: OrgPendingRecord) => {
+        const token = window.localStorage.getItem('credoOrgToken');
+        if (!token) return;
+        setAddingOfferId(offer.id);
+        try {
+            await axios.post(`${holderBackend}/api/wallet/credentials/accept-offer`, { offerUri: offer.offerUri }, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            notifications.show({ title: 'Added to records', message: `${formatCredentialType(offer.credentialType)} is now kept by the organisation.`, color: 'teal' });
+            await fetchOrganisationRecords();
+        } catch (err: any) {
+            notifications.show({ title: 'Could not add it', message: err?.response?.data?.message || err?.message, color: 'red' });
+        } finally {
+            setAddingOfferId(null);
+        }
+    };
 
     const fetchCredentials = useCallback(async () => {
         // Mirror fastlane behavior: holder flows use personal wallet token first.
@@ -543,8 +542,11 @@ export default function WalletPage() {
     }, [holderBackend, router]);
 
     useEffect(() => {
-        fetchCredentials();
-    }, [fetchCredentials]);
+        if (!router.isReady) return;
+        if (orgRecords) void fetchOrganisationRecords();
+        else void fetchCredentials();
+    }, [router.isReady, orgRecords, fetchCredentials, fetchOrganisationRecords]);
+    const refreshRecords = orgRecords ? fetchOrganisationRecords : fetchCredentials;
 
     const handleLogout = () => {
         clearCurrentSession();
@@ -841,6 +843,25 @@ export default function WalletPage() {
         title: RECORD_SECTION_LABELS[key],
         rows: live.filter((c) => recordSectionOf(c.type, c.parsedDocument?.credentialSubject) === key),
     })).filter((section) => section.rows.length > 0);
+    const matchesSearch = (credential: WalletCredential) => {
+        const subject = credential.parsedDocument?.credentialSubject;
+        const words = [
+            recordCardTitle(credential.type, subject) || formatCredentialType(credential.type),
+            credential.issuerName || credentialIssuerLabel(subject, credential.issuerDid),
+        ].join(' ').toLowerCase();
+        return words.includes(search.trim().toLowerCase());
+    };
+    useEffect(() => {
+        if (category !== 'all' && !sections.some((section) => section.key === category)) {
+            setCategory('all');
+        }
+    }, [category, sections]);
+
+    const displayedSections = sections
+        .filter((section) => category === 'all' || category === section.key)
+        .map((section) => ({ ...section, rows: section.rows.filter(matchesSearch) }))
+        .filter((section) => section.rows.length > 0);
+    const displayedArchived = archivedCards.filter(matchesSearch);
     const sectionIcon = (key: RecordSectionKey) =>
         key === 'payments' || key === 'school_fees' || key === 'counter_sales'
             ? <IconReceipt size={20} color="green" />
@@ -851,7 +872,7 @@ export default function WalletPage() {
     const showApprovalConsent = walletReady && presentationMode === 'approval' && !approvalLoading && !approvalError && approvalMatches.length > 0;
 
     return (
-        <Layout title="My Saved Items">
+        <Layout title="My wallet">
             <Container size="lg" py="xl">
                 {walletReady && presentationMode === 'approval' && !showApprovalConsent && (
                     <Paper shadow="sm" p="xl" radius="md" mb="xl" withBorder>
@@ -999,51 +1020,81 @@ export default function WalletPage() {
                 )}
 
                 {/* Header */}
-                <Paper shadow="sm" p="md" radius="md" mb="xl" withBorder>
+                <Box mb="xl">
                     <Group justify="space-between">
                         <Group>
-                            <IconReceipt size={32} color="#2188CA" />
+                            <IconWallet size={32} color="#2188CA" />
                             <div>
-                                <Title order={3}>{userEmail === 'Guest Session' ? 'Guest Receipts' : 'My Saved Items'}</Title>
-                                <Text size="sm" c="dimmed">{userEmail}</Text>
+                                <Title order={1} c="#0F3F5E">{orgRecords ? 'Organisation records' : userEmail === 'Guest Session' ? 'Guest wallet' : 'My wallet'}</Title>
+                                <Text size="sm" c="dimmed">{orgRecords
+                                    ? `Records ${activeOrg?.name || 'the organisation'} keeps: site checks, completions and receipts.`
+                                    : 'Your personal credentials, kept together.'}</Text>
                             </div>
                         </Group>
                         <Group>
                             <Button
                                 variant="subtle"
                                 leftSection={<IconRefresh size={18} />}
-                                onClick={fetchCredentials}
+                                onClick={refreshRecords}
                                 loading={loading}
                             >
                                 Refresh
                             </Button>
-                            <Button
+                            {!orgRecords && <Button
                                 variant={userEmail === 'Guest Session' ? 'filled' : 'subtle'}
                                 color={userEmail === 'Guest Session' ? 'blue' : 'red'}
                                 leftSection={userEmail === 'Guest Session' ? <IconUser size={18} /> : <IconLogout size={18} />}
                                 onClick={handleLogout}
                             >
                                 {userEmail === 'Guest Session' ? 'Log In / Sign Up' : 'Sign Out'}
-                            </Button>
+                            </Button>}
                         </Group>
                     </Group>
-                </Paper>
+                </Box>
 
-                {/* Stats: one tile per section that holds a card */}
-                {sections.length > 0 && (
-                    <SimpleGrid cols={{ base: 2, sm: 3 }} mb="xl">
+                <Tabs value={walletTab} onChange={setWalletTab} mb="lg">
+                    <Tabs.List>
+                        <Tabs.Tab value="saved">Saved ({live.length})</Tabs.Tab>
+                        <Tabs.Tab value="archived">Archived ({archivedCards.length})</Tabs.Tab>
+                    </Tabs.List>
+                </Tabs>
+                <TextInput aria-label="Search wallet" placeholder="Search by credential or issuer" leftSection={<IconSearch size={18} />}
+                    value={search} onChange={(event) => setSearch(event.currentTarget.value)} radius="xl" mb="lg" />
+                {walletTab === 'saved' && sections.length > 0 && (
+                    <Group gap="xs" mb="xl" role="group" aria-label="Credential categories">
+                        <Button radius="xl" size="xs" variant={category === 'all' ? 'filled' : 'light'} aria-pressed={category === 'all'} onClick={() => setCategory('all')}>All ({live.length})</Button>
                         {sections.map((section) => (
-                            <Paper key={section.key} shadow="sm" p="md" radius="md" withBorder>
-                                <Group>
-                                    {sectionIcon(section.key)}
-                                    <div>
-                                        <Text size="xl" fw={700}>{section.rows.length}</Text>
-                                        <Text size="sm" c="dimmed">{section.title}</Text>
-                                    </div>
-                                </Group>
-                            </Paper>
+                            <Button key={section.key} radius="xl" size="xs" variant={category === section.key ? 'filled' : 'light'}
+                                aria-pressed={category === section.key} onClick={() => setCategory(section.key)}>
+                                {section.title} ({section.rows.length})
+                            </Button>
                         ))}
-                    </SimpleGrid>
+                    </Group>
+                )}
+
+                {orgRecords && !loading && orgPending.length > 0 && (
+                    <Paper withBorder radius="md" p="md" mb="xl">
+                        <Group justify="space-between" mb="sm">
+                            <Title order={4}>Waiting to be added ({orgPending.length})</Title>
+                            <Text size="xs" c="dimmed">Add each one so the organisation can show it later.</Text>
+                        </Group>
+                        <Stack gap="xs">
+                            {orgPending.map((offer) => (
+                                <Group key={offer.id} justify="space-between" wrap="nowrap" gap="sm">
+                                    <Box style={{ minWidth: 0 }}>
+                                        <Text fw={600} size="sm" truncate>{offer.title || formatCredentialType(offer.credentialType)}</Text>
+                                        <Text size="xs" c="dimmed" truncate>
+                                            {[offer.issuerName, offer.createdAt ? formatTxnTime(offer.createdAt) : ''].filter(Boolean).join(' · ')}
+                                        </Text>
+                                    </Box>
+                                    <Button size="xs" loading={addingOfferId === offer.id} disabled={Boolean(addingOfferId) && addingOfferId !== offer.id}
+                                        onClick={() => void addOrganisationRecord(offer)}>
+                                        Add to records
+                                    </Button>
+                                </Group>
+                            ))}
+                        </Stack>
+                    </Paper>
                 )}
 
                 {/* Error state */}
@@ -1078,13 +1129,13 @@ export default function WalletPage() {
                     </Paper>
                 )}
 
-                {!loading && sections.map((section) => (
+                {!loading && walletTab === 'saved' && displayedSections.map((section) => (
                     <Box mb="xl" key={section.key}>
                         <Group mb="md">
                             {sectionIcon(section.key)}
                             <Title order={4}>{section.title}</Title>
                         </Group>
-                        <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }}>
+                        <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="lg">
                             {section.rows.map((cred) => (
                                 <CredentialCard
                                     key={cred.id}
@@ -1096,16 +1147,16 @@ export default function WalletPage() {
                     </Box>
                 ))}
 
-                {!loading && archivedCards.length > 0 && (
+                {!loading && walletTab === 'archived' && (
                     <Box mb="xl">
                         <Group mb="md">
                             <Title order={4}>Archived</Title>
                         </Group>
                         <Text size="sm" c="dimmed" mb="md">
-                            Cards that were replaced or withdrawn are filed here. They stay on this device and cannot be used.
+                            Replaced and withdrawn cards cannot be used. Cards you archived yourself can be restored if they are still current.
                         </Text>
                         <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }}>
-                            {archivedCards.map((cred) => (
+                            {displayedArchived.map((cred) => (
                                 <CredentialCard
                                     key={cred.id}
                                     credential={{ ...cred, archived: archivedIds.has(cred.id) }}
@@ -1115,36 +1166,22 @@ export default function WalletPage() {
                         </SimpleGrid>
                     </Box>
                 )}
+                {!loading && !error && (walletTab === 'archived' ? displayedArchived.length === 0 : live.length > 0 && displayedSections.length === 0) && (
+                    <Text c="dimmed" ta="center" py="xl">{search ? 'No credentials match your search.' : 'No archived credentials.'}</Text>
+                )}
 
                 {/* Credential Details Modal */}
                 <Modal
                     opened={detailsModalOpen}
                     onClose={() => setDetailsModalOpen(false)}
-                    title={
-                        <Group>
-                            <IconShieldCheck size={20} color="green" />
-                            <Text fw={600}>Credential Details</Text>
-                        </Group>
-                    }
+                    title="Credential details"
                     size="lg"
+                    radius="xl"
+                    centered
                 >
                     {selectedCredential && (
                         <Stack>
-                            <Group justify="space-between">
-                                <Badge color={CREDENTIAL_COLORS[selectedCredential.type] || 'gray'} size="lg">
-                                    {recordCardTitle(selectedCredential.type, selectedCredential.parsedDocument?.credentialSubject) || formatCredentialType(selectedCredential.type)}
-                                </Badge>
-                                {(() => {
-                                    const life = cardLife({
-                                        withdrawn: selectedCredential.withdrawn,
-                                        revocationReason: selectedCredential.revocationReason,
-                                        expiresAt: selectedCredential.parsedDocument?.expirationDate,
-                                    })
-                                    return life.life === 'active'
-                                        ? <Badge color="green" variant="light" leftSection={<IconShieldCheck size={12} />}>Verified</Badge>
-                                        : <Badge color={life.life === 'replaced' ? 'orange' : life.life === 'withdrawn' ? 'red' : 'gray'} variant="filled">{life.label}</Badge>
-                                })()}
-                            </Group>
+                            <CredentialCard credential={{ ...selectedCredential, archived: archivedIds.has(selectedCredential.id) }} detail />
                             {(() => {
                                 const life = cardLife({
                                     withdrawn: selectedCredential.withdrawn,
@@ -1196,7 +1233,7 @@ export default function WalletPage() {
                                     {credentialClaimRows(selectedCredential.parsedDocument?.credentialSubject).map((row) => (
                                         <Group key={row.label} justify="space-between" align="flex-start" wrap="nowrap" gap="md">
                                             <Text size="sm" c="dimmed" style={{ flexShrink: 0 }}>{row.label}</Text>
-                                            <Text size="sm" fw={500} ta="right" tt={row.label === 'Role' ? 'capitalize' : undefined}>{row.value}</Text>
+                                            <Text size="sm" fw={500} ta="right" style={{ overflowWrap: 'anywhere', minWidth: 0 }} tt={row.label === 'Role' ? 'capitalize' : undefined}>{row.value}</Text>
                                         </Group>
                                     ))}
                                     {credentialClaimRows(selectedCredential.parsedDocument?.credentialSubject).length === 0 && (
@@ -1226,7 +1263,7 @@ export default function WalletPage() {
                                     }}
                                 />
                             )}
-                            <Group justify="flex-end">
+                            {!orgRecords && <Group justify="flex-end">
                                 <Button
                                     variant="subtle"
                                     color="red"
@@ -1237,7 +1274,7 @@ export default function WalletPage() {
                                 >
                                     Remove from this device
                                 </Button>
-                            </Group>
+                            </Group>}
                         </Stack>
                     )}
                 </Modal>

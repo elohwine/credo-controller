@@ -4,6 +4,7 @@ import {
   Drawer,
   Tabs,
   Stack,
+  Box,
   Group,
   Text,
   Divider,
@@ -201,6 +202,41 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
 
   const state = job?.output || {}
   const input = state.workflowInput || job?.input || {}
+  const sourceAttachments = Array.isArray(input.sourceAttachments) ? input.sourceAttachments : []
+
+  const openSourceAttachment = async (attachment: any) => {
+    const intakeId = String(input.jobIntakeId || '').trim()
+    const attachmentId = String(attachment?.id || '').trim()
+    const token = getOrgScopedToken() || getPreferredTenantToken()
+    if (!intakeId || !attachmentId || !token) {
+      notifications.show({ color: 'red', message: 'The source document is not available in this organization context.' })
+      return
+    }
+    try {
+      const backend = ((window as any).__ENV?.NEXT_PUBLIC_VC_REPO as string) || 'http://localhost:3000'
+      const response = await axios.get(
+        `${backend}/api/platform/job-intake/${encodeURIComponent(intakeId)}/attachments/${encodeURIComponent(attachmentId)}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      const raw = atob(String(response.data?.dataBase64 || ''))
+      const bytes = new Uint8Array(raw.length)
+      for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index)
+      const url = URL.createObjectURL(new Blob([bytes], { type: response.data.mediaType }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = response.data.filename || attachment.filename || 'job-document'
+      link.rel = 'noopener'
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        message: axios.isAxiosError(error)
+          ? error.response?.data?.message || error.response?.data?.error || error.message
+          : 'Could not open the source document.',
+      })
+    }
+  }
 
   const assigneeId = String(state?.assignment?.assigneeId || state?.assigneeId || input.assigneeId || '')
   const assigneeName = (() => {
@@ -225,6 +261,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
     await_worker_start: `${workerName} to start the job`,
     await_arrival: `${workerName} to confirm arrival (location or site code)`,
     await_evidence_before: `Before photos from ${workerName}`,
+    await_evidence_concealed: `In-progress photo before work is covered from ${workerName}`,
     await_evidence_after: `${workerName} to finish and take after photos`,
     await_evidence_receipt: `Receipts for materials from ${workerName} (or none bought)`,
     await_completion_review: 'A review of the finished work',
@@ -698,7 +735,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
             Receipts ({manualReceipts.length + vcReceipts.length})
           </Tabs.Tab>
           <Tabs.Tab value="documents" leftSection={<IconFiles size={16} />}>
-            Records ({issuedRecords.length})
+            Documents & records ({sourceAttachments.length + issuedRecords.length})
           </Tabs.Tab>
           <Tabs.Tab value="history" leftSection={<IconHistory size={16} />}>
             History
@@ -906,6 +943,13 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
               </Text>
 
               <Text size="sm" c="dimmed">
+                Client PO / store number
+              </Text>
+              <Text size="md" mb="sm">
+                {input.poNumber || 'N/A'}
+              </Text>
+
+              <Text size="sm" c="dimmed">
                 Location
               </Text>
               <Group gap="xs" mb="sm">
@@ -924,6 +968,16 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
               <Text size="md" mb="sm">
                 {input.description || 'N/A'}
               </Text>
+              {input.problemType && (
+                <>
+                  <Text size="sm" c="dimmed">
+                    Problem type
+                  </Text>
+                  <Text size="md" mb="sm">
+                    {input.problemType}
+                  </Text>
+                </>
+              )}
 
               <Grid>
                 <Grid.Col span={6}>
@@ -988,6 +1042,10 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                     <IconCalendar size={16} color={BRAND.curious} />
                     <Text size="md">{input.scheduledDate || 'N/A'}</Text>
                   </Group>
+                  <Text size="sm" c="dimmed" mt="sm">
+                    Assigned vehicle
+                  </Text>
+                  <Text size="md">{input.vehicleReference || 'N/A'}</Text>
                 </Grid.Col>
               </Grid>
             </Card>
@@ -1090,6 +1148,31 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
         </Tabs.Panel>
 
         <Tabs.Panel value="documents">
+          <Card withBorder radius="md" p="md" mb="md">
+            <Text fw={600} mb="xs">Client source documents</Text>
+            {sourceAttachments.length === 0 ? (
+              <Text size="sm" c="dimmed" fs="italic">No source documents were attached to this job intake.</Text>
+            ) : (
+              <Stack gap="xs">
+                {sourceAttachments.map((attachment: any) => (
+                  <Group key={attachment.id} justify="space-between">
+                    <Group gap="xs">
+                      <IconFileText size={16} />
+                      <Box>
+                        <Text size="sm">{attachment.filename}</Text>
+                        <Text size="xs" c="dimmed">
+                          {Math.ceil(Number(attachment.sizeBytes || 0) / 1024)} KB · SHA-256 {String(attachment.sha256 || '').slice(0, 12)}
+                        </Text>
+                      </Box>
+                    </Group>
+                    <Button size="xs" variant="light" onClick={() => void openSourceAttachment(attachment)}>
+                      Download
+                    </Button>
+                  </Group>
+                ))}
+              </Stack>
+            )}
+          </Card>
           <Card withBorder radius="md" p="md">
             <Text fw={600} mb="xs">
               Records issued by this job

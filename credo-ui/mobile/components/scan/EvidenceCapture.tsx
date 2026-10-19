@@ -34,7 +34,7 @@ import { clearCameraPending, clearPhotoDraft, loadPhotoDraft, markCameraPending,
 import { purchaseReceiptLine, type PurchaseReceipt } from '@/lib/jobAuditTrail';
 import WalletRecordPickerButton, { walletRecordLabel } from './WalletRecordPicker';
 
-export type EvidenceStage = 'before' | 'after' | 'receipt' | 'acknowledgement';
+export type EvidenceStage = 'before' | 'concealed' | 'after' | 'receipt' | 'acknowledgement';
 
 export interface EvidenceAttachment {
   imageBase64?: string;
@@ -127,6 +127,11 @@ export default function EvidenceCapture({
       helper: 'Take a photo of the site before any work starts so everyone can see the starting condition.',
       button: 'Save before photo',
     },
+    concealed: {
+      title: 'Work before it is covered',
+      helper: 'Take a live photo of the pipework, wiring or other work that will be hidden. Capture it before covering it up.',
+      button: 'Save in-progress photo',
+    },
     after: {
       title: 'After photos',
       helper: 'Only once the work is finished: take a photo of the result from the same spot as the before photo so the two can be compared.',
@@ -145,11 +150,12 @@ export default function EvidenceCapture({
   };
 
   const currentStage = stageMeta[evidenceStage] ?? stageMeta.before;
-  // Before and after photos are always taken live; a wallet record can only stand in for a receipt or confirmation.
-  const isPhotoOnlyStage = evidenceStage === 'before' || evidenceStage === 'after';
+  // Work evidence is always taken live; a wallet record can only stand in for a receipt or confirmation.
+  const isPhotoOnlyStage = evidenceStage === 'before' || evidenceStage === 'concealed' || evidenceStage === 'after';
   const needsFinishedConfirmation = evidenceStage === 'after' && !workFinished;
 
-  const locationRequired = evidenceStage === 'before' || evidenceStage === 'after';
+  const locationRequired =
+    evidenceStage === 'before' || evidenceStage === 'concealed' || evidenceStage === 'after';
 
   const readLocation = async (): Promise<{ lat: number; lng: number; accuracy?: number }> => {
     const { Geolocation } = await import('@capacitor/geolocation');

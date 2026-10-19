@@ -75,9 +75,12 @@ export CREDENTIS_API_URL="${CREDENTIS_API_URL:-http://127.0.0.1:3000}"
 export CREDO_LISTEN_PORT="${CREDO_LISTEN_PORT:-3000}"
 export ASKAR_STORAGE_PATH="${ASKAR_STORAGE_PATH:-/data/askar}"
 export PERSISTENCE_DB_PATH="${PERSISTENCE_DB_PATH:-/data/persistence.db}"
+export TENANT_DB_PATH="${TENANT_DB_PATH:-/data/tenants.db}"
+export OIDC_DB_PATH="${OIDC_DB_PATH:-/data/oidc.db}"
 
 # Ensure the app-owned directories are present on the same volume.
-install -d -o credo -g credo -m 750 /data/askar /data/redis "$(dirname "$PERSISTENCE_DB_PATH")"
+install -d -o credo -g credo -m 750 /data/askar /data/redis \
+  "$(dirname "$PERSISTENCE_DB_PATH")" "$(dirname "$TENANT_DB_PATH")" "$(dirname "$OIDC_DB_PATH")"
 install -d -o credo -g credo -m 750 "$CREDO_HOME"
 
 # The SQLite parent above may be /data: restore traversal for postgres after that
@@ -221,4 +224,3 @@ while kill -0 "$CADDY_PID" 2>/dev/null; do
 done
 wait "$CADDY_PID"
 exit 1
-

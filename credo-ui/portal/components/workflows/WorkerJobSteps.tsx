@@ -31,6 +31,7 @@ export default function WorkerJobSteps({ pauseReason, canWork, held, safetyHold,
     const [notes, setNotes] = useState('');
     const [finished, setFinished] = useState(false);
     const phase: EvidencePhase | undefined = pauseReason === 'await_evidence_before' ? 'before'
+        : pauseReason === 'await_evidence_concealed' ? 'concealed'
         : pauseReason === 'await_evidence_after' ? 'after'
             : pauseReason === 'await_evidence_receipt' ? 'receipt' : undefined;
     const isWorkerStep = ['await_worker_start', 'await_arrival', 'await_risk_assessment'].includes(pauseReason) || Boolean(phase);
@@ -126,7 +127,15 @@ export default function WorkerJobSteps({ pauseReason, canWork, held, safetyHold,
                 </Button>
             </>}
             {phase && <>
-                <Text fw={600}>{phase === 'before' ? 'Before photos' : phase === 'after' ? 'After photos (work done)' : 'Receipts for materials'}</Text>
+                <Text fw={600}>
+                    {phase === 'before'
+                        ? 'Before photos'
+                        : phase === 'concealed'
+                            ? 'Work before it is covered'
+                            : phase === 'after'
+                                ? 'After photos (work done)'
+                                : 'Receipts for materials'}
+                </Text>
                 {phase === 'after' && <Checkbox label="Yes, the work is finished" checked={finished} onChange={(event) => setFinished(event.currentTarget.checked)} />}
                 {(phase !== 'after' || finished) && <>
                     <Group>

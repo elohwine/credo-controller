@@ -562,6 +562,7 @@ export class FieldExecutionActions {
         await_arrival: { action: 'confirm_arrival', label: 'Confirm arrival' },
         await_risk_assessment: { action: 'assess_risk', label: 'Complete the safety check' },
         await_evidence_before: { action: 'capture_evidence', label: 'Add before photos' },
+        await_evidence_concealed: { action: 'capture_evidence', label: 'Photo work before it is covered' },
         await_evidence_receipt: { action: 'capture_evidence', label: 'Record materials or skip' },
         await_evidence_after: { action: 'capture_evidence', label: 'Finish work and add after photos' },
       }
@@ -1097,6 +1098,12 @@ export class FieldExecutionActions {
   }
 
   public static async captureEvidence(context: WorkflowActionContext, config: any = {}) {
+    if (
+      config.requireFlag &&
+      !flagEnabled(context.input, String(config.requireFlag), config.requiredByDefault !== false)
+    ) {
+      return
+    }
     const requireGps = Boolean(config.requireGps)
     const requirePhoto = Boolean(config.requirePhoto)
     const requireSignature = Boolean(config.requireAcknowledgementSignature)
@@ -1134,7 +1141,14 @@ export class FieldExecutionActions {
     const phaseRaw = String(
       context.input?.phase || config.phase || (context.state.workflowStage === 'IN_PROGRESS' ? 'before' : 'after'),
     ).toLowerCase()
-    const phase = phaseRaw === 'receipt' ? 'receipt' : phaseRaw === 'after' ? 'after' : 'before'
+    const phase =
+      phaseRaw === 'receipt'
+        ? 'receipt'
+        : phaseRaw === 'concealed'
+          ? 'concealed'
+          : phaseRaw === 'after'
+            ? 'after'
+            : 'before'
     // A step waits for one kind of evidence. Photos for another step cannot be saved into it.
     const stepPhase = String(config.phase || '').toLowerCase()
     const sentPhase = String(context.input?.phase || '').toLowerCase()
@@ -1144,6 +1158,8 @@ export class FieldExecutionActions {
 
     const existingBeforeHash =
       context.state.evidenceBefore?.evidenceHash || context.state.evidence?.before?.evidenceHash
+    const existingConcealedHash =
+      context.state.evidenceConcealed?.evidenceHash || context.state.evidence?.concealed?.evidenceHash
     const existingAfterHash = context.state.evidenceAfter?.evidenceHash || context.state.evidence?.after?.evidenceHash
     const existingReceiptHash =
       context.state.evidenceReceipt?.evidenceHash || context.state.evidence?.receipt?.evidenceHash
@@ -1270,6 +1286,30 @@ export class FieldExecutionActions {
       }
 
       await FieldExecutionActions.transition(context, { to: 'EVIDENCE_CAPTURED' })
+    } else if (phase === 'concealed') {
+      if (!existingBeforeHash) {
+        throw new Error('Before evidence must be uploaded before concealed-work evidence')
+      }
+      if (existingAfterHash) {
+        throw new Error('Concealed-work evidence must be captured before after-work evidence')
+      }
+      if (existingConcealedHash) {
+        if (existingConcealedHash === evidence.evidenceHash) {
+          logger.debug({ evidenceHash: evidence.evidenceHash }, 'Idempotent concealed-work evidence capture')
+          return
+        }
+        throw new Error('Concealed-work evidence is already captured for this job')
+      }
+
+      context.state.evidenceConcealed = evidence
+      context.state.evidence = {
+        ...(context.state.evidence || {}),
+        concealed: evidence,
+        latest: evidence,
+        phase: 'concealed',
+        evidenceHash: evidence.evidenceHash,
+        photoUri: evidence.photoUri,
+      }
     } else if (phase === 'receipt') {
       // Materials are bought during the job, so receipts come after the before photos.
       if (!existingBeforeHash) {
@@ -1294,7 +1334,13 @@ export class FieldExecutionActions {
 
     const providerRef = getProviderRef(context)
     const eventType =
-      phase === 'before' ? 'WORK_EVIDENCE_BEFORE' : phase === 'after' ? 'WORK_EVIDENCE_AFTER' : 'WORK_EVIDENCE_RECEIPT'
+      phase === 'before'
+        ? 'WORK_EVIDENCE_BEFORE'
+        : phase === 'concealed'
+          ? 'WORK_EVIDENCE_CONCEALED'
+          : phase === 'after'
+            ? 'WORK_EVIDENCE_AFTER'
+            : 'WORK_EVIDENCE_RECEIPT'
     new ReconciliationService().recordEvent(providerRef, eventType, 'workflow', {
       tenantId: context.tenantId,
       phase,

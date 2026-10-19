@@ -199,6 +199,7 @@ const FIELD_JOB_STAGES: HandoffStageOption[] = [
   { id: 'await_site_inspection', label: 'Site inspection done' },
   { id: 'await_risk_assessment', label: 'Risk check done' },
   { id: 'await_evidence_before', label: 'Before photos taken' },
+  { id: 'await_evidence_concealed', label: 'Concealed-work photo taken' },
   { id: 'await_evidence_after', label: 'After photos taken' },
   { id: 'await_evidence_receipt', label: 'Receipts captured' },
   { id: 'await_completion_review', label: 'Work reviewed' },

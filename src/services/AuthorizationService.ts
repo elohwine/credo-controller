@@ -493,6 +493,7 @@ export class AuthorizationService {
   }
 
   private persistDecision(input: AuthorityDecisionInput, decision: AuthorityDecision): AuthorityDecision {
+    if (input.skipAudit) return decision
     const db = DatabaseManager.getDatabase()
     const organization = db
       .prepare(

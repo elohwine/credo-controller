@@ -6,8 +6,10 @@ import { DatabaseManager } from '../persistence/DatabaseManager'
 import { authorizationService } from './AuthorizationService'
 import { orgEntitlementService } from './OrgEntitlementService'
 import { orgSetupProfileService } from './OrgSetupProfileService'
+import { orgWorkflowActorService } from './OrgWorkflowActorService'
 import { requestContextValidator } from './RequestContextValidator'
 import { experienceForRequest, requestExperienceDefinition, requestExperienceEvents } from './RequestExperienceService'
+import { isActiveStageDelegate } from './WorkflowStageInboxService'
 
 /** Request kinds that need the People & payroll module switched on for the organisation. */
 export const PEOPLE_PAYROLL_REQUEST_TYPES = new Set(['hr.leave', 'finance.expense_claim'])
@@ -367,7 +369,7 @@ export class PlatformRequestService {
     payload: Record<string, unknown> = {},
   ) {
     const principal = this.resolvePrincipal(tenantId, subjectRef)
-    return this.transition(requestId, tenantId, toStatus, principal.personId, payload)
+    return this.transition(requestId, tenantId, toStatus, principal.personId, payload, subjectRef)
   }
 
   public transition(
@@ -376,6 +378,7 @@ export class PlatformRequestService {
     toStatus: RequestStatus,
     actorPersonId: string,
     payload: Record<string, unknown> = {},
+    actorSubjectRef?: string,
   ) {
     const db = DatabaseManager.getDatabase()
     const current = db
@@ -410,11 +413,13 @@ export class PlatformRequestService {
         }
       | undefined
 
-    if (!current?.organizationId || !current.requesterPersonId) throw new Error('Request not found')
+    if (!current?.organizationId || !current.requesterPersonId) {
+      throw new StatusException('Request not found', 404)
+    }
 
     const allowed: Record<RequestStatus, RequestStatus[]> = {
       draft: ['submitted', 'cancelled'],
-      submitted: ['in_review', 'rejected', 'cancelled'],
+      submitted: ['in_review', 'approved', 'rejected', 'cancelled'],
       in_review: ['approved', 'rejected', 'cancelled'],
       approved: ['in_fulfilment', 'completed', 'cancelled'],
       rejected: ['draft'],
@@ -424,7 +429,7 @@ export class PlatformRequestService {
     }
 
     if (!allowed[current.status ?? 'draft'].includes(toStatus)) {
-      throw new Error(`Invalid request transition: ${current.status} -> ${toStatus}`)
+      throw new StatusException(`Invalid request transition: ${current.status} -> ${toStatus}`, 409)
     }
 
     let stored: Record<string, unknown> = payload
@@ -445,6 +450,20 @@ export class PlatformRequestService {
     const permission = permissions[toStatus]
     const actorIsRequester = actorPersonId === current.requesterPersonId
 
+    if (['in_review', 'approved', 'rejected'].includes(toStatus)) {
+      const subjectRef =
+        actorSubjectRef ||
+        (db
+          .prepare('SELECT subject_ref AS subjectRef FROM people WHERE id = ? AND organization_id = ?')
+          .get(actorPersonId, current.organizationId) as { subjectRef?: string } | undefined)?.subjectRef
+      this.assertRequestStageActor({
+        tenantId,
+        requestType: current.requestType || 'general',
+        subjectRef,
+        amount: typeof current.amount === 'number' ? current.amount : undefined,
+      })
+    }
+
     if (actorIsRequester && (toStatus === 'submitted' || toStatus === 'cancelled')) {
       this.recordDecisionEvent(
         current.organizationId,
@@ -456,8 +475,10 @@ export class PlatformRequestService {
       )
     } else {
       const context = this.parseContext(current.contextJson)
+      const decisionFromStatus =
+        current.status === 'submitted' && ['approved', 'rejected'].includes(toStatus) ? 'in_review' : current.status
       const separationOfDuties = this.getSeparationOfDuties(
-        current.status as RequestStatus,
+        decisionFromStatus as RequestStatus,
         toStatus,
         current.requesterPersonId,
       )
@@ -477,23 +498,37 @@ export class PlatformRequestService {
       })
 
       if (decision.decision !== 'allow') {
-        throw new Error(`Insufficient authority: ${decision.reasonCode}`)
+        throw new StatusException(`Insufficient authority: ${decision.reasonCode}`, 403)
       }
     }
 
     const now = new Date().toISOString()
     db.transaction(() => {
-      db.prepare(
+      const update = db.prepare(
         `
         UPDATE requests
         SET status = ?, updated_at = CURRENT_TIMESTAMP,
             submitted_at = CASE WHEN ? = 'submitted' THEN COALESCE(submitted_at, ?) ELSE submitted_at END,
             completed_at = CASE WHEN ? = 'completed' THEN ? ELSE completed_at END
-        WHERE id = ?
+        WHERE id = ? AND COALESCE(status, 'draft') = ?
       `,
-      ).run(toStatus, toStatus, now, toStatus, now, requestId)
+      ).run(toStatus, toStatus, now, toStatus, now, requestId, current.status ?? 'draft')
 
-      this.recordEvent(requestId, 'request.status_changed', actorPersonId, current.status ?? null, toStatus, stored)
+      if (update.changes !== 1) {
+        throw new StatusException('Request changed before the decision could be recorded. Reload and try again.', 409)
+      }
+
+      if (current.status === 'submitted' && toStatus === 'approved') {
+        this.recordEvent(requestId, 'request.status_changed', actorPersonId, 'submitted', 'in_review', {})
+      }
+      this.recordEvent(
+        requestId,
+        'request.status_changed',
+        actorPersonId,
+        current.status === 'submitted' && toStatus === 'approved' ? 'in_review' : current.status ?? null,
+        toStatus,
+        stored,
+      )
 
       // Once decided, the "waiting for your decision" cards leave every inbox.
       if (['approved', 'rejected', 'cancelled', 'completed'].includes(toStatus)) {
@@ -591,6 +626,149 @@ export class PlatformRequestService {
     // The transition has already passed authorization and committed atomically;
     // do not require a separate read permission merely to return its new state.
     return this.getForTenant(requestId, tenantId)
+  }
+
+  public decideBySubject(
+    requestId: string,
+    tenantId: string,
+    subjectRef: string,
+    decision: 'approve' | 'reject',
+    reason?: string,
+  ) {
+    if (decision === 'reject' && !String(reason || '').trim()) {
+      throw new StatusException('Please provide a reason before rejecting this request', 400)
+    }
+    return this.transitionBySubject(
+      requestId,
+      tenantId,
+      subjectRef,
+      decision === 'approve' ? 'approved' : 'rejected',
+      decision === 'reject' ? { reason: String(reason).trim() } : {},
+    )
+  }
+
+  private assertRequestStageActor(input: {
+    tenantId: string
+    requestType: string
+    subjectRef?: string
+    amount?: number
+  }): void {
+    if (!input.subjectRef) {
+      throw new StatusException('A signed-in organization member is required to decide this request', 403)
+    }
+    const resolved = requestExperienceDefinition(input.tenantId, input.requestType)
+    const directActor = orgWorkflowActorService.mayAct({
+      orgTenantId: input.tenantId,
+      workflowType: resolved.workflowType,
+      stageAction: resolved.definition.reviewAction,
+      userId: input.subjectRef,
+    }).allowed
+    const assignedActor = orgWorkflowActorService.resolveActor({
+      orgTenantId: input.tenantId,
+      workflowType: resolved.workflowType,
+      stageAction: resolved.definition.reviewAction,
+    })
+    const delegate = Boolean(
+      assignedActor.userId &&
+      isActiveStageDelegate({
+        orgTenantId: input.tenantId,
+        delegatorUserId: assignedActor.userId,
+        delegateUserId: input.subjectRef,
+        stageAction: resolved.definition.reviewAction,
+        requestType: input.requestType,
+        amount: input.amount,
+      }),
+    )
+    if (!directActor && !delegate) {
+      throw new StatusException('This request is waiting for its assigned stage actor', 403)
+    }
+  }
+
+  private decisionContextFor(
+    tenantId: string,
+    subjectRef: string,
+    personId: string,
+    request: {
+      id: string
+      status?: string
+      request_type?: string
+      requester_person_id?: string
+      amount?: number | null
+      currency?: string | null
+      department_id?: string | null
+      context_json?: string
+      updated_at?: string
+    },
+  ) {
+    const status = String(request.status || '')
+    const requestType = String(request.request_type || 'general')
+    const lastEvent = DatabaseManager.getDatabase()
+      .prepare('SELECT id FROM request_events WHERE request_id = ? ORDER BY rowid DESC LIMIT 1')
+      .get(request.id) as { id?: string } | undefined
+    const definition = requestExperienceDefinition(tenantId, requestType)
+    const stageActor = orgWorkflowActorService.resolveActor({
+      orgTenantId: tenantId,
+      workflowType: definition.workflowType,
+      stageAction: definition.definition.reviewAction,
+    })
+    const members = orgWorkflowActorService.listOrgMembers(tenantId)
+    const actorMember = stageActor.userId ? members.find((member) => member.userId === stageActor.userId) : undefined
+    const activeDecisionStage = status === 'submitted' || status === 'in_review'
+    const assigned = activeDecisionStage
+      ? orgWorkflowActorService.mayAct({
+          orgTenantId: tenantId,
+          workflowType: definition.workflowType,
+          stageAction: definition.definition.reviewAction,
+          userId: subjectRef,
+        }).allowed
+      : false
+    const delegated = activeDecisionStage && Boolean(
+      stageActor.userId &&
+      isActiveStageDelegate({
+        orgTenantId: tenantId,
+        delegatorUserId: stageActor.userId,
+        delegateUserId: subjectRef,
+        stageAction: definition.definition.reviewAction,
+        requestType,
+        amount: typeof request.amount === 'number' ? request.amount : undefined,
+      }),
+    )
+    const authorizedActor = assigned || delegated
+    const requester = Boolean(request.requester_person_id && request.requester_person_id === personId)
+    const context = this.parseContext(request.context_json)
+    const canDecide = (action: 'request.approve' | 'request.reject') => {
+      if (!activeDecisionStage || !authorizedActor || requester) return false
+      const separationOfDuties = this.getSeparationOfDuties('in_review', action === 'request.approve' ? 'approved' : 'rejected', request.requester_person_id || '')
+      const result = authorizationService.decide({
+        tenantId,
+        personId,
+        action,
+        requiredPermission: action,
+        resourceType: 'request',
+        resourceId: request.id,
+        amount: typeof request.amount === 'number' ? request.amount : undefined,
+        currency: request.currency || undefined,
+        departmentId: request.department_id || undefined,
+        projectRef: typeof context.projectRef === 'string' ? context.projectRef : undefined,
+        costCentreRef: typeof context.costCentreRef === 'string' ? context.costCentreRef : undefined,
+        separationOfDutiesPersonIds: separationOfDuties,
+        skipAudit: true,
+      })
+      return result.decision === 'allow'
+    }
+
+    return {
+      version: lastEvent?.id || String(request.updated_at || status),
+      stageAction: definition.definition.reviewAction,
+      stageLabel: status === 'submitted' ? 'Review and decide' : 'Decision pending',
+      actorLabel: delegated
+        ? 'your delegated request authority'
+        : actorMember?.displayName || actorMember?.role || stageActor.role || 'Organization approver',
+      actorMode: stageActor.mode,
+      canAct: activeDecisionStage && authorizedActor && !requester,
+      canApprove: canDecide('request.approve'),
+      canReject: canDecide('request.reject'),
+    }
   }
 
   /**
@@ -909,7 +1087,8 @@ export class PlatformRequestService {
       .get(requestId, tenantId) as any
     if (!request) return undefined
 
-    if (request.requester_person_id !== principal.personId) {
+    const decisionContext = this.decisionContextFor(tenantId, subjectRef, principal.personId, request)
+    if (request.requester_person_id !== principal.personId && !decisionContext.canAct) {
       const decision = authorizationService.decide({
         tenantId,
         personId: principal.personId,
@@ -919,11 +1098,14 @@ export class PlatformRequestService {
         resourceId: requestId,
       })
       if (decision.decision !== 'allow') {
-        throw new Error(`Insufficient authority: ${decision.reasonCode}`)
+        throw new StatusException(`Insufficient authority: ${decision.reasonCode}`, 403)
       }
     }
 
-    return this.hydrateRequest(requestId, request)
+    return {
+      ...this.hydrateRequest(requestId, request),
+      decision: decisionContext,
+    }
   }
 
   /**
@@ -964,6 +1146,9 @@ export class PlatformRequestService {
       resourceType: 'request',
     })
     const canReadAll = readDecision.decision === 'allow'
+    const wallet = db
+      .prepare('SELECT tenant_id AS walletTenantId FROM ssi_users WHERE id = ? LIMIT 1')
+      .get(subjectRef) as { walletTenantId?: string } | undefined
     const pageSize = Math.min(Math.max(limit, 1), 100)
 
     let sql = `
@@ -971,9 +1156,20 @@ export class PlatformRequestService {
       FROM requests r
       JOIN organizations o ON o.id = r.organization_id
       WHERE o.tenant_id = ?
-        AND (? = 1 OR r.requester_person_id = ?)
+        AND (
+          ? = 1
+          OR r.requester_person_id = ?
+          OR EXISTS (
+            SELECT 1
+            FROM wallet_pending_offers wpo
+            WHERE wpo.tenant_id = ?
+              AND wpo.source_type = 'workflow_stage_action'
+              AND wpo.resolved_at IS NULL
+              AND (wpo.source_id = r.id OR wpo.source_id LIKE r.id || ':delegation:%')
+          )
+        )
     `
-    const params: unknown[] = [tenantId, canReadAll ? 1 : 0, principal.personId]
+    const params: unknown[] = [tenantId, canReadAll ? 1 : 0, principal.personId, wallet?.walletTenantId || '']
 
     if (cursor) {
       if (cursor.startsWith('[')) {
@@ -1020,6 +1216,7 @@ export class PlatformRequestService {
       family: this.familyOf(row.id),
       ledger: this.ledgerOf(row.id),
       experience: experienceForRequest(tenantId, row),
+      decision: this.decisionContextFor(tenantId, subjectRef, principal.personId, row),
     }))
     const lastItem = items[items.length - 1]
     const nextCursor = hasMore && lastItem ? JSON.stringify([lastItem.created_at, lastItem.id]) : null

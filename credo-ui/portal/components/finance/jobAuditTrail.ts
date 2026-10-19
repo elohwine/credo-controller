@@ -189,6 +189,15 @@ export interface JobAuditTrail {
   stageChanges: AuditStageChange[]
 }
 
+/** Office closeout at a glance: steps finished (or not needed) and the ones still to do, in order. */
+export function closeoutSummary(trail: JobAuditTrail): { settled: number; total: number; stillOpen: string[] } {
+  const settled = trail.steps.filter((step) => step.status === 'done' || step.status === 'skipped').length
+  const stillOpen = trail.steps
+    .filter((step) => step.status !== 'done' && step.status !== 'skipped')
+    .map((step) => step.title)
+  return { settled, total: trail.steps.length, stillOpen }
+}
+
 const STAGE_ORDER = [
   'REQUEST_CREATED',
   'APPROVAL_PENDING',
@@ -321,6 +330,13 @@ function peopleFromSteps(steps: AuditStep[], people: AuditPerson[] = []): Map<st
   return peopleMap
 }
 
+/** What the client sent with the job, as the office logged it on intake. */
+function sourceDocumentWords(input: Record<string, any>): string {
+  const count = Array.isArray(input.sourceAttachments) ? input.sourceAttachments.length : 0
+  if (count > 0) return `${count} client source document${count === 1 ? '' : 's'} attached`
+  return input.jobIntakeId ? 'No client source documents attached' : ''
+}
+
 export function buildJobAuditTrail(run: any, people: AuditPerson[] = []): JobAuditTrail {
   const state = (run?.output && typeof run.output === 'object' ? run.output : {}) as Record<string, any>
   const input = (state.workflowInput || run?.input || {}) as Record<string, any>
@@ -427,6 +443,8 @@ export function buildJobAuditTrail(run: any, people: AuditPerson[] = []): JobAud
         ? `Scheduled for ${String(input.scheduledDate || input.scheduledFor)}`
         : '',
       moneyWords(input.amount, input.currency) ? `Job value ${moneyWords(input.amount, input.currency)}` : '',
+      input.problemType ? `Problem: ${String(input.problemType)}` : '',
+      sourceDocumentWords(input),
     ],
   })
 
@@ -532,7 +550,7 @@ export function buildJobAuditTrail(run: any, people: AuditPerson[] = []): JobAud
     photos: safetyHolds.map((hold) => hold.photo || '').filter(Boolean),
   })
 
-  // 7–9. Photos
+  // 7–10. Evidence photos
   const evidenceStep = (id: string, title: string, evidence: any, pause: string, fallbackDone: boolean) => {
     const done = Boolean(evidence?.evidenceHash) || fallbackDone
     const count = photoList(evidence).length
@@ -555,7 +573,11 @@ export function buildJobAuditTrail(run: any, people: AuditPerson[] = []): JobAud
     })
   }
   const afterEvidence = state.evidenceAfter || state.evidence?.after
+  const concealedEvidence = state.evidenceConcealed || state.evidence?.concealed
   const receiptEvidence = state.evidenceReceipt || state.evidence?.receipt
+  const concealedFlag = String(input.requireConcealedWorkPhoto ?? '').trim().toLowerCase()
+  const concealedRequired =
+    Boolean(input.requireConcealedWorkPhoto) && !['false', '0', 'no', 'off'].includes(concealedFlag)
   // Materials are bought during the job, so receipts sit between the before and after photos.
   const afterDone = Boolean(afterEvidence?.evidenceHash) || reached('EVIDENCE_CAPTURED')
   evidenceStep('before', 'Before photos', beforeEvidence, 'await_evidence_before', afterDone)
@@ -570,6 +592,20 @@ export function buildJobAuditTrail(run: any, people: AuditPerson[] = []): JobAud
         receiptEvidence?.skipped ? 'No materials were bought for this job' : 'No receipts were added',
         receiptEvidence?.notes ? `Notes: ${String(receiptEvidence.notes)}` : '',
       ]
+    }
+  }
+  evidenceStep(
+    'concealed',
+    'In-progress photo before work is covered',
+    concealedEvidence,
+    'await_evidence_concealed',
+    false,
+  )
+  if (!concealedRequired && !concealedEvidence?.evidenceHash && (afterDone || reached('ACKNOWLEDGED'))) {
+    const concealedStep = steps.find((step) => step.id === 'concealed')
+    if (concealedStep) {
+      concealedStep.status = 'skipped'
+      concealedStep.details = ['Not required for this job']
     }
   }
   evidenceStep('after', 'After photos', afterEvidence, 'await_evidence_after', reached('EVIDENCE_CAPTURED'))

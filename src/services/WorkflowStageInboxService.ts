@@ -239,6 +239,25 @@ function activeDelegates(params: {
   return recipients
 }
 
+export function isActiveStageDelegate(params: {
+  orgTenantId: string
+  delegatorUserId: string
+  delegateUserId: string
+  stageAction: string
+  requestType: string
+  amount?: number
+}): boolean {
+  const organizationId = organizationIdFor(params.orgTenantId)
+  if (!organizationId) return false
+  return activeDelegates({
+    organizationId,
+    delegatorUserId: params.delegatorUserId,
+    stageAction: params.stageAction,
+    requestType: params.requestType,
+    amount: params.amount,
+  }).some((recipient) => recipient.userId === params.delegateUserId)
+}
+
 function orgDisplayName(orgTenantId: string): string | undefined {
   try {
     const row = DatabaseManager.getDatabase()

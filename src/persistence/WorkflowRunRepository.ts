@@ -205,6 +205,31 @@ export class WorkflowRunRepository {
     }
   }
 
+  findRunByTriggerRef(tenantId: string, triggerRef: string): WorkflowRun | undefined {
+    const db = DatabaseManager.getDatabase()
+    this.ensureActionsSnapshotColumn()
+    const row = db
+      .prepare(
+        `SELECT id, workflow_id AS workflowId, tenant_id AS tenantId, status,
+                input, output, error, trigger_type AS triggerType, trigger_ref AS triggerRef,
+                actions_snapshot AS actionsSnapshot, current_step AS currentStep,
+                total_steps AS totalSteps, started_at AS startedAt, completed_at AS completedAt,
+                created_at AS createdAt
+         FROM workflow_runs WHERE tenant_id = ? AND trigger_ref = ? ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(tenantId, triggerRef) as any
+    if (!row) return undefined
+    return {
+      ...row,
+      input: row.input ? JSON.parse(row.input) : undefined,
+      output: row.output ? JSON.parse(row.output) : undefined,
+      actionsSnapshot: row.actionsSnapshot ? JSON.parse(row.actionsSnapshot) : undefined,
+      startedAt: row.startedAt ? new Date(row.startedAt) : undefined,
+      completedAt: row.completedAt ? new Date(row.completedAt) : undefined,
+      createdAt: row.createdAt ? new Date(row.createdAt) : undefined,
+    } as WorkflowRun
+  }
+
   listRuns(tenantId: string, workflowId?: string, status?: WorkflowRunStatus, limit = 50): WorkflowRun[] {
     const db = DatabaseManager.getDatabase()
     this.ensureActionsSnapshotColumn()

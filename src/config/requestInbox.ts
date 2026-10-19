@@ -10,6 +10,16 @@ export interface PlatformInboxRequest {
     hint?: string
     fields: Array<{ name: string; label: string; type: 'text' | 'number' | 'image'; required?: boolean; hint?: string }>
   }
+  decision?: {
+    version: string
+    stageAction: string
+    stageLabel: string
+    actorLabel: string
+    actorMode: string
+    canAct: boolean
+    canApprove: boolean
+    canReject: boolean
+  }
 }
 
 export function isPlatformRequestWaiting(request: unknown): request is PlatformInboxRequest {

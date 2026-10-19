@@ -13,6 +13,9 @@ export const JOB_ASSIGNMENT_JSON_SCHEMA = {
         jobId: { type: 'string', minLength: 1 },
         workflowRunId: { type: 'string', minLength: 1 },
         reference: { type: 'string' },
+        poNumber: { type: 'string' },
+        problemType: { type: 'string' },
+        vehicleReference: { type: 'string' },
         orgName: { type: 'string' },
         assignment: {
           type: 'object',

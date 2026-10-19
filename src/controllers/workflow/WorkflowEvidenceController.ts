@@ -68,7 +68,11 @@ export class WorkflowEvidenceController extends Controller {
         pauseReason = ''
       }
 
-      const isAwaitingEvidence = pauseReason === 'await_evidence_before' || pauseReason === 'await_evidence_after'
+      const isAwaitingEvidence = [
+        'await_evidence_before',
+        'await_evidence_concealed',
+        'await_evidence_after',
+      ].includes(pauseReason)
       const runStatus = String(feptRun.status || '').toLowerCase()
       const isFeptActive = ['paused', 'running', 'pending'].includes(runStatus)
 

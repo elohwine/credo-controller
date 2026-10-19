@@ -508,6 +508,7 @@ export const JOB_WAITING_LABEL: Record<string, string> = {
   await_worker_start: 'Worker to start',
   await_arrival: 'Worker arrival',
   await_evidence_before: 'Before photos',
+  await_evidence_concealed: 'Photo before work is covered',
   await_evidence_after: 'After photos',
   await_evidence_receipt: 'Receipts for materials',
   await_completion_review: 'Work review',
@@ -534,6 +535,7 @@ export const JOB_STAGE_LABEL: Record<string, string> = {
 /** Badge colour for a job; shared by the job board and the job detail drawer. */
 export function jobStatusColor(status: string, stage?: string): string {
   if (stage === 'RECONCILED' || status === 'completed') return 'green'
+  if (status === 'failed') return 'red'
   if (status === 'paused') return 'orange' // waiting on a person
   if (status === 'running') return 'blue'
   return 'gray'
@@ -784,6 +786,7 @@ const STEP_REQUIRED_BY_PAUSE: Record<string, string> = {
   await_site_inspection: 'Site check',
   await_risk_assessment: 'Safety check',
   await_evidence_before: 'Add photos',
+  await_evidence_concealed: 'Add in-progress photo',
   await_evidence_after: 'Add photos',
   await_evidence_receipt: 'Add receipts',
   await_completion_review: 'Review work',

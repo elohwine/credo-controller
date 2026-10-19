@@ -133,6 +133,7 @@ const WORKER_STAGES: Record<string, string> = {
   await_arrival: 'confirm_arrival',
   await_risk_assessment: 'assess_risk',
   await_evidence_before: 'capture_evidence',
+  await_evidence_concealed: 'capture_evidence',
   await_evidence_receipt: 'capture_evidence',
   await_evidence_after: 'capture_evidence',
 }

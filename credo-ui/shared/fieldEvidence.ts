@@ -1,4 +1,4 @@
-export type EvidencePhase = 'before' | 'after' | 'receipt' | 'acknowledgement'
+export type EvidencePhase = 'before' | 'concealed' | 'after' | 'receipt' | 'acknowledgement'
 
 export interface EvidenceAttachment {
   imageBase64?: string
@@ -30,7 +30,10 @@ export function fieldEvidenceResumePayload(
   payload: FieldEvidencePayload,
   phase: EvidencePhase,
 ): Record<string, unknown> {
-  if ((phase === 'before' || phase === 'after') && (payload.gpsLat == null || payload.gpsLng == null)) {
+  if (
+    (phase === 'before' || phase === 'concealed' || phase === 'after') &&
+    (payload.gpsLat == null || payload.gpsLng == null)
+  ) {
     throw new Error("This photo needs this device's location. Allow location and take it again.")
   }
   return {

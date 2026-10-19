@@ -660,9 +660,10 @@ describe('shared portal and mobile evidence contract', () => {
         phase: 'before',
       }),
     )
+    expect(fieldEvidenceResumePayload(photo, 'concealed').phase).toBe('concealed')
   })
-  test('requires location for before and after photos', () => {
-    for (const phase of ['before', 'after'] as const) {
+  test('requires location for before, concealed-work and after photos', () => {
+    for (const phase of ['before', 'concealed', 'after'] as const) {
       expect(() => fieldEvidenceResumePayload({ ...photo, gpsLat: null }, phase)).toThrow('location')
     }
   })

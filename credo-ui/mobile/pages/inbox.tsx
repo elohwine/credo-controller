@@ -2110,6 +2110,7 @@ export default function InboxPage() {
         itemType: 'workflow',
         workflowRequestType: row.request_type,
         platformNextStep: row.nextStep,
+        requestDecision: row.decision,
         actionLabel: row.nextStep?.label || 'Approve',
         actingOrgTenantId: activeOrgId || undefined,
         ownerOrgTenantId: activeOrgId || undefined,
@@ -2594,8 +2595,6 @@ export default function InboxPage() {
           const orgToken = getOrgToken();
           if (!orgToken) throw new Error('Open the organization first, then try again.');
           const headers = { Authorization: `Bearer ${orgToken}` };
-          const transition = (toStatus: string, payload?: Record<string, unknown>) =>
-            api.post('/api/platform/requests/transition', { requestId: selectedItem.platformRequestId, toStatus, payload }, { headers });
           if (selectedItem.platformNextStep) {
             // Approved already: mark it bought, delivered or paid with the receipt or bill
             // number and a photo of it (or a wallet receipt record).
@@ -2603,7 +2602,15 @@ export default function InboxPage() {
             if (imageField?.required && !receiptProof) {
               throw new Error(`${imageField.label} is needed, or a receipt record from your wallet.`);
             }
-            await transition('completed', { ...nextStepValues, ...receiptProofPayload(receiptProof) });
+            await api.post(
+              '/api/platform/requests/transition',
+              {
+                requestId: selectedItem.platformRequestId,
+                toStatus: 'completed',
+                payload: { ...nextStepValues, ...receiptProofPayload(receiptProof) },
+              },
+              { headers },
+            );
             notifications.show({ title: 'Saved', message: selectedItem.partOfLine ? 'The job continues.' : 'Anything waiting on it continues now.', color: 'green' });
             setSelectedItem(null);
             setNextStepValues({});
@@ -2611,22 +2618,40 @@ export default function InboxPage() {
             await syncAndFetch();
             return;
           }
-          if (action === 'approve') {
-            try {
-              await transition('in_review');
-            } catch (err: any) {
-              // Already under review — carry on to approve.
-              const msg = String(err?.response?.data?.message || err?.message || '');
-              if (!/Invalid request transition/i.test(msg)) throw err;
+          const detailRes = await api.get(`/api/platform/requests/${encodeURIComponent(selectedItem.platformRequestId)}`, { headers });
+          const request = detailRes.data;
+          if (request?.id !== selectedItem.platformRequestId) throw new Error('The request details did not match this Inbox item.');
+          const decisionKey = action === 'approve' ? 'canApprove' : 'canReject';
+          if (!request?.decision?.[decisionKey]) {
+            if (request?.decision?.canAct) {
+              throw new Error('You are assigned to this step, but your current organization authority does not permit this decision.');
             }
-            await transition('approved');
-            notifications.show({ title: 'Approved', message: 'The request is approved. Anything waiting on it continues now.', color: 'green' });
-          } else {
-            await transition('rejected', { reason: decisionReason.trim() });
-            notifications.show({ title: 'Declined', message: 'The request was declined.', color: 'orange' });
+            const assignedActor = String(request?.decision?.actorLabel || '').trim();
+            throw new Error(assignedActor
+              ? `This request is waiting for ${assignedActor} to act.`
+              : 'This request is no longer assigned to you.');
           }
+          await api.post(
+            `/api/platform/requests/${encodeURIComponent(selectedItem.platformRequestId)}/decision`,
+            { decision: action, reason: action === 'reject' ? decisionReason.trim() : undefined },
+            {
+              headers: {
+                ...headers,
+                'x-idempotency-key': `request-decision:${selectedItem.platformRequestId}:${action}:${request.decision?.version || request.updated_at || request.status}`,
+              },
+            },
+          );
+          notifications.show({
+            title: action === 'approve' ? 'Approved' : 'Declined',
+            message: action === 'approve'
+              ? 'The request is approved. The linked job will wait until the required purchase or fulfillment is recorded.'
+              : 'The request was declined.',
+            color: action === 'approve' ? 'green' : 'orange',
+          });
           setSelectedItem(null);
           setDecisionReason('');
+          setNextStepValues({});
+          setReceiptProof(null);
           await syncAndFetch();
           return;
         }
@@ -3710,14 +3735,24 @@ export default function InboxPage() {
                 {selectedItem.itemType === 'workflow' && !selectedItem.platformNextStep && (
                   <>
                     {selectedItem.module === 'approvals' && !isRequisitionApproval(selectedItem) && (
-                      <Textarea
-                        label="Decision Reason"
-                        placeholder="Explain why you are approving or rejecting this request"
-                        minRows={2}
-                        autosize
-                        value={decisionReason}
-                        onChange={(e) => setDecisionReason(e.currentTarget.value)}
-                      />
+                      selectedItem.requestDecision && !selectedItem.requestDecision.canApprove && !selectedItem.requestDecision.canReject ? (
+                        <Alert color="blue" variant="light" icon={<IconShieldCheck size={16} />}>
+                          {selectedItem.requestDecision.canAct
+                            ? 'You are assigned to this step, but your current organization authority does not permit this decision.'
+                            : `Waiting for ${selectedItem.requestDecision.actorLabel || 'the assigned stage actor'} to decide this request.`}
+                        </Alert>
+                      ) : (
+                        selectedItem.requestDecision?.canReject !== false && (
+                          <Textarea
+                            label="Decision Reason"
+                            placeholder="Explain why you are declining this request"
+                            minRows={2}
+                            autosize
+                            value={decisionReason}
+                            onChange={(e) => setDecisionReason(e.currentTarget.value)}
+                          />
+                        )
+                      )
                     )}
                     {selectedItem.module === 'approvals' && isRequisitionApproval(selectedItem) && selectedItem.workflowRequestId && (() => {
                       const running = findRunningProofResume([selectedItem.workflowRequestId, selectedItem.requisitionId]);
@@ -3813,7 +3848,9 @@ export default function InboxPage() {
                         Open job
                       </Button>
                     ) : null}
-                    {selectedItem.module !== 'field' && (!isRequisitionApproval(selectedItem) || selectedItem.module !== 'approvals') && (
+                    {selectedItem.module !== 'field'
+                      && (!isRequisitionApproval(selectedItem) || selectedItem.module !== 'approvals')
+                      && (selectedItem.requestDecision?.canApprove !== false || !selectedItem.platformRequestId) && (
                       <Button
                         fullWidth
                         size="lg"
@@ -3823,10 +3860,12 @@ export default function InboxPage() {
                         loading={actionLoading}
                         onClick={() => handleAction('approve')}
                       >
-                        {selectedItem.module === 'approvals' ? 'Approve' : 'Open'}
+                        {selectedItem.module === 'approvals' ? 'Approve request' : 'Open'}
                       </Button>
                     )}
-                    {selectedItem.module === 'approvals' && !isRequisitionApproval(selectedItem) && (
+                    {selectedItem.module === 'approvals'
+                      && !isRequisitionApproval(selectedItem)
+                      && (selectedItem.requestDecision?.canReject !== false || !selectedItem.platformRequestId) && (
                       <Button
                         fullWidth
                         size="lg"

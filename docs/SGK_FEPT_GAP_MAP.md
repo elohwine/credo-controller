@@ -75,35 +75,51 @@ request/workflow model instead of a dedicated SGK job-card app:
 - Request lifecycle and maker-checker style progression exist.
 - Workflow pause/resume exists through `request.wait_for_task` and `request.complete_task`.
 - Reconciliation and audit trail support exist.
+- The portal has a Job Cards board with list and card presentations, status filters, a job detail
+  drawer, assignment changes, audit history, and team workload counts.
+- Job creation keeps the client's PO/store number (when provided) separate from the internal job
+  reference, and captures problem type, client details, location, schedule, worker, sign-off actor,
+  and an optional vehicle reference.
 - Evidence capture is phase-locked on the phone: live camera only, before / after / receipt as
-  separate steps the job drives (see "Evidence capture" below).
+  separate steps the job drives, with an optional concealed-work photo for jobs that need it.
+- Arrival, safety checks/holds, review, sign-off, worker payout, client billing, and reconciliation
+  are part of the existing FEPT flow.
 - The remodel has a FEPT/Field Operations capability alias and sector metadata.
 - The remodel has the right architectural boundary: requests, tasks, workflow, and reconciliation are
   already the owning primitives.
 
 ### Partial matches
 
-- Evidence capture is phase-locked (before / after / receipt), not generic; the remaining gap is the
-  in-progress photo prompt for work that will be covered up (see "Evidence capture" below).
-- The current branch supports requisitions and approvals, but not a dedicated SGK job card board.
-- The current branch supports receipt and reconciliation screens, but not SGK's explicit before/after
-  photo chain.
-- The current branch does not yet expose the FEPT stage-access model in the inbox/UI surface.
+- Concealed-work evidence is now an opt-in, job-configurable checkpoint. Jobs that do not need it
+  keep the existing flow; enabled jobs require a live photo with location before after-work evidence.
+- The board can identify unassigned jobs and highlight those waiting over a week. Operational Intake
+  now persists tenant-scoped, unassigned manual submissions and source documents until an authorized
+  dispatcher assigns a worker and starts the existing FEPT run.
+- The job form accepts a vehicle reference as text, not a managed vehicle/fleet assignment.
+- The job detail now includes an office closeout checklist projected from the same job audit trail,
+  including operational proof, customer billing, payout, and reconciliation status.
+- The existing Catalog, Inventory, quote, invoice, and reconciliation capabilities are not yet
+  composed into a complete job-specific pricing, stock-reservation, and quote-to-invoice workflow.
+- Inbound email/PO mailbox ingestion remains unimplemented until a mail-provider and deployment
+  contract is selected; manual intake is available without introducing a provider-specific dependency.
 
 ### Distance to parity
 
 FEPT is closer to SGK than a blank-slate implementation because the remodel already has the correct
-platform primitives: requests, tasks, workflow initiation, reconciliation, and a mobile evidence
-component. The remaining work is mostly specialization, not invention.
+platform primitives and the portal already provides a dedicated job board. The remaining work is
+integration and lifecycle completion, not a replacement UI or parallel job system.
 
-The main distance is in three areas:
+The main distance is in four areas:
 
 1. Surface language: the portal and phone app now say "job", "requisition", "payments" and
    "supplier bills" instead of workflow plumbing, but some older screens still leak internal terms.
-2. Evidence semantics: before / after / receipt are separate, camera-locked steps; the in-progress
-   photo prompt for concealed work is not built yet (see "Evidence capture" below).
-3. Access model: the FEPT delegation and run-scoped access rules are described in specs, but not
-   yet exposed in the live inbox/work-surface experience.
+2. Evidence semantics: before / concealed-work / after / receipt are distinct, camera-locked steps;
+   concealed-work proof is optional per job and off by default (see "Evidence capture" below).
+3. Intake and dispatch: manual source-document intake, durable unassigned jobs, and
+   dispatch-to-FEPT assignment now share one persistent flow; automatic mailbox ingestion remains.
+4. Management and finance integration: the board has workload and audit views plus an office
+   closeout checklist; managed vehicle selection and connected job pricing/stock workflows remain
+   incomplete.
 
 ### Closed by the org-readiness remodel
 
@@ -130,15 +146,14 @@ The main distance is in three areas:
 
 ### Remaining gaps
 
-1. No explicit purchase-order or email intake route that creates a job card / FEPT run in SGK terms.
-2. No dedicated job card lifecycle screen that mirrors SGK's office → field → office chain.
-3. No email attachment ingestion path for inbound job evidence.
-4. Closed 2026-10-12. Jobs, purchase requests and school fees use those words on both apps. The
-   earlier line (a generic requisition or workflow-execution label) is no longer true.
-5. No visible run-scoped worker access grant model in the UI that matches the FEPT delegation docs.
-6. Closed 2026-10-12. The inbox and the job screens use plain words. The person doing the job does
-   not see internal stage codes.
-7. The `DatabaseManager` registry still skips historical migration files (`013`, `014`, `036`, `061`,
+1. Add authenticated inbound email/PO ingestion after selecting the mail provider contract; manual
+   intake and durable unassigned queue are implemented, with per-tenant idempotency and content-hashed
+   source attachments.
+2. Add a retention policy and operator controls for stored source documents; currently attachments
+   remain with the job intake record.
+3. Integrate managed vehicle assignment and existing Catalog/Inventory/finance services into the job
+   flow without duplicating stock, quote, invoice, payment, or reconciliation state.
+4. The `DatabaseManager` registry still skips historical migration files (`013`, `014`, `036`, `061`,
    reconciliation ledger). Migration `097_create_workflow_runtime_compat_schema.sql` recreates those
    tables with `IF NOT EXISTS` so fresh databases work; the registry itself has not been reconciled.
 
@@ -158,8 +173,10 @@ of the work, not assembled afterwards. The phone app now follows that:
   location and a "Sealed" mark, as a before/after pair with the time between them.
 - A wallet record only stands in for a receipt or a confirmation, never for a before or after photo.
 
-Still open: an in-progress photo prompt for work that will be covered up (pipework, wiring), and
-writing the time and location into the image file itself rather than only the record.
+The concealed-work checkpoint is optional per job and off by default. When enabled, the job pauses
+for a live photo with location before after-work evidence; the server records the sealed time and
+the device time alongside the photo. Writing time and location into the image file itself remains
+open.
 
 - 2026-10-05 — The capture screen shows a thumbnail for each photo or attached record, with add and
   remove, before saving. The job drawer on the phone and the portal shows the same small previews.
@@ -302,7 +319,7 @@ The field job is the reference. Work, money owed and proof stay separate records
 
 | Transaction                         | From setup to daily use                                                                                                                                                                                                               | What is still open                                                                                                                                                                                              |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Field job (`field_job`)             | Usable on both apps: create, assign, evidence, sign-off, client bill, materials purchase, payout.                                                                                                                                     | The job record stays `open` after the last payment. No in-progress photo for work that will be covered. No single money summary on the job. `tests/fept_chain.test.ts` fails for an unrelated agent-type error. |
+| Field job (`field_job`)             | Usable on both apps: create, assign, evidence, sign-off, client bill, materials purchase, payout. Concealed-work photo is optional per job.                                                                                                                                     | The job record stays `open` after the last payment. No single money summary on the job. |
 | Purchase (`purchase`)               | Usable. Home or a job starts a purchase request, then an order, then a supplier payment. The amount owed is a linked obligation. `tpl-ap-payables` stays unused on purpose. One bill is not split across jobs.                        | Partial receipt, deposits and credit notes are not first-class states.                                                                                                                                          |
 | School fee (`fee_assessment`)       | Usable as of today. Both apps start `education_fee_payment`. Portal run `090fdf6d-e4a5-462d-8ab2-d8d08014766d` paid and completed. Phone run `89d215d5-b7b0-46b6-86cf-b94d1bed9ae7` is three instalments, still waiting.              | The fee record stays `open`. The school keeps its receipt; the parent keeps the pay-page receipt. Suite A in `FEPT_Playwright_Test_Matrix.md` is still a hand walk.                                             |
 | Sale (`sale`)                       | Split. A job's quote and client bill already send a pay link. A counter sale does not: `tpl-cash-counter` still records cash itself and never creates a `sale` record. Choosing "shop" at setup only turns on `cash_counter_payment`. | Shop and services is named in navigation and is the largest hole in Operations.                                                                                                                                 |

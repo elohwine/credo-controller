@@ -70,6 +70,16 @@ export interface InboxItemData {
     /** `image`: a live photo of the receipt or bill, or a wallet receipt record standing in. */
     fields: Array<{ name: string; label: string; type: 'text' | 'number' | 'image'; required?: boolean; hint?: string }>;
   };
+  requestDecision?: {
+    version: string;
+    stageAction: string;
+    stageLabel: string;
+    actorLabel: string;
+    actorMode: string;
+    canAct: boolean;
+    canApprove: boolean;
+    canReject: boolean;
+  };
   requiredAction?: string;
   /** The step key stored on the card (sign-off, payment release, approval…); shown as "Your step". */
   stageAction?: string;

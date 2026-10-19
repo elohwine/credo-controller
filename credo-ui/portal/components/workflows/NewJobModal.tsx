@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
-import { Stack, TextInput, Textarea, NumberInput, Select, Group, Button, Alert, Text } from '@mantine/core'
+import { Stack, TextInput, Textarea, NumberInput, Select, Group, Button, Alert, Text, Checkbox } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { getOrgScopedToken, readActiveOrganization } from '@/utils/organizationContext'
 import { getPreferredTenantToken } from '@/utils/portalTenant'
@@ -60,10 +60,13 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
   const [setupError, setSetupError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
+    poNumber: '',
+    problemType: '',
     description: '',
     clientName: '',
     clientPhone: '',
     location: '',
+    vehicleReference: '',
     scheduledDate: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
     amount: 0 as number | string,
     payoutAmount: '' as number | string,
@@ -75,6 +78,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
     firstPaymentAmount: '' as number | string,
     assigneeId: STAGE_ACTOR,
     receiverId: STAGE_ACTOR,
+    requireConcealedWorkPhoto: false,
   })
 
   useEffect(() => {
@@ -211,12 +215,15 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
             }
           : {}),
         description: form.description.trim(),
+        requireConcealedWorkPhoto: form.requireConcealedWorkPhoto,
+        poNumber: form.poNumber.trim(),
+        ...(form.problemType ? { problemType: form.problemType } : {}),
+        ...(form.vehicleReference.trim() ? { vehicleReference: form.vehicleReference.trim() } : {}),
         clientName: form.clientName.trim(),
         ...(form.clientPhone.trim() ? { customerMsisdn: form.clientPhone.trim() } : {}),
         location: form.location.trim(),
         scheduledDate: form.scheduledDate,
         reference: ref,
-        poNumber: ref,
         requestId: ref,
         triggerRef: `portal-job-${Date.now()}`,
       }
@@ -233,10 +240,14 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
       onCreated(String(res.data?.runId || ''))
       setForm((prev) => ({
         ...prev,
+        poNumber: '',
+        problemType: '',
         description: '',
         clientName: '',
         clientPhone: '',
         location: '',
+        vehicleReference: '',
+        requireConcealedWorkPhoto: false,
         amount: 0,
         payoutAmount: '',
         paymentTerms: 'one_time',
@@ -262,6 +273,12 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
             {setupError}
           </Alert>
         )}
+        <TextInput
+          label="Client PO / store number (if provided)"
+          placeholder="e.g. PO-2026-004"
+          value={form.poNumber}
+          onChange={(e) => setForm({ ...form, poNumber: e.currentTarget.value })}
+        />
         <Textarea
           label="What needs to be done"
           placeholder="e.g. Fix window leak, Block B"
@@ -269,6 +286,20 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
           minRows={2}
           value={form.description}
           onChange={(e) => setForm({ ...form, description: e.currentTarget.value })}
+        />
+        <Checkbox
+          label="Require a photo before work is covered"
+          description="Adds an in-progress, location-sealed photo step for wiring, pipework or other work that will be hidden."
+          checked={form.requireConcealedWorkPhoto}
+          onChange={(e) => setForm({ ...form, requireConcealedWorkPhoto: e.currentTarget.checked })}
+        />
+        <Select
+          label="Problem type"
+          placeholder="Select a type"
+          clearable
+          data={['Plumbing', 'Electrical', 'Painting', 'HVAC', 'General maintenance', 'Other']}
+          value={form.problemType}
+          onChange={(value) => setForm({ ...form, problemType: value || '' })}
         />
         <Group grow>
           <TextInput
@@ -288,6 +319,12 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
           placeholder="e.g. 0771234567"
           value={form.clientPhone}
           onChange={(e) => setForm({ ...form, clientPhone: e.currentTarget.value })}
+        />
+        <TextInput
+          label="Assigned vehicle (optional)"
+          placeholder="Registration or fleet reference"
+          value={form.vehicleReference}
+          onChange={(e) => setForm({ ...form, vehicleReference: e.currentTarget.value })}
         />
         <Group grow>
           <TextInput

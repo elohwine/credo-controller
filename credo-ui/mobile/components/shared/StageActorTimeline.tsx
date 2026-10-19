@@ -118,7 +118,7 @@ export function StageActorTimeline({
           )
         })}
       </Timeline>
-      <Modal opened={Boolean(preview)} onClose={() => setPreview(null)} title={preview?.label} size="lg" centered zIndex={1000}>
+      <Modal opened={Boolean(preview)} onClose={() => setPreview(null)} title={preview?.label} size="lg" centered>
         <Stack gap="sm">
           {preview?.src && <Image src={preview.src} alt={preview.label} fit="contain" mah="70vh" />}
           {preview?.lines?.map((line) => <Text key={line} size="sm">{line}</Text>)}

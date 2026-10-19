@@ -27,6 +27,7 @@ import { fieldJobBillingExceptions, clientBillingStages } from '../credo-ui/shar
 import {
   buildJobAuditTrail as portalHistory,
   auditTableRows as portalTable,
+  closeoutSummary as portalCloseout,
   stageRelatedWork as portalRelatedWork,
   trailFromRequest as portalRequestHistory,
   financePathForChainMember as portalRelatedPath,
@@ -34,6 +35,7 @@ import {
 import {
   buildJobAuditTrail as mobileHistory,
   auditTableRows as mobileTable,
+  closeoutSummary as mobileCloseout,
   jobSheetEvidence,
   stageRelatedWork as mobileRelatedWork,
   trailFromRequest as mobileRequestHistory,
@@ -56,6 +58,40 @@ afterAll(() => {
 })
 
 describe('truthful portal/mobile progress, history and tables', () => {
+  test('History closeout line counts not-needed steps and lists what is still to do, the same on both apps', () => {
+    const trail = {
+      reference: 'FR-1',
+      title: 'Repair',
+      status: 'paused',
+      people: [],
+      records: [],
+      holds: [],
+      stageChanges: [],
+      steps: [
+        { id: 'arrival', title: 'Arrival', status: 'done' as const, details: ['Location confirmed'], photos: [] },
+        { id: 'concealed', title: 'Concealed-work photo', status: 'skipped' as const, details: [], photos: [] },
+        { id: 'signoff', title: 'Customer sign-off', status: 'active' as const, details: [], photos: [] },
+        { id: 'closed', title: 'Closed', status: 'pending' as const, details: [], photos: [] },
+      ],
+    }
+    const expected = { settled: 2, total: 4, stillOpen: ['Customer sign-off', 'Closed'] }
+    expect(portalCloseout(trail)).toEqual(expected)
+    expect(mobileCloseout(trail)).toEqual(expected)
+  })
+
+  test('Job created step in History notes the client source documents logged at intake', () => {
+    const run = (input: Record<string, unknown>) => ({ id: 'r1', status: 'running', input, output: { workflowInput: input } })
+    const withDocs = run({ jobIntakeId: 'in-1', problemType: 'Leak', sourceAttachments: [{ id: 'a' }, { id: 'b' }] })
+    for (const build of [portalHistory, mobileHistory]) {
+      const created = build(withDocs, []).steps.find((step) => step.id === 'created')
+      expect(created?.details).toEqual(expect.arrayContaining(['Problem: Leak', '2 client source documents attached']))
+      const noDocs = build(run({ jobIntakeId: 'in-2' }), []).steps.find((step) => step.id === 'created')
+      expect(noDocs?.details).toContain('No client source documents attached')
+      const manual = build(run({}), []).steps.find((step) => step.id === 'created')
+      expect(manual?.details.join(' ')).not.toMatch(/source document/)
+    }
+  })
+
   test.each(['Purchase request', 'Purchase order', 'Supplier bill', 'Payment request'])(
     '%s opens its own request rather than an organisation-wide list',
     (label) => {

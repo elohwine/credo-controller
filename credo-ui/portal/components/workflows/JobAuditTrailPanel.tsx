@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import dayjs from 'dayjs';
 import { Alert, Badge, Box, Button, Card, Divider, Group, Image, Modal, SegmentedControl, Stack, Table, Text, ThemeIcon, Timeline, UnstyledButton } from '@mantine/core';
 import { IconCheck, IconChevronDown, IconClock, IconFileText, IconHandStop, IconMinus, IconPlayerPlay, IconUser } from '@tabler/icons-react';
-import { auditTableRows, type AuditStep, type JobAuditTrail, type StageMediaItem } from '@/components/finance/jobAuditTrail';
+import { auditTableRows, closeoutSummary, type AuditStep, type JobAuditTrail, type StageMediaItem } from '@/components/finance/jobAuditTrail';
 import { safetyHoldStateWords } from '@/components/finance/financeStages';
 import { RelatedWorkLinks } from './JobHandoffsPanel';
 import { canExportReports, csvFrom, EXPORT_MIME, exportFileName, saveExport } from '@/lib/exportFile';
@@ -70,7 +70,7 @@ function stageLines(step: AuditStep, extra: string[] = []): string[] {
 }
 
 export default function JobAuditTrailPanel({ trail, compact = false, embedded = false, subject = 'job' }: { trail: JobAuditTrail; compact?: boolean; embedded?: boolean; /** What the history is about, in plain words: "job" or "request". */ subject?: 'job' | 'request' }) {
-    const doneCount = trail.steps.filter((s) => s.status === 'done').length;
+    const closeout = closeoutSummary(trail);
     const openHolds = trail.holds.filter((h) => !h.cleared);
     const thumb = compact ? 48 : 64;
     const [openId, setOpenId] = useState<string | null>(null);
@@ -112,7 +112,10 @@ export default function JobAuditTrailPanel({ trail, compact = false, embedded = 
             {!embedded && <Group justify="space-between" align="flex-start">
                 <Box>
                     <Text fw={600}>{trail.title}</Text>
-                    <Text size="xs" c="dimmed">Job {trail.reference} · {doneCount} of {trail.steps.length} steps done</Text>
+                    <Text size="xs" c="dimmed">Job {trail.reference} · {closeout.settled} of {closeout.total} steps done or not needed</Text>
+                    {subject === 'job' && closeout.stillOpen.length > 0 && trail.status !== 'failed' && (
+                        <Text size="xs" c="dimmed">Still to do: {closeout.stillOpen.join(', ')}</Text>
+                    )}
                 </Box>
                 <Badge variant="light" color={trail.status === 'completed' ? 'green' : trail.status === 'failed' ? 'red' : 'blue'}>
                     {trail.status === 'completed' ? 'Closed' : trail.status === 'failed' ? 'Stopped' : 'Open'}

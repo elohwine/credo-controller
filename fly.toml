@@ -18,6 +18,8 @@ primary_region = "jnb"
   HYDRA_ADMIN_URL = "http://127.0.0.1:4445"
   ASKAR_STORAGE_PATH = "/data/askar"
   PERSISTENCE_DB_PATH = "/data/persistence.db"
+  TENANT_DB_PATH = "/data/tenants.db"
+  OIDC_DB_PATH = "/data/oidc.db"
   CREDO_LISTEN_PORT = "3000"
 
 [http_service]
@@ -43,4 +45,3 @@ primary_region = "jnb"
   source = "credentis_data"
   destination = "/data"
   initial_size = "1gb"
-

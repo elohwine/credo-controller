@@ -11,7 +11,8 @@ import path from 'path'
 
 let db: Database | undefined
 
-const DEFAULT_DB_PATH = () => path.resolve(process.cwd(), 'data', 'oidc.db')
+const DEFAULT_DB_PATH = () =>
+  path.resolve(process.env.PERSISTENCE_DB_PATH ? path.dirname(process.env.PERSISTENCE_DB_PATH) : 'data', 'oidc.db')
 
 const OIDC_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS credential_offers (

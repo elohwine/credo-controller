@@ -108,7 +108,7 @@ interface AuditItem {
 }
 
 type AuditContext = 'organization' | 'personal' | 'guest' | 'service'
-type EvidencePhase = 'before' | 'after' | 'receipt' | 'acknowledgement'
+type EvidencePhase = 'before' | 'concealed' | 'after' | 'receipt' | 'acknowledgement'
 
 interface AuditLogEntry {
   id: string
@@ -795,7 +795,7 @@ export default function ActivityPage() {
 
   const resolveEvidencePhase = useCallback((): EvidencePhase => {
     const fromQuery = typeof router.query.phase === 'string' ? router.query.phase.trim().toLowerCase() : ''
-    if (fromQuery === 'after' || fromQuery === 'receipt' || fromQuery === 'acknowledgement') return fromQuery
+    if (fromQuery === 'concealed' || fromQuery === 'after' || fromQuery === 'receipt' || fromQuery === 'acknowledgement') return fromQuery
     if (fromQuery === 'before') return 'before'
     return runPhase || 'before'
   }, [router.query.phase, runPhase])
@@ -814,6 +814,7 @@ export default function ActivityPage() {
         setRunReference(String(input.reference || output.reference || '').trim() || null)
         setPurchaseReceipts(purchaseReceiptsFromHandoffs(output.handoffs))
         const reason = String(output.pauseReason || '').toLowerCase()
+        if (reason === 'await_evidence_concealed') { setRunPhase('concealed'); return }
         if (reason === 'await_evidence_after') { setRunPhase('after'); return }
         if (reason === 'await_evidence_receipt') { setRunPhase('receipt'); return }
         if (reason === 'await_acknowledgement') { setRunPhase('acknowledgement'); return }
@@ -988,7 +989,16 @@ export default function ActivityPage() {
 
       delete resumeKeyByRunRef.current[`${selectedRef}:capture_evidence`]
       import('@mantine/notifications').then((n) => {
-        n.notifications.show({ title: 'Step complete', message: phase === 'receipt' ? 'Receipt added to this job. Opening the job for the next step.' : `${phase === 'after' ? 'After' : 'Before'} photo added to this job. Opening the job for the next step.`, color: 'green' })
+        n.notifications.show({
+          title: 'Step complete',
+          message:
+            phase === 'receipt'
+              ? 'Receipt added to this job. Opening the job for the next step.'
+              : phase === 'concealed'
+                ? 'In-progress photo added before the work is covered. Opening the job for the next step.'
+                : `${phase === 'after' ? 'After' : 'Before'} photo added to this job. Opening the job for the next step.`,
+          color: 'green',
+        })
       })
       setEvidenceMode(false)
       if (router.query.capture === '1') {
