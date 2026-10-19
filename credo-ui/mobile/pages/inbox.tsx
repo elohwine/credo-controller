@@ -604,6 +604,9 @@ function mergeInvoiceAndPaymentOffers(offers: InboxItemData[]): InboxItemData[] 
 
 function isRequisitionApproval(item: InboxItemData): boolean {
   if (item.itemType !== 'workflow') return false;
+  // Organisation requests (e.g. "Buy materials" as procurement.requisition) are decided through
+  // /api/platform/requests, not the legacy requisition approval screen.
+  if (item.platformRequestId) return false;
   if (String(item.module || '').toLowerCase() !== 'approvals') return false;
   const requestType = String(item.workflowRequestType || '').toLowerCase();
   return requestType === 'requisition' || requestType.includes('requis') || Boolean(item.requisitionId);
