@@ -240,15 +240,21 @@ describe('job assignment offer lifetime', () => {
       .mockImplementation(async (input) => {
         issuer.credentialConfigurationsSupported = input.credentialConfigurationsSupported
       })
-    jest.spyOn(container, 'resolve').mockImplementation(() => ({
+    // The organisation signs with its own tenant issuer, after proving it holds the issuer DID.
+    const getCreatedDids = jest.fn(async ({ did }: { did: string }) => [{ did }])
+    const tenantAgent = {
+      endSession,
+      dids: { getCreatedDids },
       modules: {
-        tenants: { getTenantAgent: async () => ({ endSession }) },
         openId4VcIssuer: {
           getAllIssuers: async () => [issuer],
           updateIssuerMetadata: update,
           createCredentialOffer: create,
         },
       },
+    }
+    jest.spyOn(container, 'resolve').mockImplementation(() => ({
+      modules: { tenants: { getTenantAgent: async () => tenantAgent } },
     }))
     const result = await credentialIssuanceService.createOffer({
       tenantId: org.orgTenantId,
@@ -256,6 +262,8 @@ describe('job assignment offer lifetime', () => {
       claims: {},
     })
     expect(result.offerId).toBe('first-use-offer')
+    expect(result.signedBy).toBe('organisation')
+    expect(getCreatedDids).toHaveBeenCalledWith({ did: `did:web:issuer.${org.orgTenantId}` })
     expect(update).toHaveBeenCalled()
     expect(issuer.credentialConfigurationsSupported).toHaveProperty('GenericID_jwt_vc_json')
     expect(issuer.credentialConfigurationsSupported).toHaveProperty('JobAssignmentVC_jwt_vc_json')
