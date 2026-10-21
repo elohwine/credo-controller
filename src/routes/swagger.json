@@ -5984,6 +5984,19 @@
                           "statuses": {
                             "items": {
                               "properties": {
+                                "errors": {
+                                  "items": {
+                                    "properties": {
+                                      "code": {
+                                        "type": "number",
+                                        "format": "double"
+                                      }
+                                    },
+                                    "additionalProperties": {},
+                                    "type": "object"
+                                  },
+                                  "type": "array"
+                                },
                                 "biz_opaque_callback_data": {
                                   "type": "string"
                                 },
@@ -38301,6 +38314,89 @@
         }
       }
     },
+    "/organizations/{tenantId}/notifications/whatsapp/readiness": {
+      "get": {
+        "operationId": "SenderReadiness",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "events": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "selection": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/WhatsAppSenderSelection"
+                        }
+                      ],
+                      "nullable": true
+                    },
+                    "validated": {
+                      "type": "boolean"
+                    },
+                    "walletLinkConfigured": {
+                      "type": "boolean"
+                    },
+                    "productionEnabled": {
+                      "type": "boolean"
+                    },
+                    "deliveryEnabled": {
+                      "type": "boolean"
+                    },
+                    "platformConfigured": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "events",
+                    "selection",
+                    "validated",
+                    "walletLinkConfigured",
+                    "productionEnabled",
+                    "deliveryEnabled",
+                    "platformConfigured"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Transactional notifications"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/organizations/{tenantId}/notifications/whatsapp/validate": {
       "post": {
         "operationId": "ValidateSender",
@@ -38311,6 +38407,9 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "webhookSubscribed": {
+                      "type": "boolean"
+                    },
                     "templates": {
                       "items": {
                         "type": "string"
@@ -38322,6 +38421,7 @@
                     }
                   },
                   "required": [
+                    "webhookSubscribed",
                     "templates",
                     "ready"
                   ],

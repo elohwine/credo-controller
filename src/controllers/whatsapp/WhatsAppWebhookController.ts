@@ -32,6 +32,7 @@ export interface WhatsAppWebhookPayload {
           timestamp: string
           recipient_id?: string
           biz_opaque_callback_data?: string
+          errors?: Array<{ [key: string]: any; code?: number }>
         }>
       }
     }>

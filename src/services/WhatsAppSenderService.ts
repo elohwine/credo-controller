@@ -25,6 +25,15 @@ export interface ResolvedWhatsAppSender {
 
 export const WHATSAPP_EVENTS = ['task', 'vc_offer', 'payment_link', 'proof_request', 'remittance'] as const
 
+export const DEFAULT_WHATSAPP_GRAPH_VERSION = 'v26.0'
+
+/** Meta Graph URL. Override the version with WHATSAPP_GRAPH_VERSION (e.g. v26.0) when Meta retires one. */
+export function whatsAppGraphUrl(path: string): string {
+  const configured = (process.env.WHATSAPP_GRAPH_VERSION || '').trim()
+  const version = /^v\d+\.\d+$/.test(configured) ? configured : DEFAULT_WHATSAPP_GRAPH_VERSION
+  return `https://graph.facebook.com/${version}/${path.replace(/^\/+/, '')}`
+}
+
 export function normalizeNotificationPhone(phone: string): string {
   let result = phone.replace(/\D/g, '')
   if (result.startsWith('0') && result.length === 10) result = `263${result.slice(1)}`
@@ -118,10 +127,12 @@ export class WhatsAppSenderService {
     return sender
   }
 
-  public async validate(tenantId: string): Promise<{ ready: boolean; templates: string[] }> {
+  public async validate(
+    tenantId: string,
+  ): Promise<{ ready: boolean; templates: string[]; webhookSubscribed: boolean }> {
     const sender = this.resolve(tenantId)
     await axios
-      .get(`https://graph.facebook.com/v21.0/${sender.wabaId}/phone_numbers`, {
+      .get(whatsAppGraphUrl(`${sender.wabaId}/phone_numbers`), {
         headers: { Authorization: `Bearer ${sender.token}` },
         timeout: 15000,
       })
@@ -135,6 +146,12 @@ export class WhatsAppSenderService {
       await this.requireApprovedTemplate(sender, event)
       approved.push(event)
     }
+    // Meta only delivers status and STOP callbacks for a WABA subscribed to this app; the call is idempotent.
+    const subscribed = await axios.post(whatsAppGraphUrl(`${sender.wabaId}/subscribed_apps`), undefined, {
+      headers: { Authorization: 'Bearer ' + sender.token },
+      timeout: 15000,
+    })
+    if (subscribed?.data?.success !== true) throw new DispatchError('Webhook subscription failed', 'permanent')
     const db = DatabaseManager.getDatabase()
     const binding = db
       .prepare('SELECT sender_key FROM whatsapp_sender_bindings WHERE phone_number_id = ?')
@@ -144,7 +161,7 @@ export class WhatsAppSenderService {
       `INSERT INTO whatsapp_sender_bindings (phone_number_id, sender_key, waba_id, validated_at)
       VALUES (?, ?, ?, ?) ON CONFLICT(phone_number_id) DO UPDATE SET waba_id = excluded.waba_id, validated_at = excluded.validated_at`,
     ).run(sender.phoneNumberId, sender.key, sender.wabaId, new Date().toISOString())
-    return { ready: approved.length > 0, templates: approved }
+    return { ready: approved.length > 0, templates: approved, webhookSubscribed: true }
   }
 
   public async requireApprovedTemplate(
@@ -153,7 +170,7 @@ export class WhatsAppSenderService {
   ): Promise<{ name: string; language: string }> {
     const template = sender.templates[event]
     if (!template) throw new DispatchError('No sender-specific template for event', 'permanent')
-    const { data } = await axios.get(`https://graph.facebook.com/v21.0/${sender.wabaId}/message_templates`, {
+    const { data } = await axios.get(whatsAppGraphUrl(`${sender.wabaId}/message_templates`), {
       params: { name: template.name, limit: 100 },
       headers: { Authorization: `Bearer ${sender.token}` },
       timeout: 15000,

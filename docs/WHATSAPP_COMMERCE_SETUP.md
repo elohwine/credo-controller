@@ -22,6 +22,44 @@ an approved utility template, a recorded recipient opt-in, and explicit operator
 test approval. Do not use the historical commerce diagram or mocked provider
 tests as evidence that the complete commerce journey works.
 
+### Credentis platform setup (Cloud API, Graph v26.0)
+
+Graph calls use `v26.0` by default; override with `WHATSAPP_GRAPH_VERSION`
+(must look like `vNN.N`, invalid values fall back to the default).
+
+1. **System User token** — Meta Business Settings → Users → System users → create
+   an admin system user, assign the WhatsApp app and the WABA (full control), and
+   generate a permanent token with `whatsapp_business_messaging` and
+   `whatsapp_business_management`.
+2. **Secrets** (never in `fly.toml`/git):
+   `fly secrets set WABA_TOKEN=... WHATSAPP_APP_SECRET=<app secret> WHATSAPP_VERIFY_TOKEN=<random> -a credentis`.
+   Non-secret values (`WABA_PHONE_NUMBER_ID`, `WABA_BUSINESS_ACCOUNT_ID`,
+   `WALLET_PUBLIC_URL`, `WHATSAPP_DELIVERY_ENABLED`, `WHATSAPP_TEST_RECIPIENTS`)
+   live in `fly.toml` `[env]`.
+3. **Template** — `WABA_TOKEN=... WABA_BUSINESS_ACCOUNT_ID=... node scripts/whatsapp-template.js`
+   submits the UTILITY template `credentis_inbox_update` (en_US, `{{1}}` notice,
+   `{{2}}` inbox URL). Re-run with `--check` until it reports `APPROVED`. If Meta
+   recategorises it as MARKETING it will be refused at dispatch; edit and resubmit.
+4. **Webhook** — App dashboard → WhatsApp → Configuration: callback
+   `https://credentis.fly.dev/wa/webhook`, verify token = `WHATSAPP_VERIFY_TOKEN`,
+   subscribe the `messages` field.
+5. **Turn on** — portal *WhatsApp alerts* (`/organization/whatsapp`) or mobile
+   *Settings → Organization → WhatsApp alerts*. "Turn on" saves platform mode for
+   all five events and calls validate, which checks phone membership, template
+   approval **and subscribes the WABA to the app** (`POST /{waba}/subscribed_apps`)
+   so status callbacks and STOP replies arrive.
+   `GET /organizations/{tenantId}/notifications/whatsapp/readiness` (admin) reports
+   which pieces are missing without exposing secrets.
+6. **Opt in + test** — each person enables their own alerts with their registered
+   phone, then an admin presses *Send me a test message* and watches deliveries.
+
+**Inbox links:** `{{2}}` is `${WALLET_PUBLIC_URL}/inbox?item|request=...`. The API
+serves `/inbox` as a small landing page with an *Open in Credentis* button
+(`credentis://inbox?...`, Android `intent://`), and
+`/.well-known/assetlinks.json` (from `ANDROID_APP_PACKAGE` +
+`ANDROID_APP_CERT_SHA256`) so the Android app can claim `https://credentis.fly.dev/inbox`
+as a verified App Link once installed.
+
 ### Select and validate a sender
 
 An organization owner/admin uses their **organization-scoped JWT**:

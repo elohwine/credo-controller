@@ -27,6 +27,18 @@
                 <data android:scheme="openid-credential-offer" />
                 <data android:scheme="openid-initiate-issuance" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="credentis" android:host="inbox" />
+            </intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="credentis.fly.dev" android:path="/inbox" />
+            </intent-filter>
         </activity>
 
         <provider

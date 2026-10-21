@@ -40,6 +40,7 @@ import { triggerService } from './services/TriggerService'
 import { startNgrokTunnel, getNgrokUrl } from './utils/ngrokTunnel'
 import { rootLogger } from './utils/pinoLogger'
 import { runWithContext } from './utils/requestContext'
+import { registerWhatsAppInboxLanding } from './utils/whatsAppInboxLanding'
 
 dotenv.config()
 
@@ -433,6 +434,7 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
 
   // Mount TSOA routes (API controllers)
   // take precedence over the generic Credo OpenID4VC router which matches prefixes.
+  registerWhatsAppInboxLanding(app)
   RegisterRoutes(app)
 
   // Mount Credo OIDC4VC Routers

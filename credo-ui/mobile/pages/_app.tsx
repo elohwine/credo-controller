@@ -49,6 +49,18 @@ function parseDeepLinkUrl(rawUrl: string): { route: string; query: URLSearchPara
 
   const topParams = parsed.searchParams;
 
+  // WhatsApp alert links: credentis://inbox?item=… or the verified https://<host>/inbox App Link.
+  const isInboxLink =
+    (parsed.protocol === 'credentis:' && (parsed.hostname === 'inbox' || parsed.pathname.replace(/^\/+/, '') === 'inbox')) ||
+    (parsed.protocol === 'https:' && parsed.pathname.replace(/\/+$/, '') === '/inbox');
+  if (isInboxLink) {
+    const query = new URLSearchParams();
+    for (const key of ['item', 'request']) {
+      const value = queryValue(topParams.get(key));
+      if (value && /^[A-Za-z0-9._:-]{1,200}$/.test(value)) query.set(key, value);
+    }
+    return { route: '/inbox', query };
+  }
   const readFirst = (params: URLSearchParams, keys: string[]): string | undefined => {
     for (const key of keys) {
       const value = queryValue(params.get(key));
@@ -123,7 +135,7 @@ function parseDeepLinkUrl(rawUrl: string): { route: string; query: URLSearchPara
 }
 
 async function trackDeepLinkEntry(rawUrl: string, parsed: { route: string; query: URLSearchParams }): Promise<void> {
-  const kind = parsed.route === '/scan' ? 'credential-offer' : 'presentation-request';
+  const kind = parsed.route === '/scan' ? 'credential-offer' : parsed.route === '/inbox' ? 'inbox-alert' : 'presentation-request';
   const payload = {
     event: 'mobile.deeplink.opened',
     kind,

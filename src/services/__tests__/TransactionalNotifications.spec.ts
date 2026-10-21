@@ -184,7 +184,7 @@ describe('durable transactional WhatsApp notifications', () => {
       await service.processWhatsAppIntent(item.id, item.payload)
       expect(delivery(item.id).status).toBe('accepted')
       expect(post).toHaveBeenCalledWith(
-        `https://graph.facebook.com/v21.0/${expectedPhone}/messages`,
+        `https://graph.facebook.com/v26.0/${expectedPhone}/messages`,
         expect.objectContaining({
           type: 'template',
           to: phone,
@@ -205,12 +205,55 @@ describe('durable transactional WhatsApp notifications', () => {
       .spyOn(axios, 'get')
       .mockResolvedValueOnce({ data: { data: [{ id: '123' }] } })
       .mockResolvedValueOnce(approved)
-    await expect(whatsAppSenderService.validate(tenant)).resolves.toEqual({ ready: true, templates: ['task'] })
+    const subscribe = jest.spyOn(axios, 'post').mockResolvedValueOnce({ data: { success: true } })
+    await expect(whatsAppSenderService.validate(tenant)).resolves.toEqual({
+      ready: true,
+      templates: ['task'],
+      webhookSubscribed: true,
+    })
+    expect(subscribe).toHaveBeenCalledWith(
+      'https://graph.facebook.com/v26.0/456/subscribed_apps',
+      undefined,
+      expect.objectContaining({ headers: { Authorization: 'Bearer platform-secret' } }),
+    )
     expect(db.prepare('SELECT sender_key FROM whatsapp_sender_bindings').get()).toEqual({ sender_key: 'platform' })
     get.mockResolvedValue({ data: { data: [] } })
     consent()
     const item = intent()
     await expect(service.processWhatsAppIntent(item.id, item.payload)).rejects.toThrow('not approved')
+  })
+
+  it('does not bind a sender whose webhook subscription fails, and honours WHATSAPP_GRAPH_VERSION', async () => {
+    process.env.WHATSAPP_GRAPH_VERSION = 'v27.0'
+    whatsAppSenderService.configure(tenant, selection)
+    const get = jest
+      .spyOn(axios, 'get')
+      .mockResolvedValueOnce({ data: { data: [{ id: '123' }] } })
+      .mockResolvedValueOnce(approved)
+    jest.spyOn(axios, 'post').mockResolvedValueOnce({ data: { success: false } })
+    await expect(whatsAppSenderService.validate(tenant)).rejects.toThrow('Webhook subscription failed')
+    expect(get.mock.calls[0][0]).toBe('https://graph.facebook.com/v27.0/456/phone_numbers')
+    expect(db.prepare('SELECT COUNT(*) AS n FROM whatsapp_sender_bindings').get()).toEqual({ n: 0 })
+    process.env.WHATSAPP_GRAPH_VERSION = 'garbage'
+    get.mockResolvedValueOnce({ data: { data: [] } })
+    await expect(whatsAppSenderService.validate(tenant)).rejects.toThrow('does not belong')
+    expect(get.mock.calls[2][0]).toBe('https://graph.facebook.com/v26.0/456/phone_numbers')
+  })
+
+  it('records the provider error code on a failed delivery status', () => {
+    const item = intent()
+    db.prepare(
+      `UPDATE notification_deliveries SET status = 'accepted', sender_key = 'platform',
+      phone_number_id = '123', provider_message_id = 'wamid-err' WHERE id = ?`,
+    ).run(item.id)
+    service.applyWhatsAppStatus('platform', '123', {
+      id: 'wamid-err',
+      status: 'failed',
+      timestamp: '100',
+      recipient_id: phone,
+      errors: [{ code: 131026 }],
+    })
+    expect(delivery(item.id)).toMatchObject({ status: 'failed', reason: 'Provider delivery failure (code 131026)' })
   })
 
   it('blocks recipients not approved for test delivery without making a provider call', async () => {

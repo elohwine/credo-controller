@@ -5,7 +5,12 @@ import { Controller, Get, Put, Post, Route, Tags, Body, Request, Path, Security 
 import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { notificationService } from '../../services/NotificationService'
-import { whatsAppSenderService, type WhatsAppSenderSelection } from '../../services/WhatsAppSenderService'
+import { DispatchError } from '../../services/OutboxService'
+import {
+  whatsAppSenderService,
+  WHATSAPP_EVENTS,
+  type WhatsAppSenderSelection,
+} from '../../services/WhatsAppSenderService'
 
 @Route('organizations/{tenantId}/notifications')
 @Tags('Transactional notifications')
@@ -25,6 +30,53 @@ export class NotificationController extends Controller {
   ): Promise<WhatsAppSenderSelection | null> {
     this.admin(request, tenantId)
     return whatsAppSenderService.selection(tenantId) || null
+  }
+
+  @Get('whatsapp/readiness')
+  @Security('jwt')
+  public async senderReadiness(
+    @Path() tenantId: string,
+    @Request() request: ExRequest,
+  ): Promise<{
+    platformConfigured: boolean
+    deliveryEnabled: boolean
+    productionEnabled: boolean
+    walletLinkConfigured: boolean
+    validated: boolean
+    selection: WhatsAppSenderSelection | null
+    events: string[]
+  }> {
+    this.admin(request, tenantId)
+    const env = process.env
+    const selection = whatsAppSenderService.selection(tenantId) || null
+    let validated = false
+    try {
+      const sender = whatsAppSenderService.resolve(tenantId)
+      const binding = DatabaseManager.getDatabase()
+        .prepare('SELECT sender_key, waba_id FROM whatsapp_sender_bindings WHERE phone_number_id = ?')
+        .get(sender.phoneNumberId) as { sender_key: string; waba_id: string } | undefined
+      validated = binding?.sender_key === sender.key && binding?.waba_id === sender.wabaId
+    } catch {
+      validated = false
+    }
+    let walletLinkConfigured = false
+    try {
+      walletLinkConfigured = new URL(env.WALLET_PUBLIC_URL || '').protocol === 'https:'
+    } catch {
+      walletLinkConfigured = false
+    }
+    // Booleans only: never project the secret values themselves.
+    return {
+      platformConfigured: Boolean(
+        env.WABA_TOKEN && env.WHATSAPP_APP_SECRET && env.WABA_PHONE_NUMBER_ID && env.WABA_BUSINESS_ACCOUNT_ID,
+      ),
+      deliveryEnabled: env.WHATSAPP_DELIVERY_ENABLED === 'true',
+      productionEnabled: env.WHATSAPP_PRODUCTION_ENABLED === 'true',
+      walletLinkConfigured,
+      validated,
+      selection,
+      events: [...WHATSAPP_EVENTS],
+    }
   }
 
   @Put('whatsapp')
@@ -47,13 +99,25 @@ export class NotificationController extends Controller {
   public async validateSender(
     @Path() tenantId: string,
     @Request() request: ExRequest,
-  ): Promise<{ ready: boolean; templates: string[] }> {
+  ): Promise<{ ready: boolean; templates: string[]; webhookSubscribed: boolean }> {
     this.admin(request, tenantId)
     try {
       return await whatsAppSenderService.validate(tenantId)
-    } catch {
+    } catch (error: any) {
       // Never propagate Axios errors, which contain the provider Authorization header.
-      throw new StatusException('Sender connection or utility templates could not be validated', 400)
+      const http = Number(error?.response?.status)
+      const metaCode = Number(error?.response?.data?.error?.code)
+      const detail =
+        error instanceof DispatchError
+          ? error.message
+          : http === 401 || metaCode === 190
+            ? 'Meta rejected the access token (expired or wrong)'
+            : http === 403 || metaCode === 200 || metaCode === 10
+              ? 'The access token lacks whatsapp_business_management / whatsapp_business_messaging permission'
+              : http
+                ? `Meta returned HTTP ${http}${Number.isFinite(metaCode) ? ` (code ${metaCode})` : ''}`
+                : 'Could not reach Meta'
+      throw new StatusException(`Sender could not be validated: ${detail}`, 400)
     }
   }
 

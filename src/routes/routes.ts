@@ -2187,7 +2187,7 @@ const models: TsoaRoute.Models = {
         "dataType": "refObject",
         "properties": {
             "object": {"dataType":"string","required":true},
-            "entry": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"changes":{"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"value":{"dataType":"nestedObjectLiteral","nestedProperties":{"statuses":{"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"biz_opaque_callback_data":{"dataType":"string"},"recipient_id":{"dataType":"string"},"timestamp":{"dataType":"string","required":true},"status":{"dataType":"string","required":true},"id":{"dataType":"string","required":true}},"additionalProperties":{"dataType":"any"}}},"messages":{"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"text":{"dataType":"nestedObjectLiteral","nestedProperties":{"body":{"dataType":"string","required":true}},"additionalProperties":{"dataType":"any"}},"type":{"dataType":"string","required":true},"id":{"dataType":"string","required":true},"from":{"dataType":"string","required":true}},"additionalProperties":{"dataType":"any"}}},"metadata":{"dataType":"nestedObjectLiteral","nestedProperties":{"display_phone_number":{"dataType":"string"},"phone_number_id":{"dataType":"string","required":true}},"additionalProperties":{"dataType":"any"}}},"additionalProperties":{"dataType":"any"},"required":true},"field":{"dataType":"string","required":true}},"additionalProperties":{"dataType":"any"}},"required":true},"id":{"dataType":"string","required":true}},"additionalProperties":{"dataType":"any"}},"required":true},
+            "entry": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"changes":{"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"value":{"dataType":"nestedObjectLiteral","nestedProperties":{"statuses":{"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"errors":{"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"code":{"dataType":"double"}},"additionalProperties":{"dataType":"any"}}},"biz_opaque_callback_data":{"dataType":"string"},"recipient_id":{"dataType":"string"},"timestamp":{"dataType":"string","required":true},"status":{"dataType":"string","required":true},"id":{"dataType":"string","required":true}},"additionalProperties":{"dataType":"any"}}},"messages":{"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"text":{"dataType":"nestedObjectLiteral","nestedProperties":{"body":{"dataType":"string","required":true}},"additionalProperties":{"dataType":"any"}},"type":{"dataType":"string","required":true},"id":{"dataType":"string","required":true},"from":{"dataType":"string","required":true}},"additionalProperties":{"dataType":"any"}}},"metadata":{"dataType":"nestedObjectLiteral","nestedProperties":{"display_phone_number":{"dataType":"string"},"phone_number_id":{"dataType":"string","required":true}},"additionalProperties":{"dataType":"any"}}},"additionalProperties":{"dataType":"any"},"required":true},"field":{"dataType":"string","required":true}},"additionalProperties":{"dataType":"any"}},"required":true},"id":{"dataType":"string","required":true}},"additionalProperties":{"dataType":"any"}},"required":true},
         },
         "additionalProperties": {"dataType":"any"},
     },
@@ -21379,6 +21379,43 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'getSender',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsNotificationController_senderReadiness: Record<string, TsoaRoute.ParameterSchema> = {
+                tenantId: {"in":"path","name":"tenantId","required":true,"dataType":"string"},
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.get('/organizations/:tenantId/notifications/whatsapp/readiness',
+            authenticateMiddleware([{"jwt":[]}]),
+            ...(fetchMiddlewares<RequestHandler>(NotificationController)),
+            ...(fetchMiddlewares<RequestHandler>(NotificationController.prototype.senderReadiness)),
+
+            async function NotificationController_senderReadiness(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsNotificationController_senderReadiness, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<NotificationController>(NotificationController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'senderReadiness',
                 controller,
                 response,
                 next,

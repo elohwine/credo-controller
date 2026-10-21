@@ -20,6 +20,7 @@ import ErrorAlert from '@/components/shared/ErrorAlert';
 import HandoffSettingsCard from '@/components/shared/HandoffSettingsCard';
 import RecordSettingsCard from '@/components/shared/RecordSettingsCard';
 import DeviceTrustSettingsCard from '@/components/shared/DeviceTrustSettingsCard';
+import WhatsAppAlertsCard from '@/components/shared/WhatsAppAlertsCard';
 import OrgPermissionsSettings from '@/components/shared/OrgPermissionsSettings';
 import api, { safeArray } from '@/lib/api';
 import { getActiveOrgLabel, getActiveOrgId, getWalletToken, getPreferredToken, applyOrgContext, getOrgRoleClaim, decodeJwtPayload } from '@/lib/auth';
@@ -246,7 +247,7 @@ interface OrganizationReadiness {
 type ReadinessFixTarget = 'members' | 'actors' | 'payments' | 'partners' | 'profile' | 'store' | 'departments' | 'roles' | 'authorities';
 
 /** One settings area per screen. `null` is the organisation home. */
-type OrgSection = 'team' | 'actors' | 'payments' | 'departments' | 'handoffs' | 'records' | 'store' | 'roles' | 'authorities';
+type OrgSection = 'team' | 'actors' | 'payments' | 'departments' | 'handoffs' | 'records' | 'store' | 'roles' | 'authorities' | 'alerts';
 
 const SECTION_FOR_FIX: Record<ReadinessFixTarget, OrgSection> = {
   members: 'team',
@@ -270,6 +271,7 @@ function sectionLabels(showStore: boolean): Array<{ id: OrgSection; label: strin
     { id: 'departments', label: 'Departments' },
     { id: 'handoffs', label: 'What happens next' },
     { id: 'records', label: 'Record settings' },
+    { id: 'alerts', label: 'WhatsApp alerts' },
     ...(showStore ? [{ id: 'store' as const, label: 'Store' }] : []),
   ];
 }
@@ -2057,6 +2059,7 @@ export default function OrgSettingsPage() {
             {section === 'records' && activeId && <RecordSettingsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />}
 
             {section === 'records' && <DeviceTrustSettingsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />}
+            {section === 'alerts' && <WhatsAppAlertsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />}
 
             {/* ── Member Management ── */}
             {section === 'team' && (

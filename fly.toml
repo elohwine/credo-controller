@@ -21,6 +21,16 @@ primary_region = "jnb"
   TENANT_DB_PATH = "/data/tenants.db"
   OIDC_DB_PATH = "/data/oidc.db"
   CREDO_LISTEN_PORT = "3000"
+  # WhatsApp notifications (non-secret). Tokens/app secret are Fly secrets.
+  WABA_PHONE_NUMBER_ID = "1232138763320433"
+  WABA_BUSINESS_ACCOUNT_ID = "1057163973970869"
+  WHATSAPP_GRAPH_VERSION = "v26.0"
+  WALLET_PUBLIC_URL = "https://credentis.fly.dev"
+  WHATSAPP_DELIVERY_ENABLED = "true"
+  # Test-only until WHATSAPP_PRODUCTION_ENABLED = "true" is deliberately set.
+  WHATSAPP_TEST_RECIPIENTS = "263774183277"
+  ANDROID_APP_PACKAGE = "com.credentis.mobile"
+  ANDROID_APP_CERT_SHA256 = "9F:D9:DB:FF:DE:69:92:A9:2B:6C:67:BF:92:C8:7D:7C:50:72:F1:88:02:57:25:AF:6D:1F:C7:0D:96:65:9D:E0"
 
 [http_service]
   internal_port = 8080

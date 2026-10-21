@@ -11,6 +11,12 @@
 :8080 {
 	encode gzip
 
+	# Android App Links verification for WhatsApp inbox links; served by the Credo API, not Hydra.
+	@assetlinks path /.well-known/assetlinks.json
+	handle @assetlinks {
+		reverse_proxy 127.0.0.1:3000
+	}
+
 	# Ory Hydra public (OIDC issuer). Must stay ahead of the Credo catch-all.
 	@hydra path /.well-known /.well-known/* /oauth2 /oauth2/* /userinfo /userinfo/*
 	handle @hydra {

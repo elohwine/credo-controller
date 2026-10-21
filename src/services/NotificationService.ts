@@ -20,7 +20,12 @@ import { DatabaseManager } from '../persistence/DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
 
 import { DispatchError, outboxService } from './OutboxService'
-import { normalizeNotificationPhone, whatsAppSenderService, WHATSAPP_EVENTS } from './WhatsAppSenderService'
+import {
+  normalizeNotificationPhone,
+  whatsAppGraphUrl,
+  whatsAppSenderService,
+  WHATSAPP_EVENTS,
+} from './WhatsAppSenderService'
 
 const logger = rootLogger.child({ module: 'NotificationService' })
 
@@ -307,7 +312,7 @@ export class NotificationService {
       if (!claimed.changes) throw new DispatchError('Notification is already being sent', 'uncertain')
       sending = true
       const { data } = await axios.post(
-        `https://graph.facebook.com/v21.0/${sender.phoneNumberId}/messages`,
+        whatsAppGraphUrl(`${sender.phoneNumberId}/messages`),
         {
           messaging_product: 'whatsapp',
           recipient_type: 'individual',
@@ -369,6 +374,7 @@ export class NotificationService {
       timestamp: string
       recipient_id?: string
       biz_opaque_callback_data?: string
+      errors?: Array<{ code?: number }>
     },
   ): void {
     const ranks: Record<string, number> = { accepted: 1, sent: 2, delivered: 3, read: 4 }
@@ -399,6 +405,10 @@ export class NotificationService {
           : (ranks[status.status] || 0) > (ranks[row.status] || 0) &&
             (row.status !== 'failed' || ranks[status.status] >= 3 || providerTime > row.provider_status_at)
       if (!advance) return
+      const errorCode = Number(status.errors?.[0]?.code)
+      const failure = Number.isSafeInteger(errorCode)
+        ? `Provider delivery failure (code ${errorCode})`
+        : 'Provider delivery failure'
       db.prepare(
         `UPDATE notification_deliveries SET status = ?, provider_message_id = ?, provider_status_at = ?,
         reason = ?, updated_at = ? WHERE id = ?`,
@@ -406,7 +416,7 @@ export class NotificationService {
         status.status,
         status.id,
         providerTime,
-        status.status === 'failed' ? 'Provider delivery failure' : null,
+        status.status === 'failed' ? failure : null,
         new Date().toISOString(),
         row.id,
       )
