@@ -98,6 +98,35 @@ export class NotificationService {
     ).run(input.tenantId, input.userId, phone, input.eventType, input.enabled ? 1 : 0, now, now)
   }
 
+  /**
+   * Enabled WhatsApp opt-in for one organization's event. The organization's own switch wins (on or off);
+   * otherwise the person's own "any organization" switch (stored under their wallet tenant) applies, but
+   * only for organizations sending from the shared Credentis platform number they opted in to.
+   */
+  public consentedRecipient(
+    orgTenantId: string,
+    eventType: string,
+    match: { userId: string } | { phone: string },
+  ): { userId: string; phone: string } | undefined {
+    const db = DatabaseManager.getDatabase()
+    const [column, value] = 'userId' in match ? ['p.user_id', match.userId] : ['p.phone', match.phone]
+    const scoped = db
+      .prepare(
+        `SELECT p.user_id AS userId, p.phone, p.enabled FROM notification_preferences p
+        WHERE p.tenant_id = ? AND p.event_type = ? AND ${column} = ? ORDER BY p.enabled DESC LIMIT 1`,
+      )
+      .get(orgTenantId, eventType, value) as { userId: string; phone: string; enabled: number } | undefined
+    if (scoped) return scoped.enabled ? { userId: scoped.userId, phone: scoped.phone } : undefined
+    if (whatsAppSenderService.selection(orgTenantId)?.mode !== 'platform') return undefined
+    return db
+      .prepare(
+        `SELECT p.user_id AS userId, p.phone FROM notification_preferences p
+        JOIN ssi_users u ON u.id = p.user_id AND u.tenant_id = p.tenant_id
+        WHERE p.event_type = ? AND p.enabled = 1 AND ${column} = ? LIMIT 1`,
+      )
+      .get(eventType, value) as { userId: string; phone: string } | undefined
+  }
+
   public queueWhatsApp(input: {
     tenantId: string
     to: string
@@ -157,12 +186,7 @@ export class NotificationService {
             : payload.sourceType === 'ap_payment' && payload.credentialType === 'RemittanceAdviceVC'
               ? 'remittance'
               : 'vc_offer'
-    const preference = db
-      .prepare(
-        `SELECT phone FROM notification_preferences
-      WHERE tenant_id = ? AND user_id = ? AND event_type = ? AND enabled = 1`,
-      )
-      .get(payload.issuerTenantId, user.id, eventType) as { phone: string } | undefined
+    const preference = this.consentedRecipient(payload.issuerTenantId, eventType, { userId: user.id })
     if (!preference) return
     const sharedKey =
       payload.sourceType === 'contact-offer'
@@ -247,12 +271,7 @@ export class NotificationService {
       db
         .prepare('UPDATE notification_deliveries SET status = ?, reason = ?, updated_at = ? WHERE id = ?')
         .run(status, reason || null, new Date().toISOString(), id)
-    const consent = db
-      .prepare(
-        `SELECT 1 FROM notification_preferences
-      WHERE tenant_id = ? AND phone = ? AND event_type = ? AND enabled = 1`,
-      )
-      .get(payload.tenantId, payload.to, payload.eventType)
+    const consent = this.consentedRecipient(payload.tenantId, payload.eventType, { phone: payload.to })
     if (!consent) {
       update('skipped', 'No recorded consent or opted out')
       return
@@ -280,14 +299,15 @@ export class NotificationService {
         throw new DispatchError('HTTPS wallet URL required', 'permanent')
       const action = new URL('/inbox', base.origin)
       if (payload.inboxItemId) {
-        const item = db
+        const owner = db
           .prepare(
-            `SELECT w.id FROM wallet_pending_offers w
-            JOIN ssi_users u ON u.tenant_id = w.tenant_id
-            JOIN notification_preferences p ON p.user_id = u.id AND p.tenant_id = w.issuer_tenant_id
-            WHERE w.id = ? AND w.issuer_tenant_id = ? AND p.phone = ? AND p.event_type = ? AND p.enabled = 1`,
+            `SELECT u.id FROM wallet_pending_offers w JOIN ssi_users u ON u.tenant_id = w.tenant_id
+            WHERE w.id = ? AND w.issuer_tenant_id = ?`,
           )
-          .get(payload.inboxItemId, payload.tenantId, payload.to, payload.eventType)
+          .get(payload.inboxItemId, payload.tenantId) as { id: string } | undefined
+        const item =
+          owner &&
+          this.consentedRecipient(payload.tenantId, payload.eventType, { userId: owner.id })?.phone === payload.to
         if (!item) throw new DispatchError('Notification inbox item is not available for this recipient', 'permanent')
         action.searchParams.set('item', payload.inboxItemId)
       } else if (
@@ -312,12 +332,7 @@ export class NotificationService {
           JSON.stringify(sender.templates[payload.eventType])
       )
         throw new DispatchError('Sender changed during dispatch', 'permanent')
-      const stillConsented = db
-        .prepare(
-          `SELECT 1 FROM notification_preferences
-        WHERE tenant_id = ? AND phone = ? AND event_type = ? AND enabled = 1`,
-        )
-        .get(payload.tenantId, payload.to, payload.eventType)
+      const stillConsented = this.consentedRecipient(payload.tenantId, payload.eventType, { phone: payload.to })
       if (!stillConsented) {
         update('skipped', 'Consent withdrawn during dispatch')
         return
@@ -469,6 +484,13 @@ export class NotificationService {
         db.prepare(
           'UPDATE notification_preferences SET enabled = 0, consent_source = ?, updated_at = ? WHERE tenant_id = ? AND phone = ?',
         ).run('signed_whatsapp_stop', new Date().toISOString(), tenant.tenant_id, normalizeNotificationPhone(phone))
+      }
+      // A STOP to the shared platform number also withdraws the person's own "any organization" opt-ins.
+      if (senderKey === 'platform') {
+        db.prepare(
+          `UPDATE notification_preferences SET enabled = 0, consent_source = ?, updated_at = ?
+          WHERE phone = ? AND tenant_id IN (SELECT tenant_id FROM ssi_users WHERE id = notification_preferences.user_id)`,
+        ).run('signed_whatsapp_stop', new Date().toISOString(), normalizeNotificationPhone(phone))
       }
     })()
   }

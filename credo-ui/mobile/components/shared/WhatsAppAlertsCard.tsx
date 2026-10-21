@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Badge, Button, Group, Paper, Stack, Switch, Text, TextInput } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import api from '@/lib/api'
-import { getPreferredToken, getUserPhone } from '@/lib/auth'
+import { getPersonalWalletTenantId, getPersonalWalletToken, getPreferredToken, getUserPhone } from '@/lib/auth'
 
 const EVENTS = [
   { id: 'task', label: 'A workflow step is waiting for me' },
@@ -15,15 +15,29 @@ const DEFAULT_TEMPLATE = { name: 'credentis_inbox_update', language: 'en_US' }
 
 type Readiness = { platformConfigured: boolean; productionEnabled: boolean; validated: boolean; selection: { enabled: boolean } | null }
 
-/** Personal WhatsApp opt-ins for this organisation; owners/admins also switch the organisation sender on. */
-export default function WhatsAppAlertsCard({ orgTenantId, canEdit }: { orgTenantId: string | null; canEdit: boolean }) {
+/**
+ * WhatsApp opt-ins. With an organisation: this organisation only, and owners/admins also switch its sender on.
+ * `personal`: the person's own switches, used for every organisation on the Credentis number that they have
+ * not set separately — so invites from an organisation they have not joined yet still reach them.
+ */
+export default function WhatsAppAlertsCard({
+  orgTenantId: orgTenantIdProp,
+  canEdit: canEditProp,
+  personal = false,
+}: {
+  orgTenantId?: string | null
+  canEdit?: boolean
+  personal?: boolean
+}) {
   const [mine, setMine] = useState<Record<string, boolean>>({})
   const [readiness, setReadiness] = useState<Readiness | null>(null)
   const [phone, setPhone] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  const orgTenantId = personal ? getPersonalWalletTenantId() : orgTenantIdProp || null
+  const canEdit = !personal && Boolean(canEditProp)
 
   const headers = () => {
-    const token = getPreferredToken()
+    const token = personal ? getPersonalWalletToken() : getPreferredToken()
     return token ? { Authorization: `Bearer ${token}` } : undefined
   }
   const base = () => `/api/organizations/${encodeURIComponent(orgTenantId || '')}/notifications`
@@ -88,10 +102,15 @@ export default function WhatsAppAlertsCard({ orgTenantId, canEdit }: { orgTenant
   return (
     <Paper p="md" radius="md" withBorder>
       <Stack gap="sm">
-        <Text fw={700}>WhatsApp alerts</Text>
+        <Text fw={700}>{personal ? 'WhatsApp alerts from any organisation' : 'WhatsApp alerts for this organisation'}</Text>
         <Text size="xs" c="dimmed">
           A short WhatsApp message tells you something is waiting in your Credentis inbox. Nothing is approved or paid from WhatsApp.
           Reply STOP at any time to turn all alerts off.
+        </Text>
+        <Text size="xs" c="dimmed">
+          {personal
+            ? 'Used for team invites, staff cards, records and workflow steps from any organisation, unless you set that organisation separately.'
+            : 'These replace your "any organisation" choices for this organisation.'}
         </Text>
 
         {canEdit && readiness && (

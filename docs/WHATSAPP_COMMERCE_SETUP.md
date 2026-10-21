@@ -159,6 +159,12 @@ unscoped free-text send. Contact wallet-link invitations use the same
 consented `vc_offer` delivery rail; their claim tokens are never sent on WhatsApp.
 
 Each preference applies only to WhatsApp for that organization and event.
+A person can also record **"any organisation"** switches under their own wallet
+tenant (mobile *Settings → WhatsApp alerts*). These apply to organizations sending
+from the shared platform number when the person has no switch for that
+organization, so an invite from an organization they have not joined yet still
+reaches them. An organization switch (on or off) always wins, tenant-owned
+numbers never use the personal switch, and a platform STOP turns them off too.
 The phone must hash to the signed-in person's registered account phone.
 There is no automatic subscription from membership, checkout, an inbound greeting,
 or sender selection. Disable a preference to opt out; signed `STOP`,

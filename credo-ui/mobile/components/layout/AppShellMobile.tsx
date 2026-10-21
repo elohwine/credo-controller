@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Box, Group, Text, ActionIcon, Avatar, Drawer, Stack, Button, Divider, useMantineColorScheme, Menu, UnstyledButton } from '@mantine/core';
-import { IconSettings, IconLogout, IconBuilding, IconCertificate, IconPlugConnected, IconChevronDown, IconSun, IconMoon, IconCheck, IconUser, IconPlus, IconArrowLeft } from '@tabler/icons-react';
+import { IconSettings, IconLogout, IconBuilding, IconCertificate, IconPlugConnected, IconChevronDown, IconSun, IconMoon, IconCheck, IconUser, IconPlus, IconArrowLeft, IconBrandWhatsapp } from '@tabler/icons-react';
 import BottomNav from './BottomNav';
 import { CREDENTIS_CONTEXT_CHANGED_EVENT, clearTaskContext, getTaskContext, getActiveOrgLabel, getUserName, getUserRole, clearAuth, getWalletToken, syncOrgContextFromServer, applyOrgContext, setPersonalContext, getContextMode, getOrgToken, getContextTokenStrict, getPersonalWalletToken } from '@/lib/auth';
 import { beginAddAccount, currentAccountId, listSavedAccounts, loadSavedAccountNames, rememberCurrentAccount, restoreAccount } from '@/lib/savedAccounts';
@@ -693,6 +693,21 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
           </Stack>
 
           <Divider />
+
+          {!inboxTask && (
+            <Button
+              variant="light"
+              color="green"
+              justify="flex-start"
+              leftSection={<IconBrandWhatsapp size={16} />}
+              onClick={() => {
+                setSettingsOpen(false);
+                router.push('/settings/alerts/');
+              }}
+            >
+              WhatsApp alerts
+            </Button>
+          )}
 
           <Stack gap="xs">
             <Text size="xs" c="dimmed" tt="uppercase" fw={600} px="xs">

@@ -542,6 +542,106 @@ describe('durable transactional WhatsApp notifications', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM notification_deliveries').get()).toEqual({ n: 0 })
   })
 
+  describe('person-level opt-in for organisations they have not opted into yet', () => {
+    const orgB = 'org-b'
+    const allEvents = Object.fromEntries(
+      ['task', 'vc_offer', 'payment_link', 'proof_request', 'remittance'].map((event) => [
+        event,
+        { name: 'inbox_update', language: 'en_US' },
+      ]),
+    )
+    function personal(eventType: string, enabled = true) {
+      service.setPreference({ tenantId: 'wallet-a', userId: 'person', phone, eventType, enabled })
+    }
+    function card(id: string, sourceType: string, credentialType: string, issuer = orgB) {
+      db.prepare(
+        `INSERT INTO wallet_pending_offers
+        (id, tenant_id, issuer_tenant_id, source_type, source_id, credential_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(id, 'wallet-a', issuer, sourceType, `${id}-source`, credentialType, new Date().toISOString())
+    }
+    async function drain() {
+      const worker = new OutboxService()
+      await worker.processPending('wallet.inbox.whatsapp')
+      await worker.processPending('notification.whatsapp')
+    }
+    beforeEach(() => {
+      db.exec(readFileSync('migrations/130_wallet_inbox_whatsapp.sql', 'utf8'))
+      whatsAppSenderService.configure(orgB, { mode: 'platform', enabled: true, templates: allEvents })
+      bind()
+      jest.spyOn(axios, 'get').mockResolvedValue(approved)
+    })
+
+    it.each([
+      ['team/employee invite', 'org_employee', 'EmployeeCredential', 'vc_offer'],
+      ['workflow actor card', 'org_workflow_actor', 'OrgWorkflowActorCredential', 'vc_offer'],
+      ['delivered credential', 'workflow_vc_offer', 'PaymentReceiptVC', 'vc_offer'],
+      ['workflow stage actor step', 'workflow_stage_action', 'WorkflowStageAction', 'task'],
+      ['requisition approval step', 'requisition_stage_action', 'RequisitionStageAction', 'task'],
+    ])('sends a %s to WhatsApp end to end', async (_label, sourceType, credentialType, eventType) => {
+      personal(eventType)
+      const post = jest.spyOn(axios, 'post').mockResolvedValue({ data: { messages: [{ id: 'wamid-new-org' }] } })
+      card('card-b', sourceType, credentialType)
+      await drain()
+      expect(post).toHaveBeenCalledTimes(1)
+      expect(post.mock.calls[0][0]).toContain('/123/messages')
+      expect(JSON.stringify(post.mock.calls[0][1])).toContain('https://wallet.example/inbox?item=card-b')
+      expect(db.prepare('SELECT tenant_id, event_type, status FROM notification_deliveries').all()).toEqual([
+        { tenant_id: orgB, event_type: eventType, status: 'accepted' },
+      ])
+    })
+
+    it('sends a contact wallet-link invite to a person who opted in, without its claim token', async () => {
+      personal('vc_offer')
+      const post = jest.spyOn(axios, 'post').mockResolvedValue({ data: { messages: [{ id: 'wamid-contact' }] } })
+      jest.spyOn(service, 'sendSms').mockResolvedValue({ success: false, skipped: true })
+      await service.dispatchContactNotification({
+        tenantId: orgB,
+        dedupeKey: 'contact-invite:c1:exp',
+        contact: { name: 'Tari', phone: '0771234567' },
+        type: 'vc_offer',
+        url: 'https://portal.example/wallet/link-contact?token=secret-claim',
+      })
+      await new OutboxService().processPending('notification.whatsapp')
+      expect(post).toHaveBeenCalledTimes(1)
+      expect(JSON.stringify(post.mock.calls[0][1])).not.toContain('secret-claim')
+      expect(db.prepare('SELECT status FROM notification_deliveries').get()).toEqual({ status: 'accepted' })
+    })
+
+    it('lets the organisation switch override the person-level switch', async () => {
+      personal('vc_offer')
+      service.setPreference({ tenantId: orgB, userId: 'person', phone, eventType: 'vc_offer', enabled: false })
+      const post = jest.spyOn(axios, 'post')
+      card('card-b', 'org_employee', 'EmployeeCredential')
+      await drain()
+      expect(post).not.toHaveBeenCalled()
+      expect(db.prepare('SELECT COUNT(*) AS n FROM notification_deliveries').get()).toEqual({ n: 0 })
+    })
+
+    it('does not use the person-level switch for an organisation with its own WhatsApp number, or when off', async () => {
+      personal('vc_offer', false)
+      personal('task')
+      whatsAppSenderService.configure('org-own', {
+        mode: 'tenant',
+        enabled: true,
+        phoneNumberId: '999',
+        wabaId: '888',
+        templates: allEvents,
+      } as any)
+      const post = jest.spyOn(axios, 'post')
+      card('invite-off', 'org_employee', 'EmployeeCredential')
+      card('own-number', 'workflow_stage_action', 'WorkflowStageAction', 'org-own')
+      await drain()
+      expect(post).not.toHaveBeenCalled()
+      expect(db.prepare('SELECT COUNT(*) AS n FROM notification_deliveries').get()).toEqual({ n: 0 })
+    })
+
+    it('withdraws the person-level switch when they reply STOP to the platform number', () => {
+      personal('vc_offer')
+      service.applyWhatsAppOptOut('platform', phone, 'wamid-stop')
+      expect(service.consentedRecipient(orgB, 'vc_offer', { userId: 'person' })).toBeUndefined()
+    })
+  })
+
   it('replays a crashed inbox fan-out without duplicating WhatsApp or adding an Android event', async () => {
     consent('vc_offer')
     db.exec(readFileSync('migrations/130_wallet_inbox_whatsapp.sql', 'utf8'))
