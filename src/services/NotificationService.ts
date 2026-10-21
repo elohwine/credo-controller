@@ -140,8 +140,15 @@ export class NotificationService {
       | undefined
     if (!user) return
     const eventType =
-      payload.sourceType === 'workflow_stage_action' ||
-      ['WorkflowStageAction', 'WorkflowActionAssignment'].includes(payload.credentialType)
+      [
+        'workflow_stage_action',
+        'workflow_request_assignment',
+        'requisition_stage_action',
+        'ap_workflow_assignment',
+      ].includes(payload.sourceType) ||
+      ['WorkflowStageAction', 'WorkflowActionAssignment', 'WorkflowRequestApproval', 'RequisitionStageAction'].includes(
+        payload.credentialType,
+      )
         ? 'task'
         : payload.sourceType === 'proof_request'
           ? 'proof_request'
@@ -167,11 +174,6 @@ export class NotificationService {
             : eventType === 'remittance'
               ? `remittance:${payload.sourceId}`
               : undefined
-    const itemKey =
-      sharedKey ||
-      (payload.sourceType && payload.sourceId
-        ? `inbox:${payload.tenantId}:${payload.sourceType}:${payload.sourceId}:${payload.credentialType || ''}`
-        : eventId)
     const request =
       eventType === 'task' && payload.sourceId
         ? (db
@@ -184,17 +186,35 @@ export class NotificationService {
             | undefined)
         : undefined
     const item =
-      payload.sourceType && payload.sourceId
+      payload.inboxItemId || (payload.sourceType && payload.sourceId)
         ? (db
             .prepare(
               `SELECT id FROM wallet_pending_offers
-          WHERE tenant_id = ? AND issuer_tenant_id = ? AND source_type = ? AND source_id = ?
+          WHERE tenant_id = ? AND issuer_tenant_id = ?
+            AND ((? IS NOT NULL AND id = ?) OR (? IS NULL AND source_type = ? AND source_id = ?
+              AND (? IS NULL OR credential_type = ?)))
           ORDER BY created_at DESC LIMIT 1`,
             )
-            .get(payload.tenantId, payload.issuerTenantId, payload.sourceType, payload.sourceId) as
-            | { id: string }
-            | undefined)
+            .get(
+              payload.tenantId,
+              payload.issuerTenantId,
+              payload.inboxItemId || null,
+              payload.inboxItemId || null,
+              payload.inboxItemId || null,
+              payload.sourceType || null,
+              payload.sourceId || null,
+              payload.credentialType || null,
+              payload.credentialType || null,
+            ) as { id: string } | undefined)
         : undefined
+    if (payload.inboxItemId && !item) throw new DispatchError('Notification inbox item not found', 'permanent')
+    const itemKey =
+      sharedKey ||
+      (item
+        ? `inbox-item:${item.id}`
+        : payload.sourceType && payload.sourceId
+          ? `inbox:${payload.tenantId}:${payload.sourceType}:${payload.sourceId}:${payload.credentialType || ''}`
+          : eventId)
     this.queueWhatsApp({
       tenantId: payload.issuerTenantId,
       to: preference.phone,

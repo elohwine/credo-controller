@@ -9,8 +9,8 @@ import { useRequireOrgContext } from '@/lib/portalContext'
 import { getOrgScopedToken, getPersonalToken, readActiveOrganization } from '@/utils/organizationContext'
 
 const EVENTS: Array<{ id: string; label: string }> = [
-  { id: 'task', label: 'A step is waiting for me' },
-  { id: 'vc_offer', label: 'A record was sent to me' },
+  { id: 'task', label: 'A workflow step is waiting for me' },
+  { id: 'vc_offer', label: 'An invite, staff card or record was sent to me' },
   { id: 'payment_link', label: 'A payment link was sent to me' },
   { id: 'proof_request', label: 'Someone asked me to show a record' },
   { id: 'remittance', label: 'A payment was sent to me' },

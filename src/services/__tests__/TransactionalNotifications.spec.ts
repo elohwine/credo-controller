@@ -427,6 +427,141 @@ describe('durable transactional WhatsApp notifications', () => {
     expect(JSON.parse(outbox.payload).requestId).toBe('request-a')
   })
 
+  it.each([
+    ['workflow_stage_action', 'WorkflowStageAction', 'task'],
+    ['workflow_request_assignment', 'WorkflowRequestApproval', 'task'],
+    ['requisition_stage_action', 'RequisitionStageAction', 'task'],
+    ['ap_workflow_assignment', 'WorkflowActionAssignment', 'task'],
+    ['employee', 'EmployeeCredential', 'vc_offer'],
+    ['org_workflow_actor', 'OrgWorkflowActorCredential', 'vc_offer'],
+    ['manual_direct_offer', 'AnyNewCredentialVC', 'vc_offer'],
+    ['workflow_vc_offer', 'PaymentReceiptVC', 'vc_offer'],
+    ['quote_offer', 'QuoteVC', 'vc_offer'],
+    ['invoice_offer', 'InvoiceVC', 'vc_offer'],
+    ['payment', 'ReceiptVC', 'vc_offer'],
+    ['contact-offer', 'ReceiptVC', 'vc_offer'],
+    ['payment_link', 'PaymentLink', 'payment_link'],
+    ['proof_request', 'ProofRequest', 'proof_request'],
+    ['ap_payment', 'RemittanceAdviceVC', 'remittance'],
+  ])('captures %s cards durably and deduplicates the producer event', async (sourceType, credentialType, eventType) => {
+    consent(eventType)
+    db.exec(readFileSync('migrations/130_wallet_inbox_whatsapp.sql', 'utf8'))
+    db.prepare(
+      `INSERT INTO wallet_pending_offers
+      (id, tenant_id, issuer_tenant_id, source_type, source_id, credential_type, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run('new-card', 'wallet-a', tenant, sourceType, 'source-one', credentialType, new Date().toISOString())
+    const captured = db
+      .prepare("SELECT payload FROM integration_outbox WHERE topic = 'wallet.inbox.whatsapp'")
+      .get() as { payload: string }
+    const payload = JSON.parse(captured.payload)
+    expect(payload).toEqual({
+      tenantId: 'wallet-a',
+      issuerTenantId: tenant,
+      sourceType,
+      sourceId: 'source-one',
+      credentialType,
+      inboxItemId: 'new-card',
+    })
+    const worker = new OutboxService()
+    await worker.processPending('wallet.inbox.whatsapp')
+    service.queueInboxNotification('legacy-event', {
+      tenantId: 'wallet-a',
+      issuerTenantId: tenant,
+      sourceType,
+      sourceId: 'source-one',
+      credentialType,
+    })
+    expect(db.prepare('SELECT event_type, status FROM notification_deliveries').all()).toEqual([
+      { event_type: eventType, status: 'queued' },
+    ])
+    const intentRow = db
+      .prepare("SELECT payload FROM integration_outbox WHERE topic = 'notification.whatsapp'")
+      .get() as { payload: string }
+    expect(JSON.parse(intentRow.payload).inboxItemId).toBe('new-card')
+    expect(db.prepare('SELECT resolved_at FROM wallet_pending_offers').get()).toEqual({ resolved_at: null })
+  })
+
+  it('captures no rolled-back cards, historical cards or duplicate inserts', () => {
+    const insert = db.prepare(
+      `INSERT OR IGNORE INTO wallet_pending_offers
+      (id, tenant_id, issuer_tenant_id, source_type, source_id, credential_type) VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    insert.run('historical', 'wallet-a', tenant, 'employee', 'old', 'EmployeeCredential')
+    db.exec(readFileSync('migrations/130_wallet_inbox_whatsapp.sql', 'utf8'))
+    expect(() =>
+      db.transaction(() => {
+        insert.run('rolled-back', 'wallet-a', tenant, 'employee', 'new', 'EmployeeCredential')
+        throw new Error('rollback')
+      })(),
+    ).toThrow('rollback')
+    expect(db.prepare('SELECT COUNT(*) AS n FROM integration_outbox').get()).toEqual({ n: 0 })
+    insert.run('new', 'wallet-a', tenant, 'employee', 'new', 'EmployeeCredential')
+    insert.run('new', 'wallet-a', tenant, 'employee', 'new', 'EmployeeCredential')
+    expect(db.prepare('SELECT COUNT(*) AS n FROM integration_outbox').get()).toEqual({ n: 1 })
+  })
+
+  it('notifies for renewed cards of the same type and source without merging different credential types', () => {
+    consent('vc_offer')
+    db.exec(readFileSync('migrations/130_wallet_inbox_whatsapp.sql', 'utf8'))
+    for (const [id, credentialType] of [
+      ['staff-v1', 'EmployeeCredential'],
+      ['staff-v2', 'EmployeeCredential'],
+      ['contract', 'EmploymentContractVC'],
+    ]) {
+      db.prepare(
+        `INSERT INTO wallet_pending_offers
+        (id, tenant_id, issuer_tenant_id, source_type, source_id, credential_type) VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(id, 'wallet-a', tenant, 'employee', 'membership', credentialType)
+    }
+    const captured = db.prepare('SELECT id, payload FROM integration_outbox').all() as Array<{
+      id: string
+      payload: string
+    }>
+    for (const row of captured) service.queueInboxNotification(row.id, JSON.parse(row.payload))
+    expect(db.prepare('SELECT COUNT(*) AS n FROM notification_deliveries').get()).toEqual({ n: 3 })
+    const intents = db
+      .prepare("SELECT payload FROM integration_outbox WHERE topic = 'notification.whatsapp'")
+      .all() as Array<{ payload: string }>
+    expect(intents.map((row) => JSON.parse(row.payload).inboxItemId).sort()).toEqual([
+      'contract',
+      'staff-v1',
+      'staff-v2',
+    ])
+  })
+
+  it('does not forward captured inbox cards without the matching recipient opt-in', async () => {
+    consent('task')
+    consent('vc_offer', false)
+    db.exec(readFileSync('migrations/130_wallet_inbox_whatsapp.sql', 'utf8'))
+    db.prepare(
+      `INSERT INTO wallet_pending_offers
+      (id, tenant_id, issuer_tenant_id, source_type, source_id, credential_type) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run('staff', 'wallet-a', tenant, 'employee', 'membership', 'EmployeeCredential')
+    await new OutboxService().processPending('wallet.inbox.whatsapp')
+    expect(db.prepare('SELECT COUNT(*) AS n FROM notification_deliveries').get()).toEqual({ n: 0 })
+  })
+
+  it('replays a crashed inbox fan-out without duplicating WhatsApp or adding an Android event', async () => {
+    consent('vc_offer')
+    db.exec(readFileSync('migrations/130_wallet_inbox_whatsapp.sql', 'utf8'))
+    db.prepare(
+      `INSERT INTO wallet_pending_offers
+      (id, tenant_id, issuer_tenant_id, source_type, source_id, credential_type) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run('staff', 'wallet-a', tenant, 'employee', 'membership', 'EmployeeCredential')
+    const worker = new OutboxService()
+    await worker.processPending('wallet.inbox.whatsapp')
+    db.prepare(
+      "UPDATE integration_outbox SET status = 'processing', lease_until = 1 WHERE topic = 'wallet.inbox.whatsapp'",
+    ).run()
+    await worker.processPending('wallet.inbox.whatsapp')
+    expect(db.prepare('SELECT COUNT(*) AS n FROM notification_deliveries').get()).toEqual({ n: 1 })
+    expect(db.prepare('SELECT topic, status FROM integration_outbox ORDER BY topic').all()).toEqual([
+      { topic: 'notification.whatsapp', status: 'pending' },
+      { topic: 'wallet.inbox.whatsapp', status: 'processed' },
+    ])
+  })
+
   it('links a non-request task to its exact inbox item, not a guessed workflow route', async () => {
     ready()
     db.prepare(

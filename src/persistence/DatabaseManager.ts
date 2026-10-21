@@ -176,6 +176,7 @@ export class DatabaseManager {
       { version: 127, file: '127_organization_entry_proofs.sql', name: 'organization_entry_proofs' },
       { version: 128, file: '128_device_trust.sql', name: 'device_trust' },
       { version: 129, file: '129_job_intake.sql', name: 'job_intake' },
+      { version: 130, file: '130_wallet_inbox_whatsapp.sql', name: 'wallet_inbox_whatsapp' },
     ]
 
     for (const migration of migrationFiles) {

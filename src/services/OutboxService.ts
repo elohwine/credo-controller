@@ -118,7 +118,7 @@ export class OutboxService {
           // Legacy side effects have no provider reconciliation key. Never replay a crashed invocation blindly.
           db.prepare(
             `UPDATE integration_outbox SET status = 'uncertain', error_message = 'Lease expired: reconcile external outcome'
-          WHERE status = 'processing' AND lease_until <= ? AND topic NOT IN ('notification.whatsapp', 'wallet.vc.offered')`,
+          WHERE status = 'processing' AND lease_until <= ? AND topic NOT IN ('notification.whatsapp', 'wallet.vc.offered', 'wallet.inbox.whatsapp')`,
           ).run(now)
           const candidates = db
             .prepare(
@@ -153,6 +153,9 @@ export class OutboxService {
             await notificationService.processWhatsAppIntent(row.id, JSON.parse(row.payload))
           } else if (row.topic === 'workflow.vc.issue') {
             await this.processWorkflowVcIssue(row.id, JSON.parse(row.payload || '{}'))
+          } else if (row.topic === 'wallet.inbox.whatsapp') {
+            const { notificationService } = await import('./NotificationService')
+            notificationService.queueInboxNotification(row.id, JSON.parse(row.payload))
           } else if (row.topic === 'wallet.vc.offered') {
             const { notificationService } = await import('./NotificationService')
             const payload = JSON.parse(row.payload || '{}')

@@ -142,6 +142,22 @@ The **recipient's own authenticated JWT** can:
 - `GET` the same URL to read their preferences.
 
 Supported events: `task`, `vc_offer`, `payment_link`, `proof_request`, `remittance`.
+The **invite, staff card or record** switch (`vc_offer`) covers team/employee
+cards, contact wallet-link invitations and every credential type delivered to
+the wallet inbox, including direct issues, workflow records and receipts.
+The **workflow step** switch (`task`) covers stage actors/delegates, requisition
+steps, workflow request approvals and AP/AR action assignments.
+
+Migration **130** atomically records a `wallet.inbox.whatsapp` outbox intent for
+every newly inserted inbox card with an issuer, even if its producer does not
+publish `wallet.vc.offered`. Both paths deduplicate against the same inbox item;
+renewed staff cards and different credential types remain distinct. Existing
+direct contact/payment/proof sends retain their shared deduplication keys.
+This migration does not backfill old inbox cards or change Android delivery.
+Team invite WhatsApp alerts come from the staff inbox card, not a second
+unscoped free-text send. Contact wallet-link invitations use the same
+consented `vc_offer` delivery rail; their claim tokens are never sent on WhatsApp.
+
 Each preference applies only to WhatsApp for that organization and event.
 The phone must hash to the signed-in person's registered account phone.
 There is no automatic subscription from membership, checkout, an inbound greeting,

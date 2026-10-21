@@ -1711,14 +1711,9 @@ export class OrganizationService {
     const message = accountCreated
       ? `You have been added to ${orgName} as ${roleWords}. Open the app and sign in with this phone number. The first PIN you choose is yours. Your staff card will be waiting.`
       : `You have been added to ${orgName} as ${roleWords}. Open the app to accept your staff card.`
-    const [sms, whatsapp] = await Promise.all([
-      notificationService.sendSms(phone, message).catch(() => ({ success: false, skipped: true })),
-      notificationService.sendWhatsAppText({ to: phone, body: message }).catch(() => ({ skipped: true })),
-    ])
-    return (
-      Boolean(sms && 'success' in sms && sms.success) ||
-      !('skipped' in (whatsapp || {}) && (whatsapp as { skipped?: boolean }).skipped)
-    )
+    // WhatsApp is queued from the staff inbox card, with the recipient's recorded opt-in.
+    const sms = await notificationService.sendSms(phone, message)
+    return sms.success
   }
 
   /**
