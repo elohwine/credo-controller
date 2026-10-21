@@ -24,6 +24,7 @@ export function StageActorTimeline({
   actors,
   people,
   assigneeName,
+  hasAssignee,
   whoDid,
   media,
   links,
@@ -37,6 +38,8 @@ export function StageActorTimeline({
   actors?: JobActorStage[]
   people?: JobStagePerson[]
   assigneeName?: string
+  /** The job has a worker, even if their name is unknown. */
+  hasAssignee?: boolean
   whoDid?: Record<string, string>
   media?: Record<string, StageMediaItem[]>
   links?: Record<string, RelatedWorkLink[]>
@@ -65,9 +68,10 @@ export function StageActorTimeline({
           const actor = actorForStage(actors, stage.stageAction)
           const actual = whoDid?.[stage.key]
           const who = actual || (stage.stageAction
-            ? actorDisplay(actor, { people, stageAction: stage.stageAction, assigneeName })
+            ? actorDisplay(actor, { people, stageAction: stage.stageAction, assigneeName, hasAssignee })
             : undefined)
-          const needsSomeone = !actual && Boolean(stage.stageAction) && actorNeedsAssignment(actor)
+          const needsSomeone =
+            !actual && Boolean(stage.stageAction) && actorNeedsAssignment(actor) && !who?.includes('assigned field worker')
           const items = media?.[stage.key] || []
           return (
             <Timeline.Item

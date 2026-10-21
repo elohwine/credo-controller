@@ -22,7 +22,7 @@ import { workflowReadinessService } from '../src/services/WorkflowReadinessServi
 import { orgSetupProfileService } from '../src/services/OrgSetupProfileService'
 import type { WorkflowActionContext } from '../src/services/workflow/ActionRegistry'
 import { feptStages as portalStages } from '../credo-ui/portal/components/finance/financeStages'
-import { feptStages as mobileStages } from '../credo-ui/mobile/lib/uxCopy'
+import { actorDisplay as mobileActorDisplay, feptStages as mobileStages } from '../credo-ui/mobile/lib/uxCopy'
 import { fieldJobBillingExceptions, clientBillingStages } from '../credo-ui/shared/fieldJobOutcomes'
 import {
   buildJobAuditTrail as portalHistory,
@@ -679,5 +679,28 @@ describe('AR and client delivery are separate facts', () => {
         url: 'http://localhost/pay/test',
       }),
     ).toMatchObject({ accepted: true, channels: expect.arrayContaining([{ channel: 'sms', status: 'accepted' }]) })
+  })
+})
+
+describe('who does each job step (phone)', () => {
+  it('names the assigned worker on worker steps, never "Nobody chosen yet"', () => {
+    expect(mobileActorDisplay(undefined, { stageAction: 'start_job', assigneeName: '263714123456' })).toBe(
+      '263714123456 (assigned field worker)',
+    )
+    expect(mobileActorDisplay(undefined, { stageAction: 'capture_evidence', hasAssignee: true })).toBe(
+      'The assigned field worker',
+    )
+    expect(mobileActorDisplay(undefined, { stageAction: 'capture_evidence' })).toContain('Nobody chosen yet')
+  })
+
+  it('keeps the owner fallback for office steps', () => {
+    const owner = { userId: 'u-owner', role: 'owner', mode: 'owner_fallback' }
+    expect(
+      mobileActorDisplay(owner, {
+        stageAction: 'review_completion',
+        hasAssignee: true,
+        people: [{ userId: 'u-owner', role: 'owner', displayName: 'Eloh' }],
+      }),
+    ).toBe('Eloh · Owner')
   })
 })

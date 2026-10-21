@@ -996,7 +996,7 @@ function jobRoleWords(role?: string): string {
 
 export function actorDisplay(
   actor?: JobStageActor,
-  options: { people?: JobStagePerson[]; stageAction?: string; assigneeName?: string } = {},
+  options: { people?: JobStagePerson[]; stageAction?: string; assigneeName?: string; hasAssignee?: boolean } = {},
 ): string {
   if (options.stageAction === 'inspect_site' && options.assigneeName) {
     return `${options.assigneeName} (assigned field worker)`
@@ -1005,6 +1005,7 @@ export function actorDisplay(
   if ((!actor || actorNeedsAssignment(actor)) && workerStep && options.assigneeName) {
     return `${options.assigneeName} (assigned field worker)`
   }
+  if (!actor && workerStep && options.hasAssignee) return 'The assigned field worker'
   if (!actor) return 'Nobody chosen yet — set under Who does what'
   const person = options.people?.find((item) => item.userId === actor.userId)
   const name = String(person?.displayName || '').trim()

@@ -608,6 +608,9 @@ function JobEvidenceTabs({
                 actors={actors}
                 people={orgMembers}
                 assigneeName={assigneeName}
+                hasAssignee={Boolean(
+                  run?.output?.assignment?.assigneeId || run?.output?.workflowInput?.assigneeId || run?.input?.assigneeId,
+                )}
                 whoDid={whoDidStages(auditTrail)}
                 media={stageMedia(auditTrail)}
                 links={stageRelatedWork(auditTrail)}
@@ -1431,7 +1434,7 @@ function resolveAssigneeSelection(value: string | null | undefined, _ownerUserId
 /** A stored "Organization owner" label is a role, not a person's name. */
 function personName(member: { userId: string; role?: string; displayName?: string; phone?: string }): string {
   const name = String(member.displayName || '').trim()
-  const generic = !name || /^organization owner$/i.test(name)
+  const generic = !name || /^(organization owner|team member)$/i.test(name)
   if (!generic) return name
   if (member.phone) return member.phone
   if (String(member.role || '').toLowerCase() === 'owner') return 'Organization owner'
