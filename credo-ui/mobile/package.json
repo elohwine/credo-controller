@@ -11,6 +11,7 @@
     "cap:sync": "npm run build && npx cap sync android",
     "cap:open": "npx cap open android",
     "android:release": "bash ./build-mobile.sh",
+    "android:sign": "bash ./build-and-sign-apk.sh",
     "native:gen": "npx @capacitor/assets generate android"
   },
   "dependencies": {
