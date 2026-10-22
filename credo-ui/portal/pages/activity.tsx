@@ -48,6 +48,10 @@ export default function ActivityPage() {
             client={client}
             labelStep={(step) => stepRequiredLabel({ stageAction: step })}
             initialEntryId={entry}
+            onEntryClosed={() => {
+              const { entry: _entry, ...rest } = router.query
+              void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true })
+            }}
           />
         )}
       </Container>

@@ -133,3 +133,45 @@ export function formatTxnTime(value?: string | number | Date | null): string {
 export function inboxWhenLabel(iso?: string, _now = Date.now()): string {
   return formatTxnTime(iso)
 }
+
+/** How a finished inbox item ended, as the server reports it. */
+export type InboxFinishedOutcome = 'accepted' | 'approved' | 'rejected' | 'done' | 'dismissed' | 'expired' | 'seen'
+
+const FINISHED_OUTCOME_LINE: Record<InboxFinishedOutcome, string> = {
+  accepted: 'Added to your wallet',
+  approved: 'You approved this',
+  rejected: 'You declined this',
+  done: 'Your step is done',
+  dismissed: 'You removed this',
+  expired: 'This expired before it was used',
+  seen: 'Seen',
+}
+
+/** Card status for a finished item: declined stays red, everything else reads as done. */
+export function finishedItemStatus(outcome?: string): 'approved' | 'rejected' | 'completed' {
+  if (outcome === 'rejected') return 'rejected'
+  if (outcome === 'approved') return 'approved'
+  return 'completed'
+}
+
+/**
+ * One line for a finished item: what the person did, then where the job is now.
+ * `stageLabel` is the readable name of the job's current stage, when there is a job.
+ */
+export function finishedItemLine(input: { outcome?: string; runStatus?: string; runStage?: string; stageLabel?: string }): string {
+  const did = FINISHED_OUTCOME_LINE[input.outcome as InboxFinishedOutcome] || 'Finished'
+  const status = String(input.runStatus || '').toLowerCase()
+  const stage = String(input.runStage || '').toUpperCase()
+  let now = ''
+  if (status === 'completed' || stage === 'COMPLETED') now = 'The job is complete'
+  else if (status === 'cancelled' || stage === 'CANCELLED' || stage === 'REVOKED') now = 'The job was cancelled'
+  else if (status === 'failed') now = 'The job stopped with a problem'
+  else if (input.stageLabel) now = `The job is now at: ${input.stageLabel}`
+  return now ? `${did}. ${now}.` : `${did}.`
+}
+
+/** Shown when the chosen view is empty but finished items are waiting under Done. */
+export function emptyInboxHint(attention: InboxAttentionFilter, doneCount: number): string | null {
+  if (attention === 'done' || attention === 'all' || doneCount <= 0) return null
+  return doneCount === 1 ? '1 finished item is under Done.' : `${doneCount} finished items are under Done.`
+}

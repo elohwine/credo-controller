@@ -177,6 +177,11 @@ export function perItemListsOf(rawPayload: unknown): Set<string> {
  * because being named on the job is what gives them the step. Cards that cannot name claims
  * are not an alternative here; Presentation Exchange remains for wallets that only speak that
  * (`PROOF_REQUEST_QUERY=pex`).
+ *
+ * Whole cards (DelegationCredential, WorkflowRequestApproval) are deliberately not offered as a
+ * `jwt_vc_json` option: the request carries the step and job as transaction data, and Credo 0.7
+ * signs transaction data only with an SD-JWT key binding. A whole-card answer would either fail
+ * or drop that binding.
  */
 export function buildStageProofDcqlQuery(params: {
   acceptedVcTypes: string[]
@@ -226,5 +231,139 @@ export function buildStageProofDcqlQuery(params: {
       },
     ],
     credential_sets: [{ options: [[DCQL_STAFF_CARD_QUERY_ID]], required: true }],
+  }
+}
+
+/** Why this card can answer the step, from what it would reveal. */
+export type ShareBasis = 'step_on_card' | 'named_on_job' | 'role_for_flow' | 'whole_card'
+
+export const SHARE_BASIS_LINES: Record<ShareBasis, string> = {
+  step_on_card: 'Your card lists this step',
+  named_on_job: 'You are the person named on this job',
+  role_for_flow: 'Your role card covers this kind of work',
+  whole_card: 'This card cannot share only some details, so the whole card is shared',
+}
+
+export interface ShareReviewRow {
+  label: string
+  value: string
+}
+
+/** Keys that are bookkeeping on a card, never a detail a person reads. */
+const SHARE_HIDDEN_KEYS = /^(claims|assignmentMode|requestType|stageAction|templateId|fingerprint|offerId|did|jti|id)$/i
+
+function readableWords(value: string): string {
+  return value
+    .replace(/[_.-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .trim()
+    .replace(/^./, (char) => char.toUpperCase())
+}
+
+/** A step key as words: "acknowledge_execution" → "Sign off this job". */
+export function shareStepLabel(step: string): string {
+  const key = String(step || '')
+    .trim()
+    .toLowerCase()
+  return SHARE_STEP_TITLES[key] || readableWords(key)
+}
+
+function looksLikeRawId(value: string): boolean {
+  return (
+    /^did:/i.test(value) ||
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(value) ||
+    /^[0-9a-f]{20,}$/i.test(value)
+  )
+}
+
+function listOf(value: unknown): string[] {
+  const items = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [value]
+  return items.map((item) => String(item ?? '').trim()).filter(Boolean)
+}
+
+/**
+ * What the share screen lists, in words: the details this card would send and the ones that stay
+ * on the phone, plus why this card answers the step. Stored ids are never shown as values; a shared
+ * organisation id reads as the organisation's name, a shared person id as "the person named on
+ * this job".
+ */
+export function shareReviewRows(input: {
+  disclosed: Record<string, unknown>
+  withheld?: Record<string, unknown>
+  selective: boolean
+  orgName?: string
+}): { shared: ShareReviewRow[]; withheld: ShareReviewRow[]; basis: ShareBasis; basisLine: string } {
+  const disclosed = input.disclosed || {}
+  const held = input.withheld || {}
+  const orgName =
+    String(input.orgName || '').trim() ||
+    String(disclosed.orgName || '').trim() ||
+    (disclosed.orgTenantId ? 'Your organisation' : '')
+
+  const rowsFor = (source: Record<string, unknown>, isHeld: boolean): ShareReviewRow[] => {
+    const rows: ShareReviewRow[] = []
+    const seen = new Set<string>()
+    const push = (label: string, value: string) => {
+      const text = value.trim()
+      if (!text) return
+      const stamp = `${label}:${text}`
+      if (seen.has(stamp)) return
+      seen.add(stamp)
+      rows.push({ label, value: text })
+    }
+    for (const [key, raw] of Object.entries(source)) {
+      if (raw == null || raw === '' || SHARE_HIDDEN_KEYS.test(key)) continue
+      if (key === 'orgTenantId' || key === 'targetOrgTenantId') {
+        if (!isHeld) push('Organisation', orgName)
+        continue
+      }
+      if (key === 'orgName') {
+        // Shared through the organisation id already: one row, on the shared side.
+        if (isHeld && disclosed.orgTenantId) continue
+        push('Organisation', String(raw))
+        continue
+      }
+      if (key === 'userId') {
+        if (!isHeld) push('You', 'The person named on this job')
+        continue
+      }
+      if (key === 'stageActions') {
+        const steps = listOf(raw).map(shareStepLabel)
+        if (steps.length === 0) continue
+        push(isHeld ? 'Other steps on your card' : steps.length === 1 ? 'This step' : 'Steps', steps.join(', '))
+        continue
+      }
+      if (key === 'employmentStatus') {
+        push('Status', readableWords(String(raw)))
+        continue
+      }
+      if (key === 'role' || key === 'memberRole') {
+        push('Role', String(raw).replace(/_/g, ' '))
+        continue
+      }
+      if (key === 'workflowType') {
+        push('Kind of work', readableWords(String(raw)))
+        continue
+      }
+      if (/id$/i.test(key)) continue
+      if (typeof raw === 'object' && !Array.isArray(raw)) continue
+      const value = Array.isArray(raw) ? listOf(raw).join(', ') : String(raw).trim()
+      if (!value || looksLikeRawId(value)) continue
+      push(readableWords(key), value)
+    }
+    return rows
+  }
+
+  let basis: ShareBasis
+  if (!input.selective) basis = 'whole_card'
+  else if (disclosed.userId) basis = 'named_on_job'
+  else if (disclosed.workflowType || (disclosed.role && !disclosed.employmentStatus)) basis = 'role_for_flow'
+  else basis = 'step_on_card'
+
+  return {
+    shared: rowsFor(disclosed, false),
+    withheld: input.selective ? rowsFor(held, true) : [],
+    basis,
+    basisLine: SHARE_BASIS_LINES[basis],
   }
 }

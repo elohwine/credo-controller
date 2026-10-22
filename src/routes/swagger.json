@@ -7443,6 +7443,57 @@
         "type": "object",
         "additionalProperties": false
       },
+      "InboxScope": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "string",
+            "enum": [
+              "personal"
+            ]
+          }
+        ]
+      },
+      "InboxPreferences": {
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/InboxScope"
+          },
+          "doneDays": {
+            "type": "number",
+            "format": "double"
+          },
+          "choices": {
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "scope",
+          "doneDays",
+          "choices"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "FinishedOutcome": {
+        "type": "string",
+        "enum": [
+          "accepted",
+          "approved",
+          "rejected",
+          "done",
+          "dismissed",
+          "expired",
+          "seen"
+        ],
+        "description": "How a finished inbox item ended."
+      },
       "PendingOffer": {
         "properties": {
           "id": {
@@ -7496,6 +7547,20 @@
           },
           "claims": {
             "$ref": "#/components/schemas/Record_string.any_"
+          },
+          "resolvedAt": {
+            "type": "string",
+            "description": "Finished items only: when it left the to-do list, and how."
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/FinishedOutcome"
+          },
+          "runStatus": {
+            "type": "string",
+            "description": "The job behind a step, when there is one: where it is now."
+          },
+          "runStage": {
+            "type": "string"
           }
         },
         "required": [
@@ -26149,6 +26214,118 @@
         }
       }
     },
+    "/api/wallet/credentials/inbox-preferences": {
+      "get": {
+        "operationId": "GetInboxPreferences",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxPreferences"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "How long finished items stay under Done for this person, for one inbox.",
+        "tags": [
+          "Wallet-Credentials"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          },
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "operationId": "SetInboxPreferences",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxPreferences"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Credentials"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          },
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "doneDays": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "scope": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "doneDays"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/wallet/credentials/pending-offers": {
       "get": {
         "operationId": "GetPendingOffers",
@@ -26159,6 +26336,10 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "doneSinceDays": {
+                      "type": "number",
+                      "format": "double"
+                    },
                     "offers": {
                       "items": {
                         "$ref": "#/components/schemas/PendingOffer"
@@ -26167,6 +26348,7 @@
                     }
                   },
                   "required": [
+                    "doneSinceDays",
                     "offers"
                   ],
                   "type": "object"
@@ -26199,7 +26381,17 @@
             ]
           }
         ],
-        "parameters": []
+        "parameters": [
+          {
+            "in": "query",
+            "name": "doneSinceDays",
+            "required": false,
+            "schema": {
+              "format": "double",
+              "type": "number"
+            }
+          }
+        ]
       }
     },
     "/api/wallet/credentials/offers/{offerId}": {
@@ -33789,6 +33981,15 @@
           {
             "in": "query",
             "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "includeDoneSinceDays",
             "required": false,
             "schema": {
               "format": "double",

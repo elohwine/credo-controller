@@ -24,7 +24,7 @@ import ErrorAlert from '@/components/shared/ErrorAlert';
 import ReceiptProofField, { receiptProofPayload, type ReceiptProof } from '@/components/shared/ReceiptProofField';
 import api, { safeArray } from '@/lib/api';
 import { formatCredentialType } from '@/lib/format';
-import { SAFETY_HOLD_COPY, fieldStepExplanation, getInboxDisplayDescription, getInboxDisplayTitle, getInboxPrimaryActionLabel, offerReplacement, stepRequiredLabel } from '@/lib/uxCopy';
+import { SAFETY_HOLD_COPY, fieldStepExplanation, getInboxDisplayDescription, getInboxDisplayTitle, getInboxPrimaryActionLabel, offerReplacement, stepRequiredLabel, toFeptStageLabel } from '@/lib/uxCopy';
 import { applyOrgContext, beginTaskContext, endTaskContext, getTaskContext, getActiveOrgId, getWalletToken, getActiveOrgLabel, getOrgRoleClaim, isEmployeeOrgRole, isOrgActionRole, getContextMode, getOrgToken, getPersonalWalletTenantId, getPersonalWalletToken } from '@/lib/auth';
 import { findRunningProofResume, getRunningActions, removeRunningAction, RunningAction, upsertRunningAction } from '@/lib/runningActions';
 import { getOfflineStorageAdapter } from '@/lib/offline/storage';
@@ -48,6 +48,9 @@ import { captureOrganizationSwitchContext } from '../../shared/taskContext';
 import { requestIdFromStageCard } from '../../shared/requestExperience';
 import { requestFamily } from '../../../src/config/requestExperience';
 import {
+  emptyInboxHint,
+  finishedItemLine,
+  finishedItemStatus,
   groupByFlowSection,
   inboxAttention,
   inboxFlowSection,
@@ -1051,6 +1054,9 @@ export default function InboxPage() {
   const [filter, setFilter] = useState<InboxTabKey>(initialTab);
   useEffect(() => { if (router.isReady) setFilter(initialTab); }, [router.isReady, initialTab]);
   const [attention, setAttention] = useState<InboxAttentionFilter>('all');
+  // How long finished items stay under Done. Kept on the server, per person and per inbox.
+  const [doneDays, setDoneDays] = useState<number>(7);
+  const [doneDaysSaving, setDoneDaysSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Background and pull refreshes show in the header; this button spins only when it was tapped.
   const [manualRefresh, setManualRefresh] = useState(false);
@@ -1298,6 +1304,7 @@ export default function InboxPage() {
       let receipts: any[] = [];
       let requisitions: any[] = [];
       let assignedApprovals: any[] = [];
+      let personalDoneDays = 7;
       let inboundOrgRequests: any[] = [];
       let platformOrgRequests: PlatformInboxRequest[] = [];
       let exceptions: any[] = [];
@@ -1318,6 +1325,10 @@ export default function InboxPage() {
           });
           const rows = safeArray(resOffers.data?.offers ?? resOffers.data);
           offers = offers.concat(rows.map((row: any) => ({ ...row, _context: 'personal', _token: holderToken })));
+          if (Number(resOffers.data?.doneSinceDays) > 0) {
+            personalDoneDays = Number(resOffers.data.doneSinceDays);
+            setDoneDays(personalDoneDays);
+          }
         } catch (e) {
           console.warn('Offers fetch failed for holder context', e);
           holderOffersFailed = true;
@@ -1335,7 +1346,7 @@ export default function InboxPage() {
         }
 
         try {
-          const assignedRes = await api.get('/workflow-requests/assigned?status=pending&limit=50', {
+          const assignedRes = await api.get(`/workflow-requests/assigned?status=pending&limit=50&includeDoneSinceDays=${personalDoneDays}`, {
             headers: { Authorization: `Bearer ${holderToken}` },
             // Some deployments may still enforce tenant scope here; avoid
             // triggering global logout on that probe and continue with org inbound.
@@ -1386,6 +1397,7 @@ export default function InboxPage() {
           const orgOffers = await api.get('/api/wallet/credentials/pending-offers?holder=organization', { headers: orgHeaders });
           const rows = safeArray(orgOffers.data?.offers ?? orgOffers.data);
           offers = offers.concat(rows.map((row: any) => ({ ...row, _context: 'org', _token: orgHeaders.Authorization?.slice(7) })));
+          if (Number(orgOffers.data?.doneSinceDays) > 0) setDoneDays(Number(orgOffers.data.doneSinceDays));
         } catch (e) {
           console.warn('Organisation records fetch failed', e);
         }
@@ -1683,7 +1695,7 @@ export default function InboxPage() {
           const requestCopy = getAssignmentRequestUiCopy(requestType);
           const isRequisition = requestType === 'requisition' || requestType.includes('requis');
           const workflowRequestId = String(claim.requestId || o.offerUri || '').replace(/^workflow-request:\/\//, '');
-          const pendingAssignment = assignedApprovals.find((row: any) => row.id === workflowRequestId)
+          const pendingAssignment = assignedApprovals.find((row: any) => row.id === workflowRequestId && String(row.status || 'pending') === 'pending')
             || inboundOrgRequests.find((row: any) => row.id === workflowRequestId);
           if (!pendingAssignment) {
             // Skip stale assignment offers that remain in wallet_pending_offers after the
@@ -2020,10 +2032,89 @@ export default function InboxPage() {
           ownerDisplayName: o.issuerName || undefined,
         }
       };
+      // A job that finished or was cancelled: one update for everyone who had a step on it.
+      const mapJobUpdate = (o: any): InboxItemData => {
+        const claim = o.claims || {};
+        const cancelled = String(claim.outcome || '') === 'cancelled';
+        const seen = o.status === 'resolved';
+        return {
+          id: o.id,
+          title: o.title || (cancelled ? 'Job cancelled' : 'Job complete'),
+          description: o.body || 'Nothing more is needed from you.',
+          module: 'field',
+          flowType: 'SYSTEM' as const,
+          status: seen ? 'completed' as const : 'pending' as const,
+          finished: seen,
+          priority: 'low' as const,
+          createdAt: o.createdAt ?? new Date().toISOString(),
+          actionLabel: 'Got it',
+          itemType: 'workflow' as const,
+          sourceType: 'workflow_update',
+          workflowRunId: normalizeRunId(String(o.workflowRunId || claim.workflowRunId || '')) || undefined,
+          workflowStage: cancelled ? 'CANCELLED' : 'COMPLETED',
+          ownerOrgTenantId: claim.orgTenantId || undefined,
+          ownerDisplayName: claim.orgName || o.issuerName || undefined,
+          authContext: o._context || 'personal',
+          authToken: o._token || holderToken,
+        };
+      };
+
+      // Finished items keep their usual kind, so they sit in the same section, marked done.
+      const mapFinishedOffer = (o: any): InboxItemData | null => {
+        if (o.sourceType === 'workflow_update') return mapJobUpdate(o);
+        if (o.sourceType === 'workflow_request_assignment') {
+          const requestId = String(o.claims?.requestId || o.offerUri || '').replace(/^workflow-request:\/\//, '');
+          // The decided request itself is listed from the approvals feed.
+          if (assignedApprovals.some((row: any) => row.id === requestId)) return null;
+        }
+        let base: InboxItemData | null = null;
+        try {
+          base = mapOffer({ ...o, status: 'pending' }) || null;
+        } catch {
+          base = null;
+        }
+        const stage = String(o.runStage || '').toUpperCase();
+        const line = finishedItemLine({
+          outcome: o.outcome,
+          runStatus: o.runStatus,
+          runStage: stage,
+          stageLabel: stage ? toFeptStageLabel(stage) : undefined,
+        });
+        const fallback: InboxItemData = {
+          id: o.id,
+          title: o.title || formatCredentialType(o.credentialType || 'Update'),
+          description: '',
+          module: o.workflowRunId ? 'field' : 'Request',
+          flowType: 'SYSTEM' as const,
+          status: 'completed' as const,
+          priority: 'low' as const,
+          createdAt: o.createdAt ?? new Date().toISOString(),
+          sourceType: o.sourceType || undefined,
+          workflowRunId: o.workflowRunId || undefined,
+          ownerDisplayName: o.issuerName || undefined,
+          authContext: o._context,
+          authToken: o._token,
+        };
+        const item = base || fallback;
+        return {
+          ...item,
+          status: finishedItemStatus(o.outcome),
+          finished: true,
+          description: line,
+          actionLabel: 'View',
+          createdAt: o.resolvedAt || item.createdAt,
+          workflowStage: stage || item.workflowStage,
+        };
+      };
+
       // Any card that replaces one the person already holds says so, whatever kind it is.
       const mappedOffers: InboxItemData[] = offers
         .map((o: any) => {
-          const item = mapOffer(o);
+          const item = o.status === 'resolved'
+            ? mapFinishedOffer(o)
+            : o.sourceType === 'workflow_update'
+              ? mapJobUpdate(o)
+              : mapOffer(o);
           if (!item) return item;
           const replaces = offerReplacement(o.claims);
           return replaces && !item.replaces ? { ...item, replaces } : item;
@@ -2069,21 +2160,36 @@ export default function InboxPage() {
         const requestType = String(row.requestType || 'workflow');
         const isRequisition = requestType.toLowerCase() === 'requisition';
         const requisitionCopy = isRequisition ? 'Review requisition and approve' : 'Review request and approve';
+        const rowStatus = String(row.status || 'pending').toLowerCase();
+        const decidedStatus = rowStatus === 'approved' || rowStatus === 'rejected'
+          ? rowStatus as 'approved' | 'rejected'
+          : rowStatus === 'fulfilled' || rowStatus === 'cancelled'
+            ? 'completed' as const
+            : undefined;
 
         return {
           id: `approval-${row.id}`,
           title: isRequisition
             ? 'Requisition Approval Request'
             : `Approval Request: ${requestType.replace(/_/g, ' ')}`,
-          description: row.contactName
-            ? `From ${row.contactName}. ${requisitionCopy} as ${row.assigneeRole || 'org approver'} on behalf of your org.`
-            : `${requisitionCopy} as ${row.assigneeRole || 'org approver'} on behalf of your organization.`,
+          description: decidedStatus
+            ? rowStatus === 'approved'
+              ? 'Approved. Nothing more is needed from you.'
+              : rowStatus === 'rejected'
+                ? 'Declined. Nothing more is needed from you.'
+                : rowStatus === 'cancelled'
+                  ? 'This request was cancelled.'
+                  : 'This request is complete.'
+            : row.contactName
+              ? `From ${row.contactName}. ${requisitionCopy} as ${row.assigneeRole || 'org approver'} on behalf of your org.`
+              : `${requisitionCopy} as ${row.assigneeRole || 'org approver'} on behalf of your organization.`,
           module: 'approvals',
           flowType: 'WORKFLOW' as const,
-          status: 'pending' as const,
-          priority: 'high' as const,
+          status: decidedStatus ?? ('pending' as const),
+          finished: Boolean(decidedStatus),
+          priority: decidedStatus ? 'low' as const : 'high' as const,
           createdAt: row.updatedAt ?? row.createdAt ?? new Date().toISOString(),
-          actionLabel: 'Approve',
+          actionLabel: decidedStatus ? 'View' : 'Approve',
           itemType: 'workflow' as const,
           workflowRequestId: row.id,
           workflowRequestType: row.requestType,
@@ -2325,6 +2431,29 @@ export default function InboxPage() {
     }
   };
 
+  const saveDoneDays = async (days: number) => {
+    if (![7, 30, 90].includes(days) || days === doneDays) return;
+    const orgMode = getContextMode() === 'org';
+    const token = orgMode ? getOrgToken() : getWalletToken();
+    if (!token) return;
+    const previous = doneDays;
+    setDoneDays(days);
+    setDoneDaysSaving(true);
+    try {
+      await api.put(
+        '/api/wallet/credentials/inbox-preferences',
+        { scope: orgMode ? (getActiveOrgId() || 'personal') : 'personal', doneDays: days },
+        { headers: { Authorization: 'Bearer ' + token } },
+      );
+      void inboxQuery.refetch();
+    } catch (e) {
+      setDoneDays(previous);
+      notifications.show({ title: 'Not saved', message: 'Could not change how long finished items stay. Try again.', color: 'red' });
+    } finally {
+      setDoneDaysSaving(false);
+    }
+  };
+
   const syncAndFetch = useCallback(async () => {
     await queryClient.refetchQueries({ queryKey: inboxKey, exact: true }).catch(() => undefined);
     await Promise.all([
@@ -2388,6 +2517,17 @@ export default function InboxPage() {
 
   const openInboxItem = useCallback((item: InboxItemData) => {
     if (item.isRead !== true) setReadState(item, true);
+    // A job update needs nothing more: reading it files it under Done, on every device.
+    if (item.sourceType === 'workflow_update' && item.status === 'pending') {
+      const seen = { ...item, status: 'completed' as const, finished: true, isRead: true };
+      setItems((prev) => prev.map((entry) => (entry.id === item.id ? seen : entry)));
+      setSelectedItem(seen);
+      const token = item.authToken || getWalletToken();
+      api.delete(`/api/wallet/credentials/offers/${item.id}`, {
+        headers: token ? { Authorization: 'Bearer ' + token } : undefined,
+      }).catch(() => {/* non-fatal: it is marked seen next time */ });
+      return;
+    }
     setSelectedItem({ ...item, isRead: true });
   }, [setReadState]);
 
@@ -3335,9 +3475,27 @@ export default function InboxPage() {
 
         {error && <ErrorAlert message={error} />}
 
+        {filter !== 'archived' && attention === 'done' && (
+          <Group justify="space-between" align="center" wrap="nowrap" gap="xs">
+            <Text size="xs" c="dimmed">Keep finished items for</Text>
+            <SegmentedControl
+              size="xs"
+              value={String(doneDays)}
+              disabled={doneDaysSaving}
+              onChange={(value) => { void saveDoneDays(Number(value)); }}
+              data={[
+                { value: '7', label: '7 days' },
+                { value: '30', label: '30 days' },
+                { value: '90', label: '90 days' },
+              ]}
+            />
+          </Group>
+        )}
+
         {firstLoad ? (
           <ListSkeleton rows={5} label="Loading your inbox" />
         ) : filteredItems.length === 0 ? (
+          <Stack gap="xs">
           <EmptyState
             icon={<IconInbox size={28} />}
             title={attention === 'new' ? 'Nothing new' : attention === 'opened' ? 'Nothing opened' : attention === 'done' ? 'Nothing finished' : 'All caught up'}
@@ -3347,10 +3505,16 @@ export default function InboxPage() {
                 : attention === 'opened'
                   ? 'Open a new item and it stays here until you finish it.'
                   : attention === 'done'
-                    ? 'Approved, declined, and filed-away items show up here.'
-                    : 'No items in your inbox right now.'
+                    ? `Steps you finished, cards you added and jobs that closed in the last ${doneDays} days show up here.`
+                    : `Nothing is waiting for you. Finished items stay for ${doneDays} days.`
             }
           />
+          {emptyInboxHint(attention, attentionCounts.done) && (
+            <Button variant="light" color="credentis" size="sm" onClick={() => setAttention('done')}>
+              {emptyInboxHint(attention, attentionCounts.done)} Show Done
+            </Button>
+          )}
+          </Stack>
         ) : (
           <Box
             style={{

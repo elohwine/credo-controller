@@ -23,6 +23,7 @@ import {
   type WorkflowRequestType,
   type WorkflowRequestStatus,
 } from '../../persistence/WorkflowRequestRepository'
+import { clampDoneDays } from '../../services/InboxPreferenceService'
 import { OrgWorkflowActorService } from '../../services/OrgWorkflowActorService'
 import { notifyStageDelegates, resolveStageRoute } from '../../services/WorkflowStageInboxService'
 import { outboxService } from '../../services/OutboxService'
@@ -925,6 +926,7 @@ export class WorkflowRequestController extends Controller {
     @Query() status?: WorkflowRequestStatus,
     @Query() requestType?: WorkflowRequestType,
     @Query() limit?: number,
+    @Query() includeDoneSinceDays?: number,
   ): Promise<WorkflowRequestResponse[]> {
     const actor = this.resolveWalletActor(req)
     const requests = workflowRequestRepository
@@ -934,6 +936,21 @@ export class WorkflowRequestController extends Controller {
         limit: limit || 50,
       })
       .filter((request) => this.isRequestActionable(request))
+
+    // Requests this person already decided stay visible under Done for the asked window.
+    if (includeDoneSinceDays !== undefined && includeDoneSinceDays !== null) {
+      const since = Date.now() - clampDoneDays(includeDoneSinceDays) * 24 * 60 * 60 * 1000
+      const shown = new Set(requests.map((r) => r.id))
+      const decided = workflowRequestRepository
+        .listAssignedToApprover(actor, { requestType, limit: 100 })
+        .filter(
+          (r) =>
+            !shown.has(r.id) &&
+            ['approved', 'rejected', 'fulfilled', 'cancelled'].includes(String(r.status)) &&
+            new Date(r.updatedAt).getTime() >= since,
+        )
+      requests.push(...decided)
+    }
 
     return requests.map((r) => {
       const contact = r.contactId ? contactRepository.findById(r.contactId) : undefined

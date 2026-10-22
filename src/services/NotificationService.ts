@@ -174,6 +174,7 @@ export class NotificationService {
         'workflow_request_assignment',
         'requisition_stage_action',
         'ap_workflow_assignment',
+        'workflow_update',
       ].includes(payload.sourceType) ||
       ['WorkflowStageAction', 'WorkflowActionAssignment', 'WorkflowRequestApproval', 'RequisitionStageAction'].includes(
         payload.credentialType,

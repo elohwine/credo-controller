@@ -1671,6 +1671,11 @@ export default function ActivityPage() {
             client={personalActivityClient}
             labelStep={(step) => stepRequiredLabel({ stageAction: step })}
             initialEntryId={typeof router.query.entry === 'string' ? router.query.entry : undefined}
+            sheet="bottom"
+            onEntryClosed={() => {
+              const { entry: _entry, ...rest } = router.query
+              void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true })
+            }}
           />
           <Anchor size="sm" c="dimmed" onClick={() => router.push('/activity?lens=org')} style={{ cursor: 'pointer' }}>
             Payments, receipts and job history →

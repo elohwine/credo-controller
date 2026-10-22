@@ -310,7 +310,23 @@ function prettyClaimValue(key: string, value: string): string {
  * record will reveal; `withheld` are the details that stay on the phone (a selective-disclosure
  * card). A whole card (older record, or a request that cannot name claims) has nothing withheld.
  */
-function splitShareClaims(match: any): { shared: Array<{ label: string; value: string }>; withheld: Array<{ label: string; value: string }> } {
+function splitShareClaims(match: any): { shared: Array<{ label: string; value: string }>; withheld: Array<{ label: string; value: string }>; basisLine?: string; wholeCard: boolean } {
+    const serverRows = (rows: unknown): Array<{ label: string; value: string }> | null =>
+        Array.isArray(rows)
+            ? rows
+                .filter((row: any) => row && typeof row.label === 'string' && typeof row.value === 'string' && row.value.trim())
+                .map((row: any) => ({ label: row.label, value: row.value }))
+            : null;
+    const sharedRows = serverRows(match?.sharedRows);
+    if (sharedRows) {
+        const withheldRows = serverRows(match?.withheldRows) || [];
+        return {
+            shared: sharedRows,
+            withheld: withheldRows,
+            basisLine: typeof match?.basisLine === 'string' && match.basisLine.trim() ? match.basisLine : undefined,
+            wholeCard: match?.basis === 'whole_card' || match?.selective === false,
+        };
+    }
     const toRows = (source: unknown, fallback: Array<[string, string]>, held = false): Array<{ label: string; value: string }> => {
         const entries: Array<[string, unknown]> = source && typeof source === 'object' && !Array.isArray(source)
             ? Object.entries(source as Record<string, unknown>)
@@ -333,7 +349,7 @@ function splitShareClaims(match: any): { shared: Array<{ label: string; value: s
     };
     const shared = toRows(match?.claims, extractCredentialClaims(match).map((row) => [row.label, row.value] as [string, string]));
     const withheld = toRows(match?.withheld, [], true);
-    return { shared, withheld };
+    return { shared, withheld, wholeCard: match?.selective === false || withheld.length === 0 };
 }
 
 function extractCredentialClaims(match: any): Array<{ label: string; value: string }> {
@@ -1207,7 +1223,7 @@ export default function PresentPage() {
                                             const cred = parseCredentialSummary(match);
                                             const selectionRef = resolveCredentialId(match);
                                             const checked = !!selectionRef && selectedCredentials.includes(selectionRef);
-                                            const { shared, withheld } = splitShareClaims(match);
+                                            const { shared, withheld, basisLine, wholeCard } = splitShareClaims(match);
                                             return (
                                                 <Paper key={idx} p="md" radius="md" withBorder>
                                                     <Group gap="sm" wrap="nowrap" align="flex-start">
@@ -1234,6 +1250,12 @@ export default function PresentPage() {
                                                         <Box style={{ flex: 1 }}>
                                                             <Text fw={600} size="sm" lineClamp={1}>{formatType(cred.type) || 'Record'}</Text>
                                                             <Text size="xs" c="dimmed">From: {cred.issuer}</Text>
+                                                            {basisLine ? (
+                                                                <Text size="xs" mt={6}>{basisLine}</Text>
+                                                            ) : null}
+                                                            {wholeCard && shared.length > 0 ? (
+                                                                <Badge color="orange" variant="light" size="xs" mt={6}>Whole card is shared</Badge>
+                                                            ) : null}
                                                             <Text size="xs" fw={700} mt={8}>Shared</Text>
                                                             <Stack gap={2} mt={2}>
                                                                 {shared.length > 0 ? shared.map((claim) => (
@@ -1255,8 +1277,8 @@ export default function PresentPage() {
                                                                         ))}
                                                                     </Stack>
                                                                 </>
-                                                            ) : shared.length > 0 ? (
-                                                                <Text size="xs" c="dimmed" mt={6}>The whole record is shared.</Text>
+                                                            ) : shared.length > 0 && wholeCard && !basisLine ? (
+                                                                <Text size="xs" c="dimmed" mt={6}>This card cannot share part of itself, so every detail above is sent.</Text>
                                                             ) : null}
                                                         </Box>
                                                         <Badge color="green" size="xs">Ready</Badge>

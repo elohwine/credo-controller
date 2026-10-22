@@ -12,7 +12,7 @@ import type { Request as ExRequest } from 'express'
 
 import { Agent, SdJwtVcRecord, W3cCredentialRecord, W3cCredentialService } from '@credo-ts/core'
 import { randomUUID } from 'crypto'
-import { Controller, Post, Get, Delete, Route, Tags, Body, Path, Request, Security, ValidateError } from 'tsoa'
+import { Controller, Post, Get, Put, Delete, Route, Tags, Body, Path, Query, Request, Security, ValidateError } from 'tsoa'
 import { container } from 'tsyringe'
 
 import { EMPLOYEE_OFFER_SOURCE_TYPE } from '../../config/credentials/EmployeeVC'
@@ -22,6 +22,13 @@ import { PLATFORM_IDENTITY_OFFER_SOURCE_TYPE } from '../../services/OrgMembershi
 import { AuthContext, SCOPES } from '../../enums'
 import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
+import {
+  clampDoneDays,
+  finishedOutcome,
+  inboxPreferenceService,
+  type FinishedOutcome,
+  type InboxPreferences,
+} from '../../services/InboxPreferenceService'
 import { outboxService } from '../../services/OutboxService'
 import { custodyRebindService } from '../../services/ssi/CustodyRebindService'
 import { cardIssuerOf, holderActivityService } from '../../services/ssi/HolderActivityService'
@@ -49,7 +56,22 @@ interface PendingOffer {
   title?: string
   body?: string
   claims?: Record<string, any>
+  /** Finished items only: when it left the to-do list, and how. */
+  resolvedAt?: string
+  outcome?: FinishedOutcome
+  /** The job behind a step, when there is one: where it is now. */
+  runStatus?: string
+  runStage?: string
 }
+
+/** Cleanup reasons that are bookkeeping, not something the person did: never shown under Done. */
+const HIDDEN_FINISH_REASONS = [
+  'retired:%',
+  'auto-resolved: superseded%',
+  'expired: re-sent%',
+  'resolved: identity credential already%',
+  'resolved: actor credential already%',
+]
 
 interface PendingReceipt {
   receiptRowId: string
@@ -419,6 +441,106 @@ export class WalletCredentialsController extends Controller {
     }
   }
 
+  /** Items resolved within the last `days` days, newest first, one per source. */
+  private finishedOffers(tenantId: string, days: number): PendingOffer[] {
+    const db = DatabaseManager.getDatabase()
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+    const rows = db
+      .prepare(
+        `
+        SELECT w.id, w.source_type, w.source_id, w.credential_type, w.offer_uri, w.title, w.body, w.metadata,
+               w.created_at, w.workflow_run_id, w.accepted_at, w.resolved_at, w.last_error,
+               o.name AS org_name, wr.status AS request_status,
+               run.status AS run_status,
+               CASE WHEN json_valid(run.output) THEN json_extract(run.output, '$.workflowStage') END AS run_stage
+        FROM wallet_pending_offers w
+        LEFT JOIN organizations o ON o.tenant_id = w.issuer_tenant_id
+        LEFT JOIN workflow_requests wr ON w.source_type = 'workflow_request_assignment' AND wr.id = w.source_id
+        LEFT JOIN workflow_runs run ON run.id = w.workflow_run_id
+        WHERE w.tenant_id = ?
+          AND w.resolved_at IS NOT NULL
+          AND julianday(w.resolved_at) >= julianday(?)
+          ${HIDDEN_FINISH_REASONS.map(() => "AND COALESCE(w.last_error, '') NOT LIKE ?").join('\n          ')}
+        ORDER BY julianday(w.resolved_at) DESC
+        LIMIT 200
+      `,
+      )
+      .all(tenantId, since, ...HIDDEN_FINISH_REASONS) as Array<Record<string, any>>
+
+    const seen = new Set<string>()
+    const out: PendingOffer[] = []
+    for (const row of rows) {
+      const key = `${row.source_type || ''}|${row.source_id || row.id}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const claims = parseJson(row.metadata)
+      const sourceType = String(row.source_type || '')
+      out.push({
+        id: row.id,
+        sourceId: row.source_id || undefined,
+        issuerName: claims.orgName ? String(claims.orgName) : row.org_name || 'Organization',
+        credentialType: row.credential_type || 'VerifiableCredential',
+        offerUri: row.offer_uri || '',
+        createdAt: row.created_at || undefined,
+        sourceType: sourceType || undefined,
+        workflowRunId: row.workflow_run_id || undefined,
+        status: 'resolved',
+        attemptCount: 0,
+        title: row.title || undefined,
+        body: row.body || undefined,
+        claims,
+        resolvedAt: row.resolved_at || undefined,
+        outcome: finishedOutcome({
+          sourceType,
+          lastError: row.last_error,
+          acceptedAt: row.accepted_at,
+          requestStatus: row.request_status,
+        }),
+        runStatus: row.run_status || undefined,
+        runStage: row.run_stage ? String(row.run_stage).toUpperCase() : undefined,
+      })
+    }
+    return out
+  }
+
+  /** How long finished items stay under Done for this person, for one inbox. */
+  @Get('/inbox-preferences')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
+  @Security('jwt', ['wallet'])
+  public async getInboxPreferences(
+    @Request() request: ExRequest,
+    @Query() scope?: string,
+  ): Promise<InboxPreferences> {
+    const { ownerTenantId, inboxScope } = this.inboxPreferenceTarget(request, scope)
+    return inboxPreferenceService.get(ownerTenantId, inboxScope)
+  }
+
+  @Put('/inbox-preferences')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
+  @Security('jwt', ['wallet'])
+  public async setInboxPreferences(
+    @Request() request: ExRequest,
+    @Body() body: { scope?: string; doneDays: number },
+  ): Promise<InboxPreferences> {
+    const { ownerTenantId, inboxScope } = this.inboxPreferenceTarget(request, body?.scope)
+    try {
+      return inboxPreferenceService.set(ownerTenantId, inboxScope, Number(body?.doneDays))
+    } catch (error: any) {
+      throw new StatusException(error?.message || 'Invalid inbox preference', 400)
+    }
+  }
+
+  /** The person's own wallet owns the setting. An organisation inbox needs a sign-in to that organisation. */
+  private inboxPreferenceTarget(request: ExRequest, scope?: string): { ownerTenantId: string; inboxScope: string } {
+    const context = this.resolveWalletContext(request)
+    if (!context.walletTenantId) throw new StatusException('Unauthorized', 401)
+    const wanted = String(scope || 'personal').trim() || 'personal'
+    if (wanted !== 'personal' && wanted !== context.activeOrgTenantId) {
+      throw new StatusException('Sign in to that organisation to change its inbox', 403)
+    }
+    return { ownerTenantId: context.walletTenantId, inboxScope: wanted }
+  }
+
   private markOfferResolved(rowId: string, reason: string): void {
     const db = DatabaseManager.getDatabase()
     const now = new Date().toISOString()
@@ -440,7 +562,10 @@ export class WalletCredentialsController extends Controller {
   @Get('/pending-offers')
   @Security('jwt', [SCOPES.TENANT_AGENT])
   @Security('jwt', ['wallet'])
-  public async getPendingOffers(@Request() request: ExRequest): Promise<{ offers: PendingOffer[] }> {
+  public async getPendingOffers(
+    @Request() request: ExRequest,
+    @Query() doneSinceDays?: number,
+  ): Promise<{ offers: PendingOffer[]; doneSinceDays: number }> {
     const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
     const context = this.resolveWalletContext(request)
     // `?holder=organization` with an organisation sign-in reads the organisation's own records
@@ -449,7 +574,7 @@ export class WalletCredentialsController extends Controller {
     if (wantsOrgHolder) {
       // Only the people who run the organisation hold its records.
       if (context.authContext !== AuthContext.Org || !['owner', 'admin'].includes(String(context.orgRole || ''))) {
-        return { offers: [] }
+        return { offers: [], doneSinceDays: clampDoneDays(doneSinceDays) }
       }
     }
     const tenantId = wantsOrgHolder ? context.activeOrgTenantId : context.walletTenantId
@@ -813,7 +938,20 @@ export class WalletCredentialsController extends Controller {
         request.logger?.warn({ err: stageErr?.message }, 'workflow stage cards unavailable')
       }
 
-      return { offers }
+      // Finished items stay under Done for the person's chosen window, so a step or card that
+      // was dealt with does not just vanish.
+      const scope = wantsOrgHolder && context.activeOrgTenantId ? context.activeOrgTenantId : 'personal'
+      const windowDays =
+        doneSinceDays === undefined || doneSinceDays === null
+          ? inboxPreferenceService.get(context.walletTenantId || tenantId, scope).doneDays
+          : clampDoneDays(doneSinceDays)
+      try {
+        offers.push(...this.finishedOffers(tenantId, windowDays))
+      } catch (finishedErr: any) {
+        request.logger?.warn({ err: finishedErr?.message }, 'finished inbox items unavailable')
+      }
+
+      return { offers, doneSinceDays: windowDays }
     } catch (error: any) {
       request.logger?.error({ err: error.message }, 'Failed to get pending offers')
       throw error

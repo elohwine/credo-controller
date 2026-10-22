@@ -47,6 +47,7 @@ import {
   transactionDataSigners,
   type DcqlWalletCandidate,
 } from '../../services/ssi/StageProofService'
+import { shareReviewRows } from '../../services/ssi/stageProofQuery'
 import { issuerMetadataCache } from '../../utils/issuerMetadataCache'
 import { canReadOrganisationRecords } from '../../services/ssi/organisationRecordsAccess'
 
@@ -79,6 +80,20 @@ function issuerNameForHeldCard(walletTenantId: string, record: any, claims: Reco
       )
       .get(walletTenantId, reference) as { orgName?: string } | undefined
     return row?.orgName ? String(row.orgName) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** The organisation's name for the share screen, never its id. */
+function organisationNameOf(orgTenantId: unknown): string | undefined {
+  const id = String(orgTenantId || '').trim()
+  if (!id) return undefined
+  try {
+    const row = DatabaseManager.getDatabase()
+      .prepare('SELECT name FROM organizations WHERE tenant_id = ? LIMIT 1')
+      .get(id) as { name?: string } | undefined
+    return row?.name ? String(row.name) : undefined
   } catch {
     return undefined
   }
@@ -1402,12 +1417,23 @@ export class WalletController extends Controller {
             seen.add(id)
             const shared = reviewDetails({ type: candidate.types, credentialSubject: candidate.disclosed })
             const withheld = reviewDetails({ type: candidate.types, credentialSubject: candidate.withheld })
+            const selective = candidate.claimFormat.includes('sd-jwt')
+            const rows = shareReviewRows({
+              disclosed: candidate.disclosed,
+              withheld: candidate.withheld,
+              selective,
+              orgName: organisationNameOf(candidate.orgTenantId),
+            })
             matched.push({
               id,
               type: shared.type || candidate.types[0],
               claims: shared.claims,
               withheld: withheld.claims,
-              selective: candidate.claimFormat.includes('sd-jwt'),
+              sharedRows: rows.shared,
+              withheldRows: rows.withheld,
+              basis: rows.basis,
+              basisLine: rows.basisLine,
+              selective,
               parsedDocument: null,
               disclosures: null,
               ...(purpose ? { purpose } : {}),
@@ -1476,7 +1502,22 @@ export class WalletController extends Controller {
         }
 
         // Presentation Exchange shares the whole card: nothing is withheld.
-        return matchedCredentials.map((item) => ({ ...item, withheld: {}, selective: false }))
+        return matchedCredentials.map((item) => {
+          const rows = shareReviewRows({
+            disclosed: item.claims || {},
+            selective: false,
+            orgName: organisationNameOf(item.claims?.orgTenantId),
+          })
+          return {
+            ...item,
+            withheld: {},
+            sharedRows: rows.shared,
+            withheldRows: [],
+            basis: rows.basis,
+            basisLine: rows.basisLine,
+            selective: false,
+          }
+        })
       } catch (error: any) {
         request.logger?.error({ error: error.message, walletId }, 'PEX credential matching failed')
         return []

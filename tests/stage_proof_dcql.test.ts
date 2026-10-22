@@ -5,6 +5,7 @@ import {
   buildStageProofDcqlQuery,
   perItemListsOf,
   sharePurposeFromBinding,
+  shareReviewRows,
   splitSdJwtShare,
   wantedListItems,
 } from '../src/services/ssi/stageProofQuery'
@@ -113,3 +114,89 @@ describe('step-specific disclosure', () => {
     expect(split.presentPayload.stageActions).toEqual(all.stageActions)
   })
 })
+
+describe('what each step asks each card for', () => {
+  const query = buildStageProofDcqlQuery({
+    acceptedVcTypes: ['EmployeeCredential', 'OrgWorkflowActorCredential', 'DelegationCredential', 'WorkflowRequestApproval'],
+    orgTenantId: 'org-1',
+    stageAction: 'acknowledge_execution',
+    namedUserId: 'user-7',
+  })
+  const card = query?.credentials[0]
+  const pathsOf = (set: string[]) =>
+    set.map((id) => card.claims.find((claim: { id: string }) => claim.id === id).path[0]).sort()
+
+  test('every claim set reveals only the organisation plus what gives the step', () => {
+    expect(card.claim_sets.map(pathsOf)).toEqual([
+      ['employmentStatus', 'orgTenantId', 'stageActions'],
+      ['orgTenantId', 'role', 'stageActions', 'workflowType'],
+      ['orgTenantId', 'role', 'stageActions'],
+      ['employmentStatus', 'orgTenantId', 'userId'],
+    ])
+  })
+
+  test('whole cards are not offered, because only SD-JWT can sign the job binding', () => {
+    expect(query?.credentials).toHaveLength(1)
+    expect(card.format).toBe('dc+sd-jwt')
+    expect(card.meta.vct_values).toEqual(['EmployeeCredential', 'OrgWorkflowActorCredential'])
+  })
+})
+
+describe('share screen rows', () => {
+  test('a staff card shares the organisation by name, the step, and the status', () => {
+    const rows = shareReviewRows({
+      disclosed: { orgTenantId: 'org-1', employmentStatus: 'active', stageActions: ['acknowledge_execution'] },
+      withheld: { orgName: 'Demo Org', role: 'site_manager', userId: 'user-7', stageActions: ['trigger_payout'] },
+      selective: true,
+      orgName: 'Demo Org',
+    })
+    expect(rows.shared).toEqual([
+      { label: 'Organisation', value: 'Demo Org' },
+      { label: 'Status', value: 'Active' },
+      { label: 'This step', value: 'Sign off this job' },
+    ])
+    // The organisation is already shared; its name is not listed as kept back.
+    expect(rows.withheld).toEqual([
+      { label: 'Role', value: 'site manager' },
+      { label: 'Other steps on your card', value: 'Release worker payout' },
+    ])
+    expect(rows.basis).toBe('step_on_card')
+  })
+
+  test('the person named on the job is told so, never shown their id', () => {
+    const rows = shareReviewRows({
+      disclosed: { orgTenantId: 'org-1', employmentStatus: 'active', userId: 'user-7' },
+      withheld: {},
+      selective: true,
+    })
+    expect(rows.shared).toContainEqual({ label: 'You', value: 'The person named on this job' })
+    expect(rows.shared).toContainEqual({ label: 'Organisation', value: 'Your organisation' })
+    expect(JSON.stringify(rows)).not.toContain('user-7')
+    expect(rows.basis).toBe('named_on_job')
+  })
+
+  test('a role card says its role covers this kind of work', () => {
+    const rows = shareReviewRows({
+      disclosed: { orgTenantId: 'org-1', role: 'finance', workflowType: 'field_execution_fept', stageActions: ['trigger_payout'] },
+      selective: true,
+      orgName: 'Demo Org',
+    })
+    expect(rows.basis).toBe('role_for_flow')
+    expect(rows.shared).toContainEqual({ label: 'Kind of work', value: 'Field execution fept' })
+  })
+
+  test('a whole card lists everything as shared and nothing as kept back', () => {
+    const rows = shareReviewRows({
+      disclosed: { delegatorName: 'Ann', scope: 'approve_request', holderDid: 'did:key:z6Mk' },
+      withheld: { anything: 'x' },
+      selective: false,
+    })
+    expect(rows.basis).toBe('whole_card')
+    expect(rows.withheld).toEqual([])
+    expect(rows.shared).toEqual([
+      { label: 'Delegator Name', value: 'Ann' },
+      { label: 'Scope', value: 'approve_request' },
+    ])
+  })
+})
+

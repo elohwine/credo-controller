@@ -2705,6 +2705,26 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "InboxScope": {
+        "dataType": "refAlias",
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["personal"]},{"dataType":"string"}],"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "InboxPreferences": {
+        "dataType": "refObject",
+        "properties": {
+            "scope": {"ref":"InboxScope","required":true},
+            "doneDays": {"dataType":"double","required":true},
+            "choices": {"dataType":"array","array":{"dataType":"double"},"required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "FinishedOutcome": {
+        "dataType": "refAlias",
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["accepted"]},{"dataType":"enum","enums":["approved"]},{"dataType":"enum","enums":["rejected"]},{"dataType":"enum","enums":["done"]},{"dataType":"enum","enums":["dismissed"]},{"dataType":"enum","enums":["expired"]},{"dataType":"enum","enums":["seen"]}],"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "PendingOffer": {
         "dataType": "refObject",
         "properties": {
@@ -2723,6 +2743,10 @@ const models: TsoaRoute.Models = {
             "title": {"dataType":"string"},
             "body": {"dataType":"string"},
             "claims": {"ref":"Record_string.any_"},
+            "resolvedAt": {"dataType":"string"},
+            "outcome": {"ref":"FinishedOutcome"},
+            "runStatus": {"dataType":"string"},
+            "runStage": {"dataType":"string"},
         },
         "additionalProperties": false,
     },
@@ -13286,8 +13310,83 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletCredentialsController_getInboxPreferences: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                scope: {"in":"query","name":"scope","dataType":"string"},
+        };
+        app.get('/api/wallet/credentials/inbox-preferences',
+            authenticateMiddleware([{"jwt":["tenant"]},{"jwt":["wallet"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WalletCredentialsController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletCredentialsController.prototype.getInboxPreferences)),
+
+            async function WalletCredentialsController_getInboxPreferences(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletCredentialsController_getInboxPreferences, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletCredentialsController>(WalletCredentialsController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'getInboxPreferences',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletCredentialsController_setInboxPreferences: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"doneDays":{"dataType":"double","required":true},"scope":{"dataType":"string"}}},
+        };
+        app.put('/api/wallet/credentials/inbox-preferences',
+            authenticateMiddleware([{"jwt":["tenant"]},{"jwt":["wallet"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WalletCredentialsController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletCredentialsController.prototype.setInboxPreferences)),
+
+            async function WalletCredentialsController_setInboxPreferences(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletCredentialsController_setInboxPreferences, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletCredentialsController>(WalletCredentialsController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'setInboxPreferences',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsWalletCredentialsController_getPendingOffers: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                doneSinceDays: {"in":"query","name":"doneSinceDays","dataType":"double"},
         };
         app.get('/api/wallet/credentials/pending-offers',
             authenticateMiddleware([{"jwt":["tenant"]},{"jwt":["wallet"]}]),
@@ -18495,6 +18594,7 @@ export function RegisterRoutes(app: Router) {
                 status: {"in":"query","name":"status","ref":"WorkflowRequestStatus"},
                 requestType: {"in":"query","name":"requestType","ref":"WorkflowRequestType"},
                 limit: {"in":"query","name":"limit","dataType":"double"},
+                includeDoneSinceDays: {"in":"query","name":"includeDoneSinceDays","dataType":"double"},
         };
         app.get('/workflow-requests/assigned',
             authenticateMiddleware([{"jwt":["wallet"]}]),

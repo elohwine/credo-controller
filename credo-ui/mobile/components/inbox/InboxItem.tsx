@@ -93,11 +93,14 @@ export interface InboxItemData {
   ownerLogoUrl?: string;
   assignmentRole?: string;
   isRead?: boolean;
+  /** Finished within the Done window: shown as a record, never filed away as expired. */
+  finished?: boolean;
   /** Set when this card replaces one the person already holds; shown as a badge plus the reason. */
   replaces?: OfferReplacementNote;
 }
 
 export function isExpiredItem(item: InboxItemData): boolean {
+  if (item.finished) return false;
   if (item.itemType === 'workflow') return false;
   if (item.itemType === 'payment_link' || item.itemType === 'invoice_offer') {
     return item.expiresAt ? dayjs(item.expiresAt).isBefore(dayjs()) : false;

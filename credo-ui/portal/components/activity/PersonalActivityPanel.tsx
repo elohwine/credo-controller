@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Badge,
   Box,
   Button,
   Card,
+  Drawer,
   Group,
   Loader,
   Modal,
@@ -62,6 +63,10 @@ export interface PersonalActivityPanelProps {
   initialEntryId?: string
   /** Fewer rows and no partner section (Home strip embedding). */
   compact?: boolean
+  /** Called when the detail opened from `initialEntryId` is closed, so the caller can drop it from the URL. */
+  onEntryClosed?: () => void
+  /** `bottom` slides the detail up from the bottom (phone); `center` is a popup (website). */
+  sheet?: 'bottom' | 'center'
 }
 
 const PAGE_SIZE = 30
@@ -87,7 +92,14 @@ function KindIcon({ entry }: { entry: HolderActivityEntry }) {
   )
 }
 
-export default function PersonalActivityPanel({ client, labelStep, initialEntryId, compact = false }: PersonalActivityPanelProps) {
+export default function PersonalActivityPanel({
+  client,
+  labelStep,
+  initialEntryId,
+  compact = false,
+  onEntryClosed,
+  sheet = 'center',
+}: PersonalActivityPanelProps) {
   const copy = useMemo<HolderActivityCopy>(() => ({ labelStep }), [labelStep])
   const [partners, setPartners] = useState<HolderActivityPartner[]>([])
   const [items, setItems] = useState<HolderActivityEntry[]>([])
@@ -100,6 +112,8 @@ export default function PersonalActivityPanel({ client, labelStep, initialEntryI
   const [orgFilter, setOrgFilter] = useState<string | null>(null)
   const [view, setView] = useState<'timeline' | 'table'>('timeline')
   const [open, setOpen] = useState<HolderActivityEntry | null>(null)
+  // The linked row opens once. Without this, closing it re-opened it from the link straight away.
+  const openedFromLink = useRef<string | null>(null)
   const [exporting, setExporting] = useState(false)
 
   const load = useCallback(
@@ -145,10 +159,18 @@ export default function PersonalActivityPanel({ client, labelStep, initialEntryI
 
   // A Home strip tap names one row: open it once the first page is in.
   useEffect(() => {
-    if (!initialEntryId || open) return
+    if (!initialEntryId || openedFromLink.current === initialEntryId) return
     const found = items.find((entry) => entry.id === initialEntryId)
-    if (found) setOpen(found)
-  }, [initialEntryId, items, open])
+    if (!found) return
+    openedFromLink.current = initialEntryId
+    setOpen(found)
+  }, [initialEntryId, items])
+
+  const closeDetail = () => {
+    const fromLink = Boolean(open && initialEntryId && open.id === initialEntryId)
+    setOpen(null)
+    if (fromLink) onEntryClosed?.()
+  }
 
   const exportCsv = async () => {
     setExporting(true)
@@ -175,6 +197,52 @@ export default function PersonalActivityPanel({ client, labelStep, initialEntryI
   }
 
   const detail = open ? describeHolderActivity(open, copy) : null
+  const detailBody = (
+    <>
+      {open && detail && (
+        <Stack gap="sm">
+          <Group gap="xs">
+            <Badge color={detail.color} variant="light">{detail.outcomeLabel}</Badge>
+            <Text size="xs" c="dimmed">{when(open.occurredAt)}</Text>
+          </Group>
+          <DetailRow label="Organisation" value={open.orgName || 'Unknown'} />
+          {holderActivityPurpose(open, copy) && <DetailRow label="Step and job" value={holderActivityPurpose(open, copy)} />}
+          {open.requestedTypes.length > 0 && (
+            <DetailRow
+              label={open.kind.startsWith('card') ? 'Card' : 'Cards asked for'}
+              value={Array.from(new Set(open.requestedTypes.map(holderCardName))).join(', ')}
+            />
+          )}
+          {open.requestedClaims.length > 0 && (
+            <DetailRow
+              label={open.kind.startsWith('card') ? 'What the card says' : 'Details asked for'}
+              value={holderClaimLabels(open.requestedClaims).join(', ')}
+            />
+          )}
+          {!open.kind.startsWith('card') && open.kind !== 'share_declined' && (
+            <DetailRow
+              label="What you shared"
+              value={
+                open.sharedClaims.length
+                  ? holderClaimLabels(open.sharedClaims).join(', ')
+                  : open.requestedClaims.length
+                    ? 'Only that the card is valid'
+                    : 'Not written down for this older share'
+              }
+            />
+          )}
+          {open.withheldClaims.length > 0 && (
+            <DetailRow label="Stayed on your phone" value={holderClaimLabels(open.withheldClaims).join(', ')} />
+          )}
+          {open.signedLine && <DetailRow label="Signed line" value={open.signedLine} />}
+          {open.reason && <DetailRow label={open.kind === 'share_refused' ? 'Why it was not accepted' : 'Note'} value={open.reason} />}
+          {(open.reference || open.requestId) && (
+            <DetailRow label="Reference" value={open.reference || open.requestId || ''} mono />
+          )}
+        </Stack>
+      )}
+    </>
+  )
   const orgName = (id: string | null) => partners.find((partner) => partner.orgTenantId === id)?.orgName || ''
 
   return (
@@ -382,50 +450,27 @@ export default function PersonalActivityPanel({ client, labelStep, initialEntryI
         )}
       </Card>
 
-      <Modal opened={Boolean(open)} onClose={() => setOpen(null)} title={detail?.title || 'Activity'} size="md" centered>
-        {open && detail && (
-          <Stack gap="sm">
-            <Group gap="xs">
-              <Badge color={detail.color} variant="light">{detail.outcomeLabel}</Badge>
-              <Text size="xs" c="dimmed">{when(open.occurredAt)}</Text>
-            </Group>
-            <DetailRow label="Organisation" value={open.orgName || 'Unknown'} />
-            {holderActivityPurpose(open, copy) && <DetailRow label="Step and job" value={holderActivityPurpose(open, copy)} />}
-            {open.requestedTypes.length > 0 && (
-              <DetailRow
-                label={open.kind.startsWith('card') ? 'Card' : 'Cards asked for'}
-                value={Array.from(new Set(open.requestedTypes.map(holderCardName))).join(', ')}
-              />
-            )}
-            {open.requestedClaims.length > 0 && (
-              <DetailRow
-                label={open.kind.startsWith('card') ? 'What the card says' : 'Details asked for'}
-                value={holderClaimLabels(open.requestedClaims).join(', ')}
-              />
-            )}
-            {!open.kind.startsWith('card') && open.kind !== 'share_declined' && (
-              <DetailRow
-                label="What you shared"
-                value={
-                  open.sharedClaims.length
-                    ? holderClaimLabels(open.sharedClaims).join(', ')
-                    : open.requestedClaims.length
-                      ? 'Only that the card is valid'
-                      : 'Not written down for this older share'
-                }
-              />
-            )}
-            {open.withheldClaims.length > 0 && (
-              <DetailRow label="Stayed on your phone" value={holderClaimLabels(open.withheldClaims).join(', ')} />
-            )}
-            {open.signedLine && <DetailRow label="Signed line" value={open.signedLine} />}
-            {open.reason && <DetailRow label={open.kind === 'share_refused' ? 'Why it was not accepted' : 'Note'} value={open.reason} />}
-            {(open.reference || open.requestId) && (
-              <DetailRow label="Reference" value={open.reference || open.requestId || ''} mono />
-            )}
-          </Stack>
-        )}
-      </Modal>
+      {sheet === 'bottom' ? (
+        <Drawer
+          opened={Boolean(open)}
+          onClose={closeDetail}
+          position="bottom"
+          size="auto"
+          title={detail?.title || 'Activity'}
+          radius="lg"
+          overlayProps={{ backgroundOpacity: 0.6, blur: 2 }}
+          styles={{ content: { maxHeight: '85svh' }, body: { paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' } }}
+        >
+          {detailBody}
+          <Button fullWidth variant="default" mt="md" onClick={closeDetail}>
+            Close
+          </Button>
+        </Drawer>
+      ) : (
+        <Modal opened={Boolean(open)} onClose={closeDetail} title={detail?.title || 'Activity'} size="md" centered>
+          {detailBody}
+        </Modal>
+      )}
     </Stack>
   )
 }

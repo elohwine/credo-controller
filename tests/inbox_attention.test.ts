@@ -1,6 +1,9 @@
 import { describe, expect, test } from '@jest/globals'
 
 import {
+  emptyInboxHint,
+  finishedItemLine,
+  finishedItemStatus,
   formatTxnTime,
   groupByFlowSection,
   inboxAttention,
@@ -85,5 +88,29 @@ describe('inbox attention', () => {
     expect(formatTxnTime('2026-10-12')).toBe('12 Oct 2026')
     expect(formatTxnTime('2026-10-11 13:02:07')).toBe(formatTxnTime('2026-10-11T13:02:07'))
     expect(formatTxnTime('')).toBe('')
+  })
+})
+
+describe('finished inbox items', () => {
+  test('say what the person did and where the job is now', () => {
+    expect(finishedItemLine({ outcome: 'done', runStatus: 'running', stageLabel: 'Payment sent' })).toBe(
+      'Your step is done. The job is now at: Payment sent.',
+    )
+    expect(finishedItemLine({ outcome: 'done', runStage: 'COMPLETED' })).toBe('Your step is done. The job is complete.')
+    expect(finishedItemLine({ outcome: 'rejected', runStatus: 'cancelled' })).toBe(
+      'You declined this. The job was cancelled.',
+    )
+    expect(finishedItemLine({ outcome: 'accepted' })).toBe('Added to your wallet.')
+    expect(finishedItemStatus('rejected')).toBe('rejected')
+    expect(finishedItemStatus('done')).toBe('completed')
+    // Finished items count as done in every view.
+    expect(inboxAttention({ status: finishedItemStatus('accepted') })).toBe('done')
+  })
+
+  test('an empty view points to Done when finished items are waiting there', () => {
+    expect(emptyInboxHint('new', 2)).toBe('2 finished items are under Done.')
+    expect(emptyInboxHint('opened', 1)).toBe('1 finished item is under Done.')
+    expect(emptyInboxHint('done', 3)).toBeNull()
+    expect(emptyInboxHint('new', 0)).toBeNull()
   })
 })
