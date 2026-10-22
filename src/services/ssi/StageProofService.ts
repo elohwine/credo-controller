@@ -64,7 +64,7 @@ import {
 
 import { credentialLifecycleService } from './CredentialLifecycleService'
 import { claimNamesOf, holderActivityService } from './HolderActivityService'
-import { proofPolicyForFlow } from './proofModeMatrix'
+import { proofPolicyForFlow, stageProofModeFor } from './proofModeMatrix'
 import { withTenantHolder } from './TenantHolder'
 
 type AnyAgent = Agent<RestMultiTenantAgentModules>
@@ -278,7 +278,9 @@ export class StageProofService {
     // Transaction-bound stage actions stay SD-only; there is no PEX downgrade path.
     const stageAction = stageActionForProofAction(params.actionKey)
     const flowPolicy = proofPolicyForFlow('workflow_stage')
-    if (process.env.PROOF_REQUEST_QUERY === 'pex' && flowPolicy.requiresSelectiveDisclosure) {
+    // Identity-only steps (no actor configured) cannot be bound to the step; ask for the whole card.
+    const proofMode = stageProofModeFor(acceptedVcTypes)
+    if (process.env.PROOF_REQUEST_QUERY === 'pex' && proofMode === 'sd_bound') {
       throw new StatusException(
         'This step requires selective-disclosure proof. PEX-only mode is not allowed for transaction-bound stage approvals.',
         400,
@@ -286,13 +288,16 @@ export class StageProofService {
     }
     const facts = this.shareFacts(params.reference, stageAction)
     const purposeLine = sharePurposeFromBinding({ step: stageAction, job: facts.job, amount: facts.amount })
-    const dcqlQuery = buildStageProofDcqlQuery({
-      acceptedVcTypes,
-      orgTenantId: params.orgTenantId,
-      stageAction,
-      namedUserId: this.namedPersonOnRun(params.reference, stageAction),
-    })
-    if (!dcqlQuery && flowPolicy.requiresSelectiveDisclosure) {
+    const dcqlQuery =
+      proofMode === 'sd_bound'
+        ? buildStageProofDcqlQuery({
+            acceptedVcTypes,
+            orgTenantId: params.orgTenantId,
+            stageAction,
+            namedUserId: this.namedPersonOnRun(params.reference, stageAction),
+          })
+        : undefined
+    if (!dcqlQuery && proofMode === 'sd_bound' && flowPolicy.requiresSelectiveDisclosure) {
       throw new StatusException(
         'No selective-disclosure credential type is configured for this step. Add an SD-JWT actor credential to the proof policy.',
         400,

@@ -175,8 +175,9 @@ export function perItemListsOf(rawPayload: unknown): Set<string> {
  * that the person is active, and only the one step this share is for. When the job names a
  * person for the step, that person's card may answer with who they are instead of the step,
  * because being named on the job is what gives them the step. Cards that cannot name claims
- * are not an alternative here; Presentation Exchange remains for wallets that only speak that
- * (`PROOF_REQUEST_QUERY=pex`).
+ * are not an alternative here. Steps that accept no selective-disclosure card (identity only)
+ * get no DCQL query and are asked for the whole card over Presentation Exchange instead
+ * (see `stageProofModeFor`).
  *
  * Whole cards (DelegationCredential, WorkflowRequestApproval) are deliberately not offered as a
  * `jwt_vc_json` option: the request carries the step and job as transaction data, and Credo 0.7
@@ -228,6 +229,9 @@ export function buildStageProofDcqlQuery(params: {
           ['org', 'role', 'steps', 'flow'],
           ['org', 'role', 'steps'],
           ...(namedUserId ? [['org', 'status', 'person']] : []),
+          // No single step to name (AP transactions): an active staff card of this org answers,
+          // and the transaction itself is what the wallet signs.
+          ...(stageAction ? [] : [['org', 'status']]),
         ],
       },
     ],
@@ -367,4 +371,38 @@ export function shareReviewRows(input: {
     basis,
     basisLine: SHARE_BASIS_LINES[basis],
   }
+}
+
+/** Transaction-data type the wallet signs for an AP/AR workflow step. */
+export const AP_WORKFLOW_TRANSACTION_TYPE = 'ap_workflow'
+
+export function buildApWorkflowTransactionData(params: { transactionId: string; requiredAction: string }) {
+  return {
+    type: AP_WORKFLOW_TRANSACTION_TYPE,
+    credential_ids: [DCQL_STAFF_CARD_QUERY_ID],
+    step: params.requiredAction,
+    job: params.transactionId,
+  }
+}
+
+/**
+ * Why a verified AP share does not answer this transaction, or undefined when it does.
+ * Whole-card (identity-only) shares carry no transaction data and have nothing to check.
+ */
+export function apWorkflowBindingError(
+  verificationResult: any,
+  expected: { transactionId: string; requiredAction?: string | null },
+): string | undefined {
+  const entries = Array.isArray(verificationResult?.transactionData) ? verificationResult.transactionData : []
+  for (const entry of entries) {
+    const decoded = entry?.decoded && typeof entry.decoded === 'object' ? entry.decoded : {}
+    if (decoded.type !== AP_WORKFLOW_TRANSACTION_TYPE) continue
+    if (String(decoded.job || '') !== expected.transactionId) {
+      return 'This proof was signed for a different transaction.'
+    }
+    if (expected.requiredAction && String(decoded.step || '') !== expected.requiredAction) {
+      return 'This proof was signed for a different workflow step.'
+    }
+  }
+  return undefined
 }

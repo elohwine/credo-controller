@@ -17,6 +17,12 @@ import { emitApInvoiceStateEventOutbox, emitApPaymentEventOutbox } from '../../s
 import { businessTransactionService } from '../../services/BusinessTransactionService'
 import { requestHandoffService } from '../../services/RequestHandoffService'
 import { buildVcTypeArrayFilter, resolveAcceptedProofVcTypes } from '../../services/ProofVcPolicyService'
+import { stageProofModeFor } from '../../services/ssi/proofModeMatrix'
+import {
+  apWorkflowBindingError,
+  buildApWorkflowTransactionData,
+  buildStageProofDcqlQuery,
+} from '../../services/ssi/stageProofQuery'
 import { requireDeviceTrust } from '../../services/deviceAssertion'
 import { readReceiptProof } from '../../utils/receiptProof'
 
@@ -384,7 +390,10 @@ export class AccountsPayableController extends Controller {
     params: {
       verifierId?: string
       requestSigner: { method: 'did'; did: string; didUrl: string }
-      presentationExchange: { definition: Record<string, unknown> }
+      version?: string
+      presentationExchange?: { definition: Record<string, unknown> }
+      dcql?: { query: Record<string, unknown> }
+      transactionData?: Array<Record<string, unknown>>
     },
   ): Promise<any> {
     try {
@@ -411,6 +420,7 @@ export class AccountsPayableController extends Controller {
       proofRequestId: string
       proofResponseId: string
       transactionId: string
+      requiredAction?: string | null
     },
   ): Promise<void> {
     if (params.proofRequestId !== params.proofResponseId) {
@@ -425,6 +435,11 @@ export class AccountsPayableController extends Controller {
       if (!verificationResult) {
         throw new StatusException('Proof verification session is not completed', 409)
       }
+      const bindingError = apWorkflowBindingError(verificationResult, {
+        transactionId: params.transactionId,
+        requiredAction: params.requiredAction,
+      })
+      if (bindingError) throw new StatusException(bindingError, 403)
     } catch (error) {
       if (error instanceof StatusException) throw error
       throw new StatusException('Verified proof response not found for this AP workflow transition', 400)
@@ -1118,18 +1133,36 @@ export class AccountsPayableController extends Controller {
       const verifier = await this.getOrCreateDidForAgent(tenantAgent)
       const verifierId = await this.ensureNativeVerifierRecord(tenantAgent)
       const acceptedVcTypes = resolveAcceptedProofVcTypes(actorTenantId, 'ap_workflow_proof')
-      const presentationDefinition = this.buildWorkflowProofPresentationDefinition(
-        transactionId,
-        requiredAction,
-        requiredProofType,
-        acceptedVcTypes,
-      )
+      const requestSigner = { method: 'did' as const, did: verifier.did, didUrl: verifier.didUrl }
+      // An accepted SD-JWT staff card signs this exact transaction and step; identity-only
+      // steps have nothing to bind and ask for the whole card (see proofModeMatrix).
+      const proofMode = stageProofModeFor(acceptedVcTypes)
+      const dcqlQuery =
+        proofMode === 'sd_bound' ? buildStageProofDcqlQuery({ acceptedVcTypes, orgTenantId: actorTenantId }) : undefined
+      if (proofMode === 'sd_bound' && !dcqlQuery) {
+        throw new StatusException('No selective-disclosure card type is configured for this AP step.', 400)
+      }
 
-      const result = await this.createAuthorizationRequestWithVerifierRecovery(tenantAgent, {
-        verifierId,
-        requestSigner: { method: 'did', did: verifier.did, didUrl: verifier.didUrl },
-        presentationExchange: { definition: presentationDefinition },
-      })
+      const result = dcqlQuery
+        ? await this.createAuthorizationRequestWithVerifierRecovery(tenantAgent, {
+            verifierId,
+            requestSigner,
+            version: 'v1.draft24',
+            dcql: { query: dcqlQuery },
+            transactionData: [buildApWorkflowTransactionData({ transactionId, requiredAction })],
+          })
+        : await this.createAuthorizationRequestWithVerifierRecovery(tenantAgent, {
+            verifierId,
+            requestSigner,
+            presentationExchange: {
+              definition: this.buildWorkflowProofPresentationDefinition(
+                transactionId,
+                requiredAction,
+                requiredProofType,
+                acceptedVcTypes,
+              ),
+            },
+          })
 
       const requestId = result.verificationSession?.id || randomUUID()
       const requestUrl = result.authorizationRequest as string
@@ -1272,6 +1305,7 @@ export class AccountsPayableController extends Controller {
           proofRequestId,
           proofResponseId: String(body.proofResponseId),
           transactionId,
+          requiredAction: tx.required_action ? String(tx.required_action) : null,
         })
       }
 

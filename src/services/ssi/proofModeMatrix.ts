@@ -54,6 +54,22 @@ export function splitAcceptedProofTypes(
   return { selectiveDisclosureTypes, wholeCardTypes }
 }
 
+/**
+ * How a workflow-stage proof is requested.
+ * - `sd_bound`: an SD-JWT actor card is accepted, so the wallet signs the step/job/amount
+ *   (Credo 0.7 signs transaction data only through the SD-JWT key-binding JWT). No downgrade.
+ * - `whole_card_identity`: only identity cards are accepted (no actor configured), so nothing
+ *   step-specific can be bound; the whole identity card is asked for with no transaction data.
+ */
+export type StageProofMode = 'sd_bound' | 'whole_card_identity'
+
+export const STAGE_IDENTITY_WHOLE_CARD_TYPES = [PLATFORM_IDENTITY_VC_TYPE] as const
+
+export function stageProofModeFor(acceptedVcTypes: string[]): StageProofMode {
+  const normalized = acceptedVcTypes.map((entry) => String(entry || '').trim()).filter(Boolean)
+  return normalized.some((type) => isSelectiveDisclosureVcType(type)) ? 'sd_bound' : 'whole_card_identity'
+}
+
 export function shouldAllowWholeCardType(flow: ProofFlowKey, vcType: string): boolean {
   const policy = proofPolicyForFlow(flow)
   return policy.wholeCardAllowList.includes(String(vcType || '').trim())

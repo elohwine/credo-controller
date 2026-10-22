@@ -864,6 +864,7 @@ export class ContactController extends Controller {
 
     const purpose = body.purpose?.trim() || `Present a ${types.join(', ')} credential for verification`
 
+    // Ad-hoc contact checks carry no transaction to bind, so the whole card is asked for over PEX.
     const presentationDefinition = {
       id: `pd-contact-${uuidv4()}`,
       input_descriptors: types.map((type, index) => ({
@@ -871,7 +872,7 @@ export class ContactController extends Controller {
         name: `${type} presentation`,
         purpose,
         constraints: {
-          fields: [{ path: ['$.type', '$.vc.type'] }],
+          fields: [{ path: ['$.type', '$.vc.type'], filter: { type: 'array', contains: { const: type } } }],
         },
       })),
     }
