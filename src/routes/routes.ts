@@ -1150,6 +1150,7 @@ const models: TsoaRoute.Models = {
             "domain": {"dataType":"string"},
             "issuerDid": {"dataType":"string"},
             "memberCount": {"dataType":"double","required":true},
+            "canOpenOrgContext": {"dataType":"boolean"},
         },
         "additionalProperties": false,
     },
@@ -1843,6 +1844,33 @@ const models: TsoaRoute.Models = {
             "workflowTypes": {"dataType":"array","array":{"dataType":"string"}},
             "workflows": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"blocking":{"dataType":"array","array":{"dataType":"string"},"required":true},"ready":{"dataType":"boolean","required":true},"name":{"dataType":"string"},"workflowType":{"dataType":"string","required":true},"templateId":{"dataType":"string"}}}},
             "readinessState": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["ready"]},{"dataType":"enum","enums":["in_progress"]},{"dataType":"enum","enums":["blocked"]}]},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "OrgTaskAccessResponse": {
+        "dataType": "refObject",
+        "properties": {
+            "token": {"dataType":"string","required":true},
+            "orgTenantId": {"dataType":"string","required":true},
+            "orgName": {"dataType":"string"},
+            "orgRole": {"dataType":"string","required":true},
+            "taskPass": {"dataType":"boolean","required":true},
+            "purpose": {"dataType":"string","required":true},
+            "refs": {"dataType":"array","array":{"dataType":"string"},"required":true},
+            "expiresAt": {"dataType":"string"},
+            "sector": {"dataType":"string"},
+            "workflowTypes": {"dataType":"array","array":{"dataType":"string"}},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "OrgTaskAccessRequest": {
+        "dataType": "refObject",
+        "properties": {
+            "purpose": {"dataType":"string","required":true},
+            "ref": {"dataType":"string"},
+            "refs": {"dataType":"array","array":{"dataType":"string"}},
         },
         "additionalProperties": false,
     },
@@ -9262,6 +9290,44 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'switchToOrganization',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOrganizationController_openOrganizationForTask: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                orgTenantId: {"in":"path","name":"orgTenantId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"ref":"OrgTaskAccessRequest"},
+        };
+        app.post('/api/organizations/:orgTenantId/task-access',
+            authenticateMiddleware([{"jwt":[]}]),
+            ...(fetchMiddlewares<RequestHandler>(OrganizationController)),
+            ...(fetchMiddlewares<RequestHandler>(OrganizationController.prototype.openOrganizationForTask)),
+
+            async function OrganizationController_openOrganizationForTask(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOrganizationController_openOrganizationForTask, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OrganizationController>(OrganizationController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'openOrganizationForTask',
                 controller,
                 response,
                 next,

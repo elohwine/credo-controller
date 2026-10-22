@@ -25,7 +25,8 @@ import ReceiptProofField, { receiptProofPayload, type ReceiptProof } from '@/com
 import api, { safeArray } from '@/lib/api';
 import { formatCredentialType } from '@/lib/format';
 import { SAFETY_HOLD_COPY, fieldStepExplanation, getInboxDisplayDescription, getInboxDisplayTitle, getInboxPrimaryActionLabel, offerReplacement, stepRequiredLabel, toFeptStageLabel } from '@/lib/uxCopy';
-import { applyOrgContext, beginTaskContext, endTaskContext, getTaskContext, getActiveOrgId, getWalletToken, getActiveOrgLabel, getOrgRoleClaim, isEmployeeOrgRole, isOrgActionRole, getContextMode, getOrgToken, getPersonalWalletTenantId, getPersonalWalletToken } from '@/lib/auth';
+import { applyOrgContext, beginTaskContext, endTaskContext, getTaskContext, getTaskPass, getActiveOrgId, getWalletToken, getActiveOrgLabel, getOrgRoleClaim, isEmployeeOrgRole, isOrgActionRole, getContextMode, getOrgToken, getPersonalWalletTenantId, getPersonalWalletToken } from '@/lib/auth';
+import { openOrganizationForTask, taskRefs } from '@/lib/orgTaskAccess';
 import { findRunningProofResume, getRunningActions, removeRunningAction, RunningAction, upsertRunningAction } from '@/lib/runningActions';
 import { getOfflineStorageAdapter } from '@/lib/offline/storage';
 import { getOfflineSyncEngine, OfflineSyncState } from '@/lib/offline/syncEngine';
@@ -1163,13 +1164,16 @@ export default function InboxPage() {
     };
   }, []);
 
-  const ensureOrgContextForApproval = useCallback(async (orgTenantId?: string, orgNameHint?: string, purpose: OrgSwitchPurpose = 'request', detail?: OrgSwitchDetail) => {
+  const ensureOrgContextForApproval = useCallback(async (orgTenantId?: string, orgNameHint?: string, purpose: OrgSwitchPurpose = 'request', detail?: OrgSwitchDetail, refs: Array<string | null | undefined> = []) => {
     if (!orgTenantId) return true;
     const assertContextUnchanged = captureOrganizationSwitchContext(localStorage);
 
     const currentMode = getContextMode();
     const currentOrgId = getActiveOrgId();
-    if (currentMode === 'org' && currentOrgId === orgTenantId) {
+    const boundRefs = taskRefs(...refs);
+    const pass = getTaskPass();
+    const passCoversItem = !pass || boundRefs.some((ref) => pass.refs.includes(ref));
+    if (currentMode === 'org' && currentOrgId === orgTenantId && passCoversItem) {
       beginTaskContext({ orgId: orgTenantId });
       return true;
     }
@@ -1186,32 +1190,7 @@ export default function InboxPage() {
     }
     assertContextUnchanged();
 
-    const holderToken = getWalletToken();
-    if (!holderToken) throw new Error('Missing holder wallet token for org context switch');
-
-    const switchRes = await api.post(`/api/organizations/${encodeURIComponent(orgTenantId)}/switch`, {}, {
-      headers: { Authorization: `Bearer ${holderToken}` },
-      skipAuthRedirect: true as any,
-    } as any);
-
-    assertContextUnchanged();
-    const orgToken = switchRes.data?.token as string | undefined;
-    if (!orgToken) throw new Error('Failed to switch organization context');
-
-    const resolvedOrgName = switchRes.data?.name
-      || switchRes.data?.label
-      || switchRes.data?.orgName
-      || orgNameHint
-      || orgTenantId;
-
-    applyOrgContext({
-      orgId: orgTenantId,
-      orgName: resolvedOrgName,
-      orgToken,
-      orgRole: switchRes.data?.orgRole,
-      sector: switchRes.data?.sector,
-      workflowTypes: switchRes.data?.workflowTypes,
-    });
+    await openOrganizationForTask({ orgId: orgTenantId, orgNameHint, purpose, refs: boundRefs, beforeApply: assertContextUnchanged });
     beginTaskContext({ orgId: orgTenantId });
 
     return true;
@@ -2688,6 +2667,8 @@ export default function InboxPage() {
             selectedItem.actingOrgTenantId,
             selectedItem.ownerDisplayName || selectedItem.actingOrgTenantId,
             'collection',
+            undefined,
+            [selectedItem.transactionId, selectedItem.workflowRequestId, selectedItem.id],
           );
           if (!switched) {
             setActionLoading(false);
@@ -2729,7 +2710,7 @@ export default function InboxPage() {
             throw new Error('Please say why you are declining.');
           }
           if (selectedItem.actingOrgTenantId) {
-            const switched = await ensureOrgContextForApproval(selectedItem.actingOrgTenantId, selectedItem.ownerDisplayName, 'request');
+            const switched = await ensureOrgContextForApproval(selectedItem.actingOrgTenantId, selectedItem.ownerDisplayName, 'request', undefined, [selectedItem.platformRequestId, selectedItem.workflowRequestId]);
             if (!switched) {
               setActionLoading(false);
               return;
@@ -2879,7 +2860,7 @@ export default function InboxPage() {
         }
         if (isRequisitionWorkflow) {
           if (selectedItem.actingOrgTenantId) {
-            const switched = await ensureOrgContextForApproval(selectedItem.actingOrgTenantId, activeOrgLabel || undefined, 'requisition');
+            const switched = await ensureOrgContextForApproval(selectedItem.actingOrgTenantId, activeOrgLabel || undefined, 'requisition', undefined, [selectedItem.requisitionId, selectedItem.workflowRequestId]);
             if (!switched) {
               setActionLoading(false);
               return;
@@ -2893,7 +2874,7 @@ export default function InboxPage() {
 
         if (isApWorkflow) {
           if (selectedItem.actingOrgTenantId) {
-            const switched = await ensureOrgContextForApproval(selectedItem.actingOrgTenantId, activeOrgLabel || undefined, 'payable');
+            const switched = await ensureOrgContextForApproval(selectedItem.actingOrgTenantId, activeOrgLabel || undefined, 'payable', undefined, [selectedItem.transactionId, selectedItem.workflowRequestId, selectedItem.id]);
             if (!switched) {
               setActionLoading(false);
               return;
@@ -2933,7 +2914,7 @@ export default function InboxPage() {
     if (running) upsertRunningAction(running);
 
     if (item.actingOrgTenantId) {
-      const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, activeOrgLabel || undefined, 'requisition');
+      const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, activeOrgLabel || undefined, 'requisition', undefined, [item.requisitionId, item.workflowRequestId]);
       if (!switched) return;
     }
 
@@ -2951,7 +2932,7 @@ export default function InboxPage() {
       let resolvedOrgTenantId = item.actingOrgTenantId || undefined;
       if (item.actingOrgTenantId) {
         try {
-          const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, item.ownerDisplayName || activeOrgLabel || undefined, 'collection');
+          const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, item.ownerDisplayName || activeOrgLabel || undefined, 'collection', undefined, [transactionId, item.workflowRequestId, item.id]);
           if (!switched) return;
         } catch (switchErr: any) {
           const switchStatus = Number(switchErr?.response?.status || 0);
@@ -2973,7 +2954,8 @@ export default function InboxPage() {
       }
 
       let orgTokenForProof = getOrgToken() || undefined;
-      if (resolvedOrgTenantId) {
+      // A member's task pass is already bound to this item; only an organisation session is refreshed.
+      if (resolvedOrgTenantId && !getTaskPass()) {
         try {
           const switchRes = await api.post(
             `/api/organizations/${encodeURIComponent(resolvedOrgTenantId)}/switch`,
@@ -3139,7 +3121,7 @@ export default function InboxPage() {
     setActionLoading(true);
     try {
       if (item.actingOrgTenantId) {
-        const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, activeOrgLabel || undefined, 'requisition');
+        const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, activeOrgLabel || undefined, 'requisition', undefined, [item.requisitionId, item.workflowRequestId]);
         if (!switched) {
           return;
         }
@@ -3216,7 +3198,7 @@ export default function InboxPage() {
           title: item.title || getInboxDisplayTitle(item),
           step,
           explanation: fieldStepExplanation(step),
-        });
+        }, [runId]);
         if (!switched) return;
       }
 
@@ -3249,7 +3231,7 @@ export default function InboxPage() {
     setActionLoading(true);
     try {
       if (item.ownerOrgTenantId) {
-        const switched = await ensureOrgContextForApproval(item.ownerOrgTenantId, item.ownerDisplayName || activeOrgLabel || undefined, 'job');
+        const switched = await ensureOrgContextForApproval(item.ownerOrgTenantId, item.ownerDisplayName || activeOrgLabel || undefined, 'job', undefined, [runId]);
         if (!switched) return;
       }
       const orgToken = getOrgToken();

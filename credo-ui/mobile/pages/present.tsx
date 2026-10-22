@@ -9,10 +9,11 @@ import { StepHelp } from '@/components/help/StepHelp';
 import AppShellMobile from '@/components/layout/AppShellMobile';
 import ErrorAlert from '@/components/shared/ErrorAlert';
 import api from '@/lib/api';
+import { openOrganizationForTask, taskRefs, type OrgTaskPurpose } from '@/lib/orgTaskAccess';
 import {
     decodeJwtPayload,
-    applyOrgContext,
     getOrgToken,
+    getTaskPass,
     getActiveOrgId,
     getWalletToken,
     getPersonalWalletTenantId,
@@ -422,44 +423,32 @@ export default function PresentPage() {
         const normalizedOrgId = typeof targetOrgTenantId === 'string' ? targetOrgTenantId.trim() : '';
         if (!normalizedOrgId) return;
 
+        // The item this proof is for: a member opens it with a task pass bound to it.
+        const mode = normalizePresentationMode(queryValue(router.query.mode));
+        const purpose: OrgTaskPurpose = mode?.startsWith('requisition-')
+            ? 'requisition'
+            : mode?.startsWith('field-')
+                ? 'job'
+                : 'collection';
+        const refs = purpose === 'requisition'
+            ? [queryValue(router.query.requisitionId)]
+            : purpose === 'job'
+                ? [queryValue(router.query.workflowRunId)]
+                : [queryValue(router.query.transactionId)];
+
         const currentOrgId = (getActiveOrgId() || '').trim();
         const existingOrgToken = getOrgToken();
         const existingOrgPayload = existingOrgToken ? decodeJwtPayload(existingOrgToken) : null;
         const existingOrgTokenTenantId = (existingOrgPayload?.tenantId || existingOrgPayload?.orgTenantId || existingOrgPayload?.sub || '').trim();
+        const pass = getTaskPass();
+        const passCoversItem = !pass || taskRefs(...refs).some((ref) => pass.refs.includes(ref));
 
-        if (currentOrgId === normalizedOrgId && existingOrgToken && (!existingOrgTokenTenantId || existingOrgTokenTenantId === normalizedOrgId)) {
+        if (currentOrgId === normalizedOrgId && existingOrgToken && passCoversItem && (!existingOrgTokenTenantId || existingOrgTokenTenantId === normalizedOrgId)) {
             return;
         }
 
-        const holderToken = getPersonalWalletToken() || getWalletToken();
-        if (!holderToken) {
-            throw new Error('Personal wallet session is required to switch organization context.');
-        }
-
-        const switchRes = await api.post(
-            `/api/organizations/${encodeURIComponent(normalizedOrgId)}/switch`,
-            {},
-            {
-                headers: { Authorization: `Bearer ${holderToken}` },
-                skipAuthRedirect: true as any,
-            } as any,
-        );
-
-        const orgToken = switchRes.data?.token as string | undefined;
-        if (!orgToken) {
-            throw new Error('Failed to switch organization context for requisition approval.');
-        }
-
-        const orgName = switchRes.data?.name || switchRes.data?.label || switchRes.data?.orgName || normalizedOrgId;
-        applyOrgContext({
-            orgId: normalizedOrgId,
-            orgName,
-            orgToken,
-            orgRole: switchRes.data?.orgRole,
-            sector: switchRes.data?.sector,
-            workflowTypes: switchRes.data?.workflowTypes,
-        });
-    }, []);
+        await openOrganizationForTask({ orgId: normalizedOrgId, purpose, refs });
+    }, [router.query.mode, router.query.requisitionId, router.query.workflowRunId, router.query.transactionId]);
 
     const initializeRequest = useCallback(async () => {
         if (!router.isReady) return;

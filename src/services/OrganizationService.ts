@@ -19,11 +19,22 @@ import { injectable, inject, container } from 'tsyringe'
 import { RestMultiTenantAgentModules } from '../cliAgent'
 import { deleteContact, getContactById, upsertContact } from '../persistence/ContactRepository'
 import { DatabaseManager } from '../persistence/DatabaseManager'
+import { StatusException } from '../errors/StatusException'
 import {
   organizationRegistryRepository,
   type OrganizationCategory,
 } from '../persistence/OrganizationRegistryRepository'
 import { notificationService } from './NotificationService'
+import {
+  ORG_CONTEXT_ADMINS_ONLY,
+  ORG_CONTEXT_ADMINS_ONLY_MESSAGE,
+  ORG_TASK_CONTEXT,
+  ORG_TASK_TTL_SECONDS,
+  isOrgTaskPurpose,
+  normalizeTaskRefs,
+  roleMayOpenOrgContext,
+  type OrgTaskPurpose,
+} from './OrgContextPolicy'
 import { ensureStarterRoles } from './OrgStarterRoles'
 import { SSIAuthService } from './SSIAuthService'
 import {
@@ -154,6 +165,8 @@ export interface OrgSummary {
   sector?: SectorType
   additionalWorkflowTypes?: string[]
   assignedTemplateId?: string
+  /** Owners and admins may open the organisation; everyone else works from their personal wallet. */
+  canOpenOrgContext?: boolean
 }
 
 export interface OrgPaymentRailsUpdateResult {
@@ -1180,6 +1193,7 @@ export class OrganizationService {
           domain: tenant?.domain ?? undefined,
           issuerDid: tenant?.issuerDid,
           memberCount,
+          canOpenOrgContext: roleMayOpenOrgContext(row.role),
         }
       }),
     )
@@ -2862,6 +2876,9 @@ export class OrganizationService {
     if (!role) {
       throw new Error('Not a member of this organization')
     }
+    if (!roleMayOpenOrgContext(role)) {
+      throw new StatusException(ORG_CONTEXT_ADMINS_ONLY_MESSAGE, 403, ORG_CONTEXT_ADMINS_ONLY)
+    }
 
     try {
       await this.ensureOrgTenantRuntime(orgTenantId)
@@ -2915,6 +2932,78 @@ export class OrganizationService {
       role: 'RestTenantAgent',
       orgRole: role,
     })
+  }
+
+  /**
+   * Opens the organisation for one task from the person's inbox. Owners and admins get the
+   * organisation context as usual; every other member gets a short-lived task pass bound to the
+   * item(s) they opened (see OrgContextPolicy), never the organisation's full context.
+   */
+  async generateTaskAccess(
+    userId: string,
+    orgTenantId: string,
+    purpose: unknown,
+    refs: unknown,
+  ): Promise<{ token: string; orgRole: string; taskPass: boolean; purpose: OrgTaskPurpose; refs: string[]; expiresAt?: string }> {
+    if (!isOrgTaskPurpose(purpose)) {
+      throw new StatusException('Unknown task type.', 400)
+    }
+    const boundRefs = this.withLinkedTaskRefs(orgTenantId, normalizeTaskRefs(refs))
+    if (boundRefs.length === 0) {
+      throw new StatusException('Say which item this task is for.', 400)
+    }
+    const role = this.getUserOrgRole(userId, orgTenantId)
+    if (!role) {
+      throw new StatusException('You are not on this organisation’s team.', 403)
+    }
+    if (roleMayOpenOrgContext(role)) {
+      const token = await this.generateOrgToken(userId, orgTenantId)
+      return { token, orgRole: role, taskPass: false, purpose, refs: boundRefs }
+    }
+
+    try {
+      await this.ensureOrgTenantRuntime(orgTenantId)
+    } catch {
+      throw new Error('Organization context is stale')
+    }
+    const user = DatabaseManager.getDatabase().prepare('SELECT did FROM ssi_users WHERE id = ?').get(userId) as
+      | { did?: string }
+      | undefined
+    const token = await signToken(
+      {
+        id: userId,
+        tenantId: orgTenantId,
+        did: user?.did,
+        role: 'RestTenantAgent',
+        orgRole: role,
+        ctx: ORG_TASK_CONTEXT,
+        task: { purpose, refs: boundRefs },
+      },
+      { expiresIn: ORG_TASK_TTL_SECONDS },
+    )
+    const expiresAt = new Date(Date.now() + ORG_TASK_TTL_SECONDS * 1000).toISOString()
+    return { token, orgRole: role, taskPass: true, purpose, refs: boundRefs, expiresAt }
+  }
+
+  /** An inbox card may carry only the workflow request; add the item it points at in this organisation. */
+  private withLinkedTaskRefs(orgTenantId: string, refs: string[]): string[] {
+    const linked = [...refs]
+    const db = DatabaseManager.getDatabase()
+    for (const ref of refs) {
+      const row = db
+        .prepare('SELECT payload FROM workflow_requests WHERE id = ? AND target_org_tenant_id = ?')
+        .get(ref, orgTenantId) as { payload?: string } | undefined
+      if (!row?.payload) continue
+      try {
+        const payload = JSON.parse(row.payload)
+        for (const key of ['requisitionId', 'transactionId', 'platformRequestId', 'workflowRunId', 'runId']) {
+          if (typeof payload?.[key] === 'string') linked.push(payload[key])
+        }
+      } catch {
+        // A payload that does not parse links nothing.
+      }
+    }
+    return normalizeTaskRefs(linked)
   }
 
   private getOrCreatePersonIdForUser(organizationId: string, userId: string): string {

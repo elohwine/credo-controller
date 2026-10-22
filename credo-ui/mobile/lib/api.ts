@@ -271,6 +271,18 @@ api.interceptors.response.use(
     const isAuthRoute = isPublicAuthRoute(requestUrl)
     const skipAuthRedirect = Boolean((err?.config as any)?.skipAuthRedirect)
 
+    if (typeof window !== 'undefined' && status === 403 && !skipAuthRedirect) {
+      const code = String(err?.response?.data?.code || '')
+      const sent = bearerOf(err?.config)
+      const org = getOrgToken()
+      if (code === 'org_context_revoked' && sent && sent === org) {
+        // The organisation can no longer be opened by this person (role changed or removed).
+        console.warn('[auth] organisation access ended; back to personal wallet', requestUrl)
+        setPersonalContext()
+        if (!window.location.pathname.startsWith('/login')) window.location.replace('/inbox')
+      }
+    }
+
     if (typeof window !== 'undefined' && status === 401 && !isAuthRoute && !skipAuthRedirect) {
       const sent = bearerOf(err?.config)
       const personal = getWalletToken()

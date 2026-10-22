@@ -3034,6 +3034,10 @@
             "type": "number",
             "format": "double",
             "description": "Number of members"
+          },
+          "canOpenOrgContext": {
+            "type": "boolean",
+            "description": "Owners and admins may open the organisation; others work from their personal wallet."
           }
         },
         "required": [
@@ -5137,6 +5141,81 @@
           "token",
           "orgTenantId",
           "orgRole"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "OrgTaskAccessResponse": {
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "orgTenantId": {
+            "type": "string"
+          },
+          "orgName": {
+            "type": "string"
+          },
+          "orgRole": {
+            "type": "string"
+          },
+          "taskPass": {
+            "type": "boolean",
+            "description": "True when this is a task pass (bound to the item) rather than the organisation context"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "sector": {
+            "type": "string"
+          },
+          "workflowTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "token",
+          "orgTenantId",
+          "orgRole",
+          "taskPass",
+          "purpose",
+          "refs"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "OrgTaskAccessRequest": {
+        "properties": {
+          "purpose": {
+            "type": "string",
+            "description": "What the task is: job | request | requisition | payable | collection"
+          },
+          "ref": {
+            "type": "string",
+            "description": "The item the task is for (run, request, requisition or transaction id)"
+          },
+          "refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Related ids of the same item (for example a requisition id and its workflow request id)"
+          }
+        },
+        "required": [
+          "purpose"
         ],
         "type": "object",
         "additionalProperties": false
@@ -20478,7 +20557,7 @@
             }
           }
         },
-        "description": "Switch active context to an organization.\n\nReturns a JWT scoped to the org tenant. The frontend should store this\nas the active token when operating in org context.",
+        "description": "Switch active context to an organization.\n\nReturns a JWT scoped to the org tenant. The frontend should store this\nas the active token when operating in org context. Owners and admins only;\nother members get 403 `org_context_admins_only` and work from their personal wallet.",
         "tags": [
           "Organizations"
         ],
@@ -20497,6 +20576,60 @@
             }
           }
         ]
+      }
+    },
+    "/api/organizations/{orgTenantId}/task-access": {
+      "post": {
+        "operationId": "OpenOrganizationForTask",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgTaskAccessResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Open the organisation for one task from the personal inbox (a job, an approval, a payment).\n\nOwners and admins get the organisation context (as with switch). Every other member gets a\nshort-lived task pass (`taskPass: true`) bound to the given item(s): it works only on that\nitem's own routes and never on the organisation's wallet, contacts, team or settings.",
+        "tags": [
+          "Organizations"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orgTenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgTaskAccessRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/organizations/{orgTenantId}/members": {

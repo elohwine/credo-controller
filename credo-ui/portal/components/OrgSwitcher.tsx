@@ -13,6 +13,13 @@ export interface OrgInfo {
   orgTenantId: string
   name: string
   role: string
+  canOpenOrgContext?: boolean
+}
+
+// Owners and admins run an organisation; everyone else works for it from their personal account.
+function canOpenOrg(org: OrgInfo): boolean {
+  if (typeof org.canOpenOrgContext === 'boolean') return org.canOpenOrgContext
+  return ['owner', 'admin'].includes(String(org.role || '').toLowerCase())
 }
 
 interface OrgSwitcherProps {
@@ -82,6 +89,7 @@ function readOrganizationsFromCache(): OrgInfo[] {
         orgTenantId: entry?.orgTenantId || entry?.id || entry?.orgTenantID,
         name: entry?.name || entry?.label || 'Organization',
         role: entry?.role || 'member',
+        canOpenOrgContext: typeof entry?.canOpenOrgContext === 'boolean' ? entry.canOpenOrgContext : undefined,
       }))
       .filter((entry: OrgInfo) => !!entry.orgTenantId)
   } catch {
@@ -172,7 +180,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
         persistOrganizationsToCache(orgs)
 
         const current = getActiveOrg()
-        if (current && !orgs.some((org: OrgInfo) => org.orgTenantId === current.orgTenantId)) {
+        if (current && !orgs.some((org: OrgInfo) => org.orgTenantId === current.orgTenantId && canOpenOrg(org))) {
           clearActiveOrg()
           localStorage.removeItem('credoOrgName')
           localStorage.removeItem('credoTenantSector')
@@ -446,7 +454,15 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
               <Text size="xs" c="dimmed">Onboard one below to unlock finance, approvals, and org admin.</Text>
             </Menu.Item>
           )}
-          {organizations.map((org) => {
+          {organizations.filter((org) => !canOpenOrg(org)).map((org) => (
+            <Menu.Item key={org.orgTenantId} disabled leftSection={<IconBuilding size={16} />}>
+              <Text size="sm" fw={500}>You work for {org.name}</Text>
+              <Text size="xs" c="dimmed">
+                {String(org.role || 'member').replace(/_/g, ' ')} · your jobs come to your personal inbox
+              </Text>
+            </Menu.Item>
+          ))}
+          {organizations.filter(canOpenOrg).map((org) => {
             const selected = activeOrg?.orgTenantId === org.orgTenantId
             return (
               <Menu.Item

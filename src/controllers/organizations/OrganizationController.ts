@@ -118,6 +118,8 @@ interface OrgListItem {
   issuerDid?: string
   /** Number of members */
   memberCount: number
+  /** Owners and admins may open the organisation; others work from their personal wallet. */
+  canOpenOrgContext?: boolean
 }
 
 interface InviteMemberRequest {
@@ -135,6 +137,29 @@ interface UpdateMemberRoleRequest {
 interface ApplyActorPresetRequest {
   /** Ready-made setup id from the actors view (`presets`). */
   presetId: string
+}
+
+interface OrgTaskAccessRequest {
+  /** What the task is: job | request | requisition | payable | collection */
+  purpose: string
+  /** The item the task is for (run, request, requisition or transaction id) */
+  ref?: string
+  /** Related ids of the same item (for example a requisition id and its workflow request id) */
+  refs?: string[]
+}
+
+interface OrgTaskAccessResponse {
+  token: string
+  orgTenantId: string
+  orgName?: string
+  orgRole: string
+  /** True when this is a task pass (bound to the item) rather than the organisation context */
+  taskPass: boolean
+  purpose: string
+  refs: string[]
+  expiresAt?: string
+  sector?: string
+  workflowTypes?: string[]
 }
 
 interface SwitchOrgResponse {
@@ -1261,7 +1286,8 @@ export class OrganizationController extends Controller {
    * Switch active context to an organization.
    *
    * Returns a JWT scoped to the org tenant. The frontend should store this
-   * as the active token when operating in org context.
+   * as the active token when operating in org context. Owners and admins only;
+   * other members get 403 `org_context_admins_only` and work from their personal wallet.
    */
   @Post('/{orgTenantId}/switch')
   @Security('jwt')
@@ -1310,6 +1336,10 @@ export class OrganizationController extends Controller {
         readinessState,
       }
     } catch (error: any) {
+      if (error instanceof StatusException) {
+        this.setStatus(error.status)
+        throw error
+      }
       if (error.message.includes('Not a member')) {
         throw new StatusException('Not a member of this organization', 403)
       } else if (error.message.includes('context is stale')) {
@@ -1317,6 +1347,73 @@ export class OrganizationController extends Controller {
       } else {
         throw new StatusException(error.message || 'Failed to switch organization', 500)
       }
+    }
+  }
+
+  /**
+   * Open the organisation for one task from the personal inbox (a job, an approval, a payment).
+   *
+   * Owners and admins get the organisation context (as with switch). Every other member gets a
+   * short-lived task pass (`taskPass: true`) bound to the given item(s): it works only on that
+   * item's own routes and never on the organisation's wallet, contacts, team or settings.
+   */
+  @Post('/{orgTenantId}/task-access')
+  @Security('jwt')
+  public async openOrganizationForTask(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Body() body: OrgTaskAccessRequest,
+  ): Promise<OrgTaskAccessResponse> {
+    const authContext = (request as any).authContext as string | undefined
+    if (authContext === AuthContext.Org) {
+      this.setStatus(409)
+      throw new StatusException('Open a task from your personal wallet.', 409)
+    }
+
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+
+    try {
+      const refs = Array.isArray(body?.refs) ? body.refs : [body?.ref]
+      const access = await this.orgService.generateTaskAccess(user.id, orgTenantId, body?.purpose, refs)
+      if (!access.taskPass) this.orgService.markOrgAsActive(user.id, orgTenantId)
+      const memberships = await this.orgService.listUserOrganizations(user.id)
+      const activeOrg = memberships.find((org) => org.orgTenantId === orgTenantId)
+      let sector: string | undefined
+      let workflowTypes: string[] | undefined
+      try {
+        const configuration = this.orgService.getOrganizationWorkflowConfiguration(user.id, orgTenantId)
+        sector = configuration.sector
+        workflowTypes = configuration.workflowTypes
+      } catch (configError: any) {
+        request.logger?.warn({ error: configError?.message }, 'Workflow configuration unavailable for task access')
+      }
+      return {
+        token: access.token,
+        orgTenantId,
+        orgName: activeOrg?.name,
+        orgRole: access.orgRole,
+        taskPass: access.taskPass,
+        purpose: access.purpose,
+        refs: access.refs,
+        expiresAt: access.expiresAt,
+        sector,
+        workflowTypes,
+      }
+    } catch (error: any) {
+      if (error instanceof StatusException) {
+        this.setStatus(error.status)
+        throw error
+      }
+      if (String(error?.message || '').includes('context is stale')) {
+        this.setStatus(409)
+        throw new StatusException('Organization context is stale. Refresh organizations and try again.', 409)
+      }
+      this.setStatus(500)
+      throw new StatusException(error?.message || 'Could not open this task', 500)
     }
   }
 

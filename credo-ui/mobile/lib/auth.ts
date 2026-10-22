@@ -232,6 +232,7 @@ export function clearAuth(): void {
     'holderPhone',
     'holderUsername',
     'credoRunningActions.v1',
+    'credoTaskPass',
   ].forEach((key) => localStorage.removeItem(key))
 }
 
@@ -308,10 +309,46 @@ export function endTaskContext(): string | null {
   return '/inbox'
 }
 
+const TASK_PASS_KEY = 'credoTaskPass'
+
+/** Organisations the person may open themselves (owners and admins); others are task passes only. */
+export const ORG_CONTEXT_ROLES = ['owner', 'admin']
+
+export function mayOpenOrgContext(role: string | null | undefined): boolean {
+  return ORG_CONTEXT_ROLES.includes(String(role || '').toLowerCase())
+}
+
+export interface TaskPass {
+  orgId: string
+  purpose: string
+  refs: string[]
+  expiresAt?: string
+}
+
+/** Marks the open organisation session as a task pass (one item only, never the whole organisation). */
+export function setTaskPass(pass: TaskPass | null): void {
+  if (typeof window === 'undefined') return
+  if (pass) localStorage.setItem(TASK_PASS_KEY, JSON.stringify(pass))
+  else localStorage.removeItem(TASK_PASS_KEY)
+}
+
+export function getTaskPass(): TaskPass | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(TASK_PASS_KEY)
+    const pass = raw ? (JSON.parse(raw) as TaskPass) : null
+    if (!pass?.orgId || getContextMode() !== 'org' || getStoredActiveOrgId() !== pass.orgId) return null
+    return pass
+  } catch {
+    return null
+  }
+}
+
 export function setPersonalContext(): void {
   if (typeof window === 'undefined') return
 
   clearTaskContext()
+  localStorage.removeItem(TASK_PASS_KEY)
 
   localStorage.removeItem('credoOrgToken')
   localStorage.removeItem('credoTenantToken')
@@ -356,6 +393,7 @@ export function applyOrgContext({
 }: ApplyOrgContextInput): void {
   if (typeof window === 'undefined') return
 
+  localStorage.removeItem(TASK_PASS_KEY)
   localStorage.setItem('credoOrgToken', orgToken)
   localStorage.setItem('credoTenantToken', orgToken)
   localStorage.setItem('tenantToken', orgToken)
@@ -530,6 +568,14 @@ export async function syncOrgContextFromServer(): Promise<boolean> {
       setPersonalContext()
       return true
     }
+
+    // Only owners and admins keep an organisation open; a member's org session is a task pass.
+    const openable = currentOrg.canOpenOrgContext ?? mayOpenOrgContext(currentOrg.role)
+    if (!openable && !getTaskPass()) {
+      setPersonalContext()
+      return true
+    }
+    if (getTaskPass()) return false
 
     const existingOrgToken = localStorage.getItem('credoOrgToken')
     const existingPayload = existingOrgToken ? decodeJwtPayload(existingOrgToken) : null

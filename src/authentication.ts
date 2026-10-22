@@ -9,6 +9,16 @@ import { container } from 'tsyringe'
 import { AgentRole, AuthContext, ErrorMessages, SCOPES } from './enums'
 import { StatusException } from './errors'
 import { DatabaseManager } from './persistence/DatabaseManager'
+import {
+  liveOrgContextRole,
+  liveOrgTaskRole,
+  ORG_CONTEXT_ADMINS_ONLY_MESSAGE,
+  ORG_CONTEXT_REVOKED,
+  ORG_TASK_CONTEXT,
+  ORG_TASK_SCOPE,
+  ORG_TASK_SCOPE_MESSAGE,
+  taskRouteAllowed,
+} from './services/OrgContextPolicy'
 import { TsLogger } from './utils/logger'
 
 let dynamicApiKey: string =
@@ -131,6 +141,34 @@ export async function expressAuthentication(request: Request, securityName: stri
         if (!tenantId) {
           logger.error('Missing tenantId in token')
           return Promise.reject(new StatusException(ErrorMessages.Unauthorized, 401))
+        }
+        if (decodedToken.ctx === ORG_TASK_CONTEXT) {
+          // Task pass: a team member doing one item of the organisation's work.
+          const liveRole = liveOrgTaskRole({ id: (request as any).user?.id, tenantId })
+          if (!liveRole) {
+            return Promise.reject(new StatusException(ORG_CONTEXT_ADMINS_ONLY_MESSAGE, 403, ORG_CONTEXT_REVOKED))
+          }
+          const allowed = taskRouteAllowed({
+            purpose: decodedToken.task?.purpose,
+            refs: decodedToken.task?.refs,
+            orgTenantId: tenantId,
+            method: request.method,
+            path: request.originalUrl || request.url,
+            body: request.body,
+          })
+          if (!allowed) {
+            return Promise.reject(new StatusException(ORG_TASK_SCOPE_MESSAGE, 403, ORG_TASK_SCOPE))
+          }
+          decodedToken.orgRole = liveRole
+          ;(request as any).user.orgRole = liveRole
+        } else if (decodedToken.orgRole) {
+          const liveRole = liveOrgContextRole({ id: (request as any).user?.id, tenantId })
+          if (!liveRole) {
+            return Promise.reject(new StatusException(ORG_CONTEXT_ADMINS_ONLY_MESSAGE, 403, ORG_CONTEXT_REVOKED))
+          }
+          // Downstream role checks read the live role, never a stale claim.
+          decodedToken.orgRole = liveRole
+          ;(request as any).user.orgRole = liveRole
         }
         try {
           const tenantAgent = await (agent.modules as any).tenants.getTenantAgent({ tenantId })

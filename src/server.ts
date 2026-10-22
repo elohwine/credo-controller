@@ -23,6 +23,7 @@ import { container } from 'tsyringe'
 import { setDynamicApiKey } from './authentication'
 import { ErrorMessages } from './enums'
 import { BaseError } from './errors/errors'
+import { StatusException } from './errors/StatusException'
 import { basicMessageEvents } from './events/BasicMessageEvents'
 import { connectionEvents } from './events/ConnectionEvents'
 import { credentialEvents } from './events/CredentialEvents'
@@ -610,6 +611,7 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
       const statusCode = error.statusCode || error.status || 500
       return res.status(statusCode).json({
         message: error.message || 'Internal Server Error',
+        ...(err instanceof StatusException && err.code ? { code: err.code } : {}),
       })
     }
 

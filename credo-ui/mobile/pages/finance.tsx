@@ -118,11 +118,11 @@ import { jobContactOption, OUTSIDE_CONTACT_NEEDS_APP, parseJobContactSelection }
 import api, { safeArray } from '@/lib/api'
 import { friendlyRequestError } from '@/lib/requestError'
 import {
-  applyOrgContext,
   beginTaskContext,
   bindTaskPath,
   endTaskContext,
   getTaskContext,
+  getTaskPass,
   getActiveOrgLabel,
   getActiveOrgId,
   getContextMode,
@@ -135,6 +135,7 @@ import {
   decodeJwtPayload,
   isReleaseRole,
 } from '@/lib/auth'
+import { openOrganizationForTask, taskRefs, type OrgTaskPurpose } from '@/lib/orgTaskAccess'
 import { findTemplateForCapability, getWorkflowCapabilityFlags } from '@/lib/workflowCapabilities'
 import { readOrgProfile, persistOrgProfile, profileFromServer, SETUP_PROFILE_PATH, type OrgProfile } from '@/lib/orgProfile'
 import { requireSensitiveOrgReauth } from '@/lib/offline/localReauth'
@@ -2705,62 +2706,47 @@ export default function FinancePage() {
     [orgContextBundle, refreshOrgPolicyBundle],
   )
 
-  const ensureOrgContextForRequisition = useCallback(async (orgTenantId?: string | null): Promise<boolean> => {
-    if (!orgTenantId) return true
+  const ensureOrgContextForRequisition = useCallback(
+    async (orgTenantId: string | null | undefined, purpose: OrgTaskPurpose, refs: Array<string | null | undefined>): Promise<boolean> => {
+      if (!orgTenantId) return true
 
-    const normalizedOrgId = String(orgTenantId).trim()
-    if (!normalizedOrgId) return true
+      const normalizedOrgId = String(orgTenantId).trim()
+      if (!normalizedOrgId) return true
 
-    const currentMode = getContextMode()
-    const currentOrg = getActiveOrgId()
-    if (currentMode === 'org' && currentOrg === normalizedOrgId) return true
+      const currentMode = getContextMode()
+      const currentOrg = getActiveOrgId()
+      const pass = getTaskPass()
+      const passCoversItem = !pass || taskRefs(...refs).some((ref) => pass.refs.includes(ref))
+      if (currentMode === 'org' && currentOrg === normalizedOrgId && passCoversItem) return true
 
-    const walletToken = getWalletToken()
-    if (!walletToken) return false
+      if (!getWalletToken()) return false
 
-    setContextSwitching(true)
-    try {
-      const switchRes = await api.post(
-        `/api/organizations/${encodeURIComponent(normalizedOrgId)}/switch`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${walletToken}` },
-        },
-      )
-      const orgToken = switchRes.data?.token
-      if (!orgToken) return false
+      setContextSwitching(true)
+      try {
+        const opened = await openOrganizationForTask({ orgId: normalizedOrgId, purpose, refs })
+        if (currentMode === 'personal') {
+          beginTaskContext({ orgId: normalizedOrgId, target: window.location.pathname + window.location.search })
+        }
 
-      const resolvedOrgName =
-        switchRes.data?.name || switchRes.data?.label || switchRes.data?.orgName || normalizedOrgId
-
-      applyOrgContext({
-        orgId: normalizedOrgId,
-        orgName: resolvedOrgName,
-        orgToken,
-        orgRole: switchRes.data?.orgRole,
-        sector: switchRes.data?.sector,
-      })
-      if (currentMode === 'personal') {
-        beginTaskContext({ orgId: normalizedOrgId, target: window.location.pathname + window.location.search })
+        notifications.show({
+          title: opened.taskPass ? `Working on a task for ${opened.orgName}` : 'Organization context active',
+          message: opened.taskPass ? 'Open for this item only.' : 'Switched to the organization.',
+          color: 'blue',
+        })
+        return true
+      } catch (error: any) {
+        notifications.show({
+          title: 'Could not open this task',
+          message: error?.response?.data?.message || (error instanceof Error ? error.message : 'Please try again.'),
+          color: 'red',
+        })
+        return false
+      } finally {
+        setContextSwitching(false)
       }
-
-      notifications.show({
-        title: 'Organization context active',
-        message: 'Switched to the organization.',
-        color: 'blue',
-      })
-      return true
-    } catch (error) {
-      notifications.show({
-        title: 'Could not open the organisation',
-        message: error instanceof Error ? error.message : 'Please try again.',
-        color: 'red',
-      })
-      return false
-    } finally {
-      setContextSwitching(false)
-    }
-  }, [])
+    },
+    [],
+  )
 
   const resolveRequisitionId = useCallback(
     async (targetId: string): Promise<string> => {
@@ -2793,7 +2779,7 @@ export default function FinancePage() {
 
         // Ensure we are in the correct org context if an ID is provided.
         if (orgTenantId) {
-          const switched = await ensureOrgContextForRequisition(orgTenantId)
+          const switched = await ensureOrgContextForRequisition(orgTenantId, 'requisition', [targetId])
           if (!switched) {
             notifications.show({
               title: 'Context switch required',
@@ -2846,7 +2832,7 @@ export default function FinancePage() {
       if (!normalizedRunId) return
 
       if (orgTenantId) {
-        const switched = await ensureOrgContextForRequisition(orgTenantId)
+        const switched = await ensureOrgContextForRequisition(orgTenantId, 'job', [normalizedRunId])
         if (!switched) {
           notifications.show({
             title: 'Context switch required',
@@ -2995,7 +2981,7 @@ export default function FinancePage() {
       const orgTenantId = typeof router.query.orgTenantId === 'string' ? router.query.orgTenantId : null
 
       if (orgTenantId) {
-        const switched = await ensureOrgContextForRequisition(orgTenantId)
+        const switched = await ensureOrgContextForRequisition(orgTenantId, 'requisition', [requisitionIdFromQuery, requestId])
         if (!switched && !cancelled) {
           notifications.show({
             title: 'Context switch required',
@@ -3153,9 +3139,10 @@ export default function FinancePage() {
 
     const orgTenantId = typeof router.query.orgTenantId === 'string' ? router.query.orgTenantId : null
     if (orgTenantId) {
-      void ensureOrgContextForRequisition(orgTenantId)
+      const transactionId = typeof router.query.transactionId === 'string' ? router.query.transactionId : null
+      void ensureOrgContextForRequisition(orgTenantId, 'payable', [transactionId])
     }
-  }, [router.query.tab, router.query.orgTenantId, hasApPayables, ensureOrgContextForRequisition, canLoadFinance])
+  }, [router.query.tab, router.query.orgTenantId, router.query.transactionId, hasApPayables, ensureOrgContextForRequisition, canLoadFinance])
 
   // The inbox's "Opening the job…" screen hands over to this screen's own one as soon as it draws.
   const unblockScreen = useUiStore((state) => state.unblock)
@@ -3225,7 +3212,7 @@ export default function FinancePage() {
 
     const openFromQuery = async () => {
       if (orgTenantId) {
-        await ensureOrgContextForRequisition(orgTenantId)
+        await ensureOrgContextForRequisition(orgTenantId, 'collection', [linkId, invoiceRef, paymentCode])
       }
 
       setTab('ar')
@@ -3291,7 +3278,7 @@ export default function FinancePage() {
 
     const openPlanFromQuery = async () => {
       if (orgTenantId) {
-        await ensureOrgContextForRequisition(orgTenantId)
+        await ensureOrgContextForRequisition(orgTenantId, 'collection', [planId])
       }
       setTab('ar')
       await openPlanDetails(planId)
@@ -3323,7 +3310,7 @@ export default function FinancePage() {
 
     const openFromTransactionQuery = async () => {
       if (orgTenantId) {
-        await ensureOrgContextForRequisition(orgTenantId)
+        await ensureOrgContextForRequisition(orgTenantId, 'collection', [transactionId])
       }
 
       setTab('ar')
@@ -8925,7 +8912,12 @@ export default function FinancePage() {
                         variant="white"
                         color="blue"
                         size="xs"
-                        onClick={() => void ensureOrgContextForRequisition(targetOrgId)}
+                        onClick={() =>
+                          void ensureOrgContextForRequisition(targetOrgId, 'requisition', [
+                            selectedRequisitionId,
+                            selectedRequisition?.workflowRequestId,
+                          ])
+                        }
                         loading={contextSwitching}
                       >
                         Switch to Organization

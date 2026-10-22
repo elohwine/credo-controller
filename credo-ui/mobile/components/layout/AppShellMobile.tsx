@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { Box, Group, Text, ActionIcon, Avatar, Drawer, Stack, Button, Divider, useMantineColorScheme, Menu, UnstyledButton } from '@mantine/core';
 import { IconSettings, IconLogout, IconBuilding, IconCertificate, IconPlugConnected, IconChevronDown, IconSun, IconMoon, IconCheck, IconUser, IconPlus, IconArrowLeft, IconBrandWhatsapp } from '@tabler/icons-react';
 import BottomNav from './BottomNav';
-import { CREDENTIS_CONTEXT_CHANGED_EVENT, clearTaskContext, getTaskContext, getActiveOrgLabel, getUserName, getUserRole, clearAuth, getWalletToken, syncOrgContextFromServer, applyOrgContext, setPersonalContext, getContextMode, getOrgToken, getContextTokenStrict, getPersonalWalletToken } from '@/lib/auth';
+import { CREDENTIS_CONTEXT_CHANGED_EVENT, clearTaskContext, getTaskContext, getActiveOrgLabel, getUserName, getUserRole, clearAuth, getWalletToken, syncOrgContextFromServer, applyOrgContext, setPersonalContext, mayOpenOrgContext, getContextMode, getOrgToken, getContextTokenStrict, getPersonalWalletToken } from '@/lib/auth';
 import { beginAddAccount, currentAccountId, listSavedAccounts, loadSavedAccountNames, rememberCurrentAccount, restoreAccount } from '@/lib/savedAccounts';
 import api, { API_BASE_URL } from '@/lib/api';
 import { notifications } from '@mantine/notifications';
@@ -30,7 +30,10 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
   const [userName, setUserName] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [orgMenuOpen, setOrgMenuOpen] = useState(false);
-  const [orgs, setOrgs] = useState<Array<{ id: string; name: string; role: string }>>([]);
+  const [orgs, setOrgs] = useState<Array<{ id: string; name: string; role: string; canOpen: boolean }>>([]);
+  // Only owners and admins open an organisation; the others are listed as where the person works.
+  const switchableOrgs = orgs.filter((org) => org.canOpen);
+  const workplaces = orgs.filter((org) => !org.canOpen);
   const [orgSwitching, setOrgSwitching] = useState(false);
   const [orgsLoading, setOrgsLoading] = useState(false);
   const [accounts, setAccounts] = useState<Array<{ id: string; label: string }>>([]);
@@ -322,11 +325,12 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
         id: o.orgTenantId ?? o.id,
         name: o.name ?? o.label ?? o.id,
         role: o.role ?? 'holder',
+        canOpen: typeof o.canOpenOrgContext === 'boolean' ? o.canOpenOrgContext : mayOpenOrgContext(o.role),
       }));
       // Keep credoOrganizations cache in sync
       if (mapped.length > 0) {
         try { localStorage.setItem('credoOrganizations', JSON.stringify(
-          data.map((o: any) => ({ orgTenantId: o.orgTenantId ?? o.id, name: o.name ?? o.label ?? o.id, role: o.role ?? 'holder' }))
+          data.map((o: any) => ({ orgTenantId: o.orgTenantId ?? o.id, name: o.name ?? o.label ?? o.id, role: o.role ?? 'holder', canOpenOrgContext: typeof o.canOpenOrgContext === 'boolean' ? o.canOpenOrgContext : mayOpenOrgContext(o.role) }))
         )); } catch { /* quota */ }
       }
       setOrgs(mapped);
@@ -504,8 +508,8 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                 >
                   Personal Account
                 </Menu.Item>
-                {orgs.length > 0 && <Menu.Divider />}
-                {orgs.map((org) => (
+                {switchableOrgs.length > 0 && <Menu.Divider />}
+                {switchableOrgs.map((org) => (
                   <Menu.Item
                     key={org.id}
                     leftSection={<IconBuilding size={14} />}
@@ -516,6 +520,15 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                     {org.name}
                   </Menu.Item>
                 ))}
+                {workplaces.length > 0 && (
+                  <>
+                    <Menu.Divider />
+                    <Menu.Label>You work for</Menu.Label>
+                    {workplaces.map((org) => (
+                      <WorkplaceRow key={org.id} name={org.name} role={org.role} compact />
+                    ))}
+                  </>
+                )}
                 <Menu.Divider />
                 <Menu.Label>Accounts</Menu.Label>
                 {accounts.map((account) => {
@@ -639,7 +652,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
             {orgsLoading && orgs.length === 0 && (
               <Text size="xs" c="dimmed" px="xs">Loading organisations…</Text>
             )}
-            {orgs.filter((org) => org.name !== orgLabel).map((org) => (
+            {switchableOrgs.filter((org) => org.name !== orgLabel).map((org) => (
               <Button
                 key={org.id}
                 variant="subtle"
@@ -653,6 +666,16 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                 {org.name}
               </Button>
             ))}
+            {workplaces.length > 0 && (
+              <>
+                <Text size="xs" c="dimmed" tt="uppercase" fw={600} px="xs" mt="xs">
+                  You work for
+                </Text>
+                {workplaces.map((org) => (
+                  <WorkplaceRow key={org.id} name={org.name} role={org.role} />
+                ))}
+              </>
+            )}
             {orgLabel && !inboxTask && ['owner', 'admin'].includes(String(userRole || '').toLowerCase()) && (
               <>
                 <Button
@@ -776,5 +799,23 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
         </Stack>
       </Drawer>
     </Box>
+  );
+}
+
+/**
+ * An organisation the person works for but does not run. Shown, not switchable: their jobs and
+ * approvals come to the personal inbox, and each one opens just that task.
+ */
+function WorkplaceRow({ name, role, compact = false }: { name: string; role: string; compact?: boolean }) {
+  const roleWords = String(role || 'member').replace(/_/g, ' ');
+  const roleLabel = `${roleWords.charAt(0).toUpperCase()}${roleWords.slice(1)}`;
+  return (
+    <Group gap="xs" wrap="nowrap" px={compact ? 'sm' : 'xs'} py={6} aria-label={`You work for ${name} as ${roleWords}`}>
+      <IconBuilding size={compact ? 14 : 16} color="#94a3b8" style={{ flexShrink: 0 }} />
+      <Box style={{ minWidth: 0 }}>
+        <Text size="sm" truncate>{name}</Text>
+        <Text size="xs" c="dimmed">{roleLabel} · your jobs come to your personal inbox</Text>
+      </Box>
+    </Group>
   );
 }
