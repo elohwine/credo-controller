@@ -1,3 +1,4 @@
+import { EMPLOYEE_ORG_ACCESS_ROLES } from '../config/credentials/EmployeeVC'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 
 /**
@@ -8,7 +9,7 @@ import { DatabaseManager } from '../persistence/DatabaseManager'
  * (the role-credential pattern, as with vLEI role credentials), so a worker never holds the
  * organisation's agent.
  */
-export const ORG_CONTEXT_ROLES: ReadonlySet<string> = new Set(['owner', 'admin'])
+export const ORG_CONTEXT_ROLES: ReadonlySet<string> = EMPLOYEE_ORG_ACCESS_ROLES
 
 export const ORG_CONTEXT_ADMINS_ONLY = 'org_context_admins_only'
 export const ORG_CONTEXT_REVOKED = 'org_context_revoked'

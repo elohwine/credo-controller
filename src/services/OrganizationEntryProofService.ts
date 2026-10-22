@@ -8,6 +8,7 @@ import crypto from 'crypto'
 
 import { EMPLOYEE_VC_TYPE } from '../config/credentials/EmployeeVC'
 import { StatusException } from '../errors'
+import { ORG_CONTEXT_ADMINS_ONLY, ORG_CONTEXT_ADMINS_ONLY_MESSAGE, roleMayOpenOrgContext } from './OrgContextPolicy'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { IssuedCredentialRepository } from '../persistence/IssuedCredentialRepository'
 import { getTenantById } from '../persistence/TenantRepository'
@@ -39,6 +40,11 @@ export type OrganizationEntryPoll =
 
 const hash = (value: string) => crypto.createHash('sha256').update(value).digest('hex')
 
+const ENTRY_CLAIM_SETS = [
+  ['org', 'person', 'role', 'status', 'access'],
+  ['org', 'person', 'role', 'status'],
+]
+
 export function organizationEntryQuery(orgTenantId: string, userId: string): DcqlQuery {
   return {
     credentials: [
@@ -48,11 +54,15 @@ export function organizationEntryQuery(orgTenantId: string, userId: string): Dcq
         meta: { vct_values: [EMPLOYEE_VC_TYPE] },
         require_cryptographic_holder_binding: true,
         claims: [
-          { path: ['orgTenantId'], values: [orgTenantId] },
-          { path: ['userId'], values: [userId] },
-          { path: ['role'] },
-          { path: ['employmentStatus'], values: ['active'] },
+          { id: 'org', path: ['orgTenantId'], values: [orgTenantId] },
+          { id: 'person', path: ['userId'], values: [userId] },
+          { id: 'role', path: ['role'] },
+          { id: 'status', path: ['employmentStatus'], values: ['active'] },
+          { id: 'access', path: ['orgAccess'], values: ['manage'] },
         ],
+        // Prefer the card that says it opens the organisation; older cards without the claim
+        // still answer and are judged on the live role.
+        claim_sets: ENTRY_CLAIM_SETS,
       },
       {
         id: 'legacy_staff_card',
@@ -60,11 +70,13 @@ export function organizationEntryQuery(orgTenantId: string, userId: string): Dcq
         meta: { type_values: [['VerifiableCredential', EMPLOYEE_VC_TYPE]] },
         require_cryptographic_holder_binding: true,
         claims: [
-          { path: ['credentialSubject', 'orgTenantId'], values: [orgTenantId] },
-          { path: ['credentialSubject', 'userId'], values: [userId] },
-          { path: ['credentialSubject', 'role'] },
-          { path: ['credentialSubject', 'employmentStatus'], values: ['active'] },
+          { id: 'org', path: ['credentialSubject', 'orgTenantId'], values: [orgTenantId] },
+          { id: 'person', path: ['credentialSubject', 'userId'], values: [userId] },
+          { id: 'role', path: ['credentialSubject', 'role'] },
+          { id: 'status', path: ['credentialSubject', 'employmentStatus'], values: ['active'] },
+          { id: 'access', path: ['credentialSubject', 'orgAccess'], values: ['manage'] },
         ],
+        claim_sets: ENTRY_CLAIM_SETS,
       },
     ],
     credential_sets: [{ options: [['staff_card'], ['legacy_staff_card']], required: true }],
@@ -96,8 +108,12 @@ export class OrganizationEntryProofService {
   ) {}
 
   public async start(userId: string, orgTenantId: string, personalToken: string): Promise<WalletLoginStart> {
-    if (!this.organizations.getUserOrgRole(userId, orgTenantId)) {
+    const role = this.organizations.getUserOrgRole(userId, orgTenantId)
+    if (!role) {
       throw new StatusException('You are not an active member of this organisation', 403)
+    }
+    if (!roleMayOpenOrgContext(role)) {
+      throw new StatusException(ORG_CONTEXT_ADMINS_ONLY_MESSAGE, 403, ORG_CONTEXT_ADMINS_ONLY)
     }
     const signer = await stageProofService.getOrCreateDidForAgent(this.agent)
     const verifier = await stageProofService.getOrCreateVerifierForAgent(this.agent, signer.didUrl)
@@ -186,6 +202,19 @@ export class OrganizationEntryProofService {
       throw new StatusException(
         'The staff card does not match your current organisation membership. Accept an updated card and try again.',
         403,
+      )
+    }
+    // A card that says it is for tasks only does not open the organisation, whatever the role says.
+    if (
+      !roleMayOpenOrgContext(role) ||
+      (card.subject.orgAccess !== undefined && card.subject.orgAccess !== 'manage')
+    ) {
+      throw new StatusException(
+        roleMayOpenOrgContext(role)
+          ? 'This staff card is for tasks only. Accept your updated staff card from the inbox, then try again.'
+          : ORG_CONTEXT_ADMINS_ONLY_MESSAGE,
+        403,
+        ORG_CONTEXT_ADMINS_ONLY,
       )
     }
     const issued = card.id ? new IssuedCredentialRepository().findByCredentialId(card.id) : undefined

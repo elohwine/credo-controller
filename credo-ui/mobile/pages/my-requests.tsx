@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Stack, Text, Title, Badge, Paper, Group, Button, Skeleton, ThemeIcon, Divider, Drawer, Loader,
+  NumberInput, TextInput,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import ReceiptProofField, { receiptProofPayload, type ReceiptProof } from '@/components/shared/ReceiptProofField';
 import { IconFileText, IconBuilding, IconChevronRight, IconRefresh } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
 import AppShellMobile from '@/components/layout/AppShellMobile';
@@ -110,6 +113,9 @@ export default function MyRequestsPage() {
   const [loadError, setLoadError] = useState('');
   const [detailError, setDetailError] = useState('');
   const detailAttempt = useRef(0);
+  const [stepValues, setStepValues] = useState<Record<string, string>>({});
+  const [stepReceipt, setStepReceipt] = useState<ReceiptProof | null>(null);
+  const [stepBusy, setStepBusy] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -162,6 +168,8 @@ export default function MyRequestsPage() {
     setSelected(row);
     setDetail(null);
     setDetailError('');
+    setStepValues({});
+    setStepReceipt(null);
     const token = getPersonalWalletToken() || getWalletToken();
     if (!token) return;
     setDetailLoading(true);
@@ -176,6 +184,41 @@ export default function MyRequestsPage() {
       if (detailAttempt.current === attempt) setDetailError('Could not load this request. Close it and try again.');
     } finally {
       if (detailAttempt.current === attempt) setDetailLoading(false);
+    }
+  };
+
+  const requesterStep = selected?.source === 'org' && detail?.requesterStep && Array.isArray(detail.requesterStep.fields)
+    ? detail.requesterStep as { label: string; hint?: string; fields: Array<{ name: string; label: string; type: string; required?: boolean; hint?: string }> }
+    : null;
+
+  // The person who went to the shop adds the receipt to their own approved purchase.
+  const finishStep = async () => {
+    if (!selected || !requesterStep) return;
+    const token = getPersonalWalletToken() || getWalletToken();
+    if (!token) return;
+    const missing = requesterStep.fields.find((field) => field.required && (field.type === 'image' ? !stepReceipt : !String(stepValues[field.name] ?? '').trim()));
+    if (missing) {
+      notifications.show({ title: 'Not saved', message: missing.type === 'image' ? `${missing.label} is needed, or a receipt record from your wallet.` : `Add ${missing.label.toLowerCase()}.`, color: 'red' });
+      return;
+    }
+    setStepBusy(true);
+    try {
+      const payload: Record<string, unknown> = { ...receiptProofPayload(stepReceipt) };
+      for (const field of requesterStep.fields) {
+        if (field.type === 'image') continue;
+        const value = String(stepValues[field.name] ?? '').trim();
+        if (value) payload[field.name] = field.type === 'number' ? Number(value) : value;
+      }
+      await api.post(`/api/platform/requests/mine/${encodeURIComponent(selected.id)}/finish`, { payload }, {
+        headers: { Authorization: 'Bearer ' + token, 'x-idempotency-key': `finish-mine:${selected.id}` },
+      });
+      notifications.show({ title: 'Saved', message: 'Receipt added. Anything waiting on it continues now.', color: 'green' });
+      setSelected(null);
+      await loadRequests();
+    } catch (error: any) {
+      notifications.show({ title: 'Not saved', message: error?.response?.data?.message || error?.message || 'Try again in a moment.', color: 'red' });
+    } finally {
+      setStepBusy(false);
     }
   };
 
@@ -291,6 +334,25 @@ export default function MyRequestsPage() {
                   'An approval does not mean a credential was issued or accepted.',
                 ] }}
               />
+            )}
+            {!detailLoading && requesterStep && (
+              <Paper withBorder radius="md" p="sm">
+                <Stack gap="sm">
+                  <Text fw={600} size="sm">{requesterStep.label}</Text>
+                  {requesterStep.hint && <Text size="xs" c="dimmed">{requesterStep.hint}</Text>}
+                  {requesterStep.fields.map((field) => field.type === 'image' ? (
+                    <ReceiptProofField key={field.name} label={field.label} hint={field.hint} required={field.required} value={stepReceipt} onChange={setStepReceipt} />
+                  ) : field.type === 'number' ? (
+                    <NumberInput key={field.name} label={field.label} required={field.required} min={0} decimalScale={2}
+                      value={stepValues[field.name] ? Number(stepValues[field.name]) : ''}
+                      onChange={(value) => setStepValues((prev) => ({ ...prev, [field.name]: String(value ?? '') }))} />
+                  ) : (
+                    <TextInput key={field.name} label={field.label} required={field.required} value={stepValues[field.name] || ''}
+                      onChange={(event) => { const value = event.currentTarget.value; setStepValues((prev) => ({ ...prev, [field.name]: value })); }} />
+                  ))}
+                  <Button onClick={finishStep} loading={stepBusy}>{requesterStep.label}</Button>
+                </Stack>
+              </Paper>
             )}
             {selected.source === 'org' && trail && <JobAuditTrailPanel trail={trail} compact embedded subject="request" />}
             {selected.source === 'business' && (

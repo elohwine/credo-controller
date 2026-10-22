@@ -1060,7 +1060,11 @@ export class ContactController extends Controller {
           contactScope: 'internal',
           name: row.label,
           did: row.issuer_did || undefined,
-          notes: `Org membership (${row.role})`,
+          notes: `Org membership (${row.role}) · ${
+            ['owner', 'admin'].includes(String(row.role).toLowerCase())
+              ? 'can open the organisation and its dashboard'
+              : 'jobs and approvals come to your personal inbox'
+          }`,
           appStatus: 'in_app',
           walletTenantId: row.org_tenant_id,
           linkedAt: row.created_at,

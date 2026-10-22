@@ -694,6 +694,13 @@ const EXPENSE_APPROVAL_SCHEMA = {
         amount: { type: 'number' },
         currency: { type: 'string' },
         category: { type: 'string' },
+        merchant: { type: 'string' },
+        receiptRef: { type: 'string' },
+        // Links the approval to the receipt it was claimed against: a receipt record in the
+        // claimant's wallet, or the fingerprint of the photo they attached.
+        receiptCredentialId: { type: 'string' },
+        receiptCredentialType: { type: 'string' },
+        receiptImageSha256: { type: 'string' },
         approvedBy: { type: 'string' },
         approvedAt: { type: 'string' },
       },

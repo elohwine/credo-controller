@@ -73,7 +73,18 @@ const CONTEXT_SCHEMAS = new Map<string, ReadonlySet<string>>([
   ],
   [
     'finance.expense_claim',
-    new Set(['receiptRef', 'categoryCode', 'projectRef', 'costCentreRef', 'periodRef', 'merchantRef', 'currencyCode']),
+    new Set([
+      'receiptRef',
+      'categoryCode',
+      'projectRef',
+      'costCentreRef',
+      'periodRef',
+      'merchantRef',
+      'currencyCode',
+      // A wallet receipt record (id, type, label only) and the fingerprint of an attached photo.
+      'receiptRecord',
+      'receiptImageSha256',
+    ]),
   ],
   [
     'finance.purchase_order',

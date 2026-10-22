@@ -71,6 +71,12 @@ export function recordKindLabel(vcType: string | undefined): string {
     .trim()
 }
 
+/** What the staff card's organisation access claim lets the holder do. */
+export const ORG_ACCESS_WORDS: Record<string, string> = {
+  manage: 'Opens the organisation and its dashboard',
+  tasks: 'Tasks from the personal inbox',
+}
+
 /** Plain labels for the claims a person sees when they open a record. */
 export const CLAIM_LABELS: Record<string, string> = {
   orgName: 'Organisation',
@@ -80,6 +86,9 @@ export const CLAIM_LABELS: Record<string, string> = {
   role: 'Role',
   department: 'Department',
   employmentStatus: 'Status',
+  orgAccess: 'Organisation access',
+  receiptRef: 'Receipt number',
+  merchant: 'Paid at',
   stageActions: 'You confirm',
   displayName: 'Name',
   username: 'Name',
@@ -177,7 +186,15 @@ export function credentialClaimRows(
     else if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') value = String(raw)
     if (!value.trim() || value.startsWith('did:')) continue
     seen.add(label)
-    rows.push({ label, value: key === 'memberRole' || key === 'role' ? value.replace(/_/g, ' ') : value })
+    rows.push({
+      label,
+      value:
+        key === 'memberRole' || key === 'role'
+          ? value.replace(/_/g, ' ')
+          : key === 'orgAccess'
+            ? ORG_ACCESS_WORDS[value] || value
+            : value,
+    })
   }
   return rows
 }

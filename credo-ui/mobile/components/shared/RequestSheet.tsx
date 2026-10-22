@@ -10,6 +10,7 @@ import {
 } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
 import { api } from '@/lib/api';
+import ReceiptProofField, { receiptProofPayload, type ReceiptProof } from '@/components/shared/ReceiptProofField';
 import { getPersonalWalletToken, getWalletToken } from '@/lib/auth';
 import {
   EXPENSE_CATEGORIES, LEAVE_TYPES, REQUEST_GROUP_WORDS, requestGroupsIn, requestKindsFor, resendStatusWords,
@@ -78,6 +79,7 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [askOrgFor, setAskOrgFor] = useState<RequestKind | null>(null);
+  const [receipt, setReceipt] = useState<ReceiptProof | null>(null);
 
   const walletToken = () => getPersonalWalletToken() || getWalletToken();
 
@@ -86,6 +88,7 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
     setActive(null);
     setAskOrgFor(null);
     setForm({});
+    setReceipt(null);
     const token = walletToken();
     if (!token) {
       setOptions(null);
@@ -224,6 +227,7 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
           amount,
           currency: form.currency || 'USD',
           context: { categoryCode: form.category || 'other', receiptRef: form.receiptRef?.trim() || undefined, merchantRef: form.merchant?.trim() || undefined },
+          ...receiptProofPayload(receipt),
         });
         finish('Your manager has your expense claim.', '/my-requests');
         return;
@@ -290,6 +294,12 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
           <Select label="Category" data={EXPENSE_CATEGORIES} value={form.category || null} onChange={(value) => setForm({ ...form, category: value || '' })} />
           <TextInput label="Where you paid (optional)" value={form.merchant || ''} onChange={(e) => setForm({ ...form, merchant: e.currentTarget.value })} />
           <TextInput label="Receipt number (optional)" value={form.receiptRef || ''} onChange={(e) => setForm({ ...form, receiptRef: e.currentTarget.value })} />
+          <ReceiptProofField
+            label="Receipt (optional)"
+            hint="Take a photo of the slip, or attach a receipt record from your wallet. Your manager sees it before deciding."
+            value={receipt}
+            onChange={setReceipt}
+          />
         </Stack>
       );
     }

@@ -7,6 +7,7 @@ import { authorizationService } from './AuthorizationService'
 import { orgEntitlementService } from './OrgEntitlementService'
 import { orgSetupProfileService } from './OrgSetupProfileService'
 import { orgWorkflowActorService } from './OrgWorkflowActorService'
+import { compactReceiptRecord, readReceiptProof } from '../utils/receiptProof'
 import { requestContextValidator } from './RequestContextValidator'
 import { experienceForRequest, requestExperienceDefinition, requestExperienceEvents } from './RequestExperienceService'
 import { isActiveStageDelegate } from './WorkflowStageInboxService'
@@ -59,8 +60,6 @@ const RECEIPT_IMAGE_FIELD: RequestNextStepField = {
   required: true,
   hint: 'Take a photo of the receipt, or use a receipt record from your wallet.',
 }
-const MAX_RECEIPT_IMAGE_CHARS = 12_000_000
-const DATA_IMAGE_URL = /^data:image\/(jpeg|jpg|png|webp|heic|heif);base64,[A-Za-z0-9+/]+=*$/
 
 /**
  * What an approved request still needs, as both apps show it: a purchase is marked bought
@@ -132,6 +131,13 @@ const GENERIC_STEP: Omit<RequestNextStep, 'toStatus'> = {
 }
 
 /** Approval is the last step for these; nobody has to "finish" a leave request or a payout nudge. */
+/**
+ * Approved purchases the person who asked may finish themselves: whoever went to the shop (often
+ * the field worker on the job) adds the receipt. The approval was someone else's; the receipt
+ * photo or wallet receipt record is still required.
+ */
+const REQUESTER_FINISHES = new Set(['procurement.requisition', 'requisition'])
+
 const DONE_WHEN_APPROVED = new Set(['hr.leave', 'platform.general', 'finance.payout_request'])
 
 /**
@@ -197,6 +203,10 @@ export interface RaiseRequestInput {
   amount?: number
   currency?: string
   context?: Record<string, unknown>
+  /** Expense claims: a live photo of the receipt (data URL). Kept on an event, not in the context. */
+  receiptImage?: string
+  /** Expense claims: a receipt record from the person's wallet standing in for the photo. */
+  receiptRecord?: { id: string; type?: string; label?: string; issuer_name?: string }
 }
 
 export interface CreatePlatformRequestInput {
@@ -433,9 +443,10 @@ export class PlatformRequestService {
     }
 
     let stored: Record<string, unknown> = payload
+    let completionStep: RequestNextStep | undefined
     if (toStatus === 'completed') {
-      const step = this.nextStepFor({ id: requestId, request_type: current.requestType, status: current.status })
-      stored = this.checkCompletion(step?.fields || [], payload)
+      completionStep = this.nextStepFor({ id: requestId, request_type: current.requestType, status: current.status })
+      stored = this.checkCompletion(completionStep?.fields || [], payload)
     }
 
     const permissions: Partial<Record<RequestStatus, string>> = {
@@ -449,6 +460,11 @@ export class PlatformRequestService {
     }
     const permission = permissions[toStatus]
     const actorIsRequester = actorPersonId === current.requesterPersonId
+    const requesterFinishes =
+      actorIsRequester &&
+      toStatus === 'completed' &&
+      Boolean(completionStep) &&
+      REQUESTER_FINISHES.has(String(current.requestType || '').toLowerCase())
 
     if (['in_review', 'approved', 'rejected'].includes(toStatus)) {
       const subjectRef =
@@ -464,14 +480,14 @@ export class PlatformRequestService {
       })
     }
 
-    if (actorIsRequester && (toStatus === 'submitted' || toStatus === 'cancelled')) {
+    if ((actorIsRequester && (toStatus === 'submitted' || toStatus === 'cancelled')) || requesterFinishes) {
       this.recordDecisionEvent(
         current.organizationId,
         actorPersonId,
         requestId,
         `request.${toStatus}`,
         'allow',
-        'requester_action',
+        requesterFinishes ? 'requester_bought' : 'requester_action',
       )
     } else {
       const context = this.parseContext(current.contextJson)
@@ -554,12 +570,22 @@ export class PlatformRequestService {
             requestType: current.requestType || 'platform.general',
             sourceId: requestId,
             title: current.title || current.requestType || 'Organization request',
-            body:
+            body: [
               this.familyCard(requestId).body ||
-              SUBMIT_BODY_BY_TYPE[String(current.requestType)] ||
-              `A ${String(current.requestType).replace(/[._]/g, ' ')} is waiting for the stage actor.`,
+                SUBMIT_BODY_BY_TYPE[String(current.requestType)] ||
+                `A ${String(current.requestType).replace(/[._]/g, ' ')} is waiting for the stage actor.`,
+              current.requestType === 'finance.expense_claim' ? this.expenseReceiptLine(submitContext) : '',
+            ]
+              .filter(Boolean)
+              .join(' '),
             departmentId: current.departmentId,
-            extraMetadata: { ...(this.familyCard(requestId).extraMetadata || {}), ...jobLink },
+            extraMetadata: {
+              ...(this.familyCard(requestId).extraMetadata || {}),
+              ...jobLink,
+              ...(current.requestType === 'finance.expense_claim' && {
+                receiptLine: this.expenseReceiptLine(submitContext),
+              }),
+            },
             amount: typeof current.amount === 'number' ? current.amount : undefined,
           })
         })
@@ -858,16 +884,12 @@ export class PlatformRequestService {
     for (const field of fields) {
       const value = payload[field.name]
       if (field.type === 'image') {
-        const image = typeof value === 'string' ? value.trim() : ''
-        const record = this.compactRecord(payload.receiptRecord)
-        if (image) {
-          if (image.length > MAX_RECEIPT_IMAGE_CHARS)
-            throw new Error(`${field.label} is too large. Take a smaller photo.`)
-          if (!DATA_IMAGE_URL.test(image)) throw new Error(`${field.label} must be a photo.`)
-          stored.receiptImage = image
-          stored.receiptImageSha256 = createHash('sha256').update(image).digest('hex')
-        } else if (record) {
-          stored.receiptRecord = record
+        const proof = readReceiptProof({ receiptImage: value, receiptRecord: payload.receiptRecord }, field.label)
+        if (proof.image) {
+          stored.receiptImage = proof.image
+          stored.receiptImageSha256 = proof.imageSha256
+        } else if (proof.record) {
+          stored.receiptRecord = proof.record
         } else if (field.required) {
           throw new Error(`${field.label} is needed, or a receipt record from your wallet.`)
         }
@@ -880,15 +902,71 @@ export class PlatformRequestService {
   }
 
   private compactRecord(raw: unknown): { id: string; type: string; label: string } | undefined {
-    if (!raw || typeof raw !== 'object') return undefined
-    const record = raw as Record<string, unknown>
-    const id = String(record.id ?? '').trim()
-    if (!id) return undefined
-    const type = String(record.type ?? record.vc_type ?? 'ReceiptVC').trim() || 'ReceiptVC'
-    const label =
-      String(record.label ?? '').trim() ||
-      `${type.replace(/VC$/, '').replace(/([a-z])([A-Z])/g, '$1 $2')}${record.issuer_name ? ` from ${record.issuer_name}` : ''}`
-    return { id, type, label }
+    return compactReceiptRecord(raw)
+  }
+
+  /**
+   * The receipt the person attached when they raised the request (an expense claim): the wallet
+   * record and photo fingerprint sit on the request; the photo itself on the attach event.
+   */
+  public raisedReceipt(requestId: string, withPhoto = true): RequestReceipt | undefined {
+    const db = DatabaseManager.getDatabase()
+    const row = db.prepare(`SELECT context_json AS contextJson, created_at AS createdAt FROM requests WHERE id = ?`).get(
+      requestId,
+    ) as { contextJson?: string; createdAt?: string } | undefined
+    if (!row) return undefined
+    const context = this.parseContext(row.contextJson)
+    const record = compactReceiptRecord(context.receiptRecord)
+    const sha256 = typeof context.receiptImageSha256 === 'string' ? context.receiptImageSha256 : undefined
+    const receiptRef = String(context.receiptRef ?? '').trim() || undefined
+    if (!record && !sha256 && !receiptRef) return undefined
+    let photoUri: string | undefined
+    if (withPhoto && sha256) {
+      const event = db
+        .prepare(
+          `SELECT payload_json AS payloadJson FROM request_events
+           WHERE request_id = ? AND event_type = 'request.receipt_attached' ORDER BY created_at DESC LIMIT 1`,
+        )
+        .get(requestId) as { payloadJson?: string } | undefined
+      try {
+        const payload = event?.payloadJson ? (JSON.parse(event.payloadJson) as Record<string, unknown>) : {}
+        if (typeof payload.receiptImage === 'string' && payload.receiptImageSha256 === sha256) {
+          photoUri = payload.receiptImage
+        }
+      } catch {
+        photoUri = undefined
+      }
+    }
+    return { receiptRef, photoUri, sha256, record, recordedAt: row.createdAt }
+  }
+
+  /** What the approver is told about the receipt behind an expense claim. */
+  private expenseReceiptLine(context: Record<string, unknown>): string {
+    const record = compactReceiptRecord(context.receiptRecord)
+    const receiptRef = String(context.receiptRef ?? '').trim()
+    const number = receiptRef ? ` (no. ${receiptRef})` : ''
+    if (record) return `Receipt: ${record.label}${number}, from their wallet.`
+    if (typeof context.receiptImageSha256 === 'string' && context.receiptImageSha256)
+      return `Receipt photo attached${number}.`
+    if (receiptRef) return `Receipt no. ${receiptRef}; no photo attached.`
+    return 'No receipt attached.'
+  }
+
+  /** The receipt an approved expense record points at (only the claims that are present). */
+  private expenseReceiptLink(context: Record<string, unknown>): Record<string, string> {
+    const link: Record<string, string> = {}
+    const merchant = String(context.merchantRef ?? '').trim()
+    const receiptRef = String(context.receiptRef ?? '').trim()
+    const record = compactReceiptRecord(context.receiptRecord)
+    const sha = typeof context.receiptImageSha256 === 'string' ? context.receiptImageSha256 : ''
+    if (merchant) link.merchant = merchant
+    if (receiptRef) link.receiptRef = receiptRef
+    if (record) {
+      link.receiptCredentialId = record.id
+      link.receiptCredentialType = record.type
+    }
+    if (sha) link.receiptImageSha256 = sha
+    return link
   }
 
   /** What was recorded when this request was marked bought, delivered or paid. */
@@ -929,11 +1007,12 @@ export class PlatformRequestService {
     requestId: string,
     status?: string,
   ): (Omit<RequestReceipt, 'photoUri'> & { hasPhoto: boolean }) | undefined {
-    if (status !== 'completed') return undefined
-    const receipt = this.completionReceipt(requestId)
+    const receipt =
+      (status === 'completed' ? this.completionReceipt(requestId) : undefined) ||
+      this.raisedReceipt(requestId, false)
     if (!receipt) return undefined
     const { photoUri, ...rest } = receipt
-    return { ...rest, hasPhoto: Boolean(photoUri) }
+    return { ...rest, hasPhoto: Boolean(photoUri || rest.sha256) }
   }
 
   /** Receipt and bill numbers a follow-on inherits (the supplier payment carries the bill number). */
@@ -1342,6 +1421,18 @@ export class PlatformRequestService {
       throw new Error('This kind of request cannot be raised from here')
     }
     const context = { ...(input.context || {}) }
+    delete context.receiptRecord
+    delete context.receiptImageSha256
+    let receipt: ReturnType<typeof readReceiptProof> = {}
+    if (requestType === 'finance.expense_claim') {
+      try {
+        receipt = readReceiptProof({ receiptImage: input.receiptImage, receiptRecord: input.receiptRecord })
+      } catch (error: any) {
+        throw new StatusException(error?.message || 'The receipt photo is not valid', 400)
+      }
+    }
+    if (receipt.record) context.receiptRecord = receipt.record
+    if (receipt.imageSha256) context.receiptImageSha256 = receipt.imageSha256
     if (requestType === 'procurement.requisition') {
       if (!input.title?.trim() || !Number.isFinite(input.amount) || Number(input.amount) <= 0) {
         throw new StatusException('Describe the item and enter a positive estimated amount.', 400)
@@ -1369,6 +1460,12 @@ export class PlatformRequestService {
       context,
     }) as { id?: string } | undefined
     if (!created?.id) throw new Error('The request could not be saved')
+    if (receipt.image) {
+      this.recordEvent(created.id, 'request.receipt_attached', undefined, null, null, {
+        receiptImage: receipt.image,
+        receiptImageSha256: receipt.imageSha256,
+      })
+    }
     return this.submit(created.id, input.orgTenantId, input.subjectRef)
   }
 
@@ -1401,6 +1498,32 @@ export class PlatformRequestService {
   }
 
   /** One of the person's own requests with its history, or undefined when it is not theirs. */
+  /** "Mark as bought" on the person's own approved purchase, when that is theirs to do. */
+  public requesterStepFor(request: { id: string; request_type?: string; status?: string }): RequestNextStep | undefined {
+    if (!REQUESTER_FINISHES.has(String(request.request_type || '').toLowerCase())) return undefined
+    return this.nextStepFor(request)
+  }
+
+  /** The person who asked finishes their approved purchase with the receipt (personal wallet). */
+  public finishMine(requestId: string, subjectRef: string, payload: Record<string, unknown> = {}) {
+    const request = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT r.id, r.request_type, r.status, o.tenant_id AS orgTenantId
+           FROM requests r
+           JOIN people p ON p.id = r.requester_person_id
+           JOIN organizations o ON o.id = r.organization_id
+          WHERE r.id = ? AND p.subject_ref = ?`,
+      )
+      .get(requestId, subjectRef) as
+      | { id: string; request_type?: string; status?: string; orgTenantId: string }
+      | undefined
+    if (!request) throw new StatusException('Request not found', 404)
+    if (!this.requesterStepFor(request)) {
+      throw new StatusException('This request is not waiting for you to add the receipt.', 409)
+    }
+    return this.transitionBySubject(requestId, request.orgTenantId, subjectRef, 'completed', payload)
+  }
+
   public getMine(requestId: string, subjectRef: string) {
     const db = DatabaseManager.getDatabase()
     const request = db
@@ -1439,7 +1562,7 @@ export class PlatformRequestService {
         people = []
       }
     }
-    return { ...detail, people }
+    return { ...detail, people, requesterStep: this.requesterStepFor(request) }
   }
 
   /**
@@ -1541,7 +1664,10 @@ export class PlatformRequestService {
       .prepare('SELECT * FROM request_approvals WHERE request_id = ? ORDER BY created_at')
       .all(requestId)
     const tasks = db.prepare('SELECT * FROM request_tasks WHERE request_id = ? ORDER BY created_at').all(requestId)
-    const events = requestExperienceEvents(requestId)
+    // The attached receipt photo is returned once, as `receipt.photoUri`, not again in the history.
+    const events = requestExperienceEvents(requestId).map((event: any) =>
+      event?.event_type === 'request.receipt_attached' ? { ...event, payload_json: null } : event,
+    )
 
     const organization = db.prepare('SELECT tenant_id FROM organizations WHERE id = ?').get(request.organization_id) as
       | { tenant_id: string }
@@ -1556,7 +1682,7 @@ export class PlatformRequestService {
       events,
       experience: experienceForRequest(organization.tenant_id, { ...request, id: requestId }, events),
       nextStep: this.nextStepFor({ ...request, id: requestId }),
-      receipt: this.completionReceipt(requestId),
+      receipt: this.completionReceipt(requestId) || this.raisedReceipt(requestId),
       family: this.familyOf(requestId),
       ledger: this.ledgerOf(requestId),
     }
@@ -1735,6 +1861,7 @@ export class PlatformRequestService {
               ({ travel: 'Travel', meals: 'Meals', equipment: 'Equipment', other: 'Other' } as Record<string, string>)[
                 String(context.categoryCode || context.category || '')
               ] || undefined,
+            ...this.expenseReceiptLink(context),
             approvedBy,
             approvedAt,
           }

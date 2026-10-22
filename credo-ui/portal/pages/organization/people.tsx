@@ -38,6 +38,7 @@ import {
   cardCanResend,
   cardPurpose,
   cardResendHint,
+  memberAccessBadge,
   readyCount,
   sendCardsPath,
   staffCardChangeRule,
@@ -257,7 +258,7 @@ export default function OrganizationPeoplePage() {
       )
       notifications.show({
         title: 'Role updated',
-        message: `${roleLabel(role)}. A new staff card is on its way to their app inbox.`,
+        message: `${roleLabel(role)}. A new staff card is on its way to their app inbox.${['owner', 'admin'].includes(String(role).toLowerCase()) ? ' Once they accept it, they can open the organisation and its dashboard.' : ' Their jobs and approvals come to their personal inbox.'}`,
         color: 'green',
       })
       void loadMembers()
@@ -393,6 +394,9 @@ export default function OrganizationPeoplePage() {
                               allowDeselect={false}
                             />
                           )}
+                          <Badge size="xs" mt={4} variant="outline" color={memberAccessBadge(m.role).color}>
+                            {memberAccessBadge(m.role).label}
+                          </Badge>
                         </Table.Td>
                         <Table.Td>
                           <Badge

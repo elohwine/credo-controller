@@ -15,6 +15,10 @@ export interface MemberCard {
   state: MemberCardState
   workflowType?: string
   covers?: string[]
+  /** manage = opens the organisation and its dashboard; tasks = works from the personal inbox. */
+  orgAccess?: 'manage' | 'tasks'
+  /** They hold a staff card for this role from before organisation access; send it again. */
+  needsAccessUpdate?: boolean
   sentAt?: string
   acceptedAt?: string
 }
@@ -72,10 +76,22 @@ export function cardPurpose(card: MemberCard): string {
   if (card.kind === 'identity') return 'Proves who they are when they confirm a step.'
   if (card.kind === 'employee') {
     const steps = card.covers && card.covers.length > 0 ? ` They confirm: ${card.covers.join(', ')}.` : ''
-    return `Shows they work here.${steps} Sent again when their role or their steps change.`
+    const access = card.orgAccess === 'manage'
+      ? ' Opens the organisation and its dashboard.'
+      : card.orgAccess === 'tasks' ? ' Their jobs and approvals come to their personal inbox.' : ''
+    const update = card.needsAccessUpdate ? ' Their card is from before admin access; send it again.' : ''
+    return `Shows they work here.${steps}${access}${update} Sent again when their role or their steps change.`
   }
   if (card.covers && card.covers.length > 0) return `Lets them confirm: ${card.covers.join(', ')}.`
   return 'Lets them confirm the steps they handle.'
+}
+
+/** Owners and admins open the organisation; everyone else acts through their personal inbox. */
+export function memberAccessBadge(role: string | null | undefined): { label: string; color: string } {
+  const value = String(role || '').toLowerCase()
+  return value === 'owner' || value === 'admin'
+    ? { label: 'Opens organisation', color: 'teal' }
+    : { label: 'Personal inbox', color: 'gray' }
 }
 
 /**

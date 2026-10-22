@@ -22,6 +22,7 @@ import { IconCash, IconChartBar, IconReceipt, IconRefresh, IconUsers } from '@ta
 
 import Layout from '@/components/Layout'
 import { ClientBillingDetails } from '@/components/finance/ClientBillingDetails'
+import { ContactPickerSelect, type PickerContact } from '@/components/finance/ContactPickerSelect'
 import { fieldJobBillingExceptions } from '../../../shared/fieldJobOutcomes'
 import { captureOrganizationSwitchContext, isBoundTaskPath, registerLinkedTaskPath, TASK_CONTEXT_KEY } from '../../../shared/taskContext'
 import type { FinanceListRow } from '@/components/finance/FinanceListCard'
@@ -368,6 +369,33 @@ export default function FinanceModulesPage() {
   )
 
   const [billingItem, setBillingItem] = useState<{ link?: any; run?: any } | null>(null)
+  const [contacts, setContacts] = useState<PickerContact[]>([])
+  const [contactsLoadedFor, setContactsLoadedFor] = useState('')
+
+  // Saved contacts and team members, so client fields can be picked instead of typed.
+  useEffect(() => {
+    if (!orgTenantId || contactsLoadedFor === orgTenantId) return
+    setContactsLoadedFor(orgTenantId)
+    const headers = authHeaders()
+    void Promise.allSettled(
+      (['external', 'internal'] as const).map((contactScope) =>
+        axios.get(`${backendUrl}/api/contacts`, { headers, params: { contactScope } }).then((res) => {
+          const rows = Array.isArray(res.data?.contacts) ? res.data.contacts : Array.isArray(res.data) ? res.data : []
+          return rows.map((c: any) => ({
+            id: String(c.id),
+            name: String(c.name || 'Unknown'),
+            phone: c.phone || undefined,
+            email: c.email || undefined,
+            contactScope,
+          })) as PickerContact[]
+        }),
+      ),
+    ).then((results) => {
+      const merged = results.flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
+      setContacts(Array.from(new Map(merged.map((contact) => [contact.id, contact])).values()))
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgTenantId])
   const [billingBusy, setBillingBusy] = useState(false)
   useEffect(() => {
     if (localStorage.getItem(TASK_CONTEXT_KEY)) return
@@ -842,6 +870,19 @@ export default function FinanceModulesPage() {
             <Paper withBorder radius="md" p="md" mb="md">
               <Stack gap="sm">
                 <Text fw={600}>Collect a client payment</Text>
+                <ContactPickerSelect
+                  contacts={contacts}
+                  requirePhone={false}
+                  label="Pick the client from contacts"
+                  onPick={(picked) => {
+                    if (picked)
+                      setArForm({
+                        ...arForm,
+                        payerName: picked.name || arForm.payerName,
+                        payerPhone: picked.phone || arForm.payerPhone,
+                      })
+                  }}
+                />
                 <Group grow align="end">
                   <TextInput
                     label="What is this for?"
@@ -1066,6 +1107,7 @@ export default function FinanceModulesPage() {
       >
         {billingItem && (
           <ClientBillingDetails
+            contacts={contacts}
             link={billingItem.link}
             run={billingItem.run}
             busy={billingBusy}

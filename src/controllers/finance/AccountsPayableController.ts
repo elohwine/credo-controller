@@ -18,6 +18,7 @@ import { businessTransactionService } from '../../services/BusinessTransactionSe
 import { requestHandoffService } from '../../services/RequestHandoffService'
 import { buildVcTypeArrayFilter, resolveAcceptedProofVcTypes } from '../../services/ProofVcPolicyService'
 import { requireDeviceTrust } from '../../services/deviceAssertion'
+import { readReceiptProof } from '../../utils/receiptProof'
 
 const logger = rootLogger.child({ module: 'AccountsPayableController' })
 
@@ -71,6 +72,10 @@ interface RecordPaymentRequest {
   paymentMethod?: 'ecocash' | 'bank_transfer' | 'cash' | 'cheque' | 'other' | 'simulated'
   reference?: string
   proofImageUrl?: string
+  /** A live photo of the payment confirmation or receipt (data URL). */
+  receiptImage?: string
+  /** A receipt record from the payer's wallet standing in for the photo. */
+  receiptRecord?: { id: string; type?: string; label?: string; issuer_name?: string }
   deviceAssertion?: {
     deviceKeyId: string
     nonce: string
@@ -149,6 +154,8 @@ type ApPayment = {
   payment_method: string | null
   reference: string | null
   proof_image_url: string | null
+  proof_image_sha256?: string | null
+  proof_record_json?: string | null
   remittance_vc_id: string | null
   acknowledge_token: string | null
   supplier_acknowledged_at: string | null
@@ -1645,6 +1652,12 @@ export class AccountsPayableController extends Controller {
       const paymentId = `APPAY-${randomUUID().substring(0, 8).toUpperCase()}`
       const acknowledgeToken = randomUUID().replace(/-/g, '')
       let settlementAllocationId: string | undefined
+      let paymentProof: ReturnType<typeof readReceiptProof>
+      try {
+        paymentProof = readReceiptProof(body, 'Proof of payment')
+      } catch (error: any) {
+        throw new StatusException(error?.message || 'Proof of payment is not valid', 400)
+      }
 
       // Buyer org name
       const buyerTenant = getTenantById(buyerTenantId)
@@ -1701,8 +1714,9 @@ export class AccountsPayableController extends Controller {
                         INSERT INTO ap_payments
                           (id, buyer_tenant_id, supplier_id, ap_invoice_id, amount_paid,
                            currency, payment_method, reference, proof_image_url,
+                           proof_image_sha256, proof_record_json,
                            acknowledge_token, idempotency_key, paid_at, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     `,
           ).run(
             paymentId,
@@ -1714,11 +1728,20 @@ export class AccountsPayableController extends Controller {
             body.paymentMethod ?? null,
             body.reference ?? null,
             body.proofImageUrl ?? null,
+            paymentProof.imageSha256 ?? null,
+            paymentProof.record ? JSON.stringify(paymentProof.record) : null,
             acknowledgeToken,
             idempotencyStorageKey,
             now,
             now,
           )
+
+          if (paymentProof.image && paymentProof.imageSha256) {
+            db.prepare(
+              `INSERT OR REPLACE INTO ap_payment_proof_images (payment_id, image_data, image_sha256, created_at)
+               VALUES (?, ?, ?, ?)`,
+            ).run(paymentId, paymentProof.image, paymentProof.imageSha256, now)
+          }
 
           if (invoice.obligation_id) {
             settlementAllocationId = businessTransactionService.allocateSettlement({
@@ -1923,6 +1946,11 @@ export class AccountsPayableController extends Controller {
                   paidAt: now,
                   acknowledgeUrl,
                   invoiceStatus: newStatus,
+                  ...(paymentProof.imageSha256 && { proofImageSha256: paymentProof.imageSha256 }),
+                  ...(paymentProof.record && {
+                    proofCredentialId: paymentProof.record.id,
+                    proofCredentialType: paymentProof.record.type,
+                  }),
                 },
               },
             ],

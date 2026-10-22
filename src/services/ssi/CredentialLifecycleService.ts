@@ -23,7 +23,7 @@
  * withdraws them all.
  */
 
-import { EMPLOYEE_OFFER_SOURCE_TYPE } from '../../config/credentials/EmployeeVC'
+import { EMPLOYEE_OFFER_SOURCE_TYPE, employeeOrgAccessForRole } from '../../config/credentials/EmployeeVC'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
 import { rootLogger } from '../../utils/pinoLogger'
@@ -466,7 +466,11 @@ export class CredentialLifecycleService {
     const cards = this.acceptedStaffCards(params.walletTenantId, params.orgTenantId, params.userId)
     if (cards.length === 0) return 'nothing_to_withdraw'
     const nextSteps = new Set(params.next.stageActions.map((step) => step.toLowerCase()))
-    const narrower = (scope: StaffCardScope) => scope.stageActions.some((step) => !nextSteps.has(step))
+    // Fewer steps, or a card that opened the organisation when the new role does not.
+    const losesOrgAccess = (scope: StaffCardScope) =>
+      employeeOrgAccessForRole(scope.role) === 'manage' && employeeOrgAccessForRole(params.next.role) !== 'manage'
+    const narrower = (scope: StaffCardScope) =>
+      losesOrgAccess(scope) || scope.stageActions.some((step) => !nextSteps.has(step))
     const withdrawn =
       params.rule === 'stop_now'
         ? this.revokeStaffCards({ ...params, reason: params.reason })

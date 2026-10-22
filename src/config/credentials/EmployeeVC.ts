@@ -18,6 +18,14 @@ export const EMPLOYEE_OFFER_SOURCE_TYPE = 'org_employee'
 export const EMPLOYMENT_CONTRACT_VC_TYPE = 'EmploymentContractVC'
 export const EMPLOYMENT_CONTRACT_OFFER_SOURCE_TYPE = 'employment_contract'
 
+export type EmployeeOrgAccess = 'manage' | 'tasks'
+
+export const EMPLOYEE_ORG_ACCESS_ROLES: ReadonlySet<string> = new Set(['owner', 'admin'])
+
+export function employeeOrgAccessForRole(role: string | null | undefined): EmployeeOrgAccess {
+  return EMPLOYEE_ORG_ACCESS_ROLES.has(String(role || '').trim().toLowerCase()) ? 'manage' : 'tasks'
+}
+
 export interface EmployeeCredentialClaims {
   orgTenantId: string
   orgName: string
@@ -37,6 +45,13 @@ export interface EmployeeCredentialClaims {
    * in a wallet as a whole signed record still work and are shared in full.
    */
   stageActions?: string[]
+  /**
+   * What the card lets the holder open. `manage`: owners and admins, who may open the
+   * organisation account and its dashboard. `tasks`: everyone else, who work from their personal
+   * inbox and open one item at a time. The platform still checks the live role on every request;
+   * the claim is what a verifier (and the organisation-entry proof) sees. Absent on older cards.
+   */
+  orgAccess?: EmployeeOrgAccess
   issuedAt: string
   platformName: string
   fingerprint: string
@@ -60,6 +75,7 @@ export const EMPLOYEE_JSON_SCHEMA = {
         employmentStatus: { type: 'string' },
         source: { type: 'string' },
         stageActions: { type: 'array', items: { type: 'string' } },
+        orgAccess: { type: 'string', enum: ['manage', 'tasks'] },
         issuedAt: { type: 'string', format: 'date-time' },
         platformName: { type: 'string' },
         fingerprint: { type: 'string' },

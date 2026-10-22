@@ -5274,6 +5274,13 @@
         ],
         "description": "accepted: in their app · waiting: sent, not yet accepted · expired: sent, can no longer be accepted · not_sent"
       },
+      "EmployeeOrgAccess": {
+        "type": "string",
+        "enum": [
+          "manage",
+          "tasks"
+        ]
+      },
       "MemberCard": {
         "properties": {
           "kind": {
@@ -5295,6 +5302,14 @@
             },
             "type": "array",
             "description": "Steps on the staff card, in plain words: \"signing off\", \"releasing payment\"."
+          },
+          "orgAccess": {
+            "$ref": "#/components/schemas/EmployeeOrgAccess",
+            "description": "Staff card: manage = opens the organisation and its dashboard; tasks = works from the personal inbox."
+          },
+          "needsAccessUpdate": {
+            "type": "boolean",
+            "description": "Staff card: they hold a card for this role that predates organisation access; send again."
           },
           "sentAt": {
             "type": "string"
@@ -9668,6 +9683,31 @@
           },
           "context": {
             "$ref": "#/components/schemas/Record_string.unknown_"
+          },
+          "receiptImage": {
+            "type": "string",
+            "description": "Expense claims: a live photo of the receipt (data URL). Kept on an event, not in the context."
+          },
+          "receiptRecord": {
+            "properties": {
+              "issuer_name": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object",
+            "description": "Expense claims: a receipt record from the person's wallet standing in for the photo."
           }
         },
         "required": [
@@ -11867,6 +11907,31 @@
           "proofImageUrl": {
             "type": "string"
           },
+          "receiptImage": {
+            "type": "string",
+            "description": "A live photo of the payment confirmation or receipt (data URL)."
+          },
+          "receiptRecord": {
+            "properties": {
+              "issuer_name": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object",
+            "description": "A receipt record from the payer's wallet standing in for the photo."
+          },
           "deviceAssertion": {
             "properties": {
               "signature": {
@@ -11924,6 +11989,14 @@
             "nullable": true
           },
           "remittance_vc_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "proof_record_json": {
+            "type": "string",
+            "nullable": true
+          },
+          "proof_image_sha256": {
             "type": "string",
             "nullable": true
           },
@@ -30319,6 +30392,63 @@
             }
           }
         ]
+      }
+    },
+    "/api/platform/requests/mine/{requestId}/finish": {
+      "post": {
+        "operationId": "FinishMine",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Mark the person's own approved purchase as bought, with the receipt number, amount and a\nlive photo (`receiptImage`) or wallet receipt record (`receiptRecord`). Personal wallet token.",
+        "tags": [
+          "Platform Requests"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "payload": {
+                    "$ref": "#/components/schemas/Record_string.unknown_"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        }
       }
     },
     "/api/platform/requests/raise": {

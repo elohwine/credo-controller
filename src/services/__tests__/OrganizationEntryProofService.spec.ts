@@ -141,10 +141,32 @@ describe('organisation entry proof', () => {
     await expect(poll(request)).rejects.toMatchObject({ status: 410 })
     expect(organizations.generateOrgToken).toHaveBeenCalledTimes(1)
   })
-  it.each(['owner', 'admin', 'field_worker'])('uses current %s membership', async (currentRole) => {
+  it.each(['owner', 'admin'])('uses current %s membership', async (currentRole) => {
     role = currentRole
     card.subject.role = currentRole
     expect(await poll(await ready())).toMatchObject({ orgRole: currentRole })
+  })
+  it('does not open the organisation for members who are not owners or admins', async () => {
+    role = 'field_worker'
+    await expect(start()).rejects.toMatchObject({ status: 403, code: 'org_context_admins_only' })
+  })
+  it('refuses an admin card marked tasks-only, and accepts one marked manage', async () => {
+    ;(card.subject as Record<string, unknown>).orgAccess = 'tasks'
+    await expect(poll(await ready())).rejects.toMatchObject({ status: 403, code: 'org_context_admins_only' })
+    ;(card.subject as Record<string, unknown>).orgAccess = 'manage'
+    expect(await poll(await ready())).toMatchObject({ status: 'verified', orgRole: 'admin' })
+  })
+  it('lets the wallet answer with the orgAccess claim or an older card without it', () => {
+    const base = { orgTenantId: 'org-1', userId: 'alice', role: 'admin', employmentStatus: 'active' }
+    const sd = (claims: Record<string, unknown>) => ({
+      credential_format: 'vc+sd-jwt' as const,
+      cryptographic_holder_binding: true,
+      vct: 'EmployeeCredential',
+      claims,
+    })
+    const parsed = DcqlQuery.parse(query('org-1', 'alice'))
+    expect(DcqlQuery.query(parsed, [sd({ ...base, orgAccess: 'manage' }) as never]).credential_matches.staff_card.success).toBe(true)
+    expect(DcqlQuery.query(parsed, [sd(base) as never]).credential_matches.staff_card.success).toBe(true)
   })
   it('binds collection to the initiating account, org, personal session and poll secret', async () => {
     const request = await ready()

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Button, CopyButton, Group, Paper, Stack, Text, TextInput } from '@mantine/core'
+import { ContactPickerSelect, type PickerContact } from './ContactPickerSelect'
 import { StageActorTimeline } from './StageActorTimeline'
 import { clientBillingStages, CLIENT_BILLING_HELP } from '../../../shared/fieldJobOutcomes'
 import { formatTxnTime } from '@/lib/inboxAttention'
@@ -11,14 +12,18 @@ export interface ClientBillingDetailsProps {
   busy: boolean
   onSend: (contact: { payerName: string; payerPhone: string }, renew: boolean) => Promise<void>
   onOpenJob?: () => void
+  /** Saved contacts and team members to bill instead of typing the client in. */
+  contacts?: PickerContact[]
 }
 
-export function ClientBillingDetails({ run, link, canManage, busy, onSend, onOpenJob }: ClientBillingDetailsProps) {
+export function ClientBillingDetails({ run, link, canManage, busy, onSend, onOpenJob, contacts = [] }: ClientBillingDetailsProps) {
   const name = link?.payerName || link?.payer_name || run?.input?.clientName || ''
   const phone = link?.payerPhone || run?.input?.customerMsisdn || run?.input?.payerPhone || ''
   const [editing, setEditing] = useState(false)
   const [contact, setContact] = useState({ payerName: name, payerPhone: phone })
-  useEffect(() => { setContact({ payerName: name, payerPhone: phone }); setEditing(false) }, [name, phone, run?.id, link?.id])
+  const [pickedId, setPickedId] = useState<string | null>(null)
+  // Nobody to bill yet: open the form so the client can be picked straight away.
+  useEffect(() => { setContact({ payerName: name, payerPhone: phone }); setPickedId(null); setEditing(!name || !phone) }, [name, phone, run?.id, link?.id])
   const reference = run?.input?.reference || link?.invoiceRef
   const bill = run?.output?.clientBill
   const amount = Number(link?.amount ?? bill?.amount ?? run?.input?.amount ?? 0)
@@ -50,6 +55,17 @@ export function ClientBillingDetails({ run, link, canManage, busy, onSend, onOpe
         <Stack gap="sm">
           <Button variant="subtle" disabled={!canManage} onClick={() => setEditing(!editing)}>{editing ? 'Hide contact form' : 'Edit client contact'}</Button>
           {editing && <>
+            <ContactPickerSelect
+              contacts={contacts}
+              value={pickedId}
+              disabled={!canManage}
+              label="Bill a saved contact"
+              description="Fills the name and mobile below. You can still change them."
+              onPick={(picked) => {
+                setPickedId(picked?.id || null)
+                if (picked) setContact({ payerName: picked.name || contact.payerName, payerPhone: picked.phone || contact.payerPhone })
+              }}
+            />
             <TextInput label="Client name" value={contact.payerName} onChange={(event) => setContact({ ...contact, payerName: event.currentTarget.value })} />
             <TextInput label="Client mobile (international format)" value={contact.payerPhone} onChange={(event) => setContact({ ...contact, payerPhone: event.currentTarget.value })} />
           </>}

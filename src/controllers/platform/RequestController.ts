@@ -82,6 +82,26 @@ export class RequestController {
   }
 
   /**
+   * Mark the person's own approved purchase as bought, with the receipt number, amount and a
+   * live photo (`receiptImage`) or wallet receipt record (`receiptRecord`). Personal wallet token.
+   */
+  @Post('/mine/{requestId}/finish')
+  public async finishMine(
+    @Request() request: ExRequest,
+    @Path() requestId: string,
+    @Body() body: { payload?: Record<string, unknown> },
+  ) {
+    const subjectRef = getSubject(request)
+    const db = DatabaseManager.getDatabase()
+    const action = `request-finish-mine:${requestId}`
+    const idempotency = IdempotencyGuard.guard(db, request, subjectRef, action)
+    if (idempotency.duplicate) return idempotency.response
+    const result = platformRequestService.finishMine(requestId, subjectRef, body?.payload || {})
+    if (idempotency.key) IdempotencyGuard.record(db, idempotency.key, subjectRef, action, result)
+    return result
+  }
+
+  /**
    * Raise and submit a request to one of the person's organisations from Home. Safe to retry
    * with the same `x-idempotency-key`.
    */

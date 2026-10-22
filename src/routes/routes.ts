@@ -1898,6 +1898,11 @@ const models: TsoaRoute.Models = {
         "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["accepted"]},{"dataType":"enum","enums":["waiting"]},{"dataType":"enum","enums":["expired"]},{"dataType":"enum","enums":["not_sent"]}],"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "EmployeeOrgAccess": {
+        "dataType": "refAlias",
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["manage"]},{"dataType":"enum","enums":["tasks"]}],"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "MemberCard": {
         "dataType": "refObject",
         "properties": {
@@ -1906,6 +1911,8 @@ const models: TsoaRoute.Models = {
             "state": {"ref":"MemberCardState","required":true},
             "workflowType": {"dataType":"string"},
             "covers": {"dataType":"array","array":{"dataType":"string"}},
+            "orgAccess": {"ref":"EmployeeOrgAccess"},
+            "needsAccessUpdate": {"dataType":"boolean"},
             "sentAt": {"dataType":"string"},
             "acceptedAt": {"dataType":"string"},
         },
@@ -3467,7 +3474,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Pick_RaiseRequestInput.Exclude_keyofRaiseRequestInput.subjectRef__": {
         "dataType": "refAlias",
-        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"description":{"dataType":"string"},"title":{"dataType":"string","required":true},"orgTenantId":{"dataType":"string","required":true},"requestType":{"dataType":"string","required":true},"amount":{"dataType":"double"},"currency":{"dataType":"string"},"context":{"ref":"Record_string.unknown_"}},"validators":{}},
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"description":{"dataType":"string"},"title":{"dataType":"string","required":true},"orgTenantId":{"dataType":"string","required":true},"requestType":{"dataType":"string","required":true},"amount":{"dataType":"double"},"currency":{"dataType":"string"},"context":{"ref":"Record_string.unknown_"},"receiptImage":{"dataType":"string"},"receiptRecord":{"dataType":"nestedObjectLiteral","nestedProperties":{"issuer_name":{"dataType":"string"},"label":{"dataType":"string"},"type":{"dataType":"string"},"id":{"dataType":"string","required":true}}}},"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Omit_RaiseRequestInput.subjectRef_": {
@@ -4281,6 +4288,8 @@ const models: TsoaRoute.Models = {
             "paymentMethod": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["ecocash"]},{"dataType":"enum","enums":["bank_transfer"]},{"dataType":"enum","enums":["cash"]},{"dataType":"enum","enums":["cheque"]},{"dataType":"enum","enums":["other"]},{"dataType":"enum","enums":["simulated"]}]},
             "reference": {"dataType":"string"},
             "proofImageUrl": {"dataType":"string"},
+            "receiptImage": {"dataType":"string"},
+            "receiptRecord": {"dataType":"nestedObjectLiteral","nestedProperties":{"issuer_name":{"dataType":"string"},"label":{"dataType":"string"},"type":{"dataType":"string"},"id":{"dataType":"string","required":true}}},
             "deviceAssertion": {"dataType":"nestedObjectLiteral","nestedProperties":{"signature":{"dataType":"string","required":true},"signedAt":{"dataType":"string","required":true},"purpose":{"dataType":"string","required":true},"nonce":{"dataType":"string","required":true},"deviceKeyId":{"dataType":"string","required":true}}},
         },
         "additionalProperties": false,
@@ -4288,7 +4297,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "ApPayment": {
         "dataType": "refAlias",
-        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"created_at":{"dataType":"string","required":true},"paid_at":{"dataType":"string","required":true},"idempotency_key":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}]},"supplier_acknowledged_at":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}],"required":true},"acknowledge_token":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}],"required":true},"remittance_vc_id":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}],"required":true},"proof_image_url":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}],"required":true},"reference":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}],"required":true},"payment_method":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}],"required":true},"currency":{"dataType":"string","required":true},"amount_paid":{"dataType":"double","required":true},"ap_invoice_id":{"dataType":"string","required":true},"supplier_id":{"dataType":"string","required":true},"buyer_tenant_id":{"dataType":"string","required":true},"id":{"dataType":"string","required":true}},"validators":{}},
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"created_at":{"dataType":"string","required":true},"paid_at":{"dataType":"string","required":true},"idempotency_key":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}]},"supplier_acknowledged_at":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}],"required":true},"acknowledge_token":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}],"required":true},"remittance_vc_id":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}],"required":true},"proof_record_json":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}]},"proof_image_sha256":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}]},"proof_image_url":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}],"required":true},"reference":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}],"required":true},"payment_method":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}],"required":true},"currency":{"dataType":"string","required":true},"amount_paid":{"dataType":"double","required":true},"ap_invoice_id":{"dataType":"string","required":true},"supplier_id":{"dataType":"string","required":true},"buyer_tenant_id":{"dataType":"string","required":true},"id":{"dataType":"string","required":true}},"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "AcknowledgeRequest": {
@@ -15889,6 +15898,44 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'mineDetail',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsRequestController_finishMine: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                requestId: {"in":"path","name":"requestId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"payload":{"ref":"Record_string.unknown_"}}},
+        };
+        app.post('/api/platform/requests/mine/:requestId/finish',
+            authenticateMiddleware([{"jwt":[]}]),
+            ...(fetchMiddlewares<RequestHandler>(RequestController)),
+            ...(fetchMiddlewares<RequestHandler>(RequestController.prototype.finishMine)),
+
+            async function RequestController_finishMine(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsRequestController_finishMine, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<RequestController>(RequestController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'finishMine',
                 controller,
                 response,
                 next,

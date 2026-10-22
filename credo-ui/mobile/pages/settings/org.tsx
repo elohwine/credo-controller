@@ -27,7 +27,7 @@ import { getActiveOrgLabel, getActiveOrgId, getWalletToken, getPreferredToken, a
 import {
   CARD_STATE_COLOR, CARD_STATE_LABEL, ONBOARDING_PATH, SUMMARY_COLOR, SUMMARY_LABEL,
   DEFAULT_STAFF_CARD_CHANGE, STAFF_CARD_CHANGE_OPTIONS,
-  cardCanResend, cardPurpose, cardResendHint, myOnboardingSteps, readyCount, sendCardsPath, staffCardChangeRule,
+  cardCanResend, cardPurpose, cardResendHint, memberAccessBadge, myOnboardingSteps, readyCount, sendCardsPath, staffCardChangeRule,
   type MemberCardKind, type MemberOnboarding, type StaffCardChangeRule,
 } from '@/lib/orgOnboarding';
 import { MONEY_CHOICES, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, TEAM_ROLE_FALLBACK, kindsFromRequestTypes, modulePlanNote, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, setupChecklist, teamRolesFromCatalog, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
@@ -864,7 +864,7 @@ export default function OrgSettingsPage() {
       });
       notifications.show({
         title: 'Role updated',
-        message: `${ROLE_LABELS[role] || humanizeKey(role)}. A new staff card is on its way to their app inbox.`,
+        message: `${ROLE_LABELS[role] || humanizeKey(role)}. A new staff card is on its way to their app inbox.${['owner', 'admin'].includes(String(role).toLowerCase()) ? ' Once they accept it, they can open the organisation and its dashboard.' : ' Their jobs and approvals come to their personal inbox.'}`,
         color: 'green',
       });
       await fetchMembers(activeId);
@@ -2129,6 +2129,7 @@ export default function OrgSettingsPage() {
                               ) : (
                                 <Badge size="xs" variant="light" color="indigo">{ROLE_LABELS[m.role] || humanizeKey(m.role)}</Badge>
                               )}
+                              <Badge size="xs" variant="outline" color={memberAccessBadge(m.role).color}>{memberAccessBadge(m.role).label}</Badge>
                               {m.walletTenantId && <Badge size="xs" variant="dot" color="teal">App installed</Badge>}
                               <Badge size="xs" variant="light" color={m.status === 'active' ? 'green' : 'gray'}>{m.status === 'active' ? 'Active' : m.status === 'suspended' ? 'Suspended' : 'Invited'}</Badge>
                             </Group>

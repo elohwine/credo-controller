@@ -178,6 +178,7 @@ export class DatabaseManager {
       { version: 129, file: '129_job_intake.sql', name: 'job_intake' },
       { version: 130, file: '130_wallet_inbox_whatsapp.sql', name: 'wallet_inbox_whatsapp' },
       { version: 131, file: '131_inbox_done_and_job_updates.sql', name: 'inbox_done_and_job_updates' },
+      { version: 132, file: '132_ap_payment_proof.sql', name: 'ap_payment_proof' },
     ]
 
     for (const migration of migrationFiles) {

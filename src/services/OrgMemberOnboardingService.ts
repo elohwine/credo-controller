@@ -10,7 +10,12 @@
  * the stage proofs still do that. This only tells the owner who is ready and who to nudge.
  */
 
-import { EMPLOYEE_OFFER_SOURCE_TYPE, EMPLOYEE_VC_TYPE } from '../config/credentials/EmployeeVC'
+import {
+  EMPLOYEE_OFFER_SOURCE_TYPE,
+  EMPLOYEE_VC_TYPE,
+  employeeOrgAccessForRole,
+  type EmployeeOrgAccess,
+} from '../config/credentials/EmployeeVC'
 import { PLATFORM_IDENTITY_VC_TYPE } from '../config/credentials/PlatformIdentityVC'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { getWalletCredentialsByWalletId } from '../persistence/WalletCredentialRepository'
@@ -35,6 +40,10 @@ export interface MemberCard {
   workflowType?: string
   /** Steps on the staff card, in plain words: "signing off", "releasing payment". */
   covers?: string[]
+  /** Staff card: manage = opens the organisation and its dashboard; tasks = works from the personal inbox. */
+  orgAccess?: EmployeeOrgAccess
+  /** Staff card: they hold a card for this role that predates organisation access; send again. */
+  needsAccessUpdate?: boolean
   sentAt?: string
   acceptedAt?: string
 }
@@ -167,9 +176,15 @@ export class OrgMemberOnboardingService {
     const fromRows = stateFromRows(rows)
     const covers = orgWorkflowActorCredentialService.coveredStageActionsForMember(orgTenantId, userId)
     const wanted = [...covers].sort().join(',')
+    const orgAccess = employeeOrgAccessForRole(role)
+    const roleMatches = (claims: Record<string, any>): boolean =>
+      String(claims?.memberRole || claims?.role || '').toLowerCase() === String(role || '').toLowerCase()
+    // Owners and admins need a card that says it opens the organisation; cards issued before the
+    // claim existed (no orgAccess) still count for everyone else.
+    const accessMatches = (claims: Record<string, any>): boolean =>
+      orgAccess === 'manage' ? claims?.orgAccess === 'manage' : claims?.orgAccess !== 'manage'
     const matchesCurrent = (claims: Record<string, any>): boolean => {
-      const roleOk = String(claims?.memberRole || claims?.role || '').toLowerCase() === String(role || '').toLowerCase()
-      if (!roleOk) return false
+      if (!roleMatches(claims) || !accessMatches(claims)) return false
       const claimed = Array.isArray(claims?.stageActions)
         ? claims.stageActions
             .map((item: unknown) => String(item).trim().toLowerCase())
@@ -185,6 +200,19 @@ export class OrgMemberOnboardingService {
       (row) => Boolean(row.accepted_at) && !isWithdrawn(row) && matchesCurrent(parseMeta(row.metadata)),
     )
     const heldCurrent = heldInTable || heldViaAcceptedOffer
+    const heldWithoutAccess =
+      !heldCurrent &&
+      orgAccess === 'manage' &&
+      (this.holds(
+        walletTenantId,
+        EMPLOYEE_VC_TYPE,
+        orgTenantId,
+        (claims) => roleMatches(claims) && !accessMatches(claims),
+      ) ||
+        rows.some((row) => {
+          const claims = parseMeta(row.metadata)
+          return Boolean(row.accepted_at) && !isWithdrawn(row) && roleMatches(claims) && !accessMatches(claims)
+        }))
     // A card for an older role or an older set of steps does not count.
     let state: MemberCardState
     if (heldCurrent && fromRows.state !== 'waiting') state = 'accepted'
@@ -195,6 +223,8 @@ export class OrgMemberOnboardingService {
       label: 'Staff card',
       state,
       covers: covers.map(describeStageForPeople),
+      orgAccess,
+      needsAccessUpdate: heldWithoutAccess && state !== 'waiting' ? true : undefined,
       sentAt: fromRows.sentAt,
       acceptedAt: fromRows.acceptedAt,
     }
@@ -224,6 +254,12 @@ export class OrgMemberOnboardingService {
     const expiredOrUnsent = missing.filter((card) => card.state === 'expired' || card.state === 'not_sent')
     if (expiredOrUnsent.length > 0) {
       const anyExpired = expiredOrUnsent.some((card) => card.state === 'expired')
+      if (expiredOrUnsent.some((card) => card.needsAccessUpdate)) {
+        return {
+          summary: 'needs_cards',
+          nextStep: `Send the staff card again. The new one lets ${member.displayName || 'them'} open the organisation and its dashboard.`,
+        }
+      }
       return {
         summary: 'needs_cards',
         nextStep: `${anyExpired ? 'Send again' : 'Send'}: ${expiredOrUnsent.map((card) => card.label.toLowerCase()).join(', ')}.`,

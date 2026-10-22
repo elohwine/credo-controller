@@ -126,6 +126,7 @@ export function holderClaimLabel(name: string): string {
     role: 'Your role',
     memberRole: 'Your role',
     employmentStatus: 'Employment status',
+    orgAccess: 'Organisation access',
     stageActions: 'Steps on your card',
     workflowType: 'Kind of work',
     userId: 'You, as named on the job',

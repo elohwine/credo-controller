@@ -19,6 +19,7 @@ import {
   EMPLOYMENT_CONTRACT_OFFER_SOURCE_TYPE,
   EMPLOYMENT_CONTRACT_VC_TYPE,
   EmployeeCredentialClaims,
+  employeeOrgAccessForRole,
 } from '../config/credentials/EmployeeVC'
 import { ORG_WORKFLOW_ACTOR_OFFER_SOURCE_TYPE } from '../config/credentials/OrgWorkflowActorVC'
 import { PLATFORM_IDENTITY_VC_TYPE } from '../config/credentials/PlatformIdentityVC'
@@ -331,6 +332,7 @@ export class OrgMembershipCredentialService {
       params.orgTenantId,
       params.userId,
     )
+    const orgAccess = employeeOrgAccessForRole(role)
     const fingerprint = fingerprintOf([
       params.orgTenantId,
       params.userId,
@@ -341,6 +343,9 @@ export class OrgMembershipCredentialService {
       // Cards issued before this reveal the whole step list. A new fingerprint sends a card
       // that can reveal one step at a time.
       'disclosure:per-step',
+      // Owner/admin cards carry orgAccess=manage, so their holders get a card that opens the
+      // organisation. Other cards keep their earlier fingerprint (orgAccess=tasks is added quietly).
+      ...(orgAccess === 'manage' ? ['org-access:manage'] : []),
       // A replacement of an accepted card is a new card even when nothing about the person changed.
       // Only added when resending, so cards issued before this existed keep their fingerprint.
       ...(params.replaceAccepted ? [`resend:${Date.now()}`] : []),
@@ -363,6 +368,7 @@ export class OrgMembershipCredentialService {
       employmentStatus: 'active',
       source: params.source,
       stageActions,
+      orgAccess,
       issuedAt: new Date().toISOString(),
       platformName: process.env.PLATFORM_NAME || 'IdenEx Credentis',
       fingerprint,
@@ -406,6 +412,13 @@ export class OrgMembershipCredentialService {
     }
 
     const steps = stepText.length > 0 ? ` You use it to confirm: ${stepText.join(', ')}.` : ''
+    const heldAccess = held.length > 0 ? employeeOrgAccessForRole(held[0]?.scope?.role) : undefined
+    const access =
+      orgAccess === 'manage'
+        ? ` It lets you open ${orgName} and its dashboard.`
+        : heldAccess === 'manage' || (params.previousRole && employeeOrgAccessForRole(params.previousRole) === 'manage')
+          ? ` You no longer open ${orgName}; your jobs and approvals come to your personal inbox.`
+          : ''
     const who = params.displayName ? `${params.displayName} works` : 'You work'
     const heldSteps = new Set(held[0]?.scope?.stageActions || [])
     const nextSteps = new Set(stageActions.map((item) => String(item).trim().toLowerCase()))
@@ -435,6 +448,10 @@ export class OrgMembershipCredentialService {
     if (held.length > 0 || sentAgain) {
       const added = [...nextSteps].filter((item) => !heldSteps.has(item)).map(describeStageForPeople)
       const removed = [...heldSteps].filter((item) => !nextSteps.has(item)).map(describeStageForPeople)
+      const priorAccess = heldAccess || (params.previousRole ? employeeOrgAccessForRole(params.previousRole) : undefined)
+      if (priorAccess && priorAccess !== orgAccess) {
+        ;(orgAccess === 'manage' ? added : removed).push(`open ${orgName} and its dashboard`)
+      }
       const diff = [
         added.length > 0 ? `Added: ${added.join(', ')}.` : '',
         removed.length > 0 ? `Removed: ${removed.join(', ')}.` : '',
@@ -462,7 +479,7 @@ export class OrgMembershipCredentialService {
       credentialType: EMPLOYEE_VC_TYPE,
       offerUri: offer.offerUri,
       title: `Staff card · ${orgName}`,
-      body: `${change}${who} at ${orgName} as ${describeRole(role)}.${steps} Accept it in your inbox.${earlier}`,
+      body: `${change}${who} at ${orgName} as ${describeRole(role)}.${steps}${access} Accept it in your inbox.${earlier}`,
       metadata: {
         ...claims,
         offerId: offer.offerId,

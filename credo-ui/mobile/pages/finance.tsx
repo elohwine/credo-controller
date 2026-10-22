@@ -83,7 +83,9 @@ import JobHandoffsPanel, { FamilyStrip, useRelatedWorkNavigation } from '@/compo
 import { familyLinks, handoffLinks } from '../../shared/relatedWork'
 import { captureOrganizationSwitchContext, isBoundTaskPath } from '../../shared/taskContext'
 import JobAuditTrailPanel from '@/components/shared/JobAuditTrailPanel'
+import ReceiptProofField, { receiptProofPayload, type ReceiptProof } from '@/components/shared/ReceiptProofField'
 import { ClientBillingDetails } from '@/components/shared/ClientBillingDetails'
+import { ContactPickerSelect } from '@/components/shared/ContactPickerSelect'
 import { fieldJobBillingExceptions } from '../../shared/fieldJobOutcomes'
 import { assertFieldStepSucceeded } from '../../shared/fieldEvidence'
 import type { FinanceListRow } from '@/components/shared/FinanceListCard'
@@ -1889,6 +1891,7 @@ export default function FinancePage() {
     dueDate: dayjs().add(30, 'day').format('YYYY-MM-DD'),
   })
   const [showRecordApPayment, setShowRecordApPayment] = useState(false)
+  const [apPaymentProof, setApPaymentProof] = useState<ReceiptProof | null>(null)
   const [apPaymentForm, setApPaymentForm] = useState({
     apInvoiceId: '',
     amountPaid: '',
@@ -6094,6 +6097,7 @@ export default function FinancePage() {
         {billingItem && (
           <ClientBillingDetails
             {...billingItem}
+            contacts={contacts}
             busy={billingBusy}
             canManage={['owner', 'admin', 'issuer', 'manager', 'approver'].includes(getOrgRoleClaim() || '')}
             onSend={sendBilling}
@@ -6669,6 +6673,7 @@ export default function FinancePage() {
                                               reference: '',
                                               proofImageUrl: '',
                                             })
+                                            setApPaymentProof(null)
                                             setShowRecordApPayment(true)
                                           }}
                                         >
@@ -6958,11 +6963,11 @@ export default function FinancePage() {
             value={apPaymentForm.reference}
             onChange={(e) => setApPaymentForm({ ...apPaymentForm, reference: e.currentTarget.value })}
           />
-          <TextInput
-            label="Proof Image URL (Optional)"
-            placeholder="Image URL or attachment proof"
-            value={apPaymentForm.proofImageUrl}
-            onChange={(e) => setApPaymentForm({ ...apPaymentForm, proofImageUrl: e.currentTarget.value })}
+          <ReceiptProofField
+            label="Proof of payment (optional)"
+            hint="Take a photo of the payment confirmation or receipt, or attach a receipt record from your wallet."
+            value={apPaymentProof}
+            onChange={setApPaymentProof}
           />
 
           <Button
@@ -6997,6 +7002,7 @@ export default function FinancePage() {
                     paymentMethod: apPaymentForm.paymentMethod,
                     reference: apPaymentForm.reference || undefined,
                     proofImageUrl: apPaymentForm.proofImageUrl || undefined,
+                    ...receiptProofPayload(apPaymentProof),
                     ...(deviceAssertion ? { deviceAssertion } : {}),
                   },
                   {
@@ -7262,6 +7268,14 @@ export default function FinancePage() {
 
           {hasArCollections && (
             <>
+              <ContactPickerSelect
+                contacts={contacts}
+                requirePhone={false}
+                label="Pick the customer from contacts"
+                onPick={(picked) => {
+                  if (picked) setForm({ ...form, payerName: picked.name || form.payerName, payerPhone: picked.phone || form.payerPhone })
+                }}
+              />
               <TextInput
                 label="Customer Name"
                 placeholder="Full name of payer"
@@ -7751,6 +7765,16 @@ export default function FinancePage() {
             data={['Plumbing', 'Electrical', 'Painting', 'HVAC', 'General maintenance', 'Other']}
             value={fieldRunForm.problemType}
             onChange={(value) => setFieldRunForm({ ...fieldRunForm, problemType: value || '' })}
+          />
+
+          <ContactPickerSelect
+            contacts={contacts}
+            requirePhone={false}
+            label="Pick the client from contacts"
+            description="Fills the client name and mobile number."
+            onPick={(picked) => {
+              if (picked) setFieldRunForm({ ...fieldRunForm, clientName: picked.name || fieldRunForm.clientName, clientPhone: picked.phone || fieldRunForm.clientPhone })
+            }}
           />
 
           <TextInput
