@@ -3508,7 +3508,11 @@ export default function InboxPage() {
           >
             <Stack gap="md">
               {(filter === 'all'
-                ? groupByFlowSection(visibleItems, (item) => inboxFlowSection(inboxTabsForItem(item), item.itemType))
+                ? groupByFlowSection(
+                    visibleItems,
+                    (item) => inboxFlowSection(inboxTabsForItem(item), item.itemType),
+                    (item) => dayjs(item.createdAt).valueOf(),
+                  )
                 : [{ key: 'updates' as const, label: '', items: visibleItems }]
               ).map((section) => (
                 <Stack key={section.key} gap="xs">

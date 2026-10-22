@@ -90,18 +90,35 @@ export function inboxFlowSection(tabs: string[], itemType?: string): InboxFlowSe
   return 'updates'
 }
 
+/**
+ * Splits the All list into kinds of work. With `timeOf`, the kind holding the newest item comes
+ * first, so a fresh request or card is never buried under older jobs; the fixed order breaks ties.
+ */
 export function groupByFlowSection<T>(
   items: T[],
   sectionOf: (item: T) => InboxFlowSectionKey,
+  timeOf?: (item: T) => number,
 ): Array<{ key: InboxFlowSectionKey; label: string; items: T[] }> {
   const buckets = new Map<InboxFlowSectionKey, T[]>()
+  const newest = new Map<InboxFlowSectionKey, number>()
   for (const item of items) {
     const key = sectionOf(item)
     const list = buckets.get(key) || []
     list.push(item)
     buckets.set(key, list)
+    if (timeOf) {
+      const time = timeOf(item)
+      if (Number.isFinite(time) && time > (newest.get(key) ?? -Infinity)) newest.set(key, time)
+    }
   }
-  return INBOX_FLOW_SECTION_ORDER.filter((key) => (buckets.get(key) || []).length > 0).map((key) => ({
+  const keys = INBOX_FLOW_SECTION_ORDER.filter((key) => (buckets.get(key) || []).length > 0)
+  if (timeOf) {
+    keys.sort((a, b) => {
+      const diff = (newest.get(b) ?? -Infinity) - (newest.get(a) ?? -Infinity)
+      return diff !== 0 && Number.isFinite(diff) ? diff : INBOX_FLOW_SECTION_ORDER.indexOf(a) - INBOX_FLOW_SECTION_ORDER.indexOf(b)
+    })
+  }
+  return keys.map((key) => ({
     key,
     label: INBOX_FLOW_SECTION_LABELS[key],
     items: buckets.get(key)!,
