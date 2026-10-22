@@ -12,7 +12,7 @@
 const axios = require('axios')
 
 const version = process.env.WHATSAPP_GRAPH_VERSION || 'v26.0'
-const waba = process.env.WABA_BUSINESS_ACCOUNT_ID || '1057163973970869'
+const waba = process.env.WABA_BUSINESS_ACCOUNT_ID || '1376175484008383'
 const token = process.env.WABA_TOKEN
 const name = process.env.WHATSAPP_TEMPLATE_NAME || 'credentis_inbox_update'
 const language = process.env.WHATSAPP_TEMPLATE_LANGUAGE || 'en_US'

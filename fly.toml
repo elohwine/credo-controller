@@ -23,7 +23,7 @@ primary_region = "jnb"
   CREDO_LISTEN_PORT = "3000"
   # WhatsApp notifications (non-secret). Tokens/app secret are Fly secrets.
   WABA_PHONE_NUMBER_ID = "1232138763320433"
-  WABA_BUSINESS_ACCOUNT_ID = "1057163973970869"
+  WABA_BUSINESS_ACCOUNT_ID = "1376175484008383"
   WHATSAPP_GRAPH_VERSION = "v26.0"
   WALLET_PUBLIC_URL = "https://credentis.fly.dev"
   WHATSAPP_DELIVERY_ENABLED = "true"
