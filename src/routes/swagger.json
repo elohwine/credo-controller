@@ -2919,6 +2919,571 @@
         "type": "object",
         "additionalProperties": false
       },
+      "OwnerOfferingService": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "`service_catalog` id, stable for requests."
+          },
+          "offeringKey": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "workArea": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "requestType": {
+            "type": "string",
+            "enum": [
+              "quote",
+              "invoice",
+              "service"
+            ]
+          },
+          "youGet": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "feeAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "feeCurrency": {
+            "type": "string"
+          },
+          "turnaroundTime": {
+            "type": "string"
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean",
+            "description": "False when the work area behind it is off: it cannot be shown until it is on again."
+          },
+          "custom": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "workArea",
+          "name",
+          "requestType",
+          "youGet",
+          "feeAmount",
+          "feeCurrency",
+          "published",
+          "available",
+          "custom"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "PublicGoodsItem": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "goods"
+            ],
+            "nullable": false
+          },
+          "merchantId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "merchantId",
+          "title",
+          "price",
+          "currency"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "PublicTrustBadge": {
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "issuedAt": {
+            "type": "string"
+          },
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type",
+          "label",
+          "issuedAt",
+          "revoked"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "OwnerOfferingsView": {
+        "properties": {
+          "orgTenantId": {
+            "type": "string"
+          },
+          "isPublic": {
+            "type": "boolean"
+          },
+          "listingBlockers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Why the organisation is not found yet, in plain words. Empty when it is listed."
+          },
+          "profile": {
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "website": {
+                "type": "string"
+              },
+              "contactEmail": {
+                "type": "string"
+              },
+              "contactPhone": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "category",
+              "displayName"
+            ],
+            "type": "object"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/OwnerOfferingService"
+            },
+            "type": "array"
+          },
+          "goods": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/PublicGoodsItem"
+                },
+                "type": "array"
+              },
+              "note": {
+                "type": "string"
+              },
+              "count": {
+                "type": "number",
+                "format": "double"
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "items",
+              "note",
+              "count",
+              "enabled"
+            ],
+            "type": "object"
+          },
+          "trustBadges": {
+            "items": {
+              "$ref": "#/components/schemas/PublicTrustBadge"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "orgTenantId",
+          "isPublic",
+          "listingBlockers",
+          "profile",
+          "categories",
+          "services",
+          "goods",
+          "trustBadges"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "UpdateOfferingsInput": {
+        "properties": {
+          "isPublic": {
+            "type": "boolean"
+          },
+          "profile": {
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "website": {
+                "type": "string"
+              },
+              "contactEmail": {
+                "type": "string"
+              },
+              "contactPhone": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "services": {
+            "items": {
+              "properties": {
+                "turnaroundTime": {
+                  "type": "string"
+                },
+                "feeCurrency": {
+                  "type": "string"
+                },
+                "feeAmount": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "published": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "addService": {
+            "properties": {
+              "turnaroundTime": {
+                "type": "string"
+              },
+              "feeCurrency": {
+                "type": "string"
+              },
+              "feeAmount": {
+                "type": "number",
+                "format": "double"
+              },
+              "description": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object",
+            "description": "A service the organisation offers that no work area covers, e.g. \"Consultation\"."
+          },
+          "removeServiceId": {
+            "type": "string"
+          },
+          "addGoods": {
+            "properties": {
+              "category": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "price": {
+                "type": "number",
+                "format": "double"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "price",
+              "title"
+            ],
+            "type": "object",
+            "description": "A product for sale. Only for organisations with the \"Shop and services\" work area."
+          },
+          "removeGoodsId": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "additionalProperties": false
+      },
+      "PublicService": {
+        "description": "A service as the public sees it. Always `kind: 'service'`; goods are `PublicGoodsItem`.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "service"
+            ],
+            "nullable": false
+          },
+          "offeringKey": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "workArea": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "requestType": {
+            "type": "string",
+            "enum": [
+              "quote",
+              "invoice",
+              "service"
+            ]
+          },
+          "vcType": {
+            "type": "string"
+          },
+          "workflowTemplateId": {
+            "type": "string"
+          },
+          "youGet": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Plain names of the cards the customer keeps."
+          },
+          "requirements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "turnaroundTime": {
+            "type": "string"
+          },
+          "feeAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "feeCurrency": {
+            "type": "string"
+          },
+          "requestSchema": {
+            "$ref": "#/components/schemas/Record_string.unknown_"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "requestType",
+          "youGet",
+          "requirements",
+          "feeAmount",
+          "feeCurrency",
+          "requestSchema"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "PublicStorefront": {
+        "properties": {
+          "orgId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "isPublic": {
+            "type": "boolean"
+          },
+          "did": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "logoUrl": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "trustScore": {
+            "type": "number",
+            "format": "double"
+          },
+          "verificationStatus": {
+            "type": "string"
+          },
+          "memberSince": {
+            "type": "string",
+            "description": "On the platform since."
+          },
+          "workAreas": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Work areas behind the services shown."
+          },
+          "trustBadges": {
+            "items": {
+              "$ref": "#/components/schemas/PublicTrustBadge"
+            },
+            "type": "array"
+          },
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/PublicService"
+            },
+            "type": "array"
+          },
+          "sellsGoods": {
+            "type": "boolean",
+            "description": "False when the organisation does not sell goods; the goods section is then hidden."
+          },
+          "catalogItems": {
+            "items": {
+              "$ref": "#/components/schemas/PublicGoodsItem"
+            },
+            "type": "array"
+          },
+          "paymentRails": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "contactLinks": {
+            "properties": {
+              "address": {
+                "type": "string",
+                "nullable": true
+              },
+              "website": {
+                "type": "string",
+                "nullable": true
+              },
+              "email": {
+                "type": "string",
+                "nullable": true
+              },
+              "phone": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "type": "object"
+          },
+          "shopUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "orgId",
+          "tenantId",
+          "isPublic",
+          "did",
+          "displayName",
+          "category",
+          "trustScore",
+          "verificationStatus",
+          "memberSince",
+          "workAreas",
+          "trustBadges",
+          "services",
+          "sellsGoods",
+          "catalogItems",
+          "paymentRails",
+          "contactLinks"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
       "Record_string.string-Array_": {
         "properties": {},
         "additionalProperties": {
@@ -12321,7 +12886,13 @@
           },
           "availableServices": {
             "type": "number",
-            "format": "double"
+            "format": "double",
+            "description": "Services people can ask for or book."
+          },
+          "goodsCount": {
+            "type": "number",
+            "format": "double",
+            "description": "Products for sale in the shop; 0 when the organisation does not sell goods."
           }
         },
         "required": [
@@ -12331,58 +12902,14 @@
           "category",
           "trustScore",
           "verificationStatus",
-          "availableServices"
+          "availableServices",
+          "goodsCount"
         ],
         "type": "object",
         "additionalProperties": false
       },
       "DiscoveryService": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "vcType": {
-            "type": "string"
-          },
-          "workflowTemplateId": {
-            "type": "string"
-          },
-          "requirements": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "turnaroundTime": {
-            "type": "string"
-          },
-          "feeAmount": {
-            "type": "number",
-            "format": "double"
-          },
-          "feeCurrency": {
-            "type": "string"
-          },
-          "requestSchema": {
-            "$ref": "#/components/schemas/Record_string.unknown_"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "requirements",
-          "feeAmount",
-          "feeCurrency",
-          "requestSchema"
-        ],
-        "type": "object",
-        "additionalProperties": false
+        "$ref": "#/components/schemas/PublicService"
       },
       "DiscoveryOrganizationProfile": {
         "properties": {
@@ -12454,156 +12981,8 @@
         "type": "object",
         "additionalProperties": false
       },
-      "DiscoveryCatalogItem": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "merchantId": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "price": {
-            "type": "number",
-            "format": "double"
-          },
-          "currency": {
-            "type": "string"
-          },
-          "category": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "merchantId",
-          "title",
-          "price",
-          "currency"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
       "DiscoveryStorefront": {
-        "properties": {
-          "orgId": {
-            "type": "string"
-          },
-          "tenantId": {
-            "type": "string"
-          },
-          "isPublic": {
-            "type": "boolean"
-          },
-          "did": {
-            "type": "string"
-          },
-          "displayName": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "logoUrl": {
-            "type": "string"
-          },
-          "category": {
-            "type": "string"
-          },
-          "trustScore": {
-            "type": "number",
-            "format": "double"
-          },
-          "verificationStatus": {
-            "type": "string"
-          },
-          "trustBadges": {
-            "items": {
-              "properties": {
-                "revoked": {
-                  "type": "boolean"
-                },
-                "issuedAt": {
-                  "type": "string"
-                },
-                "label": {
-                  "type": "string"
-                },
-                "type": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "revoked",
-                "issuedAt",
-                "label",
-                "type"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "services": {
-            "items": {
-              "$ref": "#/components/schemas/DiscoveryService"
-            },
-            "type": "array"
-          },
-          "catalogItems": {
-            "items": {
-              "$ref": "#/components/schemas/DiscoveryCatalogItem"
-            },
-            "type": "array"
-          },
-          "paymentRails": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "contactLinks": {
-            "properties": {
-              "website": {
-                "type": "string",
-                "nullable": true
-              },
-              "email": {
-                "type": "string",
-                "nullable": true
-              },
-              "phone": {
-                "type": "string",
-                "nullable": true
-              }
-            },
-            "type": "object"
-          },
-          "shopUrl": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "orgId",
-          "tenantId",
-          "isPublic",
-          "did",
-          "displayName",
-          "category",
-          "trustScore",
-          "verificationStatus",
-          "trustBadges",
-          "services",
-          "catalogItems",
-          "paymentRails",
-          "contactLinks"
-        ],
-        "type": "object",
-        "additionalProperties": false
+        "$ref": "#/components/schemas/PublicStorefront"
       },
       "ReconciliationSummary": {
         "properties": {
@@ -19517,6 +19896,146 @@
             }
           }
         }
+      }
+    },
+    "/api/organizations/{orgTenantId}/offerings": {
+      "get": {
+        "operationId": "GetOfferings",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnerOfferingsView"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "What the organisation shows the public: listing, profile, the services its work areas make\npossible (each with a show/hide switch) and whether it sells goods. Owners and admins only.",
+        "tags": [
+          "Organizations"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orgTenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "operationId": "UpdateOfferings",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnerOfferingsView"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Change the listing, profile or services. Returns the updated view.",
+        "tags": [
+          "Organizations"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orgTenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOfferingsInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/organizations/{orgTenantId}/offerings/preview": {
+      "get": {
+        "operationId": "PreviewOfferings",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicStorefront"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "What the public sees, also while the organisation is private. Owners and admins only.",
+        "tags": [
+          "Organizations"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orgTenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/organizations/{orgTenantId}/proof-vc-policy": {
@@ -37482,7 +38001,7 @@
             }
           }
         },
-        "description": "The organisation's storefront: services, products for sale, and how it takes payment.",
+        "description": "The organisation's storefront: services it offers, goods it sells, badges and how it takes payment.",
         "tags": [
           "Discovery"
         ],

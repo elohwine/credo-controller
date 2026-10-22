@@ -8,9 +8,8 @@ import {
 import { useRouter } from 'next/router';
 import { notifications } from '@mantine/notifications';
 import AppShellMobile from '@/components/layout/AppShellMobile';
-import { getPersonalWalletToken, getUserName, getWalletToken, isAuthenticated } from '@/lib/auth';
+import { getPersonalWalletToken, getPreferredToken, getUserName, getWalletToken, isAuthenticated } from '@/lib/auth';
 import api from '@/lib/api';
-import { readOrgProfile } from '@/lib/orgProfile';
 
 /** What a person can ask another organisation for. Same words as the Request sheet. */
 type AskKind = 'quote' | 'invoice' | 'service';
@@ -47,6 +46,11 @@ interface Service {
   feeAmount: number;
   feeCurrency: string;
   requestSchema: any;
+  /** What asking for it creates: a quote, a bill, or a booked job. */
+  requestType?: AskKind;
+  /** Plain names of the cards the customer keeps. */
+  youGet?: string[];
+  workArea?: string;
 }
 
 interface OrganizationProfile {
@@ -59,6 +63,9 @@ interface OrganizationProfile {
   didDocumentUrl?: string;
   catalogItems?: CatalogItem[];
   shopUrl?: string;
+  memberSince?: string;
+  workAreas?: string[];
+  sellsGoods?: boolean;
 }
 
 interface TrustBadge {
@@ -83,10 +90,14 @@ interface StorefrontApiResponse {
   services: Service[];
   catalogItems?: CatalogItem[];
   paymentRails: string[];
+  memberSince?: string;
+  workAreas?: string[];
+  sellsGoods?: boolean;
   contactLinks?: {
     phone?: string | null;
     email?: string | null;
     website?: string | null;
+    address?: string | null;
   };
   qrCodeUrl?: string;
   didDocumentUrl?: string;
@@ -117,6 +128,9 @@ function ServiceCard({ service, onRequest }: { service: Service; onRequest: () =
             <Text size="sm" fw={600} mb={4}>
               {service.name}
             </Text>
+            {service.workArea && (
+              <Badge size="xs" variant="light" color="gray" mb={4}>{service.workArea}</Badge>
+            )}
             {service.description && (
               <Text size="xs" c="dimmed" lineClamp={2}>
                 {service.description}
@@ -142,9 +156,20 @@ function ServiceCard({ service, onRequest }: { service: Service; onRequest: () =
               Fee:
             </Text>
             <Text size="xs" fw={500}>
-              {service.feeAmount > 0 ? `${service.feeCurrency} ${service.feeAmount}` : 'Free'}
+              {service.feeAmount > 0 ? `${service.feeCurrency} ${service.feeAmount}` : 'Price on request'}
             </Text>
           </Group>
+
+          {service.youGet && service.youGet.length > 0 && (
+            <Group gap="xs" wrap="nowrap" align="start">
+              <Text size="xs" c="dimmed">
+                You get:
+              </Text>
+              <Text size="xs" fw={500}>
+                {service.youGet.join(', ')}
+              </Text>
+            </Group>
+          )}
 
           {service.requirements?.length > 0 && (
             <Box>
@@ -171,7 +196,7 @@ function ServiceCard({ service, onRequest }: { service: Service; onRequest: () =
         </Stack>
 
         <Button size="sm" fullWidth onClick={onRequest}>
-          Request Now
+          {service.requestType === 'quote' ? 'Ask for a quote' : service.requestType === 'invoice' ? 'Ask for a bill' : 'Book this'}
         </Button>
       </Stack>
     </Paper>
@@ -210,7 +235,12 @@ export default function OrganizationDetailPage() {
     setLoading(true);
     try {
       try {
-        const storefrontResponse = await api.get(`/api/discovery/organizations/${id}/storefront`);
+        // Owners see their own profile even while it is private; everyone else gets the public one.
+        const ownerToken = source === 'my-orgs' ? getPreferredToken() : null;
+        const storefrontResponse = ownerToken
+          ? await api.get(`/api/organizations/${id}/offerings/preview`, { headers: { Authorization: 'Bearer ' + ownerToken } })
+            .catch(() => api.get(`/api/discovery/organizations/${id}/storefront`))
+          : await api.get(`/api/discovery/organizations/${id}/storefront`);
         const storefront = (storefrontResponse.data || {}) as StorefrontApiResponse;
 
         if (!storefront?.orgId) {
@@ -231,7 +261,11 @@ export default function OrganizationDetailPage() {
             website: storefront.contactLinks?.website || undefined,
             contactPhone: storefront.contactLinks?.phone || undefined,
             contactEmail: storefront.contactLinks?.email || undefined,
+            address: storefront.contactLinks?.address || undefined,
           },
+          memberSince: storefront.memberSince,
+          workAreas: Array.isArray(storefront.workAreas) ? storefront.workAreas : [],
+          sellsGoods: typeof storefront.sellsGoods === 'boolean' ? storefront.sellsGoods : undefined,
           services: Array.isArray(storefront.services) ? storefront.services : [],
           catalogItems: Array.isArray(storefront.catalogItems) ? storefront.catalogItems : [],
           trustBadges: Array.isArray(storefront.trustBadges) ? storefront.trustBadges : [],
@@ -244,8 +278,8 @@ export default function OrganizationDetailPage() {
 
         if (source === 'my-orgs') {
           notifications.show({
-            title: 'Store Review Loaded',
-            message: 'Opened the owner view with storefront, services, products, and broadcast links.',
+            title: 'Owner preview',
+            message: 'This is how other wallets see your public profile.',
             color: 'blue',
           });
         }
@@ -341,7 +375,7 @@ export default function OrganizationDetailPage() {
 
   const openRequestModal = (service: Service | null, kind: AskKind = 'service') => {
     setSelectedService(service);
-    setAskKind(service ? 'service' : kind);
+    setAskKind(service ? (service.requestType || 'service') : kind);
     setAskText('');
     setAskName(getUserName() || '');
     setRequestModalOpen(true);
@@ -439,10 +473,14 @@ export default function OrganizationDetailPage() {
   }
 
   const { org, services, catalogItems = [], trustBadges = [], paymentRails = [], qrCodeUrl, didDocumentUrl, shopUrl } = profile;
-  const storeVisibilityLabel = profile.isPublic === false ? 'Private storefront' : profile.isPublic === true ? 'Public storefront' : 'Store visibility unknown';
-  const showStore = source === 'my-orgs'
-    ? (readOrgProfile()?.kinds || []).includes('shop')
-    : profile.isPublic === true;
+  const storeVisibilityLabel = profile.isPublic === false ? 'Private: not in Discover' : profile.isPublic === true ? 'Found in Discover' : 'Visibility unknown';
+  // Goods (products bought in the shop) are separate from services (work you ask or book).
+  const sellsGoods = profile.sellsGoods ?? catalogItems.length > 0;
+  const workAreas = profile.workAreas || [];
+  const memberSince = profile.memberSince ? new Date(profile.memberSince) : null;
+  const openShop = () => {
+    void router.push(`/shop?orgId=${encodeURIComponent(org.id)}&merchantId=${encodeURIComponent(org.tenantId || org.id)}`);
+  };
 
   return (
     <AppShellMobile>
@@ -490,6 +528,14 @@ export default function OrganizationDetailPage() {
               <Badge size="sm" variant="light" color="blue" mt={4}>
                 {org.category}
               </Badge>
+              {memberSince && !Number.isNaN(memberSince.getTime()) && (
+                <Text size="xs" c="dimmed" mt={4}>
+                  On Credentis since {memberSince.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
+                </Text>
+              )}
+              {workAreas.length > 0 && (
+                <Text size="xs" c="dimmed">Works in: {workAreas.join(', ')}</Text>
+              )}
               {org.trustScore > 0 && (
                 <Group gap={4} mt={4}>
                   <IconStar size={14} color="#fbbf24" fill="#fbbf24" />
@@ -513,17 +559,15 @@ export default function OrganizationDetailPage() {
               >
                 Ask for a quote or a service
               </Button>
-              {showStore && (
+              {sellsGoods && (
               <Button
                 fullWidth
                 variant="filled"
                 color="teal"
                 leftSection={<IconFileText size={18} />}
-                onClick={() => {
-                  void router.push(`/shop?orgId=${encodeURIComponent(org.id)}&merchantId=${encodeURIComponent(org.tenantId || org.id)}`);
-                }}
+                onClick={openShop}
               >
-                Open Mini Store
+                Shop their goods
               </Button>
               )}
 
@@ -565,16 +609,16 @@ export default function OrganizationDetailPage() {
             </Stack>
           )}
 
-          {showStore && source === 'my-orgs' && (
+          {source === 'my-orgs' && (
             <Paper m="md" p="md" radius="md" withBorder style={{ background: 'linear-gradient(135deg, rgba(14,165,233,0.08), rgba(13,148,136,0.06))' }}>
               <Stack gap="sm">
                 <Group justify="space-between" align="start">
                   <Box>
                     <Text size="sm" fw={700}>
-                      Org Store Review
+                      Owner preview
                     </Text>
                     <Text size="xs" c="dimmed">
-                      Review the storefront as an owner or manager before publishing changes.
+                      What other wallets see. Change it in Public profile.
                     </Text>
                   </Box>
                   <Badge variant="light" color={profile.isPublic === false ? 'gray' : 'green'}>
@@ -583,33 +627,26 @@ export default function OrganizationDetailPage() {
                 </Group>
 
                 <Group gap="xs" wrap="wrap">
-                  <Badge variant="light" color="teal">
+                  <Badge variant="light" color="blue">
                     {services.length} services
                   </Badge>
-                  <Badge variant="light" color="blue">
-                    {catalogItems.length} products
+                  <Badge variant="light" color="teal">
+                    {sellsGoods ? `${catalogItems.length} goods` : 'No goods'}
                   </Badge>
                   <Badge variant="light" color="violet">
-                    {paymentRails.length} rails
+                    {paymentRails.length} ways to pay
                   </Badge>
                 </Group>
 
                 <Group gap="xs" wrap="wrap">
-                  <Button
-                    size="xs"
-                    onClick={() => {
-                      void router.push(`/shop?orgId=${encodeURIComponent(org.id)}&merchantId=${encodeURIComponent(org.tenantId || org.id)}`);
-                    }}
-                  >
-                    Preview Mini Store
+                  <Button size="xs" onClick={() => router.push('/settings/org?section=store')}>
+                    Edit public profile
                   </Button>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() => router.push('/settings/org')}
-                  >
-                    Configure Store Basics
-                  </Button>
+                  {sellsGoods && (
+                    <Button size="xs" variant="outline" onClick={openShop}>
+                      Preview shop
+                    </Button>
+                  )}
                 </Group>
               </Stack>
             </Paper>
@@ -702,85 +739,59 @@ export default function OrganizationDetailPage() {
             )}
           </Paper>
 
-          {showStore && (
           <Paper p="md" radius="md" withBorder>
-            <Group justify="space-between" mb="xs">
-              <Text size="sm" fw={600}>
-                Mini Storefront
+            <Text size="sm" fw={600}>
+              Services ({services.length})
+            </Text>
+            <Text size="xs" c="dimmed" mb="xs">
+              Work you ask or book. They answer in your inbox and you keep the cards for it.
+            </Text>
+            {services.length === 0 ? (
+              <Text size="sm" c="dimmed">
+                {source === 'my-orgs' ? 'No services shown yet. Switch some on in Public profile.' : 'No services listed yet. You can still ask for a quote.'}
               </Text>
-              <Group gap={6}>
-                <Button
-                  size="xs"
-                  variant="light"
-                  onClick={() => {
-                    void router.push(`/shop?orgId=${encodeURIComponent(org.id)}&merchantId=${encodeURIComponent(org.tenantId || org.id)}`);
-                  }}
-                >
-                  Open Shop
-                </Button>
-              </Group>
+            ) : (
+              <Stack gap="sm">
+                {services.map((service) => (
+                  <ServiceCard key={service.id} service={service} onRequest={() => openRequestModal(service)} />
+                ))}
+              </Stack>
+            )}
+          </Paper>
+
+          {sellsGoods && (
+          <Paper p="md" radius="md" withBorder>
+            <Group justify="space-between" mb={4}>
+              <Text size="sm" fw={600}>
+                Goods ({catalogItems.length})
+              </Text>
+              <Button size="xs" variant="light" color="teal" onClick={openShop}>
+                Open shop
+              </Button>
             </Group>
-
-            <Stack gap="md">
-              <Box>
-                <Text size="sm" fw={500} mb="xs">
-                  Services ({services.length})
-                </Text>
-                {services.length === 0 ? (
-                  <Paper p="sm" radius="md" withBorder style={{ textAlign: 'center' }}>
-                    <Text size="sm" fw={500} mb={4}>
-                      {source === 'my-orgs' ? 'My Organization Account' : 'No Services Available'}
-                    </Text>
-                    <Text size="xs" c="dimmed" mb={source === 'my-orgs' ? 'sm' : 0}>
-                      {source === 'my-orgs'
-                        ? 'Manage onboarding, switching, and workflow activation for this org.'
-                        : 'This organization has not published any services yet.'}
-                    </Text>
-                    {source === 'my-orgs' && (
-                      <Button
-                        size="xs"
-                        onClick={() => {
-                          void router.push('/settings/org');
-                        }}
-                      >
-                        Open Store Basics
-                      </Button>
-                    )}
-                  </Paper>
-                ) : (
-                  <Stack gap="sm">
-                    {services.map((service) => (
-                      <ServiceCard key={service.id} service={service} onRequest={() => openRequestModal(service)} />
-                    ))}
-                  </Stack>
+            <Text size="xs" c="dimmed" mb="xs">
+              Products you buy and pay for in their shop.
+            </Text>
+            {catalogItems.length === 0 ? (
+              <Text size="sm" c="dimmed">No products listed yet.</Text>
+            ) : (
+              <Stack gap={8}>
+                {catalogItems.slice(0, 6).map((item) => (
+                  <Group key={item.id} justify="space-between" align="start">
+                    <Box style={{ flex: 1 }}>
+                      <Text size="sm" fw={500}>{item.title}</Text>
+                      <Text size="xs" c="dimmed">{item.description || item.category || 'Product'}</Text>
+                    </Box>
+                    <Badge size="sm" variant="light" color="teal">
+                      {item.currency} {Number(item.price || 0).toFixed(2)}
+                    </Badge>
+                  </Group>
+                ))}
+                {catalogItems.length > 6 && (
+                  <Text size="xs" c="dimmed">+{catalogItems.length - 6} more in the shop</Text>
                 )}
-              </Box>
-
-              <Divider />
-
-              <Box>
-                <Text size="sm" fw={500} mb="xs">
-                  Products & Goods ({catalogItems.length})
-                </Text>
-                {catalogItems.length === 0 ? (
-                  <Text size="sm" c="dimmed">No published products yet.</Text>
-                ) : (
-                  <Stack gap={8}>
-                    {catalogItems.slice(0, 4).map((item) => (
-                      <Group key={item.id} justify="space-between" align="start">
-                        <Box style={{ flex: 1 }}>
-                          <Text size="sm" fw={500}>{item.title}</Text>
-                          <Text size="xs" c="dimmed">{item.description || item.category || 'Published product'}</Text>
-                        </Box>
-                        <Badge size="sm" variant="light" color="teal">
-                          {item.currency} {Number(item.price || 0).toFixed(2)}
-                        </Badge>
-                      </Group>
-                    ))}
-                  </Stack>
-                )}
-              </Box>
-            </Stack>
+              </Stack>
+            )}
           </Paper>
           )}
 

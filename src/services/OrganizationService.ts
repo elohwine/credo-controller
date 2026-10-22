@@ -35,6 +35,7 @@ import {
   roleMayOpenOrgContext,
   type OrgTaskPurpose,
 } from './OrgContextPolicy'
+import { orgOfferingsService } from './OrgOfferingsService'
 import { ensureStarterRoles } from './OrgStarterRoles'
 import { SSIAuthService } from './SSIAuthService'
 import {
@@ -627,11 +628,9 @@ export class OrganizationService {
     const current = organizationRegistryRepository.findOrganizationByTenantId(params.orgTenantId)
     if (!current) return
 
-    const advertises = orgSetupProfileService.get(params.orgTenantId).kinds.includes('shop')
     const updates: Record<string, unknown> = {
       displayName: params.name,
       category: params.category || current.category,
-      isPublic: advertises ? current.isPublic : false,
       verificationStatus: current.verificationStatus === 'suspended' ? current.verificationStatus : 'verified',
       website: params.domain ? `https://${params.domain}` : current.website,
       metadata: {
@@ -655,63 +654,8 @@ export class OrganizationService {
       }
     }
 
+    // Public services come from the work areas (OrgOfferingsService); the owner chooses what shows.
     await this.ensureInitialTrustBadges(current.id, params.orgTenantId)
-    await this.ensureDefaultServiceCatalogEntries(
-      current.id,
-      params.orgTenantId,
-      params.sector,
-      params.category,
-      params.activatedWorkflowTypes,
-    )
-  }
-
-  private async ensureDefaultServiceCatalogEntries(
-    orgId: string,
-    orgTenantId: string,
-    sector?: SectorType,
-    category?: OrganizationCategory,
-    activatedWorkflowTypes: string[] = [],
-  ): Promise<void> {
-    try {
-      const existing = organizationRegistryRepository.listServicesByOrganization(orgId, false)
-      const existingVcTypes = new Set(existing.map((service) => service.vcType).filter(Boolean))
-      const explicitArActivation = activatedWorkflowTypes.some((workflowType) =>
-        /ar|receivable|collection|credit/i.test(workflowType),
-      )
-
-      if (!explicitArActivation) {
-        return
-      }
-
-      const arService = {
-        vcType: 'ReceiptVC',
-        serviceType: 'workflow' as const,
-        name: 'Collect Payment',
-        description: 'Create a payment request and collect receivables from customers',
-        workflowTemplateId: 'tpl-ar-collections',
-      }
-
-      if (existingVcTypes.has(arService.vcType)) {
-        return
-      }
-
-      organizationRegistryRepository.createService({
-        orgId,
-        serviceType: arService.serviceType,
-        vcType: arService.vcType,
-        workflowTemplateId: arService.workflowTemplateId,
-        name: arService.name,
-        description: arService.description,
-        requirements: [],
-        feeAmount: 0,
-        feeCurrency: 'USD',
-        isActive: true,
-        requestSchema: {},
-        metadata: { seededForTenant: orgTenantId, capabilityType: arService.vcType },
-      })
-    } catch (error: any) {
-      logger.warn({ error: error.message, orgId, orgTenantId }, 'Skipping explicit workflow service seeding')
-    }
   }
 
   private async ensureInitialTrustBadges(orgId: string, orgTenantId: string): Promise<void> {
@@ -1118,18 +1062,11 @@ export class OrganizationService {
       throw new Error('Only org owners/admins can manage organization settings')
     }
 
-    if (isPublic && !orgSetupProfileService.get(orgTenantId).kinds.includes('shop')) {
-      throw new Error('Only an organisation that sells or advertises can be found by others')
-    }
-
-    const org = organizationRegistryRepository.findOrganizationByTenantId(orgTenantId)
-    if (!org) {
+    if (!organizationRegistryRepository.findOrganizationByTenantId(orgTenantId)) {
       throw new Error('Organization not found')
     }
 
-    organizationRegistryRepository.updateOrganization(org.id, {
-      isPublic,
-    } as any)
+    orgOfferingsService.setListed(orgTenantId, isPublic)
 
     return {
       orgTenantId,

@@ -22,6 +22,7 @@ interface Organization {
   trustScore: number;
   verificationStatus: string;
   availableServices: number;
+  goodsCount?: number;
   role?: string;
 }
 
@@ -90,6 +91,11 @@ function OrganizationCard({ org, onClick, onAddContact }: { org: Organization; o
             {org.availableServices > 0 && (
               <Text size="xs" c="dimmed">
                 {org.availableServices} {org.availableServices === 1 ? 'service' : 'services'}
+              </Text>
+            )}
+            {(org.goodsCount ?? 0) > 0 && (
+              <Text size="xs" c="dimmed">
+                {org.goodsCount} {org.goodsCount === 1 ? 'product' : 'products'}
               </Text>
             )}
             {org.trustScore > 0 && (

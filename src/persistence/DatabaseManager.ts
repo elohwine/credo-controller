@@ -179,6 +179,7 @@ export class DatabaseManager {
       { version: 130, file: '130_wallet_inbox_whatsapp.sql', name: 'wallet_inbox_whatsapp' },
       { version: 131, file: '131_inbox_done_and_job_updates.sql', name: 'inbox_done_and_job_updates' },
       { version: 132, file: '132_ap_payment_proof.sql', name: 'ap_payment_proof' },
+      { version: 133, file: '133_org_public_offerings.sql', name: 'org_public_offerings' },
     ]
 
     for (const migration of migrationFiles) {
@@ -218,6 +219,28 @@ export class DatabaseManager {
 
     this.logger.info('All migrations applied successfully')
     this.repairPresentationProtocolColumns(db)
+    this.repairDiscoveryColumns(db)
+  }
+
+  /**
+   * Public discovery columns that older databases got from migrations since removed: the
+   * storefront reads payment rails and services keep the workflow they start.
+   */
+  private static repairDiscoveryColumns(db: Database.Database): void {
+    const repairs: Record<string, Array<[string, string]>> = {
+      service_catalog: [['workflow_template_id', 'TEXT']],
+      organization_registry: [['payment_rails', "TEXT DEFAULT '[]'"]],
+    }
+    for (const [table, columns] of Object.entries(repairs)) {
+      const existing = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+      if (existing.length === 0) continue
+      const names = new Set(existing.map((column) => column.name))
+      for (const [column, definition] of columns) {
+        if (names.has(column)) continue
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+        this.logger.info(`Added missing column ${table}.${column}`)
+      }
+    }
   }
 
   /**

@@ -21,6 +21,7 @@ import HandoffSettingsCard from '@/components/shared/HandoffSettingsCard';
 import RecordSettingsCard from '@/components/shared/RecordSettingsCard';
 import DeviceTrustSettingsCard from '@/components/shared/DeviceTrustSettingsCard';
 import WhatsAppAlertsCard from '@/components/shared/WhatsAppAlertsCard';
+import PublicOfferingsCard from '@/components/org/PublicOfferingsCard';
 import OrgPermissionsSettings from '@/components/shared/OrgPermissionsSettings';
 import api, { safeArray } from '@/lib/api';
 import { getActiveOrgLabel, getActiveOrgId, getWalletToken, getPreferredToken, applyOrgContext, getOrgRoleClaim, decodeJwtPayload } from '@/lib/auth';
@@ -261,7 +262,7 @@ const SECTION_FOR_FIX: Record<ReadinessFixTarget, OrgSection> = {
   store: 'store',
 };
 
-function sectionLabels(showStore: boolean): Array<{ id: OrgSection; label: string }> {
+function sectionLabels(): Array<{ id: OrgSection; label: string }> {
   return [
     { id: 'team', label: 'Team' },
     { id: 'roles', label: 'Roles' },
@@ -272,7 +273,7 @@ function sectionLabels(showStore: boolean): Array<{ id: OrgSection; label: strin
     { id: 'handoffs', label: 'What happens next' },
     { id: 'records', label: 'Record settings' },
     { id: 'alerts', label: 'WhatsApp alerts' },
-    ...(showStore ? [{ id: 'store' as const, label: 'Store' }] : []),
+    { id: 'store', label: 'Public profile' },
   ];
 }
 
@@ -364,10 +365,8 @@ export default function OrgSettingsPage() {
   // Store basics
   const [storefront, setStorefront] = useState<StorefrontSummary | null>(null);
   const [storeLoading, setStoreLoading] = useState(false);
-  const [savingVisibility, setSavingVisibility] = useState(false);
   const [savingRails, setSavingRails] = useState(false);
   const [storePaymentRails, setStorePaymentRails] = useState<string[]>([]);
-  const [storeIsPublic, setStoreIsPublic] = useState(true);
 
   // Member management
   const [memberList, setMemberList] = useState<Array<{ userId: string; role: string; walletTenantId?: string; status: string; displayName?: string; phone?: string }>>([]);
@@ -496,6 +495,10 @@ export default function OrgSettingsPage() {
   const [serverProfile, setServerProfile] = useState<OrgProfile | null>(null);
   /** The settings area open on its own screen; null shows the organisation home. */
   const [section, setSection] = useState<OrgSection | null>(null);
+  useEffect(() => {
+    const wanted = typeof router.query.section === 'string' ? router.query.section : '';
+    if (wanted && sectionLabels().some((item) => item.id === wanted)) setSection(wanted as OrgSection);
+  }, [router.query.section]);
   /** True when one question was opened from the checklist, not the first-run flow. */
   const [orgSingle, setOrgSingle] = useState(false);
   /** Checklist questions still to do after this one. */
@@ -685,7 +688,11 @@ export default function OrgSettingsPage() {
   const loadStoreBasics = async (orgId: string) => {
     setStoreLoading(true);
     try {
-      const res = await api.get(`/api/discovery/organizations/${encodeURIComponent(orgId)}/storefront`);
+      const token = getPreferredToken();
+      // Owner preview works while the organisation is still private; the public storefront 404s then.
+      const res = await api.get(`/api/organizations/${encodeURIComponent(orgId)}/offerings/preview`, {
+        headers: token ? { Authorization: 'Bearer ' + token } : undefined,
+      }).catch(() => api.get(`/api/discovery/organizations/${encodeURIComponent(orgId)}/storefront`));
       const data = res.data || {};
       const rails = Array.isArray(data?.paymentRails) ? data.paymentRails : [];
       setStorefront({
@@ -701,7 +708,6 @@ export default function OrgSettingsPage() {
         catalogItems: Array.isArray(data?.catalogItems) ? data.catalogItems : [],
       });
       setStorePaymentRails(rails);
-      setStoreIsPublic(typeof data?.isPublic === 'boolean' ? data.isPublic : true);
     } catch {
       setStorefront(null);
     } finally {
@@ -949,35 +955,6 @@ export default function OrgSettingsPage() {
   }, [actorsView]);
   const actorTabIndex = Math.max(0, actorTabs.findIndex((tab) => tab.id === actorTab));
   const currentActorTab = actorTabs[actorTabIndex]?.id;
-  const saveStoreVisibility = async () => {
-    if (!activeId) return;
-    setSavingVisibility(true);
-    try {
-      const token = getWalletToken();
-      const res = await api.patch(
-        `/api/organizations/${encodeURIComponent(activeId)}/discovery-visibility`,
-        { isPublic: storeIsPublic },
-        { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
-      );
-
-      if (res.status >= 200 && res.status < 300) {
-        notifications.show({
-          title: 'Store visibility saved',
-          message: storeIsPublic ? 'Your mini store is public.' : 'Your mini store is private.',
-          color: 'green',
-        });
-        await loadStoreBasics(activeId);
-      }
-    } catch (err: any) {
-      notifications.show({
-        title: 'Save failed',
-        message: err?.response?.data?.message || err?.message || 'Could not update store visibility.',
-        color: 'red',
-      });
-    } finally {
-      setSavingVisibility(false);
-    }
-  };
 
   const saveStoreRails = async () => {
     if (!activeId) return;
@@ -1314,7 +1291,7 @@ export default function OrgSettingsPage() {
       <Stack gap="md" px="md" pt="md" pb={80}>
         {/* ── Header ── */}
         <Group justify="space-between" align="center" wrap="nowrap">
-          <Title order={3}>{section ? sectionLabels(orgKinds.includes('shop')).find(item => item.id === section)?.label : 'Organisation settings'}</Title>
+          <Title order={3}>{section ? sectionLabels().find(item => item.id === section)?.label : 'Organisation settings'}</Title>
           <StepHelp
             title="Setup"
             points={[
@@ -1726,7 +1703,7 @@ export default function OrgSettingsPage() {
                           <Group key={item.key} justify="space-between" wrap="nowrap">
                             <Text size="sm">{plainReadinessTitle(item)}</Text>
                             {target && item.status !== 'pending_external' ? (
-                              <Button size="compact-xs" variant="subtle" onClick={() => setSection(SECTION_FOR_FIX[target] === 'store' && !orgKinds.includes('shop') ? 'team' : SECTION_FOR_FIX[target])}>
+                              <Button size="compact-xs" variant="subtle" onClick={() => setSection(SECTION_FOR_FIX[target])}>
                                 Open
                               </Button>
                             ) : (
@@ -1747,7 +1724,7 @@ export default function OrgSettingsPage() {
               <Paper p="md" radius="md" withBorder>
                 <Stack gap={4}>
                   <Text fw={700}>Settings</Text>
-                  {sectionLabels(orgKinds.includes('shop')).filter((item) => canManageOrgSetup || !['payments', 'departments', 'records', 'roles', 'authorities'].includes(item.id)).map((item) => (
+                  {sectionLabels().filter((item) => canManageOrgSetup || !['payments', 'departments', 'records', 'roles', 'authorities', 'store'].includes(item.id)).map((item) => (
                     <UnstyledButton key={item.id} onClick={() => setSection(item.id)} py="sm" style={{ minHeight: 48 }}>
                     <Group justify="space-between" wrap="nowrap">
                       <Text size="sm">{item.label}</Text>
@@ -2212,113 +2189,43 @@ export default function OrgSettingsPage() {
             </Paper>
             )}
 
-            {orgKinds.includes('shop') && section === 'store' && (
+            {canManageOrgSetup && section === 'store' && activeId && (
             <>
-            <Paper id="org-card-store" p="md" radius="md" withBorder>
-              <Stack gap="md">
-                <Group justify="space-between" align="start">
-                  <Box>
-                    <Group gap="xs">
-                      <IconBuildingStore size={18} color="var(--mantine-color-teal-6)" />
-                      <Text fw={700}>Store</Text>
-                    </Group>
-                  </Box>
-                </Group>
+            <PublicOfferingsCard
+              orgTenantId={activeId}
+              onPreview={() => router.push(`/organizations/${activeId}?source=my-orgs`)}
+            />
 
+            <Paper id="org-card-store" p="md" radius="md" withBorder>
+              <Stack gap="sm">
+                <Text fw={700}>Ways to pay</Text>
+                <Text size="xs" c="dimmed">Shown on your profile so people know how they can pay you.</Text>
                 {storeLoading ? (
                   <Center py="xs"><Loader size="sm" /></Center>
                 ) : (
                   <>
-                    <Stack gap={6}>
-                      <Text size="xs" fw={600}>Who can find it</Text>
-                      <Group gap="sm">
-                        <Button
-                          size="xs"
-                          variant={storeIsPublic ? 'filled' : 'light'}
-                          onClick={() => setStoreIsPublic(true)}
-                        >
-                          Public
-                        </Button>
-                        <Button
-                          size="xs"
-                          variant={!storeIsPublic ? 'filled' : 'light'}
-                          onClick={() => setStoreIsPublic(false)}
-                        >
-                          Private
-                        </Button>
-                        <Button size="xs" loading={savingVisibility} onClick={saveStoreVisibility}>
-                          Save
-                        </Button>
-                      </Group>
-                    </Stack>
-
-                    <Stack gap={6}>
-                      <Text size="xs" fw={600}>Ways to pay</Text>
-                      <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs">
-                        {STORE_PAYMENT_RAIL_OPTIONS.map((rail) => {
-                          const selected = storePaymentRails.includes(rail.value);
-                          return (
-                            <Button
-                              key={rail.value}
-                              size="xs"
-                              variant={selected ? 'filled' : 'light'}
-                              onClick={() => setStorePaymentRails((prev) => prev.includes(rail.value) ? prev.filter((value) => value !== rail.value) : [...prev, rail.value])}
-                            >
-                              {rail.label}
-                            </Button>
-                          );
-                        })}
-                      </SimpleGrid>
-                      <Group>
-                        <Button size="xs" loading={savingRails} onClick={saveStoreRails}>
-                          Save
-                        </Button>
-                      </Group>
-                    </Stack>
-
+                    <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs">
+                      {STORE_PAYMENT_RAIL_OPTIONS.map((rail) => {
+                        const selected = storePaymentRails.includes(rail.value);
+                        return (
+                          <Button
+                            key={rail.value}
+                            size="xs"
+                            variant={selected ? 'filled' : 'light'}
+                            onClick={() => setStorePaymentRails((prev) => prev.includes(rail.value) ? prev.filter((value) => value !== rail.value) : [...prev, rail.value])}
+                          >
+                            {rail.label}
+                          </Button>
+                        );
+                      })}
+                    </SimpleGrid>
                     <Group>
-                      <Button size="xs" variant="light" onClick={() => router.push(`/organizations/${activeId}?source=my-orgs`)}>
-                        Review Mini Store
-                      </Button>
-                      <Button size="xs" variant="outline" onClick={() => router.push('/organizations')}>
-                        Open Orgs
+                      <Button size="xs" loading={savingRails} onClick={saveStoreRails}>
+                        Save
                       </Button>
                     </Group>
                   </>
                 )}
-              </Stack>
-            </Paper>
-
-            <Paper p="md" radius="md" withBorder style={{ background: 'linear-gradient(135deg, rgba(14,165,233,0.06), rgba(13,148,136,0.04))' }}>
-              <Stack gap="sm">
-                <Group justify="space-between" align="start">
-                  <Box>
-                    <Group gap="xs">
-                      <IconBuildingStore size={18} color="var(--mantine-color-blue-6)" />
-                      <Text fw={700}>Store Preview</Text>
-                    </Group>
-                    <Text size="xs" c="dimmed" mt={4}>
-                      How customers see this organization.
-                    </Text>
-                  </Box>
-                  <Badge variant="light" color={storefront?.isPublic === false ? 'gray' : 'blue'}>
-                    {storefront?.displayName || activeLabel || 'Organization Store'}
-                  </Badge>
-                </Group>
-
-                <Text size="sm">
-                  {storefront?.isPublic === false ? 'Private' : 'Public'}
-                  {` · ${storefront?.services?.length || 0} services · ${storefront?.catalogItems?.length || 0} products`}
-                </Text>
-
-                <Group gap="xs">
-                  <Button size="xs" onClick={() => router.push(`/organizations/${activeId}?source=my-orgs`)}>
-                    Open In-App Preview
-                  </Button>
-                  <Button size="xs" variant="light" onClick={() => router.push(`/shop?orgId=${encodeURIComponent(activeId)}&merchantId=${encodeURIComponent(activeId)}`)}>
-                    Open Shop
-                  </Button>
-                </Group>
               </Stack>
             </Paper>
             </>

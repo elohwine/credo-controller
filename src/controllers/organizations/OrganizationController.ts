@@ -45,6 +45,12 @@ import { container } from 'tsyringe'
 import { AuthContext } from '../../enums'
 import { StatusException } from '../../errors'
 import { OrganizationService } from '../../services/OrganizationService'
+import {
+  orgOfferingsService,
+  type OwnerOfferingsView,
+  type PublicStorefront,
+  type UpdateOfferingsInput,
+} from '../../services/OrgOfferingsService'
 import { orgMemberOnboardingService } from '../../services/OrgMemberOnboardingService'
 import type { PaymentMethodChoice, PaymentSetupItem, TrustedPartner } from '../../services/OrgSetupProvisioningService'
 import { orgSetupProvisioningService } from '../../services/OrgSetupProvisioningService'
@@ -623,13 +629,59 @@ export class OrganizationController extends Controller {
         this.setStatus(404)
         throw new StatusException(error.message, 404)
       }
-      if (error.message.includes('sells or advertises')) {
-        this.setStatus(403)
-        throw new StatusException(error.message, 403)
+      if (error instanceof StatusException) {
+        this.setStatus(error.status)
+        throw error
       }
       this.setStatus(500)
       throw error
     }
+  }
+
+  /**
+   * What the organisation shows the public: listing, profile, the services its work areas make
+   * possible (each with a show/hide switch) and whether it sells goods. Owners and admins only.
+   */
+  @Get('/{orgTenantId}/offerings')
+  @Security('jwt')
+  public async getOfferings(@Request() request: ExRequest, @Path() orgTenantId: string): Promise<OwnerOfferingsView> {
+    const user = this.requireOrgManagerToken(request, orgTenantId)
+    orgOfferingsService.assertManager(user.id, orgTenantId)
+    return orgOfferingsService.ownerView(orgTenantId)
+  }
+
+  /** Change the listing, profile or services. Returns the updated view. */
+  @Put('/{orgTenantId}/offerings')
+  @Security('jwt')
+  public async updateOfferings(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Body() body: UpdateOfferingsInput,
+  ): Promise<OwnerOfferingsView> {
+    const user = this.requireOrgManagerToken(request, orgTenantId)
+    return orgOfferingsService.update(user.id, orgTenantId, body || {})
+  }
+
+  /** What the public sees, also while the organisation is private. Owners and admins only. */
+  @Get('/{orgTenantId}/offerings/preview')
+  @Security('jwt')
+  public async previewOfferings(@Request() request: ExRequest, @Path() orgTenantId: string): Promise<PublicStorefront> {
+    const user = this.requireOrgManagerToken(request, orgTenantId)
+    orgOfferingsService.assertManager(user.id, orgTenantId)
+    return orgOfferingsService.preview(orgTenantId)
+  }
+
+  private requireOrgManagerToken(request: ExRequest, orgTenantId: string): { id: string } {
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+    if (user.tenantId !== orgTenantId || !user.orgRole) {
+      this.setStatus(403)
+      throw new StatusException('Organization-scoped token required', 403)
+    }
+    return user
   }
 
   /**

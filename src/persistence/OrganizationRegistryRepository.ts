@@ -202,7 +202,8 @@ export class OrganizationRegistryRepository {
     minTrustScore?: number
     limit?: number
   }): OrganizationRegistry[] {
-    let sql = `SELECT * FROM organization_registry WHERE is_public = 1 AND tenant_id IN (SELECT org_tenant_id FROM org_setup_profiles WHERE kinds LIKE '%"shop"%')`
+    // Whether there is anything to show (services or goods) is decided by OrgOfferingsService.
+    let sql = `SELECT * FROM organization_registry WHERE is_public = 1`
     const params: any[] = []
 
     if (filters?.category) {
@@ -257,7 +258,7 @@ export class OrganizationRegistryRepository {
     const params: any[] = [searchPattern, searchPattern, searchPattern]
 
     if (options?.publicOnly) {
-      sql += ` AND is_public = 1 AND tenant_id IN (SELECT org_tenant_id FROM org_setup_profiles WHERE kinds LIKE '%"shop"%')`
+      sql += ' AND is_public = 1'
     }
 
     if (options?.category) {
@@ -401,7 +402,8 @@ export class OrganizationRegistryRepository {
       if (value !== undefined && key !== 'id' && key !== 'orgId' && key !== 'createdAt') {
         const snakeKey = this.camelToSnake(key)
         updateFields.push(`${snakeKey} = @${key}`)
-        params[key] = typeof value === 'object' && value !== null ? JSON.stringify(value) : value
+        if (typeof value === 'boolean') params[key] = value ? 1 : 0
+        else params[key] = typeof value === 'object' && value !== null ? JSON.stringify(value) : value
       }
     })
 
