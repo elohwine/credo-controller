@@ -24,6 +24,11 @@ tests as evidence that the complete commerce journey works.
 
 ### Credentis platform setup (Cloud API, Graph v26.0)
 
+For Meta App Settings -> Basic -> Privacy Policy URL, use
+`https://credentis.fly.dev/privacy-policy`. This public HTML page needs no login;
+`/privacy` serves the same policy. Privacy and account-deletion requests go to
+`elowine@outlook.com`. Review the published policy when data handling changes.
+
 Graph calls use `v26.0` by default; override with `WHATSAPP_GRAPH_VERSION`
 (must look like `vNN.N`, invalid values fall back to the default).
 

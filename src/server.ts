@@ -39,6 +39,7 @@ import { ShortlinkService } from './services/ShortlinkService'
 import { triggerService } from './services/TriggerService'
 import { startNgrokTunnel, getNgrokUrl } from './utils/ngrokTunnel'
 import { rootLogger } from './utils/pinoLogger'
+import { registerPrivacyPolicy } from './utils/privacyPolicy'
 import { runWithContext } from './utils/requestContext'
 import { registerWhatsAppInboxLanding } from './utils/whatsAppInboxLanding'
 
@@ -434,6 +435,7 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
 
   // Mount TSOA routes (API controllers)
   // take precedence over the generic Credo OpenID4VC router which matches prefixes.
+  registerPrivacyPolicy(app)
   registerWhatsAppInboxLanding(app)
   RegisterRoutes(app)
 
