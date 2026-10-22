@@ -1,1 +1,6 @@
-export { isPlatformRequestWaiting, type PlatformInboxRequest } from '../../src/config/requestInbox'
+export {
+  isPlatformRequestDecided,
+  isPlatformRequestWaiting,
+  platformRequestDecidedAt,
+  type PlatformInboxRequest,
+} from '../../src/config/requestInbox'

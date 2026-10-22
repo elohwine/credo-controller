@@ -9,7 +9,7 @@ import { DatabaseManager } from '../src/persistence/DatabaseManager'
 import { workflowRequestRepository } from '../src/persistence/WorkflowRequestRepository'
 import { OrganizationService } from '../src/services/OrganizationService'
 import { platformRequestService } from '../src/services/PlatformRequestService'
-import { isPlatformRequestWaiting } from '../src/config/requestInbox'
+import { isPlatformRequestDecided, isPlatformRequestWaiting, platformRequestDecidedAt } from '../src/config/requestInbox'
 import { addMember, initTestDatabases, seedOrganization, type TestDatabases } from './utils/orgReadinessFixture'
 
 let databases: TestDatabases
@@ -221,5 +221,20 @@ describe('Platform request attention', () => {
     expect(
       isPlatformRequestWaiting({ id: 'follow-up', status: 'approved', nextStep: { label: 'Mark bought', fields: [] } }),
     ).toBe(true)
+  })
+
+  it('keeps decided requests under Done for the window instead of dropping them', () => {
+    const since = Date.parse('2026-01-10T00:00:00Z')
+    expect(isPlatformRequestDecided({ id: 'a', status: 'approved', updated_at: '2026-01-12 09:30:00' }, since)).toBe(true)
+    expect(isPlatformRequestDecided({ id: 'r', status: 'rejected', updated_at: '2026-01-11T08:00:00Z' }, since)).toBe(true)
+    expect(isPlatformRequestDecided({ id: 'old', status: 'approved', updated_at: '2026-01-01 09:30:00' }, since)).toBe(false)
+    expect(isPlatformRequestDecided({ id: 'wait', status: 'submitted', updated_at: '2026-01-12 09:30:00' }, since)).toBe(false)
+    expect(
+      isPlatformRequestDecided(
+        { id: 'next', status: 'approved', updated_at: '2026-01-12 09:30:00', nextStep: { label: 'Mark bought', fields: [] } },
+        since,
+      ),
+    ).toBe(false)
+    expect(platformRequestDecidedAt({ updated_at: '2026-01-12 09:30:00' })).toBe('2026-01-12T09:30:00Z')
   })
 })

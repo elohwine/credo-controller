@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import dayjs from 'dayjs';
-import { isPlatformRequestWaiting, type PlatformInboxRequest } from '../../shared/requestInbox';
+import { isPlatformRequestDecided, isPlatformRequestWaiting, platformRequestDecidedAt, type PlatformInboxRequest } from '../../shared/requestInbox';
 import {
   Stack, Title, Text, Box, Divider, Button, Center, ThemeIcon, Paper,
   Loader, Alert, Group, Badge, ActionIcon, Tabs, Textarea, Modal, SegmentedControl, NumberInput, TextInput,
@@ -1286,6 +1286,8 @@ export default function InboxPage() {
       let personalDoneDays = 7;
       let inboundOrgRequests: any[] = [];
       let platformOrgRequests: PlatformInboxRequest[] = [];
+      let decidedPlatformRequests: PlatformInboxRequest[] = [];
+      let orgDoneDays = doneDays;
       let exceptions: any[] = [];
       let fieldRuns: any[] = [];
 
@@ -1376,7 +1378,10 @@ export default function InboxPage() {
           const orgOffers = await api.get('/api/wallet/credentials/pending-offers?holder=organization', { headers: orgHeaders });
           const rows = safeArray(orgOffers.data?.offers ?? orgOffers.data);
           offers = offers.concat(rows.map((row: any) => ({ ...row, _context: 'org', _token: orgHeaders.Authorization?.slice(7) })));
-          if (Number(orgOffers.data?.doneSinceDays) > 0) setDoneDays(Number(orgOffers.data.doneSinceDays));
+          if (Number(orgOffers.data?.doneSinceDays) > 0) {
+            orgDoneDays = Number(orgOffers.data.doneSinceDays);
+            setDoneDays(orgDoneDays);
+          }
         } catch (e) {
           console.warn('Organisation records fetch failed', e);
         }
@@ -1390,6 +1395,9 @@ export default function InboxPage() {
           headers: orgHeaders, params: { limit: 100 },
         });
         platformOrgRequests = platformRes.data.items.filter(isPlatformRequestWaiting);
+        // Decided requests stay under Done for the inbox window, so an approval does not just vanish.
+        const doneSince = Date.now() - orgDoneDays * 24 * 60 * 60 * 1000;
+        decidedPlatformRequests = platformRes.data.items.filter((row) => isPlatformRequestDecided(row, doneSince));
       }
 
       if (!personalInbox && activeOrgId && operationalWorkflowTypes.includes('field_execution')) {
@@ -2206,6 +2214,36 @@ export default function InboxPage() {
         authContext: 'org',
         authToken: orgToken || undefined,
       }));
+      const mappedDecidedPlatformRequests: InboxItemData[] = decidedPlatformRequests.map(row => {
+        const declined = row.status === 'rejected';
+        const cancelled = row.status === 'cancelled';
+        return {
+          id: `platform-request:${row.id}`,
+          platformRequestId: row.id,
+          title: row.title || 'Organisation request',
+          description: declined
+            ? 'Declined. Nothing more is needed from you.'
+            : cancelled
+              ? 'This request was cancelled.'
+              : row.status === 'completed'
+                ? 'This request is complete.'
+                : 'Approved. Nothing more is needed from you.',
+          module: 'approvals',
+          flowType: 'WORKFLOW',
+          status: declined ? 'rejected' : row.status === 'approved' || row.status === 'in_fulfilment' ? 'approved' : 'completed',
+          finished: true,
+          priority: 'low',
+          createdAt: platformRequestDecidedAt(row),
+          itemType: 'workflow',
+          workflowRequestType: row.request_type,
+          actionLabel: 'View',
+          actingOrgTenantId: activeOrgId || undefined,
+          ownerOrgTenantId: activeOrgId || undefined,
+          ownerDisplayName: activeOrgLabel || undefined,
+          authContext: 'org',
+          authToken: orgToken || undefined,
+        };
+      });
 
       const operationalType = operationalWorkflowTypes.find((workflowType) => ['ecommerce', 'education_fees', 'cash_counter', 'field_execution'].includes(workflowType));
       const operationalModule = operationalType ? (MODULE_BY_FEATURE[operationalType.toUpperCase()] ?? operationalType) : 'ecommerce';
@@ -2294,7 +2332,7 @@ export default function InboxPage() {
           : item.workflowRunId && item.itemType === 'workflow'
             ? `workflow:${item.workflowRunId}`
             : item.offerUri || `${item.itemType}:${item.id}`;
-      const merged = [...dedupedReceipts, ...mergedMappedOffers, ...mappedFieldRuns, ...mappedAssignedApprovals, ...mappedPlatformRequests, ...mappedRequisitions, ...mappedExceptions, ...storedRunningItems];
+      const merged = [...dedupedReceipts, ...mergedMappedOffers, ...mappedFieldRuns, ...mappedAssignedApprovals, ...mappedPlatformRequests, ...mappedDecidedPlatformRequests, ...mappedRequisitions, ...mappedExceptions, ...storedRunningItems];
       const seen = new Map<string, InboxItemData>();
       for (const item of merged) {
         const key = dedupeKey(item);

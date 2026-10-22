@@ -450,12 +450,14 @@ export class WalletCredentialsController extends Controller {
         `
         SELECT w.id, w.source_type, w.source_id, w.credential_type, w.offer_uri, w.title, w.body, w.metadata,
                w.created_at, w.workflow_run_id, w.accepted_at, w.resolved_at, w.last_error,
-               o.name AS org_name, wr.status AS request_status,
+               o.name AS org_name, COALESCE(wr.status, req.status) AS request_status,
                run.status AS run_status,
                CASE WHEN json_valid(run.output) THEN json_extract(run.output, '$.workflowStage') END AS run_stage
         FROM wallet_pending_offers w
         LEFT JOIN organizations o ON o.tenant_id = w.issuer_tenant_id
         LEFT JOIN workflow_requests wr ON w.source_type = 'workflow_request_assignment' AND wr.id = w.source_id
+        LEFT JOIN requests req ON w.source_type = 'workflow_stage_action'
+          AND (req.id = w.source_id OR w.source_id LIKE req.id || ':delegation:%')
         LEFT JOIN workflow_runs run ON run.id = w.workflow_run_id
         WHERE w.tenant_id = ?
           AND w.resolved_at IS NOT NULL

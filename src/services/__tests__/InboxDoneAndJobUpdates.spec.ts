@@ -101,6 +101,7 @@ describe('inbox Done window and job-finished updates', () => {
     expect(finishedOutcome({ sourceType: 'credential_offer', lastError: 'dismissed_by_user' })).toBe('dismissed')
     expect(finishedOutcome({ sourceType: 'workflow_request_assignment', requestStatus: 'rejected' })).toBe('rejected')
     expect(finishedOutcome({ sourceType: 'workflow_stage_action' })).toBe('done')
+    expect(finishedOutcome({ sourceType: 'workflow_stage_action', requestStatus: 'approved' })).toBe('approved')
     expect(finishedOutcome({ sourceType: 'credential_offer', acceptedAt: '2024' })).toBe('accepted')
   })
 })
