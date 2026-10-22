@@ -38679,7 +38679,7 @@
         ]
       }
     },
-    "/organizations/{tenantId}/notifications/whatsapp": {
+    "/api/organizations/{tenantId}/notifications/whatsapp": {
       "get": {
         "operationId": "GetSender",
         "responses": {
@@ -38778,7 +38778,7 @@
         }
       }
     },
-    "/organizations/{tenantId}/notifications/whatsapp/readiness": {
+    "/api/organizations/{tenantId}/notifications/whatsapp/readiness": {
       "get": {
         "operationId": "SenderReadiness",
         "responses": {
@@ -38861,7 +38861,7 @@
         ]
       }
     },
-    "/organizations/{tenantId}/notifications/whatsapp/validate": {
+    "/api/organizations/{tenantId}/notifications/whatsapp/validate": {
       "post": {
         "operationId": "ValidateSender",
         "responses": {
@@ -38923,7 +38923,7 @@
         ]
       }
     },
-    "/organizations/{tenantId}/notifications/whatsapp/test": {
+    "/api/organizations/{tenantId}/notifications/whatsapp/test": {
       "post": {
         "operationId": "TestSender",
         "responses": {
@@ -39000,7 +39000,7 @@
         }
       }
     },
-    "/organizations/{tenantId}/notifications/preferences": {
+    "/api/organizations/{tenantId}/notifications/preferences": {
       "put": {
         "operationId": "Preference",
         "responses": {
@@ -39142,7 +39142,7 @@
         ]
       }
     },
-    "/organizations/{tenantId}/notifications/deliveries": {
+    "/api/organizations/{tenantId}/notifications/deliveries": {
       "get": {
         "operationId": "Deliveries",
         "responses": {
@@ -39218,7 +39218,7 @@
         ]
       }
     },
-    "/organizations/{tenantId}/notifications/dispatch": {
+    "/api/organizations/{tenantId}/notifications/dispatch": {
       "get": {
         "operationId": "DispatchState",
         "responses": {

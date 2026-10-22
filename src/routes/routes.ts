@@ -21570,7 +21570,7 @@ export function RegisterRoutes(app: Router) {
                 tenantId: {"in":"path","name":"tenantId","required":true,"dataType":"string"},
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
         };
-        app.get('/organizations/:tenantId/notifications/whatsapp',
+        app.get('/api/organizations/:tenantId/notifications/whatsapp',
             authenticateMiddleware([{"jwt":[]}]),
             ...(fetchMiddlewares<RequestHandler>(NotificationController)),
             ...(fetchMiddlewares<RequestHandler>(NotificationController.prototype.getSender)),
@@ -21607,7 +21607,7 @@ export function RegisterRoutes(app: Router) {
                 tenantId: {"in":"path","name":"tenantId","required":true,"dataType":"string"},
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
         };
-        app.get('/organizations/:tenantId/notifications/whatsapp/readiness',
+        app.get('/api/organizations/:tenantId/notifications/whatsapp/readiness',
             authenticateMiddleware([{"jwt":[]}]),
             ...(fetchMiddlewares<RequestHandler>(NotificationController)),
             ...(fetchMiddlewares<RequestHandler>(NotificationController.prototype.senderReadiness)),
@@ -21645,7 +21645,7 @@ export function RegisterRoutes(app: Router) {
                 body: {"in":"body","name":"body","required":true,"ref":"WhatsAppSenderSelection"},
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
         };
-        app.put('/organizations/:tenantId/notifications/whatsapp',
+        app.put('/api/organizations/:tenantId/notifications/whatsapp',
             authenticateMiddleware([{"jwt":[]}]),
             ...(fetchMiddlewares<RequestHandler>(NotificationController)),
             ...(fetchMiddlewares<RequestHandler>(NotificationController.prototype.selectSender)),
@@ -21682,7 +21682,7 @@ export function RegisterRoutes(app: Router) {
                 tenantId: {"in":"path","name":"tenantId","required":true,"dataType":"string"},
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
         };
-        app.post('/organizations/:tenantId/notifications/whatsapp/validate',
+        app.post('/api/organizations/:tenantId/notifications/whatsapp/validate',
             authenticateMiddleware([{"jwt":[]}]),
             ...(fetchMiddlewares<RequestHandler>(NotificationController)),
             ...(fetchMiddlewares<RequestHandler>(NotificationController.prototype.validateSender)),
@@ -21720,7 +21720,7 @@ export function RegisterRoutes(app: Router) {
                 body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"requestId":{"dataType":"string","required":true},"eventType":{"dataType":"string","required":true}}},
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
         };
-        app.post('/organizations/:tenantId/notifications/whatsapp/test',
+        app.post('/api/organizations/:tenantId/notifications/whatsapp/test',
             authenticateMiddleware([{"jwt":[]}]),
             ...(fetchMiddlewares<RequestHandler>(NotificationController)),
             ...(fetchMiddlewares<RequestHandler>(NotificationController.prototype.testSender)),
@@ -21758,7 +21758,7 @@ export function RegisterRoutes(app: Router) {
                 body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"enabled":{"dataType":"boolean","required":true},"eventType":{"dataType":"string","required":true},"phone":{"dataType":"string","required":true}}},
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
         };
-        app.put('/organizations/:tenantId/notifications/preferences',
+        app.put('/api/organizations/:tenantId/notifications/preferences',
             authenticateMiddleware([{"jwt":[]}]),
             ...(fetchMiddlewares<RequestHandler>(NotificationController)),
             ...(fetchMiddlewares<RequestHandler>(NotificationController.prototype.preference)),
@@ -21795,7 +21795,7 @@ export function RegisterRoutes(app: Router) {
                 tenantId: {"in":"path","name":"tenantId","required":true,"dataType":"string"},
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
         };
-        app.get('/organizations/:tenantId/notifications/deliveries',
+        app.get('/api/organizations/:tenantId/notifications/deliveries',
             authenticateMiddleware([{"jwt":[]}]),
             ...(fetchMiddlewares<RequestHandler>(NotificationController)),
             ...(fetchMiddlewares<RequestHandler>(NotificationController.prototype.deliveries)),
@@ -21832,7 +21832,7 @@ export function RegisterRoutes(app: Router) {
                 tenantId: {"in":"path","name":"tenantId","required":true,"dataType":"string"},
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
         };
-        app.get('/organizations/:tenantId/notifications/dispatch',
+        app.get('/api/organizations/:tenantId/notifications/dispatch',
             authenticateMiddleware([{"jwt":[]}]),
             ...(fetchMiddlewares<RequestHandler>(NotificationController)),
             ...(fetchMiddlewares<RequestHandler>(NotificationController.prototype.dispatchState)),
@@ -21869,7 +21869,7 @@ export function RegisterRoutes(app: Router) {
                 tenantId: {"in":"path","name":"tenantId","required":true,"dataType":"string"},
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
         };
-        app.get('/organizations/:tenantId/notifications/preferences',
+        app.get('/api/organizations/:tenantId/notifications/preferences',
             authenticateMiddleware([{"jwt":[]}]),
             ...(fetchMiddlewares<RequestHandler>(NotificationController)),
             ...(fetchMiddlewares<RequestHandler>(NotificationController.prototype.preferences)),

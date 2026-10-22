@@ -12,7 +12,7 @@ import {
   type WhatsAppSenderSelection,
 } from '../../services/WhatsAppSenderService'
 
-@Route('organizations/{tenantId}/notifications')
+@Route('api/organizations/{tenantId}/notifications')
 @Tags('Transactional notifications')
 export class NotificationController extends Controller {
   private admin(request: ExRequest, tenantId: string): void {
