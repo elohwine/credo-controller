@@ -4,7 +4,7 @@
  * starting a wallet.
  */
 
-import { isSelectiveDisclosureVcType } from '../../utils/credentialDefinitionStore'
+import { proofPolicyForFlow, splitAcceptedProofTypes } from './proofModeMatrix'
 
 /** DCQL credential query id for the selective-disclosure staff/role card. */
 export const DCQL_STAFF_CARD_QUERY_ID = 'staff_card'
@@ -190,7 +190,8 @@ export function buildStageProofDcqlQuery(params: {
   namedUserId?: string
 }): any | undefined {
   const acceptedVcTypes = [...new Set(params.acceptedVcTypes.filter(Boolean))]
-  const sdTypes = acceptedVcTypes.filter((type) => isSelectiveDisclosureVcType(type))
+  const flowPolicy = proofPolicyForFlow('workflow_stage')
+  const { selectiveDisclosureTypes: sdTypes } = splitAcceptedProofTypes(acceptedVcTypes, flowPolicy)
   if (sdTypes.length === 0) return undefined
   const orgTenantId = String(params.orgTenantId || '').trim()
   const stageAction = String(params.stageAction || '')

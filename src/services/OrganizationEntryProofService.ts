@@ -13,6 +13,7 @@ import { DatabaseManager } from '../persistence/DatabaseManager'
 import { IssuedCredentialRepository } from '../persistence/IssuedCredentialRepository'
 import { getTenantById } from '../persistence/TenantRepository'
 import { extractPresentedCredentials } from './ActorCredentialProofService'
+import { shouldAllowWholeCardType } from './ssi/proofModeMatrix'
 import { credentialLifecycleService } from './ssi/CredentialLifecycleService'
 import { statusListAllocatorService } from './ssi/StatusListAllocatorService'
 import { shouldUseUnsignedLocalOid4vpRequest, stageProofService, verifierModuleOf } from './ssi/StageProofService'
@@ -46,40 +47,49 @@ const ENTRY_CLAIM_SETS = [
 ]
 
 export function organizationEntryQuery(orgTenantId: string, userId: string): DcqlQuery {
+  const allowLegacyWholeCard = shouldAllowWholeCardType('organization_entry', EMPLOYEE_VC_TYPE)
+  const credentials: DcqlQuery['credentials'] = [
+    {
+      id: 'staff_card',
+      format: 'vc+sd-jwt',
+      meta: { vct_values: [EMPLOYEE_VC_TYPE] },
+      require_cryptographic_holder_binding: true,
+      claims: [
+        { id: 'org', path: ['orgTenantId'], values: [orgTenantId] },
+        { id: 'person', path: ['userId'], values: [userId] },
+        { id: 'role', path: ['role'] },
+        { id: 'status', path: ['employmentStatus'], values: ['active'] },
+        { id: 'access', path: ['orgAccess'], values: ['manage'] },
+      ],
+      // Prefer the card that says it opens the organisation; older cards without the claim
+      // still answer and are judged on the live role.
+      claim_sets: ENTRY_CLAIM_SETS,
+    },
+  ]
+  if (allowLegacyWholeCard) {
+    credentials.push({
+      id: 'legacy_staff_card',
+      format: 'jwt_vc_json',
+      meta: { type_values: [['VerifiableCredential', EMPLOYEE_VC_TYPE]] },
+      require_cryptographic_holder_binding: true,
+      claims: [
+        { id: 'org', path: ['credentialSubject', 'orgTenantId'], values: [orgTenantId] },
+        { id: 'person', path: ['credentialSubject', 'userId'], values: [userId] },
+        { id: 'role', path: ['credentialSubject', 'role'] },
+        { id: 'status', path: ['credentialSubject', 'employmentStatus'], values: ['active'] },
+        { id: 'access', path: ['credentialSubject', 'orgAccess'], values: ['manage'] },
+      ],
+      claim_sets: ENTRY_CLAIM_SETS,
+    })
+  }
   return {
-    credentials: [
+    credentials,
+    credential_sets: [
       {
-        id: 'staff_card',
-        format: 'vc+sd-jwt',
-        meta: { vct_values: [EMPLOYEE_VC_TYPE] },
-        require_cryptographic_holder_binding: true,
-        claims: [
-          { id: 'org', path: ['orgTenantId'], values: [orgTenantId] },
-          { id: 'person', path: ['userId'], values: [userId] },
-          { id: 'role', path: ['role'] },
-          { id: 'status', path: ['employmentStatus'], values: ['active'] },
-          { id: 'access', path: ['orgAccess'], values: ['manage'] },
-        ],
-        // Prefer the card that says it opens the organisation; older cards without the claim
-        // still answer and are judged on the live role.
-        claim_sets: ENTRY_CLAIM_SETS,
-      },
-      {
-        id: 'legacy_staff_card',
-        format: 'jwt_vc_json',
-        meta: { type_values: [['VerifiableCredential', EMPLOYEE_VC_TYPE]] },
-        require_cryptographic_holder_binding: true,
-        claims: [
-          { id: 'org', path: ['credentialSubject', 'orgTenantId'], values: [orgTenantId] },
-          { id: 'person', path: ['credentialSubject', 'userId'], values: [userId] },
-          { id: 'role', path: ['credentialSubject', 'role'] },
-          { id: 'status', path: ['credentialSubject', 'employmentStatus'], values: ['active'] },
-          { id: 'access', path: ['credentialSubject', 'orgAccess'], values: ['manage'] },
-        ],
-        claim_sets: ENTRY_CLAIM_SETS,
+        options: allowLegacyWholeCard ? [['staff_card'], ['legacy_staff_card']] : [['staff_card']],
+        required: true,
       },
     ],
-    credential_sets: [{ options: [['staff_card'], ['legacy_staff_card']], required: true }],
   }
 }
 

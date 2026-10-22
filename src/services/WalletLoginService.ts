@@ -9,6 +9,7 @@ import { PLATFORM_IDENTITY_VC_TYPE } from '../config/credentials/PlatformIdentit
 import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 
+import { shouldAllowWholeCardType } from './ssi/proofModeMatrix'
 import { shouldUseUnsignedLocalOid4vpRequest, stageProofService, verifierModuleOf } from './ssi/StageProofService'
 
 const LOGIN_TTL_MS = 5 * 60 * 1000
@@ -54,6 +55,9 @@ export class WalletLoginService {
   ) {}
 
   public async start(): Promise<WalletLoginStart> {
+    if (!shouldAllowWholeCardType('wallet_login', PLATFORM_IDENTITY_VC_TYPE)) {
+      throw new StatusException('Wallet sign-in proof policy does not allow PlatformIdentityCredential', 500)
+    }
     const signer = await stageProofService.getOrCreateDidForAgent(this.agent)
     const { verifierId, signerDidUrl } = await stageProofService.getOrCreateVerifierForAgent(this.agent, signer.didUrl)
     const result = await verifierModuleOf(this.agent).createAuthorizationRequest({

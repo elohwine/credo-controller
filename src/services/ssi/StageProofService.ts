@@ -64,6 +64,7 @@ import {
 
 import { credentialLifecycleService } from './CredentialLifecycleService'
 import { claimNamesOf, holderActivityService } from './HolderActivityService'
+import { proofPolicyForFlow } from './proofModeMatrix'
 import { withTenantHolder } from './TenantHolder'
 
 type AnyAgent = Agent<RestMultiTenantAgentModules>
@@ -274,9 +275,15 @@ export class StageProofService {
     }
 
     // DCQL names the one step, and the wallet signs the job it belongs to.
-    // Presentation Exchange stays for wallets that only speak PEX (PROOF_REQUEST_QUERY=pex)
-    // and for when a DCQL request cannot be built.
+    // Transaction-bound stage actions stay SD-only; there is no PEX downgrade path.
     const stageAction = stageActionForProofAction(params.actionKey)
+    const flowPolicy = proofPolicyForFlow('workflow_stage')
+    if (process.env.PROOF_REQUEST_QUERY === 'pex' && flowPolicy.requiresSelectiveDisclosure) {
+      throw new StatusException(
+        'This step requires selective-disclosure proof. PEX-only mode is not allowed for transaction-bound stage approvals.',
+        400,
+      )
+    }
     const facts = this.shareFacts(params.reference, stageAction)
     const purposeLine = sharePurposeFromBinding({ step: stageAction, job: facts.job, amount: facts.amount })
     const dcqlQuery = buildStageProofDcqlQuery({
@@ -285,7 +292,13 @@ export class StageProofService {
       stageAction,
       namedUserId: this.namedPersonOnRun(params.reference, stageAction),
     })
-    let queryLanguage: 'dcql' | 'pex' = process.env.PROOF_REQUEST_QUERY === 'pex' || !dcqlQuery ? 'pex' : 'dcql'
+    if (!dcqlQuery && flowPolicy.requiresSelectiveDisclosure) {
+      throw new StatusException(
+        'No selective-disclosure credential type is configured for this step. Add an SD-JWT actor credential to the proof policy.',
+        400,
+      )
+    }
+    let queryLanguage: 'dcql' | 'pex' = !dcqlQuery ? 'pex' : 'dcql'
     let result: any
     if (queryLanguage === 'dcql' && dcqlQuery) {
       try {
@@ -303,6 +316,12 @@ export class StageProofService {
           ],
         })
       } catch (error: any) {
+        if (!flowPolicy.allowPexFallback) {
+          throw new StatusException(
+            `Could not create a selective-disclosure proof request for this step: ${error?.message || 'unknown error'}`,
+            500,
+          )
+        }
         console.warn('[StageProofService] DCQL request failed, falling back to PEX:', error?.message)
         queryLanguage = 'pex'
       }

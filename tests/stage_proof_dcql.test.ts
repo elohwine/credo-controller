@@ -9,6 +9,7 @@ import {
   splitSdJwtShare,
   wantedListItems,
 } from '../src/services/ssi/stageProofQuery'
+import { proofPolicyForFlow, splitAcceptedProofTypes } from '../src/services/ssi/proofModeMatrix'
 import { sdJwtDisclosureFrame } from '../src/utils/credentialDefinitionStore'
 
 describe('step-specific disclosure', () => {
@@ -140,6 +141,15 @@ describe('what each step asks each card for', () => {
     expect(card.format).toBe('dc+sd-jwt')
     expect(card.meta.vct_values).toEqual(['EmployeeCredential', 'OrgWorkflowActorCredential'])
   })
+
+  test('proof matrix keeps transaction-bound stage proofs SD-only', () => {
+    const policy = proofPolicyForFlow('workflow_stage')
+    expect(policy.requiresSelectiveDisclosure).toBe(true)
+    expect(policy.allowPexFallback).toBe(false)
+    const split = splitAcceptedProofTypes(['EmployeeCredential', 'PlatformIdentityCredential'], policy)
+    expect(split.selectiveDisclosureTypes).toEqual(['EmployeeCredential'])
+    expect(split.wholeCardTypes).toEqual([])
+  })
 })
 
 describe('share screen rows', () => {
@@ -199,4 +209,3 @@ describe('share screen rows', () => {
     ])
   })
 })
-
