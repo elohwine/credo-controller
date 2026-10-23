@@ -40,9 +40,30 @@ async function run() {
   // Node.js timers use 32-bit signed integers. Using Infinity will clamp to 1ms and emit warnings.
   const maxTimerMs = 2147483647
 
+  // One-shot org and user data wipe, requested by the RESET_ORG_USER_DATA flag file (see docs/FLY_DEPLOYMENT.md).
+  const persistenceDbPath = process.env.PERSISTENCE_DB_PATH || './data/persistence.db'
+  const dataReset = require('../build/services/platform/PlatformDataResetService')
+  const dataDir = require('path').dirname(require('path').resolve(persistenceDbPath))
+  const resetFlag = dataReset.readResetFlag(dataDir)
+  let resetBackupDir
+  if (resetFlag.present && !resetFlag.confirmed) {
+    console.error(`❌ ${resetFlag.path} does not contain the confirmation phrase; data reset skipped`)
+    dataReset.settleResetFlag(resetFlag, new Error('confirmation phrase missing or wrong'))
+  } else if (resetFlag.confirmed) {
+    resetBackupDir = require('path').join(dataDir, 'backups', `pre-reset-${new Date().toISOString().replace(/[:.]/g, '-')}`)
+    const tenantsDbPath =
+      process.env.TENANT_DB_PATH || require('path').join(dataDir, 'tenants.db')
+    const askarFile = askarDatabase ? askarDatabase.config.path : undefined
+    const copied = await dataReset.backupSqliteFiles(
+      [require('path').resolve(persistenceDbPath), tenantsDbPath, askarFile].filter(Boolean),
+      resetBackupDir,
+    )
+    console.warn(`⚠️ Org and user data reset requested; backed up ${copied.length} database(s) to ${resetBackupDir}`)
+  }
+
   // Initialize persistence before loading dynamic definitions
   const { DatabaseManager } = require('../build/persistence/DatabaseManager')
-  DatabaseManager.initialize({ path: process.env.PERSISTENCE_DB_PATH || './data/persistence.db' })
+  DatabaseManager.initialize({ path: persistenceDbPath })
   console.log('✅ Persistence initialized')
 
   // Use a single Express app instance that is shared
@@ -302,6 +323,37 @@ async function run() {
 
   await agent.initialize()
   console.log('✅ Agent initialized')
+
+  if (resetBackupDir) {
+    const { HydraAdminClient } = require('../build/services/partner/HydraAdminClient')
+    const hydra = new HydraAdminClient()
+    try {
+      const report = await dataReset.runPlatformDataReset({
+        persistenceDb: DatabaseManager.getDatabase(),
+        tenantsDbPath: process.env.TENANT_DB_PATH || require('path').join(dataDir, 'tenants.db'),
+        log: (line) => console.warn(`⚠️ Data reset: ${line}`),
+        hooks: {
+          listCredoTenantIds: async () => (await agent.modules.tenants.getAllTenants()).map((t) => t.id),
+          deleteCredoTenant: (tenantId) => agent.modules.tenants.deleteTenantById(tenantId),
+          deleteHydraClient: hydra.enabled ? (clientId) => hydra.deleteClient(clientId) : undefined,
+          rotateJwtSecret: async () => {
+            const { generateSecretKey } = require('../build/utils/helpers')
+            const [record] = await agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
+            if (!record) return
+            record.content.secretKey = await generateSecretKey()
+            await agent.genericRecords.update(record)
+          },
+        },
+      })
+      const reportPath = dataReset.writeResetReport(resetBackupDir, report)
+      dataReset.settleResetFlag(resetFlag)
+      console.warn(`⚠️ Org and user data reset finished; report at ${reportPath}`)
+    } catch (resetErr) {
+      dataReset.writeResetReport(resetBackupDir, { error: resetErr.message, failedAt: new Date().toISOString() })
+      dataReset.settleResetFlag(resetFlag, resetErr)
+      console.error('❌ Org and user data reset failed; starting with existing data:', resetErr)
+    }
+  }
 
   // Initialize JWT secret key if missing (required for /agent/token)
   const genericRecord = await agent.genericRecords.findAllByQuery({ hasSecretKey: 'true' })
