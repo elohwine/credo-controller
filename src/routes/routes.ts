@@ -2880,6 +2880,16 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "InboxReadState": {
+        "dataType": "refObject",
+        "properties": {
+            "scope": {"ref":"InboxScope","required":true},
+            "lastSeenAt": {"dataType":"string"},
+            "readKeys": {"dataType":"array","array":{"dataType":"string"},"required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "FinishedOutcome": {
         "dataType": "refAlias",
         "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["accepted"]},{"dataType":"enum","enums":["approved"]},{"dataType":"enum","enums":["rejected"]},{"dataType":"enum","enums":["done"]},{"dataType":"enum","enums":["dismissed"]},{"dataType":"enum","enums":["expired"]},{"dataType":"enum","enums":["seen"]}],"validators":{}},
@@ -13642,6 +13652,80 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'setInboxPreferences',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletCredentialsController_getInboxReadState: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                scope: {"in":"query","name":"scope","dataType":"string"},
+        };
+        app.get('/api/wallet/credentials/inbox-read-state',
+            authenticateMiddleware([{"jwt":["tenant"]},{"jwt":["wallet"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WalletCredentialsController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletCredentialsController.prototype.getInboxReadState)),
+
+            async function WalletCredentialsController_getInboxReadState(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletCredentialsController_getInboxReadState, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletCredentialsController>(WalletCredentialsController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'getInboxReadState',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletCredentialsController_updateInboxReadState: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"lastSeenAt":{"dataType":"string"},"unreadKeys":{"dataType":"array","array":{"dataType":"string"}},"readKeys":{"dataType":"array","array":{"dataType":"string"}},"scope":{"dataType":"string"}}},
+        };
+        app.post('/api/wallet/credentials/inbox-read-state',
+            authenticateMiddleware([{"jwt":["tenant"]},{"jwt":["wallet"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WalletCredentialsController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletCredentialsController.prototype.updateInboxReadState)),
+
+            async function WalletCredentialsController_updateInboxReadState(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletCredentialsController_updateInboxReadState, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletCredentialsController>(WalletCredentialsController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'updateInboxReadState',
                 controller,
                 response,
                 next,

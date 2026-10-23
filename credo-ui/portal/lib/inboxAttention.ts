@@ -133,3 +133,95 @@ export function formatTxnTime(value?: string | number | Date | null): string {
 export function inboxWhenLabel(iso?: string, _now = Date.now()): string {
   return formatTxnTime(iso)
 }
+
+/** Date headings for the inbox, newest first. */
+export type InboxDayKey = 'today' | 'yesterday' | 'this_week' | 'older'
+
+export const INBOX_DAY_LABELS: Record<InboxDayKey, string> = {
+  today: 'Today',
+  yesterday: 'Yesterday',
+  this_week: 'Earlier this week',
+  older: 'Older',
+}
+
+export function inboxDayKey(time: number, now: Date = new Date()): InboxDayKey {
+  if (!Number.isFinite(time)) return 'older'
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const day = 24 * 60 * 60 * 1000
+  if (time >= startOfToday) return 'today'
+  if (time >= startOfToday - day) return 'yesterday'
+  if (time >= startOfToday - 6 * day) return 'this_week'
+  return 'older'
+}
+
+export type InboxFeedEntry<T> =
+  | { kind: 'pinned-head'; key: string; label: string; shown: number; total: number }
+  | { kind: 'day'; key: string; label: string }
+  | { kind: 'seen-divider'; key: string; label: string }
+  | { kind: 'item'; key: string; item: T; pinned: boolean }
+
+export const INBOX_NEEDS_ACTION_LABEL = 'Needs your action'
+export const INBOX_SEEN_DIVIDER_LABEL = 'Before your last visit'
+
+/**
+ * The inbox as one list, newest first, the way mail and chat apps show it.
+ *
+ * - Every item is placed by `timeOf` (its latest activity), so something new is always on top.
+ * - Up to `pinLimit` items for which `needsAction` is true are pinned above the list
+ *   (newest first) and not repeated below.
+ * - Date headings (Today, Yesterday, ...) split the rest.
+ * - With `lastSeenAt`, a line marks where the items from before the person's last visit start.
+ */
+export function buildInboxFeed<T>(
+  items: T[],
+  options: {
+    keyOf: (item: T) => string
+    timeOf: (item: T) => number
+    needsAction?: (item: T) => boolean
+    pinLimit?: number
+    lastSeenAt?: string | number | null
+    now?: Date
+  },
+): InboxFeedEntry<T>[] {
+  const time = (item: T) => {
+    const value = options.timeOf(item)
+    return Number.isFinite(value) ? value : -Infinity
+  }
+  const ordered = items
+    .map((item, index) => ({ item, index, at: time(item) }))
+    .sort((a, b) => (b.at === a.at ? a.index - b.index : b.at - a.at))
+  const entries: InboxFeedEntry<T>[] = []
+
+  const pinLimit = Math.max(0, options.pinLimit ?? 3)
+  const waiting = options.needsAction ? ordered.filter((entry) => options.needsAction!(entry.item)) : []
+  const pinned = new Set(waiting.slice(0, pinLimit).map((entry) => entry.item))
+  if (pinned.size > 0) {
+    entries.push({ kind: 'pinned-head', key: 'pinned', label: INBOX_NEEDS_ACTION_LABEL, shown: pinned.size, total: waiting.length })
+    for (const entry of ordered) {
+      if (pinned.has(entry.item)) entries.push({ kind: 'item', key: options.keyOf(entry.item), item: entry.item, pinned: true })
+    }
+  }
+
+  const seenAt = options.lastSeenAt == null || options.lastSeenAt === ''
+    ? NaN
+    : typeof options.lastSeenAt === 'number' ? options.lastSeenAt : Date.parse(options.lastSeenAt)
+  let sawNewer = false
+  let dividerPlaced = !Number.isFinite(seenAt)
+  let currentDay: InboxDayKey | null = null
+  for (const entry of ordered) {
+    if (pinned.has(entry.item)) continue
+    const isOlder = entry.at <= seenAt
+    if (!dividerPlaced && isOlder && sawNewer) {
+      entries.push({ kind: 'seen-divider', key: 'seen-divider', label: INBOX_SEEN_DIVIDER_LABEL })
+      dividerPlaced = true
+    }
+    if (!isOlder) sawNewer = true
+    const day = inboxDayKey(entry.at, options.now)
+    if (day !== currentDay) {
+      entries.push({ kind: 'day', key: `day-${day}`, label: INBOX_DAY_LABELS[day] })
+      currentDay = day
+    }
+    entries.push({ kind: 'item', key: options.keyOf(entry.item), item: entry.item, pinned: false })
+  }
+  return entries
+}

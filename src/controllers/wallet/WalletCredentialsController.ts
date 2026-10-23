@@ -28,6 +28,7 @@ import {
   inboxPreferenceService,
   type FinishedOutcome,
   type InboxPreferences,
+  type InboxReadState,
 } from '../../services/InboxPreferenceService'
 import { outboxService } from '../../services/OutboxService'
 import { custodyRebindService } from '../../services/ssi/CustodyRebindService'
@@ -529,6 +530,33 @@ export class WalletCredentialsController extends Controller {
       return inboxPreferenceService.set(ownerTenantId, inboxScope, Number(body?.doneDays))
     } catch (error: any) {
       throw new StatusException(error?.message || 'Invalid inbox preference', 400)
+    }
+  }
+
+  /** Items this person opened in one inbox, and when they last looked at it: the same on every device. */
+  @Get('/inbox-read-state')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
+  @Security('jwt', ['wallet'])
+  public async getInboxReadState(
+    @Request() request: ExRequest,
+    @Query() scope?: string,
+  ): Promise<InboxReadState> {
+    const { ownerTenantId, inboxScope } = this.inboxPreferenceTarget(request, scope)
+    return inboxPreferenceService.getReadState(ownerTenantId, inboxScope)
+  }
+
+  @Post('/inbox-read-state')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
+  @Security('jwt', ['wallet'])
+  public async updateInboxReadState(
+    @Request() request: ExRequest,
+    @Body() body: { scope?: string; readKeys?: string[]; unreadKeys?: string[]; lastSeenAt?: string },
+  ): Promise<InboxReadState> {
+    const { ownerTenantId, inboxScope } = this.inboxPreferenceTarget(request, body?.scope)
+    try {
+      return inboxPreferenceService.updateReadState(ownerTenantId, inboxScope, body || {})
+    } catch (error: any) {
+      throw new StatusException(error?.message || 'Invalid inbox read state', 400)
     }
   }
 

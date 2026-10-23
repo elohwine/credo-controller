@@ -180,6 +180,7 @@ export class DatabaseManager {
       { version: 131, file: '131_inbox_done_and_job_updates.sql', name: 'inbox_done_and_job_updates' },
       { version: 132, file: '132_ap_payment_proof.sql', name: 'ap_payment_proof' },
       { version: 133, file: '133_org_public_offerings.sql', name: 'org_public_offerings' },
+      { version: 134, file: '134_inbox_read_state.sql', name: 'inbox_read_state' },
     ]
 
     for (const migration of migrationFiles) {

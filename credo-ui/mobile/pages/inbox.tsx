@@ -52,9 +52,10 @@ import {
   emptyInboxHint,
   finishedItemLine,
   finishedItemStatus,
-  groupByFlowSection,
+  buildInboxFeed,
   inboxAttention,
   inboxFlowSection,
+  INBOX_FLOW_SECTION_LABELS,
   inboxWhenLabel,
   INBOX_ATTENTION_FILTERS,
   matchesInboxAttention,
@@ -456,6 +457,25 @@ const emptyMetaState: InboxMetaState = {
   deleted: {},
 };
 
+/** The inbox whose read marks are kept on the server: the person's own, or the active organisation's. */
+function inboxReadTarget(): { token: string; scope: string } | null {
+  const orgMode = getContextMode() === 'org';
+  const token = orgMode ? getOrgToken() : getWalletToken();
+  if (!token) return null;
+  return { token, scope: orgMode ? (getActiveOrgId() || 'personal') : 'personal' };
+}
+
+/** Best effort: the read marks still work on this device if the server cannot be reached. */
+function postInboxReadState(update: { readKeys?: string[]; unreadKeys?: string[]; lastSeenAt?: string }): void {
+  const target = inboxReadTarget();
+  if (!target) return;
+  api.post(
+    '/api/wallet/credentials/inbox-read-state',
+    { scope: target.scope, ...update },
+    { headers: { Authorization: 'Bearer ' + target.token } },
+  ).catch(() => undefined);
+}
+
 function getInboxItemKey(item: InboxItemData): string {
   if (item.workflowRequestId) return `wr:${item.workflowRequestId}`;
   if (item.workflowRunId) return `run:${item.workflowRunId}`;
@@ -801,7 +821,14 @@ function groupInboxItems(items: InboxItemData[]): GroupedInboxEntry[] {
       if (groupItems[0]) standaloneIds.add(groupItems[0].id)
       continue
     }
-    const sorted = [...groupItems].sort((a, b) => groupPrimaryPriority(a) - groupPrimaryPriority(b))
+    // The step shown on top is the newest one still waiting, so a fresh step is what the person sees.
+    const sorted = [...groupItems].sort((a, b) => {
+      const waitingDiff = (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1)
+      if (waitingDiff !== 0) return waitingDiff
+      const timeDiff = inboxItemTime(b) - inboxItemTime(a)
+      if (timeDiff !== 0) return timeDiff
+      return groupPrimaryPriority(a) - groupPrimaryPriority(b)
+    })
     const primary = sorted[0]!
     entries.push({
       type: 'group',
@@ -821,16 +848,30 @@ function groupInboxItems(items: InboxItemData[]): GroupedInboxEntry[] {
     }
   }
 
-  return entries.sort((a, b) => {
-    const ai = a.type === 'standalone' ? a.data : a.data.primaryItem
-    const bi = b.type === 'standalone' ? b.data : b.data.primaryItem
-    const unreadDiff = (ai.isRead === false ? 0 : 1) - (bi.isRead === false ? 0 : 1)
-    if (unreadDiff !== 0) return unreadDiff
-    const pMap: Record<string, number> = { high: 0, medium: 1, low: 2 }
-    const pDiff = (pMap[ai.priority] ?? 99) - (pMap[bi.priority] ?? 99)
-    if (pDiff !== 0) return pDiff
-    return dayjs(bi.createdAt).valueOf() - dayjs(ai.createdAt).valueOf()
-  })
+  // Newest activity first; a group counts as new as its newest step.
+  return entries.sort((a, b) => groupedEntryTime(b) - groupedEntryTime(a))
+}
+
+function inboxItemTime(item: InboxItemData): number {
+  const time = Date.parse(item.createdAt || '')
+  return Number.isFinite(time) ? time : 0
+}
+
+function groupedEntryItems(entry: GroupedInboxEntry): InboxItemData[] {
+  return entry.type === 'standalone' ? [entry.data] : [entry.data.primaryItem, ...entry.data.secondaryItems]
+}
+
+function groupedEntryKey(entry: GroupedInboxEntry): string {
+  return entry.type === 'standalone' ? entry.data.id : entry.data.key
+}
+
+function groupedEntryTime(entry: GroupedInboxEntry): number {
+  return Math.max(...groupedEntryItems(entry).map(inboxItemTime))
+}
+
+/** Waiting for this person's step: pinned under "Needs your action". */
+function itemNeedsAction(item: InboxItemData): boolean {
+  return item.status === 'pending' && !isExpiredItem(item) && Boolean(stepRequiredLabel(item))
 }
 
 const GROUP_FLOW_COLORS: Record<string, string> = {
@@ -848,9 +889,13 @@ interface WorkflowGroupRowProps {
   onToggleExpand: () => void
   onItemClick: (item: InboxItemData) => void
   attention?: InboxAttention
+  /** New, opened or done for one step, using the read marks kept on the server. */
+  attentionOf?: (item: InboxItemData) => InboxAttention
+  /** Kind of work (Jobs, Receipts, ...), shown on the All list. */
+  kindLabel?: string
 }
 
-function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick, attention: attentionProp }: WorkflowGroupRowProps) {
+function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick, attention: attentionProp, attentionOf, kindLabel }: WorkflowGroupRowProps) {
   const { colorScheme } = useMantineColorScheme()
   const theme = useMantineTheme()
   const isDark = colorScheme === 'dark'
@@ -863,16 +908,30 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick, atte
   const attention = attentionProp || inboxAttention({ status: primaryItem.status, isRead: primaryItem.isRead === true })
   const attentionWord = attention === 'new' ? 'New' : attention === 'opened' ? 'Opened' : 'Done'
   const stepLine = stepRequiredLabel(primaryItem)
+  const stepAttentionOf = (item: InboxItemData) => attentionOf ? attentionOf(item) : inboxAttention({ status: item.status, isRead: item.isRead === true })
+  const newSteps = secondaryItems.filter((item) => stepAttentionOf(item) === 'new').length
+  const isNew = attention === 'new' || newSteps > 0
+  const newAccent = isDark ? theme.colors.blue[4] : theme.colors.blue[6]
+  const latestAt = Math.max(...[primaryItem, ...secondaryItems].map(inboxItemTime))
 
   return (
     <Paper
       radius="md"
       withBorder
-      style={{ borderLeft: `3px solid ${borderAccent}`, overflow: 'hidden', cursor: 'default' }}
+      style={{
+        borderLeft: `${isNew ? 4 : 3}px solid ${isNew ? newAccent : borderAccent}`,
+        overflow: 'hidden',
+        cursor: 'default',
+        background: isNew ? (isDark ? 'rgba(66, 153, 225, 0.10)' : theme.colors.blue[0]) : undefined,
+        opacity: attention === 'done' && !isNew ? 0.8 : 1,
+      }}
     >
       {/* Primary item header — always visible, click to open detail sheet */}
       <Box px="sm" pt="sm" pb={secondaryCount > 0 ? 'xs' : 'sm'} style={{ cursor: 'pointer' }} onClick={() => onItemClick(primaryItem)}>
         <Group gap={6} mb={4} wrap="wrap">
+          {kindLabel && (
+            <Badge size="xs" variant="outline" color="gray">{kindLabel}</Badge>
+          )}
           {orgLabel && (
             <Badge size="xs" variant="light" color="violet">{orgLabel}</Badge>
           )}
@@ -901,7 +960,9 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick, atte
             <Badge size="sm" variant="light" color="gray">
               {primaryItem.actionLabel || 'Open'}
             </Badge>
-            <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{inboxWhenLabel(primaryItem.createdAt)}</Text>
+            <Text size="xs" c={isNew ? 'blue' : 'dimmed'} fw={isNew ? 600 : undefined} style={{ whiteSpace: 'nowrap' }}>
+              {inboxWhenLabel(latestAt > 0 ? new Date(latestAt).toISOString() : primaryItem.createdAt)}
+            </Text>
             <IconChevronRight size={13} color={theme.colors.gray[5]} />
           </Stack>
         </Group>
@@ -923,12 +984,13 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick, atte
                 {secondaryCount} other step{secondaryCount > 1 ? 's' : ''} in this workflow
               </Text>
               <Badge size="xs" variant="outline" color="gray">{totalCount} total</Badge>
+              {newSteps > 0 && <Badge size="xs" variant="filled" color="blue">{newSteps} new</Badge>}
             </Group>
           </Box>
           {isExpanded && (
             <Stack gap={0}>
               {secondaryItems.map((item, idx) => {
-                const stepAttention = inboxAttention({ status: item.status, isRead: item.isRead === true })
+                const stepAttention = stepAttentionOf(item)
                 const stepWord = stepAttention === 'new' ? 'New' : stepAttention === 'opened' ? 'Opened' : 'Done'
                 return (
                 <Box key={item.id}>
@@ -1085,6 +1147,13 @@ export default function InboxPage() {
   const [nextStepValues, setNextStepValues] = useState<Record<string, string | number>>({});
   const [receiptProof, setReceiptProof] = useState<ReceiptProof | null>(null);
   const [metaState, setMetaState] = useState<InboxMetaState>(emptyMetaState);
+  // When the person last looked at this inbox, as it was when the page opened: the
+  // "Before your last visit" line stays put while they read.
+  const [lastSeenSnapshot, setLastSeenSnapshot] = useState<string | null>(null);
+  const [visibleLimit, setVisibleLimit] = useState(30);
+  const [arrivals, setArrivals] = useState(0);
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const knownKeysRef = useRef<Set<string> | null>(null);
   const [syncMeta, setSyncMeta] = useState<InboxSyncMeta>({});
   const [syncMetaReady, setSyncMetaReady] = useState(false);
   // Enabled workflow templates of the active organisation: the same source the Money page
@@ -2530,6 +2599,7 @@ export default function InboxPage() {
       read: { ...prev.read, [key]: isRead },
     }));
     setItems((prev) => prev.map((entry) => (getInboxItemKey(entry) === key ? { ...entry, isRead } : entry)));
+    postInboxReadState(isRead ? { readKeys: [key] } : { unreadKeys: [key] });
   }, []);
 
   const openInboxItem = useCallback((item: InboxItemData) => {
@@ -3302,6 +3372,43 @@ export default function InboxPage() {
   useEffect(() => {
     if (countReady) publishInboxCount(scope, pendingCount);
   }, [countReady, publishInboxCount, scope, pendingCount]);
+
+  // Read marks and "last seen" live on the server, so an item opened on another device is not new here.
+  useEffect(() => {
+    knownKeysRef.current = null;
+    setArrivals(0);
+    setLastSeenSnapshot(null);
+    const target = inboxReadTarget();
+    if (!target) return undefined;
+    let cancelled = false;
+    api.get('/api/wallet/credentials/inbox-read-state', {
+      params: { scope: target.scope },
+      headers: { Authorization: 'Bearer ' + target.token },
+    }).then((res) => {
+      if (cancelled) return;
+      const keys = safeArray(res.data?.readKeys).filter((key: unknown): key is string => typeof key === 'string');
+      if (keys.length) {
+        setMetaState((prev) => ({ ...prev, read: { ...prev.read, ...Object.fromEntries(keys.map((key) => [key, true])) } }));
+      }
+      setLastSeenSnapshot(typeof res.data?.lastSeenAt === 'string' ? res.data.lastSeenAt : null);
+      postInboxReadState({ lastSeenAt: new Date().toISOString() });
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [scope]);
+
+  useEffect(() => { setVisibleLimit(30); }, [filter, attention, scope]);
+
+  // Items that arrive while the person is scrolled down: a pill offers to jump back to the top.
+  useEffect(() => {
+    if (inboxQuery.isPlaceholderData) return;
+    const keys = new Set(items.map(getInboxItemKey));
+    const known = knownKeysRef.current;
+    knownKeysRef.current = keys;
+    if (!known) return;
+    let fresh = 0;
+    keys.forEach((key) => { if (!known.has(key)) fresh += 1; });
+    if (fresh > 0 && (listScrollRef.current?.scrollTop ?? 0) > 80) setArrivals((count) => count + fresh);
+  }, [items, inboxQuery.isPlaceholderData]);
   const expiredCount = items.filter(isExpiredItem).length;
   // Which workflow tabs an item belongs to. Same tab keys as the portal Inbox so a person
   // finds the same item under the same tab on the phone and on the website.
@@ -3352,8 +3459,9 @@ export default function InboxPage() {
     }
   }, [hiddenActiveFilter]);
 
+  const isItemRead = (item: InboxItemData) => item.isRead === true || Boolean(metaState.read[getInboxItemKey(item)]);
   const itemAttention = (item: InboxItemData): InboxAttention =>
-    inboxAttention({ status: item.status, isRead: item.isRead === true, archived: isArchived(item) });
+    inboxAttention({ status: item.status, isRead: isItemRead(item), archived: isArchived(item) });
 
   const priorityRank: Record<string, number> = { high: 0, medium: 1, low: 2 };
   const filteredItems = activeItems.filter((item) => {
@@ -3404,7 +3512,41 @@ export default function InboxPage() {
     { new: 0, opened: 0, done: 0 } as Record<InboxAttention, number>,
   );
 
-  const visibleItems = filteredItems.slice(0, 20);
+  // One list, newest first. Steps of the same job stay together and sit where their newest step is.
+  const groupedEntries = groupInboxItems(filteredItems);
+  const pinActions = filter !== 'archived' && attention !== 'done';
+  const fullFeed = buildInboxFeed(groupedEntries, {
+    keyOf: groupedEntryKey,
+    timeOf: groupedEntryTime,
+    needsAction: pinActions ? (entry) => groupedEntryItems(entry).some(itemNeedsAction) : undefined,
+    lastSeenAt: lastSeenSnapshot,
+  });
+  const feed: typeof fullFeed = [];
+  let shownEntries = 0;
+  for (const entry of fullFeed) {
+    if (entry.kind === 'item') {
+      if (shownEntries >= visibleLimit) break;
+      shownEntries += 1;
+    }
+    feed.push(entry);
+  }
+  while (feed.length && feed[feed.length - 1].kind !== 'item') feed.pop();
+  const hiddenEntries = groupedEntries.length - shownEntries;
+  const newInView = filteredItems.filter((item) => itemAttention(item) === 'new');
+  const markAllRead = () => {
+    const keys = Array.from(new Set(newInView.map(getInboxItemKey)));
+    if (!keys.length) return;
+    const marked = new Set(keys);
+    setMetaState((prev) => ({ ...prev, read: { ...prev.read, ...Object.fromEntries(keys.map((key) => [key, true])) } }));
+    setItems((prev) => prev.map((entry) => (marked.has(getInboxItemKey(entry)) ? { ...entry, isRead: true } : entry)));
+    for (let i = 0; i < keys.length; i += 500) postInboxReadState({ readKeys: keys.slice(i, i + 500) });
+  };
+  const kindLabelOf = (item: InboxItemData) =>
+    filter === 'all' ? INBOX_FLOW_SECTION_LABELS[inboxFlowSection(inboxTabsForItem(item), item.itemType)] : undefined;
+  const jumpToTop = () => {
+    listScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    setArrivals(0);
+  };
 
   return (
     <AppShellMobile inboxCount={pendingCount}>
@@ -3466,6 +3608,15 @@ export default function InboxPage() {
               label: entry.value === 'all' ? entry.label : `${entry.label}${attentionCounts[entry.value] ? ` ${attentionCounts[entry.value]}` : ''}`,
             }))}
           />
+        )}
+
+        {filter !== 'archived' && newInView.length > 0 && (
+          <Group justify="space-between" align="center" gap="xs">
+            <Text size="xs" c="blue" fw={600}>{newInView.length} new {newInView.length === 1 ? 'item' : 'items'}</Text>
+            <Button size="compact-xs" variant="subtle" color="blue" leftSection={<IconCheck size={12} />} onClick={markAllRead}>
+              Mark all read
+            </Button>
+          </Group>
         )}
 
         <Tabs value={filter} onChange={(v) => setFilter((v as InboxTabKey) ?? 'all')}>
@@ -3536,7 +3687,21 @@ export default function InboxPage() {
           )}
           </Stack>
         ) : (
+          <Box style={{ position: 'relative' }}>
+            {arrivals > 0 && (
+              <Button
+                size="xs"
+                radius="xl"
+                color="blue"
+                onClick={jumpToTop}
+                style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.25)' }}
+              >
+                ↑ {arrivals} new
+              </Button>
+            )}
           <Box
+            ref={listScrollRef}
+            onScroll={(event) => { if (arrivals > 0 && event.currentTarget.scrollTop < 40) setArrivals(0); }}
             style={{
               maxHeight: '72svh',
               overflowY: 'auto',
@@ -3544,59 +3709,61 @@ export default function InboxPage() {
               WebkitOverflowScrolling: 'touch',
             }}
           >
-            <Stack gap="md">
-              {(filter === 'all'
-                ? groupByFlowSection(
-                    visibleItems,
-                    (item) => inboxFlowSection(inboxTabsForItem(item), item.itemType),
-                    (item) => dayjs(item.createdAt).valueOf(),
-                  )
-                : [{ key: 'updates' as const, label: '', items: visibleItems }]
-              ).map((section) => (
-                <Stack key={section.key} gap="xs">
-                  {section.label && (
-                    <Text size="xs" fw={700} c="dimmed" tt="uppercase">{section.label}</Text>
-                  )}
-                  {groupInboxItems(section.items).map((entry) => {
-                    if (entry.type === 'standalone') {
-                      return (
-                        <InboxItem
-                          key={entry.data.id}
-                          item={entry.data}
-                          attention={itemAttention(entry.data)}
-                          onClick={openInboxItem}
-                        />
-                      )
-                    }
-                    return (
-                      <WorkflowGroupRow
-                        key={entry.data.key}
-                        group={entry.data}
-                        attention={itemAttention(entry.data.primaryItem)}
-                        isExpanded={expandedGroupKey === entry.data.key}
-                        onToggleExpand={() =>
-                          setExpandedGroupKey((prev) => (prev === entry.data.key ? null : entry.data.key))
-                        }
-                        onItemClick={openInboxItem}
-                      />
-                    )
-                  })}
-                </Stack>
-              ))}
+            <Stack gap="xs">
+              {feed.map((entry) => {
+                if (entry.kind === 'pinned-head') {
+                  return (
+                    <Group key={entry.key} gap={6} mt={4}>
+                      <Text size="xs" fw={800} c="orange" tt="uppercase">{entry.label}</Text>
+                      <Badge size="xs" color="orange" variant="filled">{entry.total}</Badge>
+                      {entry.total > entry.shown && (
+                        <Text size="xs" c="dimmed">newest {entry.shown} shown here</Text>
+                      )}
+                    </Group>
+                  );
+                }
+                if (entry.kind === 'day') {
+                  return <Text key={entry.key} size="xs" fw={700} c="dimmed" tt="uppercase" mt="sm">{entry.label}</Text>;
+                }
+                if (entry.kind === 'seen-divider') {
+                  return <Divider key={entry.key} my={4} label={entry.label} labelPosition="center" />;
+                }
+                const unit = entry.item;
+                const rowKey = `${entry.pinned ? 'pin:' : ''}${entry.key}`;
+                if (unit.type === 'standalone') {
+                  return (
+                    <InboxItem
+                      key={rowKey}
+                      item={unit.data}
+                      kindLabel={kindLabelOf(unit.data)}
+                      attention={itemAttention(unit.data)}
+                      onClick={openInboxItem}
+                    />
+                  );
+                }
+                return (
+                  <WorkflowGroupRow
+                    key={rowKey}
+                    group={unit.data}
+                    attention={itemAttention(unit.data.primaryItem)}
+                    attentionOf={itemAttention}
+                    kindLabel={kindLabelOf(unit.data.primaryItem)}
+                    isExpanded={expandedGroupKey === rowKey}
+                    onToggleExpand={() => setExpandedGroupKey((prev) => (prev === rowKey ? null : rowKey))}
+                    onItemClick={openInboxItem}
+                  />
+                );
+              })}
+              {hiddenEntries > 0 && (
+                <Button variant="light" color="credentis" onClick={() => setVisibleLimit((limit) => limit + 30)}>
+                  Show {Math.min(30, hiddenEntries)} more ({hiddenEntries} older)
+                </Button>
+              )}
             </Stack>
+          </Box>
           </Box>
         )}
 
-        {filteredItems.length > visibleItems.length && (
-          <Paper p="sm" radius="md" withBorder>
-            <Group justify="space-between" align="center">
-              <Text size="sm" fw={600}>Showing top {visibleItems.length} items</Text>
-              <Button size="xs" variant="subtle" color="credentis" onClick={() => setFilter('all')}>
-                View all {filteredItems.length}
-              </Button>
-            </Group>
-          </Paper>
-        )}
       </Stack>
 
       <BottomSheet

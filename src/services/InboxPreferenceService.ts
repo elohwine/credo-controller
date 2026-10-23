@@ -48,6 +48,47 @@ export function finishedOutcome(input: {
   return input.acceptedAt ? 'accepted' : 'done'
 }
 
+
+/** Which items this person opened in one inbox, and when they last looked at it. */
+export interface InboxReadState {
+  scope: InboxScope
+  lastSeenAt?: string
+  readKeys: string[]
+}
+
+export interface InboxReadUpdate {
+  readKeys?: unknown
+  unreadKeys?: unknown
+  lastSeenAt?: unknown
+}
+
+const MAX_READ_KEYS_PER_UPDATE = 500
+const MAX_READ_KEY_LENGTH = 512
+const MAX_READ_KEYS_RETURNED = 3000
+const READ_MARK_KEEP_DAYS = 180
+// A device clock a little ahead is fine; a "last seen" far in the future would hide new items.
+const LAST_SEEN_CLOCK_SLACK_MS = 5 * 60 * 1000
+
+function cleanKeys(value: unknown): string[] {
+  if (value == null) return []
+  if (!Array.isArray(value)) throw new Error('readKeys and unreadKeys must be lists')
+  if (value.length > MAX_READ_KEYS_PER_UPDATE) throw new Error(`At most ${MAX_READ_KEYS_PER_UPDATE} items at a time`)
+  const keys = new Set<string>()
+  for (const raw of value) {
+    const key = typeof raw === 'string' ? raw.trim() : ''
+    if (!key || key.length > MAX_READ_KEY_LENGTH) throw new Error('Each item key must be a non-empty string')
+    keys.add(key)
+  }
+  return [...keys]
+}
+
+function cleanLastSeen(value: unknown, now: Date): string | undefined {
+  if (value == null || value === '') return undefined
+  const time = Date.parse(String(value))
+  if (!Number.isFinite(time)) throw new Error('lastSeenAt must be a date and time')
+  return new Date(Math.min(time, now.getTime() + LAST_SEEN_CLOCK_SLACK_MS)).toISOString()
+}
+
 export class InboxPreferenceService {
   public get(ownerTenantId: string, scope: InboxScope = 'personal'): InboxPreferences {
     const row = DatabaseManager.getDatabase()
@@ -72,6 +113,61 @@ export class InboxPreferenceService {
       )
       .run(ownerTenantId, scope || 'personal', doneDays, new Date().toISOString())
     return this.get(ownerTenantId, scope)
+  }
+
+  public getReadState(ownerTenantId: string, scope: InboxScope = 'personal'): InboxReadState {
+    const db = DatabaseManager.getDatabase()
+    const inboxScope = scope || 'personal'
+    const seen = db
+      .prepare('SELECT last_seen_at FROM inbox_seen WHERE owner_tenant_id = ? AND inbox_scope = ?')
+      .get(ownerTenantId, inboxScope) as { last_seen_at?: string } | undefined
+    const rows = db
+      .prepare(
+        `SELECT item_key FROM inbox_read_marks WHERE owner_tenant_id = ? AND inbox_scope = ?
+         ORDER BY read_at DESC LIMIT ?`,
+      )
+      .all(ownerTenantId, inboxScope, MAX_READ_KEYS_RETURNED) as Array<{ item_key: string }>
+    return { scope: inboxScope, lastSeenAt: seen?.last_seen_at || undefined, readKeys: rows.map((row) => row.item_key) }
+  }
+
+  /** Marks items read or unread and moves "last seen" forward (never back). */
+  public updateReadState(
+    ownerTenantId: string,
+    scope: InboxScope,
+    update: InboxReadUpdate,
+    now = new Date(),
+  ): InboxReadState {
+    const inboxScope = scope || 'personal'
+    const readKeys = cleanKeys(update?.readKeys)
+    const unreadKeys = cleanKeys(update?.unreadKeys)
+    const lastSeenAt = cleanLastSeen(update?.lastSeenAt, now)
+    const db = DatabaseManager.getDatabase()
+    const at = now.toISOString()
+    const markRead = db.prepare(
+      `INSERT INTO inbox_read_marks (owner_tenant_id, inbox_scope, item_key, read_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(owner_tenant_id, inbox_scope, item_key) DO UPDATE SET read_at = excluded.read_at`,
+    )
+    const markUnread = db.prepare(
+      'DELETE FROM inbox_read_marks WHERE owner_tenant_id = ? AND inbox_scope = ? AND item_key = ?',
+    )
+    db.transaction(() => {
+      for (const key of readKeys) markRead.run(ownerTenantId, inboxScope, key, at)
+      for (const key of unreadKeys) markUnread.run(ownerTenantId, inboxScope, key)
+      if (lastSeenAt) {
+        db.prepare(
+          `INSERT INTO inbox_seen (owner_tenant_id, inbox_scope, last_seen_at) VALUES (?, ?, ?)
+           ON CONFLICT(owner_tenant_id, inbox_scope) DO UPDATE SET last_seen_at =
+             CASE WHEN excluded.last_seen_at > inbox_seen.last_seen_at THEN excluded.last_seen_at ELSE inbox_seen.last_seen_at END`,
+        ).run(ownerTenantId, inboxScope, lastSeenAt)
+      }
+      const cutoff = new Date(now.getTime() - READ_MARK_KEEP_DAYS * 24 * 60 * 60 * 1000).toISOString()
+      db.prepare('DELETE FROM inbox_read_marks WHERE owner_tenant_id = ? AND inbox_scope = ? AND read_at < ?').run(
+        ownerTenantId,
+        inboxScope,
+        cutoff,
+      )
+    })()
+    return this.getReadState(ownerTenantId, inboxScope)
   }
 }
 

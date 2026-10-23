@@ -8140,6 +8140,29 @@
         "type": "object",
         "additionalProperties": false
       },
+      "InboxReadState": {
+        "description": "Which items this person opened in one inbox, and when they last looked at it.",
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/InboxScope"
+          },
+          "lastSeenAt": {
+            "type": "string"
+          },
+          "readKeys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "scope",
+          "readKeys"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
       "FinishedOutcome": {
         "type": "string",
         "enum": [
@@ -27044,6 +27067,126 @@
                 "required": [
                   "doneDays"
                 ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/credentials/inbox-read-state": {
+      "get": {
+        "operationId": "GetInboxReadState",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxReadState"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Items this person opened in one inbox, and when they last looked at it: the same on every device.",
+        "tags": [
+          "Wallet-Credentials"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          },
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "UpdateInboxReadState",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxReadState"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Credentials"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          },
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "lastSeenAt": {
+                    "type": "string"
+                  },
+                  "unreadKeys": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "readKeys": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "scope": {
+                    "type": "string"
+                  }
+                },
                 "type": "object"
               }
             }

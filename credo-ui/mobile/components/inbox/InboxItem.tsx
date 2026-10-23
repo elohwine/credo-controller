@@ -233,9 +233,11 @@ interface InboxItemProps {
   onClick: (item: InboxItemData) => void;
   /** Filed-away cards count as done even when the status is still waiting. */
   attention?: InboxAttention;
+  /** Kind of work (Jobs, Receipts, ...), shown on the All list. */
+  kindLabel?: string;
 }
 
-export default function InboxItem({ item, onClick, attention }: InboxItemProps) {
+export default function InboxItem({ item, onClick, attention, kindLabel }: InboxItemProps) {
   const theme = useMantineTheme();
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
@@ -267,8 +269,14 @@ export default function InboxItem({ item, onClick, attention }: InboxItemProps) 
     .map((value) => String(value || '').trim())
     .find((value) => value && !looksLikeId(value));
   const valueHint = hintSource ? hintSource : null;
-  const surface = isDark ? theme.colors.dark[6] : theme.white;
-  const borderColor = isDark ? theme.colors.dark[4] : theme.colors.gray[2];
+  // New items stand out at a glance: tinted card, blue edge, dot, bold title, blue time.
+  const surface = isNew
+    ? (isDark ? 'rgba(66, 153, 225, 0.10)' : theme.colors.blue[0])
+    : isDark ? theme.colors.dark[6] : theme.white;
+  const borderColor = isNew
+    ? (isDark ? theme.colors.blue[8] : theme.colors.blue[2])
+    : isDark ? theme.colors.dark[4] : theme.colors.gray[2];
+  const newAccent = isDark ? theme.colors.blue[4] : theme.colors.blue[6];
   return (
     <Card
       p="md"
@@ -279,8 +287,9 @@ export default function InboxItem({ item, onClick, attention }: InboxItemProps) 
         minHeight: 104,
         width: '100%',
         border: `1px solid ${borderColor}`,
+        borderLeft: isNew ? `4px solid ${newAccent}` : `1px solid ${borderColor}`,
         background: surface,
-        opacity: expired ? 0.72 : 1,
+        opacity: expired ? 0.72 : attentionState === 'done' ? 0.8 : 1,
       }}
       onClick={() => onClick(item)}
     >
@@ -297,10 +306,10 @@ export default function InboxItem({ item, onClick, attention }: InboxItemProps) 
               {isNew && (
                 <Box
                   style={{
-                    width: 7,
-                    height: 7,
+                    width: 9,
+                    height: 9,
                     borderRadius: '50%',
-                    background: isDark ? theme.colors.blue[4] : theme.colors.blue[6],
+                    background: newAccent,
                     flexShrink: 0,
                   }}
                 />
@@ -309,7 +318,7 @@ export default function InboxItem({ item, onClick, attention }: InboxItemProps) 
                 {displayTitle}
               </Text>
             </Group>
-            <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>{inboxWhenLabel(item.createdAt)}</Text>
+            <Text size="xs" c={isNew ? 'blue' : 'dimmed'} fw={isNew ? 600 : undefined} style={{ flexShrink: 0 }}>{inboxWhenLabel(item.createdAt)}</Text>
           </Group>
 
           {item.replaces ? (
@@ -323,6 +332,7 @@ export default function InboxItem({ item, onClick, attention }: InboxItemProps) 
           )}
 
           <Group gap={6} mt={8} wrap="wrap">
+            {kindLabel && <Badge size="xs" color="gray" variant="outline">{kindLabel}</Badge>}
             {item.replaces && (
               <Badge size="xs" color="orange" variant="filled">{item.replaces.label}</Badge>
             )}

@@ -7,6 +7,7 @@ import {
   Anchor,
   Badge,
   Box,
+  Divider,
   Button,
   Card,
   FileInput,
@@ -51,9 +52,10 @@ import {
   type InboxTabKey,
 } from '@/lib/workflowCapabilities'
 import {
-  groupByFlowSection,
+  buildInboxFeed,
   inboxAttention,
   inboxFlowSection,
+  INBOX_FLOW_SECTION_LABELS,
   formatTxnTime,
   inboxWhenLabel,
   INBOX_ATTENTION_FILTERS,
@@ -340,6 +342,25 @@ function matchesCategoryTab(row: RequestRow, tab: RequestCategoryTab): boolean {
 
 function normalizeCreatedAt(row: RequestRow): string | undefined {
   return row.createdAt || row.created_at || row.submittedAt || row.submitted_at
+}
+
+/** Latest activity on a row: a request that moved on today counts as today's. */
+function inboxActivityTime(row: RequestRow): number {
+  const times = [normalizeCreatedAt(row), row.updatedAt || row.updated_at]
+    .map((value) => Date.parse(value || ''))
+    .filter((value) => Number.isFinite(value))
+  return times.length ? Math.max(...times) : NaN
+}
+
+/** The inbox whose read marks are kept on the server: the person's own, or the active organisation's. */
+function portalInboxReadTarget(): { token: string; scope: string } | null {
+  if (readPortalContext().mode === 'org') {
+    const orgId = readActiveOrganization()?.orgTenantId
+    const token = getOrgScopedToken()
+    return orgId && token ? { token, scope: orgId } : null
+  }
+  const token = getPersonalToken()
+  return token ? { token, scope: 'personal' } : null
 }
 
 function parseRequestContext(row: RequestRow): Record<string, unknown> {
@@ -863,6 +884,10 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
   const [linkedOnly, setLinkedOnly] = useState(false)
   const [attention, setAttention] = useState<InboxAttentionFilter>('all')
   const [openedIds, setOpenedIds] = useState<Set<string>>(new Set())
+  // When the person last looked at this inbox, as it was when the page opened.
+  const [lastSeenSnapshot, setLastSeenSnapshot] = useState<string | null>(null)
+  const [arrivals, setArrivals] = useState(0)
+  const knownRowIdsRef = useRef<Set<string> | null>(null)
   const [requestCategoryTab, setRequestCategoryTab] = useState<RequestCategoryTab>('all')
   // Enabled workflow templates of the organisation: the same source the Money page uses for
   // its tabs, so Inbox, Requests and Money offer the same set.
@@ -884,6 +909,59 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
       setOpenedIds(new Set())
     }
   }, [])
+
+  // Read marks and "last seen" live on the server, so an item opened on the phone is not new here.
+  useEffect(() => {
+    if (mode !== 'inbox') return undefined
+    const target = portalInboxReadTarget()
+    if (!target) return undefined
+    let cancelled = false
+    axios
+      .get(`${backendUrl}/api/wallet/credentials/inbox-read-state`, {
+        params: { scope: target.scope },
+        headers: { Authorization: 'Bearer ' + target.token },
+      })
+      .then((res) => {
+        if (cancelled) return
+        const keys: string[] = Array.isArray(res.data?.readKeys) ? res.data.readKeys.filter((key: unknown) => typeof key === 'string') : []
+        if (keys.length) setOpenedIds((prev) => new Set([...prev, ...keys]))
+        setLastSeenSnapshot(typeof res.data?.lastSeenAt === 'string' ? res.data.lastSeenAt : null)
+        postReadState({ lastSeenAt: new Date().toISOString() })
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [mode])
+
+  const postReadState = (update: { readKeys?: string[]; lastSeenAt?: string }) => {
+    const target = portalInboxReadTarget()
+    if (!target) return
+    axios
+      .post(`${backendUrl}/api/wallet/credentials/inbox-read-state`, { scope: target.scope, ...update }, {
+        headers: { Authorization: 'Bearer ' + target.token },
+      })
+      .catch(() => undefined)
+  }
+
+  // Rows that arrive while the person is scrolled down: a pill offers to jump back to the top.
+  useEffect(() => {
+    if (mode !== 'inbox') return
+    const ids = new Set(items.map((row) => row.id))
+    const known = knownRowIdsRef.current
+    knownRowIdsRef.current = ids
+    if (!known || typeof window === 'undefined') return
+    let fresh = 0
+    ids.forEach((id) => { if (!known.has(id)) fresh += 1 })
+    if (fresh > 0 && window.scrollY > 200) setArrivals((count) => count + fresh)
+  }, [items, mode])
+
+  useEffect(() => {
+    if (arrivals === 0 || typeof window === 'undefined') return undefined
+    const onScroll = () => { if (window.scrollY < 80) setArrivals(0) }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [arrivals])
 
   useEffect(() => {
     const activeOrg = readActiveOrganization()
@@ -995,8 +1073,8 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
     })
 
     return filtered.sort((a, b) => {
-      const aTime = new Date(normalizeCreatedAt(a) || 0).getTime()
-      const bTime = new Date(normalizeCreatedAt(b) || 0).getTime()
+      const aTime = mode === 'inbox' ? inboxActivityTime(a) : new Date(normalizeCreatedAt(a) || 0).getTime()
+      const bTime = mode === 'inbox' ? inboxActivityTime(b) : new Date(normalizeCreatedAt(b) || 0).getTime()
       return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime)
     })
   }, [items, mode, category, requestCategoryTab, statusFilter, linkedOnly, attention, openedIds, router.query])
@@ -1368,6 +1446,20 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
     } catch {
       // Opening still works if the browser will not store the list.
     }
+    postReadState({ readKeys: [row.id] })
+  }
+
+  const markAllRead = (rows: RequestRow[]) => {
+    const ids = rows.map((row) => row.id).filter(Boolean)
+    if (!ids.length) return
+    const next = new Set([...openedIds, ...ids])
+    setOpenedIds(next)
+    try {
+      localStorage.setItem('portal-inbox-opened', JSON.stringify(Array.from(next).slice(-500)))
+    } catch {
+      // Still marked for this visit.
+    }
+    for (let i = 0; i < ids.length; i += 500) postReadState({ readKeys: ids.slice(i, i + 500) })
   }
 
   const loadOrganizationWorkflows = async () => {
@@ -1772,6 +1864,19 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
     void loadRequests(null, false)
   }, [statusFilter, requestIdFromQuery])
 
+  const rowAttentionOf = (row: RequestRow) =>
+    inboxAttention({ status: normalizeStatus(row.status), isRead: openedIds.has(row.id), stillOpen: Boolean(row.nextStep) })
+  // Waiting for this person's step: pinned under "Needs your action".
+  const rowNeedsAction = (row: RequestRow) =>
+    !isRecordOfferRow(row) && isActionableStatus(normalizeStatus(row.status)) && rowAttentionOf(row) !== 'done'
+  const inboxKindLabel = (row: RequestRow) => requestCategoryTab === 'all'
+    ? INBOX_FLOW_SECTION_LABELS[inboxFlowSection(
+      REQUEST_CATEGORY_TABS.filter((tab) => tab !== 'all' && matchesCategoryTab(row, tab)),
+      isRecordOfferRow(row) ? 'credential_offer' : undefined,
+    )]
+    : INBOX_TAB_LABELS[requestCategoryTab]
+  const newInboxRows = mode === 'inbox' ? visibleItems.filter((row) => rowAttentionOf(row) === 'new') : []
+
   const title = mode === 'inbox' ? 'Inbox' : category === 'requisitions' ? 'Purchase requests' : 'Requests'
   const description =
     mode === 'inbox'
@@ -1985,30 +2090,75 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
           </Table.ScrollContainer>
         ) : (
           <Stack gap="sm">
-            {(mode === 'inbox' && requestCategoryTab === 'all'
-              ? groupByFlowSection(visibleItems, (row) => inboxFlowSection(
-                REQUEST_CATEGORY_TABS.filter((tab) => tab !== 'all' && matchesCategoryTab(row, tab)),
-                isRecordOfferRow(row) ? 'credential_offer' : undefined,
-              )).flatMap((section) => [
-                { kind: 'head' as const, key: section.key, label: section.label, row: null as RequestRow | null },
-                ...section.items.map((row) => ({ kind: 'row' as const, key: row.id, label: section.label, row })),
-              ])
-              : visibleItems.map((row) => ({ kind: 'row' as const, key: row.id, label: '', row }))
+            {mode === 'inbox' && newInboxRows.length > 0 && (
+              <Group justify="space-between" align="center" gap="xs">
+                <Text size="xs" c="blue" fw={600}>{newInboxRows.length} new {newInboxRows.length === 1 ? 'item' : 'items'}</Text>
+                <Button size="compact-xs" variant="subtle" color="blue" onClick={() => markAllRead(newInboxRows)}>
+                  Mark all read
+                </Button>
+              </Group>
+            )}
+            {mode === 'inbox' && arrivals > 0 && (
+              <Button
+                size="xs"
+                radius="xl"
+                color="blue"
+                onClick={() => {
+                  window.scrollTo({ top: 0, behavior: 'smooth' })
+                  setArrivals(0)
+                }}
+                style={{ position: 'fixed', top: 72, left: '50%', transform: 'translateX(-50%)', zIndex: 200, boxShadow: '0 2px 8px rgba(0,0,0,0.25)' }}
+              >
+                ↑ {arrivals} new
+              </Button>
+            )}
+            {(mode === 'inbox'
+              ? buildInboxFeed(visibleItems, {
+                keyOf: (row) => row.id,
+                timeOf: inboxActivityTime,
+                needsAction: attention !== 'done' ? rowNeedsAction : undefined,
+                lastSeenAt: lastSeenSnapshot,
+              }).map((entry) => (entry.kind === 'item'
+                ? { kind: 'row' as const, key: `${entry.pinned ? 'pin:' : ''}${entry.key}`, label: inboxKindLabel(entry.item), row: entry.item as RequestRow | null, shown: 0, total: 0 }
+                : {
+                  kind: entry.kind,
+                  key: entry.key,
+                  label: entry.label,
+                  row: null as RequestRow | null,
+                  shown: entry.kind === 'pinned-head' ? entry.shown : 0,
+                  total: entry.kind === 'pinned-head' ? entry.total : 0,
+                }))
+              : visibleItems.map((row) => ({ kind: 'row' as const, key: row.id, label: '', row: row as RequestRow | null, shown: 0, total: 0 }))
             ).map((entry) => {
-              if (entry.kind === 'head') {
+              if (entry.kind === 'pinned-head') {
                 return (
-                  <Text key={`section-${entry.key}`} size="xs" fw={700} c="dimmed" tt="uppercase" mt="xs">
+                  <Group key={entry.key} gap={6} mt="xs">
+                    <Text size="xs" fw={800} c="orange" tt="uppercase">{entry.label}</Text>
+                    <Badge size="xs" color="orange" variant="filled">{entry.total}</Badge>
+                    {entry.total > entry.shown && <Text size="xs" c="dimmed">newest {entry.shown} shown here</Text>}
+                  </Group>
+                )
+              }
+              if (entry.kind === 'day') {
+                return (
+                  <Text key={entry.key} size="xs" fw={700} c="dimmed" tt="uppercase" mt="xs">
                     {entry.label}
                   </Text>
                 )
               }
+              if (entry.kind === 'seen-divider') {
+                return <Divider key={entry.key} my={4} label={entry.label} labelPosition="center" />
+              }
               const row = entry.row!
               const rowAttention = inboxAttention({ status: normalizeStatus(row.status), isRead: openedIds.has(row.id), stillOpen: Boolean(row.nextStep) })
+              const newRowStyle = mode === 'inbox' && rowAttention === 'new'
+                ? { background: 'var(--mantine-color-blue-light)', borderLeft: '4px solid var(--mantine-color-blue-filled)' }
+                : mode === 'inbox' && rowAttention === 'done' ? { opacity: 0.8 } : undefined
               if (isRecordOfferRow(row)) {
                 const recordAt = formatTxnTime(normalizeCreatedAt(row))
                 const sourceType = String(parseRequestContext(row).offerSourceType || 'workflow_vc_offer')
                 return (
-                  <Paper key={row.id} withBorder radius="md" p="md">
+                  <Paper key={entry.key} withBorder radius="md" p="md" style={newRowStyle}>
                     <Group gap="xs" mb={4}>
                       <Badge size="xs" color={rowAttention === 'new' ? 'blue' : 'gray'} variant={rowAttention === 'new' ? 'filled' : 'light'}>
                         {rowAttention === 'new' ? 'New' : 'Opened'}
@@ -2054,10 +2204,11 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
 
               return (
                 <Paper
-                  key={row.id}
+                  key={entry.key}
                   withBorder
                   radius="md"
                   p="md"
+                  style={newRowStyle}
                 >
                   <UnstyledButton
                     onClick={() => openRequestDetails(row)}
@@ -2075,7 +2226,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
                           <Badge size="xs" variant="light">{requestKindLabel(requestType)}</Badge>
                         )}
                         {mode === 'inbox' ? (
-                          <Badge size="xs" variant="light">{entry.label || INBOX_TAB_LABELS[requestCategoryTab]}</Badge>
+                          <Badge size="xs" variant="outline" color="gray">{entry.label || INBOX_TAB_LABELS[requestCategoryTab]}</Badge>
                         ) : null}
                         {mode !== 'inbox' && <Badge color={statusColor(status)}>{statusLabel(status)}</Badge>}
                         {stepRequired && (
