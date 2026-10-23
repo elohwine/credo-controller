@@ -41,6 +41,8 @@ import { notifications } from '@mantine/notifications'
 import { usePullRefresh } from '@/lib/pullRefresh'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys, STALE_TIME } from '@/lib/queries/keys'
+import { refreshFieldRun } from '@/lib/queries/refreshFieldRun'
+import { isAxiosError } from 'axios'
 import { useSessionStore } from '@/lib/state/session'
 import { useUiStore } from '@/lib/state/ui'
 import {
@@ -1733,6 +1735,10 @@ export default function FinancePage() {
   } | null>(null)
   const [fieldProofCreating, setFieldProofCreating] = useState(false)
   const [feptActionLoading, setFeptActionLoading] = useState(false)
+  const [fieldStepSavedRunId, setFieldStepSavedRunId] = useState<string | null>(null)
+  const [fieldStepRefreshing, setFieldStepRefreshing] = useState(false)
+  const [fieldStepRefreshError, setFieldStepRefreshError] = useState<string | null>(null)
+  const fieldStepScopeRef = useRef<string | null>(null)
   const [requisitionLifecycleNote, setRequisitionLifecycleNote] = useState('Goods/services received and confirmed.')
   const [orgContextBundle, setOrgContextBundle] = useState<OrgContextBundleCacheEntry | null>(null)
   const [showFieldRun, setShowFieldRun] = useState(false)
@@ -2845,7 +2851,8 @@ export default function FinancePage() {
         }
       }
 
-      const existing = fieldRuns.find((run) => String(run.id || '') === normalizedRunId)
+      const existing = fieldRuns.find((run) => String(run.id || '') === normalizedRunId) ||
+        queryClient.getQueryData<any[]>(queryKeys.fieldRun(sessionScope, normalizedRunId))?.[0]
       if (existing) {
         setSelectedFieldRun(existing)
         return
@@ -2896,7 +2903,7 @@ export default function FinancePage() {
         })
       }
     },
-    [ensureOrgContextForRequisition, fieldRuns],
+    [ensureOrgContextForRequisition, fieldRuns, queryClient, sessionScope],
   )
 
   useEffect(() => {
@@ -4148,6 +4155,39 @@ export default function FinancePage() {
 
   // Receipts step without a photo: no materials were bought, or the receipts that came back
   // from "Buy materials" are the receipt record.
+  const openSavedFieldStep = async (runId: string) => {
+    setFieldStepSavedRunId(runId)
+    setFieldStepRefreshing(true)
+    setFieldStepRefreshError(null)
+    try {
+      const scope = fieldStepScopeRef.current
+      if (!scope) throw new Error('Open this job again in its original account or organisation.')
+      const assertCurrent = () => {
+        if (useSessionStore.getState().scope !== scope) {
+          throw new Error('Your account or organisation changed. Open this job again in its original context.')
+        }
+      }
+      assertCurrent()
+      const token = getPreferredToken()
+      if (!token) throw new Error('Missing active context session')
+      const fresh = await refreshFieldRun(queryClient, scope, runId, async () => {
+        const response = await api.get(`/workflows/runs/${encodeURIComponent(runId)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        return response.data
+      }, assertCurrent)
+      setSelectedFieldRun(fresh)
+      setCheckpointRun(null)
+      setFieldStepSavedRunId(null)
+    } catch (err) {
+      setFieldStepRefreshError(
+        err instanceof Error && !isAxiosError(err) ? err.message : friendlyRequestError(err),
+      )
+    } finally {
+      setFieldStepRefreshing(false)
+    }
+  }
+
   const handleNoMaterialsBought = async (run: any, source: 'none' | 'purchase' = 'none') => {
     const normalizedRunId = normalizeRunId(String(run?.id || ''))
     if (!normalizedRunId) return
@@ -4160,6 +4200,8 @@ export default function FinancePage() {
       })
       return
     }
+    if (feptActionLoading || fieldStepSavedRunId) return
+    fieldStepScopeRef.current = useSessionStore.getState().scope
     setFeptActionLoading(true)
     try {
       const res = await api.post(
@@ -4183,15 +4225,7 @@ export default function FinancePage() {
             : 'No materials bought. Take the after photos when the work is done.',
         color: 'green',
       })
-      await fetchFieldRuns()
-      try {
-        const refreshed = await api.get(`/workflows/runs/${encodeURIComponent(normalizedRunId)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        setSelectedFieldRun(refreshed.data)
-      } catch {
-        // Non-fatal if refreshed run fetch is unavailable.
-      }
+      await openSavedFieldStep(normalizedRunId)
     } catch (err: any) {
       notifications.show({
         title: 'Could not carry on',
@@ -4336,6 +4370,8 @@ export default function FinancePage() {
       return
     }
 
+    if (feptActionLoading || fieldStepSavedRunId) return
+    fieldStepScopeRef.current = useSessionStore.getState().scope
     setFeptActionLoading(true)
     try {
       let payload: Record<string, unknown> = {}
@@ -4407,7 +4443,7 @@ export default function FinancePage() {
       })
       assertFieldStepSucceeded(data)
       notifications.show({ title: 'Step saved', message: 'This step is now on the job.', color: 'green' })
-      setCheckpointRun(null)
+      await openSavedFieldStep(normalizedRunId)
     } catch (err: any) {
       const message = String(err.response?.data?.error || err.response?.data?.message || err.message || '')
       // A stop-work call is saved as a hold, so the server answers with the hold message. Not an error.
@@ -4418,22 +4454,12 @@ export default function FinancePage() {
           message: cpFixBy === 'worker' ? SAFETY_HOLD_COPY.savedMessageWorker : SAFETY_HOLD_COPY.savedMessage,
           color: 'orange',
         })
-        setCheckpointRun(null)
+        await openSavedFieldStep(normalizedRunId)
       } else {
         notifications.show({ title: 'Could not save this step', message: friendlyRequestError(err), color: 'red' })
       }
     } finally {
       setFeptActionLoading(false)
-    }
-
-    await fetchFieldRuns()
-    try {
-      const refreshed = await api.get(`/workflows/runs/${encodeURIComponent(normalizedRunId)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      setSelectedFieldRun(refreshed.data)
-    } catch {
-      // The list refresh above keeps the drawer usable.
     }
   }
 
@@ -7978,7 +8004,10 @@ export default function FinancePage() {
 
       <Modal
         opened={Boolean(checkpointRun)}
-        onClose={() => setCheckpointRun(null)}
+        onClose={() => { if (!feptActionLoading && !fieldStepSavedRunId) setCheckpointRun(null) }}
+        closeOnClickOutside={!feptActionLoading && !fieldStepSavedRunId}
+        closeOnEscape={!feptActionLoading && !fieldStepSavedRunId}
+        withCloseButton={!feptActionLoading && !fieldStepSavedRunId}
         title={(() => {
           const reason = getFieldPauseReason(checkpointRun)
           return reason === 'await_site_inspection'
@@ -8216,6 +8245,32 @@ export default function FinancePage() {
           })()}
       </Modal>
 
+      <Modal
+        opened={Boolean(fieldStepSavedRunId)}
+        onClose={() => undefined}
+        closeOnClickOutside={false}
+        closeOnEscape={false}
+        withCloseButton={false}
+        title="Step saved"
+        zIndex={400}
+        centered
+      >
+        <Stack align="center" gap="sm" role="status" aria-live="polite" aria-busy={fieldStepRefreshing}>
+          {fieldStepRefreshing && <Loader size="md" />}
+          <Text size="sm" ta="center">
+            {fieldStepRefreshing
+              ? 'Loading the next step. Please stay here while the job is updated.'
+              : 'This step is already saved. You do not need to submit it again.'}
+          </Text>
+          {fieldStepRefreshError && (
+            <Alert color="red" title="Could not load the next step">{fieldStepRefreshError}</Alert>
+          )}
+          {!fieldStepRefreshing && fieldStepSavedRunId && (
+            <Button onClick={() => void openSavedFieldStep(fieldStepSavedRunId)}>Load next step</Button>
+          )}
+        </Stack>
+      </Modal>
+
       {(() => {
         if (String(router.query.tab || '').toLowerCase() !== 'field' || selectedFieldRun) return null
         const pendingRunId = normalizeRunId(
@@ -8258,7 +8313,11 @@ export default function FinancePage() {
       {/* ── FEPT Field Run Detail Drawer (independent from requisitions) ── */}
       <Drawer
         opened={Boolean(selectedFieldRun)}
+        closeOnClickOutside={!feptActionLoading && !fieldStepSavedRunId}
+        closeOnEscape={!feptActionLoading && !fieldStepSavedRunId}
+        withCloseButton={!feptActionLoading && !fieldStepSavedRunId}
         onClose={() => {
+          if (feptActionLoading || fieldStepSavedRunId) return
           if (returnToInbox()) return
           setSelectedFieldRun(null)
           setFieldJobTab('details')
@@ -8290,6 +8349,11 @@ export default function FinancePage() {
         radius="lg"
         styles={{ content: { borderRadius: '16px 16px 0 0' } }}
       >
+        {feptActionLoading && !fieldStepSavedRunId && (
+          <Alert color="blue" mb="md" role="status" aria-live="polite" aria-busy="true" icon={<Loader size="sm" />}>
+            Updating this job and loading its next step. Please stay here until it is ready.
+          </Alert>
+        )}
         {selectedFieldRun &&
           (() => {
             const run = selectedFieldRun

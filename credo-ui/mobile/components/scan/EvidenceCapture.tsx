@@ -77,6 +77,7 @@ interface AttachedRecord {
 }
 
 interface EvidenceCaptureProps {
+  busyMessage?: string;
   onCapture: (payload: EvidencePayload) => Promise<void> | void;
   onCancel: () => void;
   workflowLabel?: string;
@@ -99,6 +100,7 @@ export default function EvidenceCapture({
   purchaseReceipts = [],
   onUsePurchaseReceipts,
   draftKey,
+  busyMessage,
 }: EvidenceCaptureProps) {
   const [shots, setShots] = useState<CapturedShot[]>(() => (draftKey ? loadPhotoDraft(draftKey) : []));
   const [draftNotKept, setDraftNotKept] = useState(false);
@@ -264,6 +266,12 @@ export default function EvidenceCapture({
         </Text>
       )}
 
+      {busyMessage && (
+        <Alert color="blue" role="status" aria-live="polite" aria-busy="true" icon={<Loader size="sm" />}>
+          {busyMessage}
+        </Alert>
+      )}
+
       <Alert color="blue" variant="light" title={currentStage.title} icon={<IconShieldCheck size={18} />}>
         <Text size="xs">{currentStage.helper}</Text>
         {locationRequired && (
@@ -293,7 +301,7 @@ export default function EvidenceCapture({
             <Button size="md" color="teal" onClick={() => setWorkFinished(true)}>
               Yes, the work is finished
             </Button>
-            <Button variant="subtle" color="gray" onClick={onCancel}>Not yet, go back</Button>
+            <Button variant="subtle" color="gray" onClick={onCancel} disabled={loading}>Not yet, go back</Button>
           </Stack>
         </Paper>
       )}
@@ -320,7 +328,7 @@ export default function EvidenceCapture({
             border: '2px dashed #cbd5e1',
             cursor: 'pointer',
           }}
-          onClick={capturePhoto}
+          onClick={() => { if (!loading) void capturePhoto(); }}
         >
           {loading ? (
             <Loader />
@@ -354,6 +362,7 @@ export default function EvidenceCapture({
                   color="dark"
                   radius="xl"
                   aria-label={`Remove photo ${index + 1}`}
+                  disabled={loading}
                   style={{ position: 'absolute', top: 2, right: 2 }}
                   onClick={() => {
                     setShots((current) => current.filter((item) => item.id !== shot.id));
@@ -375,6 +384,7 @@ export default function EvidenceCapture({
                   variant="subtle"
                   color="gray"
                   aria-label={`Remove ${record.label}`}
+                  disabled={loading}
                   style={{ position: 'absolute', top: 2, right: 2 }}
                   onClick={() => setRecords((current) => current.filter((item) => item.id !== record.id))}
                 >

@@ -159,6 +159,12 @@ The main distance is in four areas:
 
 ## Evidence capture (updated 2026-10-04)
 
+On mobile, saving evidence or a receipt choice keeps the capture screen busy until the job's next
+step has loaded. The refreshed job replaces the account/context-scoped cache before navigation,
+so the completed step is not briefly shown again. Checkpoints such as arrival and safety checks
+also keep a saved/loading state until the refreshed job is ready. If saving succeeds but loading
+fails, **Load next step** retries only the read; it does not submit the evidence or checkpoint again.
+
 Field-service practice and the SSI direction agree on the same shape: proof is captured at the moment
 of the work, not assembled afterwards. The phone app now follows that:
 

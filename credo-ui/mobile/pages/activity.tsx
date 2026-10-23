@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/router'
+import { useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import {
   Stack,
   Title,
@@ -61,6 +63,8 @@ import dayjs from 'dayjs'
 import EvidenceCapture, { EvidencePayload } from '@/components/scan/EvidenceCapture'
 import { friendlyRequestError } from '@/lib/requestError'
 import { formatTxnTime } from '@/lib/inboxAttention'
+import { refreshFieldRun } from '@/lib/queries/refreshFieldRun'
+import { useSessionStore } from '@/lib/state/session'
 
 interface ReconSummary {
   total: number
@@ -788,6 +792,11 @@ export default function ActivityPage() {
 
   const [evidenceMode, setEvidenceMode] = useState(false)
   const [evidenceLoading, setEvidenceLoading] = useState(false)
+  const [evidenceSaved, setEvidenceSaved] = useState(false)
+  const [evidenceTransitionError, setEvidenceTransitionError] = useState<string | null>(null)
+  const evidenceBusyRef = useRef(false)
+  const evidenceScopeRef = useRef<string | null>(null)
+  const queryClient = useQueryClient()
   // Which photo step the job is waiting on, read from the job itself when the link does not say.
   const [runPhase, setRunPhase] = useState<EvidencePhase | null>(null)
   const [purchaseReceipts, setPurchaseReceipts] = useState<PurchaseReceipt[]>([])
@@ -915,38 +924,80 @@ export default function ActivityPage() {
     return next
   }, [])
 
-  // Receipts step without a photo: nothing was bought, or the purchase receipts that came back
-  // from "Buy materials" are the receipt record.
+  const openSavedEvidence = async (runId: string) => {
+    setEvidenceLoading(true)
+    setEvidenceTransitionError(null)
+    try {
+      const scope = evidenceScopeRef.current
+      if (!scope) throw new Error('Open this job again in its original account or organisation.')
+      const assertCurrent = () => {
+        if (useSessionStore.getState().scope !== scope) {
+          throw new Error('Your account or organisation changed. Open this job again in its original context.')
+        }
+      }
+      assertCurrent()
+      const token = getPreferredToken()
+      if (!token) throw new Error('Missing active context session')
+      await refreshFieldRun(queryClient, scope, runId, async () => {
+        const response = await api.get(`/workflows/runs/${encodeURIComponent(runId)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        return response.data
+      }, assertCurrent)
+      if (router.query.capture === '1') {
+        const opened = await router.replace(`/finance?tab=field&runId=${encodeURIComponent(runId)}`)
+        if (!opened) throw new Error('The job could not be opened. Try loading the next step again.')
+      } else {
+        await handleSelectRef(runId)
+        setEvidenceMode(false)
+        setEvidenceSaved(false)
+      }
+    } catch (err) {
+      setEvidenceTransitionError(
+        err instanceof Error && !isAxiosError(err) ? err.message : friendlyRequestError(err),
+      )
+    } finally {
+      evidenceBusyRef.current = false
+      setEvidenceLoading(false)
+    }
+  }
+
+  // Reuse returned purchase receipts, or record that no materials were bought.
   const handleReceiptWithoutPhoto = async (source: 'none' | 'purchase') => {
-    if (!selectedRef) return
+    if (!selectedRef || evidenceBusyRef.current || evidenceSaved) return
     const token = getPreferredToken()
     if (!token) throw new Error('Missing active context session')
-    const resumeRes = await api.post(
-      `/workflows/runs/${selectedRef}/resume`,
-      source === 'purchase' ? { phase: 'receipt', usePurchaseReceipts: true } : { phase: 'receipt', noReceipt: true },
-      { headers: { Authorization: `Bearer ${token}`, 'x-idempotency-key': `${source === 'purchase' ? 'purchase-receipt' : 'no-receipt'}:${selectedRef}` } },
-    )
-    assertFieldStepSucceeded(resumeRes.data)
-    import('@mantine/notifications').then((n) => {
-      n.notifications.show({
-        title: 'Noted',
-        message: source === 'purchase'
-          ? 'Purchase receipts added. Take the after photos when the work is done.'
-          : 'No materials bought. Take the after photos when the work is done.',
-        color: 'green',
+    evidenceBusyRef.current = true
+    evidenceScopeRef.current = useSessionStore.getState().scope
+    setEvidenceLoading(true)
+    try {
+      const resumeRes = await api.post(
+        `/workflows/runs/${selectedRef}/resume`,
+        source === 'purchase' ? { phase: 'receipt', usePurchaseReceipts: true } : { phase: 'receipt', noReceipt: true },
+        { headers: { Authorization: `Bearer ${token}`, 'x-idempotency-key': `${source === 'purchase' ? 'purchase-receipt' : 'no-receipt'}:${selectedRef}` } },
+      )
+      assertFieldStepSucceeded(resumeRes.data)
+      import('@mantine/notifications').then((n) => {
+        n.notifications.show({
+          title: 'Noted',
+          message: source === 'purchase'
+            ? 'Purchase receipts added. Take the after photos when the work is done.'
+            : 'No materials bought. Take the after photos when the work is done.',
+          color: 'green',
+        })
       })
-    })
-    setEvidenceMode(false)
-    if (router.query.capture === '1') {
-      setSelectedRef(null)
-      void router.push(getTaskContext()?.target || `/finance?tab=field&runId=${encodeURIComponent(selectedRef)}`)
-    } else {
-      handleSelectRef(selectedRef)
+      setEvidenceSaved(true)
+      await openSavedEvidence(selectedRef)
+    } finally {
+      evidenceBusyRef.current = false
+      setEvidenceLoading(false)
     }
   }
 
   const handleEvidenceCapture = async (payload: EvidencePayload) => {
-    if (!selectedRef) return
+    if (!selectedRef || evidenceBusyRef.current || evidenceSaved) return
+    evidenceBusyRef.current = true
+    evidenceScopeRef.current = useSessionStore.getState().scope
     setEvidenceLoading(true)
     try {
       const idempotencyKey = getResumeIdempotencyKey(selectedRef, 'capture_evidence')
@@ -1000,18 +1051,8 @@ export default function ActivityPage() {
           color: 'green',
         })
       })
-      setEvidenceMode(false)
-      if (router.query.capture === '1') {
-        setSelectedRef(null)
-        setEvents([])
-        setEventsHasMore(false)
-        setEventsCursor(undefined)
-        setEventsToken(undefined)
-        // Show the job and its next step, not the inbox card that was just completed.
-        void router.replace(`/finance?tab=field&runId=${encodeURIComponent(selectedRef)}`)
-      } else {
-        handleSelectRef(selectedRef)
-      }
+      setEvidenceSaved(true)
+      await openSavedEvidence(selectedRef)
     } catch (err: any) {
       const errorMessage = friendlyRequestError(err)
       import('@mantine/notifications').then((n) => {
@@ -1020,6 +1061,7 @@ export default function ActivityPage() {
       // The capture screen keeps the photos and shows the retry.
       throw new Error(errorMessage)
     } finally {
+      evidenceBusyRef.current = false
       setEvidenceLoading(false)
     }
   }
@@ -2193,12 +2235,18 @@ export default function ActivityPage() {
 
       <Drawer
         opened={!!selectedRef}
+        closeOnClickOutside={!evidenceLoading}
+        closeOnEscape={!evidenceLoading}
+        withCloseButton={!evidenceLoading}
         onClose={() => {
+          if (evidenceLoading) return
           if (inboxTask && router.query.capture === '1') {
             void router.push(getTaskContext()?.target || '/inbox')
           }
           setSelectedRef(null)
           setEvidenceMode(false)
+          setEvidenceSaved(false)
+          setEvidenceTransitionError(null)
           setEvents([])
           setEventsHasMore(false)
           setEventsCursor(undefined)
@@ -2213,8 +2261,28 @@ export default function ActivityPage() {
         styles={{ content: { borderRadius: '16px 16px 0 0' } }}
       >
         <Stack gap="md" pb="lg">
-          {evidenceMode ? (
+          {evidenceMode && evidenceSaved ? (
+            <Stack align="center" gap="sm" py="xl" role="status" aria-live="polite" aria-busy={evidenceLoading}>
+              {evidenceLoading && <Loader size="md" />}
+              <Text fw={600}>Step saved</Text>
+              <Text size="sm" c="dimmed" ta="center">
+                {evidenceLoading
+                  ? 'Loading the next step. On a slow connection this may take a little longer. You do not need to send anything again.'
+                  : 'Your evidence is saved. Only the next step still needs to load.'}
+              </Text>
+              {evidenceTransitionError && (
+                <Alert color="red" title="Could not load the next step">{evidenceTransitionError}</Alert>
+              )}
+              {!evidenceLoading && selectedRef && (
+                <Button onClick={() => {
+                  evidenceBusyRef.current = true
+                  void openSavedEvidence(selectedRef)
+                }}>Load next step</Button>
+              )}
+            </Stack>
+          ) : evidenceMode ? (
             <EvidenceCapture
+              busyMessage={evidenceLoading ? 'Saving this step. Please stay here while the job is updated.' : undefined}
               evidenceStage={resolveEvidencePhase()}
               workflowLabel={`Job ${runReference || selectedRef || ''}`.trim()}
               onCapture={handleEvidenceCapture}
