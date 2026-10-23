@@ -5,6 +5,7 @@ import { Controller, Post, Get, Route, Tags, Body, Request, Query } from 'tsoa'
 import { StatusException } from '../../errors'
 import { notificationService } from '../../services/NotificationService'
 import { whatsAppSenderService } from '../../services/WhatsAppSenderService'
+import { STOP_BUTTON_TEXT } from '../../services/whatsAppTemplates'
 
 export interface WhatsAppWebhookPayload {
   [key: string]: any
@@ -24,6 +25,8 @@ export interface WhatsAppWebhookPayload {
           id: string
           type: string
           text?: { [key: string]: any; body: string }
+          /** Quick-reply button tapped on a template message */
+          button?: { [key: string]: any; payload?: string; text?: string }
         }>
         statuses?: Array<{
           [key: string]: any
@@ -87,7 +90,12 @@ export class WhatsAppWebhookController extends Controller {
         notificationService.applyWhatsAppStatus(senderKey, value.metadata!.phone_number_id, status)
       }
       for (const message of value.messages || []) {
-        if (message.type === 'text' && /^(stop|unsubscribe|cancel)$/i.test(message.text?.body.trim() || '')) {
+        const typedStop =
+          message.type === 'text' && /^(stop|unsubscribe|cancel)$/i.test(message.text?.body.trim() || '')
+        const tappedStop =
+          message.type === 'button' &&
+          (message.button?.payload === 'STOP_ALERTS' || message.button?.text === STOP_BUTTON_TEXT)
+        if (typedStop || tappedStop) {
           notificationService.applyWhatsAppOptOut(senderKey, message.from, message.id)
         }
       }

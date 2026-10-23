@@ -27,6 +27,7 @@ import {
   whatsAppSenderService,
   WHATSAPP_EVENTS,
 } from './WhatsAppSenderService'
+import { credentialTypeLabel, richTemplateComponents, roleText, templateText } from './whatsAppTemplates'
 
 const logger = rootLogger.child({ module: 'NotificationService' })
 
@@ -282,7 +283,8 @@ export class NotificationService {
     const row = DatabaseManager.getDatabase()
       .prepare('SELECT status FROM notification_deliveries WHERE id = ?')
       .get(id) as { status: string } | undefined
-    if (row && ['skipped', 'failed'].includes(row.status)) await this.sendInviteFallbackSms(payload.inviteId, payload.to)
+    if (row && ['skipped', 'failed'].includes(row.status))
+      await this.sendInviteFallbackSms(payload.inviteId, payload.to)
   }
 
   /** The invite link by text message, at most once per invite. Each send replaces the code. */
@@ -353,14 +355,15 @@ export class NotificationService {
         return
       }
       // Organisations that chose templates before invites existed send invites with their card template.
-      const templateEvent =
-        payload.eventType === 'invite' && !sender.templates.invite ? 'vc_offer' : payload.eventType
-      const template = await whatsAppSenderService.requireApprovedTemplate(sender, templateEvent)
+      const templateEvent = payload.eventType === 'invite' && !sender.templates.invite ? 'vc_offer' : payload.eventType
       const base = new URL(process.env.WALLET_PUBLIC_URL || '')
       if (base.protocol !== 'https:' || base.username || base.password)
         throw new DispatchError('HTTPS wallet URL required', 'permanent')
       let action = new URL('/inbox', base.origin)
       let bodyText = 'There is an update in your Credentis inbox. Sign in to view it.'
+      const orgName = templateText(getTenantById(payload.tenantId)?.label, 40, 'Your organisation')
+      // Values for the branded per-event template; left unset when this alert has no item to link to.
+      let richValues: { header: string; body: string[]; link: string } | undefined
       if (payload.eventType === 'invite') {
         const { memberInviteService, memberInviteLink } = await import('./MemberInviteService')
         const invite = payload.inviteId ? memberInviteService.get(payload.inviteId) : undefined
@@ -375,20 +378,34 @@ export class NotificationService {
           return
         }
         action = new URL(link)
-        const orgName = getTenantById(payload.tenantId)?.label || 'An organisation'
         bodyText = `${orgName} invited you to Credentis. Open the link to confirm your name and choose your own PIN.`
+        const membership = db
+          .prepare('SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ?')
+          .get(invite.user_id, invite.org_tenant_id) as { role: string } | undefined
+        richValues = {
+          header: orgName,
+          body: [templateText(invite.proposed_name, 40, 'there'), orgName, roleText(membership?.role)],
+          link: code!,
+        }
       } else if (payload.inboxItemId) {
         const owner = db
           .prepare(
-            `SELECT u.id FROM wallet_pending_offers w JOIN ssi_users u ON u.tenant_id = w.tenant_id
+            `SELECT u.id, w.title, w.credential_type FROM wallet_pending_offers w JOIN ssi_users u ON u.tenant_id = w.tenant_id
             WHERE w.id = ? AND w.issuer_tenant_id = ?`,
           )
-          .get(payload.inboxItemId, payload.tenantId) as { id: string } | undefined
+          .get(payload.inboxItemId, payload.tenantId) as
+          | { id: string; title?: string | null; credential_type?: string }
+          | undefined
         const item =
           owner &&
           this.consentedRecipient(payload.tenantId, payload.eventType, { userId: owner.id })?.phone === payload.to
         if (!item) throw new DispatchError('Notification inbox item is not available for this recipient', 'permanent')
         action.searchParams.set('item', payload.inboxItemId)
+        richValues = {
+          header: orgName,
+          body: [templateText(owner!.title, 60, credentialTypeLabel(owner!.credential_type))],
+          link: payload.inboxItemId,
+        }
       } else if (
         payload.requestId &&
         db
@@ -401,6 +418,23 @@ export class NotificationService {
         action.searchParams.set('request', payload.requestId)
       }
       const actionUrl = action.toString()
+      const rich = richValues
+        ? await whatsAppSenderService.approvedRichTemplate(sender, payload.eventType, base.origin)
+        : undefined
+      const template = rich
+        ? { name: rich.name, language: rich.language }
+        : await whatsAppSenderService.requireApprovedTemplate(sender, templateEvent)
+      const components = rich
+        ? richTemplateComponents(rich, richValues!)
+        : [
+            {
+              type: 'body',
+              parameters: [
+                { type: 'text', text: bodyText },
+                { type: 'text', text: actionUrl },
+              ],
+            },
+          ]
       const currentSender = whatsAppSenderService.resolve(payload.tenantId)
       if (
         currentSender.key !== sender.key ||
@@ -434,15 +468,7 @@ export class NotificationService {
           template: {
             name: template.name,
             language: { code: template.language },
-            components: [
-              {
-                type: 'body',
-                parameters: [
-                  { type: 'text', text: bodyText },
-                  { type: 'text', text: actionUrl },
-                ],
-              },
-            ],
+            components,
           },
           biz_opaque_callback_data: id,
         },

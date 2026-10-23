@@ -5,6 +5,7 @@ import { DatabaseManager } from '../persistence/DatabaseManager'
 import { providerRepository } from '../persistence/ProviderRepository'
 
 import { DispatchError } from './OutboxService'
+import { isApprovedRichTemplate, richTemplateFor, type RichTemplateDefinition } from './whatsAppTemplates'
 
 export interface WhatsAppSenderSelection {
   mode: 'platform' | 'tenant'
@@ -227,6 +228,29 @@ export class WhatsAppSenderService {
     )
     if (!approved) throw new DispatchError('Selected utility template not approved or incompatible', 'permanent')
     return template
+  }
+
+  /**
+   * The branded template for this event when Meta has approved the exact copy this code sends,
+   * otherwise undefined so the caller falls back to the generic inbox template.
+   */
+  public async approvedRichTemplate(
+    sender: ResolvedWhatsAppSender,
+    event: string,
+    origin: string,
+  ): Promise<RichTemplateDefinition | undefined> {
+    const definition = richTemplateFor(event)
+    if (!definition || sender.key !== 'platform') return undefined
+    try {
+      const { data } = await axios.get(whatsAppGraphUrl(`${sender.wabaId}/message_templates`), {
+        params: { name: definition.name, limit: 20 },
+        headers: { Authorization: 'Bearer ' + sender.token },
+        timeout: 15000,
+      })
+      return data?.data?.some((item: any) => isApprovedRichTemplate(item, definition, origin)) ? definition : undefined
+    } catch {
+      return undefined
+    }
   }
 
   public verifyCallback(phoneNumberId: string, wabaId: string, rawBody: Buffer, signature: string): string {

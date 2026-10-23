@@ -13,6 +13,7 @@ import { providerRepository } from '../../persistence/ProviderRepository'
 import { NotificationService } from '../NotificationService'
 import { DispatchError, OutboxService, outboxService } from '../OutboxService'
 import { tenantWhatsAppSecretPrefix, whatsAppSenderService } from '../WhatsAppSenderService'
+import { RICH_TEMPLATES, metaTemplateDefinition } from '../whatsAppTemplates'
 
 const phone = '263771234567'
 const tenant = 'org-a'
@@ -58,7 +59,7 @@ describe('durable transactional WhatsApp notifications', () => {
       CREATE TABLE requests (id TEXT PRIMARY KEY, organization_id TEXT);
       CREATE TABLE wallet_pending_offers (
         id TEXT PRIMARY KEY, tenant_id TEXT, issuer_tenant_id TEXT, source_type TEXT, source_id TEXT, created_at TEXT,
-        credential_type TEXT, metadata TEXT, resolved_at TEXT
+        credential_type TEXT, metadata TEXT, resolved_at TEXT, title TEXT
       );
     `)
     db.prepare('INSERT INTO organizations VALUES (?, ?)').run('organization-a', tenant)
@@ -706,6 +707,85 @@ describe('durable transactional WhatsApp notifications', () => {
     await service.processWhatsAppIntent(outbox.id, JSON.parse(outbox.payload))
     expect(JSON.stringify(post.mock.calls[0][1])).toContain('https://wallet.example/inbox?item=field-inbox-card')
     expect(JSON.stringify(post.mock.calls[0][1])).not.toContain('run-one')
+  })
+
+  it('sends the branded task template once Meta has approved it, with the item title and a tap-to-open button', async () => {
+    ready()
+    const definition = RICH_TEMPLATES.task
+    const stored = {
+      name: definition.name,
+      language: definition.language,
+      status: 'APPROVED',
+      category: 'UTILITY',
+      components: (metaTemplateDefinition(definition, 'https://wallet.example') as any).components,
+    }
+    jest
+      .spyOn(axios, 'get')
+      .mockImplementation(async (_url: string, config: any) =>
+        config?.params?.name === definition.name ? { data: { data: [stored] } } : approved,
+      )
+    db.prepare(
+      `INSERT INTO wallet_pending_offers (id, tenant_id, issuer_tenant_id, source_type, source_id, title, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'rich-item:1',
+      'wallet-a',
+      tenant,
+      'workflow_stage_action',
+      'run-rich:review',
+      'Approve purchase request',
+      '2026-10-23',
+    )
+    service.queueInboxNotification('rich-event', {
+      tenantId: 'wallet-a',
+      issuerTenantId: tenant,
+      sourceType: 'workflow_stage_action',
+      sourceId: 'run-rich:review',
+    })
+    const outbox = db.prepare("SELECT id, payload FROM integration_outbox WHERE payload LIKE '%rich-item%'").get() as {
+      id: string
+      payload: string
+    }
+    const post = jest.spyOn(axios, 'post').mockResolvedValue({ data: { messages: [{ id: 'wamid-rich' }] } })
+    await service.processWhatsAppIntent(outbox.id, JSON.parse(outbox.payload))
+    const template = (post.mock.calls[0][1] as any).template
+    expect(template.name).toBe('credentis_task_alert')
+    expect(template.components[1].parameters).toEqual([{ type: 'text', text: 'Approve purchase request' }])
+    expect(template.components[2]).toMatchObject({ sub_type: 'url', parameters: [{ text: 'rich-item%3A1' }] })
+    expect(template.components[3]).toMatchObject({ sub_type: 'quick_reply' })
+  })
+
+  it('treats a tap on the Stop alerts button like a typed STOP', async () => {
+    ready()
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: '456',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                metadata: { phone_number_id: '123' },
+                messages: [
+                  { from: phone, id: 'tap-1', type: 'button', button: { payload: 'STOP_ALERTS', text: 'Stop alerts' } },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }
+    const raw = Buffer.from(JSON.stringify(payload))
+    const signature = `sha256=${createHmac('sha256', 'platform-app-secret').update(raw).digest('hex')}`
+    await new WhatsAppWebhookController().handleWebhook(
+      payload as any,
+      {
+        rawBody: raw,
+        headers: { 'x-hub-signature-256': signature },
+      } as any,
+    )
+    expect(db.prepare('SELECT enabled FROM notification_preferences').get()).toEqual({ enabled: 0 })
   })
 
   it('does not link a recipient to another holder or organisation inbox item', async () => {
