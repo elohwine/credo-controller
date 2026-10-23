@@ -5,6 +5,7 @@ import { useRouter } from 'next/router';
 import AppShellMobile from '@/components/layout/AppShellMobile';
 import api from '@/lib/api';
 import { getActiveOrgId, getContextMode, getPreferredToken, getWalletToken, isEmployeeOrgRole } from '@/lib/auth';
+import { openInboxOffers } from '@/lib/inboxAttention';
 
 type RunRow = {
   id: string;
@@ -108,11 +109,10 @@ export default function FieldJobsPage() {
 
       // Source of assignment truth for worker visibility.
       const offersRes = await api.get('/api/wallet/credentials/pending-offers', {
+        params: { status: 'open' },
         headers: { Authorization: `Bearer ${walletToken}` },
       });
-      const offers = Array.isArray(offersRes.data?.offers)
-        ? offersRes.data.offers
-        : (Array.isArray(offersRes.data) ? offersRes.data : []);
+      const offers: any[] = openInboxOffers(offersRes.data);
 
       const assignedRunIds = new Set(
         offers

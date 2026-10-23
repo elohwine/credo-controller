@@ -6939,6 +6939,19 @@
                           "messages": {
                             "items": {
                               "properties": {
+                                "button": {
+                                  "properties": {
+                                    "text": {
+                                      "type": "string"
+                                    },
+                                    "payload": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": {},
+                                  "type": "object",
+                                  "description": "Quick-reply button tapped on a template message"
+                                },
                                 "text": {
                                   "properties": {
                                     "body": {
@@ -27647,6 +27660,23 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "counts": {
+                      "properties": {
+                        "done": {
+                          "type": "number",
+                          "format": "double"
+                        },
+                        "open": {
+                          "type": "number",
+                          "format": "double"
+                        }
+                      },
+                      "required": [
+                        "done",
+                        "open"
+                      ],
+                      "type": "object"
+                    },
                     "doneSinceDays": {
                       "type": "number",
                       "format": "double"
@@ -27659,6 +27689,7 @@
                     }
                   },
                   "required": [
+                    "counts",
                     "doneSinceDays",
                     "offers"
                   ],
@@ -27700,6 +27731,14 @@
             "schema": {
               "format": "double",
               "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ]

@@ -37,7 +37,7 @@ import {
 } from '@tabler/icons-react'
 import Link from 'next/link'
 import { CONTEXT_UPDATED_EVENT } from '@/lib/portalContext'
-import { formatTxnTime } from '@/lib/inboxAttention'
+import { formatTxnTime, openInboxOffers } from '@/lib/inboxAttention'
 import { nextStepCard, type NextStepItem } from '@/lib/nextSteps'
 import { offerReplacement, stepRequiredLabel } from '@/components/finance/financeStages'
 import { describeHolderActivity, type HolderActivityEntry } from '@/lib/holderActivity'
@@ -323,7 +323,7 @@ export default function DashboardPage() {
                             { headers },
                         ),
                         axios.get(`${backendUrl}/api/wallet/credentials/pending-offers`, {
-                            params: { holder: 'organization' },
+                            params: { holder: 'organization', status: 'open' },
                             headers,
                         }),
                         axios.get(`${backendUrl}/workflow-requests/inbound`, {
@@ -343,7 +343,7 @@ export default function DashboardPage() {
                     }
                     setReadinessPercent(readiness.data?.readinessPercent ?? null)
                     setReadinessState(readiness.data?.readinessState ?? null)
-                    const offerRows = Array.isArray(offers.data?.offers) ? offers.data.offers : []
+                    const offerRows: any[] = openInboxOffers(offers.data)
                     const inboundRows = Array.isArray(inbound.data) ? inbound.data : []
                     let memberCount = 0
                     let openJobs = 0
@@ -391,13 +391,13 @@ export default function DashboardPage() {
                     ].slice(0, 6))
                 } else {
                     const [offers, receiptsRes, activityRes, sharesRes] = await Promise.all([
-                        axios.get(`${backendUrl}/api/wallet/credentials/pending-offers`, { headers }),
+                        axios.get(`${backendUrl}/api/wallet/credentials/pending-offers`, { headers, params: { status: 'open' } }),
                         axios.get(`${backendUrl}/api/wallet/credentials/pending-receipts`, { headers }).catch(() => ({ data: [] })),
                         // Your own activity: cards you were given, what you shared and with whom.
                         axios.get(`${backendUrl}/api/wallet/activity`, { headers, params: { limit: 5 } }).catch(() => ({ data: {} })),
                         axios.get(`${backendUrl}/api/wallet/activity`, { headers, params: { limit: 1, kind: 'shared' } }).catch(() => ({ data: {} })),
                     ])
-                    const offerRows = Array.isArray(offers.data?.offers) ? offers.data.offers : []
+                    const offerRows: any[] = openInboxOffers(offers.data)
                     const receiptRows = (Array.isArray(receiptsRes.data) ? receiptsRes.data : []).filter(
                         (row: any) => String(row?.sourceType || '').toLowerCase() === 'payment',
                     )

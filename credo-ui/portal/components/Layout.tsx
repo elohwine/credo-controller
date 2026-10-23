@@ -44,6 +44,7 @@ import { endPortalTask, usePortalContext, usePortalTaskGuard } from '@/lib/porta
 import { getOrgScopedToken, getPersonalToken } from '@/utils/organizationContext';
 import { readOrgProfile } from '@/utils/orgProfile';
 import { getWorkflowCapabilityFlags } from '@/lib/workflowCapabilities';
+import { openInboxOffers } from '@/lib/inboxAttention';
 
 const LayoutNestingContext = React.createContext(false);
 
@@ -99,7 +100,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
         let cancelled = false;
         const load = async () => {
             const [offers, receipts, inbound, runs, workflows] = await Promise.all([
-                fetch(`${backend}/api/wallet/credentials/pending-offers`, { headers }).then((res) => res.json()).catch(() => null),
+                fetch(`${backend}/api/wallet/credentials/pending-offers?status=open`, { headers }).then((res) => res.json()).catch(() => null),
                 fetch(`${backend}/api/wallet/credentials/pending-receipts`, { headers }).then((res) => res.json()).catch(() => null),
                 isOrg ? fetch(`${backend}/workflow-requests/inbound?status=pending&limit=20`, { headers }).then((res) => res.json()).catch(() => null) : Promise.resolve(null),
                 isOrg ? fetch(`${backend}/workflows/runs?limit=30`, { headers }).then((res) => res.json()).catch(() => null) : Promise.resolve(null),
@@ -108,7 +109,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                     : Promise.resolve(null),
             ]);
             if (cancelled) return;
-            const offerRows = Array.isArray(offers?.offers) ? offers.offers : [];
+            const offerRows = openInboxOffers(offers);
             const pendingReceipts = Array.isArray(receipts) ? receipts : [];
             const receiptRows = pendingReceipts.filter((row: any) => String(row?.sourceType || '').toLowerCase() === 'payment');
             const requestRows = Array.isArray(inbound) ? inbound : [];

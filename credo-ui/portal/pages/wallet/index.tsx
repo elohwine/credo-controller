@@ -47,7 +47,7 @@ import axios from 'axios';
 import { getPersonalWalletTenantId, getPersonalWalletToken } from '@/utils/portalTenant';
 import { clearCurrentSession } from '@/lib/savedAccounts';
 import { cardLife, readArchivedCardIds, setCardArchived } from '@/lib/cardLife';
-import { formatTxnTime } from '@/lib/inboxAttention';
+import { formatTxnTime, openInboxOffers } from '@/lib/inboxAttention';
 import { CLAIM_LABELS, HIDDEN_CLAIMS, credentialClaimRows, plainStep } from '@/lib/recordCheck';
 import RecordCheckPanel from '@/components/records/RecordCheckPanel';
 import { clearStoredOrganizationContext, getOrgScopedToken, readActiveOrganization } from '@/utils/organizationContext';
@@ -415,7 +415,7 @@ export default function WalletPage() {
         try {
             const [listResponse, pendingResponse] = await Promise.all([
                 axios.get(`${holderBackend}/api/wallet/${encodeURIComponent(org.orgTenantId)}/credentials/list?limit=100`, { headers }),
-                axios.get(`${holderBackend}/api/wallet/credentials/pending-offers?holder=organization`, { headers })
+                axios.get(`${holderBackend}/api/wallet/credentials/pending-offers?holder=organization&status=open`, { headers })
                     .catch(() => ({ data: { offers: [] } })),
             ]);
             const items = listResponse.data?.items || [];
@@ -428,7 +428,7 @@ export default function WalletPage() {
                 ...item,
             })) : []);
             setArchivedIds(readArchivedCardIds());
-            const offers = Array.isArray(pendingResponse.data?.offers) ? pendingResponse.data.offers : [];
+            const offers: any[] = openInboxOffers(pendingResponse.data);
             setOrgPending(offers.filter((offer: any) => /^openid-credential-offer:/i.test(String(offer?.offerUri || ''))));
         } catch (err: any) {
             setCredentials([]);

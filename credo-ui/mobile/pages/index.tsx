@@ -29,7 +29,7 @@ import { friendlyRequestError } from '@/lib/requestError';
 import { getRunningActions, RunningAction } from '@/lib/runningActions';
 import { formatCredentialType } from '@/lib/format';
 import { RECORD_SECTION_LABELS, recordCardTitle, recordSectionOf } from '@/lib/workflowCapabilities';
-import { formatTxnTime } from '@/lib/inboxAttention';
+import { formatTxnTime, openInboxOffers } from '@/lib/inboxAttention';
 import { getFriendlyActivityActionLabel, getFriendlyActivitySummary, offerReplacement, stepRequiredLabel, toFeptStageLabel } from '@/lib/uxCopy';
 import { describeHolderActivity, type HolderActivityEntry } from '@/lib/holderActivity';
 import { nextStepCard, type NextStepItem } from '@/lib/nextSteps';
@@ -450,13 +450,12 @@ export default function HomePage() {
         // Fetch pending counts from existing wallet endpoints.
         if (contextMode === 'personal' && walletToken) {
           const [offersRes, receiptsRes] = await Promise.allSettled([
-            api.get('/api/wallet/credentials/pending-offers', { headers: { Authorization: `Bearer ${walletToken}` } }),
+            api.get('/api/wallet/credentials/pending-offers', { params: { status: 'open' }, headers: { Authorization: `Bearer ${walletToken}` } }),
             api.get('/api/wallet/credentials/pending-receipts', { headers: { Authorization: `Bearer ${walletToken}` } }),
           ]);
 
-          const offers = offersRes.status === 'fulfilled'
-            ? (Array.isArray(offersRes.value.data?.offers) ? offersRes.value.data.offers : (Array.isArray(offersRes.value.data) ? offersRes.value.data : []))
-            : [];
+          // Only items still waiting count; the list also carries finished ones for the Done tab.
+          const offers: any[] = offersRes.status === 'fulfilled' ? openInboxOffers(offersRes.value.data) : [];
           const receipts = receiptsRes.status === 'fulfilled'
             ? (Array.isArray(receiptsRes.value.data?.pendingReceipts) ? receiptsRes.value.data.pendingReceipts :
               Array.isArray(receiptsRes.value.data?.receipts) ? receiptsRes.value.data.receipts : [])

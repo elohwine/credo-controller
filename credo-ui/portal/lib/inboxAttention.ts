@@ -48,6 +48,25 @@ export function inboxAttention(input: {
   return 'new'
 }
 
+/**
+ * A row from the wallet inbox list that still waits for the person. The list also carries
+ * finished items (status `resolved`, kept for the Done window); those never count as waiting.
+ */
+export function isOpenInboxOffer(row: { status?: string; resolvedAt?: string | null } | null | undefined): boolean {
+  if (!row) return false
+  if (row.resolvedAt) return false
+  const status = String(row.status || '')
+    .trim()
+    .toLowerCase()
+  return status !== 'resolved' && status !== 'accepted' && !DONE_STATUSES.has(status)
+}
+
+/** The open rows of a wallet inbox list response (`{ offers }` or a bare array). */
+export function openInboxOffers<T extends { status?: string; resolvedAt?: string | null }>(data: unknown): T[] {
+  const rows = Array.isArray((data as any)?.offers) ? (data as any).offers : Array.isArray(data) ? data : []
+  return (rows as T[]).filter((row) => isOpenInboxOffer(row))
+}
+
 export function matchesInboxAttention(attention: InboxAttention, filter: InboxAttentionFilter): boolean {
   return filter === 'all' || attention === filter
 }

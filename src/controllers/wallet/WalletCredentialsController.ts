@@ -595,7 +595,8 @@ export class WalletCredentialsController extends Controller {
   public async getPendingOffers(
     @Request() request: ExRequest,
     @Query() doneSinceDays?: number,
-  ): Promise<{ offers: PendingOffer[]; doneSinceDays: number }> {
+    @Query() status?: string,
+  ): Promise<{ offers: PendingOffer[]; doneSinceDays: number; counts: { open: number; done: number } }> {
     const baseAgent = container.resolve(Agent as unknown as new (...args: any[]) => Agent<RestMultiTenantAgentModules>)
     const context = this.resolveWalletContext(request)
     // `?holder=organization` with an organisation sign-in reads the organisation's own records
@@ -604,7 +605,7 @@ export class WalletCredentialsController extends Controller {
     if (wantsOrgHolder) {
       // Only the people who run the organisation hold its records.
       if (context.authContext !== AuthContext.Org || !['owner', 'admin'].includes(String(context.orgRole || ''))) {
-        return { offers: [], doneSinceDays: clampDoneDays(doneSinceDays) }
+        return { offers: [], doneSinceDays: clampDoneDays(doneSinceDays), counts: { open: 0, done: 0 } }
       }
     }
     const tenantId = wantsOrgHolder ? context.activeOrgTenantId : context.walletTenantId
@@ -975,13 +976,23 @@ export class WalletCredentialsController extends Controller {
         doneSinceDays === undefined || doneSinceDays === null
           ? inboxPreferenceService.get(context.walletTenantId || tenantId, scope).doneDays
           : clampDoneDays(doneSinceDays)
+      const openCount = offers.length
+      let finished: PendingOffer[] = []
       try {
-        offers.push(...this.finishedOffers(tenantId, windowDays))
+        finished = this.finishedOffers(tenantId, windowDays)
       } catch (finishedErr: any) {
         request.logger?.warn({ err: finishedErr?.message }, 'finished inbox items unavailable')
       }
+      // Counts are the one source for "waiting for you": finished items never count as open.
+      const counts = { open: openCount, done: finished.length }
+      const openOnly = ['open', 'pending'].includes(
+        String(status || '')
+          .trim()
+          .toLowerCase(),
+      )
+      if (!openOnly) offers.push(...finished)
 
-      return { offers, doneSinceDays: windowDays }
+      return { offers, doneSinceDays: windowDays, counts }
     } catch (error: any) {
       request.logger?.error({ err: error.message }, 'Failed to get pending offers')
       throw error

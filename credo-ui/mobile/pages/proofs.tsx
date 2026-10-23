@@ -18,7 +18,7 @@ import CredentialCard from '@/components/shared/CredentialCard';
 import api, { safeArray } from '@/lib/api';
 import { decodeJwtPayload, getPersonalWalletTenantId, getWalletToken } from '@/lib/auth';
 import { credentialClaimRows, credentialIssuerLabel, formatCredentialType, formatDate } from '@/lib/format';
-import { formatTxnTime } from '@/lib/inboxAttention';
+import { formatTxnTime, isOpenInboxOffer } from '@/lib/inboxAttention';
 import {
   RECORD_SECTION_LABELS, RECORD_SECTION_ORDER, recordCardTitle, recordSectionOf, type RecordSectionKey,
 } from '@/lib/workflowCapabilities';
@@ -221,6 +221,7 @@ export default function ProofsPage() {
 
           const [resOffers, resReceipts] = await Promise.all([
             api.get('/api/wallet/credentials/pending-offers', {
+              params: { status: 'open' },
               headers: { Authorization: `Bearer ${personalToken}` },
               skipAuthRedirect: true as any,
             } as any),
@@ -235,6 +236,8 @@ export default function ProofsPage() {
 
           // A job step or an assignment is inbox work, not a record waiting to be kept.
           const recordOffers = offerRows.filter((o: any) => {
+            // Finished items ride along for the inbox Done tab; they are not waiting.
+            if (!isOpenInboxOffer(o)) return false;
             const source = String(o.sourceType || '');
             const type = String(o.credentialType || '');
             return source !== 'workflow_stage_action' && source !== 'workflow_assignment' && type !== 'WorkflowStageAction' && type !== 'FieldTask';
@@ -479,7 +482,11 @@ export default function ProofsPage() {
           {pendingOffers.length > 0 && (
             <Alert color="blue" radius="sm" mb="md" title="Waiting in your inbox">
               <Group justify="space-between" align="center">
-                <Text size="sm">{pendingOffers.length} record{pendingOffers.length !== 1 ? 's are' : ' is'} waiting for you to keep.</Text>
+                <Text size="sm">
+                  {pendingOffers.length === 1
+                    ? `${formatCredentialType(pendingOffers[0].credentialType)}${pendingOffers[0].issuerName ? ` from ${pendingOffers[0].issuerName}` : ''} is waiting for you to keep.`
+                    : `${pendingOffers.length} records are waiting for you to keep.`}
+                </Text>
                 <Button size="xs" variant="light" onClick={() => window.location.assign('/inbox')}>Open Inbox</Button>
               </Group>
             </Alert>

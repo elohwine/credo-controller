@@ -5,6 +5,7 @@ import axios from 'axios'
 import Layout from '@/components/Layout'
 import { getOrgScopedToken, getPersonalToken, readActiveOrganization } from '@/utils/organizationContext'
 import { useRequireOrgContext } from '@/lib/portalContext'
+import { openInboxOffers } from '@/lib/inboxAttention'
 import {
   ActionIcon,
   Alert,
@@ -358,9 +359,10 @@ export default function OrganizationActorsPage() {
     }
     try {
       const res = await axios.get(`${backendUrl}/api/wallet/credentials/pending-offers`, {
+        params: { status: 'open' },
         headers: { Authorization: `Bearer ${walletToken}` },
       })
-      const rows: any[] = Array.isArray(res.data?.offers) ? res.data.offers : Array.isArray(res.data) ? res.data : []
+      const rows: any[] = openInboxOffers(res.data)
       setMyPendingRoleCards(
         rows
           .filter((o) => String(o?.sourceType || '') === 'org_workflow_actor' && o?.offerUri)

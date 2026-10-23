@@ -1,6 +1,8 @@
 import { describe, expect, test } from '@jest/globals'
 
 import {
+  isOpenInboxOffer,
+  openInboxOffers,
   emptyInboxHint,
   finishedItemLine,
   finishedItemStatus,
@@ -112,5 +114,21 @@ describe('finished inbox items', () => {
     expect(emptyInboxHint('opened', 1)).toBe('1 finished item is under Done.')
     expect(emptyInboxHint('done', 3)).toBeNull()
     expect(emptyInboxHint('new', 0)).toBeNull()
+  })
+})
+
+describe('open inbox offers', () => {
+  test('accepted or resolved offers never count as waiting', () => {
+    expect(isOpenInboxOffer({ status: 'pending' })).toBe(true)
+    expect(isOpenInboxOffer({ status: 'resolved' })).toBe(false)
+    expect(isOpenInboxOffer({ status: 'accepted' })).toBe(false)
+    expect(isOpenInboxOffer({ status: 'pending', resolvedAt: '2026-01-01T00:00:00Z' })).toBe(false)
+  })
+
+  test('openInboxOffers accepts the API envelope or a plain array', () => {
+    const rows = [{ id: 'a', status: 'pending' }, { id: 'b', status: 'resolved' }]
+    expect(openInboxOffers({ offers: rows }).map((r: any) => r.id)).toEqual(['a'])
+    expect(openInboxOffers(rows).map((r: any) => r.id)).toEqual(['a'])
+    expect(openInboxOffers(null)).toEqual([])
   })
 })
