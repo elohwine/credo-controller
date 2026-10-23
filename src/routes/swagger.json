@@ -28641,12 +28641,16 @@
                     "name": {
                       "type": "string"
                     },
+                    "tenantId": {
+                      "type": "string"
+                    },
                     "token": {
                       "type": "string"
                     }
                   },
                   "required": [
                     "name",
+                    "tenantId",
                     "token"
                   ],
                   "type": "object"

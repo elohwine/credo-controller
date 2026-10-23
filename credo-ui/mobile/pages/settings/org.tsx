@@ -369,10 +369,13 @@ export default function OrgSettingsPage() {
   const [storePaymentRails, setStorePaymentRails] = useState<string[]>([]);
 
   // Member management
-  const [memberList, setMemberList] = useState<Array<{ userId: string; role: string; walletTenantId?: string; status: string; displayName?: string; phone?: string }>>([]);
+  const [memberList, setMemberList] = useState<Array<{ userId: string; role: string; walletTenantId?: string; status: string; displayName?: string; phone?: string; invitePending?: boolean }>>([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [invitePhone, setInvitePhone] = useState('');
+  const [inviteName, setInviteName] = useState('');
+  const [inviteWhatsApp, setInviteWhatsApp] = useState(true);
+  const [resendingInvite, setResendingInvite] = useState<string | null>(null);
   const [inviteRole, setInviteRole] = useState<string | null>('field_worker');
   const [teamRoleChoices, setTeamRoleChoices] = useState(TEAM_ROLE_FALLBACK);
   const [inviting, setInviting] = useState(false);
@@ -449,14 +452,38 @@ export default function OrgSettingsPage() {
     return payload?.id ? String(payload.id) : null;
   }, [activeId]);
 
+  const showInviteResult = (data: any, who?: string) => {
+    if (data?.invite?.channel === 'link' && data.invite.link) {
+      void navigator.clipboard?.writeText(data.invite.link).catch(() => undefined);
+      notifications.show({ title: 'Give them this link', message: `${data.message} Copied: ${data.invite.link}`, color: 'orange', autoClose: false });
+      return;
+    }
+    notifications.show({ title: who ? `${who} invited` : 'Invite sent', message: data?.message || 'They are on the team.', color: data?.invite?.channel === 'none' ? 'orange' : 'green' });
+  };
+
+  const resendInvite = async (userId: string) => {
+    const token = getPreferredToken();
+    if (!token || !activeId) return;
+    setResendingInvite(userId);
+    try {
+      const res = await api.post(`/api/organizations/${activeId}/members/${userId}/resend-invite`, {}, { headers: { Authorization: 'Bearer ' + token } });
+      showInviteResult(res.data);
+      void fetchMembers(activeId);
+    } catch (err: any) {
+      notifications.show({ title: 'Could not resend', message: err.response?.data?.message ?? err.message, color: 'red' });
+    } finally {
+      setResendingInvite(null);
+    }
+  };
+
   const handleInviteMember = async () => {
     const token = getPreferredToken();
-    if (!token || !activeId || !invitePhone.trim()) return;
+    if (!token || !activeId || !invitePhone.trim() || inviteName.trim().length < 2) return;
     setInviting(true);
     try {
-      const res = await api.post(`/api/organizations/${activeId}/members/invite`, { phone: invitePhone.trim(), role: inviteRole || 'member' }, { headers: { Authorization: `Bearer ${token}` } });
-      notifications.show({ title: 'On the team', message: res.data?.message || `${invitePhone.trim()} is on the team.`, color: 'green' });
-      setInvitePhone(''); setShowInvite(false);
+      const res = await api.post(`/api/organizations/${activeId}/members/invite`, { phone: invitePhone.trim(), name: inviteName.trim(), role: inviteRole || 'member', whatsappConsent: inviteWhatsApp }, { headers: { Authorization: `Bearer ${token}` } });
+      showInviteResult(res.data, inviteName.trim());
+      setInvitePhone(''); setInviteName(''); setShowInvite(false);
       void fetchMembers(activeId);
     } catch (err: any) {
       notifications.show({ title: 'Invite failed', message: err.response?.data?.message ?? err.message, color: 'red' });
@@ -2216,11 +2243,13 @@ export default function OrgSettingsPage() {
                 <Collapse in={showInvite && canManageOrgSetup}>
                   <Paper p="sm" radius="sm" withBorder>
                     <Stack gap="xs">
-                      <TextInput label="Phone number" description="If they do not have an account yet, we open one and message them. They choose their own PIN." placeholder="+263..." value={invitePhone} onChange={(e) => setInvitePhone(e.target.value)} size="xs" />
+                      <TextInput label="Their name" description="They confirm or correct it when they open their invite." placeholder="e.g. Rudo Moyo" value={inviteName} onChange={(e) => setInviteName(e.target.value)} size="xs" required />
+                      <TextInput label="Phone number" description="They get a one-time link on this number to choose their own PIN." placeholder="+263..." value={invitePhone} onChange={(e) => setInvitePhone(e.target.value)} size="xs" required />
+                      <Checkbox size="xs" checked={inviteWhatsApp} onChange={(e) => setInviteWhatsApp(e.currentTarget.checked)} label="They agreed to get the invite on WhatsApp" description="Otherwise we send a text message." />
                       <Select label="Role" description="These follow the answers from setup." size="xs" value={inviteRole} onChange={setInviteRole} data={teamRoleChoices} />
                       <Group justify="flex-end">
                         <Button size="xs" variant="subtle" onClick={() => setShowInvite(false)}>Cancel</Button>
-                        <Button size="xs" loading={inviting} disabled={!invitePhone.trim()} onClick={handleInviteMember}>Send Invite</Button>
+                        <Button size="xs" loading={inviting} disabled={!invitePhone.trim() || inviteName.trim().length < 2} onClick={handleInviteMember}>Send Invite</Button>
                       </Group>
                     </Stack>
                   </Paper>
@@ -2264,7 +2293,11 @@ export default function OrgSettingsPage() {
                                 <Badge size="xs" variant="light" color="indigo">{ROLE_LABELS[m.role] || humanizeKey(m.role)}</Badge>
                               )}
                               <Badge size="xs" variant="outline" color={memberAccessBadge(m.role).color}>{memberAccessBadge(m.role).label}</Badge>
-                              {m.walletTenantId && <Badge size="xs" variant="dot" color="teal">App installed</Badge>}
+                              {m.walletTenantId && !m.invitePending && <Badge size="xs" variant="dot" color="teal">App installed</Badge>}
+                              {m.invitePending && <Badge size="xs" variant="light" color="orange">Invite not opened</Badge>}
+                              {m.invitePending && canManageOrgSetup && (
+                                <Button size="compact-xs" variant="subtle" loading={resendingInvite === m.userId} onClick={() => void resendInvite(m.userId)}>Resend invite</Button>
+                              )}
                               <Badge size="xs" variant="light" color={m.status === 'active' ? 'green' : 'gray'}>{m.status === 'active' ? 'Active' : m.status === 'suspended' ? 'Suspended' : 'Invited'}</Badge>
                             </Group>
                           </Box>

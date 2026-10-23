@@ -253,10 +253,11 @@ export class WalletAuthController extends Controller {
 
   /** The invited person confirms their name and chooses their own PIN, then is signed in. */
   @Post('/invite/accept')
-  public async acceptInvite(@Body() body: AcceptInviteRequest): Promise<{ token: string; name: string }> {
+  public async acceptInvite(
+    @Body() body: AcceptInviteRequest,
+  ): Promise<{ token: string; tenantId: string; name: string }> {
     try {
-      const result = await this.ssiAuthService.acceptInvite(body)
-      return { token: result.token, name: result.name }
+      return await this.ssiAuthService.acceptInvite(body)
     } catch (e: any) {
       const message = String(e?.message || 'Could not accept the invite')
       if (/expired|replaced/.test(message)) throw new StatusException(message, 404)

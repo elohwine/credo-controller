@@ -8,6 +8,7 @@ import {
   Box,
   Button,
   Card,
+  Checkbox,
   Container,
   Divider,
   Group,
@@ -54,6 +55,7 @@ interface OrgMember {
   createdAt: string
   displayName?: string
   phone?: string
+  invitePending?: boolean
 }
 
 
@@ -70,6 +72,8 @@ export default function OrganizationPeoplePage() {
   const [invitePhone, setInvitePhone] = useState('')
   const [inviteName, setInviteName] = useState('')
   const [inviteRole, setInviteRole] = useState<string>('member')
+  const [inviteWhatsApp, setInviteWhatsApp] = useState(true)
+  const [resendingInvite, setResendingInvite] = useState<string | null>(null)
   const [inviting, setInviting] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
   const [changingRole, setChangingRole] = useState<string | null>(null)
@@ -219,22 +223,50 @@ export default function OrganizationPeoplePage() {
     }
   }
 
+  const showInviteResult = async (invite: { channel?: string; link?: string } | undefined, message: string, title: string) => {
+    if (invite?.channel === 'link' && invite.link) {
+      const copied = await navigator.clipboard?.writeText(invite.link).then(() => true).catch(() => false)
+      notifications.show({
+        title,
+        message: `${message} ${copied ? 'The invite link is copied. Send it to them yourself.' : `Send them this link: ${invite.link}`}`,
+        color: 'orange',
+        autoClose: false,
+      })
+      return
+    }
+    notifications.show({ title, message, color: 'green', icon: <IconCheck size={16} /> })
+  }
+
+  const handleResendInvite = async (userId: string) => {
+    const token = getToken()
+    if (!token || !orgTenantId) return
+    setResendingInvite(userId)
+    try {
+      const res = await axios.post(
+        `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}/members/${encodeURIComponent(userId)}/resend-invite`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      await showInviteResult(res.data?.invite, res.data?.message || 'Invite sent again', 'Invite sent')
+      void loadMembers()
+    } catch (err: any) {
+      notifications.show({ title: 'Could not resend', message: err?.response?.data?.message || err?.message, color: 'red' })
+    } finally {
+      setResendingInvite(null)
+    }
+  }
+
   const handleInvite = async () => {
     const token = getToken()
-    if (!token || !orgTenantId || !invitePhone.trim()) return
+    if (!token || !orgTenantId || !invitePhone.trim() || inviteName.trim().length < 2) return
     setInviting(true)
     try {
       const res = await axios.post(
         `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}/members/invite`,
-        { phone: invitePhone.trim(), role: inviteRole, ...(inviteName.trim() ? { name: inviteName.trim() } : {}) },
+        { phone: invitePhone.trim(), role: inviteRole, name: inviteName.trim(), whatsappConsent: inviteWhatsApp },
         { headers: { Authorization: `Bearer ${token}` } },
       )
-      notifications.show({
-        title: 'On the team',
-        message: res.data?.message || invitePhone.trim(),
-        color: 'green',
-        icon: <IconCheck size={16} />,
-      })
+      await showInviteResult(res.data?.invite, res.data?.message || invitePhone.trim(), 'On the team')
       setInvitePhone('')
       setInviteName('')
       setInviteOpen(false)
@@ -405,6 +437,20 @@ export default function OrganizationPeoplePage() {
                           >
                             {m.status === 'active' ? 'Active' : m.status === 'suspended' ? 'Suspended' : 'Invited'}
                           </Badge>
+                          {m.invitePending && (
+                            <Stack gap={2} mt={4} align="flex-start">
+                              <Badge size="xs" variant="light" color="orange">Invite not opened</Badge>
+                              <Button
+                                size="compact-xs"
+                                variant="subtle"
+                                leftSection={<IconSend size={12} />}
+                                loading={resendingInvite === m.userId}
+                                onClick={() => void handleResendInvite(m.userId)}
+                              >
+                                Resend invite
+                              </Button>
+                            </Stack>
+                          )}
                         </Table.Td>
                         <Table.Td>
                           {ob ? (
@@ -484,7 +530,7 @@ export default function OrganizationPeoplePage() {
         <Stack gap="md">
           <TextInput
             label="Phone number"
-            description="If they do not have an account yet, we open one and message them. They choose their own PIN the first time they sign in."
+            description="We send them a one-time link. They confirm their name and choose their own PIN. Nobody else knows it."
             placeholder="0774 123 456"
             value={invitePhone}
             onChange={(e) => setInvitePhone(e.currentTarget.value)}
@@ -492,10 +538,17 @@ export default function OrganizationPeoplePage() {
           />
           <TextInput
             label="Name"
-            description="What the team calls them. Their own name replaces it once they add it in the app."
+            description="They see this name when they open the invite and can correct it."
             placeholder="Tendai Moyo"
             value={inviteName}
             onChange={(e) => setInviteName(e.currentTarget.value)}
+            required
+          />
+          <Checkbox
+            label="They agreed to get the invite on WhatsApp"
+            description="Otherwise we send it by SMS, or give you the link to pass on."
+            checked={inviteWhatsApp}
+            onChange={(e) => setInviteWhatsApp(e.currentTarget.checked)}
           />
           <Select
             label="Role"
@@ -508,7 +561,7 @@ export default function OrganizationPeoplePage() {
             <Button variant="default" onClick={() => setInviteOpen(false)}>Cancel</Button>
             <Button
               loading={inviting}
-              disabled={!invitePhone.trim()}
+              disabled={!invitePhone.trim() || inviteName.trim().length < 2}
               onClick={handleInvite}
               leftSection={<IconPlus size={14} />}
             >
