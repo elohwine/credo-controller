@@ -211,10 +211,76 @@ describe('run endpoint access before read, replay or mutation', () => {
     expect(resume).toHaveBeenCalledTimes(1)
   })
 
+  test('work review uses the owner stand-in rather than implicitly authorising the worker', async () => {
+    const { app, run, org, worker } = fixture('await_completion_review')
+    const resume = jest.spyOn(workflowService, 'resumeWorkflow').mockResolvedValue({ runId: run.id, status: 'paused' })
+    await request(app)
+      .post(`/runs/${run.id}/resume`)
+      .set('x-test-user', worker)
+      .set('x-test-tenant', org.orgTenantId)
+      .send({ completionReview: { outcome: 'approved' } })
+      .expect(403)
+    expect(resume).not.toHaveBeenCalled()
+    await request(app)
+      .post(`/runs/${run.id}/resume`)
+      .set('x-test-user', org.ownerUserId)
+      .set('x-test-tenant', org.orgTenantId)
+      .send({ completionReview: { outcome: 'approved' } })
+      .expect(200)
+    expect(resume).toHaveBeenCalledTimes(1)
+  })
+
+  test('an explicitly named worker may still review their job', async () => {
+    const { app, run, org, worker } = fixture('await_completion_review')
+    orgWorkflowActorService.upsertDefault({
+      orgTenantId: org.orgTenantId,
+      workflowType: 'field_execution_fept',
+      stageAction: 'review_completion',
+      defaultUserId: worker,
+    })
+    const resume = jest.spyOn(workflowService, 'resumeWorkflow').mockResolvedValue({ runId: run.id, status: 'paused' })
+    await request(app)
+      .post(`/runs/${run.id}/resume`)
+      .set('x-test-user', worker)
+      .set('x-test-tenant', org.orgTenantId)
+      .send({ completionReview: { outcome: 'approved' } })
+      .expect(200)
+    expect(resume).toHaveBeenCalledTimes(1)
+  })
+
+  test('a reviewer chosen by wallet can complete exactly the task routed to that wallet', async () => {
+    const { app, run, org, worker, former: reviewer } = fixture('await_completion_review')
+    orgWorkflowActorService.upsertDefault({
+      orgTenantId: org.orgTenantId,
+      workflowType: 'field_execution_fept',
+      stageAction: 'review_completion',
+      defaultWalletTenantId: `wallet-${reviewer}`,
+    })
+    const resume = jest.spyOn(workflowService, 'resumeWorkflow').mockResolvedValue({ runId: run.id, status: 'paused' })
+    await request(app)
+      .post(`/runs/${run.id}/resume`)
+      .set('x-test-user', worker)
+      .set('x-test-tenant', org.orgTenantId)
+      .send({ completionReview: { outcome: 'approved' } })
+      .expect(403)
+    await request(app)
+      .post(`/runs/${run.id}/resume`)
+      .set('x-test-user', reviewer)
+      .set('x-test-tenant', org.orgTenantId)
+      .send({ completionReview: { outcome: 'approved' } })
+      .expect(200)
+    expect(resume).toHaveBeenCalledTimes(1)
+  })
+
   test('the assigned worker still inspects when the organisation has a supervisor but named nobody', async () => {
     const { app, run, org, worker } = fixture('await_site_inspection')
     const supervisor = `supervisor-${run.id}`
-    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, userId: supervisor, role: 'supervisor' })
+    addMember({
+      orgTenantId: org.orgTenantId,
+      organizationId: org.organizationId,
+      userId: supervisor,
+      role: 'supervisor',
+    })
     const resume = jest.spyOn(workflowService, 'resumeWorkflow').mockResolvedValue({ runId: run.id, status: 'paused' })
     await request(app)
       .post(`/runs/${run.id}/resume`)

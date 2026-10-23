@@ -911,10 +911,13 @@ export class OrgWorkflowActorService {
     if (resolved.userId && normalizeId(resolved.userId) === userId) {
       return { allowed: true, why: OrgWorkflowActorService.resolvedByRole(resolved) ? 'role' : 'configured' }
     }
+    const member = findMemberByUserId(this.db, normalizeId(input.orgTenantId), userId)
+    if (resolved.walletTenantId && member?.walletTenantId === resolved.walletTenantId) {
+      return { allowed: true, why: 'configured' }
+    }
     if (this.roleStandIns(input.orgTenantId, resolved).some((member) => normalizeId(member.userId) === userId)) {
       return { allowed: true, why: 'role' }
     }
-    const member = findMemberByUserId(this.db, normalizeId(input.orgTenantId), userId)
     if (member && OWNER_FALLBACK.includes(normalize(member.role))) return { allowed: true, why: 'admin' }
     return { allowed: false }
   }

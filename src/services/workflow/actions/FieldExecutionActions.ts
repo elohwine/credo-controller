@@ -589,9 +589,10 @@ export class FieldExecutionActions {
           `UPDATE wallet_pending_offers SET resolved_at = ?
          WHERE issuer_tenant_id = ? AND workflow_run_id = ? AND source_type = 'workflow_stage_action'
            AND json_extract(metadata, '$.continuation') = 1
-           AND COALESCE(json_extract(metadata, '$.pauseReason'), '') <> ? AND resolved_at IS NULL`,
+           AND (COALESCE(json_extract(metadata, '$.pauseReason'), '') <> ? OR ? = 0)
+           AND resolved_at IS NULL`,
         )
-        .run(new Date().toISOString(), context.tenantId, context.runId, reason)
+        .run(new Date().toISOString(), context.tenantId, context.runId, reason, workerStage ? 1 : 0)
       if (workerStage) {
         routeWorkflowStageInbox({
           orgTenantId: context.tenantId,
@@ -666,21 +667,24 @@ export class FieldExecutionActions {
     }
   }
 
-  /** True when the person chosen for a step is the assigned worker (or nobody is chosen). */
+  /** An unconfigured site inspection stays with the worker; review follows the resolved reviewer. */
   private static stageActorIsWorker(context: WorkflowActionContext, stageAction: string): boolean {
     const assigneeId = String(context.state.assignment?.assigneeId || context.input?.assigneeId || '')
-    try {
-      const actor = orgWorkflowActorService.resolveActor({
-        orgTenantId: context.tenantId,
-        workflowType: 'field_execution_fept',
-        stageAction,
-      })
-      if (actor.mode === 'owner_fallback' || actor.mode === 'unassigned') return true
-      if (!actor.userId && !actor.walletTenantId) return true
-      return Boolean(actor.userId) && actor.userId === assigneeId
-    } catch {
+    const actor = orgWorkflowActorService.resolveActor({
+      orgTenantId: context.tenantId,
+      workflowType: 'field_execution_fept',
+      stageAction,
+    })
+    if (stageAction === 'inspect_site' && (actor.mode === 'owner_fallback' || actor.mode === 'unassigned')) {
       return true
     }
+    if (!assigneeId) return false
+    if (actor.userId) return actor.userId === assigneeId
+    if (!actor.walletTenantId) return false
+    const worker = DatabaseManager.getDatabase()
+      .prepare('SELECT tenant_id FROM ssi_users WHERE id = ?')
+      .get(assigneeId) as { tenant_id: string } | undefined
+    return worker?.tenant_id === actor.walletTenantId
   }
 
   /** Close open stage cards for a run (optionally one specific card source). */

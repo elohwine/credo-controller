@@ -1,4 +1,5 @@
 import 'reflect-metadata'
+import { createHash } from 'crypto'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, jest, test } from '@jest/globals'
 import express from 'express'
 import request from 'supertest'
@@ -13,6 +14,8 @@ import { workflowService } from '../src/services/WorkflowService'
 import { notificationService } from '../src/services/NotificationService'
 import { credentialIssuanceService } from '../src/services/CredentialIssuanceService'
 import { orgWorkflowActorCredentialService } from '../src/services/OrgWorkflowActorCredentialService'
+import { orgWorkflowActorService } from '../src/services/OrgWorkflowActorService'
+import { whatsAppSenderService } from '../src/services/WhatsAppSenderService'
 import { workflowVcOfferDispatcher } from '../src/services/workflow/WorkflowVcOfferDispatcher'
 import { FieldExecutionActions } from '../src/services/workflow/actions/FieldExecutionActions'
 import { ClientPaymentActions } from '../src/services/workflow/actions/ClientPaymentActions'
@@ -80,7 +83,12 @@ describe('truthful portal/mobile progress, history and tables', () => {
   })
 
   test('Job created step in History notes the client source documents logged at intake', () => {
-    const run = (input: Record<string, unknown>) => ({ id: 'r1', status: 'running', input, output: { workflowInput: input } })
+    const run = (input: Record<string, unknown>) => ({
+      id: 'r1',
+      status: 'running',
+      input,
+      output: { workflowInput: input },
+    })
     const withDocs = run({ jobIntakeId: 'in-1', problemType: 'Leak', sourceAttachments: [{ id: 'a' }, { id: 'b' }] })
     for (const build of [portalHistory, mobileHistory]) {
       const created = build(withDocs, []).steps.find((step) => step.id === 'created')
@@ -298,6 +306,142 @@ describe('current same-tenant billing projection', () => {
 })
 
 describe('continuation routing', () => {
+  function reviewFixture() {
+    const org = seedOrganization()
+    const worker = `worker-${org.orgTenantId}`
+    addMember({ ...org, userId: worker, role: 'field_worker' })
+    const context: WorkflowActionContext = {
+      workflowId: 'field',
+      workflowType: 'field_execution_fept',
+      tenantId: org.orgTenantId,
+      runId: `run-${org.orgTenantId}`,
+      input: { reference: 'FR-REVIEW', assigneeId: worker },
+      state: { assignment: { assigneeId: worker }, workflowStage: 'EVIDENCE_CAPTURED' },
+    }
+    const cards = () =>
+      DatabaseManager.getDatabase()
+        .prepare(
+          `SELECT id, tenant_id, source_id, metadata FROM wallet_pending_offers
+       WHERE issuer_tenant_id = ? AND source_type = 'workflow_stage_action' AND resolved_at IS NULL`,
+        )
+        .all(org.orgTenantId) as Array<{ id: string; tenant_id: string; source_id: string; metadata: string }>
+    return { org, worker, context, cards }
+  }
+
+  test('work review goes to the owner stand-in and queues their opted-in WhatsApp, not the worker', async () => {
+    const { org, worker, context, cards } = reviewFixture()
+    const db = DatabaseManager.getDatabase()
+    const phone = '263771000099'
+    db.prepare('UPDATE ssi_users SET phone_hash = ? WHERE id = ?').run(
+      createHash('sha256').update(phone).digest('hex'),
+      org.ownerUserId,
+    )
+    notificationService.setPreference({
+      tenantId: `wallet-${org.ownerUserId}`,
+      userId: org.ownerUserId,
+      phone,
+      eventType: 'task',
+      enabled: true,
+    })
+    jest.spyOn(whatsAppSenderService, 'selection').mockReturnValue({ mode: 'platform', enabled: true, templates: {} })
+    await expect(FieldExecutionActions.pause(context, { reason: 'await_completion_review' })).rejects.toThrow(
+      'WORKFLOW_PAUSE',
+    )
+    const current = cards()
+    expect(current).toHaveLength(1)
+    expect(current[0].tenant_id).toBe(`wallet-${org.ownerUserId}`)
+    expect(current[0].tenant_id).not.toBe(`wallet-${worker}`)
+    expect(JSON.parse(current[0].metadata)).toMatchObject({
+      stageAction: 'review_completion',
+      pauseReason: 'await_completion_review',
+    })
+    const intent = db
+      .prepare("SELECT id, payload FROM integration_outbox WHERE topic = 'wallet.vc.offered' AND aggregate_key = ?")
+      .get(current[0].tenant_id) as { id: string; payload: string }
+    notificationService.queueInboxNotification(intent.id, JSON.parse(intent.payload))
+    const delivery = db
+      .prepare('SELECT event_type, recipient, status FROM notification_deliveries WHERE tenant_id = ?')
+      .all(org.orgTenantId)
+    expect(delivery).toEqual([{ event_type: 'task', recipient: phone, status: 'queued' }])
+    const whatsapp = db
+      .prepare("SELECT payload FROM integration_outbox WHERE topic = 'notification.whatsapp' AND aggregate_key = ?")
+      .get(org.orgTenantId) as { payload: string }
+    expect(JSON.parse(whatsapp.payload)).toMatchObject({
+      tenantId: org.orgTenantId,
+      eventType: 'task',
+      to: phone,
+      inboxItemId: current[0].id,
+    })
+  })
+
+  test('a named reviewer gets one review card on replay and does not notify the worker', async () => {
+    const { org, context, cards } = reviewFixture()
+    const reviewer = `reviewer-${org.orgTenantId}`
+    addMember({ ...org, userId: reviewer, role: 'supervisor' })
+    orgWorkflowActorService.upsertDefault({
+      orgTenantId: org.orgTenantId,
+      workflowType: 'field_execution_fept',
+      stageAction: 'review_completion',
+      defaultUserId: reviewer,
+    })
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(FieldExecutionActions.pause(context, { reason: 'await_completion_review' })).rejects.toThrow(
+        'WORKFLOW_PAUSE',
+      )
+    }
+    expect(cards()).toHaveLength(1)
+    expect(cards()[0].tenant_id).toBe(`wallet-${reviewer}`)
+  })
+
+  test('a reviewer configured as the worker wallet retains the continuation path', async () => {
+    const { org, worker, context, cards } = reviewFixture()
+    orgWorkflowActorService.upsertDefault({
+      orgTenantId: org.orgTenantId,
+      workflowType: 'field_execution_fept',
+      stageAction: 'review_completion',
+      defaultWalletTenantId: `wallet-${worker}`,
+    })
+    await expect(FieldExecutionActions.pause(context, { reason: 'await_completion_review' })).rejects.toThrow(
+      'WORKFLOW_PAUSE',
+    )
+    expect(cards()).toHaveLength(1)
+    expect(cards()[0].tenant_id).toBe(`wallet-${worker}`)
+    expect(JSON.parse(cards()[0].metadata)).toMatchObject({ continuation: true, stageAction: 'review_completion' })
+  })
+
+  test('an explicitly unassigned review is not silently given to the worker', async () => {
+    const { org, context, cards } = reviewFixture()
+    orgWorkflowActorService.savePolicy(org.orgTenantId, { ownerFallbackEnabled: false })
+    await expect(FieldExecutionActions.pause(context, { reason: 'await_completion_review' })).rejects.toThrow(
+      'WORKFLOW_PAUSE',
+    )
+    expect(cards()).toHaveLength(0)
+  })
+
+  test('rerouting closes the legacy worker review continuation before writing the correct reviewer card', async () => {
+    const { org, worker, context, cards } = reviewFixture()
+    const db = DatabaseManager.getDatabase()
+    db.prepare(
+      `INSERT INTO wallet_pending_offers
+       (id, tenant_id, issuer_tenant_id, source_type, source_id, credential_type, offer_uri, workflow_run_id, metadata)
+       VALUES ('legacy-worker-review', ?, ?, 'workflow_stage_action', ?, 'WorkflowStageAction', 'platform-request://legacy', ?, ?)`,
+    ).run(
+      `wallet-${worker}`,
+      org.orgTenantId,
+      `${context.runId}:stage:await_completion_review`,
+      context.runId,
+      JSON.stringify({ continuation: true, pauseReason: 'await_completion_review' }),
+    )
+    await expect(FieldExecutionActions.pause(context, { reason: 'await_completion_review' })).rejects.toThrow(
+      'WORKFLOW_PAUSE',
+    )
+    expect(cards()).toHaveLength(1)
+    expect(cards()[0].tenant_id).toBe(`wallet-${org.ownerUserId}`)
+    expect(db.prepare("SELECT resolved_at FROM wallet_pending_offers WHERE id = 'legacy-worker-review'").get()).toEqual(
+      { resolved_at: expect.any(String) },
+    )
+  })
+
   test('keeps the same job, updates the action, resolves old tasks, and is retry-safe', async () => {
     const org = seedOrganization()
     const worker = `worker-${org.orgTenantId}`

@@ -190,8 +190,11 @@ export function assertRunResume(user: { id?: string; tenantId?: string } | undef
       workflowType: 'field_execution_fept',
       stageAction: checkpoint.stageAction,
     })
-    // The existing job flow assigns an unconfigured inspection/review to its worker.
-    const namedUserId = actor.mode === 'owner_fallback' || actor.mode === 'unassigned' ? worker : undefined
+    // Only site inspection uses the implicit worker; work review follows the organisation's actor.
+    const namedUserId =
+      checkpoint.stageAction === 'inspect_site' && (actor.mode === 'owner_fallback' || actor.mode === 'unassigned')
+        ? worker
+        : undefined
     if (
       orgWorkflowActorService.mayAct({
         orgTenantId: run.tenantId,

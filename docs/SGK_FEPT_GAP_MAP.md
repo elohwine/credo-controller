@@ -165,6 +165,11 @@ so the completed step is not briefly shown again. Checkpoints such as arrival an
 also keep a saved/loading state until the refreshed job is ready. If saving succeeds but loading
 fails, **Load next step** retries only the read; it does not submit the evidence or checkpoint again.
 
+Work review uses the organisation's resolved `review_completion` actor, including the owner/admin
+stand-in when nobody was explicitly chosen. It is not silently reassigned to the worker. The
+reviewer's personal inbox card drives WhatsApp delivery when that reviewer opted in to task alerts.
+The existing worker fallback for an unconfigured site inspection is unchanged.
+
 Field-service practice and the SSI direction agree on the same shape: proof is captured at the moment
 of the work, not assembled afterwards. The phone app now follows that:
 
