@@ -17,6 +17,12 @@
 		reverse_proxy 127.0.0.1:3000
 	}
 
+	# Invite landing for WhatsApp/SMS links; served by the Credo API, ahead of the vclogin /login/* route.
+	@join path /login/join
+	handle @join {
+		reverse_proxy 127.0.0.1:3000
+	}
+
 	# Ory Hydra public (OIDC issuer). Must stay ahead of the Credo catch-all.
 	@hydra path /.well-known /.well-known/* /oauth2 /oauth2/* /userinfo /userinfo/*
 	handle @hydra {
