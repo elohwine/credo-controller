@@ -34,6 +34,7 @@ import type {
   SendMemberCardsKind,
   SendMemberCardsResult,
 } from '../../services/OrgMemberOnboardingService'
+import type { OrgSetupBootstrapRequest, OrgSetupBootstrapResult } from '../../services/OrgSetupBootstrap'
 import type { OrgSetupProfile, OrgSetupProfileInput } from '../../services/OrgSetupProfileService'
 import type { TemplateReadinessReport } from '../../services/WorkflowReadinessService'
 import type { SectorType, WorkflowTemplateDefinition } from '../../types/WorkflowTemplate'
@@ -972,6 +973,41 @@ export class OrganizationController extends Controller {
       if (error.message.includes('Only org owners/admins')) {
         this.setStatus(403)
         throw new StatusException('Only the owner or an admin can change these answers', 403)
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Set up the organisation from the setup answers in one step: answers, teams, roles,
+   * who handles money and payments. Send `dryRun: true` for the review screen; nothing is saved.
+   */
+  @Post('/{orgTenantId}/setup/bootstrap')
+  @Security('jwt')
+  public async bootstrapSetup(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Body() body: OrgSetupBootstrapRequest,
+  ): Promise<OrgSetupBootstrapResult> {
+    const user = (request as any).user
+    if (!user?.id) {
+      this.setStatus(401)
+      throw new StatusException('Unauthorized', 401)
+    }
+    try {
+      return await this.orgService.bootstrapOrganizationSetup(user.id, orgTenantId, body || {})
+    } catch (error: any) {
+      if (error instanceof StatusException) {
+        this.setStatus(error.status)
+        throw error
+      }
+      if (error.message?.includes('Not a member')) {
+        this.setStatus(403)
+        throw new StatusException('Not a member of this organization', 403)
+      }
+      if (error.message?.includes('Only org owners/admins')) {
+        this.setStatus(403)
+        throw new StatusException('Only the owner or an admin can set up the organisation', 403)
       }
       throw error
     }

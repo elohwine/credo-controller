@@ -1578,6 +1578,64 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "DepartmentPlanStatus": {
+        "dataType": "refAlias",
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["existing"]},{"dataType":"enum","enums":["new"]},{"dataType":"enum","enums":["restored"]}],"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "DepartmentPlanItem": {
+        "dataType": "refObject",
+        "properties": {
+            "name": {"dataType":"string","required":true},
+            "status": {"ref":"DepartmentPlanStatus","required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "OrgSetupBootstrapRole": {
+        "dataType": "refObject",
+        "properties": {
+            "name": {"dataType":"string","required":true},
+            "membershipRole": {"dataType":"string","required":true},
+            "status": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["existing"]},{"dataType":"enum","enums":["new"]}],"required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "OrgSetupBootstrapResult": {
+        "dataType": "refObject",
+        "properties": {
+            "applied": {"dataType":"boolean","required":true},
+            "departments": {"dataType":"array","array":{"dataType":"refObject","ref":"DepartmentPlanItem"},"required":true},
+            "suggestedDepartments": {"dataType":"array","array":{"dataType":"string"},"required":true},
+            "roles": {"dataType":"array","array":{"dataType":"refObject","ref":"OrgSetupBootstrapRole"},"required":true},
+            "money": {"dataType":"nestedObjectLiteral","nestedProperties":{"releases":{"dataType":"string"},"financeConfirms":{"dataType":"string"},"approves":{"dataType":"string"},"title":{"dataType":"string"},"presetId":{"dataType":"string"},"keepCurrent":{"dataType":"boolean","required":true}},"required":true},
+            "workAreas": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"included":{"dataType":"boolean","required":true},"opens":{"dataType":"string","required":true},"label":{"dataType":"string","required":true},"id":{"dataType":"string","required":true}}},"required":true},
+            "payment": {"dataType":"nestedObjectLiteral","nestedProperties":{"name":{"dataType":"string"},"method":{"dataType":"string"}},"required":true},
+            "askedOnFirstUse": {"dataType":"array","array":{"dataType":"string"},"required":true},
+            "profile": {"ref":"OrgSetupProfile"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "OrgSetupBootstrapRequest": {
+        "dataType": "refObject",
+        "properties": {
+            "operatingModel": {"ref":"OrgOperatingModel"},
+            "expectedRevision": {"dataType":"double"},
+            "kinds": {"dataType":"array","array":{"dataType":"string"}},
+            "modules": {"dataType":"array","array":{"dataType":"string"}},
+            "approvalPresetId": {"dataType":"string"},
+            "approvalTitle": {"dataType":"string"},
+            "paymentChoice": {"dataType":"string"},
+            "staffCardChange": {"dataType":"string"},
+            "departments": {"dataType":"array","array":{"dataType":"string"}},
+            "moneyPresetId": {"dataType":"string"},
+            "dryRun": {"dataType":"boolean"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "OrganizationSetupRequirement": {
         "dataType": "refAlias",
         "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["mandatory"]},{"dataType":"enum","enums":["conditional"]},{"dataType":"enum","enums":["recommended"]}],"validators":{}},
@@ -8975,6 +9033,44 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'saveSetupProfile',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOrganizationController_bootstrapSetup: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                orgTenantId: {"in":"path","name":"orgTenantId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"ref":"OrgSetupBootstrapRequest"},
+        };
+        app.post('/api/organizations/:orgTenantId/setup/bootstrap',
+            authenticateMiddleware([{"jwt":[]}]),
+            ...(fetchMiddlewares<RequestHandler>(OrganizationController)),
+            ...(fetchMiddlewares<RequestHandler>(OrganizationController.prototype.bootstrapSetup)),
+
+            async function OrganizationController_bootstrapSetup(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOrganizationController_bootstrapSetup, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OrganizationController>(OrganizationController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'bootstrapSetup',
                 controller,
                 response,
                 next,

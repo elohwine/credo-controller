@@ -23,6 +23,7 @@ import type {
 
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { organizationRegistryRepository } from '../persistence/OrganizationRegistryRepository'
+import { ensureDefaultDepartment } from './OrgStarterDepartments'
 import { ensureStarterRoles } from './OrgStarterRoles'
 import { getTenantById } from '../persistence/TenantRepository'
 import { WorkflowTemplateRepository } from '../persistence/WorkflowTemplateRepository'
@@ -208,10 +209,19 @@ export class WorkflowReadinessService {
         `SELECT COUNT(*) as cnt FROM people WHERE organization_id = ? AND status = 'active'`,
         organizationId,
       ),
-      departmentCount: count(
-        `SELECT COUNT(*) as cnt FROM departments WHERE organization_id = ? AND status = 'active'`,
-        organizationId,
-      ),
+      departmentCount: (() => {
+        if (organizationId) {
+          try {
+            ensureDefaultDepartment(organizationId)
+          } catch (error) {
+            logger.debug({ error }, 'Default department was not created before the readiness count')
+          }
+        }
+        return count(
+          `SELECT COUNT(*) as cnt FROM departments WHERE organization_id = ? AND status = 'active'`,
+          organizationId,
+        )
+      })(),
       roleCount: (() => {
         if (organizationId) {
           try {

@@ -11,6 +11,7 @@
 import crypto from 'crypto'
 
 import { DatabaseManager } from '../persistence/DatabaseManager'
+
 import { orgSetupProfileService } from './OrgSetupProfileService'
 
 export interface StarterRole {
@@ -83,11 +84,24 @@ function humanize(role: string): string {
   return role.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-/** The roles this organisation's answers call for, plus any role already given to someone. */
-export function starterRolesForOrganization(orgTenantId: string): StarterRole[] {
-  const profile = orgSetupProfileService.get(orgTenantId)
-  const kinds = new Set(profile.kinds)
-  const preset = profile.approvalPresetId || 'owner_handles_money'
+/** Plain name for a membership role, e.g. `finance_manager` → "Finance officer". */
+export function starterRoleName(membershipRole: string): string {
+  const slug = String(membershipRole || '')
+    .trim()
+    .toLowerCase()
+  return CATALOG[slug]?.name || humanize(slug)
+}
+
+export interface StarterRoleAnswers {
+  kinds: readonly string[]
+  modules: readonly string[]
+  approvalPresetId?: string
+}
+
+/** The roles a set of answers calls for, plus roles already given to people. No database access. */
+export function starterRolesFor(answers: StarterRoleAnswers, rolesInUse: readonly string[] = []): StarterRole[] {
+  const kinds = new Set(answers.kinds)
+  const preset = answers.approvalPresetId || 'owner_handles_money'
   const chosen: StarterRole[] = [CATALOG.owner, CATALOG.auditor]
 
   if (kinds.has('field')) {
@@ -96,33 +110,26 @@ export function starterRolesForOrganization(orgTenantId: string): StarterRole[] 
   if (kinds.has('shop')) chosen.push(CATALOG.cashier)
   // People & payroll: leave and expense claims need a manager to decide them, so the owner
   // is not the only person they can fall to.
-  if (profile.modules.includes('people_payroll') && !chosen.includes(CATALOG.manager)) chosen.push(CATALOG.manager)
+  if (answers.modules.includes('people_payroll') && !chosen.includes(CATALOG.manager)) chosen.push(CATALOG.manager)
   if (preset === 'finance_team') {
     chosen.push(CATALOG.manager, CATALOG.finance_manager, CATALOG.director)
   } else if (preset === 'director_signs_once') {
     chosen.push(CATALOG.director, CATALOG.finance_manager)
   }
 
-  try {
-    const inUse = DatabaseManager.getDatabase()
-      .prepare(`SELECT DISTINCT role FROM org_memberships WHERE org_tenant_id = ? AND status = 'active'`)
-      .all(orgTenantId) as Array<{ role: string }>
-    for (const row of inUse) {
-      const slug = String(row.role || '')
-        .trim()
-        .toLowerCase()
-      if (!slug || chosen.some((role) => role.membershipRole === slug)) continue
-      chosen.push(
-        CATALOG[slug] || {
-          membershipRole: slug,
-          name: humanize(slug),
-          description: 'Already given to someone on the team.',
-          permissions: ['request.read'],
-        },
-      )
-    }
-  } catch {
-    // Memberships are optional here; the answers still decide the list.
+  for (const role of rolesInUse) {
+    const slug = String(role || '')
+      .trim()
+      .toLowerCase()
+    if (!slug || chosen.some((item) => item.membershipRole === slug)) continue
+    chosen.push(
+      CATALOG[slug] || {
+        membershipRole: slug,
+        name: humanize(slug),
+        description: 'Already given to someone on the team.',
+        permissions: ['request.read'],
+      },
+    )
   }
 
   const seen = new Set<string>()
@@ -131,6 +138,25 @@ export function starterRolesForOrganization(orgTenantId: string): StarterRole[] 
     seen.add(role.membershipRole)
     return true
   })
+}
+
+/** Membership roles currently held by active members. */
+export function rolesInUse(orgTenantId: string): string[] {
+  try {
+    const rows = DatabaseManager.getDatabase()
+      .prepare(`SELECT DISTINCT role FROM org_memberships WHERE org_tenant_id = ? AND status = 'active'`)
+      .all(orgTenantId) as Array<{ role: string }>
+    return rows.map((row) => String(row.role || ''))
+  } catch {
+    // Memberships are optional here; the answers still decide the list.
+    return []
+  }
+}
+
+/** The roles this organisation's answers call for, plus any role already given to someone. */
+export function starterRolesForOrganization(orgTenantId: string): StarterRole[] {
+  const profile = orgSetupProfileService.get(orgTenantId)
+  return starterRolesFor(profile, rolesInUse(orgTenantId))
 }
 
 /**

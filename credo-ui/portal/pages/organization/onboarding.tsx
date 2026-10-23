@@ -5,11 +5,16 @@ import Layout from '@/components/Layout'
 import axios from 'axios'
 import { getOrgScopedToken, readActiveOrganization } from '@/utils/organizationContext'
 import {
+  KEEP_CURRENT_MONEY,
   MONEY_CHOICES,
   ORG_KIND_OPTIONS,
   ORG_MODULE_OPTIONS,
   PAYMENT_CHOICES,
+  SETUP_BOOTSTRAP_PATH,
   SETUP_PROFILE_PATH,
+  bootstrapRequest,
+  cleanDepartmentNames,
+  suggestedDepartmentsFor,
   suggestedOrgModules,
   kindsFromRequestTypes,
   modulePlanNote,
@@ -21,6 +26,7 @@ import {
   type OrgModule,
   type OrgProfile,
   type OrgOperatingModel,
+  type OrgSetupPlan,
   type PaymentChoice,
 } from '@/utils/orgProfile'
 import {
@@ -35,6 +41,7 @@ import {
   Radio,
   Stack,
   Text,
+  TextInput,
   ThemeIcon,
   Title,
 } from '@mantine/core'
@@ -45,7 +52,7 @@ import { IconAlertCircle, IconArrowRight, IconBuildingCommunity, IconCheck, Icon
 type ApprovalPreset = { id: string; title: string; detail: string; signMode: 'one' | 'both' }
 
 /** Radio value for "leave the people already chosen under Who does what alone". */
-const KEEP_CURRENT = 'keep_current'
+const KEEP_CURRENT = KEEP_CURRENT_MONEY
 
 /** Shown until the server list loads, and if it cannot be loaded. Ids match the server presets. */
 const FALLBACK_PRESETS: ApprovalPreset[] = [
@@ -77,19 +84,20 @@ const PROVISIONING_ITEMS = [
 ]
 
 /** One question opened on its own from the Setup checklist. */
-type SingleStep = 'kinds' | 'people' | 'money' | 'payments'
-type QuestionNumber = 1 | 2 | 3 | 4
-const QUESTION_COUNT = 4
-const STEP_QUESTION: Record<SingleStep, QuestionNumber> = { kinds: 1, people: 2, money: 3, payments: 4 }
+type SingleStep = 'kinds' | 'people' | 'teams' | 'money' | 'payments'
+type QuestionNumber = 1 | 2 | 3 | 4 | 5
+const QUESTION_COUNT = 5
+const STEP_QUESTION: Record<SingleStep, QuestionNumber> = { kinds: 1, people: 2, teams: 3, money: 4, payments: 5 }
 const STEP_LABEL: Record<SingleStep, string> = {
   kinds: 'What you do',
   people: 'Staff leave and payroll',
+  teams: 'Teams',
   money: 'Who handles money',
   payments: 'Payments',
 }
 
 function isSingleStep(value: unknown): value is SingleStep {
-  return value === 'kinds' || value === 'people' || value === 'money' || value === 'payments'
+  return value === 'kinds' || value === 'people' || value === 'teams' || value === 'money' || value === 'payments'
 }
 
 const OPEN_FOR_KIND: Record<OrgKind, string> = {
@@ -105,7 +113,7 @@ export default function OnboardingPage() {
   const router = useRouter()
   const [orgName, setOrgName] = useState('')
   const [orgTenantId, setOrgTenantId] = useState('')
-  const [step, setStep] = useState<'welcome' | 'questions' | 'done'>('welcome')
+  const [step, setStep] = useState<'welcome' | 'questions' | 'review' | 'done'>('welcome')
   const single = isSingleStep(router.query.step) ? router.query.step : null
   /** Checklist steps still to do after this one, in order (from Setup). */
   const thenSteps = String(router.query.then || '')
@@ -120,6 +128,12 @@ export default function OnboardingPage() {
   const [operatingModel, setOperatingModel] = useState<OrgOperatingModel>('internal')
   const [presetId, setPresetId] = useState('owner_handles_money')
   const [paymentChoice, setPaymentChoice] = useState<PaymentChoice>('simulated')
+  /** Teams already on the organisation (active departments). */
+  const [existingTeams, setExistingTeams] = useState<string[]>([])
+  /** The owner's own pick; until they touch it, suggestions follow the other answers. */
+  const [pickedTeams, setPickedTeams] = useState<string[] | null>(null)
+  const [newTeam, setNewTeam] = useState('')
+  const [review, setReview] = useState<OrgSetupPlan | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
@@ -217,6 +231,34 @@ export default function OnboardingPage() {
       })
   }, [backendUrl, orgTenantId])
 
+  useEffect(() => {
+    if (!orgTenantId) return
+    const token = getOrgScopedToken()
+    if (!token) return
+    axios
+      .get<Array<{ name: string }>>(`${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}/departments`, {
+        headers: { Authorization: 'Bearer ' + token },
+      })
+      .then((res) => setExistingTeams(cleanDepartmentNames((res.data || []).map((item) => item.name))))
+      .catch(() => {
+        /* suggestions still show */
+      })
+  }, [backendUrl, orgTenantId])
+
+  const suggestedTeams = suggestedDepartmentsFor({
+    kinds,
+    modules,
+    approvalPresetId: presetId === KEEP_CURRENT ? savedProfile?.approvalPresetId : presetId,
+  })
+  const selectedTeams = pickedTeams ?? cleanDepartmentNames([...existingTeams, ...suggestedTeams])
+  const teamOptions = cleanDepartmentNames([...existingTeams, ...suggestedTeams, ...selectedTeams])
+  const addTeam = () => {
+    const name = newTeam.trim()
+    if (!name) return
+    setPickedTeams(cleanDepartmentNames([...selectedTeams, name]))
+    setNewTeam('')
+  }
+
   const authHeaders = () => {
     const token = getOrgScopedToken()
     return token ? { headers: { Authorization: `Bearer ${token}` } } : null
@@ -224,46 +266,60 @@ export default function OnboardingPage() {
 
   const orgUrl = (path: string) => `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}${path}`
 
-  const finish = async () => {
-    setError(null)
-    if (!orgTenantId) {
-      setError('No organization context. Please return to setup and try again.')
-      return
+  const currentProfile = (): OrgProfile => {
+    const previous = savedProfile || readOrgProfile()
+    return {
+      orgTenantId,
+      operatingModel,
+      access: previous?.access,
+      kinds,
+      modules,
+      approvalPresetId: presetId === KEEP_CURRENT ? previous?.approvalPresetId || '' : presetId,
+      approvalTitle:
+        presetId === KEEP_CURRENT
+          ? previous?.approvalTitle || 'People chosen under Who does what'
+          : presets.find((preset) => preset.id === presetId)?.title || '',
+      paymentChoice,
+      completedAt: new Date().toISOString(),
+      plan: previous?.plan,
     }
+  }
+
+  /** Answers, teams, roles, money people and payments go up together; the server does the rest. */
+  const sendBootstrap = async (dryRun: boolean) => {
+    if (!orgTenantId) throw new Error('No organization context. Please return to setup and try again.')
     const auth = authHeaders()
-    if (!auth) {
-      setError('Organization session missing. Switch to the organization and try again.')
-      return
-    }
+    if (!auth) throw new Error('Organization session missing. Switch to the organization and try again.')
+    const body = bootstrapRequest(currentProfile(), { departments: selectedTeams, moneyPresetId: presetId, dryRun })
+    return (await axios.post(orgUrl(SETUP_BOOTSTRAP_PATH), body, auth)).data as OrgSetupPlan & { profile?: unknown }
+  }
+
+  /** Show what will be set up before anything is saved. */
+  const preview = async () => {
+    setError(null)
     setSaving(true)
     try {
-      const previous = savedProfile || readOrgProfile()
-      const profile: OrgProfile = {
-        orgTenantId,
-        operatingModel,
-        access: previous?.access,
-        kinds,
-        modules,
-        approvalPresetId: presetId === KEEP_CURRENT ? previous?.approvalPresetId || '' : presetId,
-        approvalTitle:
-          presetId === KEEP_CURRENT
-            ? previous?.approvalTitle || 'People chosen under Who does what'
-            : presets.find((preset) => preset.id === presetId)?.title || '',
-        paymentChoice,
-        completedAt: new Date().toISOString(),
-        plan: previous?.plan,
+      setReview(await sendBootstrap(true))
+      setStep('review')
+    } catch (err: any) {
+      setError(err?.response?.data?.message || err?.message || 'Could not prepare your setup')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const finish = async () => {
+    setError(null)
+    setSaving(true)
+    try {
+      const result = await sendBootstrap(false)
+      const saved = profileFromServer(result.profile)
+      if (saved) {
+        setSavedProfile(saved)
+        persistOrgProfile(saved)
       }
-      // Only the answers go up. The server works out which kinds of request follow.
-      const result = await axios.put(orgUrl(SETUP_PROFILE_PATH), profileToServer(profile), auth)
-      const saved = profileFromServer(result.data)
-      if (saved) { setSavedProfile(saved); persistOrgProfile(saved) }
-      // One money setup for the whole organization. Every money step borrows it unless changed.
-      if (modules.length > 0 && presetId !== KEEP_CURRENT) {
-        await axios.post(orgUrl('/workflows/actors/presets'), { presetId }, auth)
-      }
-      if (modules.length > 0 && paymentChoice !== 'none') {
-        await axios.post(orgUrl('/setup/payments'), { method: paymentChoice }, auth)
-      }
+      setExistingTeams(result.departments.map((item) => item.name))
+      setPickedTeams(null)
       setStep('done')
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Could not save your answers')
@@ -288,6 +344,11 @@ export default function OnboardingPage() {
       }
       if (single === 'people') {
         await axios.put(orgUrl(SETUP_PROFILE_PATH), { modules }, auth)
+      }
+      if (single === 'teams') {
+        const result = await axios.post(orgUrl(SETUP_BOOTSTRAP_PATH), { departments: selectedTeams }, auth)
+        setExistingTeams((result.data?.departments || []).map((item: { name: string }) => item.name))
+        setPickedTeams(null)
       }
       if (single === 'money') {
         if (presetId !== KEEP_CURRENT) {
@@ -363,7 +424,7 @@ export default function OnboardingPage() {
             </Card>
 
             <Text size="sm" c="dimmed" ta="center" maw={440}>
-              4 questions, about a minute. You can stop and finish later.
+              {QUESTION_COUNT} questions, about a minute. You see everything before it is saved.
             </Text>
 
             <Group gap="md">
@@ -434,7 +495,111 @@ export default function OnboardingPage() {
     )
   }
 
-  // ── Screen 2: Four questions about the organization ────────────────────────
+  // ── Review: everything the answers will set up, before saving ─────────────
+
+  if (step === 'review' && review) {
+    const newCount = (items: Array<{ status: string }>) => items.filter((item) => item.status !== 'existing').length
+    return (
+      <Layout title="Review your setup">
+        <Container size="sm" py={60}>
+          <Stack gap="lg">
+            <Box>
+              <Title order={2} mb={4}>
+                Here is what we will set up
+              </Title>
+              <Text c="dimmed" size="sm">
+                Nothing is saved until you confirm. You can change any of this later.
+              </Text>
+            </Box>
+
+            {error && (
+              <Alert icon={<IconAlertCircle size={16} />} color="red" radius="md">
+                {error}
+              </Alert>
+            )}
+
+            <Card withBorder radius="md" p="md">
+              <Text fw={600} size="sm" mb={6}>
+                Work areas
+              </Text>
+              {review.workAreas.length === 0 ? (
+                <Text size="sm" c="dimmed">
+                  None here. Connect your own systems after setup.
+                </Text>
+              ) : (
+                <Group gap={6}>
+                  {review.workAreas.map((area) => (
+                    <Chip key={area.id} checked={area.included} readOnly size="sm" variant="light">
+                      {area.label}
+                    </Chip>
+                  ))}
+                </Group>
+              )}
+            </Card>
+
+            <Card withBorder radius="md" p="md">
+              <Text fw={600} size="sm" mb={6}>
+                Teams {newCount(review.departments) > 0 ? `(${newCount(review.departments)} new)` : ''}
+              </Text>
+              <Text size="sm">
+                {review.departments
+                  .map((item) => (item.status === 'existing' ? item.name : `${item.name} (${item.status})`))
+                  .join(', ')}
+              </Text>
+            </Card>
+
+            <Card withBorder radius="md" p="md">
+              <Text fw={600} size="sm" mb={6}>
+                Roles {newCount(review.roles) > 0 ? `(${newCount(review.roles)} new)` : ''}
+              </Text>
+              <Text size="sm">
+                {review.roles.map((role) => (role.status === 'new' ? `${role.name} (new)` : role.name)).join(', ')}
+              </Text>
+              <Text size="xs" c="dimmed" mt={4}>
+                Invite people into these roles under Organization → People.
+              </Text>
+            </Card>
+
+            <Card withBorder radius="md" p="md">
+              <Text fw={600} size="sm" mb={6}>
+                Money
+              </Text>
+              {review.money.keepCurrent ? (
+                <Text size="sm">Keeps the people already chosen under Who does what.</Text>
+              ) : (
+                <Stack gap={2}>
+                  <Text size="sm">Approves: {review.money.approves}</Text>
+                  {review.money.financeConfirms && <Text size="sm">Finance confirms: {review.money.financeConfirms}</Text>}
+                  <Text size="sm">Releases the money: {review.money.releases}</Text>
+                </Stack>
+              )}
+              <Text size="sm" mt={6}>
+                Payments: {review.payment.name || 'Not yet'}
+              </Text>
+            </Card>
+
+            <Alert color="teal" variant="light" radius="md" title="No step waits on structure">
+              {review.askedOnFirstUse.length > 0 && <Text size="sm">{review.askedOnFirstUse.join(' ')}</Text>}
+              <Text size="sm">
+                If nobody is chosen for a step, the usual role order is used, then the owner stands in.
+              </Text>
+            </Alert>
+
+            <Group justify="space-between">
+              <Button variant="subtle" color="gray" onClick={() => setStep('questions')} disabled={saving}>
+                Back
+              </Button>
+              <Button size="md" loading={saving} rightSection={<IconArrowRight size={16} />} onClick={finish}>
+                Set it up
+              </Button>
+            </Group>
+          </Stack>
+        </Container>
+      </Layout>
+    )
+  }
+
+  // ── Screen 2: Questions about the organization ─────────────────────────────
 
   const questionTitle =
     question === 1
@@ -442,8 +607,10 @@ export default function OnboardingPage() {
       : question === 2
         ? 'Which of these would be useful for your organisation?'
         : question === 3
-          ? 'Who approves and releases money?'
-          : 'How do you take payments?'
+          ? 'Which teams do you have?'
+          : question === 4
+            ? 'Who approves and releases money?'
+            : 'How do you take payments?'
   const plan = savedProfile?.plan || readOrgProfile()?.plan
 
   return (
@@ -520,6 +687,46 @@ export default function OnboardingPage() {
           )}
 
           {question === 3 && (
+            <Stack gap="sm">
+              <Text size="sm" c="dimmed">
+                Teams sort requests and people. Nothing waits on them: anything without a team goes to General.
+              </Text>
+              <Chip.Group multiple value={selectedTeams} onChange={(value) => setPickedTeams(value as string[])}>
+                <Group gap="xs">
+                  {teamOptions.map((name) => (
+                    <Chip key={name} value={name} radius="md" variant="outline">
+                      {name}
+                      {existingTeams.some((team) => team.toLowerCase() === name.toLowerCase()) ? '' : ' (new)'}
+                    </Chip>
+                  ))}
+                </Group>
+              </Chip.Group>
+              <Group gap="xs" align="flex-end">
+                <TextInput
+                  style={{ flex: 1 }}
+                  label="Add a team"
+                  placeholder="e.g. Workshop"
+                  maxLength={60}
+                  value={newTeam}
+                  onChange={(event) => setNewTeam(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      addTeam()
+                    }
+                  }}
+                />
+                <Button variant="light" onClick={addTeam} disabled={!newTeam.trim()}>
+                  Add
+                </Button>
+              </Group>
+              <Text size="xs" c="dimmed">
+                Unticked teams that already exist are kept. Rename or archive them later under Organization → Departments.
+              </Text>
+            </Stack>
+          )}
+
+          {question === 4 && (
             <Radio.Group value={presetId} onChange={setPresetId}>
               <Stack gap="xs">
                 {hasMoneySetup && (
@@ -564,7 +771,7 @@ export default function OnboardingPage() {
             </Radio.Group>
           )}
 
-          {question === 4 && (
+          {question === 5 && (
             <Radio.Group value={paymentChoice} onChange={(value) => setPaymentChoice(value as PaymentChoice)}>
               <Stack gap="xs">
                 {PAYMENT_CHOICES.map((choice) => (
@@ -620,8 +827,8 @@ export default function OnboardingPage() {
                 Continue
               </Button>
             ) : (
-              <Button size="md" loading={saving} rightSection={<IconArrowRight size={16} />} onClick={finish}>
-                Finish
+              <Button size="md" loading={saving} rightSection={<IconArrowRight size={16} />} onClick={preview}>
+                Review
               </Button>
             )}
           </Group>

@@ -4450,6 +4450,216 @@
         "type": "object",
         "additionalProperties": false
       },
+      "DepartmentPlanStatus": {
+        "type": "string",
+        "enum": [
+          "existing",
+          "new",
+          "restored"
+        ]
+      },
+      "DepartmentPlanItem": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DepartmentPlanStatus"
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "OrgSetupBootstrapRole": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "membershipRole": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "existing",
+              "new"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "membershipRole",
+          "status"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "OrgSetupBootstrapResult": {
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "departments": {
+            "items": {
+              "$ref": "#/components/schemas/DepartmentPlanItem"
+            },
+            "type": "array"
+          },
+          "suggestedDepartments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/OrgSetupBootstrapRole"
+            },
+            "type": "array"
+          },
+          "money": {
+            "properties": {
+              "releases": {
+                "type": "string"
+              },
+              "financeConfirms": {
+                "type": "string"
+              },
+              "approves": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "presetId": {
+                "type": "string"
+              },
+              "keepCurrent": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "keepCurrent"
+            ],
+            "type": "object"
+          },
+          "workAreas": {
+            "items": {
+              "properties": {
+                "included": {
+                  "type": "boolean"
+                },
+                "opens": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "included",
+                "opens",
+                "label",
+                "id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "payment": {
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "method": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "askedOnFirstUse": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Steps asked the first time they are used, in plain words."
+          },
+          "profile": {
+            "$ref": "#/components/schemas/OrgSetupProfile"
+          }
+        },
+        "required": [
+          "applied",
+          "departments",
+          "suggestedDepartments",
+          "roles",
+          "money",
+          "workAreas",
+          "payment",
+          "askedOnFirstUse"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "OrgSetupBootstrapRequest": {
+        "properties": {
+          "operatingModel": {
+            "$ref": "#/components/schemas/OrgOperatingModel"
+          },
+          "expectedRevision": {
+            "type": "number",
+            "format": "double"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "modules": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "approvalPresetId": {
+            "type": "string"
+          },
+          "approvalTitle": {
+            "type": "string"
+          },
+          "paymentChoice": {
+            "type": "string"
+          },
+          "staffCardChange": {
+            "type": "string"
+          },
+          "departments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Teams to have. Existing ones stay; missing ones are added. Empty or omitted: \"General\" if none exist."
+          },
+          "moneyPresetId": {
+            "type": "string",
+            "description": "Money preset to apply under Who does what. Omitted or `keep_current` leaves it as it is."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Preview only. Nothing is saved."
+          }
+        },
+        "type": "object",
+        "additionalProperties": false
+      },
       "OrganizationSetupRequirement": {
         "type": "string",
         "enum": [
@@ -20453,6 +20663,60 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/OrgSetupProfileInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/organizations/{orgTenantId}/setup/bootstrap": {
+      "post": {
+        "operationId": "BootstrapSetup",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgSetupBootstrapResult"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Set up the organisation from the setup answers in one step: answers, teams, roles,\nwho handles money and payments. Send `dryRun: true` for the review screen; nothing is saved.",
+        "tags": [
+          "Organizations"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orgTenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgSetupBootstrapRequest"
               }
             }
           }

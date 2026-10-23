@@ -7,6 +7,7 @@ import {
 } from '../../src/config/orgModules'
 export type { OrgModule, OrgOperatingModel, OrgConfigurationAccess } from '../../src/config/orgModules'
 export { suggestedOrgModules, suggestOrgSetup } from '../../src/config/orgModules'
+export { DEFAULT_DEPARTMENT_NAME, cleanDepartmentNames, suggestedDepartmentsFor } from '../../src/config/orgStructure'
 
 /**
  * The short questions an owner answers when an organization is created.
@@ -193,6 +194,39 @@ export type OrgProfile = {
 
 /** Path under `/api/organizations/{orgTenantId}`. */
 export const SETUP_PROFILE_PATH = '/setup/profile'
+
+/** Path under `/api/organizations/{orgTenantId}`: preview (`dryRun`) or apply all setup answers at once. */
+export const SETUP_BOOTSTRAP_PATH = '/setup/bootstrap'
+
+/** Money choice value meaning "leave the people already chosen under Who does what". */
+export const KEEP_CURRENT_MONEY = 'keep_current'
+
+/** What the setup answers will create, as returned by the bootstrap preview. */
+export type OrgSetupPlan = {
+  applied: boolean
+  departments: Array<{ name: string; status: 'existing' | 'new' | 'restored' }>
+  suggestedDepartments: string[]
+  roles: Array<{ name: string; membershipRole: string; status: 'existing' | 'new' }>
+  money: {
+    keepCurrent: boolean
+    presetId?: string
+    title?: string
+    approves?: string
+    financeConfirms?: string
+    releases?: string
+  }
+  workAreas: Array<{ id: string; label: string; opens: string; included: boolean }>
+  payment: { method?: string; name?: string }
+  askedOnFirstUse: string[]
+}
+
+/** Request body for the bootstrap call: the answers plus teams and the money choice. */
+export function bootstrapRequest(
+  profile: OrgProfile,
+  extra: { departments: string[]; moneyPresetId: string; dryRun?: boolean },
+) {
+  return { ...profileToServer(profile), ...extra }
+}
 
 function cleanKinds(values: unknown): OrgKind[] {
   if (!Array.isArray(values)) return []

@@ -32,7 +32,7 @@ import {
   type MemberCardKind, type MemberOnboarding, type StaffCardChangeRule,
 } from '@/lib/orgOnboarding';
 import { MONEY_CHOICES, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, TEAM_ROLE_FALLBACK, kindsFromRequestTypes, modulePlanNote, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, setupChecklist, teamRolesFromCatalog, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
-import { suggestedOrgModules, type OrgOperatingModel } from '@/lib/orgProfile';
+import { SETUP_BOOTSTRAP_PATH, bootstrapRequest, cleanDepartmentNames, suggestedDepartmentsFor, suggestedOrgModules, type OrgOperatingModel, type OrgSetupPlan } from '@/lib/orgProfile';
 
 // ── Org list types ──
 
@@ -277,10 +277,10 @@ function sectionLabels(): Array<{ id: OrgSection; label: string }> {
   ];
 }
 
-type OrgQuestion = 1 | 2 | 3 | 4;
-const ORG_QUESTION_COUNT = 4;
-const QUESTION_FOR_STEP: Partial<Record<SetupStepId, OrgQuestion>> = { kinds: 1, people: 2, money: 3, payments: 4 };
-const STEP_SAVED_LABEL: Record<OrgQuestion, string> = { 1: 'What you do', 2: 'Staff leave and payroll', 3: 'Who handles money', 4: 'Payments' };
+type OrgQuestion = 1 | 2 | 3 | 4 | 5;
+const ORG_QUESTION_COUNT = 5;
+const QUESTION_FOR_STEP: Partial<Record<SetupStepId, OrgQuestion>> = { kinds: 1, people: 2, money: 4, payments: 5 };
+const STEP_SAVED_LABEL: Record<OrgQuestion, string> = { 1: 'What you do', 2: 'Staff leave and payroll', 3: 'Teams', 4: 'Who handles money', 5: 'Payments' };
 const OPEN_FOR_KIND: Record<OrgKind, string> = { office: '', field: 'Jobs', school: 'School fees', shop: 'Counter sales' };
 
 /** Which card on this page fixes a checklist item. */
@@ -491,6 +491,14 @@ export default function OrgSettingsPage() {
   const [orgQuestion, setOrgQuestion] = useState<0 | OrgQuestion>(0);
   const [orgQuestionPreset, setOrgQuestionPreset] = useState('keep_current');
   const [orgQuestionPay, setOrgQuestionPay] = useState<PaymentChoice>('simulated');
+  /** The owner's own team pick; until they touch it, suggestions follow the other answers. */
+  const [pickedTeams, setPickedTeams] = useState<string[] | null>(null);
+  const [newTeam, setNewTeam] = useState('');
+  /** Preview of everything the answers will set up, shown before saving. */
+  const [orgReview, setOrgReview] = useState<OrgSetupPlan | null>(null);
+  useEffect(() => {
+    if (orgQuestion !== ORG_QUESTION_COUNT) setOrgReview(null);
+  }, [orgQuestion]);
   /** Answers saved on the server; null until the owner finishes the questions on any device. */
   const [serverProfile, setServerProfile] = useState<OrgProfile | null>(null);
   /** The settings area open on its own screen; null shows the organisation home. */
@@ -1116,30 +1124,80 @@ export default function OrgSettingsPage() {
     setOrgQuestion((current) => (current === 0 ? 1 : current));
   }, [canManageOrgSetup, activeId]);
 
+  const existingTeams = cleanDepartmentNames(departments.map((dept) => dept.name));
+  const suggestedTeams = suggestedDepartmentsFor({
+    kinds: orgKinds,
+    modules: orgModules,
+    approvalPresetId: orgQuestionPreset === 'keep_current' ? serverProfile?.approvalPresetId : orgQuestionPreset,
+  });
+  const selectedTeams = pickedTeams ?? cleanDepartmentNames([...existingTeams, ...suggestedTeams]);
+  const teamOptions = cleanDepartmentNames([...existingTeams, ...suggestedTeams, ...selectedTeams]);
+  const addTeam = () => {
+    const name = newTeam.trim();
+    if (!name) return;
+    setPickedTeams(cleanDepartmentNames([...selectedTeams, name]));
+    setNewTeam('');
+  };
+
+  const currentOrgProfile = (): OrgProfile => ({
+    orgTenantId: activeId || undefined,
+    operatingModel,
+    access: serverProfile?.access,
+    kinds: orgKinds,
+    modules: orgModules,
+    approvalPresetId: orgQuestionPreset === 'keep_current' ? serverProfile?.approvalPresetId || '' : orgQuestionPreset,
+    approvalTitle:
+      orgQuestionPreset === 'keep_current'
+        ? serverProfile?.approvalTitle || 'People chosen under Who does what'
+        : (actorsView?.presets || []).find((preset) => preset.id === orgQuestionPreset)?.title || '',
+    paymentChoice: orgQuestionPay,
+    completedAt: new Date().toISOString(),
+    plan: serverProfile?.plan,
+  });
+
+  /** Answers, teams, roles, money people and payments in one call (a preview when `dryRun`). */
+  const sendOrgBootstrap = async (body: Record<string, unknown>): Promise<(OrgSetupPlan & { profile?: unknown }) | null> => {
+    if (!activeId) return null;
+    setActivating(true);
+    try {
+      const token = await orgSetupToken();
+      const res = await api.post(`/api/organizations/${activeId}${SETUP_BOOTSTRAP_PATH}`, body, {
+        headers: { Authorization: 'Bearer ' + token },
+      });
+      if (!body.dryRun) {
+        if (res.data?.profile) {
+          const server = profileFromServer(res.data.profile);
+          setServerProfile(server);
+          if (server) persistOrgProfile(server);
+        }
+        setPickedTeams(null);
+        await Promise.all([loadDepartments(activeId), loadActiveWorkflowTypes(activeId), loadReadiness(activeId)]);
+      }
+      return res.data;
+    } catch (err: any) {
+      notifications.show({
+        title: body.dryRun ? 'Could not prepare your setup' : 'Could not save',
+        message: err.response?.data?.message ?? err.message ?? 'Please try again.',
+        color: 'red',
+      });
+      return null;
+    } finally {
+      setActivating(false);
+    }
+  };
+
+  const fullBootstrapBody = (dryRun: boolean) =>
+    bootstrapRequest(currentOrgProfile(), { departments: selectedTeams, moneyPresetId: orgQuestionPreset || 'keep_current', dryRun });
+
+  const reviewOrgQuestions = async () => {
+    const plan = await sendOrgBootstrap(fullBootstrapBody(true));
+    if (plan) setOrgReview(plan);
+  };
+
   const finishOrgQuestions = async () => {
-    const profile: OrgProfile = {
-      orgTenantId: activeId || undefined,
-      operatingModel,
-      access: serverProfile?.access,
-      kinds: orgKinds,
-      modules: orgModules,
-      approvalPresetId: orgQuestionPreset === 'keep_current' ? serverProfile?.approvalPresetId || '' : orgQuestionPreset,
-      approvalTitle:
-        orgQuestionPreset === 'keep_current'
-          ? serverProfile?.approvalTitle || 'People chosen under Who does what'
-          : (actorsView?.presets || []).find((preset) => preset.id === orgQuestionPreset)?.title || '',
-      paymentChoice: orgQuestionPay,
-      completedAt: new Date().toISOString(),
-      plan: serverProfile?.plan,
-    };
-    const saved = await saveOrgKinds(profile);
-    if (!saved) return;
-    if (orgModules.length > 0 && orgQuestionPreset && orgQuestionPreset !== 'keep_current') {
-      await applyActorPreset(orgQuestionPreset);
-    }
-    if (orgModules.length > 0 && orgQuestionPay !== 'none') {
-      await choosePaymentMethod(orgQuestionPay);
-    }
+    const result = await sendOrgBootstrap(fullBootstrapBody(false));
+    if (!result) return;
+    setOrgReview(null);
     setOrgQuestion(0);
     setOrgDone('all');
   };
@@ -1154,6 +1212,8 @@ export default function OrgSettingsPage() {
     } else if (question === 2) {
       saved = await saveOrgKinds(undefined, { modules: orgModules });
     } else if (question === 3) {
+      saved = Boolean(await sendOrgBootstrap({ departments: selectedTeams }));
+    } else if (question === 4) {
       if (orgQuestionPreset && orgQuestionPreset !== 'keep_current') await applyActorPreset(orgQuestionPreset);
       saved = await saveOrgKinds(undefined, {
         approvalPresetId: orgQuestionPreset === 'keep_current' ? serverProfile?.approvalPresetId : orgQuestionPreset,
@@ -1184,6 +1244,37 @@ export default function OrgSettingsPage() {
     setOrgQuestion(question);
   };
 
+  /** The org-scoped token, switching into the organisation first when only a wallet session exists. */
+  const orgSetupToken = async (): Promise<string> => {
+    let token = getPreferredToken();
+    if (!token) {
+      const walletToken = getWalletToken();
+      if (walletToken) {
+        const switchRes = await api.post(
+          `/api/organizations/${activeId}/switch`,
+          {},
+          { headers: { Authorization: 'Bearer ' + walletToken } }
+        );
+        const { token: orgToken, sector, orgName, workflowTypes, orgRole } = switchRes.data || {};
+        if (orgToken) {
+          applyOrgContext({
+            orgId: activeId as string,
+            orgName: orgName || activeLabel || branding.orgName || 'Organization',
+            orgToken,
+            orgRole,
+            sector,
+            workflowTypes,
+          });
+          token = orgToken;
+        }
+      }
+    }
+    if (!token) {
+      throw new Error('Organization session expired. Switch organization and try again.');
+    }
+    return token;
+  };
+
   /** Save the answers. The server works out which kinds of request follow; nothing is named or switched on. */
   const saveOrgKinds = async (profile?: OrgProfile, partial?: Record<string, unknown>): Promise<boolean> => {
     if (!activeId) {
@@ -1193,33 +1284,7 @@ export default function OrgSettingsPage() {
 
     setActivating(true);
     try {
-      let token = getPreferredToken();
-      if (!token) {
-        const walletToken = getWalletToken();
-        if (walletToken) {
-          const switchRes = await api.post(
-            `/api/organizations/${activeId}/switch`,
-            {},
-            { headers: { Authorization: `Bearer ${walletToken}` } }
-          );
-          const { token: orgToken, sector, orgName, workflowTypes, orgRole } = switchRes.data || {};
-          if (orgToken) {
-            applyOrgContext({
-              orgId: activeId,
-              orgName: orgName || activeLabel || branding.orgName || 'Organization',
-              orgToken,
-              orgRole,
-              sector,
-              workflowTypes,
-            });
-            token = orgToken;
-          }
-        }
-      }
-
-      if (!token) {
-        throw new Error('Organization session expired. Switch organization and try again.');
-      }
+      const token = await orgSetupToken();
 
       const body = { ...(partial ?? (profile ? profileToServer(profile) : { kinds: orgKinds })),
         expectedRevision: serverProfile?.access?.revision ?? 0 };
@@ -1426,7 +1491,59 @@ export default function OrgSettingsPage() {
                 </Stack>
               </Paper>
             )}
-            {section === null && canManageOrgSetup && orgQuestion > 0 && (
+            {section === null && canManageOrgSetup && orgQuestion > 0 && orgReview && (
+              <Paper p="md" radius="md" withBorder>
+                <Stack gap="sm">
+                  <Text fw={700}>Here is what we will set up</Text>
+                  <Text size="xs" c="dimmed">Nothing is saved until you confirm. You can change any of this later.</Text>
+                  <Stack gap={2}>
+                    <Text size="xs" fw={600}>Work areas</Text>
+                    <Text size="sm">
+                      {orgReview.workAreas.length > 0
+                        ? orgReview.workAreas.map((area) => area.label).join(', ')
+                        : 'None here. Connect your own systems after setup.'}
+                    </Text>
+                  </Stack>
+                  <Stack gap={2}>
+                    <Text size="xs" fw={600}>Teams</Text>
+                    <Text size="sm">
+                      {orgReview.departments.map((item) => (item.status === 'existing' ? item.name : `${item.name} (${item.status})`)).join(', ')}
+                    </Text>
+                  </Stack>
+                  <Stack gap={2}>
+                    <Text size="xs" fw={600}>Roles</Text>
+                    <Text size="sm">{orgReview.roles.map((role) => (role.status === 'new' ? `${role.name} (new)` : role.name)).join(', ')}</Text>
+                  </Stack>
+                  <Stack gap={2}>
+                    <Text size="xs" fw={600}>Money</Text>
+                    {orgReview.money.keepCurrent ? (
+                      <Text size="sm">Keeps the people already chosen under Who does what.</Text>
+                    ) : (
+                      <>
+                        <Text size="sm">Approves: {orgReview.money.approves}</Text>
+                        {orgReview.money.financeConfirms && <Text size="sm">Finance confirms: {orgReview.money.financeConfirms}</Text>}
+                        <Text size="sm">Releases the money: {orgReview.money.releases}</Text>
+                      </>
+                    )}
+                    <Text size="sm">Payments: {orgReview.payment.name || 'Not yet'}</Text>
+                  </Stack>
+                  <Alert color="teal" variant="light" radius="md" p="xs">
+                    <Text size="xs">
+                      {orgReview.askedOnFirstUse.join(' ')} If nobody is chosen for a step, the usual role order is used, then the owner stands in.
+                    </Text>
+                  </Alert>
+                  <Group justify="space-between">
+                    <Button size="xs" variant="subtle" color="gray" onClick={() => setOrgReview(null)} disabled={activating}>
+                      Back
+                    </Button>
+                    <Button size="xs" loading={activating || setupBusy} onClick={() => void finishOrgQuestions()}>
+                      Set it up
+                    </Button>
+                  </Group>
+                </Stack>
+              </Paper>
+            )}
+            {section === null && canManageOrgSetup && orgQuestion > 0 && !orgReview && (
               <Paper p="md" radius="md" withBorder>
                 <Stack gap="sm">
                   <Progress value={(orgQuestion / ORG_QUESTION_COUNT) * 100} size="sm" radius="xl" aria-label="Progress" />
@@ -1437,8 +1554,10 @@ export default function OrgSettingsPage() {
                       : orgQuestion === 2
                         ? 'Which of these would be useful for your organisation?'
                         : orgQuestion === 3
-                          ? 'Who approves and releases money?'
-                          : 'How do you take payments?'}
+                          ? 'Which teams do you have?'
+                          : orgQuestion === 4
+                            ? 'Who approves and releases money?'
+                            : 'How do you take payments?'}
                   </Text>
                   {orgQuestion === 1 && (
                     <Stack>
@@ -1490,6 +1609,44 @@ export default function OrgSettingsPage() {
                   )}
                   {orgQuestion === 3 && (
                     <Stack gap={6}>
+                      <Text size="xs" c="dimmed">
+                        Teams sort requests and people. Nothing waits on them: anything without a team goes to General.
+                      </Text>
+                      <Chip.Group multiple value={selectedTeams} onChange={(value) => setPickedTeams(value as string[])}>
+                        <Group gap={6}>
+                          {teamOptions.map((name) => (
+                            <Chip key={name} value={name} size="xs" radius="md" variant="outline">
+                              {name}
+                              {existingTeams.some((team) => team.toLowerCase() === name.toLowerCase()) ? '' : ' (new)'}
+                            </Chip>
+                          ))}
+                        </Group>
+                      </Chip.Group>
+                      <Group gap={6} align="flex-end" wrap="nowrap">
+                        <TextInput
+                          size="xs"
+                          style={{ flex: 1 }}
+                          label="Add a team"
+                          placeholder="e.g. Workshop"
+                          maxLength={60}
+                          value={newTeam}
+                          onChange={(event) => setNewTeam(event.currentTarget.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              addTeam();
+                            }
+                          }}
+                        />
+                        <Button size="xs" variant="light" onClick={addTeam} disabled={!newTeam.trim()}>
+                          Add
+                        </Button>
+                      </Group>
+                      <Text size="xs" c="dimmed">Existing teams you untick are kept. Archive them later under Departments.</Text>
+                    </Stack>
+                  )}
+                  {orgQuestion === 4 && (
+                    <Stack gap={6}>
                       <Paper
                         withBorder
                         radius="md"
@@ -1539,7 +1696,7 @@ export default function OrgSettingsPage() {
                       })}
                     </Stack>
                   )}
-                  {orgQuestion === 4 && (
+                  {orgQuestion === 5 && (
                     <Stack gap={6}>
                       {PAYMENT_CHOICES.map((choice) => {
                         const selected = orgQuestionPay === choice.id;
@@ -1597,8 +1754,8 @@ export default function OrgSettingsPage() {
                         Continue
                       </Button>
                     ) : (
-                      <Button size="xs" loading={activating || setupBusy} onClick={() => void finishOrgQuestions()}>
-                        Finish
+                      <Button size="xs" loading={activating || setupBusy} onClick={() => void reviewOrgQuestions()}>
+                        Review
                       </Button>
                     )}
                   </Group>

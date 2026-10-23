@@ -36,6 +36,8 @@ import {
   type OrgTaskPurpose,
 } from './OrgContextPolicy'
 import { orgOfferingsService } from './OrgOfferingsService'
+import { applyOrgSetupBootstrap, type OrgSetupBootstrapRequest, type OrgSetupBootstrapResult } from './OrgSetupBootstrap'
+import { ensureDefaultDepartment } from './OrgStarterDepartments'
 import { ensureStarterRoles } from './OrgStarterRoles'
 import { SSIAuthService } from './SSIAuthService'
 import {
@@ -1206,6 +1208,11 @@ export class OrganizationService {
   listDepartments(orgTenantId: string): DepartmentRecord[] {
     const db = DatabaseManager.getDatabase()
     const org = this.ensurePlatformOrganizationRecord(orgTenantId, getTenantById(orgTenantId)?.label)
+    try {
+      ensureDefaultDepartment(org.id)
+    } catch (error: any) {
+      logger.warn({ error: error?.message, orgTenantId }, 'Could not create the default department')
+    }
 
     const rows = db
       .prepare(
@@ -2603,6 +2610,24 @@ export class OrganizationService {
       logger.warn({ error: error?.message, orgTenantId }, 'Could not fill starter roles after setup answers')
     }
     return profile
+  }
+
+  /**
+   * Preview (`dryRun`) or apply the whole setup at once: answers, teams, roles, money people
+   * and payments. Each part reuses the service that owns it; every part is safe to repeat.
+   */
+  async bootstrapOrganizationSetup(
+    userId: string,
+    orgTenantId: string,
+    input: OrgSetupBootstrapRequest,
+  ): Promise<OrgSetupBootstrapResult> {
+    this.assertOrgAdmin(userId, orgTenantId)
+    const org = this.ensurePlatformOrganizationRecord(orgTenantId, getTenantById(orgTenantId)?.label)
+    return applyOrgSetupBootstrap(orgTenantId, org.id, input, {
+      saveProfile: (answers) => this.saveSetupProfile(userId, orgTenantId, answers),
+      afterMoneyPeopleChanged: () =>
+        orgWorkflowActorCredentialService.ensureForOrganizationInBackground(orgTenantId, { reason: 'preset' }),
+    })
   }
 
   private provisionAdditionalWorkflowTemplates(

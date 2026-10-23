@@ -77,8 +77,10 @@ const FEPT_PREREQUISITES: WorkflowPrerequisite[] = [
 ]
 
 const REQUISITION_PREREQUISITES: WorkflowPrerequisite[] = [
-  { key: 'authorities', requirement: 'conditional', title: 'Approval authority for requisitions' },
-  { key: 'departments', requirement: 'conditional', title: 'Department for requisition routing' },
+  // Who approves is decided by the money people below (role order, then the owner). Named
+  // authority grants and departments refine routing; they never hold a request back.
+  { key: 'authorities', requirement: 'recommended', title: 'Approval limits for requisitions' },
+  { key: 'departments', requirement: 'recommended', title: 'Department for requisition routing' },
   stageActor('approve_requisition', 'Who approves a request'),
   stageActor('finance_approve_requisition', 'Finance approval of a request', 'recommended'),
   stageActor('release_funds', 'Who releases the money'),
@@ -92,7 +94,7 @@ const PAYMENT_COLLECTION_PREREQUISITES: WorkflowPrerequisite[] = [
 ]
 
 const AP_PREREQUISITES: WorkflowPrerequisite[] = [
-  { key: 'authorities', requirement: 'conditional', title: 'Payment approval authority for supplier invoices' },
+  { key: 'authorities', requirement: 'recommended', title: 'Payment approval limits for supplier invoices' },
   stageActor('record_payment', 'Who records supplier payments'),
   stageActor('acknowledge_remittance', 'Who confirms money arrived', 'recommended'),
 ]
@@ -105,8 +107,8 @@ const COMMERCE_PREREQUISITES: WorkflowPrerequisite[] = [
 
 const HR_PREREQUISITES: WorkflowPrerequisite[] = [
   { key: 'roles', requirement: 'mandatory', title: 'HR roles defined' },
-  { key: 'departments', requirement: 'conditional', title: 'Departments for employee placement' },
-  { key: 'authorities', requirement: 'conditional', title: 'HR approval authority' },
+  { key: 'departments', requirement: 'recommended', title: 'Departments for employee placement' },
+  { key: 'authorities', requirement: 'recommended', title: 'HR approval limits' },
   stageActor('approve_onboarding', 'HR approver'),
 ]
 
