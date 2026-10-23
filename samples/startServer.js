@@ -22,7 +22,8 @@ const { askarNodeJS } = require('@openwallet-foundation/askar-nodejs')
 const { TsLogger } = require('../build/utils/logger')
 
 async function run() {
-  const logger = new TsLogger(LogLevel.info)
+  // Credo's enum is LogLevel.Info; the old lowercase LogLevel.info was undefined and logged everything at trace.
+  const logger = new TsLogger(LogLevel[process.env.CREDO_LOG_LEVEL || 'Info'] ?? LogLevel.Info)
   const walletId = process.env.WALLET_ID || 'shared-controller-agent'
   const walletKey = process.env.WALLET_KEY || 'shared-controller-key'
   // Askar store location. docker-compose.full.yml sets ASKAR_STORAGE_PATH=/home/credo/.afj and bind-mounts

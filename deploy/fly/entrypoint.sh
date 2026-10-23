@@ -38,6 +38,22 @@ stop_children() {
   wait || true
 }
 
+# Service logs live on the /data volume. Cap each one so a noisy service can never fill the disk
+# and stop Postgres (a 2.8 GB credo.log did exactly that). Writers append, so truncating in place is safe.
+LOG_MAX_BYTES="${LOG_MAX_BYTES:-104857600}"
+LOG_KEEP_BYTES="${LOG_KEEP_BYTES:-10485760}"
+trim_logs() {
+  for file in /data/*.log; do
+    [ -f "$file" ] || continue
+    size="$(wc -c < "$file" 2>/dev/null || echo 0)"
+    if [ "$size" -gt "$LOG_MAX_BYTES" ]; then
+      tail -c "$LOG_KEEP_BYTES" "$file" > "$file.trim" && cat "$file.trim" > "$file"
+      rm -f "$file.trim"
+      log "trimmed $file from $size bytes"
+    fi
+  done
+}
+
 wait_for() {
   name="$1"
   shift
@@ -108,6 +124,8 @@ EOF
 grep -q "include_if_exists = 'conf.d-loopback.conf'" "$PGDATA/postgresql.conf" || \
   printf "\ninclude_if_exists = 'conf.d-loopback.conf'\n" >> "$PGDATA/postgresql.conf"
 chown postgres:postgres "$PGDATA/conf.d-loopback.conf" "$PGDATA/postgresql.conf"
+
+trim_logs
 
 log "starting Postgres"
 mkdir -p "$(dirname "$POSTGRES_LOG")"
@@ -207,7 +225,13 @@ CADDY_PID=$!
 trap stop_children INT TERM
 
 # If any sibling exits, take the machine down so Fly restarts a half-dead app.
+ticks=0
 while kill -0 "$CADDY_PID" 2>/dev/null; do
+  ticks=$((ticks + 1))
+  if [ "$ticks" -ge 300 ]; then
+    ticks=0
+    trim_logs
+  fi
   for pid in "$HYDRA_PID" "$VCLOGIN_PID" "$CREDO_PID" "$REDIS_PID"; do
     if ! kill -0 "$pid" 2>/dev/null; then
       log "child $pid exited"

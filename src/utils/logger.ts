@@ -32,9 +32,10 @@ export class TsLogger extends BaseLogger {
   public constructor(logLevel: LogLevel, name: string = 'credo-controller-service' as string) {
     super(logLevel)
 
+    const minLevel = this.logLevel == LogLevel.Off ? undefined : this.tsLogLevelMap[this.logLevel]
     this.logger = new Logger({
       name,
-      minLevel: this.logLevel == LogLevel.Off ? undefined : this.tsLogLevelMap[this.logLevel],
+      minLevel,
       ignoreStackLevels: 5,
       attachedTransports: [
         {
@@ -47,8 +48,7 @@ export class TsLogger extends BaseLogger {
             error: logToTransport,
             fatal: logToTransport,
           },
-          // always log to file
-          minLevel: 'silly',
+          minLevel: minLevel ?? 'info',
         },
       ],
     })

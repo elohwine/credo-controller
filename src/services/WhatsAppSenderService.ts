@@ -46,10 +46,37 @@ export function tenantWhatsAppSecretPrefix(tenantId: string): string {
   return `WHATSAPP_TENANT_${createHash('sha256').update(tenantId).digest('hex').toUpperCase()}`
 }
 
+export const DEFAULT_PLATFORM_TEMPLATE = { name: 'credentis_inbox_update', language: 'en_US' }
+
+/**
+ * Until organisations bring their own numbers, an organisation that never chose a sender uses the
+ * shared platform number with one approved inbox template for every event. A saved choice (including off) wins.
+ */
+export function platformDefaultSelection(): WhatsAppSenderSelection | undefined {
+  const env = process.env
+  if (
+    !env.WABA_TOKEN ||
+    !env.WHATSAPP_APP_SECRET ||
+    !/^\d+$/.test(env.WABA_PHONE_NUMBER_ID || '') ||
+    !/^\d+$/.test(env.WABA_BUSINESS_ACCOUNT_ID || '')
+  ) {
+    return undefined
+  }
+  const name = (env.WHATSAPP_PLATFORM_TEMPLATE || DEFAULT_PLATFORM_TEMPLATE.name).trim()
+  const language = (env.WHATSAPP_PLATFORM_TEMPLATE_LANGUAGE || DEFAULT_PLATFORM_TEMPLATE.language).trim()
+  if (!/^[a-z0-9_]{1,512}$/.test(name) || !/^[a-z]{2,3}(?:_[A-Z]{2})?$/.test(language)) return undefined
+  return {
+    mode: 'platform',
+    enabled: true,
+    templates: Object.fromEntries(WHATSAPP_EVENTS.map((event) => [event, { name, language }])),
+  }
+}
+
 export class WhatsAppSenderService {
   public selection(tenantId: string): WhatsAppSenderSelection | undefined {
     const config = providerRepository.findConfigById(`whatsapp:${tenantId}`)
-    if (!config || config.tenantId !== tenantId || config.status !== 'active') return undefined
+    if (!config) return platformDefaultSelection()
+    if (config.tenantId !== tenantId || config.status !== 'active') return undefined
     const provider = providerRepository.findProviderById(config.providerId)
     if (!provider || provider.type !== 'notification' || provider.status !== 'active') return undefined
     // Deliberately project only public fields, even if an older operator inserted tokens into provider_configs.
@@ -131,21 +158,34 @@ export class WhatsAppSenderService {
     tenantId: string,
   ): Promise<{ ready: boolean; templates: string[]; webhookSubscribed: boolean }> {
     const sender = this.resolve(tenantId)
-    await axios
-      .get(whatsAppGraphUrl(`${sender.wabaId}/phone_numbers`), {
-        headers: { Authorization: `Bearer ${sender.token}` },
-        timeout: 15000,
-      })
-      .then(({ data }) => {
-        if (!data?.data?.some((phone: any) => phone.id === sender.phoneNumberId)) {
-          throw new DispatchError('Phone does not belong to selected WABA', 'permanent')
-        }
-      })
+    await this.requireOwnedPhone(sender)
     const approved: string[] = []
     for (const event of Object.keys(sender.templates)) {
       await this.requireApprovedTemplate(sender, event)
       approved.push(event)
     }
+    await this.subscribeAndBind(sender)
+    return { ready: approved.length > 0, templates: approved, webhookSubscribed: true }
+  }
+
+  /** Connects the shared platform number on first use, so organisations on it need no setup step. */
+  public async ensurePlatformBinding(sender: ResolvedWhatsAppSender): Promise<void> {
+    if (sender.key !== 'platform') throw new DispatchError('Sender connection has not been validated', 'permanent')
+    await this.requireOwnedPhone(sender)
+    await this.subscribeAndBind(sender)
+  }
+
+  private async requireOwnedPhone(sender: ResolvedWhatsAppSender): Promise<void> {
+    const { data } = await axios.get(whatsAppGraphUrl(`${sender.wabaId}/phone_numbers`), {
+      headers: { Authorization: 'Bearer ' + sender.token },
+      timeout: 15000,
+    })
+    if (!data?.data?.some((phone: any) => phone.id === sender.phoneNumberId)) {
+      throw new DispatchError('Phone does not belong to selected WABA', 'permanent')
+    }
+  }
+
+  private async subscribeAndBind(sender: ResolvedWhatsAppSender): Promise<void> {
     // Meta only delivers status and STOP callbacks for a WABA subscribed to this app; the call is idempotent.
     const subscribed = await axios.post(whatsAppGraphUrl(`${sender.wabaId}/subscribed_apps`), undefined, {
       headers: { Authorization: 'Bearer ' + sender.token },
@@ -161,7 +201,6 @@ export class WhatsAppSenderService {
       `INSERT INTO whatsapp_sender_bindings (phone_number_id, sender_key, waba_id, validated_at)
       VALUES (?, ?, ?, ?) ON CONFLICT(phone_number_id) DO UPDATE SET waba_id = excluded.waba_id, validated_at = excluded.validated_at`,
     ).run(sender.phoneNumberId, sender.key, sender.wabaId, new Date().toISOString())
-    return { ready: approved.length > 0, templates: approved, webhookSubscribed: true }
   }
 
   public async requireApprovedTemplate(

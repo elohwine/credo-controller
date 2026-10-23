@@ -152,16 +152,44 @@ describe('durable transactional WhatsApp notifications', () => {
     ).toThrow('not owned')
   })
 
-  it('requires explicit sender configuration and never falls back to platform secrets', async () => {
+  it('uses the platform number by default, but honours a saved tenant or off choice', async () => {
     consent()
-    let item = intent()
-    await expect(service.processWhatsAppIntent(item.id, item.payload)).rejects.toMatchObject({
-      disposition: 'permanent',
+    expect(whatsAppSenderService.selection(tenant)).toMatchObject({
+      mode: 'platform',
+      enabled: true,
+      templates: { task: { name: 'credentis_inbox_update', language: 'en_US' } },
     })
     whatsAppSenderService.configure(tenant, { ...selection, mode: 'tenant', phoneNumberId: '789', wabaId: '777' })
-    item = intent('two')
+    let item = intent('two')
     await expect(service.processWhatsAppIntent(item.id, item.payload)).rejects.toThrow('not configured')
     expect(delivery(item.id).status).toBe('failed')
+    whatsAppSenderService.configure(tenant, { ...selection, enabled: false })
+    item = intent('three')
+    await expect(service.processWhatsAppIntent(item.id, item.payload)).rejects.toThrow('disabled')
+    delete process.env.WABA_TOKEN
+    expect(whatsAppSenderService.selection('org-unconfigured')).toBeUndefined()
+  })
+
+  it('connects the platform number on first send when the organisation never chose a sender', async () => {
+    consent()
+    const defaultTemplate = {
+      data: { data: [{ ...approved.data.data[0], name: 'credentis_inbox_update' }] },
+    }
+    jest
+      .spyOn(axios, 'get')
+      .mockImplementation(async (url: any) =>
+        String(url).endsWith('/phone_numbers') ? { data: { data: [{ id: '123' }] } } : defaultTemplate,
+      )
+    const post = jest
+      .spyOn(axios, 'post')
+      .mockResolvedValueOnce({ data: { success: true } })
+      .mockResolvedValueOnce({ data: { messages: [{ id: 'wamid-default' }] } })
+    const item = intent()
+    await service.processWhatsAppIntent(item.id, item.payload)
+    expect(post.mock.calls[0][0]).toBe('https://graph.facebook.com/v26.0/456/subscribed_apps')
+    expect(db.prepare('SELECT sender_key FROM whatsapp_sender_bindings').get()).toEqual({ sender_key: 'platform' })
+    expect(delivery(item.id).status).toBe('accepted')
+    expect(post.mock.calls[1][1]).toMatchObject({ template: { name: 'credentis_inbox_update' } })
   })
 
   it.each(['platform', 'tenant'] as const)(
@@ -311,7 +339,7 @@ describe('durable transactional WhatsApp notifications', () => {
     const post = jest.spyOn(axios, 'post')
     const item = intent()
     await expect(service.processWhatsAppIntent(item.id, item.payload)).rejects.toThrow('disabled')
-    expect(whatsAppSenderService.selection('org-b')).toBeUndefined()
+    expect(whatsAppSenderService.selection('org-b')?.templates.task?.name).toBe('credentis_inbox_update')
     expect(post).not.toHaveBeenCalled()
   })
 
@@ -752,10 +780,14 @@ describe('durable transactional WhatsApp notifications', () => {
   it('never treats an unvalidated sender or a marketing template as ready', async () => {
     whatsAppSenderService.configure(tenant, selection)
     consent()
+    const get = jest.spyOn(axios, 'get').mockResolvedValueOnce({ data: { data: [{ id: 'another-phone' }] } })
+    const post = jest.spyOn(axios, 'post')
     let item = intent('unvalidated')
-    await expect(service.processWhatsAppIntent(item.id, item.payload)).rejects.toThrow('not been validated')
+    await expect(service.processWhatsAppIntent(item.id, item.payload)).rejects.toThrow('does not belong')
+    expect(post).not.toHaveBeenCalled()
+    expect(db.prepare('SELECT COUNT(*) AS n FROM whatsapp_sender_bindings').get()).toEqual({ n: 0 })
     bind()
-    jest.spyOn(axios, 'get').mockResolvedValue({
+    get.mockResolvedValue({
       data: { data: [{ ...approved.data.data[0], category: 'MARKETING' }] },
     })
     item = intent('marketing')

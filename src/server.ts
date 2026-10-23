@@ -300,27 +300,39 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     runWithContext({ correlationId }, () => next())
   })
 
-  // Request/Response logging middleware (development friendly)
+  // Request/response logging. Bodies are never logged: they carry personal data, tokens and
+  // base64 files (one workflow run reached 30 MB per poll and filled the production disk).
+  const bodySize = (body: unknown): number | undefined => {
+    if (body == null) return undefined
+    if (typeof body === 'string') return Buffer.byteLength(body)
+    if (Buffer.isBuffer(body)) return body.length
+    try {
+      return Buffer.byteLength(JSON.stringify(body))
+    } catch {
+      return undefined
+    }
+  }
   app.use((req: ExRequest, res: ExResponse, next: NextFunction) => {
     const start = Date.now()
     const safeHeaders = { ...req.headers }
     // avoid logging sensitive auth header value fully
     if (safeHeaders.authorization) safeHeaders.authorization = 'REDACTED'
-    req.logger?.info({ method: req.method, path: req.path, headers: safeHeaders, body: req.body }, 'Incoming request')
-
-    // capture response body by wrapping res.send
-    const originalSend = res.send.bind(res)
-    let responseBody: any = undefined
-    // @ts-ignore
-    res.send = (body?: any) => {
-      responseBody = body
-      return originalSend(body)
-    }
+    req.logger?.info(
+      { method: req.method, path: req.path, headers: safeHeaders, bodyBytes: bodySize(req.body) },
+      'Incoming request',
+    )
 
     res.on('finish', () => {
       const duration = Date.now() - start
+      const length = Number(res.getHeader('content-length'))
       req.logger?.info(
-        { method: req.method, path: req.path, status: res.statusCode, duration, response: responseBody },
+        {
+          method: req.method,
+          path: req.path,
+          status: res.statusCode,
+          duration,
+          ...(Number.isFinite(length) ? { responseBytes: length } : {}),
+        },
         'Request completed',
       )
     })

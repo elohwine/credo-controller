@@ -280,9 +280,15 @@ export class NotificationService {
     let sending = false
     try {
       const sender = whatsAppSenderService.resolve(payload.tenantId)
-      const binding = db
-        .prepare('SELECT sender_key, waba_id FROM whatsapp_sender_bindings WHERE phone_number_id = ?')
-        .get(sender.phoneNumberId) as { sender_key: string; waba_id: string } | undefined
+      const readBinding = () =>
+        db
+          .prepare('SELECT sender_key, waba_id FROM whatsapp_sender_bindings WHERE phone_number_id = ?')
+          .get(sender.phoneNumberId) as { sender_key: string; waba_id: string } | undefined
+      let binding = readBinding()
+      if (!binding && sender.key === 'platform') {
+        await whatsAppSenderService.ensurePlatformBinding(sender)
+        binding = readBinding()
+      }
       if (binding?.sender_key !== sender.key || binding?.waba_id !== sender.wabaId) {
         throw new DispatchError('Sender connection has not been validated', 'permanent')
       }

@@ -146,6 +146,11 @@ export default function OrganizationWhatsAppPage() {
             <Text size="xs" c="dimmed" mb="sm">
               Only you can turn these on. Reply STOP on WhatsApp at any time to turn them all off.
             </Text>
+            {readiness && !on && (
+              <Alert color="yellow" mb="sm">
+                WhatsApp alerts are off for this organisation, so nothing will be sent even if you turn these on.
+              </Alert>
+            )}
             <TextInput
               label="My WhatsApp number (the one I signed up with)"
               placeholder="263771234567"
