@@ -201,6 +201,8 @@ interface OrgMemberItem {
   displayName?: string
   /** Phone from that contact, when one exists */
   phone?: string
+  /** Invited but has not opened their invite link and chosen a PIN yet */
+  invitePending?: boolean
 }
 
 interface DepartmentItem {
@@ -240,6 +242,21 @@ interface GrantAuthorityRequest {
 interface InviteMemberByPhoneRequest {
   phone: string
   role?: string
+  /** The person's name. They confirm or correct it when they open their invite link. */
+  name?: string
+  /** The inviter confirms the person agreed to get the invite link on WhatsApp. */
+  whatsappConsent?: boolean
+}
+
+interface ResendInviteRequest {
+  /** The inviter confirms the person agreed to get the invite link on WhatsApp. */
+  whatsappConsent?: boolean
+}
+
+interface InviteDeliveryResult {
+  /** How the invite link reached them. `link` means nothing could be sent: pass the link on in person. */
+  channel: 'whatsapp' | 'sms' | 'link' | 'none'
+  link?: string
 }
 
 interface RoleItem {
@@ -1531,7 +1548,10 @@ export class OrganizationController extends Controller {
     }
 
     await this.orgService.refreshMemberNames(orgTenantId)
-    return this.orgService.listOrgMembers(orgTenantId)
+    const pending = this.orgService.pendingInviteUserIds(orgTenantId)
+    return this.orgService
+      .listOrgMembers(orgTenantId)
+      .map((member) => ({ ...member, invitePending: pending.has(member.userId) }))
   }
 
   /**
@@ -1765,6 +1785,7 @@ export class OrganizationController extends Controller {
     role: string
     accountCreated: boolean
     alerted: boolean
+    invite: InviteDeliveryResult
     message: string
   }> {
     const user = (request as any).user
@@ -1784,16 +1805,16 @@ export class OrganizationController extends Controller {
     }
 
     try {
-      const result = await this.orgService.inviteMemberByPhone(orgTenantId, body.phone, body.role || 'member', user.id)
+      const result = await this.orgService.inviteMemberByPhone(orgTenantId, body.phone, body.role || 'member', user.id, {
+        name: body.name,
+        whatsappConsent: body.whatsappConsent === true,
+      })
       this.setStatus(201)
-      const message = result.accountCreated
-        ? result.alerted
-          ? 'Their account is open and they have been told. They sign in with this phone number and choose their own PIN. Their staff card is waiting.'
-          : 'Their account is open. Ask them to sign in with this phone number and choose a PIN. A message could not be sent.'
-        : 'They are on the team. Their staff card is in the app.'
-      return { ...result, message }
+      return { ...result, message: OrganizationController.inviteMessage(result.invite, result.accountCreated) }
     } catch (error: any) {
-      if (error.message.includes('Only org owners')) {
+      if (error.message.includes('Enter the person')) {
+        throw new StatusException(error.message, 400)
+      } else if (error.message.includes('Only org owners')) {
         this.setStatus(403)
       } else if (error.message.includes('No registered user found')) {
         this.setStatus(404)
@@ -1802,6 +1823,44 @@ export class OrganizationController extends Controller {
       } else {
         this.setStatus(500)
       }
+      throw error
+    }
+  }
+
+  private static inviteMessage(invite: InviteDeliveryResult, accountCreated: boolean): string {
+    if (invite.channel === 'whatsapp')
+      return 'Invite sent on WhatsApp. They open the link, confirm their name and choose their own PIN.'
+    if (invite.channel === 'sms')
+      return 'Invite sent by text message. They open the link, confirm their name and choose their own PIN.'
+    if (invite.channel === 'link')
+      return 'No message could be sent. Give them this link yourself; it works once and expires in 7 days.'
+    return accountCreated
+      ? 'Their account is open, but no invite could be sent. Try "Resend invite" later.'
+      : 'They are on the team. Their staff card is in the app.'
+  }
+
+  /** Owner/admin: send a fresh invite link to someone who has not opened theirs yet. Older links stop working. */
+  @Post('/{orgTenantId}/members/{targetUserId}/resend-invite')
+  @Security('jwt')
+  public async resendMemberInvite(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Path() targetUserId: string,
+    @Body() body: ResendInviteRequest,
+  ): Promise<InviteDeliveryResult & { message: string }> {
+    const user = (request as any).user
+    if (!user?.id) throw new StatusException('Unauthorized', 401)
+    if (user.tenantId !== orgTenantId) throw new StatusException('Token scope does not match organization', 403)
+    try {
+      const invite = await this.orgService.resendMemberInvite(orgTenantId, targetUserId, user.id, {
+        whatsappConsent: body?.whatsappConsent === true,
+      })
+      return { ...invite, message: OrganizationController.inviteMessage(invite, true) }
+    } catch (error: any) {
+      const message = String(error?.message || 'Could not resend the invite')
+      if (message.includes('Only org owners')) throw new StatusException(message, 403)
+      if (message.includes('not on this team')) throw new StatusException(message, 404)
+      if (/already signed in|No phone/.test(message)) throw new StatusException(message, 409)
       throw error
     }
   }

@@ -24,14 +24,16 @@ import type { SSIUserRecord, PlatformIdentityClaims } from '../config/credential
 import { Agent, W3cCredentialService, W3cJwtVerifiableCredential, W3cJwtVerifiablePresentation } from '@credo-ts/core'
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
-import { injectable, inject } from 'tsyringe'
+import { container, injectable, inject } from 'tsyringe'
 
 import { RestMultiTenantAgentModules } from '../cliAgent'
 import { PLATFORM_IDENTITY_VC_TYPE } from '../config/credentials/PlatformIdentityVC'
 import { DatabaseManager } from '../persistence/DatabaseManager'
+import { getTenantById } from '../persistence/TenantRepository'
 import { rootLogger } from '../utils/pinoLogger'
 import { getIssuerApiKey } from '../utils/serviceApiKey'
 import { type DeviceAssertion, deviceTrustService } from './DeviceTrustService'
+import { memberInviteService } from './MemberInviteService'
 
 const logger = rootLogger.child({ module: 'SSIAuthService' })
 
@@ -52,6 +54,14 @@ export class PlatformIdentityError extends Error {
   ) {
     super(message)
     this.name = 'PlatformIdentityError'
+  }
+}
+
+/** An invited account signs in for the first time through its invite link, never with a guessed PIN. */
+export class InviteRequiredError extends Error {
+  public constructor() {
+    super('Open the invite link sent to your phone to choose your PIN')
+    this.name = 'InviteRequiredError'
   }
 }
 
@@ -540,9 +550,12 @@ export class SSIAuthService {
 
     if (!user) throw new Error('Invalid credentials')
 
-    // An invited account has no PIN until the person signs in and chooses one.
-    // The organisation never sets that PIN.
+    // An invited account has no PIN until the person opens their invite link and chooses one.
+    // The organisation never sets that PIN, and nobody else can claim it by guessing first.
     const inputPinHash = this.hashPin(credentials.pin)
+    if (!user.pin_hash && memberInviteService.wasInvited(user.id)) {
+      throw new InviteRequiredError()
+    }
     if (!user.pin_hash) {
       db.prepare('UPDATE ssi_users SET pin_hash = ?, updated_at = ? WHERE id = ?').run(
         inputPinHash,
@@ -564,6 +577,80 @@ export class SSIAuthService {
     const token = await this.generateSessionToken(user.id, user.tenant_id, user.did)
 
     return { token, tenantId: user.tenant_id }
+  }
+
+  /** What the invite link shows before the person accepts: organisation, role, proposed name. */
+  describeInvite(code: string): { orgName: string; role: string; proposedName?: string; phoneHint?: string } {
+    const invite = memberInviteService.findOpenByCode(code)
+    if (!invite) throw new Error('This invite link has expired or was replaced by a newer one')
+    const db = DatabaseManager.getDatabase()
+    const membership = db
+      .prepare('SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ?')
+      .get(invite.user_id, invite.org_tenant_id) as { role: string } | undefined
+    const contact = db
+      .prepare(
+        `SELECT phone FROM org_contacts WHERE org_tenant_id = ? AND id IN (?, ?) AND phone IS NOT NULL LIMIT 1`,
+      )
+      .get(invite.org_tenant_id, `${invite.org_tenant_id}:member:${invite.user_id}`, `${invite.org_tenant_id}:owner:${invite.user_id}`) as
+      | { phone: string }
+      | undefined
+    const digits = (contact?.phone || '').replace(/\D/g, '')
+    return {
+      orgName: getTenantById(invite.org_tenant_id)?.label || 'Your organisation',
+      role: membership?.role || 'member',
+      proposedName: invite.proposed_name || undefined,
+      phoneHint: digits.length >= 4 ? `•••• ${digits.slice(-4)}` : undefined,
+    }
+  }
+
+  /**
+   * The invited person confirms their name, proves they hold the invited phone number and
+   * chooses their own PIN. Spends the link and signs them in.
+   */
+  async acceptInvite(input: {
+    code: string
+    name: string
+    phone: string
+    pin: string
+  }): Promise<{ token: string; tenantId: string; name: string }> {
+    const { OrganizationService } = await import('./OrganizationService')
+    const invite = memberInviteService.findOpenByCode(input.code)
+    if (!invite) throw new Error('This invite link has expired or was replaced by a newer one')
+    const name = OrganizationService.cleanPersonName(input.name)
+    if (!name) throw new Error('Enter your name')
+    if (!/^\d{4,6}$/.test(String(input.pin || ''))) throw new Error('Choose a PIN of 4 to 6 digits')
+    const db = DatabaseManager.getDatabase()
+    const user = db.prepare('SELECT id, tenant_id, did, phone_hash, pin_hash FROM ssi_users WHERE id = ?').get(invite.user_id) as
+      | { id: string; tenant_id: string; did?: string; phone_hash?: string; pin_hash?: string | null }
+      | undefined
+    if (!user) throw new Error('This invite link has expired or was replaced by a newer one')
+    const phone = this.normalizePhone(String(input.phone || ''))
+    if (!phone || user.phone_hash !== this.hashData(phone)) {
+      throw new Error('That is not the phone number this invite was sent to')
+    }
+    const now = new Date().toISOString()
+    const claimed = db.transaction(() => {
+      const set = db
+        .prepare('UPDATE ssi_users SET pin_hash = ?, updated_at = ?, last_login_at = ? WHERE id = ? AND pin_hash IS NULL')
+        .run(this.hashPin(input.pin), now, now, user.id)
+      if (!set.changes) return false
+      memberInviteService.markUsed(user.id)
+      return true
+    })()
+    if (!claimed) throw new Error('A PIN was already chosen for this account. Sign in with it instead')
+
+    const organizations = container.resolve(OrganizationService)
+    await organizations.applyConfirmedMemberName(user.id, name)
+    if (name !== invite.proposed_name) {
+      await this.reissuePlatformIdentityOffer(user.tenant_id, name, phone).catch((error: any) =>
+        logger.warn({ error: error?.message }, 'Could not reissue identity card after invite'),
+      )
+    }
+    void import('./ssi/CustodyRebindService').then(({ custodyRebindService }) =>
+      custodyRebindService.scheduleRebind(user.tenant_id),
+    )
+    const token = await this.generateSessionToken(user.id, user.tenant_id, user.did)
+    return { token, tenantId: user.tenant_id, name }
   }
 
   /**
@@ -757,9 +844,14 @@ export class SSIAuthService {
   }
 
   /** A fresh platform identity offer when the inbox card can no longer be accepted. */
-  public async reissuePlatformIdentityOffer(walletTenantId: string, displayName?: string): Promise<string | undefined> {
+  public async reissuePlatformIdentityOffer(
+    walletTenantId: string,
+    displayName?: string,
+    phone?: string,
+  ): Promise<string | undefined> {
     const offerUri = await this.issuePlatformIdentityVC(walletTenantId, {
       displayName: displayName || 'Member',
+      ...(phone ? { phone } : {}),
       registeredAt: new Date().toISOString(),
       platformTenantId: walletTenantId,
       platformName: process.env.PLATFORM_NAME || 'Credentis',

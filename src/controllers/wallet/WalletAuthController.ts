@@ -27,7 +27,7 @@ import {
   claimTenantForUser,
   getTenantCredentialCount,
 } from '../../services/PhoneTenantLinkingService'
-import { SSIAuthService } from '../../services/SSIAuthService'
+import { InviteRequiredError, SSIAuthService } from '../../services/SSIAuthService'
 import { WalletLoginService } from '../../services/WalletLoginService'
 import { stageProofService } from '../../services/ssi/StageProofService'
 import { deviceTrustService } from '../../services/DeviceTrustService'
@@ -63,6 +63,24 @@ interface RegisterRequest {
   tenantType?: 'USER' | 'ORG'
   domain?: string
   claimExistingTenant?: boolean // If true, claim any existing tenant linked to this phone
+}
+
+interface InviteSummary {
+  orgName: string
+  role: string
+  /** The name the organisation entered. The person confirms or corrects it. */
+  proposedName?: string
+  /** Last digits of the invited phone number */
+  phoneHint?: string
+}
+
+interface AcceptInviteRequest {
+  code: string
+  name: string
+  /** The invited phone number; must match the account. */
+  phone: string
+  /** 4 to 6 digits, chosen by the person */
+  pin: string
 }
 
 interface LoginChallengeResponse {
@@ -218,7 +236,33 @@ export class WalletAuthController extends Controller {
       }
     } catch (e: any) {
       console.log('[LOGIN] Authentication failed:', e.message)
+      if (e instanceof InviteRequiredError) throw new StatusException(e.message, 403)
       throw new StatusException('Invalid credentials', 401)
+    }
+  }
+
+  /** What an invite link is for, before the person accepts it. */
+  @Get('/invite/{code}')
+  public async describeInvite(@Path() code: string): Promise<InviteSummary> {
+    try {
+      return this.ssiAuthService.describeInvite(code)
+    } catch (e: any) {
+      throw new StatusException(e.message, 404)
+    }
+  }
+
+  /** The invited person confirms their name and chooses their own PIN, then is signed in. */
+  @Post('/invite/accept')
+  public async acceptInvite(@Body() body: AcceptInviteRequest): Promise<{ token: string; name: string }> {
+    try {
+      const result = await this.ssiAuthService.acceptInvite(body)
+      return { token: result.token, name: result.name }
+    } catch (e: any) {
+      const message = String(e?.message || 'Could not accept the invite')
+      if (/expired|replaced/.test(message)) throw new StatusException(message, 404)
+      if (/already chosen/.test(message)) throw new StatusException(message, 409)
+      if (/Enter your name|PIN of|not the phone/.test(message)) throw new StatusException(message, 400)
+      throw e
     }
   }
 

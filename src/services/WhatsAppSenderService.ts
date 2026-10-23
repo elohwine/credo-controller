@@ -23,7 +23,7 @@ export interface ResolvedWhatsAppSender {
   templates: WhatsAppSenderSelection['templates']
 }
 
-export const WHATSAPP_EVENTS = ['task', 'vc_offer', 'payment_link', 'proof_request', 'remittance'] as const
+export const WHATSAPP_EVENTS = ['task', 'vc_offer', 'payment_link', 'proof_request', 'remittance', 'invite'] as const
 
 export const DEFAULT_WHATSAPP_GRAPH_VERSION = 'v26.0'
 

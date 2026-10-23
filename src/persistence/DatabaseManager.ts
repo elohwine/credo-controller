@@ -181,6 +181,7 @@ export class DatabaseManager {
       { version: 132, file: '132_ap_payment_proof.sql', name: 'ap_payment_proof' },
       { version: 133, file: '133_org_public_offerings.sql', name: 'org_public_offerings' },
       { version: 134, file: '134_inbox_read_state.sql', name: 'inbox_read_state' },
+      { version: 135, file: '135_member_invites.sql', name: 'member_invites' },
     ]
 
     for (const migration of migrationFiles) {

@@ -17,6 +17,7 @@ import { createHash, randomUUID } from 'crypto'
 import nodemailer from 'nodemailer'
 
 import { DatabaseManager } from '../persistence/DatabaseManager'
+import { getTenantById } from '../persistence/TenantRepository'
 import { rootLogger } from '../utils/pinoLogger'
 
 import { DispatchError, outboxService } from './OutboxService'
@@ -99,6 +100,21 @@ export class NotificationService {
   }
 
   /**
+   * The inviter confirmed the person agreed to get their invite on WhatsApp. Covers the invite
+   * message only; every other event still needs the person's own opt-in.
+   */
+  public recordInviteConsent(orgTenantId: string, userId: string, phone: string): void {
+    const now = new Date().toISOString()
+    DatabaseManager.getDatabase()
+      .prepare(
+        `INSERT INTO notification_preferences (tenant_id, user_id, phone, event_type, enabled, consent_at, consent_source, updated_at)
+        VALUES (?, ?, ?, 'invite', 1, ?, 'inviter_confirmed', ?) ON CONFLICT(tenant_id, user_id, event_type)
+        DO UPDATE SET phone = excluded.phone, updated_at = excluded.updated_at`,
+      )
+      .run(orgTenantId, userId, normalizeNotificationPhone(phone), now, now)
+  }
+
+  /**
    * Enabled WhatsApp opt-in for one organization's event. The organization's own switch wins (on or off);
    * otherwise the person's own "any organization" switch (stored under their wallet tenant) applies, but
    * only for organizations sending from the shared Credentis platform number they opted in to.
@@ -134,6 +150,7 @@ export class NotificationService {
     dedupeKey: string
     requestId?: string
     inboxItemId?: string
+    inviteId?: string
   }): string {
     if (!WHATSAPP_EVENTS.includes(input.eventType as any))
       throw new DispatchError('Unsupported notification event', 'permanent')
@@ -150,6 +167,7 @@ export class NotificationService {
           eventType: input.eventType,
           ...(input.requestId ? { requestId: input.requestId } : {}),
           ...(input.inboxItemId ? { inboxItemId: input.inboxItemId } : {}),
+          ...(input.inviteId ? { inviteId: input.inviteId } : {}),
         },
       })
       const now = new Date().toISOString()
@@ -251,6 +269,40 @@ export class NotificationService {
   }
 
   public async processWhatsAppIntent(id: string, payload: Record<string, any>): Promise<void> {
+    if (payload.eventType !== 'invite') return this.sendWhatsAppIntent(id, payload)
+    // An invite must reach the person: when WhatsApp cannot carry it, one text message does.
+    try {
+      await this.sendWhatsAppIntent(id, payload)
+    } catch (error) {
+      if (error instanceof DispatchError && error.disposition === 'permanent') {
+        await this.sendInviteFallbackSms(payload.inviteId, payload.to)
+      }
+      throw error
+    }
+    const row = DatabaseManager.getDatabase()
+      .prepare('SELECT status FROM notification_deliveries WHERE id = ?')
+      .get(id) as { status: string } | undefined
+    if (row && ['skipped', 'failed'].includes(row.status)) await this.sendInviteFallbackSms(payload.inviteId, payload.to)
+  }
+
+  /** The invite link by text message, at most once per invite. Each send replaces the code. */
+  public async sendInviteFallbackSms(inviteId: string | undefined, phone: string): Promise<boolean> {
+    if (!inviteId) return false
+    const { memberInviteService, memberInviteLink } = await import('./MemberInviteService')
+    const invite = memberInviteService.get(inviteId)
+    if (!invite || invite.used_at || !memberInviteService.claimFallback(inviteId)) return false
+    const code = memberInviteService.issueCode(inviteId)
+    const link = code ? memberInviteLink(code) : undefined
+    if (!link) return false
+    const orgName = getTenantById(invite.org_tenant_id)?.label || 'your organisation'
+    const sms = await this.sendSms(
+      phone,
+      `${orgName} invited you to Credentis. Confirm your name and choose your own PIN here: ${link} (valid 7 days)`,
+    )
+    return sms.success
+  }
+
+  private async sendWhatsAppIntent(id: string, payload: Record<string, any>): Promise<void> {
     const db = DatabaseManager.getDatabase()
     const row = db.prepare('SELECT * FROM notification_deliveries WHERE id = ?').get(id) as any
     if (
@@ -300,12 +352,32 @@ export class NotificationService {
         update('skipped', 'Live sending not approved for recipient')
         return
       }
-      const template = await whatsAppSenderService.requireApprovedTemplate(sender, payload.eventType)
+      // Organisations that chose templates before invites existed send invites with their card template.
+      const templateEvent =
+        payload.eventType === 'invite' && !sender.templates.invite ? 'vc_offer' : payload.eventType
+      const template = await whatsAppSenderService.requireApprovedTemplate(sender, templateEvent)
       const base = new URL(process.env.WALLET_PUBLIC_URL || '')
       if (base.protocol !== 'https:' || base.username || base.password)
         throw new DispatchError('HTTPS wallet URL required', 'permanent')
-      const action = new URL('/inbox', base.origin)
-      if (payload.inboxItemId) {
+      let action = new URL('/inbox', base.origin)
+      let bodyText = 'There is an update in your Credentis inbox. Sign in to view it.'
+      if (payload.eventType === 'invite') {
+        const { memberInviteService, memberInviteLink } = await import('./MemberInviteService')
+        const invite = payload.inviteId ? memberInviteService.get(payload.inviteId) : undefined
+        if (!invite || invite.used_at || invite.org_tenant_id !== payload.tenantId) {
+          update('skipped', 'Invite already used or replaced')
+          return
+        }
+        const code = memberInviteService.issueCode(invite.id)
+        const link = code ? memberInviteLink(code) : undefined
+        if (!link) {
+          update('skipped', 'Invite expired')
+          return
+        }
+        action = new URL(link)
+        const orgName = getTenantById(payload.tenantId)?.label || 'An organisation'
+        bodyText = `${orgName} invited you to Credentis. Open the link to confirm your name and choose your own PIN.`
+      } else if (payload.inboxItemId) {
         const owner = db
           .prepare(
             `SELECT u.id FROM wallet_pending_offers w JOIN ssi_users u ON u.tenant_id = w.tenant_id
@@ -335,8 +407,7 @@ export class NotificationService {
         currentSender.phoneNumberId !== sender.phoneNumberId ||
         currentSender.wabaId !== sender.wabaId ||
         currentSender.token !== sender.token ||
-        JSON.stringify(currentSender.templates[payload.eventType]) !==
-          JSON.stringify(sender.templates[payload.eventType])
+        JSON.stringify(currentSender.templates[templateEvent]) !== JSON.stringify(sender.templates[templateEvent])
       )
         throw new DispatchError('Sender changed during dispatch', 'permanent')
       const stillConsented = this.consentedRecipient(payload.tenantId, payload.eventType, { phone: payload.to })
@@ -367,7 +438,7 @@ export class NotificationService {
               {
                 type: 'body',
                 parameters: [
-                  { type: 'text', text: 'There is an update in your Credentis inbox. Sign in to view it.' },
+                  { type: 'text', text: bodyText },
                   { type: 'text', text: actionUrl },
                 ],
               },

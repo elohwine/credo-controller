@@ -6020,6 +6020,10 @@
           "phone": {
             "type": "string",
             "description": "Phone from that contact, when one exists"
+          },
+          "invitePending": {
+            "type": "boolean",
+            "description": "Invited but has not opened their invite link and chosen a PIN yet"
           }
         },
         "required": [
@@ -6250,6 +6254,28 @@
         "type": "object",
         "additionalProperties": false
       },
+      "InviteDeliveryResult": {
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "whatsapp",
+              "sms",
+              "link",
+              "none"
+            ],
+            "description": "How the invite link reached them. `link` means nothing could be sent: pass the link on in person."
+          },
+          "link": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
       "InviteMemberByPhoneRequest": {
         "properties": {
           "phone": {
@@ -6257,11 +6283,29 @@
           },
           "role": {
             "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "The person's name. They confirm or correct it when they open their invite link."
+          },
+          "whatsappConsent": {
+            "type": "boolean",
+            "description": "The inviter confirms the person agreed to get the invite link on WhatsApp."
           }
         },
         "required": [
           "phone"
         ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "ResendInviteRequest": {
+        "properties": {
+          "whatsappConsent": {
+            "type": "boolean",
+            "description": "The inviter confirms the person agreed to get the invite link on WhatsApp."
+          }
+        },
         "type": "object",
         "additionalProperties": false
       },
@@ -8761,6 +8805,56 @@
         },
         "type": "object",
         "additionalProperties": {}
+      },
+      "InviteSummary": {
+        "properties": {
+          "orgName": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "proposedName": {
+            "type": "string",
+            "description": "The name the organisation entered. The person confirms or corrects it."
+          },
+          "phoneHint": {
+            "type": "string",
+            "description": "Last digits of the invited phone number"
+          }
+        },
+        "required": [
+          "orgName",
+          "role"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "AcceptInviteRequest": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string",
+            "description": "The invited phone number; must match the account."
+          },
+          "pin": {
+            "type": "string",
+            "description": "4 to 6 digits, chosen by the person"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "phone",
+          "pin"
+        ],
+        "type": "object",
+        "additionalProperties": false
       },
       "WalletLoginStart": {
         "properties": {
@@ -21946,6 +22040,9 @@
                     "message": {
                       "type": "string"
                     },
+                    "invite": {
+                      "$ref": "#/components/schemas/InviteDeliveryResult"
+                    },
                     "alerted": {
                       "type": "boolean"
                     },
@@ -21964,6 +22061,7 @@
                   },
                   "required": [
                     "message",
+                    "invite",
                     "alerted",
                     "accountCreated",
                     "role",
@@ -22008,6 +22106,83 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/InviteMemberByPhoneRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/organizations/{orgTenantId}/members/{targetUserId}/resend-invite": {
+      "post": {
+        "operationId": "ResendMemberInvite",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/InviteDeliveryResult"
+                    },
+                    {
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Owner/admin: send a fresh invite link to someone who has not opened theirs yet. Older links stop working.",
+        "tags": [
+          "Organizations"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orgTenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "targetUserId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendInviteRequest"
               }
             }
           }
@@ -28407,6 +28582,99 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/auth/invite/{code}": {
+      "get": {
+        "operationId": "DescribeInvite",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteSummary"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "What an invite link is for, before the person accepts it.",
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/wallet/auth/invite/accept": {
+      "post": {
+        "operationId": "AcceptInvite",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "token": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "token"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The invited person confirms their name and chooses their own PIN, then is signed in.",
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInviteRequest"
               }
             }
           }

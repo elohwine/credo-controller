@@ -565,6 +565,12 @@ function templateOfferedByAnswers(orgTenantId: string, workflowType: string): Wo
   }
 }
 
+/** How an invite link reached the person. `link` is returned only when nothing could be sent. */
+export interface InviteDelivery {
+  channel: 'whatsapp' | 'sms' | 'link' | 'none'
+  link?: string
+}
+
 @injectable()
 export class OrganizationService {
   private agent: Agent<RestMultiTenantAgentModules>
@@ -839,7 +845,8 @@ export class OrganizationService {
    * organization must not rename a field worker "Organization owner".
    */
   private memberContactName(role: string | undefined, identityName: string | undefined, storedName?: string): string {
-    if (identityName) return identityName
+    // An invited account starts with a placeholder card; a real name the team saved beats it.
+    if (identityName && OrganizationService.cleanPersonName(identityName)) return identityName
     const stored = storedName?.trim()
     const generic = !stored || /^(organization owner|team member)$/i.test(stored)
     if (stored && !generic) return stored
@@ -1611,20 +1618,168 @@ export class OrganizationService {
     phone: string,
     role: string,
     invitedBy: string,
-  ): Promise<{ membershipId: string; targetUserId: string; role: string; accountCreated: boolean; alerted: boolean }> {
+    /** allowUnnamed: phones typed into a job carry no name; the person gives it when they open the link. */
+    options: { name?: string; whatsappConsent?: boolean; allowUnnamed?: boolean } = {},
+  ): Promise<{
+    membershipId: string
+    targetUserId: string
+    role: string
+    accountCreated: boolean
+    alerted: boolean
+    invite: InviteDelivery
+  }> {
     const normalizedPhone = this.normalizePhone(phone)
-    const knownName = this.contactNameForPhone(orgTenantId, normalizedPhone)
+    const givenName = OrganizationService.cleanPersonName(options.name)
+    const proposedName = givenName || this.contactNameForPhone(orgTenantId, normalizedPhone)
+    const known = this.lookupUserByPhone(orgTenantId, normalizedPhone).userId
+    if (!proposedName && !known && !options.allowUnnamed) throw new Error("Enter the person's name so the team knows who they are")
     const holder = await container
       .resolve(SSIAuthService)
-      .provisionInvitedHolder(normalizedPhone, knownName || 'Team member')
+      .provisionInvitedHolder(normalizedPhone, proposedName || 'Team member')
     const membershipRole = OrganizationService.normalizeMembershipRole(role)
     const result = await this.inviteMember(orgTenantId, holder.userId, membershipRole, invitedBy)
-    this.rememberMemberPhone(orgTenantId, holder.userId, normalizedPhone)
+    this.rememberMemberPhone(orgTenantId, holder.userId, normalizedPhone, givenName)
+    const needsPin = this.userNeedsPin(holder.userId)
+    let invite: InviteDelivery = { channel: 'none' }
+    if (needsPin) {
+      invite = await this.sendMemberInvite(orgTenantId, holder.userId, normalizedPhone, invitedBy, {
+        proposedName,
+        whatsappConsent: options.whatsappConsent,
+      })
+    }
     const alerted =
-      result.alreadyMember && !holder.created
-        ? false
-        : await this.alertInvitedMember(orgTenantId, normalizedPhone, membershipRole, holder.created)
-    return { ...result, targetUserId: holder.userId, role: membershipRole, accountCreated: holder.created, alerted }
+      invite.channel === 'whatsapp' || invite.channel === 'sms'
+        ? true
+        : result.alreadyMember
+          ? false
+          : await this.alertInvitedMember(orgTenantId, normalizedPhone, membershipRole)
+    return {
+      ...result,
+      targetUserId: holder.userId,
+      role: membershipRole,
+      accountCreated: holder.created,
+      alerted,
+      invite,
+    }
+  }
+
+  /** A person's name as typed by someone: trimmed, single-spaced, never a placeholder. */
+  static cleanPersonName(name: unknown): string | undefined {
+    const clean = String(name || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80)
+    if (clean.length < 2 || /^(team member|organi[sz]ation owner|account|my account|member)$/i.test(clean)) return undefined
+    return clean
+  }
+
+  private userNeedsPin(userId: string): boolean {
+    const row = DatabaseManager.getDatabase().prepare('SELECT pin_hash FROM ssi_users WHERE id = ?').get(userId) as
+      | { pin_hash?: string | null }
+      | undefined
+    return Boolean(row && !row.pin_hash)
+  }
+
+  /**
+   * Send the one-time link with which the person confirms their name and picks their own PIN.
+   * WhatsApp from the platform number when the inviter confirmed the person agreed, otherwise a
+   * text message. When neither can be sent the owner gets the link to pass on in person.
+   */
+  private async sendMemberInvite(
+    orgTenantId: string,
+    userId: string,
+    phone: string,
+    invitedBy: string,
+    options: { proposedName?: string; whatsappConsent?: boolean },
+  ): Promise<InviteDelivery> {
+    const { memberInviteService, memberInviteLink } = await import('./MemberInviteService')
+    const inviteId = memberInviteService.create({ userId, orgTenantId, invitedBy, proposedName: options.proposedName })
+    if (options.whatsappConsent) {
+      try {
+        notificationService.recordInviteConsent(orgTenantId, userId, phone)
+        if (notificationService.consentedRecipient(orgTenantId, 'invite', { userId })) {
+          notificationService.queueWhatsApp({
+            tenantId: orgTenantId,
+            to: phone,
+            eventType: 'invite',
+            dedupeKey: `invite:${inviteId}`,
+            inviteId,
+          })
+          return { channel: 'whatsapp' }
+        }
+      } catch (err: any) {
+        logger.warn({ error: err?.message, orgTenantId }, 'Invite WhatsApp could not be queued; trying SMS')
+      }
+    }
+    if (await notificationService.sendInviteFallbackSms(inviteId, phone)) return { channel: 'sms' }
+    const code = memberInviteService.issueCode(inviteId)
+    const link = code ? memberInviteLink(code) : undefined
+    return link ? { channel: 'link', link } : { channel: 'none' }
+  }
+
+  /** Owner/admin: send a fresh invite link to someone who has not chosen a PIN yet. */
+  async resendMemberInvite(
+    orgTenantId: string,
+    targetUserId: string,
+    requestedBy: string,
+    options: { whatsappConsent?: boolean } = {},
+  ): Promise<InviteDelivery> {
+    const db = DatabaseManager.getDatabase()
+    const requester = this.getUserOrgRole(requestedBy, orgTenantId)
+    if (requester !== 'owner' && requester !== 'admin') throw new Error('Only org owners/admins can resend invites')
+    const member = db
+      .prepare(`SELECT 1 FROM org_memberships WHERE user_id = ? AND org_tenant_id = ? AND status IN ('active', 'invited')`)
+      .get(targetUserId, orgTenantId)
+    if (!member) throw new Error('That person is not on this team')
+    if (!this.userNeedsPin(targetUserId)) throw new Error('They have already signed in and chosen a PIN')
+    const contact = getContactById(`${orgTenantId}:member:${targetUserId}`, orgTenantId)
+    if (!contact?.phone) throw new Error('No phone number saved for this person')
+    const { memberInviteService } = await import('./MemberInviteService')
+    const previous = memberInviteService.openForMember(targetUserId, orgTenantId)
+    const consented = Boolean(notificationService.consentedRecipient(orgTenantId, 'invite', { userId: targetUserId }))
+    return this.sendMemberInvite(orgTenantId, targetUserId, this.normalizePhone(contact.phone), requestedBy, {
+      proposedName: OrganizationService.cleanPersonName(contact.name) || previous?.proposed_name || undefined,
+      whatsappConsent: options.whatsappConsent || consented,
+    })
+  }
+
+  /** Which members still have to open their invite link (no PIN chosen yet). */
+  pendingInviteUserIds(orgTenantId: string): Set<string> {
+    const rows = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT m.user_id FROM org_memberships m JOIN ssi_users u ON u.id = m.user_id
+        WHERE m.org_tenant_id = ? AND m.status IN ('active', 'invited') AND u.pin_hash IS NULL`,
+      )
+      .all(orgTenantId) as Array<{ user_id: string }>
+    return new Set(rows.map((row) => row.user_id))
+  }
+
+  /** The person confirmed their name: every team they are on shows it from now on. */
+  async applyConfirmedMemberName(userId: string, name: string): Promise<void> {
+    const rows = DatabaseManager.getDatabase()
+      .prepare(`SELECT org_tenant_id, role FROM org_memberships WHERE user_id = ? AND status IN ('active', 'invited')`)
+      .all(userId) as Array<{ org_tenant_id: string; role: string }>
+    for (const row of rows) {
+      const contactId =
+        row.role === 'owner' ? `${row.org_tenant_id}:owner:${userId}` : `${row.org_tenant_id}:member:${userId}`
+      const existing = getContactById(contactId, row.org_tenant_id)
+      if (existing) {
+        upsertContact({
+          id: existing.id,
+          orgTenantId: row.org_tenant_id,
+          contactScope: 'internal',
+          name,
+          phone: existing.phone,
+          email: existing.email,
+          did: existing.did,
+          notes: existing.notes,
+          walletTenantId: existing.walletTenantId,
+          linkedAt: existing.linkedAt,
+        })
+      } else {
+        await this.syncMemberContact(row.org_tenant_id, userId, row.role)
+      }
+    }
   }
 
   /** Use a name the organisation already saved for this phone, when there is one. */
@@ -1640,14 +1795,15 @@ export class OrganizationService {
   }
 
   /** Keep the phone on the team contact so the list can tell they have an account. */
-  private rememberMemberPhone(orgTenantId: string, userId: string, phone: string): void {
+  private rememberMemberPhone(orgTenantId: string, userId: string, phone: string, givenName?: string): void {
     const existing = getContactById(`${orgTenantId}:member:${userId}`, orgTenantId)
     if (!existing) return
+    const generic = !existing.name || /^(team member|organization owner)$/i.test(existing.name.trim())
     upsertContact({
       id: existing.id,
       orgTenantId,
       contactScope: 'internal',
-      name: existing.name,
+      name: givenName && generic ? givenName : existing.name,
       phone,
       email: existing.email,
       did: existing.did,
@@ -1657,20 +1813,15 @@ export class OrganizationService {
     })
   }
 
-  /** Tell the person they were added. Their PIN is still theirs to choose. */
-  private async alertInvitedMember(
-    orgTenantId: string,
-    phone: string,
-    role: string,
-    accountCreated: boolean,
-  ): Promise<boolean> {
+  /** Tell someone who already has an account that they were added. */
+  private async alertInvitedMember(orgTenantId: string, phone: string, role: string): Promise<boolean> {
     const orgName = getTenantById(orgTenantId)?.label || 'the organisation'
     const roleWords = role.replace(/_/g, ' ')
-    const message = accountCreated
-      ? `You have been added to ${orgName} as ${roleWords}. Open the app and sign in with this phone number. The first PIN you choose is yours. Your staff card will be waiting.`
-      : `You have been added to ${orgName} as ${roleWords}. Open the app to accept your staff card.`
     // WhatsApp is queued from the staff inbox card, with the recipient's recorded opt-in.
-    const sms = await notificationService.sendSms(phone, message)
+    const sms = await notificationService.sendSms(
+      phone,
+      `You have been added to ${orgName} as ${roleWords}. Open the app to accept your staff card.`,
+    )
     return sms.success
   }
 

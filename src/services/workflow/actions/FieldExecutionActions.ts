@@ -226,7 +226,9 @@ async function applyJobPhoneActors(context: WorkflowActionContext): Promise<void
     }
     if (!invitedBy) return
     try {
-      const invited = await org.inviteMemberByPhone(context.tenantId, phone, inviteRoleFor(givenStep), invitedBy)
+      const invited = await org.inviteMemberByPhone(context.tenantId, phone, inviteRoleFor(givenStep), invitedBy, {
+        allowUnnamed: true,
+      })
       if (invited.targetUserId) write(givenStep, invited.targetUserId)
     } catch (error: any) {
       logger.warn({ error: error?.message, runId: context.runId }, 'field job: phone invite failed')

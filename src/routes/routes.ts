@@ -2067,6 +2067,7 @@ const models: TsoaRoute.Models = {
             "createdAt": {"dataType":"string","required":true},
             "displayName": {"dataType":"string"},
             "phone": {"dataType":"string"},
+            "invitePending": {"dataType":"boolean"},
         },
         "additionalProperties": false,
     },
@@ -2157,11 +2158,30 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "InviteDeliveryResult": {
+        "dataType": "refObject",
+        "properties": {
+            "channel": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["whatsapp"]},{"dataType":"enum","enums":["sms"]},{"dataType":"enum","enums":["link"]},{"dataType":"enum","enums":["none"]}],"required":true},
+            "link": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "InviteMemberByPhoneRequest": {
         "dataType": "refObject",
         "properties": {
             "phone": {"dataType":"string","required":true},
             "role": {"dataType":"string"},
+            "name": {"dataType":"string"},
+            "whatsappConsent": {"dataType":"boolean"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "ResendInviteRequest": {
+        "dataType": "refObject",
+        "properties": {
+            "whatsappConsent": {"dataType":"boolean"},
         },
         "additionalProperties": false,
     },
@@ -3102,6 +3122,28 @@ const models: TsoaRoute.Models = {
             "pin": {"dataType":"string"},
         },
         "additionalProperties": {"dataType":"any"},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "InviteSummary": {
+        "dataType": "refObject",
+        "properties": {
+            "orgName": {"dataType":"string","required":true},
+            "role": {"dataType":"string","required":true},
+            "proposedName": {"dataType":"string"},
+            "phoneHint": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "AcceptInviteRequest": {
+        "dataType": "refObject",
+        "properties": {
+            "code": {"dataType":"string","required":true},
+            "name": {"dataType":"string","required":true},
+            "phone": {"dataType":"string","required":true},
+            "pin": {"dataType":"string","required":true},
+        },
+        "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "WalletLoginStart": {
@@ -9952,6 +9994,45 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOrganizationController_resendMemberInvite: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                orgTenantId: {"in":"path","name":"orgTenantId","required":true,"dataType":"string"},
+                targetUserId: {"in":"path","name":"targetUserId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"ref":"ResendInviteRequest"},
+        };
+        app.post('/api/organizations/:orgTenantId/members/:targetUserId/resend-invite',
+            authenticateMiddleware([{"jwt":[]}]),
+            ...(fetchMiddlewares<RequestHandler>(OrganizationController)),
+            ...(fetchMiddlewares<RequestHandler>(OrganizationController.prototype.resendMemberInvite)),
+
+            async function OrganizationController_resendMemberInvite(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOrganizationController_resendMemberInvite, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OrganizationController>(OrganizationController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'resendMemberInvite',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsOrganizationController_listDepartments: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 orgTenantId: {"in":"path","name":"orgTenantId","required":true,"dataType":"string"},
@@ -14397,6 +14478,76 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'login',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletAuthController_describeInvite: Record<string, TsoaRoute.ParameterSchema> = {
+                code: {"in":"path","name":"code","required":true,"dataType":"string"},
+        };
+        app.get('/api/wallet/auth/invite/:code',
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController.prototype.describeInvite)),
+
+            async function WalletAuthController_describeInvite(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletAuthController_describeInvite, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletAuthController>(WalletAuthController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'describeInvite',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletAuthController_acceptInvite: Record<string, TsoaRoute.ParameterSchema> = {
+                body: {"in":"body","name":"body","required":true,"ref":"AcceptInviteRequest"},
+        };
+        app.post('/api/wallet/auth/invite/accept',
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController.prototype.acceptInvite)),
+
+            async function WalletAuthController_acceptInvite(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletAuthController_acceptInvite, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletAuthController>(WalletAuthController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'acceptInvite',
                 controller,
                 response,
                 next,
