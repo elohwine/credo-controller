@@ -425,18 +425,15 @@ export function applyOrgContext({
  */
 export function getOrgRoleClaim(): string | null {
   if (typeof window === 'undefined') return null
-  // Prefer the persisted credoUserRole written by syncOrgContextFromServer / org switch.
-  const persisted = localStorage.getItem('credoUserRole')
-  // If persisted is 'holder' (default set by setPersonalContext), it means no org role has been set yet.
-  // Fall through to the token to get the real org role.
-  if (persisted && persisted !== 'holder' && persisted !== 'RestTenantAgent') return persisted
-  // Fall back to decoding the org token — read orgRole claim, NOT 'role' (which is always 'RestTenantAgent').
+  // The organisation session carries the role the server gave it (orgRole, NOT 'role', which is
+  // always 'RestTenantAgent'). syncOrgContextFromServer replaces that session when the role changes.
   const orgToken = localStorage.getItem('credoOrgToken')
-  if (!orgToken) return null
-  const payload = decodeJwtPayload(orgToken)
-  // orgRole is the human-facing role: owner/admin/approver/manager/field_worker
-  // 'role' in the token is always 'RestTenantAgent' — never use that as an org role.
-  return payload?.orgRole ?? null
+  const claim = orgToken ? decodeJwtPayload(orgToken)?.orgRole : null
+  if (claim) return claim
+  // Without a session claim, use the role saved at the last switch ('holder' means none yet).
+  const persisted = localStorage.getItem('credoUserRole')
+  if (persisted && persisted !== 'holder' && persisted !== 'RestTenantAgent') return persisted
+  return null
 }
 
 /**
@@ -581,7 +578,40 @@ export async function syncOrgContextFromServer(): Promise<boolean> {
     const existingPayload = existingOrgToken ? decodeJwtPayload(existingOrgToken) : null
     const tokenTenantId = existingPayload?.tenantId ?? existingPayload?.orgTenantId ?? existingPayload?.sub
 
-    if (existingOrgToken && (!tokenTenantId || tokenTenantId === currentOrgId)) {
+    // The membership on the server decides the role. Keep the saved list, name and role in step
+    // with it, and fetch a new organisation session when the role changed since this one was made.
+    const liveRole = String(currentOrg.role || '').trim()
+    const liveName = String(currentOrg.name ?? currentOrg.label ?? '').trim()
+    try {
+      localStorage.setItem(
+        'credoOrganizations',
+        JSON.stringify(
+          organizations.map((org: any) => ({
+            orgTenantId: org?.orgTenantId ?? org?.id,
+            name: org?.name ?? org?.label ?? org?.id,
+            role: org?.role ?? 'holder',
+            canOpenOrgContext:
+              typeof org?.canOpenOrgContext === 'boolean' ? org.canOpenOrgContext : mayOpenOrgContext(org?.role),
+          })),
+        ),
+      )
+    } catch {
+      /* storage full */
+    }
+    const tokenRole = String(existingPayload?.orgRole || '').trim()
+    const sessionMatches = Boolean(existingOrgToken) && (!tokenTenantId || tokenTenantId === currentOrgId)
+    if (sessionMatches && (!liveRole || !tokenRole || tokenRole === liveRole)) {
+      let corrected = false
+      if (liveRole && localStorage.getItem('credoUserRole') !== liveRole) {
+        localStorage.setItem('credoUserRole', liveRole)
+        corrected = true
+      }
+      if (liveName && localStorage.getItem('credoOrgName') !== liveName) {
+        localStorage.setItem('credoOrgName', liveName)
+        localStorage.setItem('credoActiveOrg', JSON.stringify({ orgTenantId: currentOrgId, name: liveName }))
+        corrected = true
+      }
+      if (corrected) announceContextChanged()
       return false
     }
 
@@ -590,7 +620,7 @@ export async function syncOrgContextFromServer(): Promise<boolean> {
       headers: {
         ...personalGuardHeaders,
         ...(allowCustomHeaders
-          ? { 'x-idempotency-key': `mobile:personal:${walletTenantId || 'unknown'}:switch-org:${currentOrgId}` }
+          ? { 'x-idempotency-key': `mobile:personal:${walletTenantId || 'unknown'}:switch-org:${currentOrgId}:${liveRole || 'role'}` }
           : {}),
       },
     })

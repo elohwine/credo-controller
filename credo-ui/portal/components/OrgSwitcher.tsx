@@ -5,6 +5,7 @@ import { notifications } from '@mantine/notifications'
 import { useRouter } from 'next/router'
 import axios from 'axios'
 import { clearPortalTask, CONTEXT_UPDATED_EVENT, OPEN_ORG_SWITCHER_EVENT } from '@/lib/portalContext'
+import { roleLabel } from '../../shared/orgPeople'
 import { beginAddAccount, currentAccountId, listSavedAccounts, loadSavedAccountNames, rememberCurrentAccount, restoreAccount } from '@/lib/savedAccounts'
 import { isOrgContextActive } from '@/utils/portalTenant'
 import { captureOrganizationSwitchContext } from '../../shared/taskContext'
@@ -142,8 +143,9 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
   const [switching, setSwitching] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [opened, setOpened] = useState(false)
-  const [accounts, setAccounts] = useState<Array<{ id: string; label: string }>>([])
+  const [accounts, setAccounts] = useState<Array<{ id: string; label: string; signedOut?: boolean; phone?: string }>>([])
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null)
+  const [roleChangedOrg, setRoleChangedOrg] = useState<OrgInfo | null>(null)
 
   const holderBackend = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
 
@@ -185,6 +187,20 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
           localStorage.removeItem('credoOrgName')
           localStorage.removeItem('credoTenantSector')
           localStorage.removeItem('credoTenantFeatures')
+        } else if (current) {
+          // The membership on the server decides the role. When it changed since this organisation
+          // session was opened, open a new session so the page, the token and the server agree.
+          const live = orgs.find((org: OrgInfo) => org.orgTenantId === current.orgTenantId)
+          const orgToken = localStorage.getItem(ORG_TOKEN_KEY)
+          const tokenRole = String((orgToken ? decodeJwtPayload(orgToken) : null)?.orgRole || '')
+          if (live && live.role && tokenRole && tokenRole !== live.role) {
+            setRoleChangedOrg(live)
+          } else if (live && (live.role !== current.role || live.name !== current.name)) {
+            const next = { ...current, role: live.role, name: live.name }
+            localStorage.setItem(ACTIVE_ORG_KEY, JSON.stringify(next))
+            localStorage.setItem('credoOrgName', live.name)
+            setActiveOrg(next)
+          }
         }
       })
       .catch(() => {
@@ -328,6 +344,12 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
     }
   }, [holderBackend, organizations, router])
 
+  useEffect(() => {
+    if (!roleChangedOrg || switching) return
+    setRoleChangedOrg(null)
+    void switchToOrg(roleChangedOrg)
+  }, [roleChangedOrg, switching, switchToOrg])
+
   const switchToPersonal = useCallback(() => {
     const currentOrg = getActiveOrg()
     const personalToken = localStorage.getItem('walletToken')
@@ -411,7 +433,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
             )}
             {activeOrg && (
               <Badge size="xs" variant="light" color="blue">
-                {activeOrg.role}
+                {roleLabel(activeOrg.role)}
               </Badge>
             )}
             <Box style={{ flexGrow: 1 }} />
@@ -422,7 +444,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
 
       <Menu.Dropdown>
         <ScrollArea.Autosize mah={360} type="scroll" scrollbarSize={8}>
-          <Menu.Label>{activeOrg ? `Acting as ${activeOrg.role} · ${activeOrg.name}` : 'Personal account'}</Menu.Label>
+          <Menu.Label>{activeOrg ? `Acting as ${roleLabel(activeOrg.role)} · ${activeOrg.name}` : 'Personal account'}</Menu.Label>
 
           <Menu.Item
             onClick={switchToPersonal}
@@ -458,7 +480,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
             <Menu.Item key={org.orgTenantId} disabled leftSection={<IconBuilding size={16} />}>
               <Text size="sm" fw={500}>You work for {org.name}</Text>
               <Text size="xs" c="dimmed">
-                {String(org.role || 'member').replace(/_/g, ' ')} · your jobs come to your personal inbox
+                {roleLabel(org.role)} · your jobs come to your personal inbox
               </Text>
             </Menu.Item>
           ))}
@@ -473,7 +495,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
               >
                 <Text size="sm" fw={500}>{org.name}</Text>
                 <Text size="xs" c="dimmed">
-                  {selected ? 'Current active organization' : 'Switch to this organization'}
+                  {roleLabel(org.role)} · {selected ? 'current organisation' : 'switch to this organisation'}
                 </Text>
               </Menu.Item>
             )
@@ -489,13 +511,22 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
                 key={account.id}
                 onClick={() => {
                   if (selected) return
+                  if (account.signedOut) {
+                    // The saved session stopped working: sign in again with that number.
+                    beginAddAccount()
+                    const phone = account.phone ? `&phone=${encodeURIComponent(account.phone)}` : ''
+                    void router.push(`/auth?add=1${phone}`)
+                    return
+                  }
                   if (restoreAccount(account.id)) router.reload()
                 }}
                 disabled={switching || selected}
                 leftSection={selected ? <IconCheck size={16} /> : <IconUser size={16} />}
               >
                 <Text size="sm" fw={500}>{account.label}</Text>
-                <Text size="xs" c="dimmed">{selected ? 'Signed in now' : 'Switch to this account'}</Text>
+                <Text size="xs" c="dimmed">
+                  {selected ? 'Signed in now' : account.signedOut ? 'Signed out · sign in again' : 'Switch to this account'}
+                </Text>
               </Menu.Item>
             )
           })}

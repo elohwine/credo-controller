@@ -8,6 +8,7 @@ import { beginAddAccount, currentAccountId, listSavedAccounts, loadSavedAccountN
 import api, { API_BASE_URL } from '@/lib/api';
 import { notifications } from '@mantine/notifications';
 import { captureOrganizationSwitchContext } from '../../../shared/taskContext';
+import { roleLabel } from '../../../shared/orgPeople';
 import { HeaderProgressBar, useBackgroundBusy } from '@/components/feedback/HeaderProgressBar';
 import { PullRefreshIndicator, PULL_TRIGGER_PX } from '@/components/feedback/PullRefreshIndicator';
 import { useActivityStore } from '@/lib/state/activity';
@@ -36,7 +37,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
   const workplaces = orgs.filter((org) => !org.canOpen);
   const [orgSwitching, setOrgSwitching] = useState(false);
   const [orgsLoading, setOrgsLoading] = useState(false);
-  const [accounts, setAccounts] = useState<Array<{ id: string; label: string }>>([]);
+  const [accounts, setAccounts] = useState<Array<{ id: string; label: string; signedOut?: boolean; phone?: string }>>([]);
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
   const [inboxTask, setInboxTask] = useState(false);
   const scope = useSessionStore((state) => state.scope);
@@ -376,6 +377,19 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
     }
   };
 
+  // A saved sign-in whose session stopped working opens the sign-in page for that number.
+  const openSavedAccount = (account: { id: string; signedOut?: boolean; phone?: string }) => {
+    if (account.signedOut) {
+      setOrgMenuOpen(false);
+      setSettingsOpen(false);
+      beginAddAccount();
+      const phone = account.phone ? `&phone=${encodeURIComponent(account.phone)}` : '';
+      void router.push(`/login?add=1${phone}`);
+      return;
+    }
+    if (restoreAccount(account.id)) window.location.assign('/');
+  };
+
   const switchToPersonal = () => {
     setPersonalContext();
     setOrgLabel(null);
@@ -518,6 +532,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                     onClick={() => switchOrg(org.id, org.name, org.role)}
                   >
                     {org.name}
+                    <Text component="span" size="xs" c="dimmed"> · {roleLabel(org.role)}</Text>
                   </Menu.Item>
                 ))}
                 {workplaces.length > 0 && (
@@ -537,10 +552,9 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                     <Menu.Item
                       key={account.id}
                       leftSection={selected ? <IconCheck size={14} /> : <IconUser size={14} />}
+                      rightSection={account.signedOut && !selected ? <Text size="xs" c="dimmed">Signed out</Text> : null}
                       disabled={selected}
-                      onClick={() => {
-                        if (restoreAccount(account.id)) window.location.assign('/');
-                      }}
+                      onClick={() => openSavedAccount(account)}
                     >
                       {account.label}
                     </Menu.Item>
@@ -663,7 +677,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                 loading={orgSwitching}
                 onClick={() => switchOrg(org.id, org.name, org.role)}
               >
-                {org.name}
+                {org.name} · {roleLabel(org.role)}
               </Button>
             ))}
             {workplaces.length > 0 && (
@@ -745,11 +759,9 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                   color={selected ? 'credentis' : 'gray'}
                   justify="space-between"
                   leftSection={selected ? <IconCheck size={16} /> : <IconUser size={16} />}
-                  rightSection={<Text size="xs" c="dimmed">{selected ? 'This sign-in' : 'Switch'}</Text>}
+                  rightSection={<Text size="xs" c="dimmed">{selected ? 'This sign-in' : account.signedOut ? 'Sign in again' : 'Switch'}</Text>}
                   disabled={selected}
-                  onClick={() => {
-                    if (restoreAccount(account.id)) window.location.assign('/');
-                  }}
+                  onClick={() => openSavedAccount(account)}
                 >
                   {account.label}
                 </Button>
@@ -807,14 +819,14 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
  * approvals come to the personal inbox, and each one opens just that task.
  */
 function WorkplaceRow({ name, role, compact = false }: { name: string; role: string; compact?: boolean }) {
-  const roleWords = String(role || 'member').replace(/_/g, ' ');
-  const roleLabel = `${roleWords.charAt(0).toUpperCase()}${roleWords.slice(1)}`;
+  const roleText = roleLabel(role);
+  const roleWords = roleText.toLowerCase();
   return (
     <Group gap="xs" wrap="nowrap" px={compact ? 'sm' : 'xs'} py={6} aria-label={`You work for ${name} as ${roleWords}`}>
       <IconBuilding size={compact ? 14 : 16} color="#94a3b8" style={{ flexShrink: 0 }} />
       <Box style={{ minWidth: 0 }}>
         <Text size="sm" truncate>{name}</Text>
-        <Text size="xs" c="dimmed">{roleLabel} · your jobs come to your personal inbox</Text>
+        <Text size="xs" c="dimmed">{roleText} · your jobs come to your personal inbox</Text>
       </Box>
     </Group>
   );

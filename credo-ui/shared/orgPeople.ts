@@ -33,7 +33,7 @@ export function roleLabel(role?: string): string {
 export function personLabel(member?: Pick<OrgPerson, 'displayName' | 'phone' | 'role'> | null): string {
   if (!member) return 'Team member'
   const name = String(member.displayName || '').trim()
-  if (name && name.toLowerCase() !== 'organization owner') return name
+  if (name && !/^(organi[sz]ation owner|team member)$/i.test(name)) return name
   if (member.phone) return member.phone
   return member.role === 'owner' ? 'Owner' : 'Team member'
 }

@@ -68,6 +68,8 @@ export default function AuthPage() {
             return;
         }
 
+        // A saved account that was signed out opens here with its number filled in.
+        if (typeof router.query.phone === 'string') setLoginPhone(router.query.phone);
         setAuthChecked(true);
     }, [router]);
 
