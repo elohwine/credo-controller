@@ -1,4 +1,4 @@
-import { androidAssetLinks, inboxQuery } from '../whatsAppInboxLanding'
+import { androidAssetLinks, inboxQuery, inviteQuery } from '../whatsAppInboxLanding'
 
 describe('WhatsApp inbox landing', () => {
   it('keeps only safe inbox selectors', () => {
@@ -6,6 +6,13 @@ describe('WhatsApp inbox landing', () => {
       'item=abc-123&request=r%3A1',
     )
     expect(inboxQuery({ item: '"><script>', request: ['a', 'b'] } as any).toString()).toBe('')
+  })
+
+  it('carries only a well-formed invite code', () => {
+    const code = 'Ab_-0123456789abcdefghijKLMNOPQRST'
+    expect(inviteQuery({ code, extra: 'x' } as any).toString()).toBe(`code=${code}`)
+    expect(inviteQuery({ code: 'short' } as any).toString()).toBe('')
+    expect(inviteQuery({ code: '"><script>alert(1)</script>' } as any).toString()).toBe('')
   })
 
   it('publishes asset links only for valid certificate fingerprints', () => {

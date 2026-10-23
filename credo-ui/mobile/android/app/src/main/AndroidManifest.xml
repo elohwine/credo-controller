@@ -32,12 +32,14 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="credentis" android:host="inbox" />
+                <data android:scheme="credentis" android:host="join" />
             </intent-filter>
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="credentis.fly.dev" android:path="/inbox" />
+                <data android:scheme="https" android:host="credentis.fly.dev" android:path="/login/join" />
             </intent-filter>
         </activity>
 

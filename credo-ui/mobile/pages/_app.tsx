@@ -61,6 +61,16 @@ function parseDeepLinkUrl(rawUrl: string): { route: string; query: URLSearchPara
     }
     return { route: '/inbox', query };
   }
+  // Member invite links: credentis://join?code=… or the verified https://<host>/login/join App Link.
+  const isJoinLink =
+    (parsed.protocol === 'credentis:' && (parsed.hostname === 'join' || parsed.pathname.replace(/^\/+/, '') === 'join')) ||
+    (parsed.protocol === 'https:' && parsed.pathname.replace(/\/+$/, '') === '/login/join');
+  if (isJoinLink) {
+    const query = new URLSearchParams();
+    const code = queryValue(topParams.get('code'));
+    if (code && /^[A-Za-z0-9_-]{16,128}$/.test(code)) query.set('code', code);
+    return { route: '/login/join', query };
+  }
   const readFirst = (params: URLSearchParams, keys: string[]): string | undefined => {
     for (const key of keys) {
       const value = queryValue(params.get(key));
