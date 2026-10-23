@@ -3142,6 +3142,7 @@ const models: TsoaRoute.Models = {
             "name": {"dataType":"string","required":true},
             "phone": {"dataType":"string","required":true},
             "pin": {"dataType":"string","required":true},
+            "whatsappAlerts": {"dataType":"boolean"},
         },
         "additionalProperties": false,
     },

@@ -110,6 +110,27 @@ describe('member invite links', () => {
     await expect(auth.loginWithPin({ phone: PHONE, pin: '1111' })).rejects.toThrow('Invalid credentials')
   })
 
+  test('a person who asks for WhatsApp alerts on joining gets every alert from that org', async () => {
+    const { org, userId, inviteId } = invitedPerson()
+    const code = memberInviteService.issueCode(inviteId)!
+    const auth = new SSIAuthService({} as any)
+    await auth.acceptInvite({ code, name: 'Rudo Moyo', phone: '0771234567', pin: '1357', whatsappAlerts: true })
+    for (const eventType of ['task', 'vc_offer', 'proof_request', 'payment_link', 'remittance']) {
+      expect(notificationService.consentedRecipient(org.orgTenantId, eventType, { userId })).toEqual({ userId, phone: PHONE })
+    }
+  })
+
+  test('without the alerts tick, joining turns on nothing beyond the invite', async () => {
+    const { org, userId, inviteId } = invitedPerson()
+    const code = memberInviteService.issueCode(inviteId)!
+    const auth = new SSIAuthService({} as any)
+    await auth.acceptInvite({ code, name: 'Rudo Moyo', phone: PHONE, pin: '1357' })
+    const rows = DatabaseManager.getDatabase()
+      .prepare('SELECT event_type FROM notification_preferences WHERE tenant_id = ? AND user_id = ? AND enabled = 1')
+      .all(org.orgTenantId, userId) as Array<{ event_type: string }>
+    expect(rows.map((r) => r.event_type).filter((e) => e !== 'invite')).toEqual([])
+  })
+
   test('an invite WhatsApp cannot carry falls back to one text message with a fresh link', async () => {
     const { inviteId } = invitedPerson()
     const sms = jest.spyOn(notificationService, 'sendSms').mockResolvedValue({ success: true })

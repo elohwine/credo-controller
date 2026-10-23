@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
-import { Alert, Box, Button, Center, Loader, Paper, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Box, Button, Center, Checkbox, Loader, Paper, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core';
 import { IconAlertCircle, IconUserCheck } from '@tabler/icons-react';
 import api from '@/lib/api';
 import { applyPersonalWalletContext } from '@/lib/auth';
@@ -27,6 +27,7 @@ export default function JoinPage() {
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
+  const [whatsappAlerts, setWhatsappAlerts] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const submitting = useRef(false);
@@ -64,6 +65,7 @@ export default function JoinPage() {
         name: name.trim(),
         phone: phone.trim(),
         pin,
+        whatsappAlerts,
       });
       applyPersonalWalletContext(res.data.token, res.data.tenantId);
       rememberPhoneWallet(res.data.tenantId);
@@ -111,6 +113,12 @@ export default function JoinPage() {
             />
             <PasswordInput label="Choose a PIN" inputMode="numeric" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value)} error={pinError} required />
             <PasswordInput label="Repeat PIN" inputMode="numeric" maxLength={6} value={confirmPin} onChange={(e) => setConfirmPin(e.target.value)} error={confirmError} required />
+            <Checkbox
+              label={`Send me WhatsApp alerts from ${invite.orgName}`}
+              description="New tasks, staff cards, requests and payments. Turn them off any time in Settings → Alerts."
+              checked={whatsappAlerts}
+              onChange={(e) => setWhatsappAlerts(e.currentTarget.checked)}
+            />
             {error && <Alert color="red" icon={<IconAlertCircle size={16} />}>{error}</Alert>}
             <Button onClick={() => void accept()} loading={saving} disabled={!ready}>Join and sign in</Button>
           </Stack>

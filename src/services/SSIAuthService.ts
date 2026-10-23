@@ -612,6 +612,7 @@ export class SSIAuthService {
     name: string
     phone: string
     pin: string
+    whatsappAlerts?: boolean
   }): Promise<{ token: string; tenantId: string; name: string }> {
     const { OrganizationService } = await import('./OrganizationService')
     const invite = memberInviteService.findOpenByCode(input.code)
@@ -645,6 +646,17 @@ export class SSIAuthService {
       await this.reissuePlatformIdentityOffer(user.tenant_id, name, phone).catch((error: any) =>
         logger.warn({ error: error?.message }, 'Could not reissue identity card after invite'),
       )
+    }
+    if (input.whatsappAlerts) {
+      // The person's own opt-in, so their staff card, tasks and requests from this org reach WhatsApp too.
+      const { notificationService } = await import('./NotificationService')
+      for (const eventType of ['task', 'vc_offer', 'proof_request', 'payment_link', 'remittance']) {
+        try {
+          notificationService.setPreference({ tenantId: invite.org_tenant_id, userId: user.id, phone, eventType, enabled: true })
+        } catch (error: any) {
+          logger.warn({ error: error?.message, eventType }, 'Could not turn on WhatsApp alerts after invite')
+        }
+      }
     }
     void import('./ssi/CustodyRebindService').then(({ custodyRebindService }) =>
       custodyRebindService.scheduleRebind(user.tenant_id),

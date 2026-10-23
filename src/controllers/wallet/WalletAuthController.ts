@@ -81,6 +81,8 @@ interface AcceptInviteRequest {
   phone: string
   /** 4 to 6 digits, chosen by the person */
   pin: string
+  /** The person asks for WhatsApp alerts (tasks, cards, requests, payments) from this organisation */
+  whatsappAlerts?: boolean
 }
 
 interface LoginChallengeResponse {
