@@ -25,9 +25,10 @@
  */
 
 import type { RestMultiTenantAgentModules } from '../../cliAgent'
+import type { Agent } from '@credo-ts/core'
 import type { Request as ExRequest } from 'express'
 
-import { Agent, ClaimFormat, DcqlService, DifPresentationExchangeService } from '@credo-ts/core'
+import { ClaimFormat, DcqlService, DifPresentationExchangeService } from '@credo-ts/core'
 import { randomUUID } from 'crypto'
 import { container } from 'tsyringe'
 
@@ -35,17 +36,6 @@ import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { getTenantById } from '../../persistence/TenantRepository'
 import { workflowRunRepository } from '../../persistence/WorkflowRunRepository'
-import {
-  buildStageProofDcqlQuery,
-  DCQL_STAFF_CARD_QUERY_ID,
-  perItemListsOf,
-  purposeLineFromResolvedRequest,
-  shareBindingFromResolvedRequest,
-  sharePurposeFromBinding,
-  splitSdJwtShare,
-  transactionDataSigners,
-  wantedListItems,
-} from './stageProofQuery'
 import {
   cardCoversStep,
   evaluateOrgEvidenceProof,
@@ -64,8 +54,24 @@ import {
 
 import { credentialLifecycleService } from './CredentialLifecycleService'
 import { claimNamesOf, holderActivityService } from './HolderActivityService'
-import { proofPolicyForFlow, stageProofModeFor } from './proofModeMatrix'
 import { withTenantHolder } from './TenantHolder'
+import {
+  assertProofRequestAllowed,
+  missingTransactionBindingError,
+  proofPolicyForFlow,
+  stageProofModeFor,
+} from './proofModeMatrix'
+import {
+  buildStageProofDcqlQuery,
+  DCQL_STAFF_CARD_QUERY_ID,
+  perItemListsOf,
+  purposeLineFromResolvedRequest,
+  shareBindingFromResolvedRequest,
+  sharePurposeFromBinding,
+  splitSdJwtShare,
+  transactionDataSigners,
+  wantedListItems,
+} from './stageProofQuery'
 
 type AnyAgent = Agent<RestMultiTenantAgentModules>
 
@@ -304,8 +310,20 @@ export class StageProofService {
       )
     }
     let queryLanguage: 'dcql' | 'pex' = !dcqlQuery ? 'pex' : 'dcql'
+    const guardRequest = (language: 'dcql' | 'pex') => {
+      try {
+        assertProofRequestAllowed('workflow_stage', {
+          mode: proofMode,
+          queryLanguage: language,
+          transactionDataTypes: language === 'dcql' ? ['workflow_stage'] : [],
+        })
+      } catch (error: any) {
+        throw new StatusException(error.message, 400)
+      }
+    }
     let result: any
     if (queryLanguage === 'dcql' && dcqlQuery) {
+      guardRequest('dcql')
       try {
         result = await verifierModule.createAuthorizationRequest({
           ...baseOptions,
@@ -332,6 +350,7 @@ export class StageProofService {
       }
     }
     if (queryLanguage === 'pex') {
+      guardRequest('pex')
       const presentationDefinition = {
         id: `${params.idPrefix}-${params.reference}-${Date.now()}`,
         input_descriptors: [
@@ -370,9 +389,12 @@ export class StageProofService {
 
   /**
    * The wallet signed the step and the job. A share for a different step or a different job
-   * is refused. A request that did not ask for a signature (the older query) has nothing to check.
+   * is refused, and so is an unsigned answer to a request that asked for a signature. A request
+   * that did not ask for one (identity-only steps) has nothing to check.
    */
   private assertShareBinding(verificationResult: any, stageAction: string, workflowRunId?: string): void {
+    const missing = missingTransactionBindingError(verificationResult, 'workflow_stage')
+    if (missing) throw new StatusException(missing, 403)
     const entries = Array.isArray(verificationResult?.transactionData) ? verificationResult.transactionData : []
     const facts = workflowRunId ? this.shareFacts(workflowRunId, stageAction) : {}
     for (const entry of entries) {

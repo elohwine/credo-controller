@@ -11,6 +11,7 @@
 
 import 'reflect-metadata'
 import type { Request as ExRequest } from 'express'
+
 import {
   Controller,
   Post,
@@ -27,6 +28,7 @@ import {
   Query,
 } from 'tsoa'
 import { v4 as uuidv4 } from 'uuid'
+
 import { SCOPES } from '../../enums'
 import { StatusException } from '../../errors'
 import {
@@ -39,12 +41,13 @@ import {
   claimContactLink,
   type OrgContact,
 } from '../../persistence/ContactRepository'
+import { DatabaseManager } from '../../persistence/DatabaseManager'
+import { getTenantById } from '../../persistence/TenantRepository'
 import { credentialIssuanceService } from '../../services/CredentialIssuanceService'
 import { notificationService } from '../../services/NotificationService'
 import { outboxService } from '../../services/OutboxService'
-import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { ShortlinkService } from '../../services/ShortlinkService'
-import { getTenantById } from '../../persistence/TenantRepository'
+import { shouldAllowWholeCardType } from '../../services/ssi/proofModeMatrix'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 
 // ─── Request / Response shapes ────────────────────────────────────────────
@@ -865,6 +868,11 @@ export class ContactController extends Controller {
     const purpose = body.purpose?.trim() || `Present a ${types.join(', ')} credential for verification`
 
     // Ad-hoc contact checks carry no transaction to bind, so the whole card is asked for over PEX.
+    const blocked = types.filter((type) => !shouldAllowWholeCardType('contact_check', type))
+    if (blocked.length > 0) {
+      this.setStatus(400)
+      throw new StatusException(`These card types cannot be asked for as a whole card: ${blocked.join(', ')}`, 400)
+    }
     const presentationDefinition = {
       id: `pd-contact-${uuidv4()}`,
       input_descriptors: types.map((type, index) => ({

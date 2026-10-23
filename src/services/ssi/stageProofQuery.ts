@@ -4,7 +4,7 @@
  * starting a wallet.
  */
 
-import { proofPolicyForFlow, splitAcceptedProofTypes } from './proofModeMatrix'
+import { missingTransactionBindingError, proofPolicyForFlow, splitAcceptedProofTypes } from './proofModeMatrix'
 
 /** DCQL credential query id for the selective-disclosure staff/role card. */
 export const DCQL_STAFF_CARD_QUERY_ID = 'staff_card'
@@ -387,12 +387,15 @@ export function buildApWorkflowTransactionData(params: { transactionId: string; 
 
 /**
  * Why a verified AP share does not answer this transaction, or undefined when it does.
- * Whole-card (identity-only) shares carry no transaction data and have nothing to check.
+ * Whole-card (identity-only) requests carry no transaction data and have nothing to check;
+ * an SD-bound request must come back signed.
  */
 export function apWorkflowBindingError(
   verificationResult: any,
   expected: { transactionId: string; requiredAction?: string | null },
 ): string | undefined {
+  const missing = missingTransactionBindingError(verificationResult, AP_WORKFLOW_TRANSACTION_TYPE)
+  if (missing) return missing
   const entries = Array.isArray(verificationResult?.transactionData) ? verificationResult.transactionData : []
   for (const entry of entries) {
     const decoded = entry?.decoded && typeof entry.decoded === 'object' ? entry.decoded : {}

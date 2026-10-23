@@ -11,6 +11,7 @@ import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { auditService } from '../AuditService'
 import { PlatformIdentityError } from '../SSIAuthService'
 import { shouldUseUnsignedLocalOid4vpRequest, stageProofService, verifierModuleOf } from '../ssi/StageProofService'
+import { shouldAllowWholeCardType } from '../ssi/proofModeMatrix'
 
 import { hashSecret, partnerClientService, sameHash } from './PartnerClientService'
 
@@ -90,6 +91,9 @@ export class PartnerVerificationService {
 
   public async start(client: PartnerClientRecord, bindingRef: unknown): Promise<PartnerVerificationStart> {
     const ref = this.requireBindingRef(bindingRef)
+    if (!shouldAllowWholeCardType('partner_sign_in', PLATFORM_IDENTITY_VC_TYPE)) {
+      throw new StatusException('Partner sign-in proof policy does not allow PlatformIdentityCredential', 500)
+    }
     const signer = await stageProofService.getOrCreateDidForAgent(this.agent)
     const { verifierId, signerDidUrl } = await stageProofService.getOrCreateVerifierForAgent(this.agent, signer.didUrl)
     const result = await verifierModuleOf(this.agent).createAuthorizationRequest({

@@ -1,30 +1,33 @@
-import { Controller, Post, Get, Route, Tags, Body, Path, Query, Request, Security, Response } from 'tsoa'
 import type { Request as ExRequest } from 'express'
+
 import { randomUUID, createHash } from 'crypto'
+import { Controller, Post, Get, Route, Tags, Body, Path, Query, Request, Security, Response } from 'tsoa'
+
 import { SCOPES } from '../../enums'
+import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { getTenantById } from '../../persistence/TenantRepository'
-import { StatusException } from '../../errors'
-import { orgSetupProfileService } from '../../services/OrgSetupProfileService'
-import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
-import { resolveConfiguredBaseUrl } from '../../utils/baseUrl'
-import { getIssuerApiKey } from '../../utils/serviceApiKey'
-import { outboxService } from '../../services/OutboxService'
-import { notificationService } from '../../services/NotificationService'
-import { rootLogger } from '../../utils/pinoLogger'
-import { orgWorkflowActorService } from '../../services/OrgWorkflowActorService'
 import { emitApInvoiceStateEventOutbox, emitApPaymentEventOutbox } from '../../services/AccountsPayableLedgerService'
 import { businessTransactionService } from '../../services/BusinessTransactionService'
-import { requestHandoffService } from '../../services/RequestHandoffService'
+import { notificationService } from '../../services/NotificationService'
+import { orgSetupProfileService } from '../../services/OrgSetupProfileService'
+import { orgWorkflowActorService } from '../../services/OrgWorkflowActorService'
+import { outboxService } from '../../services/OutboxService'
 import { buildVcTypeArrayFilter, resolveAcceptedProofVcTypes } from '../../services/ProofVcPolicyService'
-import { stageProofModeFor } from '../../services/ssi/proofModeMatrix'
+import { requestHandoffService } from '../../services/RequestHandoffService'
+import { requireDeviceTrust } from '../../services/deviceAssertion'
+import { assertProofRequestAllowed, stageProofModeFor } from '../../services/ssi/proofModeMatrix'
 import {
+  AP_WORKFLOW_TRANSACTION_TYPE,
   apWorkflowBindingError,
   buildApWorkflowTransactionData,
   buildStageProofDcqlQuery,
 } from '../../services/ssi/stageProofQuery'
-import { requireDeviceTrust } from '../../services/deviceAssertion'
+import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
+import { resolveConfiguredBaseUrl } from '../../utils/baseUrl'
+import { rootLogger } from '../../utils/pinoLogger'
 import { readReceiptProof } from '../../utils/receiptProof'
+import { getIssuerApiKey } from '../../utils/serviceApiKey'
 
 const logger = rootLogger.child({ module: 'AccountsPayableController' })
 
@@ -1141,6 +1144,15 @@ export class AccountsPayableController extends Controller {
         proofMode === 'sd_bound' ? buildStageProofDcqlQuery({ acceptedVcTypes, orgTenantId: actorTenantId }) : undefined
       if (proofMode === 'sd_bound' && !dcqlQuery) {
         throw new StatusException('No selective-disclosure card type is configured for this AP step.', 400)
+      }
+      try {
+        assertProofRequestAllowed('ap_workflow', {
+          mode: proofMode,
+          queryLanguage: dcqlQuery ? 'dcql' : 'pex',
+          transactionDataTypes: dcqlQuery ? [AP_WORKFLOW_TRANSACTION_TYPE] : [],
+        })
+      } catch (error: any) {
+        throw new StatusException(error.message, 400)
       }
 
       const result = dcqlQuery

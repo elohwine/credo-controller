@@ -3,16 +3,15 @@ import { describe, expect, it } from '@jest/globals'
 import { EMPLOYEE_VC_TYPE } from '../../../config/credentials/EmployeeVC'
 import { PLATFORM_IDENTITY_VC_TYPE } from '../../../config/credentials/PlatformIdentityVC'
 import {
+  assertProofRequestAllowed,
+  missingTransactionBindingError,
   proofPolicyForFlow,
+  requestedTransactionDataTypes,
   shouldAllowWholeCardType,
   splitAcceptedProofTypes,
   stageProofModeFor,
 } from '../proofModeMatrix'
-import {
-  apWorkflowBindingError,
-  buildApWorkflowTransactionData,
-  buildStageProofDcqlQuery,
-} from '../stageProofQuery'
+import { apWorkflowBindingError, buildApWorkflowTransactionData, buildStageProofDcqlQuery } from '../stageProofQuery'
 
 describe('proofModeMatrix', () => {
   it('maps stage workflow proofs to selective-disclosure only', () => {
@@ -65,5 +64,93 @@ describe('proofModeMatrix', () => {
       /different workflow step/,
     )
     expect(apWorkflowBindingError({}, { transactionId: 'tx-1' })).toBeUndefined()
+  })
+
+  it('names a policy for every proof flow and keeps transaction-bound flows SD-only', () => {
+    for (const flow of ['workflow_stage', 'ap_workflow'] as const) {
+      const policy = proofPolicyForFlow(flow)
+      expect(policy).toMatchObject({
+        requiresSelectiveDisclosure: true,
+        transactionBound: true,
+        allowPexFallback: false,
+      })
+      expect(policy.wholeCardAllowList).toEqual([])
+    }
+    for (const flow of ['organization_entry', 'wallet_login', 'partner_sign_in', 'contact_check'] as const) {
+      const policy = proofPolicyForFlow(flow)
+      expect(policy).toMatchObject({
+        requiresSelectiveDisclosure: false,
+        transactionBound: false,
+        allowPexFallback: true,
+      })
+    }
+    expect(shouldAllowWholeCardType('partner_sign_in', PLATFORM_IDENTITY_VC_TYPE)).toBe(true)
+    expect(shouldAllowWholeCardType('partner_sign_in', EMPLOYEE_VC_TYPE)).toBe(false)
+    expect(shouldAllowWholeCardType('contact_check', 'AnyCard')).toBe(true)
+    expect(shouldAllowWholeCardType('ap_workflow', PLATFORM_IDENTITY_VC_TYPE)).toBe(false)
+  })
+
+  it('refuses a request that would let a whole card stand in for a signed approval', () => {
+    const ok = { mode: 'sd_bound' as const, queryLanguage: 'dcql' as const, transactionDataTypes: ['workflow_stage'] }
+    expect(() => assertProofRequestAllowed('workflow_stage', ok)).not.toThrow()
+    expect(() => assertProofRequestAllowed('workflow_stage', { ...ok, queryLanguage: 'pex' })).toThrow(
+      /must use selective disclosure/,
+    )
+    expect(() => assertProofRequestAllowed('ap_workflow', { ...ok, transactionDataTypes: [] })).toThrow(
+      /must carry the step and job/,
+    )
+    expect(() =>
+      assertProofRequestAllowed('workflow_stage', {
+        mode: 'whole_card_identity',
+        queryLanguage: 'pex',
+        transactionDataTypes: [],
+      }),
+    ).not.toThrow()
+    expect(() =>
+      assertProofRequestAllowed('workflow_stage', {
+        mode: 'whole_card_identity',
+        queryLanguage: 'pex',
+        transactionDataTypes: ['workflow_stage'],
+      }),
+    ).toThrow(/cannot carry transaction data/)
+    expect(() =>
+      assertProofRequestAllowed('organization_entry', {
+        mode: 'whole_card',
+        queryLanguage: 'pex',
+        transactionDataTypes: [],
+      }),
+    ).not.toThrow()
+  })
+
+  it('refuses an unsigned answer to a request that asked for a signature', () => {
+    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
+    const tx = buildApWorkflowTransactionData({ transactionId: 'tx-1', requiredAction: 'approve_payment' })
+    const session = { requestPayload: { transaction_data: [encode(tx)] } }
+
+    expect(requestedTransactionDataTypes({ verificationSession: session })).toEqual(['ap_workflow'])
+    expect(requestedTransactionDataTypes({ verificationSession: { authorizationRequestPayload: {} } })).toEqual([])
+
+    const unsigned = { verificationSession: session, transactionData: [] }
+    expect(missingTransactionBindingError(unsigned, 'ap_workflow')).toMatch(/not signed for this step/)
+    expect(apWorkflowBindingError(unsigned, { transactionId: 'tx-1' })).toMatch(/not signed for this step/)
+
+    const signed = { verificationSession: session, transactionData: [{ decoded: tx }] }
+    expect(missingTransactionBindingError(signed, 'ap_workflow')).toBeUndefined()
+    expect(apWorkflowBindingError(signed, { transactionId: 'tx-1', requiredAction: 'approve_payment' })).toBeUndefined()
+
+    // Identity-only requests asked for no signature and have nothing to check.
+    expect(missingTransactionBindingError({ verificationSession: {} }, 'workflow_stage')).toBeUndefined()
+  })
+
+  it('reads the request from the session even when the payload getter throws', () => {
+    const session = {
+      get requestPayload() {
+        throw new Error('no request')
+      },
+      authorizationRequestPayload: {
+        transaction_data: [Buffer.from(JSON.stringify({ type: 'workflow_stage' })).toString('base64url')],
+      },
+    }
+    expect(requestedTransactionDataTypes({ verificationSession: session })).toEqual(['workflow_stage'])
   })
 })
