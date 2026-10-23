@@ -127,6 +127,7 @@ COPY --from=builder --chown=credo:credo /app/bin ./bin
 COPY --from=builder --chown=credo:credo /app/src/routes ./src/routes
 COPY --from=builder --chown=credo:credo /app/migrations ./migrations
 COPY --from=builder --chown=credo:credo /app/samples ./samples
+COPY --chown=credo:credo assets/whatsapp ./assets/whatsapp
 COPY --from=builder --chown=credo:credo /app/package.json ./
 
 # Copy production node_modules with native bindings

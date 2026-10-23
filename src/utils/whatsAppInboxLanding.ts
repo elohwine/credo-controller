@@ -1,5 +1,7 @@
 import type { Express, Request, Response } from 'express'
 
+import path from 'path'
+
 const SAFE_ID = /^[A-Za-z0-9._:-]{1,200}$/
 
 /** Only the inbox selectors the WhatsApp link contract emits survive; everything else is dropped. */
@@ -88,6 +90,17 @@ export function registerWhatsAppInboxLanding(app: Express): void {
   app.get('/.well-known/assetlinks.json', (_req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'public, max-age=3600')
     res.json(androidAssetLinks())
+  })
+  // Header banners for the WhatsApp templates; Meta fetches them by URL on every send.
+  app.get('/wa/:file', (req: Request, res: Response) => {
+    if (!/^(task|vc_offer|proof_request|payment_link|remittance|invite)\.png$/.test(req.params.file)) {
+      res.status(404).end()
+      return
+    }
+    res.setHeader('Cache-Control', 'public, max-age=86400')
+    res.sendFile(path.resolve(process.cwd(), 'assets/whatsapp', req.params.file), (error) => {
+      if (error && !res.headersSent) res.status(404).end()
+    })
   })
   const send = (res: Response, params: URLSearchParams, copy: LandingCopy) => {
     const packageName = /^[A-Za-z0-9_.]+$/.test(process.env.ANDROID_APP_PACKAGE || '')

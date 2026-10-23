@@ -59,7 +59,7 @@ describe('durable transactional WhatsApp notifications', () => {
       CREATE TABLE requests (id TEXT PRIMARY KEY, organization_id TEXT);
       CREATE TABLE wallet_pending_offers (
         id TEXT PRIMARY KEY, tenant_id TEXT, issuer_tenant_id TEXT, source_type TEXT, source_id TEXT, created_at TEXT,
-        credential_type TEXT, metadata TEXT, resolved_at TEXT, title TEXT
+        credential_type TEXT, metadata TEXT, resolved_at TEXT, title TEXT, body TEXT
       );
     `)
     db.prepare('INSERT INTO organizations VALUES (?, ?)').run('organization-a', tenant)
@@ -709,6 +709,38 @@ describe('durable transactional WhatsApp notifications', () => {
     expect(JSON.stringify(post.mock.calls[0][1])).not.toContain('run-one')
   })
 
+  it('fills the generic template with the item title and detail, not a vague update line', async () => {
+    ready()
+    db.prepare(
+      `INSERT INTO wallet_pending_offers (id, tenant_id, issuer_tenant_id, source_type, source_id, title, body, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'hold-item',
+      'wallet-a',
+      tenant,
+      'workflow_stage_action',
+      'run-hold:safety',
+      'Safety hold on job FR-1042.',
+      'The worker says it is not safe to start.',
+      '2026-10-23',
+    )
+    service.queueInboxNotification('hold-event', {
+      tenantId: 'wallet-a',
+      issuerTenantId: tenant,
+      sourceType: 'workflow_stage_action',
+      sourceId: 'run-hold:safety',
+    })
+    const outbox = db.prepare("SELECT id, payload FROM integration_outbox WHERE payload LIKE '%hold-item%'").get() as {
+      id: string
+      payload: string
+    }
+    const post = jest.spyOn(axios, 'post').mockResolvedValue({ data: { messages: [{ id: 'wamid-hold' }] } })
+    await service.processWhatsAppIntent(outbox.id, JSON.parse(outbox.payload))
+    const [line, link] = (post.mock.calls[0][1] as any).template.components[0].parameters
+    expect(line.text).toMatch(/^📋 .+: Safety hold on job FR-1042\. The worker says it is not safe to start\.$/)
+    expect(link.text).toBe('https://wallet.example/inbox?item=hold-item')
+  })
+
   it('sends the branded task template once Meta has approved it, with the item title and a tap-to-open button', async () => {
     ready()
     const definition = RICH_TEMPLATES.task
@@ -725,8 +757,8 @@ describe('durable transactional WhatsApp notifications', () => {
         config?.params?.name === definition.name ? { data: { data: [stored] } } : approved,
       )
     db.prepare(
-      `INSERT INTO wallet_pending_offers (id, tenant_id, issuer_tenant_id, source_type, source_id, title, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO wallet_pending_offers (id, tenant_id, issuer_tenant_id, source_type, source_id, title, body, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       'rich-item:1',
       'wallet-a',
@@ -734,6 +766,7 @@ describe('durable transactional WhatsApp notifications', () => {
       'workflow_stage_action',
       'run-rich:review',
       'Approve purchase request',
+      'Check the quote and approve it.\nThen it goes to finance.',
       '2026-10-23',
     )
     service.queueInboxNotification('rich-event', {
@@ -749,8 +782,16 @@ describe('durable transactional WhatsApp notifications', () => {
     const post = jest.spyOn(axios, 'post').mockResolvedValue({ data: { messages: [{ id: 'wamid-rich' }] } })
     await service.processWhatsAppIntent(outbox.id, JSON.parse(outbox.payload))
     const template = (post.mock.calls[0][1] as any).template
-    expect(template.name).toBe('credentis_task_alert')
-    expect(template.components[1].parameters).toEqual([{ type: 'text', text: 'Approve purchase request' }])
+    expect(template.name).toBe('credentis_task_update')
+    expect(template.components[0]).toEqual({
+      type: 'header',
+      parameters: [{ type: 'image', image: { link: 'https://wallet.example/wa/task.png?v=1' } }],
+    })
+    expect(template.components[1].parameters.map((p: any) => p.text)).toEqual([
+      expect.any(String),
+      'Approve purchase request',
+      'Check the quote and approve it. Then it goes to finance.',
+    ])
     expect(template.components[2]).toMatchObject({ sub_type: 'url', parameters: [{ text: 'rich-item%3A1' }] })
     expect(template.components[3]).toMatchObject({ sub_type: 'quick_reply' })
   })

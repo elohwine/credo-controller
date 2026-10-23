@@ -27,7 +27,16 @@ import {
   whatsAppSenderService,
   WHATSAPP_EVENTS,
 } from './WhatsAppSenderService'
-import { credentialTypeLabel, richTemplateComponents, roleText, templateText } from './whatsAppTemplates'
+import {
+  EVENT_EMOJI,
+  credentialTypeLabel,
+  headerImageUrl,
+  richTemplateComponents,
+  richTemplateFor,
+  roleText,
+  templateText,
+  type RichTemplateEvent,
+} from './whatsAppTemplates'
 
 const logger = rootLogger.child({ module: 'NotificationService' })
 
@@ -363,7 +372,7 @@ export class NotificationService {
       let bodyText = 'There is an update in your Credentis inbox. Sign in to view it.'
       const orgName = templateText(getTenantById(payload.tenantId)?.label, 40, 'Your organisation')
       // Values for the branded per-event template; left unset when this alert has no item to link to.
-      let richValues: { header: string; body: string[]; link: string } | undefined
+      let richValues: { body: string[]; link: string } | undefined
       if (payload.eventType === 'invite') {
         const { memberInviteService, memberInviteLink } = await import('./MemberInviteService')
         const invite = payload.inviteId ? memberInviteService.get(payload.inviteId) : undefined
@@ -378,34 +387,39 @@ export class NotificationService {
           return
         }
         action = new URL(link)
-        bodyText = `${orgName} invited you to Credentis. Open the link to confirm your name and choose your own PIN.`
         const membership = db
           .prepare('SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ?')
           .get(invite.user_id, invite.org_tenant_id) as { role: string } | undefined
+        const role = roleText(membership?.role)
+        bodyText = `👋 ${orgName} added you to their team as ${role}. Open the link to confirm your name and choose your own PIN.`
         richValues = {
-          header: orgName,
-          body: [templateText(invite.proposed_name, 40, 'there'), orgName, roleText(membership?.role)],
+          body: [templateText(invite.proposed_name, 40, 'there'), orgName, role],
           link: code!,
         }
       } else if (payload.inboxItemId) {
         const owner = db
           .prepare(
-            `SELECT u.id, w.title, w.credential_type FROM wallet_pending_offers w JOIN ssi_users u ON u.tenant_id = w.tenant_id
+            `SELECT u.id, w.title, w.body, w.credential_type FROM wallet_pending_offers w JOIN ssi_users u ON u.tenant_id = w.tenant_id
             WHERE w.id = ? AND w.issuer_tenant_id = ?`,
           )
           .get(payload.inboxItemId, payload.tenantId) as
-          | { id: string; title?: string | null; credential_type?: string }
+          | { id: string; title?: string | null; body?: string | null; credential_type?: string }
           | undefined
         const item =
           owner &&
           this.consentedRecipient(payload.tenantId, payload.eventType, { userId: owner.id })?.phone === payload.to
         if (!item) throw new DispatchError('Notification inbox item is not available for this recipient', 'permanent')
         action.searchParams.set('item', payload.inboxItemId)
-        richValues = {
-          header: orgName,
-          body: [templateText(owner!.title, 60, credentialTypeLabel(owner!.credential_type))],
-          link: payload.inboxItemId,
-        }
+        const title = templateText(owner!.title, 60, credentialTypeLabel(owner!.credential_type))
+        const detail = templateText(
+          owner!.body,
+          160,
+          richTemplateFor(payload.eventType)?.defaultDetail || 'Open it to see the details.',
+        )
+        const emoji = EVENT_EMOJI[payload.eventType as RichTemplateEvent] || '🔔'
+        // The approved generic template carries one line; make it name the organisation and the item.
+        bodyText = templateText(`${emoji} ${orgName}: ${title.replace(/[.!?…]+$/, '')}. ${detail}`, 300, bodyText)
+        richValues = { body: [orgName, title, detail], link: payload.inboxItemId }
       } else if (
         payload.requestId &&
         db
@@ -425,7 +439,7 @@ export class NotificationService {
         ? { name: rich.name, language: rich.language }
         : await whatsAppSenderService.requireApprovedTemplate(sender, templateEvent)
       const components = rich
-        ? richTemplateComponents(rich, richValues!)
+        ? richTemplateComponents(rich, { ...richValues!, imageUrl: headerImageUrl(base.origin, rich.event) })
         : [
             {
               type: 'body',

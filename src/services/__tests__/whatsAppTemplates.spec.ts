@@ -1,5 +1,9 @@
+import fs from 'fs'
+import path from 'path'
+
 import {
   RICH_TEMPLATES,
+  headerImageUrl,
   STOP_BUTTON_TEXT,
   credentialTypeLabel,
   isApprovedRichTemplate,
@@ -14,18 +18,25 @@ describe('branded WhatsApp templates', () => {
   it.each(Object.values(RICH_TEMPLATES))('$name fits Meta limits and its examples', (definition) => {
     const vars = new Set(definition.body.match(/\{\{\d+\}\}/g) || []).size
     expect(definition.examples.body).toHaveLength(vars)
-    expect(definition.header.replace('{{1}}', definition.examples.header).length).toBeLessThanOrEqual(60)
-    expect(definition.header).not.toMatch(/[*_~`\u{1F300}-\u{1FAFF}]/u)
+    expect(vars).toBe(3)
+    expect(fs.existsSync(path.resolve(process.cwd(), `assets/whatsapp/${definition.event}.png`))).toBe(true)
     expect(definition.footer.length).toBeLessThanOrEqual(60)
     expect(definition.body.length).toBeLessThanOrEqual(1024)
     expect(definition.buttonText.length).toBeLessThanOrEqual(25)
-    expect(definition.body.trim()).not.toMatch(/^\{\{\d+\}\}|\{\{\d+\}\}$/)
+    expect(definition.body.trim()).not.toMatch(/^[*_]*\{\{\d+\}\}|\{\{\d+\}\}[*_]*$/)
     expect(definition.name).toMatch(/^[a-z0-9_]{1,512}$/)
   })
 
   it('builds the Meta definition with a fixed origin and a variable link suffix', () => {
     const payload = metaTemplateDefinition(RICH_TEMPLATES.task, ORIGIN) as any
     expect(payload.category).toBe('UTILITY')
+    expect(payload.components[0]).toEqual({
+      type: 'HEADER',
+      format: 'IMAGE',
+      example: { header_handle: ['<uploaded banner handle>'] },
+    })
+    const withHandle = metaTemplateDefinition(RICH_TEMPLATES.task, ORIGIN, '4::abc') as any
+    expect(withHandle.components[0].example.header_handle).toEqual(['4::abc'])
     const buttons = payload.components.find((c: any) => c.type === 'BUTTONS').buttons
     expect(buttons[0]).toMatchObject({ type: 'URL', url: `${ORIGIN}/inbox?item={{1}}` })
     expect(buttons[1]).toEqual({ type: 'QUICK_REPLY', text: STOP_BUTTON_TEXT })
@@ -34,16 +45,19 @@ describe('branded WhatsApp templates', () => {
     expect(invite.category).toBe('MARKETING')
   })
 
-  it('sends header, body, encoded link and the stop payload', () => {
+  it('sends the banner, body, encoded link and the stop payload', () => {
+    const imageUrl = headerImageUrl(ORIGIN, 'vc_offer')
+    expect(imageUrl).toBe(`${ORIGIN}/wa/vc_offer.png?v=1`)
     const components = richTemplateComponents(RICH_TEMPLATES.vc_offer, {
-      header: 'Moyo Hardware',
-      body: ['Staff card'],
+      imageUrl,
+      body: ['Moyo Hardware', 'Staff card', 'Ready to keep.'],
       link: 'item:1/2',
     }) as any[]
+    expect(components[0]).toEqual({ type: 'header', parameters: [{ type: 'image', image: { link: imageUrl } }] })
     expect(components[2]).toMatchObject({ sub_type: 'url', parameters: [{ text: 'item%3A1%2F2' }] })
     expect(components[3]).toMatchObject({ sub_type: 'quick_reply', parameters: [{ payload: 'STOP_ALERTS' }] })
     expect(() =>
-      richTemplateComponents(RICH_TEMPLATES.invite, { header: 'x', body: ['only one'], link: 'c' }),
+      richTemplateComponents(RICH_TEMPLATES.invite, { imageUrl: 'x', body: ['only one'], link: 'c' }),
     ).toThrow()
   })
 
@@ -63,6 +77,10 @@ describe('branded WhatsApp templates', () => {
     expect(isApprovedRichTemplate({ ...invite, category: 'UTILITY' }, RICH_TEMPLATES.invite, ORIGIN)).toBe(false)
     expect(isApprovedRichTemplate({ ...stored, status: 'PENDING' }, definition, ORIGIN)).toBe(false)
     expect(isApprovedRichTemplate(stored, definition, 'https://other.example')).toBe(false)
+    const textHeader = stored.components.map((c: any) =>
+      c.type === 'HEADER' ? { type: 'HEADER', format: 'TEXT', text: 'x' } : c,
+    )
+    expect(isApprovedRichTemplate({ ...stored, components: textHeader }, definition, ORIGIN)).toBe(false)
   })
 
   it('cleans parameters and names card types', () => {

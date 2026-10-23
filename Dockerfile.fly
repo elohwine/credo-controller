@@ -109,6 +109,7 @@ COPY --from=credo-builder --chown=credo:credo /app/bin ./bin
 COPY --from=credo-builder --chown=credo:credo /app/src/routes ./src/routes
 COPY --from=credo-builder --chown=credo:credo /app/migrations ./migrations
 COPY --from=credo-builder --chown=credo:credo /app/samples ./samples
+COPY --chown=credo:credo assets/whatsapp ./assets/whatsapp
 COPY --from=credo-builder --chown=credo:credo /app/package.json ./
 COPY --from=credo-builder --chown=credo:credo /app/node_modules ./node_modules
 
