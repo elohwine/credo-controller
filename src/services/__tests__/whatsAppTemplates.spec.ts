@@ -31,6 +31,7 @@ describe('branded WhatsApp templates', () => {
     expect(buttons[1]).toEqual({ type: 'QUICK_REPLY', text: STOP_BUTTON_TEXT })
     const invite = metaTemplateDefinition(RICH_TEMPLATES.invite, ORIGIN) as any
     expect(invite.components.find((c: any) => c.type === 'BUTTONS').buttons).toHaveLength(1)
+    expect(invite.category).toBe('MARKETING')
   })
 
   it('sends header, body, encoded link and the stop payload', () => {
@@ -57,6 +58,9 @@ describe('branded WhatsApp templates', () => {
     }
     expect(isApprovedRichTemplate(stored, definition, ORIGIN)).toBe(true)
     expect(isApprovedRichTemplate({ ...stored, category: 'MARKETING' }, definition, ORIGIN)).toBe(false)
+    const invite = { ...metaTemplateDefinition(RICH_TEMPLATES.invite, ORIGIN), status: 'APPROVED' }
+    expect(isApprovedRichTemplate(invite, RICH_TEMPLATES.invite, ORIGIN)).toBe(true)
+    expect(isApprovedRichTemplate({ ...invite, category: 'UTILITY' }, RICH_TEMPLATES.invite, ORIGIN)).toBe(false)
     expect(isApprovedRichTemplate({ ...stored, status: 'PENDING' }, definition, ORIGIN)).toBe(false)
     expect(isApprovedRichTemplate(stored, definition, 'https://other.example')).toBe(false)
   })

@@ -11,6 +11,8 @@
 export type RichTemplateEvent = 'invite' | 'task' | 'vc_offer' | 'proof_request' | 'payment_link' | 'remittance'
 
 export interface RichTemplateDefinition {
+  /** Meta classes invites to people with no relationship yet as marketing; alerts are utility. */
+  category: 'UTILITY' | 'MARKETING'
   event: RichTemplateEvent
   name: string
   language: string
@@ -33,7 +35,8 @@ const FOOTER = 'Credentis · verified records you keep'
 export const RICH_TEMPLATES: Record<RichTemplateEvent, RichTemplateDefinition> = {
   invite: {
     event: 'invite',
-    name: 'credentis_team_invite',
+    name: 'credentis_join_invite',
+    category: 'MARKETING',
     language: 'en',
     header: 'Join {{1}} on Credentis',
     body:
@@ -53,6 +56,7 @@ export const RICH_TEMPLATES: Record<RichTemplateEvent, RichTemplateDefinition> =
   task: {
     event: 'task',
     name: 'credentis_task_alert',
+    category: 'UTILITY',
     language: 'en',
     header: 'New task from {{1}}',
     body: '📋 *{{1}}* is waiting for you.\n\nOpen it in Credentis to review the details and take the next step.',
@@ -65,6 +69,7 @@ export const RICH_TEMPLATES: Record<RichTemplateEvent, RichTemplateDefinition> =
   vc_offer: {
     event: 'vc_offer',
     name: 'credentis_card_offer',
+    category: 'UTILITY',
     language: 'en',
     header: '{{1}} sent you a card',
     body:
@@ -79,6 +84,7 @@ export const RICH_TEMPLATES: Record<RichTemplateEvent, RichTemplateDefinition> =
   proof_request: {
     event: 'proof_request',
     name: 'credentis_proof_request',
+    category: 'UTILITY',
     language: 'en',
     header: '{{1}} asked to check a record',
     body: '🔍 They would like to see your *{{1}}*.\n\n' + 'Nothing is shared until you look at the request and agree.',
@@ -91,6 +97,7 @@ export const RICH_TEMPLATES: Record<RichTemplateEvent, RichTemplateDefinition> =
   payment_link: {
     event: 'payment_link',
     name: 'credentis_payment_request',
+    category: 'UTILITY',
     language: 'en',
     header: 'Payment request from {{1}}',
     body:
@@ -105,6 +112,7 @@ export const RICH_TEMPLATES: Record<RichTemplateEvent, RichTemplateDefinition> =
   remittance: {
     event: 'remittance',
     name: 'credentis_payment_advice',
+    category: 'UTILITY',
     language: 'en',
     header: '{{1}} sent you a payment',
     body: '✅ *{{1}}* is in your Credentis wallet as a signed record.\n\nOpen it to see what was paid and when.',
@@ -187,7 +195,7 @@ export function metaTemplateDefinition(definition: RichTemplateDefinition, origi
   return {
     name: definition.name,
     language: definition.language,
-    category: 'UTILITY',
+    category: definition.category,
     components: [
       {
         type: 'HEADER',
@@ -233,7 +241,7 @@ export function richTemplateComponents(
 /** True when Meta's stored copy is the approved utility template this code expects. */
 export function isApprovedRichTemplate(item: any, definition: RichTemplateDefinition, origin: string): boolean {
   if (item?.name !== definition.name || item?.language !== definition.language) return false
-  if (item?.status !== 'APPROVED' || item?.category !== 'UTILITY') return false
+  if (item?.status !== 'APPROVED' || item?.category !== definition.category) return false
   const components: any[] = item?.components || []
   const body = components.find((c) => c.type === 'BODY')
   const header = components.find((c) => c.type === 'HEADER')
