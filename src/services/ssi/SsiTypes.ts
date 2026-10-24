@@ -60,6 +60,10 @@ export interface AuthorityScope {
   costCentreRefs?: string[]
   currency?: string
   maxAmount?: number
+  /** Limits the authority to these workflows (Who does what). Absent means any workflow. */
+  workflowTypes?: string[]
+  /** Limits the authority to these steps (Who does what). Absent means any step. */
+  stageActions?: string[]
   requiredCredentials?: SsiCredentialCondition[]
   constraints?: Record<string, unknown>
 }
@@ -83,6 +87,9 @@ export interface AuthorityDecisionInput {
   departmentId?: string
   projectRef?: string
   costCentreRef?: string
+  /** The workflow and step being decided, so step-limited authority can match. */
+  workflowType?: string
+  stageAction?: string
   requiredPermission?: string
   separationOfDutiesPersonIds?: string[]
   ssiEvidence?: SsiEvidenceInput[]

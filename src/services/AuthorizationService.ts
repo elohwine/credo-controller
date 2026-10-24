@@ -6,6 +6,7 @@ import type {
   SsiEvidenceInput,
 } from './ssi/SsiTypes'
 
+import { scopeForApprovalArea } from '../config/authorityAreas'
 import { randomUUID } from 'crypto'
 
 import { StatusException } from '../errors'
@@ -144,8 +145,8 @@ export class AuthorizationService {
       WHERE a.organization_id = ?
         AND a.person_id = ?
         AND a.status = 'active'
-        AND (a.valid_from IS NULL OR a.valid_from <= CURRENT_TIMESTAMP)
-        AND (a.valid_until IS NULL OR a.valid_until >= CURRENT_TIMESTAMP)
+        AND (a.valid_from IS NULL OR julianday(a.valid_from) <= julianday('now'))
+        AND (a.valid_until IS NULL OR julianday(a.valid_until) >= julianday('now'))
       ORDER BY a.created_at DESC
     `,
       )
@@ -217,8 +218,10 @@ export class AuthorizationService {
       }
 
       const ssiCheck = this.evaluateSsiEvidence(
-        this.parseScope(this.getRawDelegationAuthorityScope(actor.organizationId, delegated.authorityRef))
-          .requiredCredentials,
+        delegated.authorityRef.startsWith('role:')
+          ? undefined
+          : this.parseScope(this.getRawDelegationAuthorityScope(actor.organizationId, delegated.authorityRef))
+              .requiredCredentials,
         input.ssiEvidence,
       )
       if (!ssiCheck.satisfied) {
@@ -360,7 +363,18 @@ export class AuthorizationService {
         return { permissions: [] }
       }
 
-      const maybeScope = parsed as Partial<AuthorityScope>
+      const maybeScope = parsed as Partial<AuthorityScope> & { domain?: unknown; thresholdAmount?: unknown }
+      // Approvals-page grants saved before permissions were stored carry only an area.
+      if (!Array.isArray(maybeScope.permissions) && typeof maybeScope.domain === 'string') {
+        return {
+          ...maybeScope,
+          ...scopeForApprovalArea({
+            domain: maybeScope.domain,
+            thresholdAmount: typeof maybeScope.thresholdAmount === 'number' ? maybeScope.thresholdAmount : undefined,
+            currency: typeof maybeScope.currency === 'string' ? maybeScope.currency : undefined,
+          }),
+        }
+      }
       return {
         ...maybeScope,
         permissions: Array.isArray(maybeScope.permissions) ? maybeScope.permissions : [],
@@ -391,6 +405,13 @@ export class AuthorizationService {
     if (typeof scope.maxAmount === 'number') {
       if (typeof input.amount !== 'number' || input.amount > scope.maxAmount) return false
     }
+    const lower = (value?: string) => String(value || '').trim().toLowerCase()
+    if (Array.isArray(scope.workflowTypes)) {
+      if (!input.workflowType || !scope.workflowTypes.map(lower).includes(lower(input.workflowType))) return false
+    }
+    if (Array.isArray(scope.stageActions)) {
+      if (!input.stageAction || !scope.stageActions.map(lower).includes(lower(input.stageAction))) return false
+    }
 
     return true
   }
@@ -405,47 +426,78 @@ export class AuthorizationService {
       .prepare(
         `
       SELECT
+        d.delegator_person_id AS delegatorPersonId,
         d.scope_json AS delegationScopeJson,
-        d.source_credential_ref AS delegationCredentialRef,
-        a.id AS authorityRef,
-        a.scope_json AS authorityScopeJson,
-        a.source_credential_ref AS authorityCredentialRef
+        d.source_credential_ref AS delegationCredentialRef
       FROM delegations d
-      JOIN authority_grants a
-        ON a.organization_id = d.organization_id
-       AND a.person_id = d.delegator_person_id
-       AND a.status = 'active'
-       AND (a.valid_from IS NULL OR a.valid_from <= CURRENT_TIMESTAMP)
-       AND (a.valid_until IS NULL OR a.valid_until >= CURRENT_TIMESTAMP)
       WHERE d.organization_id = ?
         AND d.delegate_person_id = ?
         AND d.status = 'active'
-        AND d.valid_from <= CURRENT_TIMESTAMP
-        AND (d.valid_until IS NULL OR d.valid_until >= CURRENT_TIMESTAMP)
+        AND julianday(d.valid_from) <= julianday('now')
+        AND (d.valid_until IS NULL OR julianday(d.valid_until) >= julianday('now'))
       ORDER BY d.created_at DESC
     `,
       )
       .all(organizationId, input.personId) as Array<{
+      delegatorPersonId: string
       delegationScopeJson: string
       delegationCredentialRef?: string
-      authorityRef: string
-      authorityScopeJson: string
-      authorityCredentialRef?: string
     }>
 
     for (const row of rows) {
       const delegationScope = this.parseScope(row.delegationScopeJson)
-      const authorityScope = this.parseScope(row.authorityScopeJson)
       if (!this.matchScope(input, permission, delegationScope)) continue
-      if (!this.matchScope(input, permission, authorityScope)) continue
-
-      return {
-        authorityRef: row.authorityRef,
-        credentialReferences: [row.authorityCredentialRef, row.delegationCredentialRef].filter(Boolean) as string[],
+      // The person who delegated must hold the authority themselves: an explicit grant,
+      // or the role the organisation gave them (owners and admins decide requests).
+      const grants = db
+        .prepare(
+          `
+        SELECT a.id, a.scope_json AS scopeJson, a.source_credential_ref AS sourceCredentialRef
+        FROM authority_grants a
+        WHERE a.organization_id = ? AND a.person_id = ? AND a.status = 'active'
+          AND (a.valid_from IS NULL OR julianday(a.valid_from) <= julianday('now'))
+          AND (a.valid_until IS NULL OR julianday(a.valid_until) >= julianday('now'))
+      `,
+        )
+        .all(organizationId, row.delegatorPersonId) as Array<{ id: string; scopeJson: string; sourceCredentialRef?: string }>
+      const grant = grants.find((candidate) => this.matchScope(input, permission, this.parseScope(candidate.scopeJson)))
+      if (grant) {
+        return {
+          authorityRef: grant.id,
+          credentialReferences: [grant.sourceCredentialRef, row.delegationCredentialRef].filter(Boolean) as string[],
+        }
+      }
+      const delegatorRole = this.memberRole(organizationId, input.tenantId, row.delegatorPersonId)
+      if (
+        delegatorRole &&
+        ((['owner', 'admin'].includes(delegatorRole) && permission.startsWith('request.')) ||
+          this.rolePermits(organizationId, input.tenantId, delegatorRole, permission))
+      ) {
+        return {
+          authorityRef: `role:${delegatorRole}`,
+          credentialReferences: [row.delegationCredentialRef].filter(Boolean) as string[],
+        }
       }
     }
 
     return undefined
+  }
+
+  private memberRole(organizationId: string, tenantId: string, personId: string): string | undefined {
+    const row = DatabaseManager.getDatabase()
+      .prepare(
+        `
+      SELECT om.role
+      FROM org_memberships om
+      JOIN people p ON p.organization_id = ?
+      WHERE om.org_tenant_id = ? AND om.status = 'active' AND p.id = ?
+        AND (om.user_id = p.subject_ref OR om.user_id = p.id)
+      LIMIT 1
+    `,
+      )
+      .get(organizationId, tenantId, personId) as { role?: string } | undefined
+    const role = String(row?.role || '').trim().toLowerCase()
+    return role || undefined
   }
 
   private getRawDelegationAuthorityScope(organizationId: string, authorityRef: string): string {
@@ -549,8 +601,8 @@ export class AuthorizationService {
             JOIN authority_policies ap ON pv.authority_policy_id = ap.id
            WHERE ap.organization_id = ?
              AND pv.deployment_status = 'active'
-             AND (ap.effective_from IS NULL OR ap.effective_from <= CURRENT_TIMESTAMP)
-             AND (ap.effective_until IS NULL OR ap.effective_until > CURRENT_TIMESTAMP)
+             AND (ap.effective_from IS NULL OR julianday(ap.effective_from) <= julianday('now'))
+             AND (ap.effective_until IS NULL OR julianday(ap.effective_until) > julianday('now'))
            ORDER BY pv.version_number DESC
            LIMIT 1
         `,
