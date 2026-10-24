@@ -42,7 +42,9 @@ describe('branded WhatsApp templates', () => {
     expect(buttons[1]).toEqual({ type: 'QUICK_REPLY', text: STOP_BUTTON_TEXT })
     const invite = metaTemplateDefinition(RICH_TEMPLATES.invite, ORIGIN) as any
     expect(invite.components.find((c: any) => c.type === 'BUTTONS').buttons).toHaveLength(1)
-    expect(invite.category).toBe('MARKETING')
+    // A plain account update: Meta rejected the PIN and expiry wording as the wrong category.
+    expect(invite.category).toBe('UTILITY')
+    expect(RICH_TEMPLATES.invite.body).not.toMatch(/PIN|expire|works once/i)
   })
 
   it('sends the banner, body, encoded link and the stop payload', () => {
@@ -74,7 +76,7 @@ describe('branded WhatsApp templates', () => {
     expect(isApprovedRichTemplate({ ...stored, category: 'MARKETING' }, definition, ORIGIN)).toBe(false)
     const invite = { ...metaTemplateDefinition(RICH_TEMPLATES.invite, ORIGIN), status: 'APPROVED' }
     expect(isApprovedRichTemplate(invite, RICH_TEMPLATES.invite, ORIGIN)).toBe(true)
-    expect(isApprovedRichTemplate({ ...invite, category: 'UTILITY' }, RICH_TEMPLATES.invite, ORIGIN)).toBe(false)
+    expect(isApprovedRichTemplate({ ...invite, category: 'MARKETING' }, RICH_TEMPLATES.invite, ORIGIN)).toBe(false)
     expect(isApprovedRichTemplate({ ...stored, status: 'PENDING' }, definition, ORIGIN)).toBe(false)
     expect(isApprovedRichTemplate(stored, definition, 'https://other.example')).toBe(false)
     const textHeader = stored.components.map((c: any) =>

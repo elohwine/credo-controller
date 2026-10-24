@@ -25,7 +25,13 @@ interface Readiness {
   validated: boolean
   selection: { mode: string; enabled: boolean; templates: Record<string, { name: string; language: string }> } | null
 }
-interface Delivery { id: string; eventType: string; status: string; reason: string | null; updatedAt: string }
+// The plain inbox update is the fallback used when the branded template for an alert cannot be sent.
+function messageStyle(templateName?: string | null): string {
+  if (!templateName) return ''
+  return templateName.startsWith('credentis_inbox_update/') ? 'Plain' : 'Branded'
+}
+
+interface Delivery { id: string; eventType: string; status: string; reason: string | null; templateName?: string | null; updatedAt: string }
 
 export default function OrganizationWhatsAppPage() {
   useRequireOrgContext('/organization/setup')
@@ -184,13 +190,14 @@ export default function OrganizationWhatsAppPage() {
             ) : (
               <Table striped>
                 <Table.Thead>
-                  <Table.Tr><Table.Th>Alert</Table.Th><Table.Th>Status</Table.Th><Table.Th>Note</Table.Th><Table.Th>When</Table.Th></Table.Tr>
+                  <Table.Tr><Table.Th>Alert</Table.Th><Table.Th>Status</Table.Th><Table.Th>Message</Table.Th><Table.Th>Note</Table.Th><Table.Th>When</Table.Th></Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
                   {deliveries.map((row) => (
                     <Table.Tr key={row.id}>
                       <Table.Td>{EVENTS.find((event) => event.id === row.eventType)?.label || row.eventType}</Table.Td>
                       <Table.Td>{row.status}</Table.Td>
+                      <Table.Td title={row.templateName || undefined}>{messageStyle(row.templateName)}</Table.Td>
                       <Table.Td>{row.reason || ''}</Table.Td>
                       <Table.Td>{new Date(row.updatedAt).toLocaleString()}</Table.Td>
                     </Table.Tr>

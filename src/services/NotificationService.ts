@@ -469,9 +469,9 @@ export class NotificationService {
       const claimed = db
         .prepare(
           `UPDATE notification_deliveries SET status = 'sending', sender_key = ?,
-        phone_number_id = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'retry')`,
+        phone_number_id = ?, template_name = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'retry')`,
         )
-        .run(sender.key, sender.phoneNumberId, new Date().toISOString(), id)
+        .run(sender.key, sender.phoneNumberId, `${template.name}/${template.language}`, new Date().toISOString(), id)
       if (!claimed.changes) throw new DispatchError('Notification is already being sent', 'uncertain')
       sending = true
       const { data } = await axios.post(

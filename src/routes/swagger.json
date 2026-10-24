@@ -40949,6 +40949,11 @@
                       "updatedAt": {
                         "type": "string"
                       },
+                      "templateName": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "`name/language` of the WhatsApp template used, set once the send starts."
+                      },
                       "providerMessageId": {
                         "type": "string",
                         "nullable": true
@@ -40969,6 +40974,7 @@
                     },
                     "required": [
                       "updatedAt",
+                      "templateName",
                       "providerMessageId",
                       "reason",
                       "status",

@@ -38,16 +38,18 @@ export const HEADER_IMAGE_VERSION = '1'
 export const RICH_TEMPLATES: Record<RichTemplateEvent, RichTemplateDefinition> = {
   invite: {
     event: 'invite',
-    name: 'credentis_team_join',
-    category: 'MARKETING',
+    // Meta rejected `credentis_team_join` (MARKETING) and the earlier text versions as the wrong
+    // category: PIN, one-time-link and expiry wording reads as a sign-in message. This is a plain
+    // account update about a change the organisation made, which is what UTILITY covers.
+    name: 'credentis_team_added',
+    category: 'UTILITY',
     language: 'en',
     body:
-      'Hi {{1}} 👋\n\n*{{2}}* added you to their team on Credentis as *{{3}}*.\n\n' +
-      'Tap *Accept invite* to confirm your name and choose your own PIN. Only you will know it.\n\n' +
-      '_The link works once and expires in 7 days._',
+      'Hi {{1}},\n\n*{{2}}* has added you to their team on Credentis as *{{3}}*.\n\n' +
+      'Tap *Open invite* to see the details and join the team.',
     footer: FOOTER,
     linkPath: '/login/join?code=',
-    buttonText: 'Accept invite',
+    buttonText: 'Open invite',
     stopButton: false,
     defaultDetail: '',
     examples: { body: ['Rudo', 'Moyo Hardware', 'Field worker'], link: 'Xk3pQ9vT2mLr8sWc1nB7yFh4' },
@@ -158,6 +160,7 @@ export const RETIRED_TEMPLATE_NAMES = [
   'credentis_join_invite',
   'credentis_team_invite',
   'credentis_account_activation',
+  'credentis_team_join',
 ]
 
 /** Public banner for an alert type, served from `assets/whatsapp` by the API. */

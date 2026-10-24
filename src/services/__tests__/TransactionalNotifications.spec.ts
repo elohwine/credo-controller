@@ -45,6 +45,7 @@ describe('durable transactional WhatsApp notifications', () => {
     db = new Database(':memory:')
     db.exec(readFileSync('migrations/091_create_integration_outbox.sql', 'utf8'))
     db.exec(readFileSync('migrations/124_transactional_notifications.sql', 'utf8'))
+    db.exec(readFileSync('migrations/137_notification_template_name.sql', 'utf8'))
     db.exec(`
       CREATE TABLE service_providers (
         id TEXT PRIMARY KEY, tenant_id TEXT, name TEXT, type TEXT, description TEXT, base_url TEXT,
@@ -794,6 +795,7 @@ describe('durable transactional WhatsApp notifications', () => {
     ])
     expect(template.components[2]).toMatchObject({ sub_type: 'url', parameters: [{ text: 'rich-item%3A1' }] })
     expect(template.components[3]).toMatchObject({ sub_type: 'quick_reply' })
+    expect(delivery(outbox.id)).toMatchObject({ template_name: 'credentis_task_update/en' })
   })
 
   it('treats a tap on the Stop alerts button like a typed STOP', async () => {

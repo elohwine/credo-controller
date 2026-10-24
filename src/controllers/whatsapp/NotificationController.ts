@@ -175,6 +175,8 @@ export class NotificationController extends Controller {
       status: string
       reason: string | null
       providerMessageId: string | null
+      /** `name/language` of the WhatsApp template used, set once the send starts. */
+      templateName: string | null
       updatedAt: string
     }>
   > {
@@ -182,7 +184,7 @@ export class NotificationController extends Controller {
     return DatabaseManager.getDatabase()
       .prepare(
         `SELECT id, event_type AS eventType, status, reason,
-      provider_message_id AS providerMessageId, updated_at AS updatedAt FROM notification_deliveries
+      provider_message_id AS providerMessageId, template_name AS templateName, updated_at AS updatedAt FROM notification_deliveries
       WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 100`,
       )
       .all(tenantId) as any

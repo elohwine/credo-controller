@@ -183,6 +183,7 @@ export class DatabaseManager {
       { version: 134, file: '134_inbox_read_state.sql', name: 'inbox_read_state' },
       { version: 135, file: '135_member_invites.sql', name: 'member_invites' },
       { version: 136, file: '136_org_brand.sql', name: 'org_brand' },
+      { version: 137, file: '137_notification_template_name.sql', name: 'notification_template_name' },
     ]
 
     for (const migration of migrationFiles) {
