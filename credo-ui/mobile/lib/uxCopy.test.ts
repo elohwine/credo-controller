@@ -1,5 +1,6 @@
 import {
   clientPayCopy,
+  describeAuditEvent,
   getFriendlyActivityActionLabel,
   getInboxDisplayTitle,
   SAFETY_HOLD_COPY,
@@ -93,5 +94,37 @@ describe('ux copy helpers', () => {
         providerRef: 'paylink-123',
       }),
     ).toBe('Payment ready')
+  })
+})
+
+describe('describeAuditEvent', () => {
+  it('hides inbox seen-markers so they never show as documents', () => {
+    expect(describeAuditEvent({ path: '/api/wallet/credentials/inbox-read-state', requestSummary: { scope: 'a5b7' } }).hidden).toBe(true)
+  })
+
+  it('names the client a bill was sent to', () => {
+    expect(
+      describeAuditEvent({ path: '/api/payment-links/9b70/send', requestSummary: { payerName: 'Elowine' } }),
+    ).toMatchObject({ kind: 'payment', title: 'Bill sent to Elowine' })
+  })
+
+  it('says which proof step was asked for and shared', () => {
+    expect(describeAuditEvent({ path: '/workflows/runs/f9c1/proof/request', requestSummary: { stage: 'acknowledgement' } }).title)
+      .toBe('Asked for proof: sign-off')
+    expect(describeAuditEvent({ path: '/workflows/runs/f9c1/proof/complete', requestSummary: { stage: 'site_inspection' } }).title)
+      .toBe('Proof shared: site inspection')
+  })
+
+  it('reads the work review outcome', () => {
+    expect(
+      describeAuditEvent({ path: '/workflows/runs/f9c1/resume', requestSummary: { completionReview: { outcome: 'approved', notes: 'All good' } } }),
+    ).toMatchObject({ kind: 'field_job', title: 'Work review approved', subtitle: 'All good' })
+  })
+
+  it('names accepted records and policy changes, and says nothing for unknown paths', () => {
+    expect(describeAuditEvent({ path: '/api/wallet/credentials/accept-offer' }).title).toBe('Record accepted')
+    expect(describeAuditEvent({ path: '/api/organizations/a5b7/proof-vc-policy' }).title).toBe('Proof rules updated')
+    expect(describeAuditEvent({ path: '/api/something/else' })).toEqual({})
+    expect(describeAuditEvent(undefined)).toEqual({})
   })
 })

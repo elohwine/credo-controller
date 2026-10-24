@@ -64,6 +64,7 @@ const SKIP_PATTERNS = [
   /^\/swagger/,
   /\.well-known/,
   /^\/api\/wallet\/accounts\/wallets$/, // list wallets (read-only)
+  /^\/api\/wallet\/credentials\/inbox-read-state$/, // "seen" markers for the inbox, not activity
 ]
 
 function shouldAudit(method: string, path: string): { audit: boolean; actionType?: string } {

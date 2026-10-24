@@ -1148,3 +1148,71 @@ export function fieldStepExplanation(stepLabel: string | undefined): string | un
   if (!stepLabel) return undefined
   return FIELD_STEP_EXPLANATION[stepLabel]
 }
+
+/** Proof steps on a field job, as people say them. */
+const PROOF_STEP_LABEL: Record<string, string> = {
+  site_inspection: 'site inspection',
+  risk_assessment: 'safety check',
+  worker_start: 'start of work',
+  arrival: 'arrival',
+  completion_review: 'work review',
+  acknowledgement: 'sign-off',
+  payout_release: 'payout release',
+}
+
+export interface AuditEventDescription {
+  /** Housekeeping calls (read markers) that are not activity at all. */
+  hidden?: boolean
+  title?: string
+  subtitle?: string
+  kind?: 'payment' | 'field_job' | 'record' | 'settings'
+}
+
+/**
+ * What an audit entry means, read from the API path it recorded. Returns `{}` when the
+ * path says nothing specific, so callers can fall back to the generic action label.
+ */
+export function describeAuditEvent(details?: ActivityDetails): AuditEventDescription {
+  const all = { ...((details?.requestSummary as ActivityDetails) || {}), ...(details || {}) } as ActivityDetails
+  const path = String(details?.path || details?.route || '').toLowerCase()
+  if (!path) return {}
+
+  if (/\/inbox-read-state\b|\/notifications\/[^/]+\/read\b|\/read-all\b/.test(path)) return { hidden: true }
+
+  const proofStep = PROOF_STEP_LABEL[String(all.stage || '').toLowerCase()] || ''
+  const payer = String(all.payerName || '').trim()
+
+  if (/\/payment-links\/[^/]+\/send$/.test(path)) {
+    return { kind: 'payment', title: payer ? `Bill sent to ${payer}` : 'Bill sent', subtitle: 'The client can pay from the link or their inbox.' }
+  }
+  if (/\/payment-links\/[^/]+\/(cancel|void)$/.test(path)) return { kind: 'payment', title: 'Bill cancelled' }
+  if (/\/payment-links$/.test(path)) {
+    return { kind: 'payment', title: payer ? `Bill created for ${payer}` : 'Bill created' }
+  }
+  if (/\/workflows\/runs\/[^/]+\/proof\/request$/.test(path)) {
+    return {
+      kind: 'field_job',
+      title: proofStep ? `Asked for proof: ${proofStep}` : 'Asked for proof',
+      subtitle: 'Waiting for the right person to share it.',
+    }
+  }
+  if (/\/workflows\/runs\/[^/]+\/proof\/complete$/.test(path)) {
+    return { kind: 'field_job', title: proofStep ? `Proof shared: ${proofStep}` : 'Proof shared', subtitle: 'The job can move on.' }
+  }
+  if (/\/workflows\/runs\/[^/]+\/resume$/.test(path)) {
+    const review = all.completionReview as ActivityDetails | undefined
+    const outcome = String(review?.outcome || '').toLowerCase()
+    if (outcome === 'approved') return { kind: 'field_job', title: 'Work review approved', subtitle: String(review?.notes || '').trim() || undefined }
+    if (outcome) return { kind: 'field_job', title: 'Work review: changes asked', subtitle: String(review?.notes || '').trim() || undefined }
+    return { kind: 'field_job', title: 'Field job moved on' }
+  }
+  if (/\/workflows\/runs\/[^/]+\/(cancel|abort)$/.test(path)) return { kind: 'field_job', title: 'Field job cancelled' }
+  if (/\/credentials\/accept-offer$/.test(path)) {
+    return { kind: 'record', title: 'Record accepted', subtitle: 'Kept in the wallet it was issued to.' }
+  }
+  if (/\/credentials\/(reject|decline)-offer$/.test(path)) return { kind: 'record', title: 'Record declined' }
+  if (/\/proof-vc-policy$/.test(path)) return { kind: 'settings', title: 'Proof rules updated', subtitle: 'Which steps need a proof card or a trusted phone.' }
+  if (/\/organizations\/[^/]+\/members/.test(path)) return { kind: 'settings', title: 'Team updated' }
+
+  return {}
+}

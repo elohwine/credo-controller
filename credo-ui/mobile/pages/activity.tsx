@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
@@ -40,7 +40,7 @@ import ErrorAlert from '@/components/shared/ErrorAlert'
 import api, { safeArray } from '@/lib/api'
 import { getActiveOrgId, getContextMode, getUserRole, getPreferredToken, getWalletToken, getOrgToken, getTaskContext } from '@/lib/auth'
 import { assertFieldStepSucceeded, fieldEvidenceResumePayload } from '../../shared/fieldEvidence'
-import { getFriendlyActivityActionLabel, getFriendlyActivitySummary, stepRequiredLabel, toFeptStageLabel } from '@/lib/uxCopy'
+import { describeAuditEvent, getFriendlyActivityActionLabel, getFriendlyActivitySummary, stepRequiredLabel, toFeptStageLabel } from '@/lib/uxCopy'
 import PersonalActivityPanel, { type PersonalActivityClient } from '@/components/shared/PersonalActivityPanel'
 import { Anchor } from '@mantine/core'
 
@@ -181,6 +181,8 @@ interface RecentTxnRow {
   actorLabel: string
   orgLabel?: string
   authToken: string
+  /** How many times this same step happened on the same thing (retries collapse into one card). */
+  count?: number
 }
 
 type ActivityFeedFilter = 'all' | 'org' | 'personal' | 'payments' | 'documents' | 'issues' | 'favorites'
@@ -319,52 +321,8 @@ function formatActorLabel(name?: string, did?: string): string {
   return 'You'
 }
 
-// ── Event outcome indicator (RFC 3881: required on every event) ──
-function resolveOutcome(entry: any): { label: string; color: string } {
-  const details = (entry?.details || {}) as Record<string, any>
-  const all = { ...((details.requestSummary && typeof details.requestSummary === 'object') ? details.requestSummary : {}), ...details }
-  const status = String(all.status || all.result || entry?.status || '').toLowerCase()
-  if (
-    status.includes('success') || status.includes('reconciled') || status.includes('completed') ||
-    status.includes('approved') || status.includes('paid') || status.includes('issued') || status.includes('settled')
-  ) return { label: 'Success', color: 'green' }
-  if (
-    status.includes('fail') || status.includes('error') || status.includes('mismatch') ||
-    status.includes('disputed') || status.includes('reject') || status.includes('revoke')
-  ) return { label: 'Failed', color: 'red' }
-  if (
-    status.includes('pending') || status.includes('awaiting') || status.includes('in_progress') ||
-    status.includes('processing')
-  ) return { label: 'Pending', color: 'yellow' }
-  if (status.includes('cancelled')) return { label: 'Cancelled', color: 'orange' }
-  return { label: 'Recorded', color: 'gray' }
-}
 
-// ── Category taxonomy (GitHub/RFC pattern: category.operation) ──
-function resolveCategory(entry: any): string {
-  const action = String(entry?.actionType || entry?.workflowStep || '').toLowerCase()
-  const target = inferDomainTarget(entry?.details)
-  if (target === 'field_execution') return 'workflow'
-  if (target === 'requisition') return 'workflow'
-  if (action.includes('receipt') || action.includes('invoice') || action.includes('quote')) return 'commerce'
-  if (action.includes('payment') || action.includes('ecocash')) return 'payments'
-  if (action.includes('credential') || action.includes('vc') || action.includes('proof') || action.includes('did')) return 'credentials'
-  if (action.includes('member') || action.includes('role') || action.includes('login')) return 'members'
-  if (action.includes('reconciliation') || action.includes('reconcile')) return 'reconciliation'
-  if (action.includes('org') || action.includes('capability') || action.includes('visibility')) return 'org-settings'
-  return 'activity'
-}
 
-const CATEGORY_COLORS: Record<string, string> = {
-  commerce: 'teal',
-  payments: 'green',
-  credentials: 'indigo',
-  workflow: 'grape',
-  members: 'blue',
-  reconciliation: 'cyan',
-  'org-settings': 'orange',
-  activity: 'gray',
-}
 
 function inferDomainTarget(details?: Record<string, any>): string {
   if (!details || typeof details !== 'object') return 'activity'
@@ -391,7 +349,82 @@ function inferDomainTarget(details?: Record<string, any>): string {
 }
 
 function getFriendlyActionLabel(actionType?: string, workflowStep?: string, details?: Record<string, any>): string {
-  return getFriendlyActivityActionLabel(actionType, workflowStep, details)
+  return describeAuditEvent(details).title || getFriendlyActivityActionLabel(actionType, workflowStep, details)
+}
+
+/** Done for an organisation: marked on-behalf, or read with that organisation's own token. */
+function isOrgAuditEntry(entry: any): boolean {
+  if (entry?.onBehalfOf || entry?.onBehalfOfName) return true
+  const orgToken = getOrgToken()
+  return Boolean(orgToken && entry?._authToken === orgToken)
+}
+
+function auditEntryToFeedRow(entry: any): RecentTxnRow | null {
+  const ref = String(
+    entry?.resourceId ??
+    entry?.workflowId ??
+    entry?.details?.providerRef ??
+    entry?.details?.transactionId ??
+    entry?.id ??
+    '',
+  ).trim()
+  const authToken = String(entry?._authToken || '')
+  if (!ref || !authToken) return null
+  const friendlyMessage = buildRecentTxnMessage(entry)
+  const details = (entry?.details && typeof entry.details === 'object') ? entry.details : {}
+  const kind = describeAuditEvent(details).kind
+  const flow: FlowCategory =
+    kind === 'field_job' ? 'FIELD_EXECUTION'
+      : kind === 'payment' ? 'PAYMENT'
+        : kind === 'record' ? 'CREDENTIAL'
+          : kind === 'settings' ? 'SYSTEM'
+            : classifyFlowType(entry?.actionType, entry?.workflowStep, entry?.resourceId, ref)
+  const actorName = String(entry?.actorName || '').trim()
+  return {
+    id: String(entry?.id ?? ref),
+    ref,
+    title: friendlyMessage.title,
+    subtitle: friendlyMessage.subtitle,
+    status: String(entry?.status ?? details?.status ?? details?.result ?? '').trim() || undefined,
+    stage: extractFeptStage(details as Record<string, any>, entry) || undefined,
+    eventType: String(entry?.eventType ?? entry?.actionType ?? '').trim() || undefined,
+    flow,
+    context: inferAuditContext(entry),
+    scopeLabel: isOrgAuditEntry(entry) ? 'on-behalf' : 'personal',
+    createdAt: entry?.createdAt ?? new Date().toISOString(),
+    // Only a real name; DIDs mean nothing to the people reading this feed.
+    actorLabel: actorName && !actorName.startsWith('did:') ? actorName : '',
+    orgLabel: friendlyMessage.orgLabel,
+    authToken,
+  }
+}
+
+/** Newest first; repeats of the same step on the same thing in a row become one card with a count. */
+function buildActivityFeed(entries: any[]): RecentTxnRow[] {
+  const rows: RecentTxnRow[] = []
+  for (const entry of entries) {
+    const row = auditEntryToFeedRow(entry)
+    if (!row) continue
+    const previous = rows[rows.length - 1]
+    if (previous && previous.ref === row.ref && previous.title === row.title) {
+      previous.count = (previous.count || 1) + 1
+      continue
+    }
+    rows.push(row)
+  }
+  return rows
+}
+
+function feedDayLabel(value: string): string {
+  const day = dayjs(value)
+  if (day.isSame(dayjs(), 'day')) return 'Today'
+  if (day.isSame(dayjs().subtract(1, 'day'), 'day')) return 'Yesterday'
+  return day.format(day.isSame(dayjs(), 'year') ? 'ddd D MMM' : 'D MMM YYYY')
+}
+
+function isHousekeepingEntry(entry: any): boolean {
+  const details = entry?.details && typeof entry.details === 'object' ? entry.details : undefined
+  return Boolean(describeAuditEvent(details).hidden)
 }
 
 function getFriendlySourceLabel(source: string, details?: Record<string, any>): string {
@@ -456,6 +489,14 @@ function buildRecentTxnMessage(entry: any): { title: string; subtitle: string; o
   const details = (entry?.details || {}) as Record<string, any>
   const actionLabel = getFriendlyActionLabel(entry?.actionType, entry?.workflowStep, details)
   const orgLabel = resolveOrgLabel(entry, details)
+  const described = describeAuditEvent(details)
+  if (described.title) {
+    return {
+      title: described.title,
+      subtitle: described.subtitle || (orgLabel ? `For ${orgLabel}` : 'Tap to see the full history.'),
+      orgLabel,
+    }
+  }
   const commerceLabel = resolveCommerceLabel(details)
   const amount = details?.amount
   const currency = typeof details?.currency === 'string' ? details.currency.toUpperCase() : ''
@@ -501,7 +542,7 @@ function buildRecentTxnMessage(entry: any): { title: string; subtitle: string; o
 
   return {
     title: actionLabel,
-    subtitle: orgLabel ? `With ${orgLabel}` : 'Open timeline for full details.',
+    subtitle: orgLabel ? `With ${orgLabel}` : 'Tap to see the full history.',
     orgLabel,
   }
 }
@@ -783,7 +824,6 @@ export default function ActivityPage() {
   const [eventsHasMore, setEventsHasMore] = useState(false)
   const [eventsCursor, setEventsCursor] = useState<string | undefined>(undefined)
   const [eventsToken, setEventsToken] = useState<string | undefined>(undefined)
-  const [recentTxns, setRecentTxns] = useState<RecentTxnRow[]>([])
   const [runningActions, setRunningActions] = useState<RunningAction[]>([])
   const [txnFilter, setTxnFilter] = useState<ActivityFeedFilter>('all')
   const [activityLens, setActivityLens] = useState<ActivityLens>('personal')
@@ -1162,60 +1202,6 @@ export default function ActivityPage() {
     }
   }, [auditHasMore, auditLoading, auditLoadingMore, auditTokenCursors, fetchAuditPageForToken, mergeAuditLogs])
 
-  const fetchRecentTxns = useCallback(async () => {
-    try {
-      const tokenCandidates = getContextAuditTokens()
-
-      if (tokenCandidates.length === 0) {
-        setRecentTxns([])
-        return
-      }
-
-      const resultSets = await Promise.all(tokenCandidates.map((token) => fetchAuditPageForToken(token, { limit: 16 })))
-      const rows = resultSets.flatMap((result) => result.items)
-
-      const deduped = Array.from(new Map(rows.map((entry) => [entry.id, entry])).values())
-        .sort((a, b) => dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf())
-        .slice(0, 12)
-
-      const mapped = deduped
-        .map((entry: any): RecentTxnRow | null => {
-          const ref = String(
-            entry?.resourceId ??
-            entry?.workflowId ??
-            entry?.details?.providerRef ??
-            entry?.details?.transactionId ??
-            entry?.id ??
-            '',
-          ).trim()
-          if (!ref) return null
-          const context = inferAuditContext(entry)
-          const friendlyMessage = buildRecentTxnMessage(entry)
-          const details = (entry?.details && typeof entry.details === 'object') ? entry.details : {}
-          return {
-            id: String(entry?.id ?? ref),
-            ref,
-            title: friendlyMessage.title,
-            subtitle: friendlyMessage.subtitle,
-            status: String(entry?.status ?? details?.status ?? details?.result ?? '').trim() || undefined,
-            stage: extractFeptStage(details as Record<string, any>, entry) || undefined,
-            eventType: String(entry?.eventType ?? entry?.actionType ?? '').trim() || undefined,
-            flow: classifyFlowType(entry?.actionType, entry?.workflowStep, entry?.resourceId, ref),
-            context,
-            scopeLabel: entry?.onBehalfOf || entry?.onBehalfOfName ? 'on-behalf' : 'personal',
-            createdAt: entry?.createdAt ?? new Date().toISOString(),
-            actorLabel: formatIdentity(entry?.actorName, entry?.actorDid),
-            orgLabel: friendlyMessage.orgLabel,
-            authToken: String(entry?._authToken || ''),
-          }
-        })
-        .filter((row): row is RecentTxnRow => !!row && typeof row.authToken === 'string' && row.authToken.length > 0)
-        .slice(0, 5)
-      setRecentTxns(mapped)
-    } catch {
-      setRecentTxns([])
-    }
-  }, [fetchAuditPageForToken, getContextAuditTokens])
 
   useEffect(() => {
     setFavoriteRefs(readFavoriteActivityRefs())
@@ -1225,11 +1211,12 @@ export default function ActivityPage() {
     setDateFilter('all')
   }, [])
 
-  const dateFilteredAuditLogs = auditLogs.filter((log) => {
+  const dateFilteredAuditLogs = useMemo(() => auditLogs.filter((log) => {
+    if (isHousekeepingEntry(log)) return false
     if (dateFilter === 'all') return true
     const cutoff = dayjs().subtract(dateFilter === '1d' ? 1 : dateFilter === '7d' ? 7 : 30, 'day')
     return dayjs(log.createdAt).isAfter(cutoff)
-  })
+  }), [auditLogs, dateFilter])
 
   const toggleFavoriteRef = useCallback((ref: string) => {
     const normalized = String(ref || '').trim()
@@ -1243,7 +1230,9 @@ export default function ActivityPage() {
     })
   }, [])
 
-  const scopedRecentTxns = recentTxns.filter((txn) => {
+  const feedRows = useMemo(() => buildActivityFeed(dateFilteredAuditLogs), [dateFilteredAuditLogs])
+
+  const scopedRecentTxns = feedRows.filter((txn) => {
     if (activityLens === 'org') return txn.scopeLabel === 'on-behalf'
     return txn.scopeLabel === 'personal'
   })
@@ -1321,10 +1310,9 @@ export default function ActivityPage() {
   useEffect(() => {
     if (taskActive) return
     fetchAuditLogs()
-    fetchRecentTxns()
     fetchDelegatedSummaries()
     setRunningActions(getRunningActions().filter((entry) => entry.status !== 'completed').slice(0, 6))
-  }, [fetchAuditLogs, fetchDelegatedSummaries, fetchRecentTxns, taskActive])
+  }, [fetchAuditLogs, fetchDelegatedSummaries, taskActive])
 
   useEffect(() => {
     const sentinel = auditLoadMoreRef.current
@@ -1678,11 +1666,6 @@ export default function ActivityPage() {
     }
   }
 
-  const formatIdentity = (name?: string, did?: string) => {
-    if (name && name.trim()) return name.trim()
-    if (did && did.trim()) return did.trim()
-    return 'Unknown actor'
-  }
 
   const formatStatus = (status?: string) => (status ? status.replace(/_/g, ' ') : 'Pending review')
 
@@ -1696,9 +1679,6 @@ export default function ActivityPage() {
     return 'gray'
   }
 
-  const onBehalfAuditLogs = dateFilteredAuditLogs.filter((entry) => Boolean(entry.onBehalfOf || entry.onBehalfOfName))
-  const personalAuditLogs = dateFilteredAuditLogs.filter((entry) => !entry.onBehalfOf && !entry.onBehalfOfName)
-  const scopedActionLogs = activityLens === 'org' ? onBehalfAuditLogs : personalAuditLogs
 
   // In your own account "View all" means your own log: who has your data, what you shared,
   // for what. The organisation feed (payments, exceptions, job history) stays behind `lens=org`
@@ -1884,23 +1864,11 @@ export default function ActivityPage() {
               </Paper>
             )}
 
-            <Paper p="md" radius="md" withBorder>
-              <Group justify="space-between" align="flex-start" mb="xs">
-                <Box>
-                  <Text size="sm" fw={600}>
-                    Running Actions
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    Reopen in-progress holder tasks across flows.
-                  </Text>
-                </Box>
-              </Group>
-              {runningActions.length === 0 ? (
-                <Text size="xs" c="dimmed">
-                  No running actions saved yet.
-                </Text>
-              ) : (
-                <Stack gap="xs" mb="md">
+            {runningActions.length > 0 && (
+              <Paper p="md" radius="md" withBorder>
+                <Text size="sm" fw={600}>Continue where you left off</Text>
+                <Text size="xs" c="dimmed" mb="xs">Things you started and have not finished.</Text>
+                <Stack gap="xs">
                   {runningActions.map((entry) => (
                     <Paper
                       key={entry.id}
@@ -1913,27 +1881,39 @@ export default function ActivityPage() {
                       <Group justify="space-between" align="flex-start" wrap="nowrap">
                         <Box style={{ minWidth: 0, flex: 1 }}>
                           <Text size="sm" fw={600} truncate>{entry.title}</Text>
-                          <Text size="xs" c="dimmed" lineClamp={1}>{entry.description || 'Resume action'}</Text>
+                          <Text size="xs" c="dimmed" lineClamp={1}>{entry.description || 'Pick up where you stopped'}</Text>
                         </Box>
                         <Text size="xs" c="dimmed">{formatTxnTime(entry.updatedAt)}</Text>
                       </Group>
                     </Paper>
                   ))}
                 </Stack>
-              )}
+              </Paper>
+            )}
 
-              <Divider mb="sm" />
-
+            <Paper p="md" radius="md" withBorder>
               <Group justify="space-between" align="flex-start" mb="xs">
                 <Box>
                   <Text size="sm" fw={600}>
-                    Recent Transactions
+                    {activityLens === 'org' ? 'Organisation activity' : 'My activity'}
                   </Text>
                   <Text size="xs" c="dimmed">
-                    Payments, invoices, and workflow updates across contexts.
+                    {activityLens === 'org'
+                      ? 'Bills, jobs, proofs and records handled for the organisation, newest first.'
+                      : 'What you did in your own account, newest first.'}
                   </Text>
                 </Box>
-                <ActionIcon variant="subtle" color="gray" size="lg" onClick={fetchRecentTxns}>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="lg"
+                  aria-label="Refresh activity"
+                  onClick={() => {
+                    void fetchAuditLogs()
+                    void fetchDelegatedSummaries()
+                  }}
+                  loading={auditLoading || delegatedLoading}
+                >
                   <IconRefresh size={16} />
                 </ActionIcon>
               </Group>
@@ -1982,21 +1962,46 @@ export default function ActivityPage() {
                   ))}
                 </Group>
               </Paper>
-              {scopedRecentTxns.length === 0 ? (
+              <Group gap={6} mb="sm" wrap="wrap">
+                {(['all', '1d', '7d', '30d'] as const).map((range) => (
+                  <Badge
+                    key={range}
+                    size="sm"
+                    variant={dateFilter === range ? 'filled' : 'outline'}
+                    color={dateFilter === range ? 'teal' : 'gray'}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setDateFilter(range)}
+                  >
+                    {range === 'all' ? 'All time' : range === '1d' ? 'Today' : range === '7d' ? '7 days' : '30 days'}
+                  </Badge>
+                ))}
+              </Group>
+              {auditLoading && feedRows.length === 0 ? (
+                <Center py="md">
+                  <Loader size="sm" />
+                </Center>
+              ) : scopedRecentTxns.length === 0 ? (
                 <Text size="xs" c="dimmed">
-                  No activity found for this context yet.
+                  {activityLens === 'org' ? 'Nothing has happened for the organisation in this period.' : 'Nothing has happened in your account in this period.'}
                 </Text>
               ) : filteredRecentTxns.length === 0 ? (
                 <Text size="xs" c="dimmed">
-                  No transactions match this filter.
+                  Nothing matches this filter.
                 </Text>
               ) : (
                 <Stack gap="xs">
-                  {filteredRecentTxns.map((txn) => {
+                  {filteredRecentTxns.map((txn, index) => {
                     const actionable = !isTerminalActivityState(txn.status, txn.stage, txn.eventType, txn.title, txn.subtitle)
+                    const day = feedDayLabel(txn.createdAt)
+                    const showDay = index === 0 || feedDayLabel(filteredRecentTxns[index - 1].createdAt) !== day
                     return (
+                    <React.Fragment key={txn.id}>
+                    {showDay && (
+                      <Text size="xs" fw={700} c="dimmed" tt="uppercase" mt={index === 0 ? 0 : 'xs'}>
+                        {day}
+                      </Text>
+                    )}
                     <Paper
-                      key={txn.id}
                       p="sm"
                       radius="md"
                       withBorder
@@ -2018,15 +2023,24 @@ export default function ActivityPage() {
                               </Badge>
                             )}
                           </Group>
-                          <Text size="sm" fw={700} truncate>
-                            {txn.title}
-                          </Text>
-                          <Text size="xs" c="dimmed" truncate>
+                          <Group gap={6} wrap="nowrap">
+                            <Text size="sm" fw={700} truncate>
+                              {txn.title}
+                            </Text>
+                            {(txn.count || 1) > 1 && (
+                              <Badge size="xs" variant="light" color="gray" style={{ flexShrink: 0 }}>
+                                ×{txn.count}
+                              </Badge>
+                            )}
+                          </Group>
+                          <Text size="xs" c="dimmed" lineClamp={2}>
                             {txn.subtitle}
                           </Text>
-                          <Text size="10px" c="dimmed" truncate ff="monospace">
-                            {txn.ref}
-                          </Text>
+                          {txn.actorLabel && !txn.actorLabel.startsWith('did:') && txn.actorLabel !== 'Unknown actor' && (
+                            <Text size="10px" c="dimmed" truncate>
+                              By {txn.actorLabel}
+                            </Text>
+                          )}
                         </Box>
                         <Stack gap={4} align="flex-end">
                           <ActionIcon
@@ -2045,183 +2059,40 @@ export default function ActivityPage() {
                           </Text>
                         </Stack>
                       </Group>
-                      <Group mt={8}>
-                        {actionable ? (
-                          <Button size="xs" variant="subtle" color="indigo" onClick={(event) => {
+                      <Group mt={8} justify="space-between">
+                        {!actionable ? (
+                          <Badge size="xs" variant="light" color="gray">Done</Badge>
+                        ) : txn.flow === 'FIELD_EXECUTION' || txn.flow === 'REQUISITION' ? (
+                          <Button size="xs" variant="light" color="indigo" onClick={(event) => {
                             event.stopPropagation()
                             launchTxnAction(txn)
                           }}>
-                            Resume
+                            {txn.flow === 'FIELD_EXECUTION' ? 'Open job' : 'Open request'}
                           </Button>
-                        ) : (
-                          <Badge size="xs" variant="light" color="gray">Done</Badge>
-                        )}
+                        ) : <span />}
+                        <Text size="xs" c="indigo">History ›</Text>
                       </Group>
                     </Paper>
+                    </React.Fragment>
                     )
                   })}
                 </Stack>
               )}
-            </Paper>
-
-            <Paper p="md" radius="md" withBorder>
-              <Group justify="space-between" align="flex-start" mb="xs">
-                <Box>
-                  <Text size="sm" fw={600}>
-                    Recent Actions
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    What changed, where it happened, and what you can do next.
-                  </Text>
-                </Box>
-                <ActionIcon
-                  variant="subtle"
-                  color="gray"
-                  size="lg"
-                  onClick={() => {
-                    void fetchAuditLogs()
-                    void fetchDelegatedSummaries()
-                  }}
-                  loading={auditLoading || delegatedLoading}
-                >
-                  <IconRefresh size={16} />
-                </ActionIcon>
-              </Group>
-
-              <Group gap={6} mb="sm" wrap="wrap">
-                <Text size="xs" c="dimmed" fw={600}>Date range:</Text>
-                {(['all', '1d', '7d', '30d'] as const).map((range) => (
-                  <Badge
-                    key={range}
-                    size="sm"
-                    variant={dateFilter === range ? 'filled' : 'outline'}
-                    color={dateFilter === range ? 'teal' : 'gray'}
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => setDateFilter(range)}
-                  >
-                    {range === 'all' ? 'All time' : range === '1d' ? 'Today' : range === '7d' ? '7 days' : '30 days'}
-                  </Badge>
-                ))}
-              </Group>
-
-              {auditLoading ? (
-                <Center py="md">
-                  <Loader size="sm" />
-                </Center>
-              ) : auditLogs.length === 0 ? (
-                <Text size="xs" c="dimmed">
-                  No recent audit events found for this tenant.
-                </Text>
-              ) : (
-                <Stack gap="sm">
-                  <Group justify="space-between" mb={6}>
-                    <Text size="xs" fw={700} tt="uppercase">
-                      {activityLens === 'org' ? 'Org Actions' : 'My Actions'}
-                    </Text>
-                    <Badge size="xs" color="gray" variant="light">
-                      {scopedActionLogs.length}
-                    </Badge>
-                  </Group>
-
-                  {scopedActionLogs.length === 0 ? (
-                    <Text size="xs" c="dimmed">
-                      {activityLens === 'org'
-                        ? 'No on-behalf-of-organization actions in the recent window.'
-                        : 'No personal-context actions in the recent window.'}
-                    </Text>
-                  ) : (
-                    <Stack gap="xs">
-                      {scopedActionLogs.map((log) => {
-                        const flow = classifyFlowType(log.actionType, log.workflowStep, log.resourceId)
-                        const actorLabel = formatActorLabel(log.actorName, log.actorDid)
-                        const onBehalf = log.onBehalfOfName || log.onBehalfOf
-                        const outcome = resolveOutcome(log)
-                        const category = resolveCategory(log)
-                        const details = (log.details || {}) as Record<string, any>
-                        const actionHash = String(details.actionHash || (log as any).actionHash || '').trim()
-                        const role = String(details.orgRole || details.approverRole || (log as any).actorRole || '').trim()
-                        const amount = details.amount
-                        const currency = typeof details.currency === 'string' ? details.currency.toUpperCase() : ''
-                        const amountText = (typeof amount === 'number' || (typeof amount === 'string' && amount.trim().length > 0))
-                          ? `${currency ? `${currency} ` : ''}${amount}` : ''
-                        return (
-                          <Paper key={log.id} p="sm" radius="md" withBorder style={{ borderLeft: '3px solid var(--mantine-color-gray-4)' }}>
-                            <Group gap={6} mb={6} wrap="wrap">
-                              <Badge size="xs" variant="light" color={CATEGORY_COLORS[category] || 'gray'}>
-                                {category}
-                              </Badge>
-                              <Badge size="xs" variant="light" color={FLOW_BADGE[flow].color}>
-                                {FLOW_BADGE[flow].label}
-                              </Badge>
-                              <Badge size="xs" variant="filled" color={outcome.color}>
-                                {outcome.label}
-                              </Badge>
-                              {activityLens === 'org' && role && (
-                                <Badge size="xs" variant="outline" color="gray">
-                                  {role}
-                                </Badge>
-                              )}
-                            </Group>
-                            <Group justify="space-between" align="flex-start" wrap="nowrap">
-                              <Box style={{ flex: 1, minWidth: 0 }}>
-                                <Text size="sm" fw={700} truncate>
-                                  {getFriendlyActionLabel(log.actionType, log.workflowStep, details as Record<string, any>)}
-                                </Text>
-                                <Text size="xs" c="dimmed" truncate mt={2}>
-                                  {activityLens === 'org' && onBehalf
-                                    ? `${actorLabel} · for ${typeof onBehalf === 'string' && onBehalf.length > 20 ? onBehalf.slice(0, 16) + '…' : onBehalf}`
-                                    : actorLabel}
-                                </Text>
-                                {amountText && (
-                                  <Text size="xs" c="teal.7" fw={600} truncate mt={2}>
-                                    {amountText}
-                                  </Text>
-                                )}
-                                {log.resourceId && (
-                                  <Text size="10px" c="dimmed" ff="monospace" truncate mt={2}>
-                                    {log.resourceId}
-                                  </Text>
-                                )}
-                                {actionHash && (
-                                  <Group gap={4} mt={4}>
-                                    <IconCheck size={10} color="green" />
-                                    <Text size="10px" ff="monospace" c="green.7" fw={700}>
-                                      Verified: {actionHash.slice(0, 12)}…
-                                    </Text>
-                                  </Group>
-                                )}
-                              </Box>
-                              <Text size="xs" c="dimmed" ta="right" style={{ whiteSpace: 'nowrap' }}>
-                                {formatTxnTime(log.createdAt)}
-                              </Text>
-                            </Group>
-                          </Paper>
-                        )
-                      })}
-                    </Stack>
-                  )}
-
-                  <Box ref={auditLoadMoreRef}>
-                    {auditLoadingMore ? (
-                      <Center py="xs">
-                        <Loader size="xs" />
-                      </Center>
-                    ) : auditHasMore ? (
-                      <Center py="xs">
-                        <Text size="xs" c="dimmed">
-                          Scroll to load more activity...
-                        </Text>
-                      </Center>
-                    ) : (
-                      <Center py="xs">
-                        <Text size="xs" c="dimmed">
-                          You are up to date.
-                        </Text>
-                      </Center>
-                    )}
-                  </Box>
-                </Stack>
-              )}
+              <Box ref={auditLoadMoreRef}>
+                {auditLoadingMore ? (
+                  <Center py="xs">
+                    <Loader size="xs" />
+                  </Center>
+                ) : auditHasMore ? (
+                  <Center py="xs">
+                    <Text size="xs" c="dimmed">Scroll for older activity…</Text>
+                  </Center>
+                ) : feedRows.length > 0 ? (
+                  <Center py="xs">
+                    <Text size="xs" c="dimmed">That is everything.</Text>
+                  </Center>
+                ) : null}
+              </Box>
             </Paper>
 
             {searchResult && (
