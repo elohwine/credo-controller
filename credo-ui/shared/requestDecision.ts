@@ -18,7 +18,7 @@ export function requestDecisionBlockText(decision: RequestDecisionView | undefin
     case 'own_request_no_other_approver':
       return 'You raised this request, so someone else has to decide it, and nobody else is chosen for this step. Add another person under Settings → Organisation → Who does what.'
     case 'no_authority':
-      return 'You are chosen for this step, but your role cannot approve requests. Ask an owner to give your role the approve permission or name you for this step.'
+      return 'You are chosen for this step, but your approval access has ended or does not cover this request. Ask an owner or admin to renew it under Settings → Organisation → Who does what.'
     case 'not_stage_actor':
       return `This request is waiting for ${actor} to decide it.`
     default:

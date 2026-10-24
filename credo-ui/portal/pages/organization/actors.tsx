@@ -87,6 +87,22 @@ type StageView = {
   default?: StageDefault
   builtInRoles: string[]
   stageChain: FallbackEntry[]
+  /** Decision steps: how each named person is allowed to approve. */
+  access?: StageApprovalAccess[]
+}
+
+/** role/grant: they can approve anyway. delegation: time-limited access given by Who does what. */
+type StageApprovalAccess = {
+  userId: string
+  via: 'role' | 'grant' | 'delegation' | 'expired' | 'none'
+  validUntil?: string
+  delegationId?: string
+}
+
+function formatAccessDate(value?: string): string {
+  if (!value) return 'further notice'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 type WorkflowView = {
@@ -481,7 +497,7 @@ export default function OrganizationActorsPage() {
     }
   }
 
-  const saveCoActors = async (workflow: WorkflowView, stage: StageView, userIds: string[]) => {
+  const saveCoActors = async (workflow: WorkflowView, stage: StageView, userIds: string[], renewAccess = false) => {
     const token = getToken()
     const current = stage.default
     if (!token || !orgTenantId || !current) return
@@ -497,11 +513,12 @@ export default function OrganizationActorsPage() {
           defaultRole: current.defaultRole,
           defaultWalletTenantId: current.defaultWalletTenantId,
           additionalUserIds: userIds,
+          ...(renewAccess ? { renewAccess: true } : {}),
         },
         { headers: { Authorization: 'Bearer ' + token } },
       )
       notifications.show({
-        title: userIds.length ? 'People saved for this step' : 'Extra people removed',
+        title: renewAccess ? 'Approval access renewed' : userIds.length ? 'People saved for this step' : 'Extra people removed',
         message: `${humanize(stage.stageAction)} · ${workflow.name || humanize(workflow.workflowType)}`,
         color: 'green',
         icon: <IconCheck size={16} />,
@@ -702,6 +719,33 @@ export default function OrganizationActorsPage() {
             disabled={!canEdit || savingStage === key}
             onChange={(next) => void saveCoActors(workflow, stage, next)}
           />
+        )}
+        {stage.default?.enabled && stage.access?.some((entry) => entry.via !== 'role' && entry.via !== 'grant') && (
+          <Box mt={6}>
+            {stage.access
+              .filter((entry) => entry.via !== 'role' && entry.via !== 'grant')
+              .map((entry) => (
+                <Text key={entry.userId} size="xs" c={entry.via === 'delegation' ? 'dimmed' : 'orange'}>
+                  {personName(members, entry.userId, meUserId)}
+                  {entry.via === 'delegation'
+                    ? ` can approve until ${formatAccessDate(entry.validUntil)}`
+                    : entry.via === 'expired'
+                      ? ` · approval access ended ${formatAccessDate(entry.validUntil)}`
+                      : ' · cannot approve yet'}
+                </Text>
+              ))}
+            {canEdit && (
+              <Button
+                mt={2}
+                size="compact-xs"
+                variant="subtle"
+                loading={savingStage === key}
+                onClick={() => void saveCoActors(workflow, stage, stage.default?.additionalUserIds ?? [], true)}
+              >
+                Renew approval access (30 days)
+              </Button>
+            )}
+          </Box>
         )}
       </Box>
     )
