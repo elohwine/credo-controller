@@ -285,14 +285,17 @@ export function listedStepsCover(stageActions: unknown, stageAction: string): bo
 export interface ActorProofScope {
   orgTenantId?: string
   stageAction: string
-  namedUserId?: string
+  /** The person, or everyone, the organisation lets do this step on this job. */
+  namedUserId?: string | string[]
 }
 
-/** The card covers the step when it lists it, or when the job names its holder for the step. */
-export function cardCoversStep(subject: Record<string, any>, stage: string, namedUserId?: string): boolean {
+/** The card covers the step when it lists it, or when its holder may do this step on this job. */
+export function cardCoversStep(subject: Record<string, any>, stage: string, namedUserId?: string | string[]): boolean {
   if (listedStepsCover(subject?.stageActions, stage)) return true
-  const named = String(namedUserId || '').trim()
-  return Boolean(named) && String(subject?.userId || '').trim() === named
+  const holder = String(subject?.userId || '').trim()
+  if (!holder) return false
+  const allowed = (Array.isArray(namedUserId) ? namedUserId : [namedUserId]).map((id) => String(id || '').trim())
+  return allowed.includes(holder)
 }
 
 /**

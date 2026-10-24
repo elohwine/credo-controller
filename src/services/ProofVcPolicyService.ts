@@ -270,6 +270,18 @@ function orgHasActiveDelegation(orgTenantId: string): boolean {
   }
 }
 
+/** Every workflow the organisation could be running this step for (built-in and configured). */
+export function workflowTypesForStageAction(orgTenantId: string, stageAction: string): string[] {
+  const stage = normalizeStage(stageAction)
+  if (!stage) return []
+  const types = new Set<string>()
+  for (const [actionKey, mapped] of Object.entries(ACTION_STAGE_MAP) as Array<[ProofVcActionKey, string]>) {
+    if (mapped === stage) resolveActionWorkflowCandidates(actionKey).forEach((type) => types.add(type))
+  }
+  if (orgTenantId) configuredWorkflowTypesForStage(orgTenantId, stage).forEach((type) => types.add(type))
+  return Array.from(types)
+}
+
 /** Stage action key (as used by actor defaults / actor credentials) for a proof action. */
 export function stageActionForProofAction(actionKey: ProofVcActionKey): string {
   return ACTION_STAGE_MAP[actionKey]

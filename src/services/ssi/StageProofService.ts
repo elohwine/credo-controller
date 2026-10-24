@@ -45,10 +45,12 @@ import {
   presentedHolderDid,
   type ActorCredentialProofEvaluation,
 } from '../ActorCredentialProofService'
+import { orgWorkflowActorService } from '../OrgWorkflowActorService'
 import {
   buildVcTypeArrayFilter,
   resolveAcceptedProofVcTypes,
   stageActionForProofAction,
+  workflowTypesForStageAction,
   type ProofVcActionKey,
 } from '../ProofVcPolicyService'
 
@@ -300,7 +302,7 @@ export class StageProofService {
             acceptedVcTypes,
             orgTenantId: params.orgTenantId,
             stageAction,
-            namedUserId: this.namedPersonOnRun(params.reference, stageAction),
+            namedUserId: this.stageActorIds(params.reference, stageAction, params.orgTenantId),
           })
         : undefined
     if (!dcqlQuery && proofMode === 'sd_bound' && flowPolicy.requiresSelectiveDisclosure) {
@@ -725,7 +727,7 @@ export class StageProofService {
   presentableCandidates(
     candidates: DcqlWalletCandidate[],
     stageAction = '',
-    namedUserId?: string,
+    namedUserId?: string | string[],
   ): { kept: DcqlWalletCandidate[]; dropped: { stage: number; expired: number; revoked: number; inactive: number } } {
     const dropped = { stage: 0, expired: 0, revoked: 0, inactive: 0 }
     const kept = candidates.filter((candidate) => {
@@ -749,22 +751,77 @@ export class StageProofService {
       .toLowerCase()
     if (!id || !stage) return undefined
     const run = workflowRunRepository.findRunById(id)
-    const input = (run?.input && typeof run.input === 'object' ? run.input : {}) as Record<string, unknown>
-    const pick = (value: unknown) => {
-      const raw = String(value || '').trim()
-      return raw && raw !== 'owner' && raw !== 'unassigned' && raw !== 'stage-actor' ? raw : undefined
+    const input = (run?.input && typeof run.input === 'object' ? run.input : {}) as Record<string, any>
+    // People chosen while the job runs (phone on the job, reassignment) live in its state, not
+    // in the original request; the state wins, the same as job access does.
+    const state = (run?.output && typeof run.output === 'object' ? run.output : {}) as Record<string, any>
+    const saved = (state.jobActors && typeof state.jobActors === 'object' ? state.jobActors : {}) as Record<string, any>
+    const pick = (...values: unknown[]) => {
+      for (const value of values) {
+        const raw = String(value || '').trim()
+        if (raw && raw !== 'owner' && raw !== 'unassigned' && raw !== 'stage-actor') return raw
+      }
+      return undefined
     }
-    if (stage === 'acknowledge_execution') return pick(input.receiverId)
+    if (stage === 'acknowledge_execution') return pick(saved.receiverId, input.receiverId)
+    if (stage === 'trigger_payout') return pick(saved.payoutUserId, input.payoutUserId)
     if (['assign_field_worker', 'start_job', 'confirm_arrival', 'capture_evidence', 'assess_risk'].includes(stage)) {
-      return pick(input.assigneeUserId) || pick(input.assigneeId)
+      return pick(state.assignment?.assigneeId, saved.assigneeId, input.assigneeUserId, input.assigneeId)
     }
     return undefined
+  }
+
+  /**
+   * Everyone the organisation lets do this step on this job, by the same rule that decides
+   * whether they may finish it (`mayAct`): the person the job names, the person chosen for the
+   * step, holders of the step's role, and owners/admins standing in. Their staff card does not
+   * have to list the step; being allowed to do it is what counts. Without this, an owner or a
+   * chosen approver passes the permission check but finds "no card for this step".
+   */
+  stageActorIds(reference: unknown, stageAction: string, orgTenantId?: string): string[] {
+    const stage = String(stageAction || '')
+      .trim()
+      .toLowerCase()
+    if (!stage) return []
+    const id = String(reference || '').trim()
+    const named = this.namedPersonOnRun(id, stage)
+    const out = new Set<string>(named ? [named] : [])
+    const run = id ? workflowRunRepository.findRunById(id) : undefined
+    const org = String(run?.tenantId || orgTenantId || '').trim()
+    if (!org) return [...out]
+    const workflowTypes = /fept|field[-_]execution/i.test(String(run?.workflowId || ''))
+      ? ['field_execution_fept']
+      : workflowTypesForStageAction(org, stage)
+    if (workflowTypes.length === 0) return [...out]
+    try {
+      for (const member of orgWorkflowActorService.listOrgMembers(org)) {
+        const userId = String(member.userId || '').trim()
+        if (!userId || out.has(userId)) continue
+        const allowed = workflowTypes.some((workflowType) => {
+          try {
+            return orgWorkflowActorService.mayAct({
+              orgTenantId: org,
+              workflowType,
+              stageAction: stage,
+              userId,
+              namedUserId: named,
+            }).allowed
+          } catch {
+            return false
+          }
+        })
+        if (allowed) out.add(userId)
+      }
+    } catch (error: any) {
+      console.warn('[StageProofService] could not list who may do this step:', error?.message)
+    }
+    return [...out]
   }
 
   private candidateBlockReason(
     candidate: DcqlWalletCandidate,
     stageAction: string,
-    namedUserId?: string,
+    namedUserId?: string | string[],
   ): 'stage' | 'expired' | 'revoked' | 'inactive' | null {
     const details = { ...candidate.withheld, ...candidate.disclosed }
     const payload = candidate.record?.firstCredential?.payload || candidate.record?.credential || {}
@@ -817,7 +874,12 @@ export class StageProofService {
    */
   selectDcqlCredentials(
     candidates: DcqlWalletCandidate[],
-    options: { preferIds?: Set<string>; orgTenantId?: string; stageAction?: string; namedUserId?: string } = {},
+    options: {
+      preferIds?: Set<string>
+      orgTenantId?: string
+      stageAction?: string
+      namedUserId?: string | string[]
+    } = {},
   ): Record<string, any[]> {
     const presentable = this.presentableCandidates(candidates, options.stageAction || '', options.namedUserId).kept
     const wanted = String(options.orgTenantId || '').trim()
@@ -951,8 +1013,8 @@ export class StageProofService {
     orgTenantId?: string
     /** Step this share must cover. Cards for other steps are not offered. */
     stageAction?: string
-    /** Person the job names for the step; their card need not list it. */
-    namedUserId?: string
+    /** Everyone allowed to do the step on this job; their card need not list it. */
+    namedUserId?: string | string[]
     /** Job this share is for, so the person's activity log names it. */
     workflowRunId?: string
     /** Request reference (purchase request id) when the step is not on a job run. */
@@ -1164,7 +1226,7 @@ export class StageProofService {
     const actorProof = evaluateOrgEvidenceProof(verificationResult, {
       orgTenantId: params.orgTenantId,
       stageAction,
-      namedUserId: this.namedPersonOnRun(params.workflowRunId, stageAction),
+      namedUserId: this.stageActorIds(params.workflowRunId, stageAction, params.orgTenantId),
     })
     if (actorProof.present && !actorProof.valid) {
       refuse(

@@ -188,7 +188,7 @@ export function buildStageProofDcqlQuery(params: {
   acceptedVcTypes: string[]
   orgTenantId?: string
   stageAction?: string
-  namedUserId?: string
+  namedUserId?: string | string[]
 }): any | undefined {
   const acceptedVcTypes = [...new Set(params.acceptedVcTypes.filter(Boolean))]
   const flowPolicy = proofPolicyForFlow('workflow_stage')
@@ -198,7 +198,17 @@ export function buildStageProofDcqlQuery(params: {
   const stageAction = String(params.stageAction || '')
     .trim()
     .toLowerCase()
-  const namedUserId = stageAction ? String(params.namedUserId || '').trim() : ''
+  // Everyone the organisation lets do this step on this job: the person the job names, the chosen
+  // person, holders of the step's role, and owners/admins standing in.
+  const namedUserIds = stageAction
+    ? [
+        ...new Set(
+          (Array.isArray(params.namedUserId) ? params.namedUserId : [params.namedUserId])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean),
+        ),
+      ]
+    : []
 
   const claims: any[] = [
     {
@@ -212,7 +222,7 @@ export function buildStageProofDcqlQuery(params: {
     stageAction
       ? { id: 'steps', path: [STAFF_CARD_CLAIM_PATHS.steps, null], values: [stageAction] }
       : { id: 'steps', path: [STAFF_CARD_CLAIM_PATHS.steps] },
-    ...(namedUserId ? [{ id: 'person', path: [STAFF_CARD_CLAIM_PATHS.person], values: [namedUserId] }] : []),
+    ...(namedUserIds.length ? [{ id: 'person', path: [STAFF_CARD_CLAIM_PATHS.person], values: namedUserIds }] : []),
   ]
 
   return {
@@ -228,7 +238,7 @@ export function buildStageProofDcqlQuery(params: {
           ['org', 'status', 'steps'],
           ['org', 'role', 'steps', 'flow'],
           ['org', 'role', 'steps'],
-          ...(namedUserId ? [['org', 'status', 'person']] : []),
+          ...(namedUserIds.length ? [['org', 'status', 'person']] : []),
           // No single step to name (AP transactions): an active staff card of this org answers,
           // and the transaction itself is what the wallet signs.
           ...(stageAction ? [] : [['org', 'status']]),

@@ -1406,7 +1406,7 @@ export class WalletController extends Controller {
           const presentable = stageProofService.presentableCandidates(
             candidates,
             stageAction,
-            stageProofService.namedPersonOnRun(body?.workflowRunId, stageAction),
+            stageProofService.stageActorIds(body?.workflowRunId, stageAction, requestedOrgTenantId),
           )
           const seen = new Set<string>()
           const matched: any[] = []
@@ -1575,7 +1575,7 @@ export class WalletController extends Controller {
             preferIds: selectedIds,
             orgTenantId: requestedOrgTenantId,
             stageAction,
-            namedUserId: stageProofService.namedPersonOnRun(body?.workflowRunId, stageAction),
+            namedUserId: stageProofService.stageActorIds(body?.workflowRunId, stageAction, requestedOrgTenantId),
           })
           if (Object.keys(dcqlCredentials).length === 0) {
             this.setStatus(400)
