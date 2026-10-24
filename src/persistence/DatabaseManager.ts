@@ -182,6 +182,7 @@ export class DatabaseManager {
       { version: 133, file: '133_org_public_offerings.sql', name: 'org_public_offerings' },
       { version: 134, file: '134_inbox_read_state.sql', name: 'inbox_read_state' },
       { version: 135, file: '135_member_invites.sql', name: 'member_invites' },
+      { version: 136, file: '136_org_brand.sql', name: 'org_brand' },
     ]
 
     for (const migration of migrationFiles) {
