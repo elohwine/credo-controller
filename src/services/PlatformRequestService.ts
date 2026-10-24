@@ -239,21 +239,6 @@ export interface CreatePlatformRequestInput {
 /** Why a member cannot decide a request that is waiting for a decision. */
 export type RequestDecisionBlock = 'own_request' | 'own_request_no_other_approver' | 'not_stage_actor' | 'no_authority'
 
-/**
- * The organisation naming someone for a decision step is their authority to take it, even when
- * their role carries no approval permission. Separation of duties and explicit grant limits
- * (a denial other than "no matching authority") still stand.
- */
-function namedActorMayDecide(
-  result: { decision: string; reasonCode?: string },
-  named: boolean,
-  separationOfDuties: string[],
-  personId: string,
-): boolean {
-  if (result.decision === 'allow') return true
-  return named && result.reasonCode === 'no_matching_authority' && !separationOfDuties.includes(personId)
-}
-
 export class PlatformRequestService {
   public resolvePrincipal(tenantId: string, subjectRef: string) {
     const db = DatabaseManager.getDatabase()
@@ -519,6 +504,9 @@ export class PlatformRequestService {
         toStatus,
         current.requesterPersonId,
       )
+      // Step-limited authority (Who does what access, area grants) matches on the workflow and step.
+      const stage = requestExperienceDefinition(tenantId, current.requestType || 'general')
+      const deciding = ['in_review', 'approved', 'rejected'].includes(toStatus)
       const decision = authorizationService.decide({
         tenantId,
         personId: actorPersonId,
@@ -531,39 +519,12 @@ export class PlatformRequestService {
         departmentId: current.departmentId,
         projectRef: typeof context.projectRef === 'string' ? context.projectRef : undefined,
         costCentreRef: typeof context.costCentreRef === 'string' ? context.costCentreRef : undefined,
+        workflowType: stage.workflowType,
+        stageAction: deciding ? stage.definition.reviewAction : stage.definition.fulfilmentAction,
         separationOfDutiesPersonIds: separationOfDuties,
       })
-
-      const deciding = ['in_review', 'approved', 'rejected'].includes(toStatus)
-      const actorRef = deciding
-        ? actorSubjectRef ||
-          (db
-            .prepare('SELECT subject_ref AS subjectRef FROM people WHERE id = ? AND organization_id = ?')
-            .get(actorPersonId, current.organizationId) as { subjectRef?: string } | undefined)?.subjectRef
-        : undefined
-      const stage = actorRef ? requestExperienceDefinition(tenantId, current.requestType || 'general') : undefined
-      const namedForStage = Boolean(
-        actorRef &&
-          stage &&
-          orgWorkflowActorService.isNamedActor({
-            orgTenantId: tenantId,
-            workflowType: stage.workflowType,
-            stageAction: stage.definition.reviewAction,
-            userId: actorRef,
-          }),
-      )
-      if (!namedActorMayDecide(decision, namedForStage, separationOfDuties, actorPersonId)) {
-        throw new StatusException(`Insufficient authority: ${decision.reasonCode}`, 403)
-      }
       if (decision.decision !== 'allow') {
-        this.recordDecisionEvent(
-          current.organizationId,
-          actorPersonId,
-          requestId,
-          permission || `request.transition.${toStatus}`,
-          'allow',
-          'named_stage_actor',
-        )
+        throw new StatusException(`Insufficient authority: ${decision.reasonCode}`, 403)
       }
     }
 
@@ -810,14 +771,6 @@ export class PlatformRequestService {
     )
     const authorizedActor = assigned || delegated
     const requester = Boolean(request.requester_person_id && request.requester_person_id === personId)
-    const named =
-      activeDecisionStage &&
-      orgWorkflowActorService.isNamedActor({
-        orgTenantId: tenantId,
-        workflowType: definition.workflowType,
-        stageAction: definition.definition.reviewAction,
-        userId: subjectRef,
-      })
     const context = this.parseContext(request.context_json)
     const decisionResult = (action: 'request.approve' | 'request.reject') => {
       const separationOfDuties = this.getSeparationOfDuties('in_review', action === 'request.approve' ? 'approved' : 'rejected', request.requester_person_id || '')
@@ -833,10 +786,12 @@ export class PlatformRequestService {
         departmentId: request.department_id || undefined,
         projectRef: typeof context.projectRef === 'string' ? context.projectRef : undefined,
         costCentreRef: typeof context.costCentreRef === 'string' ? context.costCentreRef : undefined,
+        workflowType: definition.workflowType,
+        stageAction: definition.definition.reviewAction,
         separationOfDutiesPersonIds: separationOfDuties,
         skipAudit: true,
       })
-      return namedActorMayDecide(result, named, separationOfDuties, personId)
+      return result.decision === 'allow'
     }
     const canDecide = (action: 'request.approve' | 'request.reject') =>
       activeDecisionStage && authorizedActor && !requester ? decisionResult(action) : false

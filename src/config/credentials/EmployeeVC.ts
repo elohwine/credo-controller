@@ -26,6 +26,23 @@ export function employeeOrgAccessForRole(role: string | null | undefined): Emplo
   return EMPLOYEE_ORG_ACCESS_ROLES.has(String(role || '').trim().toLowerCase()) ? 'manage' : 'tasks'
 }
 
+/**
+ * Request permissions an owner or admin card states. Their authority comes from the live role;
+ * the claim lets a verifier see it. Other members get approval access per step from Who does what
+ * (a DelegationCredential), so their card carries none.
+ */
+export const MANAGER_CARD_PERMISSIONS = [
+  'request.review',
+  'request.approve',
+  'request.reject',
+  'request.fulfil',
+  'request.complete',
+]
+
+export function employeePermissionsForRole(role: string | null | undefined): string[] | undefined {
+  return employeeOrgAccessForRole(role) === 'manage' ? [...MANAGER_CARD_PERMISSIONS] : undefined
+}
+
 export interface EmployeeCredentialClaims {
   orgTenantId: string
   orgName: string
@@ -52,6 +69,8 @@ export interface EmployeeCredentialClaims {
    * the claim is what a verifier (and the organisation-entry proof) sees. Absent on older cards.
    */
   orgAccess?: EmployeeOrgAccess
+  /** Owners and admins: the request permissions their role carries. Absent for other members. */
+  permissions?: string[]
   issuedAt: string
   platformName: string
   fingerprint: string
@@ -76,6 +95,7 @@ export const EMPLOYEE_JSON_SCHEMA = {
         source: { type: 'string' },
         stageActions: { type: 'array', items: { type: 'string' } },
         orgAccess: { type: 'string', enum: ['manage', 'tasks'] },
+        permissions: { type: 'array', items: { type: 'string' } },
         issuedAt: { type: 'string', format: 'date-time' },
         platformName: { type: 'string' },
         fingerprint: { type: 'string' },

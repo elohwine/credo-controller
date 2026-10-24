@@ -1813,6 +1813,17 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "StageApprovalAccess": {
+        "dataType": "refObject",
+        "properties": {
+            "userId": {"dataType":"string","required":true},
+            "via": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["role"]},{"dataType":"enum","enums":["grant"]},{"dataType":"enum","enums":["delegation"]},{"dataType":"enum","enums":["expired"]},{"dataType":"enum","enums":["none"]}],"required":true},
+            "validUntil": {"dataType":"string"},
+            "delegationId": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "StageActorCredentialView": {
         "dataType": "refObject",
         "properties": {
@@ -1837,6 +1848,7 @@ const models: TsoaRoute.Models = {
             "moneyStep": {"dataType":"boolean","required":true},
             "askedOnFirstUse": {"dataType":"boolean","required":true},
             "default": {"ref":"WorkflowActorDefaultRecord"},
+            "access": {"dataType":"array","array":{"dataType":"refObject","ref":"StageApprovalAccess"}},
             "builtInRoles": {"dataType":"array","array":{"dataType":"string"},"required":true},
             "stageChain": {"dataType":"array","array":{"dataType":"refObject","ref":"ActorFallbackEntry"},"required":true},
             "credential": {"ref":"StageActorCredentialView","required":true},
@@ -1902,6 +1914,10 @@ const models: TsoaRoute.Models = {
             "defaultWalletTenantId": {"dataType":"string"},
             "additionalUserIds": {"dataType":"array","array":{"dataType":"string"}},
             "enabled": {"dataType":"boolean"},
+            "renewAccess": {"dataType":"boolean"},
+            "accessDays": {"dataType":"double"},
+            "accessMaxAmount": {"dataType":"double"},
+            "accessCurrency": {"dataType":"string"},
         },
         "additionalProperties": false,
     },

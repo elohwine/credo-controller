@@ -10,6 +10,9 @@
  *   - "Switch org" means operating as that org's tenant agent
  */
 
+import { APPROVAL_PERMISSIONS, scopeForApprovalArea } from '../config/authorityAreas'
+import { REQUEST_FAMILIES } from '../config/requestExperience'
+import { authorizationService } from './AuthorizationService'
 import type { SectorType, WorkflowTemplateDefinition } from '../types/WorkflowTemplate'
 
 import { Agent, W3cCredentialService } from '@credo-ts/core'
@@ -262,6 +265,8 @@ export interface WorkflowStageActorView {
   askedOnFirstUse: boolean
   /** Saved stage default, if any (alias-aware). */
   default?: WorkflowActorDefaultRecord
+  /** Decision steps only: how each named person is allowed to approve. */
+  access?: StageApprovalAccess[]
   /** Platform role order tried when no default / org chain matches. */
   builtInRoles: string[]
   /** Org-defined chain for this stage, if any. */
@@ -271,6 +276,14 @@ export interface WorkflowStageActorView {
    * stage's OIDC4VP presentation accepts. `not_applicable` when nobody is configured.
    */
   credential: StageActorCredentialView
+}
+
+export interface StageApprovalAccess {
+  userId: string
+  /** role: their role approves; grant: an Approvals-page area; delegation: time-limited access from Who does what. */
+  via: 'role' | 'grant' | 'delegation' | 'expired' | 'none'
+  validUntil?: string
+  delegationId?: string
 }
 
 export interface StageActorCredentialView {
@@ -312,6 +325,13 @@ export interface WorkflowActorDefaultInput {
   additionalUserIds?: string[]
   /** `false` removes the stage default so the fallback policy applies again. */
   enabled?: boolean
+  /** Give everyone named a fresh approval-access period, even if their current one has not ended. */
+  renewAccess?: boolean
+  /** Length of the approval access given to named people whose role cannot approve. Default 30. */
+  accessDays?: number
+  /** Optional cap on the amount they may approve with that access. */
+  accessMaxAmount?: number
+  accessCurrency?: string
 }
 
 export interface AssignUnassignedStagesInput {
@@ -1348,6 +1368,7 @@ export class OrganizationService {
       domain: input.domain,
       thresholdAmount: input.thresholdAmount,
       currency: input.currency,
+      ...scopeForApprovalArea(input),
     })
 
     db.prepare(
@@ -1530,6 +1551,8 @@ export class OrganizationService {
       currency?: string
       validFrom: string
       validUntil?: string
+      /** Limits the delegation to one Who does what step. */
+      stageAssignment?: { workflowTypes: string[]; workflowType: string; stageAction: string; stageTitle?: string }
     },
   ): DelegationRecord {
     this.assertOrgAdmin(createdBy, orgTenantId)
@@ -1541,7 +1564,20 @@ export class OrganizationService {
     const delegatorPersonId = this.getOrCreatePersonIdForUser(org.id, input.delegatorUserId)
     const delegatePersonId = this.getOrCreatePersonIdForUser(org.id, input.delegateUserId)
     const permissions = Array.from(new Set((input.permissions || []).map((value) => value.trim()).filter(Boolean)))
-    const scope = JSON.stringify({ permissions, maxAmount: input.maxAmount, currency: input.currency })
+    const stage = input.stageAssignment
+    const scope = JSON.stringify({
+      permissions,
+      maxAmount: input.maxAmount,
+      currency: input.currency,
+      ...(stage
+        ? {
+            resourceTypes: ['request'],
+            workflowTypes: stage.workflowTypes,
+            stageActions: [stage.stageAction],
+            stageAssignment: { workflowType: stage.workflowType, stageAction: stage.stageAction },
+          }
+        : {}),
+    })
 
     db.prepare(
       `
@@ -1564,6 +1600,9 @@ export class OrganizationService {
           currency: input.currency,
           validFrom: input.validFrom,
           validUntil: input.validUntil,
+          workflowType: stage?.workflowType,
+          stageAction: stage?.stageAction,
+          stageTitle: stage?.stageTitle,
         })
       })
       .catch(() => undefined)
@@ -2144,6 +2183,12 @@ export class OrganizationService {
             builtInRoles: roleFallbackFor(workflow.workflowType, stageAction),
             stageChain: policy.stageChains[stageAction] || [],
             credential: this.describeStageActorCredential(orgTenantId, workflow.workflowType, actor, needsAssignment),
+            access: unnamedRole || !saved
+              ? undefined
+              : this.stageApprovalAccess(orgTenantId, workflow.workflowType, stageAction, [
+                  saved.defaultUserId,
+                  ...saved.additionalUserIds,
+                ]),
           }
         })
 
@@ -2241,6 +2286,153 @@ export class OrganizationService {
     }
   }
 
+  /** Steps where someone approves or rejects a request (as opposed to doing the work). */
+  private static isDecisionStage(stageAction: string): boolean {
+    const stage = stageAction.toLowerCase()
+    return REQUEST_FAMILIES.some((family) => family.experience.reviewAction === stage)
+  }
+
+  /** Active (or lapsed) approval-access delegations created for one Who does what step. */
+  private stageAccessDelegations(
+    organizationId: string,
+    workflowType: string,
+    stageAction: string,
+  ): Array<{ id: string; delegateUserId: string; validUntil?: string }> {
+    const types = new Set(getWorkflowTypeCandidates(workflowType).map((type) => type.toLowerCase()))
+    const rows = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT d.id, d.scope_json AS scopeJson, d.valid_until AS validUntil, p.subject_ref AS delegateUserId
+         FROM delegations d JOIN people p ON p.id = d.delegate_person_id
+         WHERE d.organization_id = ? AND d.status = 'active'
+         ORDER BY d.created_at DESC`,
+      )
+      .all(organizationId) as Array<{ id: string; scopeJson: string; validUntil?: string; delegateUserId?: string }>
+    return rows.flatMap((row) => {
+      let assignment: { workflowType?: string; stageAction?: string } | undefined
+      try {
+        assignment = JSON.parse(row.scopeJson || '{}')?.stageAssignment
+      } catch {
+        assignment = undefined
+      }
+      if (!assignment || !row.delegateUserId) return []
+      if (String(assignment.stageAction || '').toLowerCase() !== stageAction.toLowerCase()) return []
+      if (!types.has(String(assignment.workflowType || '').toLowerCase())) return []
+      return [{ id: row.id, delegateUserId: row.delegateUserId, validUntil: row.validUntil || undefined }]
+    })
+  }
+
+  /** Whether the person can approve this step without Who does what access (role or area grant). */
+  private ownApprovalAuthority(
+    orgTenantId: string,
+    organizationId: string,
+    memberUserId: string,
+    workflowType: string,
+    stageAction: string,
+  ): 'role' | 'grant' | undefined {
+    const personId = this.getOrCreatePersonIdForUser(organizationId, memberUserId)
+    const result = authorizationService.decide({
+      tenantId: orgTenantId,
+      personId,
+      action: 'request.approve',
+      requiredPermission: 'request.approve',
+      resourceType: 'request',
+      workflowType,
+      stageAction,
+      skipAudit: true,
+    })
+    if (result.decision !== 'allow') return undefined
+    if (result.reasonCode === 'org_role_permission_match') return 'role'
+    if (result.reasonCode === 'authority_scope_match') return 'grant'
+    return undefined
+  }
+
+  private stageApprovalAccess(
+    orgTenantId: string,
+    workflowType: string,
+    stageAction: string,
+    userIds: Array<string | undefined>,
+  ): StageApprovalAccess[] | undefined {
+    if (!OrganizationService.isDecisionStage(stageAction)) return undefined
+    const named = Array.from(new Set(userIds.filter((id): id is string => !!id)))
+    if (named.length === 0) return undefined
+    const org = this.ensurePlatformOrganizationRecord(orgTenantId, getTenantById(orgTenantId)?.label)
+    const delegations = this.stageAccessDelegations(org.id, workflowType, stageAction)
+    const now = Date.now()
+    return named.map((memberUserId) => {
+      const own = this.ownApprovalAuthority(orgTenantId, org.id, memberUserId, workflowType, stageAction)
+      if (own) return { userId: memberUserId, via: own }
+      const delegation = delegations.find((row) => row.delegateUserId === memberUserId)
+      if (!delegation) return { userId: memberUserId, via: 'none' }
+      const lapsed = Boolean(delegation.validUntil && Date.parse(delegation.validUntil) < now)
+      return {
+        userId: memberUserId,
+        via: lapsed ? 'expired' : 'delegation',
+        validUntil: delegation.validUntil,
+        delegationId: delegation.id,
+      }
+    })
+  }
+
+  /**
+   * Being named for a decision step routes the card; approving needs authority. People whose role
+   * cannot approve get time-limited approval access for just this step, delegated by the admin who
+   * named them and offered as a DelegationCredential. Removing someone from the step ends it.
+   */
+  private syncStageApprovalAccess(
+    adminUserId: string,
+    orgTenantId: string,
+    workflowType: string,
+    stageAction: string,
+    namedUserIds: string[],
+    input: Pick<WorkflowActorDefaultInput, 'renewAccess' | 'accessDays' | 'accessMaxAmount' | 'accessCurrency'>,
+  ): void {
+    if (!OrganizationService.isDecisionStage(stageAction)) return
+    const org = this.ensurePlatformOrganizationRecord(orgTenantId, getTenantById(orgTenantId)?.label)
+    const existing = this.stageAccessDelegations(org.id, workflowType, stageAction)
+    const named = new Set(namedUserIds)
+    for (const row of existing) {
+      if (!named.has(row.delegateUserId)) this.revokeDelegation(orgTenantId, row.id, adminUserId)
+    }
+
+    const days = Math.min(Math.max(Math.round(Number(input.accessDays) || 30), 1), 365)
+    const maxAmount =
+      typeof input.accessMaxAmount === 'number' && input.accessMaxAmount > 0 ? input.accessMaxAmount : undefined
+    const now = Date.now()
+    const stageTitle = this.stageTitleFor(workflowType, stageAction)
+    for (const memberUserId of named) {
+      if (memberUserId === adminUserId) continue
+      if (this.ownApprovalAuthority(orgTenantId, org.id, memberUserId, workflowType, stageAction)) continue
+      const current = existing.filter((row) => row.delegateUserId === memberUserId)
+      const stillValid = current.some((row) => !row.validUntil || Date.parse(row.validUntil) >= now)
+      if (stillValid && !input.renewAccess) continue
+      for (const row of current) this.revokeDelegation(orgTenantId, row.id, adminUserId)
+      this.createDelegation(orgTenantId, adminUserId, {
+        delegatorUserId: adminUserId,
+        delegateUserId: memberUserId,
+        permissions: APPROVAL_PERMISSIONS,
+        maxAmount,
+        currency: maxAmount ? String(input.accessCurrency || 'USD').toUpperCase() : undefined,
+        validFrom: new Date(now).toISOString(),
+        validUntil: new Date(now + days * 24 * 60 * 60 * 1000).toISOString(),
+        stageAssignment: {
+          workflowTypes: getWorkflowTypeCandidates(workflowType),
+          workflowType,
+          stageAction: stageAction.toLowerCase(),
+          stageTitle,
+        },
+      })
+    }
+  }
+
+  private stageTitleFor(workflowType: string, stageAction: string): string | undefined {
+    try {
+      const prerequisites = getDeclaredPrerequisites({ id: workflowType, workflowType }, [workflowType])
+      return prerequisites.find((item) => String(item.stageAction || '').toLowerCase() === stageAction.toLowerCase())?.title
+    } catch {
+      return undefined
+    }
+  }
+
   private assertCanConfigureActors(userId: string, orgTenantId: string): void {
     const role = this.getUserOrgRole(userId, orgTenantId)
     if (!role) {
@@ -2285,6 +2477,7 @@ export class OrganizationService {
 
     if (input.enabled === false) {
       const cleared = orgWorkflowActorService.deleteDefault(orgTenantId, workflowType, stageAction)
+      this.syncStageApprovalAccess(userId, orgTenantId, workflowType, stageAction, [], input)
       refreshNamedCards([])
       return {
         cleared,
@@ -2334,7 +2527,9 @@ export class OrganizationService {
       additionalUserIds,
       enabled: true,
     })
-    refreshNamedCards([saved.defaultUserId, ...saved.additionalUserIds].filter((id): id is string => !!id))
+    const named = [saved.defaultUserId, ...saved.additionalUserIds].filter((id): id is string => !!id)
+    this.syncStageApprovalAccess(userId, orgTenantId, workflowType, stageAction, named, input)
+    refreshNamedCards(named)
     const actor = orgWorkflowActorService.resolveActor({ orgTenantId, workflowType, stageAction })
     // One staff card lists every step this person confirms. Refresh it (non-blocking).
     orgWorkflowActorCredentialService.ensureActorCredentialInBackground({

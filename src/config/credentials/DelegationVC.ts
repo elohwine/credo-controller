@@ -20,6 +20,10 @@ export interface DelegationCredentialClaims {
   currency?: string
   validFrom: string
   validUntil?: string
+  /** Set when the access comes from being named for a step in Who does what. */
+  workflowType?: string
+  stageAction?: string
+  stageTitle?: string
   issuedAt: string
   platformName: string
   fingerprint: string
@@ -44,6 +48,9 @@ export const DELEGATION_JSON_SCHEMA = {
         currency: { type: 'string' },
         validFrom: { type: 'string', format: 'date-time' },
         validUntil: { type: 'string', format: 'date-time' },
+        workflowType: { type: 'string' },
+        stageAction: { type: 'string' },
+        stageTitle: { type: 'string' },
         issuedAt: { type: 'string', format: 'date-time' },
         platformName: { type: 'string' },
         fingerprint: { type: 'string' },

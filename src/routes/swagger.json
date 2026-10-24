@@ -5170,6 +5170,36 @@
         "type": "object",
         "additionalProperties": false
       },
+      "StageApprovalAccess": {
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "role",
+              "grant",
+              "delegation",
+              "expired",
+              "none"
+            ],
+            "description": "role: their role approves; grant: an Approvals-page area; delegation: time-limited access from Who does what."
+          },
+          "validUntil": {
+            "type": "string"
+          },
+          "delegationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId",
+          "via"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
       "StageActorCredentialView": {
         "properties": {
           "state": {
@@ -5238,6 +5268,13 @@
           "default": {
             "$ref": "#/components/schemas/WorkflowActorDefaultRecord",
             "description": "Saved stage default, if any (alias-aware)."
+          },
+          "access": {
+            "items": {
+              "$ref": "#/components/schemas/StageApprovalAccess"
+            },
+            "type": "array",
+            "description": "Decision steps only: how each named person is allowed to approve."
           },
           "builtInRoles": {
             "items": {
@@ -5468,6 +5505,23 @@
           "enabled": {
             "type": "boolean",
             "description": "`false` removes the stage default so the fallback policy applies again."
+          },
+          "renewAccess": {
+            "type": "boolean",
+            "description": "Give everyone named a fresh approval-access period, even if their current one has not ended."
+          },
+          "accessDays": {
+            "type": "number",
+            "format": "double",
+            "description": "Length of the approval access given to named people whose role cannot approve. Default 30."
+          },
+          "accessMaxAmount": {
+            "type": "number",
+            "format": "double",
+            "description": "Optional cap on the amount they may approve with that access."
+          },
+          "accessCurrency": {
+            "type": "string"
           }
         },
         "required": [

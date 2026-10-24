@@ -20,6 +20,7 @@ import {
   EMPLOYMENT_CONTRACT_VC_TYPE,
   EmployeeCredentialClaims,
   employeeOrgAccessForRole,
+  employeePermissionsForRole,
 } from '../config/credentials/EmployeeVC'
 import { ORG_WORKFLOW_ACTOR_OFFER_SOURCE_TYPE } from '../config/credentials/OrgWorkflowActorVC'
 import { PLATFORM_IDENTITY_VC_TYPE } from '../config/credentials/PlatformIdentityVC'
@@ -369,6 +370,8 @@ export class OrgMembershipCredentialService {
       source: params.source,
       stageActions,
       orgAccess,
+      // Added without changing the fingerprint, so existing cards are not re-sent for it.
+      ...(employeePermissionsForRole(role) ? { permissions: employeePermissionsForRole(role) } : {}),
       issuedAt: new Date().toISOString(),
       platformName: process.env.PLATFORM_NAME || 'IdenEx Credentis',
       fingerprint,
@@ -583,6 +586,9 @@ export class OrgMembershipCredentialService {
     currency?: string
     validFrom: string
     validUntil?: string
+    workflowType?: string
+    stageAction?: string
+    stageTitle?: string
   }): Promise<{ outcome: MembershipOfferOutcome; reason?: string; walletTenantId?: string }> {
     const walletTenantId = resolveWallet(params.delegateUserId).walletTenantId
     if (!walletTenantId) return { outcome: 'skipped', reason: 'delegate has no wallet' }
@@ -598,6 +604,8 @@ export class OrgMembershipCredentialService {
       params.maxAmount,
       params.validFrom,
       params.validUntil,
+      params.workflowType,
+      params.stageAction,
     ])
     const claims: DelegationCredentialClaims = {
       orgTenantId: params.orgTenantId,
@@ -610,10 +618,15 @@ export class OrgMembershipCredentialService {
       currency: params.currency,
       validFrom: params.validFrom,
       validUntil: params.validUntil,
+      ...(params.stageAction
+        ? { workflowType: params.workflowType, stageAction: params.stageAction, stageTitle: params.stageTitle }
+        : {}),
       issuedAt: new Date().toISOString(),
       platformName: process.env.PLATFORM_NAME || 'IdenEx Credentis',
       fingerprint,
     }
+    const until = params.validUntil ? new Date(params.validUntil).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : undefined
+    const stepName = params.stageTitle || (params.stageAction || '').replace(/_/g, ' ')
 
     let offer: { offerId: string; offerUri: string; expiresAt?: string }
     try {
@@ -634,8 +647,10 @@ export class OrgMembershipCredentialService {
       sourceId: params.delegationId,
       credentialType: DELEGATION_VC_TYPE,
       offerUri: offer.offerUri,
-      title: `Delegation · ${orgName}`,
-      body: `You can act for ${orgName} within: ${permissions.join(', ') || 'the delegated scope'}. Accept to present it on workflow stages covered by this delegation.`,
+      title: params.stageAction ? `Approval access · ${orgName}` : `Delegation · ${orgName}`,
+      body: params.stageAction
+        ? `${orgName} named you for "${stepName}". You can approve or reject those requests${until ? ` until ${until}` : ''}${typeof params.maxAmount === 'number' ? ` up to ${params.currency || ''} ${params.maxAmount}`.replace('  ', ' ') : ''}.`
+        : `You can act for ${orgName} within: ${permissions.join(', ') || 'the delegated scope'}. Accept to present it on workflow stages covered by this delegation.`,
       metadata: { ...claims, offerId: offer.offerId, expiresAt: offer.expiresAt },
       fingerprint,
     })

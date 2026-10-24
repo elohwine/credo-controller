@@ -216,13 +216,15 @@ function activeDelegates(params: {
   const recipients: StageInboxRecipient[] = []
   for (const row of rows) {
     if (!row.walletTenantId) continue
-    let scope: { permissions?: string[]; maxAmount?: number } = {}
+    let scope: { permissions?: string[]; maxAmount?: number; stageAssignment?: unknown } = {}
     try {
       const parsed = JSON.parse(row.scopeJson || '{}')
       if (parsed && typeof parsed === 'object') scope = parsed
     } catch {
       scope = {}
     }
+    // Who does what approval access lets a named person decide; it does not cover the admin who gave it.
+    if (scope.stageAssignment) continue
     const permissions = Array.isArray(scope.permissions) ? scope.permissions.map(String) : []
     if (!delegationCoversStage(permissions, params.stageAction, params.requestType)) continue
     if (typeof scope.maxAmount === 'number' && typeof params.amount === 'number' && params.amount > scope.maxAmount) {
