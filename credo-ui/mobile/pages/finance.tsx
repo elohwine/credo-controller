@@ -5640,6 +5640,11 @@ export default function FinancePage() {
           {workflowConfigError}
           <Button variant="subtle" size="xs" onClick={() => void fetchWorkflowConfig()}>Retry</Button>
         </Alert>}
+        {['owner', 'admin'].includes(getOrgRoleClaim() || '') && (
+          <Button variant="default" leftSection={<IconWallet size={16} />} onClick={() => router.push('/proofs')}>
+            Organisation records
+          </Button>
+        )}
         {hasOperationsArea && hasMoneyArea && (
         <SegmentedControl
           fullWidth

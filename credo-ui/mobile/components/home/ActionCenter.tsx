@@ -5,11 +5,11 @@ import {
     Divider,
 } from '@mantine/core';
 import {
-    IconScan, IconActivity, IconShieldCheck,
+    IconScan, IconActivity, IconShieldCheck, IconWallet,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
 import { Text } from '@mantine/core';
-import { isEmployeeOrgRole, getActiveOrgId, getUserRole } from '@/lib/auth';
+import { isEmployeeOrgRole, getActiveOrgId, getOrgRoleClaim, getUserRole } from '@/lib/auth';
 import QRCode from 'react-qr-code';
 import RequestSheet from '@/components/shared/RequestSheet';
 
@@ -400,6 +400,12 @@ export default function ActionCenter({
                         Make a request
                     </Button>
                 </Group>
+                {/* Records issued to the organisation and kept in its name; the org tabs have no Records slot. */}
+                {isOrg && ['owner', 'admin'].includes(getOrgRoleClaim() || '') && (
+                    <Button variant="default" leftSection={<IconWallet size={18} />} onClick={() => router.push('/proofs')}>
+                        Organisation records
+                    </Button>
+                )}
                 <RequestSheet
                     opened={requestOpened}
                     onClose={() => setRequestOpened(false)}

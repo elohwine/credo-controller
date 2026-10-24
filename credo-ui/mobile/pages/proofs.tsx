@@ -16,7 +16,10 @@ import ErrorAlert from '@/components/shared/ErrorAlert';
 import type { ProofCardData } from '@/components/proofs/ProofCard';
 import CredentialCard from '@/components/shared/CredentialCard';
 import api, { safeArray } from '@/lib/api';
-import { decodeJwtPayload, getPersonalWalletTenantId, getWalletToken } from '@/lib/auth';
+import {
+  CREDENTIS_CONTEXT_CHANGED_EVENT, decodeJwtPayload, getActiveOrgLabel, getContextMode, getOrgRoleClaim, getOrgToken,
+  getPersonalWalletTenantId, getWalletToken,
+} from '@/lib/auth';
 import { credentialClaimRows, credentialIssuerLabel, formatCredentialType, formatDate } from '@/lib/format';
 import { formatTxnTime, isOpenInboxOffer } from '@/lib/inboxAttention';
 import {
@@ -123,7 +126,17 @@ function toProofCard(cred: WalletCredential): ProofCardData & { title?: string }
   };
 }
 
+/** Who runs the organisation may open the records it holds; the server applies the same rule. */
+const ORG_RECORD_ROLES = ['owner', 'admin'];
+
 export default function ProofsPage() {
+  const [orgName, setOrgName] = useState<string | null>(null);
+  const [orgRole, setOrgRole] = useState<string | null>(null);
+  const [orgCredentials, setOrgCredentials] = useState<WalletCredential[]>([]);
+  const [orgWaiting, setOrgWaiting] = useState(0);
+  const [orgLoading, setOrgLoading] = useState(false);
+  const [orgError, setOrgError] = useState<string | null>(null);
+  const orgInFlightRef = useRef(false);
   const [credentials, setCredentials] = useState<WalletCredential[]>([]);
   const [pendingOffers, setPendingOffers] = useState<PendingOffer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -138,7 +151,11 @@ export default function ProofsPage() {
   const hasShownRef = useRef(false);
   const offlineStorage = getOfflineStorageAdapter();
 
-  const rows = credentials.map((c) => ({ ...c, archived: archivedIds.has(c.id) }));
+  // An organisation sign-in shows only what the organisation holds; the person's own cards stay
+  // under their personal account, so the two never mix on one screen.
+  const viewingOrg = !!orgName;
+  const canOpenOrgRecords = ORG_RECORD_ROLES.includes(orgRole || '');
+  const rows = (viewingOrg ? orgCredentials : credentials).map((c) => ({ ...c, archived: archivedIds.has(c.id) }));
   // Replaced and withdrawn cards are filed on their own. Expired cards stay with the live ones
   // until the person archives them.
   const active = rows.filter((c) => !c.archived && !lifeOf(c).fileAway);
@@ -160,6 +177,8 @@ export default function ProofsPage() {
   const fetchWallet = useCallback(async (trigger?: unknown) => {
     const reason = typeof trigger === 'string' ? trigger : 'refresh';
     const silent = reason !== 'mount' && reason !== 'pull' && reason !== 'refresh';
+    // An organisation sign-in reads the organisation's records (fetchOrgRecords), not the person's.
+    if (getContextMode() === 'org') { setLoading(false); return; }
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     const showSpinner = !silent || !hasShownRef.current;
@@ -372,11 +391,67 @@ export default function ProofsPage() {
     }
   }, [offlineStorage]);
 
+  /**
+   * Records the organisation holds: issued to it and kept in its name by an owner or admin from the
+   * organisation inbox. Read with the organisation sign-in, never the person's.
+   */
+  const fetchOrgRecords = useCallback(async () => {
+    if (getContextMode() !== 'org' || !ORG_RECORD_ROLES.includes(getOrgRoleClaim() || '')) return;
+    const orgToken = getOrgToken();
+    const orgTenantId = orgToken ? decodeJwtPayload(orgToken)?.tenantId : null;
+    if (!orgToken || !orgTenantId) {
+      setOrgError('Open the organisation again from the account switcher to see its records.');
+      return;
+    }
+    if (orgInFlightRef.current) return;
+    orgInFlightRef.current = true;
+    setOrgLoading(true);
+    setOrgError(null);
+    const headers = { Authorization: `Bearer ${orgToken}` };
+    try {
+      const [listRes, waitingRes] = await Promise.allSettled([
+        api.get(`/api/wallet/${encodeURIComponent(orgTenantId)}/credentials/list?limit=100`, { headers, skipAuthRedirect: true as any } as any),
+        api.get('/api/wallet/credentials/pending-offers?holder=organization&status=open', { headers, skipAuthRedirect: true as any } as any),
+      ]);
+      if (listRes.status === 'fulfilled') {
+        setOrgCredentials(normalizeWalletCredentialRows(safeArray(listRes.value.data?.items ?? listRes.value.data)) as WalletCredential[]);
+      } else {
+        const reason: any = listRes.reason;
+        setOrgError(reason?.response?.data?.message ?? reason?.message ?? 'Could not load the organisation records');
+      }
+      if (waitingRes.status === 'fulfilled') {
+        const offers = safeArray(waitingRes.value.data?.offers ?? waitingRes.value.data);
+        setOrgWaiting(offers.filter((o: any) => isOpenInboxOffer(o)).length);
+      }
+    } finally {
+      orgInFlightRef.current = false;
+      setOrgLoading(false);
+    }
+  }, []);
+
+  const readOrgContext = useCallback(() => {
+    const label = getContextMode() === 'org' ? (getActiveOrgLabel() || 'Organisation') : null;
+    setOrgName(label);
+    setOrgRole(label ? getOrgRoleClaim() : null);
+    setOrgCredentials([]);
+    setOrgWaiting(0);
+    setOrgError(null);
+    setTab('active');
+    if (label) void fetchOrgRecords();
+    else void fetchWallet('refresh');
+  }, [fetchOrgRecords, fetchWallet]);
+
+  useEffect(() => {
+    readOrgContext();
+    window.addEventListener(CREDENTIS_CONTEXT_CHANGED_EVENT, readOrgContext);
+    return () => window.removeEventListener(CREDENTIS_CONTEXT_CHANGED_EVENT, readOrgContext);
+  }, [readOrgContext]);
+
   useEffect(() => {
     setArchivedIds(readArchivedCardIds());
     fetchWallet('mount');
   }, [fetchWallet]);
-  usePullRefresh(() => { void fetchWallet('pull'); });
+  usePullRefresh(() => { void fetchWallet('pull'); void fetchOrgRecords(); });
 
   // Refresh quietly when the app comes back to the front or the connection returns. No timer:
   // cards change when the person accepts one in the inbox, not on a clock.
@@ -384,6 +459,7 @@ export default function ProofsPage() {
     const onResume = (event: Event) => {
       if (document.visibilityState !== 'visible') return;
       fetchWallet(event.type);
+      void fetchOrgRecords();
     };
     window.addEventListener('focus', onResume);
     window.addEventListener('online', onResume);
@@ -393,7 +469,7 @@ export default function ProofsPage() {
       window.removeEventListener('online', onResume);
       document.removeEventListener('visibilitychange', onResume);
     };
-  }, [fetchWallet]);
+  }, [fetchWallet, fetchOrgRecords]);
 
   /** Delete the card from this device. The organisation's record of what it issued is untouched. */
   const handleRemove = async (cred: WalletCredential) => {
@@ -459,21 +535,78 @@ export default function ProofsPage() {
         <Box px="md" pt="md" pb="xs">
           <Group justify="space-between" align="center">
             <Box style={{ flex: 1 }}>
-              <Title order={1} fw={700} style={{ fontSize: 36, lineHeight: 1.05 }}>My Records</Title>
-              <Text size="sm" c="dimmed" mt={4}>Your documents, receipts and cards, sorted by kind.</Text>
+              <Title order={1} fw={700} style={{ fontSize: 36, lineHeight: 1.05 }}>{viewingOrg ? 'Organisation Records' : 'My Records'}</Title>
+              <Text size="sm" c="dimmed" mt={4}>
+                {viewingOrg
+                  ? `Records issued to ${orgName} and kept in its name, sorted by kind.`
+                  : 'Your documents, receipts and cards, sorted by kind.'}
+              </Text>
             </Box>
-            <ActionIcon variant="subtle" color="gray" size={48} aria-label="Refresh" onClick={() => void fetchWallet('refresh')} loading={loading}><IconRefresh size={18} /></ActionIcon>
+            <ActionIcon
+              variant="subtle" color="gray" size={48} aria-label="Refresh"
+              onClick={() => (viewingOrg ? void fetchOrgRecords() : void fetchWallet('refresh'))}
+              loading={viewingOrg ? orgLoading : loading}
+            ><IconRefresh size={18} /></ActionIcon>
           </Group>
         </Box>
 
+        {!(viewingOrg && !canOpenOrgRecords) && (
         <Tabs value={tab} onChange={(v) => setTab(v ?? 'active')} px="md">
           <Tabs.List grow>
             <Tabs.Tab value="active">Active {active.length > 0 ? `(${active.length})` : ''}</Tabs.Tab>
             <Tabs.Tab value="archived">Archived {archived.length > 0 ? `(${archived.length})` : ''}</Tabs.Tab>
           </Tabs.List>
         </Tabs>
+        )}
 
         <Box px="md" pt="md">
+          {viewingOrg && !canOpenOrgRecords ? (
+            <EmptyState
+              icon={<IconWallet size={28} />}
+              title="Only owners and admins open these"
+              description={`Records held in ${orgName}'s name are opened by its owner or an admin. Your own cards are under your personal account.`}
+            />
+          ) : viewingOrg ? (
+            <>
+              {orgError && <ErrorAlert message={orgError} mb="md" />}
+              {orgWaiting > 0 && (
+                <Alert color="blue" radius="sm" mb="md" title="Waiting for the organisation">
+                  <Group justify="space-between" align="center">
+                    <Text size="sm">
+                      {orgWaiting === 1
+                        ? `1 record sent to ${orgName} is waiting to be kept.`
+                        : `${orgWaiting} records sent to ${orgName} are waiting to be kept.`}
+                    </Text>
+                    <Button size="xs" variant="light" onClick={() => window.location.assign(appHref('/inbox'))}>Open Inbox</Button>
+                  </Group>
+                </Alert>
+              )}
+              {orgLoading && orgCredentials.length === 0 ? (
+                <Center py="xl"><Loader color="credentis" /></Center>
+              ) : tab === 'active' ? (
+                grouped.length === 0 ? (
+                  <EmptyState
+                    icon={<IconWallet size={28} />}
+                    title="No organisation records yet"
+                    description={`Records sent to ${orgName} appear here once an owner or admin keeps them from the organisation inbox.`}
+                  />
+                ) : (
+                  <Stack gap="xl">
+                    {grouped.map((section) => renderSection(section.title, section.rows))}
+                  </Stack>
+                )
+              ) : archived.length === 0 ? (
+                <EmptyState icon={<IconWallet size={28} />} title="No archived records" />
+              ) : (
+                <Stack gap="sm">
+                  {archived.map((cred) => (
+                    <CredentialCard key={cred.id} {...toProofCard(cred)} onClick={() => setSelected(cred)} />
+                  ))}
+                </Stack>
+              )}
+            </>
+          ) : (
+          <>
           {error && <ErrorAlert message={error} mb="md" />}
           {expiredInView > 0 && tab === 'active' && (
             <Alert color="gray" radius="sm" mb="md" title="Some cards have expired">
@@ -515,6 +648,8 @@ export default function ProofsPage() {
                 />
               ))}
             </Stack>
+          )}
+          </>
           )}
         </Box>
       </Stack>
@@ -582,14 +717,17 @@ export default function ProofsPage() {
               <RecordCheckPanel
                 presetReference={selected.issuedId || selected.id}
                 onRevoked={() => {
-                  setCredentials((prev) => prev.map((c) => c.id === selected.id ? { ...c, revoked: true } : c));
+                  const markRevoked = (prev: WalletCredential[]) => prev.map((c) => c.id === selected.id ? { ...c, revoked: true } : c);
+                  if (viewingOrg) setOrgCredentials(markRevoked); else setCredentials(markRevoked);
                   setSelected(null);
                 }}
               />
             )}
-            <Button variant="subtle" size="xs" color="red" loading={removing} onClick={() => void handleRemove(selected)}>
-              Remove from this device
-            </Button>
+            {!viewingOrg && (
+              <Button variant="subtle" size="xs" color="red" loading={removing} onClick={() => void handleRemove(selected)}>
+                Remove from this device
+              </Button>
+            )}
           </Stack>
         )}
       </BottomSheet>

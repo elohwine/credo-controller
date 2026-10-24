@@ -25,7 +25,8 @@ import '@/styles/globals.css';
 
 const PUBLIC_ROUTES = ['/login', '/login/', '/pay/[code]'];
 const ORG_ONLY_ROUTE_PREFIXES = ['/finance', '/workflows', '/field-jobs', '/intake', '/credential-operations', '/connected-systems', '/requests'];
-const PERSONAL_ONLY_ROUTE_PREFIXES = ['/shop', '/my-requests', '/proofs'];
+// /proofs is not here: with an organisation open it shows the organisation's own records.
+const PERSONAL_ONLY_ROUTE_PREFIXES = ['/shop', '/my-requests'];
 
 function matchesRoutePrefix(pathname: string, prefixes: string[]): boolean {
   return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
