@@ -2,6 +2,7 @@ import type { WorkflowActionContext } from '../ActionRegistry'
 
 import { receivablePlanService, type PaymentTerms } from '../../ReceivablePlanService'
 import { notificationService } from '../../NotificationService'
+import { paymentLinkService } from '../../PaymentLinkService'
 
 export class ArActions {
   public static async createPlan(context: WorkflowActionContext): Promise<void> {
@@ -36,8 +37,15 @@ export class ArActions {
       amount: created.firstLink.amount,
     }
     if (input.payerPhone || input.payerEmail) {
+      let inboxItemId: string | undefined
+      try {
+        inboxItemId = paymentLinkService.offerToPayerInbox(created.firstLink.id)
+      } catch {
+        inboxItemId = undefined
+      }
       await notificationService.dispatchContactNotification({
         tenantId: context.tenantId,
+        inboxItemId,
         dedupeKey: `ar-plan:${created.planId}`,
         contact: {
           name: String(input.payerName || 'there'),

@@ -19,6 +19,7 @@ import { rootLogger } from '../utils/pinoLogger'
 import { businessTransactionService } from './BusinessTransactionService'
 import { notificationService, type ContactNotificationResult } from './NotificationService'
 import { ShortlinkService } from './ShortlinkService'
+import { findWalletTenantByContact } from './ssi/walletLookup'
 
 const logger = rootLogger.child({ module: 'PaymentLinkService' })
 
@@ -138,10 +139,17 @@ export class PaymentLinkService {
         `UPDATE payment_links SET payer_phone = ?, metadata = ?, updated_at = ? WHERE id = ? AND merchant_id = ?`,
       ).run(payerPhone, JSON.stringify({ ...metadata, payerName }), new Date().toISOString(), linkId, merchantId)
     })()
+    let inboxItemId: string | undefined
+    try {
+      inboxItemId = this.offerToPayerInbox(linkId)
+    } catch (error) {
+      logger.warn({ err: error, linkId }, 'Could not put the bill in the payer inbox')
+    }
     let result: ContactNotificationResult
     try {
       result = await notificationService.dispatchContactNotification({
         tenantId: merchantId,
+        inboxItemId,
         dedupeKey: `payment_link:${linkId}`,
         contact: { name: payerName, phone: payerPhone },
         type: 'payment_link',
@@ -336,6 +344,7 @@ export class PaymentLinkService {
            payer_phone = COALESCE(payer_phone, ?), updated_at = ? WHERE id = ?`,
       )
       .run(paidAt, payment.reference ?? null, payment.payerPhone ?? null, new Date().toISOString(), linkId)
+    this.closePayerInbox(linkId, 'paid')
     const obligation = DatabaseManager.getDatabase()
       .prepare(`SELECT obligation_id AS obligationId, amount, currency FROM payment_links WHERE id = ?`)
       .get(linkId) as { obligationId?: string | null; amount: number; currency: string } | undefined
@@ -368,6 +377,7 @@ export class PaymentLinkService {
     DatabaseManager.getDatabase()
       .prepare(`UPDATE payment_links SET status = 'cancelled', updated_at = ? WHERE id = ?`)
       .run(new Date().toISOString(), linkId)
+    this.closePayerInbox(linkId, 'declined')
     const waiting = this.waitingRun(linkId)
     if (waiting) {
       const { workflowService } = await import('./WorkflowService')
@@ -390,7 +400,106 @@ export class PaymentLinkService {
       .prepare(`UPDATE payment_links SET status = 'cancelled', updated_at = ? WHERE id = ? AND status = 'active'`)
       .run(new Date().toISOString(), linkId)
     if (cancelDebt && row?.obligationId) businessTransactionService.setObligationStatus(row.obligationId, 'cancelled')
+    if (result.changes > 0) this.closePayerInbox(linkId, 'cancelled')
     return result.changes > 0
+  }
+
+  /**
+   * A bill sent to a phone that has a Credentis account also lands in that person's inbox as a
+   * "Pay now" card that opens the in-app checkout. Sending again refreshes the same card.
+   * Returns the inbox item id, or undefined when the phone has no account.
+   */
+  public offerToPayerInbox(linkId: string): string | undefined {
+    const db = DatabaseManager.getDatabase()
+    const link = db
+      .prepare(
+        `SELECT id, merchant_id, merchant_name, description, amount, currency, invoice_ref, status, expiry,
+                payer_phone, shortlink_code, shortlink_url, sector, metadata
+           FROM payment_links WHERE id = ?`,
+      )
+      .get(linkId) as
+      | {
+          id: string
+          merchant_id: string
+          merchant_name?: string | null
+          description: string
+          amount: number
+          currency: string
+          invoice_ref?: string | null
+          status: string
+          expiry: string
+          payer_phone?: string | null
+          shortlink_code: string
+          shortlink_url: string
+          sector?: string | null
+          metadata?: string | null
+        }
+      | undefined
+    if (!link?.payer_phone || link.status !== 'active') return undefined
+    const walletTenantId = findWalletTenantByContact(link.payer_phone)
+    if (!walletTenantId) return undefined
+
+    const metadata = metadataOf(link.metadata)
+    const typeLabel =
+      metadata.kind === 'quote'
+        ? 'Quote'
+        : metadata.centre === 'school_fees' || link.sector === 'education'
+          ? 'School fees'
+          : 'Invoice'
+    const amount = Number(link.amount || 0)
+    const claims = {
+      paymentLinkId: link.id,
+      shortlinkCode: link.shortlink_code,
+      shortlinkUrl: link.shortlink_url,
+      amount,
+      currency: link.currency,
+      invoiceRef: link.invoice_ref || null,
+      merchantTenantId: link.merchant_id,
+      merchantName: link.merchant_name || null,
+      orgName: link.merchant_name || null,
+      kind: metadata.kind || 'invoice',
+      expiresAt: link.expiry,
+      metadata: { type: typeLabel },
+    }
+    const title = `${typeLabel}${link.invoice_ref ? ` ${link.invoice_ref}` : ''}`
+    const body = `${link.currency} ${amount.toFixed(2)} · ${link.description}`
+    const now = new Date().toISOString()
+    const existing = db
+      .prepare(
+        `SELECT id FROM wallet_pending_offers
+          WHERE tenant_id = ? AND source_type = 'payment_link' AND source_id = ? AND resolved_at IS NULL
+          ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(walletTenantId, link.id) as { id: string } | undefined
+    if (existing) {
+      db.prepare(`UPDATE wallet_pending_offers SET offer_uri = ?, title = ?, body = ?, metadata = ? WHERE id = ?`).run(
+        link.shortlink_url,
+        title,
+        body,
+        JSON.stringify(claims),
+        existing.id,
+      )
+      return existing.id
+    }
+    const id = `plk-${uuidv4()}`
+    db.prepare(
+      `INSERT INTO wallet_pending_offers (
+         id, tenant_id, issuer_tenant_id, source_type, source_id, credential_type, offer_uri,
+         title, body, metadata, created_at
+       ) VALUES (?, ?, ?, 'payment_link', ?, 'PaymentLink', ?, ?, ?, ?, ?)`,
+    ).run(id, walletTenantId, link.merchant_id, link.id, link.shortlink_url, title, body, JSON.stringify(claims), now)
+    return id
+  }
+
+  /** The bill is paid, declined or stopped: take its card out of the payer's open inbox. */
+  public closePayerInbox(linkId: string, outcome: 'paid' | 'declined' | 'cancelled'): void {
+    DatabaseManager.getDatabase()
+      .prepare(
+        `UPDATE wallet_pending_offers SET resolved_at = ?, last_error = NULL
+          WHERE source_type = 'payment_link' AND source_id = ? AND resolved_at IS NULL`,
+      )
+      .run(new Date().toISOString(), linkId)
+    logger.debug({ linkId, outcome }, 'Payer inbox card closed')
   }
 }
 

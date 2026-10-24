@@ -2,6 +2,7 @@ import { DatabaseManager } from '../persistence/DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
 
 import { notificationService } from './NotificationService'
+import { paymentLinkService } from './PaymentLinkService'
 
 const logger = rootLogger.child({ module: 'ReceivableReminderService' })
 
@@ -12,7 +13,7 @@ export class ReceivableReminderService {
       .prepare(
         `SELECT i.id, i.amount, i.status, i.notified_at AS notifiedAt, i.reminder_sent_at AS reminderSentAt,
                 p.payer_name AS payerName, p.payer_phone AS payerPhone, p.payer_email AS payerEmail,
-                p.currency, p.buyer_tenant_id AS tenantId, l.shortlink_url AS url
+                p.currency, p.buyer_tenant_id AS tenantId, l.id AS linkId, l.shortlink_url AS url
            FROM ar_plan_installments i
            JOIN ar_payment_plans p ON p.id = i.plan_id
            JOIN payment_links l ON l.id = i.payment_link_id
@@ -25,8 +26,15 @@ export class ReceivableReminderService {
       const lastReminder = new Date(row.reminderSentAt).getTime()
       if (Number.isFinite(lastReminder) && Date.now() - lastReminder < 7 * 24 * 60 * 60 * 1000) return false
     }
+    let inboxItemId: string | undefined
+    try {
+      inboxItemId = paymentLinkService.offerToPayerInbox(row.linkId)
+    } catch (error: any) {
+      logger.warn({ installmentId, error: error?.message }, 'Could not put the instalment in the payer inbox')
+    }
     const result = await notificationService.dispatchContactNotification({
       tenantId: row.tenantId,
+      inboxItemId,
       dedupeKey: `installment:${installmentId}:${reminder ? Math.floor(Date.now() / (7 * 86400000)) : 'initial'}`,
       contact: { name: row.payerName || 'there', phone: row.payerPhone, email: row.payerEmail },
       type: 'payment_link',

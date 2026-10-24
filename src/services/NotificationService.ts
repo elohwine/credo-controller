@@ -53,6 +53,8 @@ export interface WhatsAppTextPayload {
   tenantId?: string
   eventType?: string
   dedupeKey?: string
+  /** Inbox card the alert opens; the button falls back to the plain inbox without it. */
+  inboxItemId?: string
   to: string
   body: string
   previewUrl?: boolean
@@ -652,6 +654,7 @@ export class NotificationService {
       to: payload.to,
       eventType: payload.eventType,
       dedupeKey: payload.dedupeKey || randomUUID(),
+      ...(payload.inboxItemId ? { inboxItemId: payload.inboxItemId } : {}),
     })
     const delivery = DatabaseManager.getDatabase()
       .prepare('SELECT status, provider_message_id FROM notification_deliveries WHERE id = ?')
@@ -751,9 +754,29 @@ export class NotificationService {
     }
   }
 
+  /** Same ownership rule the WhatsApp sender enforces, so a mismatched item never makes the send fail. */
+  private recipientOwnsInboxItem(tenantId: string, eventType: string, phone: string, inboxItemId: string): boolean {
+    try {
+      const owner = DatabaseManager.getDatabase()
+        .prepare(
+          `SELECT u.id FROM wallet_pending_offers w JOIN ssi_users u ON u.tenant_id = w.tenant_id
+          WHERE w.id = ? AND w.issuer_tenant_id = ?`,
+        )
+        .get(inboxItemId, tenantId) as { id: string } | undefined
+      return (
+        !!owner &&
+        this.consentedRecipient(tenantId, eventType, { userId: owner.id })?.phone === normalizeNotificationPhone(phone)
+      )
+    } catch {
+      return false
+    }
+  }
+
   public async dispatchContactNotification(opts: {
     tenantId?: string
     dedupeKey?: string
+    /** The payer's inbox card for this bill, when the phone has a Credentis account. */
+    inboxItemId?: string
     contact: { name: string; phone?: string; email?: string }
     type: 'vc_offer' | 'payment_link' | 'proof_request'
     url: string
@@ -762,6 +785,12 @@ export class NotificationService {
     currency?: string
   }): Promise<ContactNotificationResult> {
     const { contact, type, url, issuerName = 'IdenEx Credentis', amount, currency } = opts
+    const inboxItemId =
+      opts.inboxItemId && opts.tenantId && contact.phone
+        ? this.recipientOwnsInboxItem(opts.tenantId, type, contact.phone, opts.inboxItemId)
+          ? opts.inboxItemId
+          : undefined
+        : undefined
     const message =
       type === 'vc_offer'
         ? `Hi ${contact.name}, ${issuerName} has issued you a verifiable credential. Open: ${url}`
@@ -788,6 +817,7 @@ export class NotificationService {
           tenantId: opts.tenantId,
           eventType: type,
           dedupeKey: opts.dedupeKey,
+          ...(inboxItemId ? { inboxItemId } : {}),
         }).then((result) =>
           result?.messages?.[0]?.id ? 'accepted' : result?.queued ? 'queued' : result?.skipped ? 'skipped' : 'failed',
         ),

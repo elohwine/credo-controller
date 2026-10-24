@@ -167,10 +167,17 @@ export class ClientPaymentActions {
       }
       return link
     })()
+    let inboxItemId: string | undefined
+    try {
+      inboxItemId = paymentLinkService.offerToPayerInbox(link.id)
+    } catch (error) {
+      logger.warn({ err: error, runId: context.runId, linkId: link.id }, 'Could not put the bill in the client inbox')
+    }
     let result: ContactNotificationResult
     try {
       result = await notificationService.dispatchContactNotification({
         tenantId: context.tenantId,
+        inboxItemId,
         dedupeKey: `client-payment:${context.runId}:${link.id}`,
         contact: { name: payerName || 'there', phone },
         type: 'payment_link',
