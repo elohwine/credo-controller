@@ -145,6 +145,8 @@ import { OrganizationEntryController } from './../controllers/organizations/Orga
 import { JobIntakeController } from './../controllers/platform/JobIntakeController';
 // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
 import { PortalController } from './../controllers/PortalController';
+// WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+import { PublicOrgBrandController } from './../controllers/public/PublicOrgBrandController';
 import { expressAuthentication } from './../authentication';
 // @ts-ignore - no great way to install types from subpackage
 import { iocContainer } from './../utils/tsyringeTsoaIocContainer';
@@ -1235,6 +1237,54 @@ const models: TsoaRoute.Models = {
             "paymentRails": {"dataType":"array","array":{"dataType":"string"},"required":true},
             "contactLinks": {"dataType":"nestedObjectLiteral","nestedProperties":{"address":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}]},"website":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}]},"email":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}]},"phone":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}]}},"required":true},
             "shopUrl": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "OrgBrandView": {
+        "dataType": "refObject",
+        "properties": {
+            "displayName": {"dataType":"string","required":true},
+            "primaryColor": {"dataType":"string","required":true},
+            "logoHash": {"dataType":"string"},
+            "logoUrl": {"dataType":"string"},
+            "tagline": {"dataType":"string"},
+            "phone": {"dataType":"string"},
+            "email": {"dataType":"string"},
+            "website": {"dataType":"string"},
+            "address": {"dataType":"string"},
+            "registrationNumber": {"dataType":"string"},
+            "taxNumber": {"dataType":"string"},
+            "vatNumber": {"dataType":"string"},
+            "bankDetails": {"dataType":"string"},
+            "mobileMoney": {"dataType":"string"},
+            "quoteTerms": {"dataType":"string"},
+            "quoteValidityDays": {"dataType":"double"},
+            "invoiceTerms": {"dataType":"string"},
+            "invoiceDueDays": {"dataType":"double"},
+            "receiptFooter": {"dataType":"string"},
+            "orgTenantId": {"dataType":"string","required":true},
+            "configured": {"dataType":"boolean","required":true},
+            "version": {"dataType":"double"},
+            "updatedAt": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "Partial_Omit_OrgBrandProfile.logoHash-or-logoUrl__": {
+        "dataType": "refAlias",
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"bankDetails":{"dataType":"string"},"displayName":{"dataType":"string"},"primaryColor":{"dataType":"string"},"tagline":{"dataType":"string"},"phone":{"dataType":"string"},"email":{"dataType":"string"},"website":{"dataType":"string"},"address":{"dataType":"string"},"registrationNumber":{"dataType":"string"},"taxNumber":{"dataType":"string"},"vatNumber":{"dataType":"string"},"mobileMoney":{"dataType":"string"},"quoteTerms":{"dataType":"string"},"quoteValidityDays":{"dataType":"double"},"invoiceTerms":{"dataType":"string"},"invoiceDueDays":{"dataType":"double"},"receiptFooter":{"dataType":"string"}},"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "OrgBrandInput": {
+        "dataType": "refAlias",
+        "type": {"ref":"Partial_Omit_OrgBrandProfile.logoHash-or-logoUrl__","validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "OrgBrandLogoRequest": {
+        "dataType": "refObject",
+        "properties": {
+            "dataUrl": {"dataType":"string","required":true},
         },
         "additionalProperties": false,
     },
@@ -4589,6 +4639,8 @@ const models: TsoaRoute.Models = {
             "primaryColor": {"dataType":"string"},
             "receiptFooter": {"dataType":"string"},
             "supportContact": {"dataType":"string"},
+            "displayName": {"dataType":"string"},
+            "orgTenantId": {"dataType":"string"},
         },
         "additionalProperties": false,
     },
@@ -4867,7 +4919,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "ReleasableIdentityClaim": {
         "dataType": "refAlias",
-        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["displayName"]},{"dataType":"enum","enums":["verificationLevel"]},{"dataType":"enum","enums":["phone"]},{"dataType":"enum","enums":["email"]}],"validators":{}},
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["displayName"]},{"dataType":"enum","enums":["phone"]},{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["verificationLevel"]}],"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "PartnerClientOperation": {
@@ -5162,7 +5214,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Pick_JobIntakeInput.Exclude_keyofJobIntakeInput.attachments__": {
         "dataType": "refAlias",
-        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"description":{"dataType":"string","required":true},"amount":{"dataType":"double","required":true},"currency":{"dataType":"string","required":true},"reference":{"dataType":"string"},"poNumber":{"dataType":"string"},"problemType":{"dataType":"string"},"clientName":{"dataType":"string"},"clientPhone":{"dataType":"string"},"location":{"dataType":"string"},"scheduledDate":{"dataType":"string"},"payoutAmount":{"dataType":"double"},"vehicleReference":{"dataType":"string"},"requireConcealedWorkPhoto":{"dataType":"boolean"},"sourceType":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["manual"]},{"dataType":"enum","enums":["email"]}]},"sourceMessageId":{"dataType":"string"},"sourceSender":{"dataType":"string"},"sourceSubject":{"dataType":"string"}},"validators":{}},
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"description":{"dataType":"string","required":true},"amount":{"dataType":"double","required":true},"currency":{"dataType":"string","required":true},"reference":{"dataType":"string"},"poNumber":{"dataType":"string"},"problemType":{"dataType":"string"},"clientName":{"dataType":"string"},"clientPhone":{"dataType":"string"},"location":{"dataType":"string"},"scheduledDate":{"dataType":"string"},"payoutAmount":{"dataType":"double"},"vehicleReference":{"dataType":"string"},"requireConcealedWorkPhoto":{"dataType":"boolean"},"sourceType":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["manual"]}]},"sourceMessageId":{"dataType":"string"},"sourceSender":{"dataType":"string"},"sourceSubject":{"dataType":"string"}},"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Omit_JobIntakeInput.attachments_": {
@@ -8739,6 +8791,156 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'previewOfferings',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOrganizationController_getBrand: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                orgTenantId: {"in":"path","name":"orgTenantId","required":true,"dataType":"string"},
+        };
+        app.get('/api/organizations/:orgTenantId/brand',
+            authenticateMiddleware([{"jwt":[]}]),
+            ...(fetchMiddlewares<RequestHandler>(OrganizationController)),
+            ...(fetchMiddlewares<RequestHandler>(OrganizationController.prototype.getBrand)),
+
+            async function OrganizationController_getBrand(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOrganizationController_getBrand, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OrganizationController>(OrganizationController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'getBrand',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOrganizationController_saveBrand: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                orgTenantId: {"in":"path","name":"orgTenantId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"ref":"OrgBrandInput"},
+        };
+        app.put('/api/organizations/:orgTenantId/brand',
+            authenticateMiddleware([{"jwt":[]}]),
+            ...(fetchMiddlewares<RequestHandler>(OrganizationController)),
+            ...(fetchMiddlewares<RequestHandler>(OrganizationController.prototype.saveBrand)),
+
+            async function OrganizationController_saveBrand(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOrganizationController_saveBrand, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OrganizationController>(OrganizationController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'saveBrand',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOrganizationController_saveBrandLogo: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                orgTenantId: {"in":"path","name":"orgTenantId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"ref":"OrgBrandLogoRequest"},
+        };
+        app.put('/api/organizations/:orgTenantId/brand/logo',
+            authenticateMiddleware([{"jwt":[]}]),
+            ...(fetchMiddlewares<RequestHandler>(OrganizationController)),
+            ...(fetchMiddlewares<RequestHandler>(OrganizationController.prototype.saveBrandLogo)),
+
+            async function OrganizationController_saveBrandLogo(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOrganizationController_saveBrandLogo, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OrganizationController>(OrganizationController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'saveBrandLogo',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOrganizationController_removeBrandLogo: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                orgTenantId: {"in":"path","name":"orgTenantId","required":true,"dataType":"string"},
+        };
+        app.delete('/api/organizations/:orgTenantId/brand/logo',
+            authenticateMiddleware([{"jwt":[]}]),
+            ...(fetchMiddlewares<RequestHandler>(OrganizationController)),
+            ...(fetchMiddlewares<RequestHandler>(OrganizationController.prototype.removeBrandLogo)),
+
+            async function OrganizationController_removeBrandLogo(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOrganizationController_removeBrandLogo, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OrganizationController>(OrganizationController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'removeBrandLogo',
                 controller,
                 response,
                 next,
@@ -23160,6 +23362,42 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'getCredentialOffer',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsPublicOrgBrandController_getBrand: Record<string, TsoaRoute.ParameterSchema> = {
+                orgTenantId: {"in":"path","name":"orgTenantId","required":true,"dataType":"string"},
+                at: {"in":"query","name":"at","dataType":"string"},
+        };
+        app.get('/api/public/orgs/:orgTenantId/brand',
+            ...(fetchMiddlewares<RequestHandler>(PublicOrgBrandController)),
+            ...(fetchMiddlewares<RequestHandler>(PublicOrgBrandController.prototype.getBrand)),
+
+            async function PublicOrgBrandController_getBrand(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsPublicOrgBrandController_getBrand, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<PublicOrgBrandController>(PublicOrgBrandController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'getBrand',
                 controller,
                 response,
                 next,

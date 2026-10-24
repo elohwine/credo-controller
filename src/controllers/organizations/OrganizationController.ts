@@ -52,6 +52,7 @@ import {
   type PublicStorefront,
   type UpdateOfferingsInput,
 } from '../../services/OrgOfferingsService'
+import { orgBrandService, type OrgBrandInput, type OrgBrandView } from '../../services/OrgBrandService'
 import { orgMemberOnboardingService } from '../../services/OrgMemberOnboardingService'
 import type { PaymentMethodChoice, PaymentSetupItem, TrustedPartner } from '../../services/OrgSetupProvisioningService'
 import { orgSetupProvisioningService } from '../../services/OrgSetupProvisioningService'
@@ -387,6 +388,11 @@ interface OrganizationWorkflowConfigurationResponse {
   // availableFeatures: removed - query workflow_templates WHERE tenant_id IS NULL instead
 }
 
+export interface OrgBrandLogoRequest {
+  /** data:image/png;base64,... */
+  dataUrl: string
+}
+
 @Route('/api/organizations')
 @Tags('Organizations')
 export class OrganizationController extends Controller {
@@ -687,6 +693,51 @@ export class OrganizationController extends Controller {
     const user = this.requireOrgManagerToken(request, orgTenantId)
     orgOfferingsService.assertManager(user.id, orgTenantId)
     return orgOfferingsService.preview(orgTenantId)
+  }
+
+  /**
+   * The organisation's brand and the standing wording on its quotes, invoices and receipts.
+   * Any member may read it; it is what their documents will carry.
+   */
+  @Get('/{orgTenantId}/brand')
+  @Security('jwt')
+  public async getBrand(@Request() request: ExRequest, @Path() orgTenantId: string): Promise<OrgBrandView> {
+    this.requireOrgManagerToken(request, orgTenantId)
+    return orgBrandService.current(orgTenantId)
+  }
+
+  /** Save the brand. Each save is kept as a version so earlier documents keep their brand. Owners and admins only. */
+  @Put('/{orgTenantId}/brand')
+  @Security('jwt')
+  public async saveBrand(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Body() body: OrgBrandInput,
+  ): Promise<OrgBrandView> {
+    const user = this.requireOrgManagerToken(request, orgTenantId)
+    orgBrandService.assertManager(user.id, orgTenantId)
+    return orgBrandService.save(orgTenantId, body || {}, user.id)
+  }
+
+  /** Upload the logo as a data URL (PNG, JPEG or WebP, under 512 KB). Owners and admins only. */
+  @Put('/{orgTenantId}/brand/logo')
+  @Security('jwt')
+  public async saveBrandLogo(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Body() body: OrgBrandLogoRequest,
+  ): Promise<OrgBrandView> {
+    const user = this.requireOrgManagerToken(request, orgTenantId)
+    orgBrandService.assertManager(user.id, orgTenantId)
+    return orgBrandService.saveLogo(orgTenantId, body?.dataUrl, user.id)
+  }
+
+  @Delete('/{orgTenantId}/brand/logo')
+  @Security('jwt')
+  public async removeBrandLogo(@Request() request: ExRequest, @Path() orgTenantId: string): Promise<OrgBrandView> {
+    const user = this.requireOrgManagerToken(request, orgTenantId)
+    orgBrandService.assertManager(user.id, orgTenantId)
+    return orgBrandService.removeLogo(orgTenantId, user.id)
   }
 
   private requireOrgManagerToken(request: ExRequest, orgTenantId: string): { id: string } {

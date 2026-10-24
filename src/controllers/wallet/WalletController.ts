@@ -85,6 +85,21 @@ function issuerNameForHeldCard(walletTenantId: string, record: any, claims: Reco
   }
 }
 
+/** Which organisation issued a held card, so its documents can carry that organisation's brand. */
+function issuerOrgTenantIdForHeldCard(record: any, claims: Record<string, any>): string | undefined {
+  try {
+    const fromRegister = issuedCredentialRepository.organizationTenantIdForCredentialId(issuedCardId(record) || '')
+    if (fromRegister) return fromRegister
+  } catch {
+    // Fall back to what the card itself says.
+  }
+  for (const key of ['orgTenantId', 'merchantTenantId', 'issuerTenantId', 'organizationTenantId']) {
+    const value = claims?.[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return undefined
+}
+
 /** The organisation's name for the share screen, never its id. */
 function organisationNameOf(orgTenantId: unknown): string | undefined {
   const id = String(orgTenantId || '').trim()
@@ -694,6 +709,7 @@ export class WalletController extends Controller {
         vc_type: credentialType,
         issuerDid,
         issuerName,
+        issuerOrgTenantId: issuerOrgTenantIdForHeldCard(record, flatClaims),
         issued_at: cred?.issuanceDate || record.createdAt || new Date().toISOString(),
         amount: flatClaims.amount,
         currency: flatClaims.currency,

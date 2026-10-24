@@ -3484,6 +3484,166 @@
         "type": "object",
         "additionalProperties": false
       },
+      "OrgBrandView": {
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "primaryColor": {
+            "type": "string"
+          },
+          "logoHash": {
+            "type": "string"
+          },
+          "logoUrl": {
+            "type": "string"
+          },
+          "tagline": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "website": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "registrationNumber": {
+            "type": "string"
+          },
+          "taxNumber": {
+            "type": "string"
+          },
+          "vatNumber": {
+            "type": "string"
+          },
+          "bankDetails": {
+            "type": "string"
+          },
+          "mobileMoney": {
+            "type": "string"
+          },
+          "quoteTerms": {
+            "type": "string"
+          },
+          "quoteValidityDays": {
+            "type": "number",
+            "format": "double"
+          },
+          "invoiceTerms": {
+            "type": "string"
+          },
+          "invoiceDueDays": {
+            "type": "number",
+            "format": "double"
+          },
+          "receiptFooter": {
+            "type": "string"
+          },
+          "orgTenantId": {
+            "type": "string"
+          },
+          "configured": {
+            "type": "boolean",
+            "description": "False until an owner or admin has saved the brand at least once."
+          },
+          "version": {
+            "type": "number",
+            "format": "double"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayName",
+          "primaryColor",
+          "orgTenantId",
+          "configured"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "Partial_Omit_OrgBrandProfile.logoHash-or-logoUrl__": {
+        "properties": {
+          "bankDetails": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "primaryColor": {
+            "type": "string"
+          },
+          "tagline": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "website": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "registrationNumber": {
+            "type": "string"
+          },
+          "taxNumber": {
+            "type": "string"
+          },
+          "vatNumber": {
+            "type": "string"
+          },
+          "mobileMoney": {
+            "type": "string"
+          },
+          "quoteTerms": {
+            "type": "string"
+          },
+          "quoteValidityDays": {
+            "type": "number",
+            "format": "double"
+          },
+          "invoiceTerms": {
+            "type": "string"
+          },
+          "invoiceDueDays": {
+            "type": "number",
+            "format": "double"
+          },
+          "receiptFooter": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "description": "Make all properties in T optional"
+      },
+      "OrgBrandInput": {
+        "$ref": "#/components/schemas/Partial_Omit_OrgBrandProfile.logoHash-or-logoUrl__"
+      },
+      "OrgBrandLogoRequest": {
+        "properties": {
+          "dataUrl": {
+            "type": "string",
+            "description": "data:image/png;base64,..."
+          }
+        },
+        "required": [
+          "dataUrl"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
       "Record_string.string-Array_": {
         "properties": {},
         "additionalProperties": {
@@ -13074,6 +13234,13 @@
           },
           "supportContact": {
             "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "orgTenantId": {
+            "type": "string",
+            "description": "The issuing organisation, so the page can fetch its full brand for documents."
           }
         },
         "type": "object",
@@ -14092,9 +14259,9 @@
         "type": "string",
         "enum": [
           "displayName",
-          "verificationLevel",
           "phone",
-          "email"
+          "email",
+          "verificationLevel"
         ]
       },
       "PartnerClientOperation": {
@@ -15065,8 +15232,8 @@
           "sourceType": {
             "type": "string",
             "enum": [
-              "manual",
-              "email"
+              "email",
+              "manual"
             ]
           },
           "sourceMessageId": {
@@ -20362,6 +20529,197 @@
           }
         },
         "description": "What the public sees, also while the organisation is private. Owners and admins only.",
+        "tags": [
+          "Organizations"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orgTenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/organizations/{orgTenantId}/brand": {
+      "get": {
+        "operationId": "GetBrand",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgBrandView"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The organisation's brand and the standing wording on its quotes, invoices and receipts.\nAny member may read it; it is what their documents will carry.",
+        "tags": [
+          "Organizations"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orgTenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "operationId": "SaveBrand",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgBrandView"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Save the brand. Each save is kept as a version so earlier documents keep their brand. Owners and admins only.",
+        "tags": [
+          "Organizations"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orgTenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgBrandInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/organizations/{orgTenantId}/brand/logo": {
+      "put": {
+        "operationId": "SaveBrandLogo",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgBrandView"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Upload the logo as a data URL (PNG, JPEG or WebP, under 512 KB). Owners and admins only.",
+        "tags": [
+          "Organizations"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orgTenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgBrandLogoRequest"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "RemoveBrandLogo",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgBrandView"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
         "tags": [
           "Organizations"
         ],
@@ -41649,6 +42007,54 @@
             "in": "path",
             "name": "id",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/public/orgs/{orgTenantId}/brand": {
+      "get": {
+        "operationId": "GetBrand",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgBrandView"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The organisation's brand. Pass `at` (an ISO time, usually when a document was issued)\nto get the brand as it stood then.",
+        "tags": [
+          "Public"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orgTenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "at",
+            "required": false,
             "schema": {
               "type": "string"
             }

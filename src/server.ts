@@ -36,6 +36,7 @@ import { initTenantStore } from './persistence/TenantRepository'
 import { initWalletUserStore } from './persistence/UserRepository'
 import { RegisterRoutes } from './routes/routes'
 import { SecurityMiddleware } from './securityMiddleware'
+import { orgBrandService } from './services/OrgBrandService'
 import { ShortlinkService } from './services/ShortlinkService'
 import { triggerService } from './services/TriggerService'
 import { startNgrokTunnel, getNgrokUrl } from './utils/ngrokTunnel'
@@ -454,6 +455,19 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   // Older pay links pointed at /pay/{code} on this host; send them to the app's checkout page.
   app.get('/pay/:code', (req, res) => {
     res.redirect(302, `${mobileAppUrl()}/pay/${encodeURIComponent(String(req.params.code || ''))}/`)
+  })
+  // Logo images are content-addressed, so they can be cached for good.
+  app.get('/api/public/orgs/:orgTenantId/brand/logo/:hash', (req, res) => {
+    const logo = orgBrandService.logo(String(req.params.orgTenantId || ''), String(req.params.hash || ''))
+    if (!logo) {
+      res.status(404).json({ error: 'Logo not found' })
+      return
+    }
+    res.setHeader('Content-Type', logo.mime)
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
+    res.send(logo.bytes)
   })
   RegisterRoutes(app)
 

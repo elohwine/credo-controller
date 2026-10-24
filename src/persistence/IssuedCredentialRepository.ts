@@ -244,6 +244,19 @@ export class IssuedCredentialRepository {
     return row?.name ? String(row.name) : undefined
   }
 
+  /** The organisation that issued a card, from the issued-card register. */
+  public organizationTenantIdForCredentialId(credentialId: string): string | undefined {
+    if (!credentialId) return undefined
+    const row = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT o.tenant_id AS tenantId FROM issued_credentials ic
+           JOIN organizations o ON o.tenant_id = ic.tenant_id
+          WHERE ic.credential_id = ? LIMIT 1`,
+      )
+      .get(credentialId) as { tenantId?: string } | undefined
+    return row?.tenantId ? String(row.tenantId) : undefined
+  }
+
   /**
    * Check if credential is revoked
    */

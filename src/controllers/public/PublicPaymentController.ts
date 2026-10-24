@@ -16,6 +16,7 @@ import type { Request as ExRequest } from 'express'
 import { SCOPES } from '../../enums'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { getTenantById } from '../../persistence/TenantRepository'
+import { orgBrandService } from '../../services/OrgBrandService'
 import { paymentLinkService } from '../../services/PaymentLinkService'
 import { ShortlinkService } from '../../services/ShortlinkService'
 import { ExternalActions } from '../../services/workflow/actions/ExternalActions'
@@ -37,6 +38,9 @@ interface MerchantBranding {
   primaryColor?: string
   receiptFooter?: string
   supportContact?: string
+  displayName?: string
+  /** The issuing organisation, so the page can fetch its full brand for documents. */
+  orgTenantId?: string
 }
 
 interface PublicPaymentMethod {
@@ -650,6 +654,7 @@ export class PublicPaymentController extends Controller {
           availableMethods: [],
           providerRef: row.provider_ref || undefined,
           paidAt: row.paid_at || undefined,
+          branding: this.merchantBranding(row.merchant_id),
           kind: linkKind(row),
         },
       }
@@ -673,20 +678,7 @@ export class PublicPaymentController extends Controller {
 
     const methods = this.paymentMethods(row.merchant_id)
 
-    // Look up merchant branding from their workflow template
-    let branding: MerchantBranding | undefined
-    if (row.merchant_id) {
-      const templates = templateRepo.listByTenantId(row.merchant_id) as WorkflowTemplateRow[]
-      if (templates.length > 0 && templates[0].brandingPolicy) {
-        const bp = templates[0].brandingPolicy
-        branding = {
-          logo: bp.logo || undefined,
-          primaryColor: bp.primaryColor || undefined,
-          receiptFooter: bp.receiptFooter || undefined,
-          supportContact: bp.supportContact || undefined,
-        }
-      }
-    }
+    const branding = this.merchantBranding(row.merchant_id)
 
     logger.info({ linkId: row.id, code }, 'Public checkout page resolved')
 
@@ -708,6 +700,35 @@ export class PublicPaymentController extends Controller {
         branding,
         kind: linkKind(row),
       },
+    }
+  }
+
+  /** The organisation's saved brand, falling back to the older per-template branding policy. */
+  private merchantBranding(merchantId?: string | null): MerchantBranding | undefined {
+    if (!merchantId) return undefined
+    try {
+      const brand = orgBrandService.current(merchantId)
+      if (brand.configured) {
+        return {
+          logo: brand.logoUrl,
+          primaryColor: brand.primaryColor,
+          receiptFooter: brand.receiptFooter,
+          supportContact: [brand.phone, brand.email].filter(Boolean).join(' · ') || undefined,
+          displayName: brand.displayName,
+          orgTenantId: merchantId,
+        }
+      }
+    } catch {
+      // The brand tables may not exist on an older database; fall through to the template policy.
+    }
+    const templates = templateRepo.listByTenantId(merchantId) as WorkflowTemplateRow[]
+    const bp = templates[0]?.brandingPolicy
+    return {
+      logo: bp?.logo || undefined,
+      primaryColor: bp?.primaryColor || undefined,
+      receiptFooter: bp?.receiptFooter || undefined,
+      supportContact: bp?.supportContact || undefined,
+      orgTenantId: merchantId,
     }
   }
 

@@ -5,6 +5,7 @@ import type { Request as ExRequest } from 'express'
 import { Controller, Get, Route, Tags, Path, Request } from 'tsoa'
 
 import { getTenantById } from '../../persistence/TenantRepository'
+import { orgBrandService } from '../../services/OrgBrandService'
 
 /**
  * Public OIDC metadata endpoints for issuer/verifier discovery
@@ -101,6 +102,24 @@ export class OidcMetadataController extends Controller {
       token_endpoint_auth_methods_supported: ['none'],
     }
   }
+  /** The organisation's saved brand as OID4VCI display metadata, when it has one. */
+  private brandDisplay(
+    tenantId: string,
+  ): { name: string; locale: string; logo?: { uri: string; alt_text: string }; background_color?: string } | undefined {
+    try {
+      const brand = orgBrandService.current(tenantId)
+      if (!brand.configured) return undefined
+      return {
+        name: brand.displayName,
+        locale: 'en-US',
+        ...(brand.logoUrl ? { logo: { uri: brand.logoUrl, alt_text: `${brand.displayName} logo` } } : {}),
+        background_color: brand.primaryColor,
+      }
+    } catch {
+      return undefined
+    }
+  }
+
   /**
    * Get OpenID Credential Issuer metadata (public endpoint)
    * Implements: https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#name-credential-issuer-metadata
@@ -121,6 +140,8 @@ export class OidcMetadataController extends Controller {
 
     // Dynamically add credential_configurations_supported from credential definitions
     const metadata = { ...issuerMetadata }
+    const brandDisplay = this.brandDisplay(tenantId)
+    if (brandDisplay) metadata.display = [brandDisplay]
     try {
       // NOTE: controller is under src/controllers/oidc, utils is two levels up
       const { credentialDefinitionStore } = require('../../utils/credentialDefinitionStore')
@@ -153,6 +174,9 @@ export class OidcMetadataController extends Controller {
             {
               name: def.name,
               locale: 'en-US',
+              ...(brandDisplay?.logo ? { logo: brandDisplay.logo } : {}),
+              ...(brandDisplay?.background_color ? { background_color: brandDisplay.background_color } : {}),
+              ...(brandDisplay?.background_color ? { text_color: '#FFFFFF' } : {}),
             },
           ],
         }
