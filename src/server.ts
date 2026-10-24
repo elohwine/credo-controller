@@ -42,7 +42,8 @@ import { startNgrokTunnel, getNgrokUrl } from './utils/ngrokTunnel'
 import { rootLogger } from './utils/pinoLogger'
 import { registerPrivacyPolicy } from './utils/privacyPolicy'
 import { runWithContext } from './utils/requestContext'
-import { registerPaymentCheckoutPage } from './utils/paymentCheckoutPage'
+
+const mobileAppUrl = () => (process.env.MOBILE_APP_URL || 'http://localhost:3001').replace(/\/+$/, '')
 import { registerWhatsAppInboxLanding } from './utils/whatsAppInboxLanding'
 
 dotenv.config()
@@ -389,9 +390,8 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
       res.redirect(`${baseUrl}/verify/${result.targetId}`)
       return
     } else if (result.type === 'payment') {
-      // A pay link is texted to a client: a configured app/portal host gets it, otherwise this server's own checkout page.
-      const payBase = (process.env.MOBILE_APP_URL || process.env.PORTAL_URL || '').replace(/\/+$/, '')
-      res.redirect(`${payBase}/pay/${encodeURIComponent(code)}`)
+      // Pay links open the app's checkout page; on Fly that is the web copy of the app under /app.
+      res.redirect(`${mobileAppUrl()}/pay/${encodeURIComponent(code)}/`)
       return
     } else {
       res.redirect(`${baseUrl}/verify?id=${result.targetId}`)
@@ -451,7 +451,10 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   // take precedence over the generic Credo OpenID4VC router which matches prefixes.
   registerPrivacyPolicy(app)
   registerWhatsAppInboxLanding(app)
-  registerPaymentCheckoutPage(app)
+  // Older pay links pointed at /pay/{code} on this host; send them to the app's checkout page.
+  app.get('/pay/:code', (req, res) => {
+    res.redirect(302, `${mobileAppUrl()}/pay/${encodeURIComponent(String(req.params.code || ''))}/`)
+  })
   RegisterRoutes(app)
 
   // Mount Credo OIDC4VC Routers

@@ -83,3 +83,4 @@ dist
 
 # Staged sibling tree for the combined Fly image. Produced by scripts/fly-deploy.sh.
 /deploy/fly/vclogin-src/
+/deploy/fly/mobile-web/

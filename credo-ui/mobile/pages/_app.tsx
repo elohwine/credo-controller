@@ -71,6 +71,11 @@ function parseDeepLinkUrl(rawUrl: string): { route: string; query: URLSearchPara
     if (code && /^[A-Za-z0-9_-]{16,128}$/.test(code)) query.set('code', code);
     return { route: '/login/join', query };
   }
+  // Pay links: the web checkout https://<host>/app/pay/{code}/ opens the same page in the app.
+  const payMatch = parsed.protocol === 'https:' ? parsed.pathname.match(/^\/app\/pay\/([A-Za-z0-9_-]{4,64})\/?$/) : null;
+  if (payMatch) {
+    return { route: `/pay/${payMatch[1]}`, query: new URLSearchParams() };
+  }
   const readFirst = (params: URLSearchParams, keys: string[]): string | undefined => {
     for (const key of keys) {
       const value = queryValue(params.get(key));

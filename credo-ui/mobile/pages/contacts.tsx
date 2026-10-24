@@ -15,6 +15,7 @@ import AppShellMobile from '@/components/layout/AppShellMobile';
 import BottomSheet from '@/components/shared/BottomSheet';
 import ErrorAlert from '@/components/shared/ErrorAlert';
 import api, { safeArray } from '@/lib/api';
+import { appHref } from '@/lib/appPath';
 import { getActiveOrgLabel, getContextMode, getPreferredToken, getUserRole } from '@/lib/auth';
 import { contactAppLabel, contactAppStatus, contactInviteUrl } from '@/lib/contactAvailability';
 
@@ -554,7 +555,7 @@ export default function ContactsPage() {
                   Send a card
                 </Button>
               )}
-              <Button fullWidth size="lg" color="blue" variant="light" leftSection={<IconUsers size={18} />} onClick={() => window.location.assign('/organizations')}>
+              <Button fullWidth size="lg" color="blue" variant="light" leftSection={<IconUsers size={18} />} onClick={() => window.location.assign(appHref('/organizations'))}>
                 Request Quote/Invoice
               </Button>
             </Stack>

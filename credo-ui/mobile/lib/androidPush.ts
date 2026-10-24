@@ -1,4 +1,5 @@
 import { api } from '@/lib/api'
+import { appHref } from '@/lib/appPath'
 
 /** Matches the server channel. Importance 4 is Android HIGH: sound and a banner. */
 export const ANDROID_ALERT_CHANNEL = 'credentis_alerts'
@@ -61,7 +62,7 @@ export async function registerAndroidPush(): Promise<void> {
 
   await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
     const path = inboxPath(action.notification?.data)
-    window.location.assign(path)
+    window.location.assign(appHref(path))
   })
 
   await PushNotifications.register()

@@ -26,6 +26,7 @@ primary_region = "jnb"
   WABA_BUSINESS_ACCOUNT_ID = "1376175484008383"
   WHATSAPP_GRAPH_VERSION = "v26.0"
   WALLET_PUBLIC_URL = "https://credentis.fly.dev"
+  MOBILE_APP_URL = "https://credentis.fly.dev/app"
   WHATSAPP_DELIVERY_ENABLED = "true"
   # Test-only until WHATSAPP_PRODUCTION_ENABLED = "true" is deliberately set.
   WHATSAPP_TEST_RECIPIENTS = "263774183277"

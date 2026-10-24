@@ -35,6 +35,16 @@ tar -C "$VCLOGIN_SRC" \
   --exclude '*.tsbuildinfo' \
   -cf - . | tar -C "$STAGE" -xf -
 
+MOBILE_DIR="$ROOT/credo-ui/mobile"
+MOBILE_STAGE="$ROOT/deploy/fly/mobile-web"
+PUBLIC_URL="${FLY_PUBLIC_URL:-https://credentis.fly.dev}"
+echo "building web copy of the mobile app (basePath /app, API $PUBLIC_URL)"
+(cd "$MOBILE_DIR" && NEXT_PUBLIC_BASE_PATH=/app NEXT_PUBLIC_API_URL="$PUBLIC_URL" npx next build)
+rm -rf "$MOBILE_STAGE"
+cp -r "$MOBILE_DIR/out" "$MOBILE_STAGE"
+# Leave the APK's out/ without the web base path.
+rm -rf "$MOBILE_DIR/out"
+
 if ! fly status -a "$APP" >/dev/null 2>&1; then
   echo "creating app $APP in org $ORG"
   fly apps create "$APP" --org "$ORG"

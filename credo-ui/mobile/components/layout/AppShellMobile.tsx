@@ -12,6 +12,7 @@ import { roleLabel } from '../../../shared/orgPeople';
 import { HeaderProgressBar, useBackgroundBusy } from '@/components/feedback/HeaderProgressBar';
 import { PullRefreshIndicator, PULL_TRIGGER_PX } from '@/components/feedback/PullRefreshIndicator';
 import { useActivityStore } from '@/lib/state/activity';
+import { appHref } from '@/lib/appPath';
 import { useSessionStore } from '@/lib/state/session';
 import { useSyncStore, waitForIdle } from '@/lib/state/sync';
 import { purgeAccountQueries, queryClient } from '@/lib/queries/client';
@@ -365,7 +366,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
       });
       setOrgLabel(orgName);
       setOrgMenuOpen(false);
-      window.location.replace('/');
+      window.location.replace(appHref('/'));
     } catch (error) {
       notifications.show({
         title: 'Could not switch organization',
@@ -387,14 +388,14 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
       void router.push(`/login?add=1${phone}`);
       return;
     }
-    if (restoreAccount(account.id)) window.location.assign('/');
+    if (restoreAccount(account.id)) window.location.assign(appHref('/'));
   };
 
   const switchToPersonal = () => {
     setPersonalContext();
     setOrgLabel(null);
     setOrgMenuOpen(false);
-    window.location.replace('/');
+    window.location.replace(appHref('/'));
   };
 
   const goBack = () => {

@@ -12,6 +12,7 @@ import {
   setPersonalContext,
 } from '@/lib/auth'
 import { isCapacitorNativeRuntime, resolveMobileApiBaseUrl } from './baseUrl'
+import { appHref, appRoute } from './appPath'
 import { useSyncStore } from './state/sync'
 
 const API_BASE = resolveMobileApiBaseUrl()
@@ -279,7 +280,7 @@ api.interceptors.response.use(
         // The organisation can no longer be opened by this person (role changed or removed).
         console.warn('[auth] organisation access ended; back to personal wallet', requestUrl)
         setPersonalContext()
-        if (!window.location.pathname.startsWith('/login')) window.location.replace('/inbox')
+        if (!appRoute(window.location.pathname).startsWith('/login')) window.location.replace(appHref('/inbox'))
       }
     }
 
@@ -295,7 +296,7 @@ api.interceptors.response.use(
         // The organisation session was refused; keep the person signed in on their own wallet.
         console.warn('[auth] organisation session refused; back to personal wallet', requestUrl)
         setPersonalContext()
-        if (!window.location.pathname.startsWith('/login')) window.location.replace('/inbox')
+        if (!appRoute(window.location.pathname).startsWith('/login')) window.location.replace(appHref('/inbox'))
       } else {
         // This account's own sign-in has ended. Other saved accounts stay on the phone; only
         // this one needs its PIN again.
@@ -303,10 +304,10 @@ api.interceptors.response.use(
         const phone = getUserPhone()
         clearAuth()
         localStorage.setItem('credoContextMode', 'personal')
-        if (!window.location.pathname.startsWith('/login')) {
-          const returnTo = `${window.location.pathname}${window.location.search || ''}`
+        if (!appRoute(window.location.pathname).startsWith('/login')) {
+          const returnTo = `${appRoute(window.location.pathname)}${window.location.search || ''}`
           const phoneHint = phone ? `&phone=${encodeURIComponent(phone)}` : ''
-          window.location.replace(`/login/?returnTo=${encodeURIComponent(returnTo)}${phoneHint}`)
+          window.location.replace(`${appHref('/login/')}?returnTo=${encodeURIComponent(returnTo)}${phoneHint}`)
         }
       }
     }

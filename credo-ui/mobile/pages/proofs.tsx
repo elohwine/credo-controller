@@ -26,6 +26,7 @@ import { cardLife, readArchivedCardIds, setCardArchived, type CardLifeInfo } fro
 import { getOfflineStorageAdapter } from '@/lib/offline/storage';
 import { normalizeWalletCredentialRows } from '@/lib/offline/walletSnapshotSync';
 import RecordCheckPanel from '@/components/records/RecordCheckPanel';
+import { appHref } from '@/lib/appPath';
 
 interface WalletCredential {
   id: string;
@@ -487,7 +488,7 @@ export default function ProofsPage() {
                     ? `${formatCredentialType(pendingOffers[0].credentialType)}${pendingOffers[0].issuerName ? ` from ${pendingOffers[0].issuerName}` : ''} is waiting for you to keep.`
                     : `${pendingOffers.length} records are waiting for you to keep.`}
                 </Text>
-                <Button size="xs" variant="light" onClick={() => window.location.assign('/inbox')}>Open Inbox</Button>
+                <Button size="xs" variant="light" onClick={() => window.location.assign(appHref('/inbox'))}>Open Inbox</Button>
               </Group>
             </Alert>
           )}

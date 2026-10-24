@@ -40,6 +40,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="credentis.fly.dev" android:path="/inbox" />
                 <data android:scheme="https" android:host="credentis.fly.dev" android:path="/login/join" />
+                <data android:scheme="https" android:host="credentis.fly.dev" android:pathPrefix="/app/pay/" />
             </intent-filter>
         </activity>
 

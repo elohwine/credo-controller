@@ -116,6 +116,8 @@ COPY --from=credo-builder --chown=credo:credo /app/node_modules ./node_modules
 COPY --from=vclogin-builder --chown=credo:credo /src /opt/vclogin
 
 COPY deploy/fly/Caddyfile /etc/caddy/Caddyfile
+# Web copy of the mobile app, prebuilt by scripts/fly-deploy.sh (basePath /app).
+COPY deploy/fly/mobile-web /srv/mobile-web/app
 COPY deploy/fly/entrypoint.sh /entrypoint.sh
 RUN chmod 755 /entrypoint.sh \
     && mkdir -p /app/data && chown credo:credo /app/data
