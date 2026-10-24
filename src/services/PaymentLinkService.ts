@@ -523,7 +523,7 @@ export class PaymentLinkService {
     const link = db
       .prepare(
         `SELECT id, merchant_id, merchant_name, description, amount, currency, invoice_ref, status, expiry,
-                payer_phone, shortlink_code, shortlink_url, sector, metadata
+                payer_phone, shortlink_code, shortlink_url, sector, metadata, created_at
            FROM payment_links WHERE id = ?`,
       )
       .get(linkId) as
@@ -542,6 +542,7 @@ export class PaymentLinkService {
           shortlink_url: string
           sector?: string | null
           metadata?: string | null
+          created_at?: string | null
         }
       | undefined
     if (!link || link.status !== 'active') return undefined
@@ -570,6 +571,16 @@ export class PaymentLinkService {
       orgName: merchantName,
       kind: metadata.kind || 'invoice',
       expiresAt: link.expiry,
+      description: link.description || null,
+      payerName: typeof metadata.payerName === 'string' ? metadata.payerName : null,
+      dueDate: typeof metadata.dueDate === 'string' ? metadata.dueDate : null,
+      instalment: Number(metadata.instalment) || null,
+      totalInstalments: Number(metadata.totalInstalments) || null,
+      fromJob: Boolean(metadata.workflowRunId || metadata.parentRunId),
+      issuedAt: link.created_at || null,
+      sentAt: opts.announceKey
+        ? new Date().toISOString()
+        : (typeof metadata.notification?.at === 'string' ? metadata.notification.at : null),
       metadata: { type: typeLabel },
     }
     const title = `${typeLabel}${link.invoice_ref ? ` ${link.invoice_ref}` : ''}`

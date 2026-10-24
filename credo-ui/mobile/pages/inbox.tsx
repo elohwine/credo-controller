@@ -1920,10 +1920,22 @@ export default function InboxPage() {
             paymentUrl,
             paymentCode,
             paymentLinkId: String(o.sourceId || claim.paymentLinkId || metadata.paymentLinkId || '').trim() || undefined,
+            bill: {
+              merchantName: firstNonEmptyString(claim.merchantName, claim.schoolName, claim.orgName) || undefined,
+              description: firstNonEmptyString(claim.description) || undefined,
+              payerName: firstNonEmptyString(claim.payerName, metadata.customerName) || undefined,
+              dueDate: firstNonEmptyString(claim.dueDate) || undefined,
+              expiresAt: firstNonEmptyString(claim.expiresAt, o.expiresAt, o.expires_at) || undefined,
+              instalment: Number(claim.instalment) || undefined,
+              totalInstalments: Number(claim.totalInstalments) || undefined,
+              fromJob: Boolean(claim.fromJob),
+              issuedAt: firstNonEmptyString(claim.issuedAt) || undefined,
+              sentAt: firstNonEmptyString(claim.sentAt) || undefined,
+            },
             amount: amountValue,
             currency: String(claim.currency || 'USD').trim() || 'USD',
             ownerOrgTenantId: String(claim.orgTenantId || claim.targetOrgTenantId || activeOrgId || '').trim() || undefined,
-            ownerDisplayName: claim.schoolName || claim.orgName || metadata.type || activeOrgLabel || undefined,
+            ownerDisplayName: claim.merchantName || claim.schoolName || claim.orgName || metadata.type || activeOrgLabel || undefined,
           };
         }
 
@@ -3777,7 +3789,7 @@ export default function InboxPage() {
                 {selectedItem.replaces.note}
               </Alert>
             )}
-            <Text size="sm" c="dimmed">{selectedItem.description}</Text>
+            {selectedItem.itemType !== 'payment_link' && <Text size="sm" c="dimmed">{selectedItem.description}</Text>}
             {inboxWhenLabel(selectedItem.createdAt) && (
               <Text size="xs" c="dimmed">{inboxWhenLabel(selectedItem.createdAt)}</Text>
             )}
@@ -3803,6 +3815,61 @@ export default function InboxPage() {
                     {selectedItem.status === 'pending' && (
                       <Text size="xs" c="dimmed">Open the job to see every step, what is done and who each step waits on.</Text>
                     )}
+                  </Stack>
+                </Paper>
+              );
+            })()}
+
+            {selectedItem.itemType === 'payment_link' && (() => {
+              const bill = selectedItem.bill || {};
+              const when = (iso?: string) => (iso && dayjs(iso).isValid() ? dayjs(iso).format('D MMM YYYY, HH:mm') : undefined);
+              const day = (iso?: string) => (iso && dayjs(iso).isValid() ? dayjs(iso).format('D MMM YYYY') : undefined);
+              const expired = Boolean(bill.expiresAt && dayjs(bill.expiresAt).isBefore(dayjs()));
+              const overdue = Boolean(bill.dueDate && dayjs(bill.dueDate).isBefore(dayjs(), 'day'));
+              const paid = selectedItem.status !== 'pending';
+              const amount = selectedItem.amount != null
+                ? `${selectedItem.currency || 'USD'} ${Number(selectedItem.amount).toFixed(2)}`
+                : undefined;
+              const rows: Array<[string, string | undefined]> = [
+                ['From', bill.merchantName || selectedItem.ownerDisplayName],
+                ['For', bill.description],
+                ['Billed to', bill.payerName],
+                ['Reference', selectedItem.invoiceRef],
+                ['Instalment', bill.instalment && bill.totalInstalments && bill.totalInstalments > 1 ? `${bill.instalment} of ${bill.totalInstalments}` : undefined],
+                ['Due', day(bill.dueDate)],
+                ['Sent to you', when(bill.sentAt) || when(bill.issuedAt) || when(selectedItem.createdAt)],
+                ['Pay link valid until', when(bill.expiresAt)],
+              ];
+              return (
+                <Paper withBorder radius="md" p="sm">
+                  <Stack gap={6}>
+                    <Group justify="space-between" align="flex-start" wrap="nowrap">
+                      <Box>
+                        <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Bill to pay</Text>
+                        {amount && <Text fw={800} size="xl">{amount}</Text>}
+                      </Box>
+                      <Badge color={paid ? 'teal' : expired ? 'gray' : overdue ? 'red' : 'orange'} variant="light">
+                        {paid ? 'Paid' : expired ? 'Link expired' : overdue ? 'Overdue' : 'Unpaid'}
+                      </Badge>
+                    </Group>
+                    {rows.filter(([, value]) => Boolean(value)).map(([label, value]) => (
+                      <Group key={label} justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
+                        <Text size="sm" c="dimmed" style={{ flexShrink: 0 }}>{label}</Text>
+                        <Text size="sm" fw={500} ta="right">{value}</Text>
+                      </Group>
+                    ))}
+                    {bill.fromJob && (
+                      <Text size="xs" c="dimmed">This bill is for work done on a job by {bill.merchantName || 'the organisation'}.</Text>
+                    )}
+                    <Divider my={2} />
+                    <Text size="xs" fw={600}>What happens next</Text>
+                    <Text size="xs" c="dimmed">
+                      {paid
+                        ? 'This bill is settled. Your receipt is kept in your wallet.'
+                        : expired
+                          ? 'The pay link has expired. Pay now opens the checkout, where you can ask for a fresh link without contacting the organisation.'
+                          : 'Pay now opens the secure checkout, where you choose how to pay (EcoCash or another listed option). Once payment is confirmed, your receipt arrives here in your inbox.'}
+                    </Text>
                   </Stack>
                 </Paper>
               );

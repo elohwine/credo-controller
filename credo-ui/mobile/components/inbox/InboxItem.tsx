@@ -40,6 +40,19 @@ export interface InboxItemData {
   paymentUrl?: string;
   paymentCode?: string;
   paymentLinkId?: string;
+  /** Bill context shown when a payment card is opened. */
+  bill?: {
+    merchantName?: string;
+    description?: string;
+    payerName?: string;
+    dueDate?: string;
+    expiresAt?: string;
+    instalment?: number;
+    totalInstalments?: number;
+    fromJob?: boolean;
+    issuedAt?: string;
+    sentAt?: string;
+  };
   amount?: number;
   currency?: string;
   /** For field execution items — the underlying workflow run id */

@@ -103,6 +103,30 @@ describe('PaymentLinkService payer inbox', () => {
     expect(paymentLinkService.offerToPayerInbox('PAID')).toBeUndefined()
   })
 
+  it('gives the card what the payer needs to understand the bill', () => {
+    insertLink('SUM', '263774183277', {
+      kind: 'invoice',
+      payerName: 'Eloh',
+      dueDate: '2099-02-01T00:00:00Z',
+      instalment: 2,
+      totalInstalments: 3,
+      workflowRunId: 'run-1',
+      notification: { at: '2026-10-24T10:00:00Z' },
+    })
+    paymentLinkService.offerToPayerInbox('SUM')
+    const card = db.prepare(`SELECT metadata FROM wallet_pending_offers WHERE source_id = 'SUM'`).get() as any
+    expect(JSON.parse(card.metadata)).toMatchObject({
+      merchantName: 'Demo Org',
+      description: 'Invoice for job FR-1',
+      payerName: 'Eloh',
+      dueDate: '2099-02-01T00:00:00Z',
+      instalment: 2,
+      totalInstalments: 3,
+      fromJob: true,
+      sentAt: '2026-10-24T10:00:00Z',
+    })
+  })
+
   it('closes the card when the bill is paid or stopped', async () => {
     insertLink('L2', '263774183277')
     insertLink('L3', '263774183277')
