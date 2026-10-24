@@ -277,6 +277,28 @@ describe('platform request actor decisions', () => {
     expect(() => platformRequestService.decideBySubject(lapsed.id, org.orgTenantId, namedUserId, 'approve')).toThrow()
   })
 
+  test('people named before approval access existed are given it once on startup', () => {
+    const org = seedOrganization({ name: 'Backfill access' })
+    const namedUserId = `named-${randomUUID()}`
+    addMember({ ...org, userId: namedUserId, role: 'field_worker' })
+    orgWorkflowActorService.upsertDefault({
+      orgTenantId: org.orgTenantId,
+      workflowType: 'internal_requisitions',
+      stageAction: 'approve_requisition',
+      defaultUserId: namedUserId,
+      enabled: true,
+    })
+    organizations.backfillStageApprovalAccess()
+    const rows = stageDelegations(org.organizationId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ delegateUserId: namedUserId, status: 'active' })
+
+    // Ended access is not handed out again on the next start.
+    DatabaseManager.getDatabase().prepare(`UPDATE delegations SET status = 'revoked' WHERE id = ?`).run(rows[0].id)
+    organizations.backfillStageApprovalAccess()
+    expect(stageDelegations(org.organizationId)).toHaveLength(1)
+  })
+
   test('delegations from an owner and Approvals-page area grants both authorize decisions', () => {
     const org = seedOrganization({ name: 'Owner delegation' })
     const requesterUserId = `requester-${randomUUID()}`

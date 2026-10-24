@@ -94,6 +94,16 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     agent?.config?.logger?.warn?.(`Superseded staff card sweep failed: ${msg}`)
   }
 
+  // People named for a decision step before approval access existed keep being able to approve.
+  try {
+    const { OrganizationService } = await import('./services/OrganizationService')
+    const result = new OrganizationService(agent as any).backfillStageApprovalAccess()
+    if (result.granted) agent?.config?.logger?.info?.(`Stage approval access given: ${result.granted}`)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    agent?.config?.logger?.warn?.(`Stage approval access backfill failed: ${msg}`)
+  }
+
   // Migration 115 keeps old supplier bills and collection links in the same typed transaction /
   // obligation / settlement projection as new rows. Existing domain ids remain unchanged.
   try {

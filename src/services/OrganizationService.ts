@@ -2424,6 +2424,70 @@ export class OrganizationService {
     }
   }
 
+  /**
+   * One-time handover when named-person approval moved to approval access: anyone named for a
+   * decision step who cannot approve and has never had access for it gets the 30-day access,
+   * delegated by the organisation's owner. People whose access later ends or is withdrawn are
+   * not given it again here.
+   */
+  backfillStageApprovalAccess(): { granted: number } {
+    const db = DatabaseManager.getDatabase()
+    const orgs = db
+      .prepare(
+        `SELECT DISTINCT d.org_tenant_id AS orgTenantId, o.id AS organizationId,
+           (SELECT m.user_id FROM org_memberships m
+            WHERE m.org_tenant_id = d.org_tenant_id AND m.status = 'active' AND lower(m.role) = 'owner'
+            ORDER BY m.created_at LIMIT 1) AS ownerUserId
+         FROM org_workflow_actor_defaults d
+         JOIN organizations o ON o.tenant_id = d.org_tenant_id AND o.status = 'active'
+         WHERE d.enabled = 1`,
+      )
+      .all() as Array<{ orgTenantId: string; organizationId: string; ownerUserId?: string }>
+    let granted = 0
+    for (const org of orgs) {
+      if (!org.ownerUserId) continue
+      const ever = db
+        .prepare(`SELECT d.scope_json AS scopeJson, p.subject_ref AS userId FROM delegations d JOIN people p ON p.id = d.delegate_person_id WHERE d.organization_id = ?`)
+        .all(org.organizationId) as Array<{ scopeJson: string; userId: string }>
+      const hadAccess = (userId: string, workflowType: string, stageAction: string) =>
+        ever.some((row) => {
+          if (row.userId !== userId) return false
+          try {
+            const assignment = JSON.parse(row.scopeJson || '{}')?.stageAssignment
+            return assignment?.stageAction === stageAction && assignment?.workflowType === workflowType
+          } catch {
+            return false
+          }
+        })
+      for (const saved of orgWorkflowActorService.listDefaults(org.orgTenantId)) {
+        if (!saved.enabled || !OrganizationService.isDecisionStage(saved.stageAction)) continue
+        const named = [saved.defaultUserId, ...saved.additionalUserIds].filter((id): id is string => !!id)
+        for (const memberUserId of new Set(named)) {
+          if (memberUserId === org.ownerUserId) continue
+          if (hadAccess(memberUserId, saved.workflowType, saved.stageAction)) continue
+          if (!orgWorkflowActorService.listOrgMembers(org.orgTenantId).some((m) => m.userId === memberUserId)) continue
+          if (this.ownApprovalAuthority(org.orgTenantId, org.organizationId, memberUserId, saved.workflowType, saved.stageAction)) continue
+          const now = Date.now()
+          this.createDelegation(org.orgTenantId, org.ownerUserId, {
+            delegatorUserId: org.ownerUserId,
+            delegateUserId: memberUserId,
+            permissions: APPROVAL_PERMISSIONS,
+            validFrom: new Date(now).toISOString(),
+            validUntil: new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            stageAssignment: {
+              workflowTypes: getWorkflowTypeCandidates(saved.workflowType),
+              workflowType: saved.workflowType,
+              stageAction: saved.stageAction,
+              stageTitle: this.stageTitleFor(saved.workflowType, saved.stageAction),
+            },
+          })
+          granted += 1
+        }
+      }
+    }
+    return { granted }
+  }
+
   private stageTitleFor(workflowType: string, stageAction: string): string | undefined {
     try {
       const prerequisites = getDeclaredPrerequisites({ id: workflowType, workflowType }, [workflowType])
