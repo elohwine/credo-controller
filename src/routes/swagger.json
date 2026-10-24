@@ -36172,6 +36172,89 @@
         ]
       }
     },
+    "/api/contacts/{contactId}/open-bills": {
+      "get": {
+        "operationId": "ListOpenBills",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "expired": {
+                        "type": "boolean"
+                      },
+                      "payerPhone": {
+                        "type": "string"
+                      },
+                      "payerName": {
+                        "type": "string"
+                      },
+                      "invoiceRef": {
+                        "type": "string"
+                      },
+                      "currency": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "number",
+                        "format": "double"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "expired",
+                      "currency",
+                      "amount",
+                      "description",
+                      "id"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Unpaid bills addressed to this contact (by contact or by its mobile), so that after the client's\ndetails are corrected the screen can offer to send them again.",
+        "tags": [
+          "Contacts"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contactId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/contacts/{contactId}/link-invite": {
       "post": {
         "operationId": "CreateContactLinkInvite",
@@ -36726,6 +36809,94 @@
             }
           }
         ]
+      }
+    },
+    "/api/payment-links/{linkId}/payer": {
+      "patch": {
+        "operationId": "UpdatePaymentLinkPayer",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "needsRenewal": {
+                      "type": "boolean"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "payerPhone": {
+                      "type": "string"
+                    },
+                    "payerName": {
+                      "type": "string"
+                    },
+                    "linkId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "needsRenewal",
+                    "changed",
+                    "payerPhone",
+                    "payerName",
+                    "linkId"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Save the client's name and mobile on a bill without sending it; the screen then offers to send.",
+        "tags": [
+          "Payment Links"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "linkId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "payerPhone": {
+                    "type": "string"
+                  },
+                  "payerName": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        }
       }
     },
     "/api/payment-links/{linkId}/send": {

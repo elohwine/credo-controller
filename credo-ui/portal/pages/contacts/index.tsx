@@ -144,6 +144,13 @@ export default function ContactsPage() {
   const [proofResult, setProofResult] = useState<ProofRequestResult | null>(null);
   const [requestingProof, setRequestingProof] = useState(false);
   const [offerContact, setOfferContact] = useState<Contact | null>(null);
+  // After a client's name or mobile is corrected: their unpaid bills, offered for sending again.
+  const [billResend, setBillResend] = useState<{
+    name: string;
+    phone: string;
+    bills: Array<{ id: string; description: string; amount: number; currency: string; invoiceRef?: string; expired: boolean }>;
+  } | null>(null);
+  const [resendingBills, setResendingBills] = useState(false);
   const [offerType, setOfferType] = useState<string>('GenericID');
   const [offerClaims, setOfferClaims] = useState('{}');
   const [offerResult, setOfferResult] = useState<OfferResult | null>(null);
@@ -260,8 +267,20 @@ export default function ContactsPage() {
         inviteExpiryHours: !editContact && form.inviteToWallet ? form.inviteExpiryHours : undefined,
       };
       if (editContact) {
+        const detailsChanged =
+          form.name.trim() !== (editContact.name || '').trim() || (form.phone || '').trim() !== (editContact.phone || '').trim();
+        // Look up bills before saving, while the old mobile still matches them.
+        const openBills = detailsChanged
+          ? await axios
+              .get(`${baseUrl}/api/contacts/${editContact.id}/open-bills`, auth())
+              .then((res) => (Array.isArray(res.data) ? res.data : []))
+              .catch(() => [])
+          : [];
         await axios.patch(`${baseUrl}/api/contacts/${editContact.id}`, payload, auth());
         notifications.show({ title: 'Saved', message: `${form.name} updated`, color: 'green', icon: <IconCheck size={14} /> });
+        if (openBills.length > 0 && /^\+?[1-9]\d{6,14}$/.test((form.phone || '').trim())) {
+          setBillResend({ name: form.name.trim(), phone: form.phone.trim(), bills: openBills });
+        }
       } else {
         if (form.contactScope === 'internal' && !form.teamRole) {
           notifications.show({ title: 'Choose a role', message: 'Someone on the team needs a role from setup.', color: 'orange' });
@@ -321,6 +340,36 @@ export default function ContactsPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  /* ── Send unpaid bills again to corrected details ── */
+  const resendBills = async () => {
+    if (!billResend) return;
+    setResendingBills(true);
+    let sent = 0;
+    const failed: string[] = [];
+    for (const bill of billResend.bills) {
+      try {
+        await axios.patch(
+          `${baseUrl}/api/payment-links/${encodeURIComponent(bill.id)}/payer`,
+          { payerName: billResend.name, payerPhone: billResend.phone },
+          auth(),
+        );
+        const opts = auth();
+        await axios.post(
+          `${baseUrl}/api/payment-links/${encodeURIComponent(bill.id)}/send`,
+          { renew: bill.expired },
+          { ...opts, headers: { ...(opts as any).headers, 'x-idempotency-key': crypto.randomUUID() } },
+        );
+        sent += 1;
+      } catch (err: any) {
+        failed.push(`${bill.invoiceRef || bill.description}: ${err?.response?.data?.message || err?.message || 'not sent'}`);
+      }
+    }
+    setResendingBills(false);
+    setBillResend(null);
+    if (sent) notifications.show({ title: 'Bills sent', message: `${sent} bill${sent === 1 ? '' : 's'} sent to ${billResend.name}`, color: 'green', icon: <IconCheck size={14} /> });
+    if (failed.length) notifications.show({ title: 'Some bills were not sent', message: failed.join(' · '), color: 'orange' });
   };
 
   /* ── Delete ── */
@@ -612,6 +661,33 @@ export default function ContactsPage() {
       </Container>
 
       {/* ── Request Proof Modal ── */}
+      <Modal opened={Boolean(billResend)} onClose={() => !resendingBills && setBillResend(null)} title="Send unpaid bills again?" centered>
+        {billResend && (
+          <Stack gap="sm">
+            <Text size="sm">
+              {billResend.name} has {billResend.bills.length} unpaid bill{billResend.bills.length === 1 ? '' : 's'}. Send {billResend.bills.length === 1 ? 'it' : 'them'} to {billResend.phone} now? Expired links are renewed first.
+            </Text>
+            {billResend.bills.map((bill) => (
+              <Paper key={bill.id} withBorder p="xs">
+                <Group justify="space-between" wrap="nowrap">
+                  <Text size="sm" lineClamp={1}>{bill.invoiceRef || bill.description}</Text>
+                  <Group gap={6} wrap="nowrap">
+                    {bill.expired && <Badge size="xs" color="orange">Expired</Badge>}
+                    <Text size="sm" fw={600}>{bill.currency} {Number(bill.amount).toFixed(2)}</Text>
+                  </Group>
+                </Group>
+              </Paper>
+            ))}
+            <Group justify="flex-end">
+              <Button variant="subtle" disabled={resendingBills} onClick={() => setBillResend(null)}>Not now</Button>
+              <Button leftSection={<IconSend size={14} />} loading={resendingBills} onClick={() => void resendBills()}>
+                Send to {billResend.name}
+              </Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
+
       <Modal
         opened={showRequestProof}
         onClose={() => { setShowRequestProof(false); setProofResult(null); }}

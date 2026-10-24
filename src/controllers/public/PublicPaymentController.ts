@@ -816,13 +816,16 @@ export class PublicPaymentController extends Controller {
       db.prepare(
         `UPDATE wallet_pending_offers
                  SET offer_uri = ?,
+                     metadata = CASE WHEN json_valid(metadata)
+                       THEN json_set(metadata, '$.shortlinkCode', ?, '$.shortlinkUrl', ?, '$.expiresAt', ?)
+                       ELSE metadata END,
                      last_attempt_at = ?,
                      last_error = NULL
                  WHERE source_type = 'payment_link'
                    AND source_id = ?
                    AND tenant_id = ?
                    AND resolved_at IS NULL`,
-      ).run(refreshed.url, now, row.id, payerTenantId)
+      ).run(refreshed.url, refreshed.code, refreshed.url, refreshed.expiresAt, now, row.id, payerTenantId)
     })()
 
     logger.info(

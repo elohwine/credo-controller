@@ -10,6 +10,7 @@ import { orgSetupProfileService } from '../../services/OrgSetupProfileService'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 import { ShortlinkService } from '../../services/ShortlinkService'
 import { notificationService } from '../../services/NotificationService'
+import { paymentLinkService } from '../../services/PaymentLinkService'
 import { outboxService } from '../../services/OutboxService'
 import { orgWorkflowActorService } from '../../services/OrgWorkflowActorService'
 import { businessTransactionService } from '../../services/BusinessTransactionService'
@@ -1470,6 +1471,7 @@ export class ArController extends Controller {
       const payerName = body.payerName || ''
       const payerPhone = body.payerPhone || ''
       const payerEmail = body.payerEmail || ''
+      const payerContact = body.contactId ? contactRepository.findByIdInOrg(body.contactId, tenantId) : undefined
       const numInstalments = collectionType === 'one_time' ? 1 : Math.max(1, body.instalments ?? 1)
       const instAmount = Math.round((totalAmount / numInstalments) * 100) / 100
       const ttlHours = 336
@@ -1503,9 +1505,9 @@ export class ArController extends Controller {
         db.prepare(
           `
                     INSERT INTO payment_links
-                      (id, merchant_id, description, amount, currency, status, expiry,
+                      (id, merchant_id, description, amount, currency, status, expiry, payer_phone,
                        shortlink_code, shortlink_url, metadata, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
                 `,
         ).run(
           linkId,
@@ -1514,6 +1516,7 @@ export class ArController extends Controller {
           totalAmount,
           currency,
           expiryDate,
+          payerPhone || null,
           code,
           url,
           JSON.stringify({
@@ -1567,19 +1570,16 @@ export class ArController extends Controller {
           links: [{ linkId, installmentNumber: 1, amount: totalAmount, dueDate: null }],
         })
 
-        if (payerPhone || payerEmail) {
-          notificationService
-            .dispatchContactNotification({
-              tenantId,
-              dedupeKey: `ar-link:${linkId}`,
-              contact: { name: payerName, phone: payerPhone, email: payerEmail },
-              type: 'payment_link',
-              url,
-              amount: totalAmount,
-              currency,
-            })
-            .catch((e) => logger.warn({ err: e }, 'Notification failed for one-time AR link'))
-        }
+        paymentLinkService
+          .deliverNewBill({
+            linkId,
+            merchantId: tenantId,
+            payer: { name: payerName, phone: payerPhone || undefined, email: payerEmail || undefined },
+            dedupeKey: `ar-link:${linkId}`,
+            walletTenantId: payerContact?.walletTenantId,
+            contactId: body.contactId || undefined,
+          })
+          .catch((e) => logger.warn({ err: e }, 'Notification failed for one-time AR link'))
 
         if (apMirror.payerTenantId) {
           const metadata = {
@@ -1683,9 +1683,9 @@ export class ArController extends Controller {
         db.prepare(
           `
                     INSERT INTO payment_links
-                      (id, merchant_id, description, amount, currency, status, expiry,
+                      (id, merchant_id, description, amount, currency, status, expiry, payer_phone,
                        shortlink_code, shortlink_url, metadata, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
                 `,
         ).run(
           linkId,
@@ -1694,6 +1694,7 @@ export class ArController extends Controller {
           instAmount,
           currency,
           expiryDate,
+          payerPhone || null,
           code,
           url,
           JSON.stringify({
@@ -1751,16 +1752,15 @@ export class ArController extends Controller {
       }
 
       // Notify payer of first instalment
-      if ((payerPhone || payerEmail) && createdLinks.length > 0) {
-        notificationService
-          .dispatchContactNotification({
-            tenantId,
+      if (createdLinks.length > 0) {
+        paymentLinkService
+          .deliverNewBill({
+            linkId: createdLinks[0].linkId,
+            merchantId: tenantId,
+            payer: { name: payerName, phone: payerPhone || undefined, email: payerEmail || undefined },
             dedupeKey: `ar-plan:${planId}`,
-            contact: { name: payerName, phone: payerPhone, email: payerEmail },
-            type: 'payment_link',
-            url: createdLinks[0].shortlinkUrl,
-            amount: totalAmount,
-            currency,
+            walletTenantId: payerContact?.walletTenantId,
+            contactId: body.contactId || undefined,
           })
           .catch((e) => logger.warn({ err: e }, 'Notification failed for AR plan'))
       }

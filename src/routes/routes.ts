@@ -19687,6 +19687,43 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsContactController_listOpenBills: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                contactId: {"in":"path","name":"contactId","required":true,"dataType":"string"},
+        };
+        app.get('/api/contacts/:contactId/open-bills',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(ContactController)),
+            ...(fetchMiddlewares<RequestHandler>(ContactController.prototype.listOpenBills)),
+
+            async function ContactController_listOpenBills(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsContactController_listOpenBills, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<ContactController>(ContactController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'listOpenBills',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsContactController_deleteContact: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 contactId: {"in":"path","name":"contactId","required":true,"dataType":"string"},
@@ -20086,6 +20123,44 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'cancelPaymentLink',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsPaymentLinkController_updatePaymentLinkPayer: Record<string, TsoaRoute.ParameterSchema> = {
+                linkId: {"in":"path","name":"linkId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"payerPhone":{"dataType":"string"},"payerName":{"dataType":"string"}}},
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.patch('/api/payment-links/:linkId/payer',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(PaymentLinkController)),
+            ...(fetchMiddlewares<RequestHandler>(PaymentLinkController.prototype.updatePaymentLinkPayer)),
+
+            async function PaymentLinkController_updatePaymentLinkPayer(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsPaymentLinkController_updatePaymentLinkPayer, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<PaymentLinkController>(PaymentLinkController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'updatePaymentLinkPayer',
                 controller,
                 response,
                 next,

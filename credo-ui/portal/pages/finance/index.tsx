@@ -85,6 +85,13 @@ function includesAny(value: string, hints: string[]): boolean {
   return hints.some((hint) => normalized.includes(hint))
 }
 
+function billSentMessage(contact: { payerName: string }, notification: any, renew: boolean) {
+  const queued = notification?.channels?.some((channel: any) => channel.status === 'queued')
+  if (notification?.accepted || queued)
+    return { color: 'teal', message: `${renew ? 'New link sent' : 'Bill sent'} to ${contact.payerName}. It is also in their Credentis inbox if they use the app.` }
+  return { color: 'orange', message: `Saved, but no message went out to ${contact.payerName} (${(notification?.channels || []).map((channel: any) => `${channel.channel}: ${channel.status}`).join(', ') || 'no channel'}). Copy the payment link and share it directly.` }
+}
+
 export default function FinanceModulesPage() {
   // Org-only surface: personal sessions are redirected (mirrors mobile /finance → /inbox).
   useRequireOrgContext('/inbox')
@@ -416,7 +423,7 @@ export default function FinanceModulesPage() {
       const path = linkId
         ? `/api/payment-links/${encodeURIComponent(linkId)}/send`
         : `/workflows/runs/${encodeURIComponent(billingItem.run.id)}/billing/retry`
-      await axios.post(
+      const sent = await axios.post(
         `${backendUrl}${path}`,
         linkId ? { ...contact, renew } : { clientName: contact.payerName, clientPhone: contact.payerPhone },
         {
@@ -424,6 +431,7 @@ export default function FinanceModulesPage() {
         },
       )
       assertContext()
+      if (linkId) notifications.show(billSentMessage(contact, sent.data?.notification, renew))
       const fresh = await axios.get(
         `${backendUrl}${linkId ? `/api/payment-links/${encodeURIComponent(linkId)}` : `/workflows/runs/${encodeURIComponent(billingItem.run.id)}`}`,
         { headers },
@@ -445,6 +453,33 @@ export default function FinanceModulesPage() {
           ? error.response?.data?.message || error.message
           : error instanceof Error ? error.message : 'Could not send the client invoice',
       })
+    } finally {
+      setBillingBusy(false)
+    }
+  }
+
+  const saveBillingPayer = async (contact: { payerName: string; payerPhone: string }) => {
+    const linkId = billingItem?.link?.id
+    const headers = authHeaders()
+    if (!linkId || !headers) return undefined
+    setBillingBusy(true)
+    const assertContext = captureOrganizationSwitchContext(localStorage)
+    try {
+      const saved = await axios.patch(`${backendUrl}/api/payment-links/${encodeURIComponent(linkId)}/payer`, contact, { headers })
+      assertContext()
+      const fresh = await axios.get(`${backendUrl}/api/payment-links/${encodeURIComponent(linkId)}`, { headers })
+      assertContext()
+      setBillingItem((current) => (current ? { ...current, link: fresh.data.link } : current))
+      return saved.data as { changed: boolean; needsRenewal: boolean }
+    } catch (error) {
+      if (!assertContext.isCurrent()) return undefined
+      notifications.show({
+        color: 'red',
+        message: axios.isAxiosError(error)
+          ? error.response?.data?.message || error.message
+          : error instanceof Error ? error.message : 'Could not save the client details',
+      })
+      return undefined
     } finally {
       setBillingBusy(false)
     }
@@ -1115,6 +1150,7 @@ export default function FinanceModulesPage() {
               String(readActiveOrganization()?.role || ''),
             )}
             onSend={sendBilling}
+            onSavePayer={saveBillingPayer}
             onOpenJob={
               billingItem.run?.id || billingItem.link?.sourceRunId
                 ? () => {

@@ -13,11 +13,13 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
+import { getTenantById } from '../persistence/TenantRepository'
 import { workflowRunRepository } from '../persistence/WorkflowRunRepository'
 import { rootLogger } from '../utils/pinoLogger'
 
 import { businessTransactionService } from './BusinessTransactionService'
 import { notificationService, type ContactNotificationResult } from './NotificationService'
+import { outboxService } from './OutboxService'
 import { ShortlinkService } from './ShortlinkService'
 import { findWalletTenantByContact } from './ssi/walletLookup'
 
@@ -77,7 +79,51 @@ function metadataOf(raw: unknown): Record<string, any> {
   }
 }
 
+function assertPayer(payerName: string, payerPhone: string): void {
+  if (!/^\+?[1-9]\d{6,14}$/.test(payerPhone))
+    throw new StatusException('Enter a valid client mobile in international format', 400)
+  if (!payerName) throw new StatusException('Enter the client name', 400)
+}
+
 export class PaymentLinkService {
+  /**
+   * Correct who a bill is for without sending it. A card already in someone else's inbox is withdrawn;
+   * the new client gets theirs with the next send. Tells the caller whether that send needs a renewal.
+   */
+  public updatePayer(
+    linkId: string,
+    merchantId: string,
+    contact: { payerName?: string; payerPhone?: string },
+  ): { linkId: string; payerName: string; payerPhone: string; changed: boolean; needsRenewal: boolean } {
+    const db = DatabaseManager.getDatabase()
+    const link = db
+      .prepare('SELECT status, expiry, payer_phone, metadata FROM payment_links WHERE id = ? AND merchant_id = ?')
+      .get(linkId, merchantId) as { status: string; expiry: string; payer_phone?: string | null; metadata: string } | undefined
+    if (!link) throw new StatusException('Payment link not found', 404)
+    if (['paid', 'cancelled'].includes(link.status))
+      throw new StatusException('Paid or cancelled bills cannot be changed', 409)
+    const metadata = metadataOf(link.metadata)
+    const payerPhone = String(contact.payerPhone ?? link.payer_phone ?? '').trim()
+    const payerName = String(contact.payerName ?? metadata.payerName ?? '').trim()
+    assertPayer(payerName, payerPhone)
+    const changed = payerPhone !== (link.payer_phone || '') || payerName !== (metadata.payerName || '')
+    const now = new Date().toISOString()
+    if (changed) {
+      db.transaction(() => {
+        db.prepare(
+          `UPDATE payment_links SET payer_phone = ?, metadata = ?, updated_at = ? WHERE id = ? AND merchant_id = ?`,
+        ).run(payerPhone, JSON.stringify({ ...metadata, payerName, payerPhone }), now, linkId, merchantId)
+        const wallet = findWalletTenantByContact(payerPhone) || ''
+        db.prepare(
+          `UPDATE wallet_pending_offers SET resolved_at = ?, last_error = 'Sent to another client'
+            WHERE source_type = 'payment_link' AND source_id = ? AND tenant_id <> ? AND resolved_at IS NULL`,
+        ).run(now, linkId, wallet)
+      })()
+    }
+    const needsRenewal = link.status === 'expired' || new Date(link.expiry).getTime() <= Date.now()
+    return { linkId, payerName, payerPhone, changed, needsRenewal }
+  }
+
   public async resend(
     linkId: string,
     merchantId: string,
@@ -109,9 +155,7 @@ export class PaymentLinkService {
     const metadata = metadataOf(link.metadata)
     const payerPhone = (contact.payerPhone ?? link.payer_phone ?? '').trim()
     const payerName = (contact.payerName ?? (typeof metadata.payerName === 'string' ? metadata.payerName : '')).trim()
-    if (!/^\+?[1-9]\d{6,14}$/.test(payerPhone))
-      throw new StatusException('Enter a valid client mobile in international format', 400)
-    if (!payerName) throw new StatusException('Enter the client name', 400)
+    assertPayer(payerName, payerPhone)
     let url = link.shortlink_url
     db.transaction(() => {
       if (renew) {
@@ -139,9 +183,12 @@ export class PaymentLinkService {
         `UPDATE payment_links SET payer_phone = ?, metadata = ?, updated_at = ? WHERE id = ? AND merchant_id = ?`,
       ).run(payerPhone, JSON.stringify({ ...metadata, payerName }), new Date().toISOString(), linkId, merchantId)
     })()
+    // Every send is a new message: a key shared with an earlier send would quietly reuse that send's outcome.
+    const sends = Array.isArray(metadata.deliveryHistory) ? metadata.deliveryHistory.length : 0
+    const sendKey = sends === 0 ? `payment_link:${linkId}` : `payment_link:${linkId}:send-${sends + 1}`
     let inboxItemId: string | undefined
     try {
-      inboxItemId = this.offerToPayerInbox(linkId)
+      inboxItemId = this.offerToPayerInbox(linkId, { contactId: metadata.contactId, announceKey: sendKey })
     } catch (error) {
       logger.warn({ err: error, linkId }, 'Could not put the bill in the payer inbox')
     }
@@ -150,11 +197,11 @@ export class PaymentLinkService {
       result = await notificationService.dispatchContactNotification({
         tenantId: merchantId,
         inboxItemId,
-        dedupeKey: `payment_link:${linkId}`,
+        dedupeKey: sendKey,
         contact: { name: payerName, phone: payerPhone },
         type: 'payment_link',
         url,
-        issuerName: link.merchant_name,
+        issuerName: link.merchant_name || getTenantById(merchantId)?.label,
         amount: link.amount,
         currency: link.currency,
       })
@@ -180,6 +227,59 @@ export class PaymentLinkService {
     }
     this.recordDelivery(linkId, merchantId, notification)
     return { linkId, url, notification }
+  }
+
+  /**
+   * First delivery of a bill created outside `create`/`resend` (contact and receivables screens):
+   * the payer's inbox card, then WhatsApp/SMS/email pointing at it, recorded in the bill's history.
+   */
+  public async deliverNewBill(input: {
+    linkId: string
+    merchantId: string
+    payer: { name: string; phone?: string; email?: string }
+    dedupeKey: string
+    walletTenantId?: string
+    contactId?: string
+  }): Promise<PaymentLinkDelivery | undefined> {
+    const db = DatabaseManager.getDatabase()
+    const link = db
+      .prepare('SELECT shortlink_url, amount, currency, merchant_name FROM payment_links WHERE id = ? AND merchant_id = ?')
+      .get(input.linkId, input.merchantId) as
+      | { shortlink_url: string; amount: number; currency: string; merchant_name?: string | null }
+      | undefined
+    if (!link) return undefined
+    let inboxItemId: string | undefined
+    try {
+      inboxItemId = this.offerToPayerInbox(input.linkId, {
+        walletTenantId: input.walletTenantId,
+        contactId: input.contactId,
+        announceKey: input.dedupeKey,
+      })
+    } catch (error) {
+      logger.warn({ err: error, linkId: input.linkId }, 'Could not put the bill in the payer inbox')
+    }
+    if (!input.payer.phone && !input.payer.email) return undefined
+    const at = new Date().toISOString()
+    let notification: PaymentLinkDelivery
+    try {
+      const result = await notificationService.dispatchContactNotification({
+        tenantId: input.merchantId,
+        inboxItemId,
+        dedupeKey: input.dedupeKey,
+        contact: input.payer,
+        type: 'payment_link',
+        url: link.shortlink_url,
+        issuerName: link.merchant_name || getTenantById(input.merchantId)?.label,
+        amount: link.amount,
+        currency: link.currency,
+      })
+      notification = { ...result, at, to: input.payer.phone || input.payer.email || '', renewed: false }
+    } catch (error) {
+      logger.warn({ err: error, linkId: input.linkId }, 'Bill notification failed')
+      notification = { accepted: false, channels: [], at, to: input.payer.phone || input.payer.email || '', renewed: false }
+    }
+    this.recordDelivery(input.linkId, input.merchantId, notification)
+    return notification
   }
 
   public recordDelivery(linkId: string, merchantId: string, notification: PaymentLinkDelivery): void {
@@ -409,7 +509,16 @@ export class PaymentLinkService {
    * "Pay now" card that opens the in-app checkout. Sending again refreshes the same card.
    * Returns the inbox item id, or undefined when the phone has no account.
    */
-  public offerToPayerInbox(linkId: string): string | undefined {
+  public offerToPayerInbox(
+    linkId: string,
+    opts: {
+      /** The payer's wallet when it is already known (a contact linked to an account). */
+      walletTenantId?: string
+      contactId?: string
+      /** Set when this is a send: the card moves to the top as new and the phone gets a popup. */
+      announceKey?: string
+    } = {},
+  ): string | undefined {
     const db = DatabaseManager.getDatabase()
     const link = db
       .prepare(
@@ -435,9 +544,11 @@ export class PaymentLinkService {
           metadata?: string | null
         }
       | undefined
-    if (!link?.payer_phone || link.status !== 'active') return undefined
-    const walletTenantId = findWalletTenantByContact(link.payer_phone)
+    if (!link || link.status !== 'active') return undefined
+    const walletTenantId =
+      (link.payer_phone ? findWalletTenantByContact(link.payer_phone) : undefined) || opts.walletTenantId
     if (!walletTenantId) return undefined
+    const merchantName = link.merchant_name || getTenantById(link.merchant_id)?.label || null
 
     const metadata = metadataOf(link.metadata)
     const typeLabel =
@@ -455,8 +566,8 @@ export class PaymentLinkService {
       currency: link.currency,
       invoiceRef: link.invoice_ref || null,
       merchantTenantId: link.merchant_id,
-      merchantName: link.merchant_name || null,
-      orgName: link.merchant_name || null,
+      merchantName,
+      orgName: merchantName,
       kind: metadata.kind || 'invoice',
       expiresAt: link.expiry,
       metadata: { type: typeLabel },
@@ -464,6 +575,11 @@ export class PaymentLinkService {
     const title = `${typeLabel}${link.invoice_ref ? ` ${link.invoice_ref}` : ''}`
     const body = `${link.currency} ${amount.toFixed(2)} · ${link.description}`
     const now = new Date().toISOString()
+    // The bill now belongs to this payer only: a card left with an earlier payer is withdrawn.
+    db.prepare(
+      `UPDATE wallet_pending_offers SET resolved_at = ?, last_error = 'Sent to another client'
+        WHERE source_type = 'payment_link' AND source_id = ? AND tenant_id <> ? AND resolved_at IS NULL`,
+    ).run(now, link.id, walletTenantId)
     const existing = db
       .prepare(
         `SELECT id FROM wallet_pending_offers
@@ -471,23 +587,61 @@ export class PaymentLinkService {
           ORDER BY created_at DESC LIMIT 1`,
       )
       .get(walletTenantId, link.id) as { id: string } | undefined
+    let id: string
     if (existing) {
-      db.prepare(`UPDATE wallet_pending_offers SET offer_uri = ?, title = ?, body = ?, metadata = ? WHERE id = ?`).run(
+      id = existing.id
+      db.prepare(
+        `UPDATE wallet_pending_offers
+            SET offer_uri = ?, title = ?, body = ?, metadata = ?, contact_id = COALESCE(?, contact_id),
+                created_at = CASE WHEN ? = 1 THEN ? ELSE created_at END
+          WHERE id = ?`,
+      ).run(
         link.shortlink_url,
         title,
         body,
         JSON.stringify(claims),
-        existing.id,
+        opts.contactId || null,
+        opts.announceKey ? 1 : 0,
+        now,
+        id,
       )
-      return existing.id
+    } else {
+      id = `plk-${uuidv4()}`
+      db.prepare(
+        `INSERT INTO wallet_pending_offers (
+           id, tenant_id, issuer_tenant_id, contact_id, source_type, source_id, credential_type, offer_uri,
+           title, body, metadata, created_at
+         ) VALUES (?, ?, ?, ?, 'payment_link', ?, 'PaymentLink', ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        walletTenantId,
+        link.merchant_id,
+        opts.contactId || null,
+        link.id,
+        link.shortlink_url,
+        title,
+        body,
+        JSON.stringify(claims),
+        now,
+      )
     }
-    const id = `plk-${uuidv4()}`
-    db.prepare(
-      `INSERT INTO wallet_pending_offers (
-         id, tenant_id, issuer_tenant_id, source_type, source_id, credential_type, offer_uri,
-         title, body, metadata, created_at
-       ) VALUES (?, ?, ?, 'payment_link', ?, 'PaymentLink', ?, ?, ?, ?, ?)`,
-    ).run(id, walletTenantId, link.merchant_id, link.id, link.shortlink_url, title, body, JSON.stringify(claims), now)
+    if (opts.announceKey || !existing) {
+      outboxService.enqueue({
+        topic: 'wallet.vc.offered',
+        aggregateKey: walletTenantId,
+        dedupeKey: `wpo:${walletTenantId}:payment_link:${link.id}:PaymentLink${opts.announceKey ? `:${opts.announceKey}` : ''}`,
+        payload: {
+          tenantId: walletTenantId,
+          issuerTenantId: link.merchant_id,
+          inboxItemId: id,
+          sourceType: 'payment_link',
+          sourceId: link.id,
+          credentialType: 'PaymentLink',
+          offerUri: link.shortlink_url.slice(0, 300),
+          queuedAt: now,
+        },
+      })
+    }
     return id
   }
 

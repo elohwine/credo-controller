@@ -46,6 +46,7 @@ import { getTenantById } from '../../persistence/TenantRepository'
 import { credentialIssuanceService } from '../../services/CredentialIssuanceService'
 import { notificationService } from '../../services/NotificationService'
 import { outboxService } from '../../services/OutboxService'
+import { paymentLinkService } from '../../services/PaymentLinkService'
 import { ShortlinkService } from '../../services/ShortlinkService'
 import { shouldAllowWholeCardType } from '../../services/ssi/proofModeMatrix'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
@@ -332,6 +333,74 @@ export class ContactController extends Controller {
       notes: body.notes ?? existing.notes,
       walletTenantId: existing.walletTenantId,
       linkedAt: existing.linkedAt,
+    })
+  }
+
+  /**
+   * Unpaid bills addressed to this contact (by contact or by its mobile), so that after the client's
+   * details are corrected the screen can offer to send them again.
+   */
+  @Get('/{contactId}/open-bills')
+  @Security('jwt', ['tenant'])
+  public async listOpenBills(
+    @Request() request: ExRequest,
+    @Path() contactId: string,
+  ): Promise<
+    Array<{
+      id: string
+      description: string
+      amount: number
+      currency: string
+      invoiceRef?: string
+      payerName?: string
+      payerPhone?: string
+      expired: boolean
+    }>
+  > {
+    const tenantId = this.resolveTenantId(request)
+    const contact = getContactById(contactId, tenantId)
+    if (!contact) {
+      this.setStatus(404)
+      throw new StatusException('Contact not found', 404)
+    }
+    const phone = String(contact.phone || '').replace(/[^\d]/g, '')
+    const rows = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT id, description, amount, currency, invoice_ref, status, expiry, payer_phone, metadata
+           FROM payment_links
+          WHERE merchant_id = ? AND status IN ('active', 'expired')
+            AND ((json_valid(metadata) AND json_extract(metadata, '$.contactId') = ?)
+              OR (? <> '' AND REPLACE(REPLACE(COALESCE(payer_phone, ''), '+', ''), ' ', '') = ?))
+          ORDER BY created_at DESC LIMIT 20`,
+      )
+      .all(tenantId, contactId, phone, phone) as Array<{
+      id: string
+      description: string
+      amount: number
+      currency: string
+      invoice_ref?: string | null
+      status: string
+      expiry: string
+      payer_phone?: string | null
+      metadata?: string | null
+    }>
+    return rows.map((row) => {
+      let metadata: Record<string, any> = {}
+      try {
+        metadata = row.metadata ? JSON.parse(row.metadata) : {}
+      } catch {
+        metadata = {}
+      }
+      return {
+        id: row.id,
+        description: row.description,
+        amount: Number(row.amount || 0),
+        currency: row.currency,
+        invoiceRef: row.invoice_ref || undefined,
+        payerName: typeof metadata.payerName === 'string' ? metadata.payerName : undefined,
+        payerPhone: row.payer_phone || undefined,
+        expired: row.status === 'expired' || new Date(row.expiry).getTime() <= Date.now(),
+      }
     })
   }
 
@@ -699,8 +768,8 @@ export class ContactController extends Controller {
       `
       INSERT INTO payment_links
           (id, merchant_id, merchant_name, description, amount, currency, invoice_ref,
-           sector, status, expiry, shortlink_code, shortlink_url, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+           sector, status, expiry, payer_phone, shortlink_code, shortlink_url, metadata, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
     `,
     ).run(
       id,
@@ -712,95 +781,28 @@ export class ContactController extends Controller {
       body.invoiceRef ?? null,
       sector,
       expiryDate,
+      contact.phone || null,
       code,
       url,
+      JSON.stringify({
+        payerName: contact.name,
+        payerPhone: contact.phone || null,
+        payerEmail: contact.email || null,
+        contactId: contact.id,
+      }),
       now,
       now,
     )
 
-    // If contact is already wallet-linked, push the payment link into their inbox queue.
-    // This lets org recipients discover link-based payment tasks in-wallet, not only via SMS/WA/email.
-    if (contact.walletTenantId) {
-      const queueResult = db
-        .prepare(
-          `
-        INSERT INTO wallet_pending_offers (
-          id, tenant_id, issuer_tenant_id, contact_id, source_type, source_id,
-          credential_type, offer_uri, title, body, metadata, created_at
-        )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-        WHERE NOT EXISTS (
-          SELECT 1 FROM wallet_pending_offers
-          WHERE tenant_id = ?
-            AND offer_uri = ?
-            AND resolved_at IS NULL
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM wallet_pending_offers
-          WHERE tenant_id = ?
-            AND source_type = 'payment_link'
-            AND source_id = ?
-            AND credential_type = 'PaymentLink'
-            AND accepted_at IS NOT NULL
-        )
-      `,
-        )
-        .run(
-          `plk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          contact.walletTenantId,
-          tenantId,
-          contact.id,
-          'payment_link',
-          id,
-          'PaymentLink',
-          url,
-          'Payment Link Received',
-          `${contact.name}, ${body.description}`,
-          JSON.stringify({
-            paymentLinkId: id,
-            shortlinkCode: code,
-            shortlinkUrl: url,
-            amount: body.amount,
-            currency: body.currency ?? 'USD',
-            invoiceRef: body.invoiceRef ?? null,
-            merchantTenantId: tenantId,
-            merchantName,
-          }),
-          now,
-          contact.walletTenantId,
-          url,
-          contact.walletTenantId,
-          id,
-        )
-
-      if ((queueResult.changes || 0) > 0) {
-        outboxService.enqueue({
-          topic: 'wallet.vc.offered',
-          aggregateKey: contact.walletTenantId,
-          dedupeKey: `wpo:${contact.walletTenantId}:payment_link:${id}:PaymentLink`,
-          payload: {
-            tenantId: contact.walletTenantId,
-            issuerTenantId: tenantId,
-            sourceType: 'payment_link',
-            sourceId: id,
-            credentialType: 'PaymentLink',
-            offerUri: url.slice(0, 300),
-            queuedAt: new Date().toISOString(),
-          },
-        })
-      }
-    }
-
-    // Fire-and-forget — notify the contact via all configured channels
-    notificationService
-      .dispatchContactNotification({
-        tenantId,
+    // The client's inbox card (when they have Credentis) and WhatsApp/SMS/email; recorded on the bill.
+    paymentLinkService
+      .deliverNewBill({
+        linkId: id,
+        merchantId: tenantId,
+        payer: { name: contact.name, phone: contact.phone, email: contact.email },
         dedupeKey: `payment_link:${id}`,
-        contact: { name: contact.name, phone: contact.phone, email: contact.email },
-        type: 'payment_link',
-        url,
-        amount: body.amount,
-        currency: body.currency ?? 'USD',
+        walletTenantId: contact.walletTenantId,
+        contactId: contact.id,
       })
       .catch(() => {
         /* logged inside service */

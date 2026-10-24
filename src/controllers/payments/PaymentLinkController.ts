@@ -10,7 +10,7 @@
 
 import type { Request as ExRequest } from 'express'
 
-import { Controller, Post, Get, Delete, Route, Tags, Body, Path, Query, Security, Request } from 'tsoa'
+import { Controller, Post, Get, Delete, Patch, Route, Tags, Body, Path, Query, Security, Request } from 'tsoa'
 
 import { SCOPES } from '../../enums'
 import { StatusException } from '../../errors'
@@ -308,6 +308,18 @@ export class PaymentLinkController extends Controller {
     }
   }
 
+  /** Save the client's name and mobile on a bill without sending it; the screen then offers to send. */
+  @Patch('{linkId}/payer')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
+  public async updatePaymentLinkPayer(
+    @Path() linkId: string,
+    @Body() body: { payerName?: string; payerPhone?: string },
+    @Request() request: ExRequest,
+  ): Promise<{ linkId: string; payerName: string; payerPhone: string; changed: boolean; needsRenewal: boolean }> {
+    const merchantId = this.assertFinanceAdmin(request)
+    return paymentLinkService.updatePayer(linkId, merchantId, body || {})
+  }
+
   @Post('{linkId}/send')
   @Security('jwt', [SCOPES.TENANT_AGENT])
   public async sendPaymentLink(
@@ -315,17 +327,9 @@ export class PaymentLinkController extends Controller {
     @Body() body: { payerName?: string; payerPhone?: string; renew?: boolean },
     @Request() request: ExRequest,
   ): Promise<{ linkId: string; url: string; notification: PaymentLinkDelivery }> {
-    this.assertOrgRole(request)
-    const merchantId = this.getTenantId(request)
-    orgSetupProfileService.assertModule(merchantId, 'collections')
+    const merchantId = this.assertFinanceAdmin(request)
     if (!IdempotencyGuard.extractKey(request)) throw new StatusException('Missing x-idempotency-key header', 400)
     const db = DatabaseManager.getDatabase()
-    const member = db
-      .prepare(`SELECT role FROM org_memberships WHERE org_tenant_id = ? AND user_id = ? AND status = 'active' LIMIT 1`)
-      .get(merchantId, String((request as any).user?.id || '')) as { role?: string } | undefined
-    if (!['owner', 'admin', 'issuer', 'manager', 'approver'].includes(String(member?.role))) {
-      throw new StatusException('An active finance administrator membership is required', 403)
-    }
     const action = `send-payment-link:${linkId}`
     const replay = IdempotencyGuard.guard(db, request, merchantId, action)
     if (replay.duplicate) return replay.response
@@ -338,5 +342,18 @@ export class PaymentLinkController extends Controller {
     )
     if (replay.key) IdempotencyGuard.record(db, replay.key, merchantId, action, result)
     return result
+  }
+
+  private assertFinanceAdmin(request: ExRequest): string {
+    this.assertOrgRole(request)
+    const merchantId = this.getTenantId(request)
+    orgSetupProfileService.assertModule(merchantId, 'collections')
+    const member = DatabaseManager.getDatabase()
+      .prepare(`SELECT role FROM org_memberships WHERE org_tenant_id = ? AND user_id = ? AND status = 'active' LIMIT 1`)
+      .get(merchantId, String((request as any).user?.id || '')) as { role?: string } | undefined
+    if (!['owner', 'admin', 'issuer', 'manager', 'approver'].includes(String(member?.role))) {
+      throw new StatusException('An active finance administrator membership is required', 403)
+    }
+    return merchantId
   }
 }

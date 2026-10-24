@@ -1604,6 +1604,13 @@ function describeRequisitionEvent(event: NonNullable<RequisitionDetail['events']
 
 /* ── Page ── */
 
+function billSentMessage(contact: { payerName: string }, notification: any, renew: boolean) {
+  const queued = notification?.channels?.some((channel: any) => channel.status === 'queued')
+  if (notification?.accepted || queued)
+    return { color: 'teal', message: `${renew ? 'New link sent' : 'Bill sent'} to ${contact.payerName}. It is also in their Credentis inbox if they use the app.` }
+  return { color: 'orange', message: `Saved, but no message went out to ${contact.payerName} (${(notification?.channels || []).map((channel: any) => `${channel.channel}: ${channel.status}`).join(', ') || 'no channel'}). Copy the payment link and share it directly.` }
+}
+
 export default function FinancePage() {
   const router = useRouter()
   const openRelatedWork = useRelatedWorkNavigation()
@@ -5300,7 +5307,7 @@ export default function FinancePage() {
     setBillingBusy(true)
     try {
       const linkId = billingItem.link?.id || billingItem.run?.output?.clientBill?.linkId
-      await api.post(
+      const sent = await api.post(
         linkId
           ? `/api/payment-links/${encodeURIComponent(linkId)}/send`
           : `/workflows/runs/${encodeURIComponent(billingItem.run.id)}/billing/retry`,
@@ -5308,6 +5315,7 @@ export default function FinancePage() {
         { headers: { 'x-idempotency-key': crypto.randomUUID() } },
       )
       assertContext()
+      if (linkId) notifications.show(billSentMessage(contact, sent.data?.notification, renew))
       const fresh = await api.get(
         linkId
           ? `/api/payment-links/${encodeURIComponent(linkId)}`
@@ -5321,6 +5329,26 @@ export default function FinancePage() {
     } catch (err: any) {
       if (!assertContext.isCurrent()) return
       notifications.show({ color: 'red', message: err.response?.data?.message || err.message || 'Could not send the client invoice' })
+    } finally {
+      setBillingBusy(false)
+    }
+  }
+  const saveBillingPayer = async (contact: { payerName: string; payerPhone: string }) => {
+    const linkId = billingItem?.link?.id
+    if (!linkId) return undefined
+    const assertContext = captureOrganizationSwitchContext(localStorage)
+    setBillingBusy(true)
+    try {
+      const saved = await api.patch(`/api/payment-links/${encodeURIComponent(linkId)}/payer`, contact)
+      assertContext()
+      const fresh = await api.get(`/api/payment-links/${encodeURIComponent(linkId)}`)
+      assertContext()
+      setBillingItem((current) => (current ? { ...current, link: fresh.data.link } : current))
+      return saved.data as { changed: boolean; needsRenewal: boolean }
+    } catch (err: any) {
+      if (!assertContext.isCurrent()) return undefined
+      notifications.show({ color: 'red', message: err.response?.data?.message || err.message || 'Could not save the client details' })
+      return undefined
     } finally {
       setBillingBusy(false)
     }
@@ -6132,6 +6160,7 @@ export default function FinancePage() {
             busy={billingBusy}
             canManage={['owner', 'admin', 'issuer', 'manager', 'approver'].includes(getOrgRoleClaim() || '')}
             onSend={sendBilling}
+            onSavePayer={saveBillingPayer}
             onOpenJob={
               billingItem.run || billingItem.link?.sourceRunId
                 ? async () => {
