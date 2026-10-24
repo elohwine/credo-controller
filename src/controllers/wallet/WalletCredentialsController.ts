@@ -45,6 +45,8 @@ interface PendingOffer {
   id: string
   sourceId?: string
   issuerName: string
+  /** The organisation that sent the card, for its brand on bills and documents. */
+  issuerTenantId?: string
   credentialType: string
   offerUri: string
   createdAt?: string
@@ -97,6 +99,7 @@ interface PendingReceipt {
 interface PendingOfferRow {
   id: string
   source_id: string | null
+  issuer_tenant_id?: string | null
   credential_type: string
   offer_uri: string
   title: string | null
@@ -634,7 +637,7 @@ export class WalletCredentialsController extends Controller {
           `
           SELECT w.id, w.source_id, w.credential_type, w.offer_uri, w.title, w.body, w.metadata, w.created_at,
                  w.source_type, w.workflow_run_id, w.attempt_count, w.last_attempt_at, w.last_error,
-                 w.accepted_at, w.resolved_at, o.name AS org_name
+                 w.accepted_at, w.resolved_at, w.issuer_tenant_id, o.name AS org_name
           FROM wallet_pending_offers w
           LEFT JOIN organizations o ON o.tenant_id = w.issuer_tenant_id
           WHERE w.tenant_id = ?
@@ -711,6 +714,7 @@ export class WalletCredentialsController extends Controller {
           id: row.id,
           sourceId: row.source_id || undefined,
           issuerName: claims.orgName ? String(claims.orgName) : row.org_name || 'Credentis Platform',
+          issuerTenantId: row.issuer_tenant_id || undefined,
           credentialType,
           offerUri: row.offer_uri,
           createdAt: row.created_at || undefined,

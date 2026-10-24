@@ -42,6 +42,9 @@ export interface InboxItemData {
   paymentLinkId?: string;
   /** Bill context shown when a payment card is opened. */
   bill?: {
+    kind?: 'quote' | 'invoice';
+    /** The organisation that sent the bill, for its brand on the document. */
+    orgTenantId?: string;
     merchantName?: string;
     description?: string;
     payerName?: string;

@@ -47,6 +47,8 @@ import {
 import { readOrgProfile } from '@/lib/orgProfile';
 import { captureOrganizationSwitchContext } from '../../shared/taskContext';
 import { requestIdFromStageCard } from '../../shared/requestExperience';
+import BrandedDocumentView from '@/components/records/BrandedDocumentView';
+import { documentFromClaims } from '@/lib/brandedDocument';
 import { requestFamily } from '../../../src/config/requestExperience';
 import {
   emptyInboxHint,
@@ -1124,6 +1126,8 @@ export default function InboxPage() {
   // Background and pull refreshes show in the header; this button spins only when it was tapped.
   const [manualRefresh, setManualRefresh] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InboxItemData | null>(null);
+  const [billDocumentOpen, setBillDocumentOpen] = useState(false);
+  useEffect(() => setBillDocumentOpen(false), [selectedItem?.id]);
   const openedNotificationItem = useRef('');
   useEffect(() => {
     const itemId = typeof router.query.item === 'string' ? router.query.item : '';
@@ -1921,6 +1925,8 @@ export default function InboxPage() {
             paymentCode,
             paymentLinkId: String(o.sourceId || claim.paymentLinkId || metadata.paymentLinkId || '').trim() || undefined,
             bill: {
+              kind: String(claim.kind || '').toLowerCase() === 'quote' ? 'quote' as const : 'invoice' as const,
+              orgTenantId: firstNonEmptyString(o.issuerTenantId, claim.merchantTenantId) || undefined,
               merchantName: firstNonEmptyString(claim.merchantName, claim.schoolName, claim.orgName) || undefined,
               description: firstNonEmptyString(claim.description) || undefined,
               payerName: firstNonEmptyString(claim.payerName, metadata.customerName) || undefined,
@@ -3860,6 +3866,36 @@ export default function InboxPage() {
                     ))}
                     {bill.fromJob && (
                       <Text size="xs" c="dimmed">This bill is for work done on a job by {bill.merchantName || 'the organisation'}.</Text>
+                    )}
+                    {selectedItem.amount != null && (
+                      <>
+                        <Button size="xs" variant="subtle" onClick={() => setBillDocumentOpen((open) => !open)}>
+                          {billDocumentOpen ? 'Hide' : 'View'} {bill.kind === 'quote' ? 'quotation' : 'invoice'}
+                        </Button>
+                        {billDocumentOpen && (
+                          <BrandedDocumentView
+                            orgTenantId={bill.orgTenantId}
+                            fallbackName={bill.merchantName || selectedItem.ownerDisplayName}
+                            height={460}
+                            model={documentFromClaims({
+                              kind: bill.kind === 'quote' ? 'quote' : 'invoice',
+                              issuedAt: bill.issuedAt || selectedItem.createdAt,
+                              signed: false,
+                              claims: {
+                                invoiceId: selectedItem.invoiceRef,
+                                quoteId: bill.kind === 'quote' ? selectedItem.invoiceRef : undefined,
+                                amount: selectedItem.amount,
+                                currency: selectedItem.currency,
+                                description: bill.description,
+                                payerName: bill.payerName,
+                                dueDate: bill.dueDate,
+                                validUntil: bill.kind === 'quote' ? bill.expiresAt : undefined,
+                                status: paid ? 'paid' : expired ? 'expired' : undefined,
+                              },
+                            })}
+                          />
+                        )}
+                      </>
                     )}
                     <Divider my={2} />
                     <Text size="xs" fw={600}>What happens next</Text>

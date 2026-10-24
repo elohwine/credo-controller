@@ -10,6 +10,8 @@ export interface WalletSnapshotCredential {
   type: string | string[]
   issuerDid?: string
   issuerName?: string
+  /** The organisation that issued the card, for its brand on quotes, invoices and receipts. */
+  issuerOrgTenantId?: string
   addedOn?: string
   revoked?: boolean
   withdrawn?: boolean
@@ -93,6 +95,7 @@ export function normalizeWalletCredentialRows(items: any[]): WalletSnapshotCrede
         type: item.vc_type || item.type || 'VerifiableCredential',
         issuerDid: item.issuerDid,
         issuerName: item.issuerName,
+        issuerOrgTenantId: item.issuerOrgTenantId,
         addedOn: item.issued_at || item.addedOn,
         revoked: !!item.revoked || item.status === 'REVOKED',
         withdrawn: !!item.withdrawn,

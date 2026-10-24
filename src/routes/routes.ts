@@ -144,9 +144,9 @@ import { OrganizationEntryController } from './../controllers/organizations/Orga
 // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
 import { JobIntakeController } from './../controllers/platform/JobIntakeController';
 // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-import { PortalController } from './../controllers/PortalController';
-// WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
 import { PublicOrgBrandController } from './../controllers/public/PublicOrgBrandController';
+// WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+import { PortalController } from './../controllers/PortalController';
 import { expressAuthentication } from './../authentication';
 // @ts-ignore - no great way to install types from subpackage
 import { iocContainer } from './../utils/tsyringeTsoaIocContainer';
@@ -3029,6 +3029,7 @@ const models: TsoaRoute.Models = {
             "id": {"dataType":"string","required":true},
             "sourceId": {"dataType":"string"},
             "issuerName": {"dataType":"string","required":true},
+            "issuerTenantId": {"dataType":"string"},
             "credentialType": {"dataType":"string","required":true},
             "offerUri": {"dataType":"string","required":true},
             "createdAt": {"dataType":"string"},
@@ -23304,6 +23305,42 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsPublicOrgBrandController_getBrand: Record<string, TsoaRoute.ParameterSchema> = {
+                orgTenantId: {"in":"path","name":"orgTenantId","required":true,"dataType":"string"},
+                at: {"in":"query","name":"at","dataType":"string"},
+        };
+        app.get('/api/public/orgs/:orgTenantId/brand',
+            ...(fetchMiddlewares<RequestHandler>(PublicOrgBrandController)),
+            ...(fetchMiddlewares<RequestHandler>(PublicOrgBrandController.prototype.getBrand)),
+
+            async function PublicOrgBrandController_getBrand(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsPublicOrgBrandController_getBrand, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<PublicOrgBrandController>(PublicOrgBrandController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'getBrand',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsPortalController_getCredentialList: Record<string, TsoaRoute.ParameterSchema> = {
         };
         app.get('/api/list',
@@ -23362,42 +23399,6 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'getCredentialOffer',
-                controller,
-                response,
-                next,
-                validatedArgs,
-                successStatus: undefined,
-              });
-            } catch (err) {
-                return next(err);
-            }
-        });
-        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-        const argsPublicOrgBrandController_getBrand: Record<string, TsoaRoute.ParameterSchema> = {
-                orgTenantId: {"in":"path","name":"orgTenantId","required":true,"dataType":"string"},
-                at: {"in":"query","name":"at","dataType":"string"},
-        };
-        app.get('/api/public/orgs/:orgTenantId/brand',
-            ...(fetchMiddlewares<RequestHandler>(PublicOrgBrandController)),
-            ...(fetchMiddlewares<RequestHandler>(PublicOrgBrandController.prototype.getBrand)),
-
-            async function PublicOrgBrandController_getBrand(request: ExRequest, response: ExResponse, next: any) {
-
-            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-
-            let validatedArgs: any[] = [];
-            try {
-                validatedArgs = templateService.getValidatedArgs({ args: argsPublicOrgBrandController_getBrand, request, response });
-
-                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
-
-                const controller: any = await container.get<PublicOrgBrandController>(PublicOrgBrandController);
-                if (typeof controller['setStatus'] === 'function') {
-                controller.setStatus(undefined);
-                }
-
-              await templateService.apiHandler({
-                methodName: 'getBrand',
                 controller,
                 response,
                 next,

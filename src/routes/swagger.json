@@ -8614,6 +8614,10 @@
           "issuerName": {
             "type": "string"
           },
+          "issuerTenantId": {
+            "type": "string",
+            "description": "The organisation that sent the card, for its brand on bills and documents."
+          },
           "credentialType": {
             "type": "string"
           },
@@ -41942,6 +41946,54 @@
         ]
       }
     },
+    "/api/public/orgs/{orgTenantId}/brand": {
+      "get": {
+        "operationId": "GetBrand",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgBrandView"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The organisation's brand. Pass `at` (an ISO time, usually when a document was issued)\nto get the brand as it stood then.",
+        "tags": [
+          "Public"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orgTenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "at",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/list": {
       "get": {
         "operationId": "GetCredentialList",
@@ -42007,54 +42059,6 @@
             "in": "path",
             "name": "id",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/public/orgs/{orgTenantId}/brand": {
-      "get": {
-        "operationId": "GetBrand",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OrgBrandView"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "The organisation's brand. Pass `at` (an ISO time, usually when a document was issued)\nto get the brand as it stood then.",
-        "tags": [
-          "Public"
-        ],
-        "security": [],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "orgTenantId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "at",
-            "required": false,
             "schema": {
               "type": "string"
             }

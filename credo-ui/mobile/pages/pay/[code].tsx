@@ -35,6 +35,8 @@ import AppShellMobile from '@/components/layout/AppShellMobile';
 import api from '@/lib/api';
 import { getPersonalWalletTenantId, getPersonalWalletToken } from '@/lib/auth';
 import { clientPayCopy } from '@/lib/uxCopy';
+import BrandedDocumentView from '@/components/records/BrandedDocumentView';
+import { documentFromClaims, safeBrandColor } from '@/lib/brandedDocument';
 
 interface PaymentDetails {
   linkId: string;
@@ -59,7 +61,50 @@ interface PaymentDetails {
     primaryColor?: string;
     receiptFooter?: string;
     supportContact?: string;
+    displayName?: string;
+    orgTenantId?: string;
   };
+}
+
+/** The bill or receipt as a document in the organisation's brand. Not signed: the signed receipt goes to the wallet. */
+function paymentDocument(payment: PaymentDetails, kind: 'quote' | 'invoice' | 'receipt', providerRef?: string) {
+  const reference = payment.invoiceRef;
+  return documentFromClaims({
+    kind,
+    signed: false,
+    issuedAt: kind === 'receipt' ? payment.paidAt : undefined,
+    claims: {
+      invoiceId: kind === 'invoice' ? reference : undefined,
+      quoteId: kind === 'quote' ? reference : undefined,
+      invoiceRef: kind === 'receipt' ? reference : undefined,
+      receiptId: kind === 'receipt' ? providerRef || payment.providerRef : undefined,
+      paymentRef: kind === 'receipt' ? providerRef || payment.providerRef : undefined,
+      paidAt: kind === 'receipt' ? payment.paidAt : undefined,
+      amount: payment.amount,
+      currency: payment.currency,
+      description: payment.description,
+    },
+  });
+}
+
+function PaymentDocumentToggle({ payment, kind, providerRef }: { payment: PaymentDetails; kind: 'quote' | 'invoice' | 'receipt'; providerRef?: string }) {
+  const [open, setOpen] = useState(false);
+  const label = kind === 'receipt' ? 'receipt' : kind === 'quote' ? 'quotation' : 'invoice';
+  return (
+    <Stack gap="xs">
+      <Button variant="default" onClick={() => setOpen((value) => !value)}>
+        {open ? `Hide ${label}` : `View or save ${label}`}
+      </Button>
+      {open && (
+        <BrandedDocumentView
+          orgTenantId={payment.branding?.orgTenantId}
+          fallbackName={payment.branding?.displayName || payment.merchantName}
+          height={480}
+          model={paymentDocument(payment, kind, providerRef)}
+        />
+      )}
+    </Stack>
+  );
 }
 const PLATFORM_LOGO = '/icon.png';
 
@@ -413,6 +458,7 @@ export default function MobilePayPage() {
               <Button variant="default" onClick={openFinanceResume}>Back to finance</Button>
             ) : null}
           </Group>
+          <PaymentDocumentToggle payment={payment} kind="receipt" />
         </Stack>
       </AppShellMobile>
     );
@@ -462,10 +508,10 @@ export default function MobilePayPage() {
       <Stack gap="md" px="md" pt="md">
         <Box>
           <Title order={3}>{copy.title}</Title>
-          <Text size="sm" c="dimmed">{payment.merchantName || 'Business'}</Text>
+          <Text size="sm" c="dimmed">{payment.branding?.displayName || payment.merchantName || 'Business'}</Text>
         </Box>
 
-        <Card withBorder radius="md" p="md">
+        <Card withBorder radius="md" p="md" style={{ borderTop: `4px solid ${safeBrandColor(payment.branding?.primaryColor)}` }}>
           <Stack gap={6}>
             <Group justify="space-between" align="flex-start">
               <Box>
@@ -479,8 +525,13 @@ export default function MobilePayPage() {
               />
             </Group>
             {payment.invoiceRef && <Badge variant="light">{payment.kind === 'quote' ? 'Job' : 'Invoice'}: {payment.invoiceRef}</Badge>}
+            {payment.branding?.supportContact && (
+              <Text size="xs" c="dimmed">Questions? {payment.branding.supportContact}</Text>
+            )}
           </Stack>
         </Card>
+
+        <PaymentDocumentToggle payment={payment} kind={payment.kind === 'quote' ? 'quote' : 'invoice'} />
 
         <Card withBorder radius="md" p="md">
           <Stack gap="sm">

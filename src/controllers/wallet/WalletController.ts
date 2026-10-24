@@ -93,7 +93,7 @@ function issuerOrgTenantIdForHeldCard(record: any, claims: Record<string, any>):
   } catch {
     // Fall back to what the card itself says.
   }
-  for (const key of ['orgTenantId', 'merchantTenantId', 'issuerTenantId', 'organizationTenantId']) {
+  for (const key of ['orgTenantId', 'merchantTenantId', 'issuerTenantId', 'organizationTenantId', 'merchant']) {
     const value = claims?.[key]
     if (typeof value === 'string' && value.trim()) return value.trim()
   }

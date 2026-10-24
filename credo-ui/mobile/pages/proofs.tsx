@@ -29,6 +29,8 @@ import { cardLife, readArchivedCardIds, setCardArchived, type CardLifeInfo } fro
 import { getOfflineStorageAdapter } from '@/lib/offline/storage';
 import { normalizeWalletCredentialRows } from '@/lib/offline/walletSnapshotSync';
 import RecordCheckPanel from '@/components/records/RecordCheckPanel';
+import BrandedDocumentView from '@/components/records/BrandedDocumentView';
+import { DOCUMENT_TITLES, documentFromClaims, documentKindOf } from '@/lib/brandedDocument';
 import { appHref } from '@/lib/appPath';
 
 interface WalletCredential {
@@ -37,6 +39,7 @@ interface WalletCredential {
   issuerDid?: string;
   /** The organisation behind the issuer key, when the card's claims do not name it. */
   issuerName?: string;
+  issuerOrgTenantId?: string;
   addedOn?: string;
   revoked?: boolean;
   /** The issuer withdrew this card (role changed, left the organisation). It no longer works. */
@@ -142,6 +145,8 @@ export default function ProofsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<WalletCredential | null>(null);
+  const [documentOpen, setDocumentOpen] = useState(false);
+  useEffect(() => setDocumentOpen(false), [selected?.id]);
   const [tab, setTab] = useState<string>('active');
   const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
   const [removing, setRemoving] = useState(false);
@@ -697,6 +702,35 @@ export default function ProofsPage() {
                 </Stack>
               </>
             )}
+            {(() => {
+              const subject = selected.parsedDocument?.credentialSubject || {};
+              const kind = documentKindOf(toTypeList(selected.type), subject);
+              if (!kind) return null;
+              const title = DOCUMENT_TITLES[kind].toLowerCase();
+              return (
+                <>
+                  <Divider />
+                  <Button variant={documentOpen ? 'subtle' : 'light'} onClick={() => setDocumentOpen((open) => !open)}>
+                    {documentOpen ? `Hide ${title}` : `View ${title}`}
+                  </Button>
+                  {documentOpen && (
+                    <BrandedDocumentView
+                      orgTenantId={selected.issuerOrgTenantId}
+                      fallbackName={issuerOf(selected)}
+                      model={documentFromClaims({
+                        kind,
+                        claims: subject,
+                        issuedAt: selected.parsedDocument?.issuanceDate || selected.addedOn,
+                        credentialId: selected.issuedId || selected.id,
+                        issuerDid: selected.issuerDid,
+                        withdrawn: lifeOf(selected).life === 'withdrawn',
+                        signed: true,
+                      })}
+                    />
+                  )}
+                </>
+              );
+            })()}
             <Divider />
             <Group grow>
               {lifeOf(selected).life === 'active' && !selected.archived && (
