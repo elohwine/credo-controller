@@ -141,8 +141,9 @@ function actionLinkFor(item: { key: string; actionPath?: string }): { href: stri
 /** Where each checklist step opens. Question steps chain to the next unfinished one. */
 function stepHref(step: SetupStep, steps: SetupStep[]): string {
   if (step.id === 'team') return '/organization/people'
+  if (step.id === 'brand') return '/organization/brand'
   const rest = steps
-    .filter((other) => !other.done && other.id !== step.id && other.id !== 'team')
+    .filter((other) => !other.done && other.id !== step.id && other.id !== 'team' && other.id !== 'brand')
     .map((other) => other.id)
   const query = new URLSearchParams({ step: step.id })
   if (rest.length > 0) query.set('then', rest.join(','))
@@ -239,6 +240,7 @@ export default function OrganizationSetupPage() {
   }, [readiness])
 
   const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
+  const [brandConfigured, setBrandConfigured] = useState<boolean | undefined>(undefined)
 
   useEffect(() => {
     const activeOrg = readActiveOrganization()
@@ -252,6 +254,12 @@ export default function OrganizationSetupPage() {
   useEffect(() => {
     if (!orgTenantId) return
     void loadReadiness()
+    let live = true
+    axios
+      .get(`${backendUrl}/api/public/orgs/${encodeURIComponent(orgTenantId)}/brand`)
+      .then((res) => { if (live) setBrandConfigured(Boolean(res.data?.configured)) })
+      .catch(() => { if (live) setBrandConfigured(false) })
+    return () => { live = false }
   }, [orgTenantId])
 
   const createOrganization = async () => {
@@ -357,8 +365,8 @@ export default function OrganizationSetupPage() {
   }
 
   const steps = useMemo(
-    () => setupChecklist({ profile: orgProfile, items: readiness?.items ?? [], memberCount, roles: memberRoles }),
-    [orgProfile, readiness, memberCount, memberRoles],
+    () => setupChecklist({ profile: orgProfile, items: readiness?.items ?? [], memberCount, roles: memberRoles, brandConfigured }),
+    [orgProfile, readiness, memberCount, memberRoles, brandConfigured],
   )
   const doneCount = steps.filter((step) => step.done).length
   const firstOpen = steps.find((step) => !step.done)

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActionIcon,
   Alert,
+  Avatar,
   Badge,
   Box,
   Button,
@@ -40,6 +41,8 @@ import AppShellMobile from '@/components/layout/AppShellMobile';
 import { notifications } from '@mantine/notifications';
 import { getOrgToken, getPersonalWalletToken } from '@/lib/auth';
 import { resolveMobileApiBaseUrl } from '@/lib/baseUrl';
+import { fetchOrgBrand } from '@/lib/documentDownload';
+import { safeBrandColor, type DocumentBrand } from '@/lib/brandedDocument';
 
 type StorefrontService = {
   id: string;
@@ -372,6 +375,13 @@ export default function ShopPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [storefront, setStorefront] = useState<StorefrontSummary | null>(null);
+  const [brand, setBrand] = useState<DocumentBrand | undefined>(undefined);
+  const brandOrgId = storefront?.tenantId || storefront?.orgId;
+  useEffect(() => {
+    let live = true;
+    fetchOrgBrand(brandOrgId).then((found) => { if (live) setBrand(found?.configured ? found : undefined); });
+    return () => { live = false; };
+  }, [brandOrgId]);
   const [services, setServices] = useState<StorefrontService[]>([]);
   const [products, setProducts] = useState<CatalogItem[]>([]);
   const [selectedService, setSelectedService] = useState<StorefrontService | null>(null);
@@ -726,13 +736,18 @@ export default function ShopPage() {
                   : 'linear-gradient(145deg, #ffffff 0%, #eef2ff 58%, #ecfeff 100%)',
                 color: isDark ? '#f8fafc' : '#0f172a',
                 borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(2,132,199,0.16)',
+                borderTop: brand ? `5px solid ${safeBrandColor(brand.primaryColor)}` : undefined,
               }}
             >
               <Stack gap="sm">
                 <Group gap="xs">
-                  <ThemeIcon variant="filled" color="teal" radius="xl">
-                    <IconBuildingStore size={18} />
-                  </ThemeIcon>
+                  {brand?.logoUrl ? (
+                    <Avatar src={brand.logoUrl} radius="md" size={40} style={{ background: '#fff' }} alt="" />
+                  ) : (
+                    <ThemeIcon variant="filled" color="teal" radius="xl">
+                      <IconBuildingStore size={18} />
+                    </ThemeIcon>
+                  )}
                   <Badge color="teal" variant="filled">
                     {storefront.verificationStatus || 'published'}
                   </Badge>
@@ -747,7 +762,7 @@ export default function ShopPage() {
                   {storefront.displayName}
                 </Title>
                 <Text size="sm" c={isDark ? 'gray.3' : 'dimmed'}>
-                  {storefront.description || 'Browse this organization’s services and goods in one mini store.'}
+                  {brand?.tagline || storefront.description || 'Browse this organization’s services and goods in one mini store.'}
                 </Text>
 
                 <Progress

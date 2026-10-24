@@ -24,6 +24,7 @@ import WhatsAppAlertsCard from '@/components/shared/WhatsAppAlertsCard';
 import PublicOfferingsCard from '@/components/org/PublicOfferingsCard';
 import OrgPermissionsSettings from '@/components/shared/OrgPermissionsSettings';
 import api, { safeArray } from '@/lib/api';
+import BrandEditor from '@/components/org/BrandEditor';
 import { getActiveOrgLabel, getActiveOrgId, getWalletToken, getPreferredToken, applyOrgContext, getOrgRoleClaim, decodeJwtPayload } from '@/lib/auth';
 import {
   CARD_STATE_COLOR, CARD_STATE_LABEL, ONBOARDING_PATH, SUMMARY_COLOR, SUMMARY_LABEL,
@@ -248,7 +249,7 @@ interface OrganizationReadiness {
 type ReadinessFixTarget = 'members' | 'actors' | 'payments' | 'partners' | 'profile' | 'store' | 'departments' | 'roles' | 'authorities';
 
 /** One settings area per screen. `null` is the organisation home. */
-type OrgSection = 'team' | 'actors' | 'payments' | 'departments' | 'handoffs' | 'records' | 'store' | 'roles' | 'authorities' | 'alerts';
+type OrgSection = 'brand' | 'team' | 'actors' | 'payments' | 'departments' | 'handoffs' | 'records' | 'store' | 'roles' | 'authorities' | 'alerts';
 
 const SECTION_FOR_FIX: Record<ReadinessFixTarget, OrgSection> = {
   members: 'team',
@@ -273,6 +274,7 @@ function sectionLabels(): Array<{ id: OrgSection; label: string }> {
     { id: 'handoffs', label: 'What happens next' },
     { id: 'records', label: 'Record settings' },
     { id: 'alerts', label: 'WhatsApp alerts' },
+    { id: 'brand', label: 'Brand and documents' },
     { id: 'store', label: 'Public profile' },
   ];
 }
@@ -540,7 +542,7 @@ export default function OrgSettingsPage() {
   const [orgThen, setOrgThen] = useState<OrgQuestion[]>([]);
   /** Small "done" screen after saving: which question, or 'all' after the first run. */
   const [orgDone, setOrgDone] = useState<null | OrgQuestion | 'all'>(null);
-  const [branding, setBranding] = useState({ orgName: '', primaryColor: '#228be6' });
+  const [brandConfigured, setBrandConfigured] = useState<boolean | undefined>(undefined);
   const [activating, setActivating] = useState(false);
   const [activeWorkflowTypes, setActiveWorkflowTypes] = useState<string[]>([]);
   const [readiness, setReadiness] = useState<OrganizationReadiness | null>(null);
@@ -959,14 +961,26 @@ export default function OrgSettingsPage() {
     ];
   }, [actorsView]);
 
+  useEffect(() => {
+    if (!activeId) return;
+    let live = true;
+    setBrandConfigured(undefined);
+    api
+      .get(`/api/public/orgs/${encodeURIComponent(activeId)}/brand`)
+      .then((res) => { if (live) setBrandConfigured(Boolean(res.data?.configured)); })
+      .catch(() => { if (live) setBrandConfigured(false); });
+    return () => { live = false; };
+  }, [activeId]);
+
   const setupSteps = useMemo(
     () => setupChecklist({
       profile: serverProfile || readOrgProfile(),
       items: readiness?.items ?? [],
       memberCount: memberList.length,
       roles: memberList.map((member) => member.role),
+      brandConfigured,
     }),
-    [serverProfile, readiness, memberList],
+    [serverProfile, readiness, memberList, brandConfigured],
   );
   const moneyActorGapTitles = useMemo(() => {
     const titles = new Set<string>();
@@ -1090,7 +1104,6 @@ export default function OrgSettingsPage() {
       setActiveLabel(newOrgName.trim());
       void loadActiveWorkflowTypes(orgTenantId);
       void loadReadiness(orgTenantId);
-      setBranding({ ...branding, orgName: newOrgName.trim() });
       setShowCreate(false);
       setNewOrgName('');
       await loadOrgs();
@@ -1260,8 +1273,8 @@ export default function OrgSettingsPage() {
 
   const openChecklistStep = (id: SetupStepId, rest: SetupStepId[]) => {
     setOrgDone(null);
-    if (id === 'team') {
-      setSection('team');
+    if (id === 'team' || id === 'brand') {
+      setSection(id);
       return;
     }
     const question = QUESTION_FOR_STEP[id];
@@ -1286,7 +1299,7 @@ export default function OrgSettingsPage() {
         if (orgToken) {
           applyOrgContext({
             orgId: activeId as string,
-            orgName: orgName || activeLabel || branding.orgName || 'Organization',
+            orgName: orgName || activeLabel || 'Organization',
             orgToken,
             orgRole,
             sector,
@@ -1508,9 +1521,16 @@ export default function OrgSettingsPage() {
                       Next: {STEP_SAVED_LABEL[orgThen[0]]}
                     </Button>
                   ) : orgDone === 'all' ? (
-                    <Button size="sm" fullWidth rightSection={<IconArrowRight size={14} />} onClick={() => { setOrgDone(null); setSection('team'); }}>
-                      Invite your team
-                    </Button>
+                    <>
+                      {!brandConfigured && (
+                        <Button size="sm" fullWidth rightSection={<IconArrowRight size={14} />} onClick={() => { setOrgDone(null); setSection('brand'); }}>
+                          Next: add your logo and document details
+                        </Button>
+                      )}
+                      <Button size="sm" fullWidth variant={brandConfigured ? 'filled' : 'light'} rightSection={<IconArrowRight size={14} />} onClick={() => { setOrgDone(null); setSection('team'); }}>
+                        Invite your team
+                      </Button>
+                    </>
                   ) : null}
                   <Button size="xs" variant="subtle" onClick={() => { setOrgDone(null); setOrgThen([]); }}>
                     {orgThen.length > 0 && orgDone !== 'all' ? 'Finish later' : 'Back to setup'}
@@ -1908,7 +1928,7 @@ export default function OrgSettingsPage() {
               <Paper p="md" radius="md" withBorder>
                 <Stack gap={4}>
                   <Text fw={700}>Settings</Text>
-                  {sectionLabels().filter((item) => canManageOrgSetup || !['payments', 'departments', 'records', 'roles', 'authorities', 'store'].includes(item.id)).map((item) => (
+                  {sectionLabels().filter((item) => canManageOrgSetup || !['payments', 'departments', 'records', 'roles', 'authorities', 'store', 'brand'].includes(item.id)).map((item) => (
                     <UnstyledButton key={item.id} onClick={() => setSection(item.id)} py="sm" style={{ minHeight: 48 }}>
                     <Group justify="space-between" wrap="nowrap">
                       <Text size="sm">{item.label}</Text>
@@ -2221,6 +2241,11 @@ export default function OrgSettingsPage() {
 
             {section === 'records' && <DeviceTrustSettingsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />}
             {section === 'alerts' && <WhatsAppAlertsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />}
+            {section === 'brand' && activeId && (canManageOrgSetup ? (
+              <BrandEditor orgTenantId={activeId} getToken={orgSetupToken} onSaved={() => setBrandConfigured(true)} />
+            ) : (
+              <Alert color="gray" variant="light">Only owners and admins can change the brand.</Alert>
+            ))}
 
             {/* ── Member Management ── */}
             {section === 'team' && (

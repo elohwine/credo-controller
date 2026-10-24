@@ -357,7 +357,7 @@ const MONEY_STAGES = new Set([
   'acknowledge_remittance',
 ])
 
-export type SetupStepId = 'kinds' | 'people' | 'money' | 'payments' | 'team'
+export type SetupStepId = 'kinds' | 'people' | 'money' | 'payments' | 'brand' | 'team'
 
 export type SetupStep = { id: SetupStepId; label: string; done: boolean; note?: string }
 
@@ -371,6 +371,8 @@ export function setupChecklist(input: {
   items: Array<{ key: string; status: string; stageAction?: string }>
   memberCount: number
   roles?: string[]
+  /** True once an owner or admin has saved the brand (logo, colour, document wording). */
+  brandConfigured?: boolean
 }): SetupStep[] {
   const needs = (item: { status: string }) => item.status === 'needs_attention'
   const moneyMissing = input.items.some(
@@ -390,6 +392,7 @@ export function setupChecklist(input: {
     { id: 'people', label: 'Choose modules', done: Boolean(input.profile?.completedAt) },
     { id: 'money', label: 'Choose who handles money', done: moneyDone, note: moneyNote },
     { id: 'payments', label: 'Pick how you take payments', done: !paymentMissing },
+    { id: 'brand', label: 'Add your logo and document details', done: Boolean(input.brandConfigured) },
     { id: 'team', label: 'Invite your team', done: input.memberCount > 1 },
   ]
 }

@@ -9,6 +9,8 @@ import { useRouter } from 'next/router';
 import { notifications } from '@mantine/notifications';
 import AppShellMobile from '@/components/layout/AppShellMobile';
 import { getPersonalWalletToken, getPreferredToken, getUserName, getWalletToken, isAuthenticated } from '@/lib/auth';
+import { fetchOrgBrand } from '@/lib/documentDownload';
+import { safeBrandColor, type DocumentBrand } from '@/lib/brandedDocument';
 import api from '@/lib/api';
 
 /** What a person can ask another organisation for. Same words as the Request sheet. */
@@ -217,6 +219,7 @@ export default function OrganizationDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const askFromHome = typeof router.query.ask === 'string' ? router.query.ask : '';
+  const [brand, setBrand] = useState<DocumentBrand | undefined>(undefined);
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -230,6 +233,13 @@ export default function OrganizationDetailPage() {
     if (checkingAuth || !id) return;
     loadOrganizationProfile();
   }, [checkingAuth, id]);
+
+  const brandOrgId = profile?.org?.tenantId || profile?.org?.id;
+  useEffect(() => {
+    let live = true;
+    fetchOrgBrand(brandOrgId).then((found) => { if (live) setBrand(found?.configured ? found : undefined); });
+    return () => { live = false; };
+  }, [brandOrgId]);
 
   const loadOrganizationProfile = async () => {
     setLoading(true);
@@ -491,6 +501,7 @@ export default function OrganizationDetailPage() {
           style={{
             background: 'light-dark(color-mix(in srgb, var(--mantine-color-white) 74%, transparent), color-mix(in srgb, var(--mantine-color-dark-6) 78%, transparent))',
             borderBottom: '1px solid rgba(148,163,184,0.2)',
+            borderTop: brand ? `4px solid ${safeBrandColor(brand.primaryColor)}` : undefined,
             backdropFilter: 'blur(12px) saturate(150%)',
           }}
         >
@@ -507,7 +518,7 @@ export default function OrganizationDetailPage() {
 
           <Group align="flex-start" wrap="nowrap">
             <Avatar
-              src={org.logoUrl}
+              src={brand?.logoUrl || org.logoUrl}
               size={60}
               radius="md"
               style={{ background: '#f8fafc' }}
@@ -525,6 +536,7 @@ export default function OrganizationDetailPage() {
                   </ThemeIcon>
                 )}
               </Group>
+              {brand?.tagline && <Text size="sm" c="dimmed">{brand.tagline}</Text>}
               <Badge size="sm" variant="light" color="blue" mt={4}>
                 {org.category}
               </Badge>

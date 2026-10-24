@@ -107,3 +107,33 @@ describe('branded documents', () => {
     expect(texts.some((t) => t.includes('20.00'))).toBe(true)
   })
 })
+
+describe('brand setup', () => {
+  test('leaves blank fields out of the save so they are cleared', async () => {
+    const { brandSavePayload } = await import('../credo-ui/shared/brandForm')
+    const payload = brandSavePayload({
+      displayName: ' Acme ',
+      primaryColor: '#123456',
+      phone: '',
+      quoteValidityDays: undefined,
+      invoiceDueDays: 0,
+    })
+    expect(payload).toEqual({ displayName: 'Acme', primaryColor: '#123456', invoiceDueDays: 0 })
+  })
+
+  test('renders the sample invoice with the brand', async () => {
+    const { sampleBrandDocument } = await import('../credo-ui/shared/brandForm')
+    const { renderDocumentHtml } = await import('../credo-ui/shared/brandedDocument')
+    const html = renderDocumentHtml(sampleBrandDocument('invoice'), { displayName: 'Acme <Ltd>', primaryColor: '#123456' })
+    expect(html).toContain('Acme &lt;Ltd&gt;')
+    expect(html).toContain('#123456')
+  })
+
+  test('lists the brand step until the brand is saved', async () => {
+    const { setupChecklist } = await import('../credo-ui/shared/orgProfile')
+    const open = setupChecklist({ profile: null, items: [], memberCount: 1 })
+    expect(open.find((step) => step.id === 'brand')?.done).toBe(false)
+    const done = setupChecklist({ profile: null, items: [], memberCount: 1, brandConfigured: true })
+    expect(done.find((step) => step.id === 'brand')?.done).toBe(true)
+  })
+})
