@@ -15665,6 +15665,8 @@ export function RegisterRoutes(app: Router) {
         const argsWorkflowController_getRunStatus: Record<string, TsoaRoute.ParameterSchema> = {
                 runId: {"in":"path","name":"runId","required":true,"dataType":"string"},
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                view: {"in":"query","name":"view","dataType":"enum","enums":["summary"]},
+                includeStepState: {"in":"query","name":"includeStepState","dataType":"boolean"},
         };
         app.get('/workflows/runs/:runId',
             authenticateMiddleware([{"jwt":["tenant"]}]),

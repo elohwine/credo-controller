@@ -64,7 +64,12 @@ function fixture(reason = 'await_worker_start') {
   app.get('/runs/:id', async (req, res, next) => {
     try {
       const controller = new WorkflowController()
-      const result = await controller.getRunStatus(String(req.params.id), req)
+      const result = await controller.getRunStatus(
+        String(req.params.id),
+        req,
+        req.query.view === 'summary' ? 'summary' : undefined,
+        req.query.includeStepState === 'true',
+      )
       res.status(controller.getStatus() || 200).json(result)
     } catch (error) {
       next(error)
@@ -108,6 +113,54 @@ describe('run endpoint access before read, replay or mutation', () => {
       .get(`/runs/${run.id}`)
       .set('x-test-user', 'elsewhere')
       .set('x-test-tenant', 'other-org')
+      .expect(404)
+  })
+
+  test('job reads leave out heavy step snapshots, and the summary view returns only the stage', async () => {
+    const { app, run, org, worker } = fixture()
+    const photo = 'x'.repeat(200_000)
+    const step = workflowRunRepository.createStep({
+      runId: run.id,
+      stepIndex: 0,
+      actionName: 'field.captureEvidence',
+      inputState: { photo },
+    })
+    workflowRunRepository.updateStep(step.id, { status: 'completed', outputState: { photo } })
+    const full = await request(app)
+      .get(`/runs/${run.id}`)
+      .set('x-test-user', worker)
+      .set('x-test-tenant', org.orgTenantId)
+      .expect(200)
+    expect(full.body.steps).toHaveLength(1)
+    expect(full.body.steps[0]).toMatchObject({ actionName: 'field.captureEvidence', status: 'completed' })
+    expect(full.body.steps[0].inputState).toBeUndefined()
+    expect(full.body.steps[0].outputState).toBeUndefined()
+    expect(full.body.output.pauseReason).toBe('await_worker_start')
+    expect(JSON.stringify(full.body).length).toBeLessThan(10_000)
+
+    const withState = await request(app)
+      .get(`/runs/${run.id}?includeStepState=true`)
+      .set('x-test-user', worker)
+      .set('x-test-tenant', org.orgTenantId)
+      .expect(200)
+    expect(withState.body.steps[0].outputState.photo).toHaveLength(200_000)
+
+    const summary = await request(app)
+      .get(`/runs/${run.id}?view=summary`)
+      .set('x-test-user', worker)
+      .set('x-test-tenant', `wallet-${worker}`)
+      .expect(200)
+    expect(summary.body).toEqual({
+      id: run.id,
+      workflowId: run.workflowId,
+      tenantId: org.orgTenantId,
+      status: 'paused',
+      output: { pauseReason: 'await_worker_start' },
+    })
+    await request(app)
+      .get(`/runs/${run.id}?view=summary`)
+      .set('x-test-user', 'stranger')
+      .set('x-test-tenant', 'other')
       .expect(404)
   })
 

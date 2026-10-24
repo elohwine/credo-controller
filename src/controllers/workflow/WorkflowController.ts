@@ -741,10 +741,31 @@ export class WorkflowController extends Controller {
    */
   @Get('runs/{runId}')
   @Security('jwt', ['tenant'])
-  public async getRunStatus(@Path() runId: string, @Request() request: ExRequest): Promise<any> {
+  public async getRunStatus(
+    @Path() runId: string,
+    @Request() request: ExRequest,
+    @Query() view?: 'summary',
+    @Query() includeStepState?: boolean,
+  ): Promise<any> {
     try {
       this.runForCaller(request, runId)
-      return await workflowService.getRunStatus(runId)
+      const run = await workflowService.getRunStatus(runId)
+      if (view === 'summary') {
+        const output = (run.output || {}) as Record<string, any>
+        return {
+          id: run.id,
+          workflowId: run.workflowId,
+          tenantId: run.tenantId,
+          status: run.status,
+          output: { workflowStage: output.workflowStage, pauseReason: output.pauseReason },
+        }
+      }
+      if (includeStepState) return run
+      // Each step keeps whole before/after snapshots (with photos), which made one job several MB.
+      return {
+        ...run,
+        steps: (run.steps || []).map(({ inputState: _input, outputState: _output, ...step }: any) => step),
+      }
     } catch (error: any) {
       this.setStatus(404)
       return { error: error.message }

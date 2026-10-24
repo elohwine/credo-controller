@@ -1597,7 +1597,7 @@ export default function InboxPage() {
           await Promise.all(workflowRunIds.map(async (runId) => {
             for (const headers of runHeaderCandidates) {
               try {
-                const runRes = await api.get(`/workflows/runs/${runId}`, { headers });
+                const runRes = await api.get(`/workflows/runs/${runId}`, { headers, params: { view: 'summary' } });
                 const stage = String(runRes.data?.output?.workflowStage || '').toUpperCase();
                 if (stage) {
                   runStageById.set(runId, stage);

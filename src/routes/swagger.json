@@ -30496,6 +30496,25 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "summary"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "includeStepState",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ]
       }
