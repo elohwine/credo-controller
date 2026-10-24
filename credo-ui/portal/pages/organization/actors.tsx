@@ -16,6 +16,7 @@ import {
   Container,
   Group,
   Loader,
+  MultiSelect,
   Paper,
   Progress,
   SegmentedControl,
@@ -67,6 +68,8 @@ type StageDefault = {
   defaultRole?: string
   defaultUserId?: string
   defaultWalletTenantId?: string
+  /** Other people who may also decide this step (any one of them is enough). */
+  additionalUserIds?: string[]
   enabled: boolean
 }
 
@@ -478,6 +481,43 @@ export default function OrganizationActorsPage() {
     }
   }
 
+  const saveCoActors = async (workflow: WorkflowView, stage: StageView, userIds: string[]) => {
+    const token = getToken()
+    const current = stage.default
+    if (!token || !orgTenantId || !current) return
+    const key = `${workflow.workflowType}:${stage.stageAction}`
+    setSavingStage(key)
+    try {
+      await axios.put(
+        `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}/workflows/actors/defaults`,
+        {
+          workflowType: workflow.workflowType,
+          stageAction: stage.stageAction,
+          defaultUserId: current.defaultUserId,
+          defaultRole: current.defaultRole,
+          defaultWalletTenantId: current.defaultWalletTenantId,
+          additionalUserIds: userIds,
+        },
+        { headers: { Authorization: 'Bearer ' + token } },
+      )
+      notifications.show({
+        title: userIds.length ? 'People saved for this step' : 'Extra people removed',
+        message: `${humanize(stage.stageAction)} · ${workflow.name || humanize(workflow.workflowType)}`,
+        color: 'green',
+        icon: <IconCheck size={16} />,
+      })
+      await load()
+    } catch (err: any) {
+      notifications.show({
+        title: 'Save failed',
+        message: err?.response?.data?.message || err?.message || 'Could not save the people for this step',
+        color: 'red',
+      })
+    } finally {
+      setSavingStage(null)
+    }
+  }
+
   const savePolicy = async (patch: Partial<Policy>) => {
     const token = getToken()
     if (!token || !orgTenantId) return
@@ -622,6 +662,7 @@ export default function OrganizationActorsPage() {
             ? personName(members, who, meUserId)
             : 'Owner is standing in'
     const onlyHere = stage.moneyStep && !isPurchaseRequests(workflow) && stage.default?.enabled
+    const extraCount = stage.default?.enabled ? (stage.default.additionalUserIds?.length ?? 0) : 0
     return (
       <Box key={key}>
         <Text fw={500} size="sm">
@@ -630,6 +671,7 @@ export default function OrganizationActorsPage() {
         </Text>
         <Text size="xs" c="dimmed" mb={4}>
           {person}
+          {extraCount ? ` + ${extraCount} more` : ''}
         </Text>
         <Select
           size="sm"
@@ -641,6 +683,26 @@ export default function OrganizationActorsPage() {
           disabled={!canEdit || savingStage === key}
           onChange={(next) => void saveStage(workflow, stage, next)}
         />
+        {stage.default?.enabled && !stage.askedOnFirstUse && (
+          <MultiSelect
+            mt={6}
+            size="sm"
+            description="Any one of these people can also do this step."
+            placeholder={stage.default.additionalUserIds?.length ? '' : 'Also allowed to act (optional)'}
+            data={members
+              .filter((m) => m.userId !== stage.default?.defaultUserId)
+              .map((m) => ({
+                value: m.userId,
+                label: `${personName(members, m.userId, meUserId)}${m.walletTenantId ? '' : ' (no wallet)'}`,
+                disabled: !m.walletTenantId,
+              }))}
+            value={stage.default.additionalUserIds ?? []}
+            clearable
+            searchable
+            disabled={!canEdit || savingStage === key}
+            onChange={(next) => void saveCoActors(workflow, stage, next)}
+          />
+        )}
       </Box>
     )
   }

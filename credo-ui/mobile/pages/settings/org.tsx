@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Stack, Title, Text, Box, Divider, Button, Group, Checkbox, TextInput, Alert, Loader, Center,
-  Paper, Badge, Collapse, Stepper, SimpleGrid, ThemeIcon, Card, ColorInput, ScrollArea, Select,
+  Paper, Badge, Collapse, Stepper, SimpleGrid, ThemeIcon, Card, ColorInput, ScrollArea, Select, MultiSelect,
   SegmentedControl, Modal, Radio, Chip, Progress, UnstyledButton,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -98,6 +98,8 @@ interface WorkflowActorDefault {
   defaultRole?: string;
   defaultUserId?: string;
   defaultWalletTenantId?: string;
+  /** Other people who may also decide this step (any one of them is enough). */
+  additionalUserIds?: string[];
   enabled: boolean;
 }
 
@@ -802,6 +804,38 @@ export default function OrgSettingsPage() {
     }
   };
 
+  /** Other people who may also decide a step that already has someone chosen. */
+  const saveCoActors = async (workflowType: string, stageAction: string, current: WorkflowActorDefault, userIds: string[]) => {
+    const token = getPreferredToken();
+    if (!token || !activeId) return;
+    const key = `${workflowType}:${stageAction}`;
+    setSavingActorAction(key);
+    try {
+      await api.put(`/api/organizations/${encodeURIComponent(activeId)}/workflows/actors/defaults`, {
+        workflowType,
+        stageAction,
+        defaultUserId: current.defaultUserId,
+        defaultRole: current.defaultRole,
+        defaultWalletTenantId: current.defaultWalletTenantId,
+        additionalUserIds: userIds,
+      }, { headers: { Authorization: 'Bearer ' + token } });
+      notifications.show({
+        title: userIds.length ? 'People saved for this step' : 'Extra people removed',
+        message: `${humanizeKey(stageAction)} · ${humanizeKey(workflowType)}`,
+        color: 'green',
+      });
+      await loadWorkflowActorDefaults();
+    } catch (err: any) {
+      notifications.show({
+        title: 'Save failed',
+        message: err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Could not save the people for this step.',
+        color: 'red',
+      });
+    } finally {
+      setSavingActorAction(null);
+    }
+  };
+
   const saveActorPolicy = async (patch: {
     useBuiltInRoleFallbacks?: boolean;
     ownerFallbackEnabled?: boolean;
@@ -1363,6 +1397,7 @@ export default function OrgSettingsPage() {
         : stage.needsAssignment
           ? named ? `Needs a person · ${named} for now` : 'Needs a person'
           : named || 'Owner is standing in';
+    const extraCount = stage.default?.enabled ? (stage.default.additionalUserIds?.length ?? 0) : 0;
     const onlyHere = stage.moneyStep && !isPurchaseRequests(workflow) && stage.default?.enabled;
     return (
       <Box key={key}>
@@ -1372,6 +1407,7 @@ export default function OrgSettingsPage() {
         </Text>
         <Text size="xs" c="dimmed">
           {person}
+          {extraCount ? ` + ${extraCount} more` : ''}
           {credential && !stage.askedOnFirstUse ? ` · ${credential.label}` : ''}
         </Text>
         <Select
@@ -1385,6 +1421,26 @@ export default function OrgSettingsPage() {
           onChange={(next) => saveActorDefault(workflow.workflowType, stage.stageAction, next)}
           disabled={!actorsView.canEdit || savingActorAction === key}
         />
+        {stage.default?.enabled && !stage.askedOnFirstUse && (
+          <MultiSelect
+            mt={4}
+            size="xs"
+            placeholder={stage.default.additionalUserIds?.length ? '' : 'Also allowed to act (optional)'}
+            description="Any one of these people can also do this step."
+            data={actorsView.members
+              .filter((member) => member.userId !== stage.default?.defaultUserId)
+              .map((member) => ({
+                value: member.userId,
+                label: `${personName(member)}${member.walletTenantId ? '' : ' (no wallet)'}`,
+                disabled: !member.walletTenantId,
+              }))}
+            value={stage.default.additionalUserIds ?? []}
+            clearable
+            searchable
+            onChange={(next) => stage.default && saveCoActors(workflow.workflowType, stage.stageAction, stage.default, next)}
+            disabled={!actorsView.canEdit || savingActorAction === key}
+          />
+        )}
       </Box>
     );
   };
