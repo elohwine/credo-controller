@@ -12,6 +12,8 @@ export interface WorkflowActorDefaultRecord {
   defaultRole?: string
   defaultUserId?: string
   defaultWalletTenantId?: string
+  /** Other named people who may also act on this stage, besides defaultUserId. */
+  additionalUserIds: string[]
   enabled: boolean
   createdAt: string
   updatedAt: string
@@ -61,6 +63,8 @@ export interface ResolvedOrgWorkflowActor {
   mode: OrgWorkflowActorMode
   /** Which fallback chain entry produced a `policy_fallback` result. */
   via?: ActorFallbackEntry
+  /** Other people the organisation named for this stage; each may act on it too. */
+  coActorUserIds?: string[]
 }
 
 /** One step of an organization-defined fallback chain. */
@@ -326,9 +330,20 @@ function toRecord(row: any): WorkflowActorDefaultRecord {
     defaultRole: row.default_role ? String(row.default_role) : undefined,
     defaultUserId: row.default_user_id ? String(row.default_user_id) : undefined,
     defaultWalletTenantId: row.default_wallet_tenant_id ? String(row.default_wallet_tenant_id) : undefined,
+    additionalUserIds: parseUserIds(row.additional_user_ids),
     enabled: Number(row.enabled || 0) === 1,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+  }
+}
+
+function parseUserIds(value: unknown): string[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(String(value))
+    return Array.isArray(parsed) ? Array.from(new Set(parsed.map((id) => normalizeId(String(id))).filter(Boolean))) : []
+  } catch {
+    return []
   }
 }
 
@@ -734,6 +749,8 @@ export class OrgWorkflowActorService {
     defaultRole?: string
     defaultUserId?: string
     defaultWalletTenantId?: string
+    /** Other people who may also act. Left out keeps the saved list; [] clears it. */
+    additionalUserIds?: string[]
     enabled?: boolean
   }): WorkflowActorDefaultRecord {
     const orgTenantId = normalizeId(params.orgTenantId)
@@ -758,6 +775,12 @@ export class OrgWorkflowActorService {
     const defaultUserId = params.defaultUserId ? normalizeId(params.defaultUserId) : null
     const defaultWalletTenantId = params.defaultWalletTenantId ? normalizeId(params.defaultWalletTenantId) : null
     const enabled = params.enabled === false ? 0 : 1
+    const additional = params.additionalUserIds
+      ? Array.from(new Set(params.additionalUserIds.map((id) => normalizeId(id)).filter(Boolean))).filter(
+          (id) => id !== defaultUserId,
+        )
+      : undefined
+    const additionalJson = additional === undefined ? undefined : additional.length ? JSON.stringify(additional) : null
 
     if (existing?.id) {
       this.db
@@ -767,12 +790,22 @@ export class OrgWorkflowActorService {
         SET default_role = ?,
             default_user_id = ?,
             default_wallet_tenant_id = ?,
+            additional_user_ids = CASE WHEN ? = 1 THEN ? ELSE additional_user_ids END,
             enabled = ?,
             updated_at = ?
         WHERE id = ?
       `,
         )
-        .run(defaultRole, defaultUserId, defaultWalletTenantId, enabled, now, existing.id)
+        .run(
+          defaultRole,
+          defaultUserId,
+          defaultWalletTenantId,
+          additionalJson === undefined ? 0 : 1,
+          additionalJson ?? null,
+          enabled,
+          now,
+          existing.id,
+        )
 
       const updated = this.db.prepare('SELECT * FROM org_workflow_actor_defaults WHERE id = ? LIMIT 1').get(existing.id)
       return toRecord(updated)
@@ -784,9 +817,9 @@ export class OrgWorkflowActorService {
         `
       INSERT INTO org_workflow_actor_defaults (
         id, org_tenant_id, workflow_type, stage_action,
-        default_role, default_user_id, default_wallet_tenant_id,
+        default_role, default_user_id, default_wallet_tenant_id, additional_user_ids,
         enabled, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
       )
       .run(
@@ -797,6 +830,7 @@ export class OrgWorkflowActorService {
         defaultRole,
         defaultUserId,
         defaultWalletTenantId,
+        additionalJson ?? null,
         enabled,
         now,
         now,
@@ -876,13 +910,37 @@ export class OrgWorkflowActorService {
    * as one role. A step that names a specific person stays with that person.
    */
   public roleStandIns(orgTenantId: string, resolved: ResolvedOrgWorkflowActor): OrgMemberActor[] {
-    if (!OrgWorkflowActorService.resolvedByRole(resolved)) return []
+    const org = normalizeId(orgTenantId)
     const role = normalize(resolved.role)
-    if (!role) return []
-    const roles = OWNER_FALLBACK.includes(role) ? OWNER_FALLBACK : [role]
-    return listMembersByRole(this.db, normalizeId(orgTenantId), roles).filter(
-      (member) => member.userId !== resolved.userId,
-    )
+    const byRole =
+      OrgWorkflowActorService.resolvedByRole(resolved) && role
+        ? listMembersByRole(this.db, org, OWNER_FALLBACK.includes(role) ? OWNER_FALLBACK : [role])
+        : []
+    // People the organisation named for the step alongside the first one.
+    const named = (resolved.coActorUserIds || [])
+      .map((userId) => findMemberByUserId(this.db, org, userId))
+      .filter((member): member is OrgMemberActor => Boolean(member?.walletTenantId))
+    const seen = new Set<string>([String(resolved.userId || '')])
+    return [...named, ...byRole].filter((member) => {
+      if (seen.has(member.userId)) return false
+      seen.add(member.userId)
+      return true
+    })
+  }
+
+  /** True when this member is one of the people the organisation named for the stage. */
+  public isNamedActor(input: ResolveOrgWorkflowActorInput & { userId: string }): boolean {
+    const userId = normalizeId(input.userId)
+    if (!userId) return false
+    const resolved = this.resolveActor(input)
+    if ((resolved.coActorUserIds || []).some((id) => normalizeId(id) === userId)) return true
+    // Fallbacks to a role, the built-in order or the owner are not a person the organisation chose.
+    if (OrgWorkflowActorService.resolvedByRole(resolved) || OrgWorkflowActorService.needsAssignment(resolved)) {
+      return false
+    }
+    if (resolved.userId && normalizeId(resolved.userId) === userId) return true
+    const member = findMemberByUserId(this.db, normalizeId(input.orgTenantId), userId)
+    return Boolean(resolved.walletTenantId && member?.walletTenantId === resolved.walletTenantId)
   }
 
   /** @deprecated use roleStandIns — kept for callers that only knew about owners. */
@@ -913,6 +971,9 @@ export class OrgWorkflowActorService {
     }
     const member = findMemberByUserId(this.db, normalizeId(input.orgTenantId), userId)
     if (resolved.walletTenantId && member?.walletTenantId === resolved.walletTenantId) {
+      return { allowed: true, why: 'configured' }
+    }
+    if ((resolved.coActorUserIds || []).some((id) => normalizeId(id) === userId) && member) {
       return { allowed: true, why: 'configured' }
     }
     if (this.roleStandIns(input.orgTenantId, resolved).some((member) => normalizeId(member.userId) === userId)) {
@@ -960,16 +1021,23 @@ export class OrgWorkflowActorService {
 
     if (config) {
       const defaultUserId = config.default_user_id ? normalizeId(config.default_user_id) : ''
-      if (defaultUserId) {
-        const userMember = findMemberByUserId(this.db, orgTenantId, defaultUserId)
-
-        if (userMember?.walletTenantId) {
-          return {
-            userId: userMember.userId,
-            walletTenantId: userMember.walletTenantId,
-            role: normalize(userMember.role) || normalize(config.default_role) || 'member',
-            mode: 'configured_user',
-          }
+      // Everyone named for the step, first choice first. The first active one leads; the rest act too.
+      const namedMembers = [defaultUserId, ...parseUserIds(config.additional_user_ids)]
+        .filter(Boolean)
+        .filter((id, index, all) => all.indexOf(id) === index)
+        .map((id) => findMemberByUserId(this.db, orgTenantId, id))
+        .filter((member): member is OrgMemberActor => Boolean(member?.walletTenantId))
+      const coActorUserIds = (lead?: string) =>
+        namedMembers.map((member) => member.userId).filter((id) => id !== lead)
+      const userMember = namedMembers[0]
+      if (userMember) {
+        const others = coActorUserIds(userMember.userId)
+        return {
+          userId: userMember.userId,
+          walletTenantId: userMember.walletTenantId,
+          role: normalize(userMember.role) || normalize(config.default_role) || 'member',
+          mode: 'configured_user',
+          ...(others.length ? { coActorUserIds: others } : {}),
         }
       }
 
@@ -993,6 +1061,7 @@ export class OrgWorkflowActorService {
             mode: 'configured_role',
             // Remember it was the role that was chosen, so borrowed (shared finance) results keep that.
             via: { type: 'role', value: defaultRole },
+            ...(coActorUserIds(byRole.userId).length ? { coActorUserIds: coActorUserIds(byRole.userId) } : {}),
           }
         }
       }

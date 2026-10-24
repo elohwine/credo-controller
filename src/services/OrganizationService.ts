@@ -308,6 +308,8 @@ export interface WorkflowActorDefaultInput {
   defaultUserId?: string
   defaultRole?: string
   defaultWalletTenantId?: string
+  /** Other people who may also act on this stage. Left out keeps the saved list; [] clears it. */
+  additionalUserIds?: string[]
   /** `false` removes the stage default so the fallback policy applies again. */
   enabled?: boolean
 }
@@ -2265,8 +2267,25 @@ export class OrganizationService {
       throw new Error('workflowType and stageAction are required')
     }
 
+    const previouslyNamed = (() => {
+      const previous = orgWorkflowActorService
+        .listDefaults(orgTenantId, workflowType)
+        .find((row) => row.stageAction === stageAction.toLowerCase())
+      return previous ? [previous.defaultUserId, ...previous.additionalUserIds].filter((id): id is string => !!id) : []
+    })()
+    // Each person's staff card lists the steps they act on, so refresh everyone added or removed.
+    const refreshNamedCards = (now: string[]) => {
+      for (const memberId of new Set([...previouslyNamed, ...now])) {
+        orgWorkflowActorCredentialService.ensureForOrganizationInBackground(orgTenantId, {
+          userId: memberId,
+          reason: 'stage_assignment',
+        })
+      }
+    }
+
     if (input.enabled === false) {
       const cleared = orgWorkflowActorService.deleteDefault(orgTenantId, workflowType, stageAction)
+      refreshNamedCards([])
       return {
         cleared,
         actor: orgWorkflowActorService.resolveActor({ orgTenantId, workflowType, stageAction }),
@@ -2296,6 +2315,14 @@ export class OrganizationService {
       }
       defaultRole = defaultRole || member.role.toLowerCase()
     }
+    let additionalUserIds: string[] | undefined
+    if (Array.isArray(input.additionalUserIds)) {
+      const members = orgWorkflowActorService.listOrgMembers(orgTenantId)
+      additionalUserIds = Array.from(new Set(input.additionalUserIds.map((id) => String(id || '').trim()).filter(Boolean)))
+        .filter((id) => id !== defaultUserId)
+      const unknown = additionalUserIds.find((id) => !members.some((row) => row.userId === id))
+      if (unknown) throw new Error('Everyone chosen for this step must be an active member of this organization')
+    }
 
     const saved = orgWorkflowActorService.upsertDefault({
       orgTenantId,
@@ -2304,8 +2331,10 @@ export class OrganizationService {
       defaultUserId,
       defaultRole,
       defaultWalletTenantId,
+      additionalUserIds,
       enabled: true,
     })
+    refreshNamedCards([saved.defaultUserId, ...saved.additionalUserIds].filter((id): id is string => !!id))
     const actor = orgWorkflowActorService.resolveActor({ orgTenantId, workflowType, stageAction })
     // One staff card lists every step this person confirms. Refresh it (non-blocking).
     orgWorkflowActorCredentialService.ensureActorCredentialInBackground({

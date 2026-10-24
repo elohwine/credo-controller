@@ -113,12 +113,14 @@ describe('platform request actor decisions', () => {
     expect(resolved.count).toBeGreaterThan(0)
   })
 
-  test('configured assignment does not bypass approval authority, and read-only previews do not write audit decisions', () => {
+  test('a person named for the step may decide without a role permission, and read-only previews do not write audit decisions', () => {
     const org = seedOrganization({ name: 'Authority test' })
     const requesterUserId = `requester-${randomUUID()}`
     addMember({ ...org, userId: requesterUserId, role: 'field_worker' })
     const assignedUserId = `assigned-${randomUUID()}`
     addMember({ ...org, userId: assignedUserId, role: 'field_worker' })
+    const bystanderUserId = `bystander-${randomUUID()}`
+    addMember({ ...org, userId: bystanderUserId, role: 'field_worker' })
     orgWorkflowActorService.upsertDefault({
       orgTenantId: org.orgTenantId,
       workflowType: 'internal_requisitions',
@@ -145,12 +147,72 @@ describe('platform request actor decisions', () => {
       .prepare(`SELECT COUNT(*) AS count FROM policy_decisions WHERE resource_id = ?`)
       .get(request.id) as { count: number }
 
-    expect(detail.decision).toMatchObject({ canAct: true, canApprove: false, canReject: false })
+    expect(detail.decision).toMatchObject({ canAct: true, canApprove: true, canReject: true })
+    expect(detail.decision.blockedReason).toBeUndefined()
     expect(after.count).toBe(before.count)
-    expect(() => platformRequestService.decideBySubject(request.id, org.orgTenantId, assignedUserId, 'approve')).toThrow(
-      /Insufficient authority/,
-    )
+
+    // Someone who is neither named nor permitted still cannot decide.
+    expect(() => platformRequestService.decideBySubject(request.id, org.orgTenantId, bystanderUserId, 'approve')).toThrow()
     expect(platformRequestService.getForTenant(request.id, org.orgTenantId)).toMatchObject({ status: 'submitted' })
+
+    const approved = platformRequestService.decideBySubject(request.id, org.orgTenantId, assignedUserId, 'approve') as any
+    expect(approved.status).toBe('approved')
+  })
+
+  test('several people can be named for one step, and the requester is told someone else decides', async () => {
+    const org = seedOrganization({ name: 'Co-actor test' })
+    const requesterUserId = `requester-${randomUUID()}`
+    addMember({ ...org, userId: requesterUserId, role: 'field_worker' })
+    const otherUserId = `co-actor-${randomUUID()}`
+    addMember({ ...org, userId: otherUserId, role: 'field_worker' })
+    // The requester is the main person for the step and a colleague is also named.
+    orgWorkflowActorService.upsertDefault({
+      orgTenantId: org.orgTenantId,
+      workflowType: 'internal_requisitions',
+      stageAction: 'approve_requisition',
+      defaultUserId: requesterUserId,
+      additionalUserIds: [otherUserId],
+      enabled: true,
+    })
+    expect(
+      orgWorkflowActorService.isNamedActor({
+        orgTenantId: org.orgTenantId,
+        workflowType: 'internal_requisitions',
+        stageAction: 'approve_requisition',
+        userId: otherUserId,
+      }),
+    ).toBe(true)
+
+    const request = platformRequestService.create({
+      tenantId: org.orgTenantId,
+      subjectRef: requesterUserId,
+      requestType: 'procurement.requisition',
+      title: 'Own request with a named colleague',
+      amount: 10,
+      currency: 'USD',
+      context: { paymentMethod: 'cash', itemType: 'goods', receivingRequired: false },
+    })!
+    platformRequestService.submit(request.id, org.orgTenantId, requesterUserId)
+    await waitForActorCard(request.id, `wallet-${otherUserId}`)
+
+    const requesterCard = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT COUNT(*) AS count FROM wallet_pending_offers
+         WHERE source_id = ? AND tenant_id = ? AND source_type = 'workflow_stage_action' AND resolved_at IS NULL`,
+      )
+      .get(request.id, `wallet-${requesterUserId}`) as { count: number }
+    expect(requesterCard.count).toBe(0)
+
+    const own = platformRequestService.getForSubject(request.id, org.orgTenantId, requesterUserId) as any
+    expect(own.decision).toMatchObject({ canApprove: false, canReject: false, blockedReason: 'own_request', isRequester: true })
+    expect(() => platformRequestService.decideBySubject(request.id, org.orgTenantId, requesterUserId, 'approve')).toThrow(
+      /You raised this request/,
+    )
+
+    const colleague = platformRequestService.getForSubject(request.id, org.orgTenantId, otherUserId) as any
+    expect(colleague.decision).toMatchObject({ canAct: true, canApprove: true })
+    const approved = platformRequestService.decideBySubject(request.id, org.orgTenantId, otherUserId, 'approve') as any
+    expect(approved.status).toBe('approved')
   })
 
   test('rejection requires a reason and is recorded by the assigned actor', () => {

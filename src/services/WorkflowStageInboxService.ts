@@ -464,13 +464,40 @@ export function routeWorkflowStageInbox(params: RouteStageInboxParams): {
         }).filter((delegate) => delegate.walletTenantId !== primary!.walletTenantId)
       : []
 
-  const recipients = [primary, ...standIns, ...delegates]
   const request = DatabaseManager.getDatabase()
     .prepare(
-      `SELECT r.id, r.status FROM requests r JOIN organizations o ON o.id = r.organization_id
+      `SELECT r.id, r.status, p.subject_ref AS requesterUserId FROM requests r
+      JOIN organizations o ON o.id = r.organization_id
+      LEFT JOIN people p ON p.id = r.requester_person_id
       WHERE r.id = ? AND o.tenant_id = ? AND r.request_type = ?`,
     )
-    .get(params.sourceId, params.orgTenantId, params.requestType) as { id: string; status: string } | undefined
+    .get(params.sourceId, params.orgTenantId, params.requestType) as
+    | { id: string; status: string; requesterUserId?: string | null }
+    | undefined
+  let recipients = [primary, ...standIns, ...delegates]
+  // Nobody decides their own request. Its decision card goes to the others who may act and,
+  // when nobody else is named, to the other owners and admins. A requester who is the only
+  // possible approver keeps the card, where it explains that someone else has to decide.
+  const reviewStep = route.stageAction === resolvedRoute.stageAction
+  const requesterUserId = reviewStep && request ? String(request.requesterUserId || '') : ''
+  if (requesterUserId && recipients.some((recipient) => recipient.userId === requesterUserId)) {
+    let others = recipients.filter((recipient) => recipient.userId !== requesterUserId)
+    if (others.length === 0) {
+      others = orgWorkflowActorService
+        .listOrgMembers(params.orgTenantId)
+        .filter(
+          (member) =>
+            ['owner', 'admin'].includes(normalize(member.role)) && member.userId !== requesterUserId && member.walletTenantId,
+        )
+        .map((member) => ({
+          userId: member.userId,
+          walletTenantId: member.walletTenantId as string,
+          role: normalize(member.role) || 'owner',
+          via: 'actor' as const,
+        }))
+    }
+    if (others.length > 0) recipients = others
+  }
   const offerUri = params.offerUri || `platform-request://${encodeURIComponent(params.sourceId)}`
   const sourceType = params.sourceType || WORKFLOW_STAGE_SOURCE_TYPE
   let routed = 0

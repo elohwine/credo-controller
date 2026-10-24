@@ -2283,6 +2283,13 @@
           "defaultWalletTenantId": {
             "type": "string"
           },
+          "additionalUserIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Other named people who may also act on this stage, besides defaultUserId."
+          },
           "enabled": {
             "type": "boolean"
           },
@@ -2298,6 +2305,7 @@
           "orgTenantId",
           "workflowType",
           "stageAction",
+          "additionalUserIds",
           "enabled",
           "createdAt",
           "updatedAt"
@@ -5146,6 +5154,13 @@
           "via": {
             "$ref": "#/components/schemas/ActorFallbackEntry",
             "description": "Which fallback chain entry produced a `policy_fallback` result."
+          },
+          "coActorUserIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Other people the organisation named for this stage; each may act on it too."
           }
         },
         "required": [
@@ -5442,6 +5457,13 @@
           },
           "defaultWalletTenantId": {
             "type": "string"
+          },
+          "additionalUserIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Other people who may also act on this stage. Left out keeps the saved list; [] clears it."
           },
           "enabled": {
             "type": "boolean",

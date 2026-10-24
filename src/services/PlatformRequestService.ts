@@ -236,6 +236,24 @@ export interface CreatePlatformRequestInput {
  * Lifecycle transitions are authorized through the centralized SSI-aware
  * AuthorizationService; business modules do not implement their own RBAC logic.
  */
+/** Why a member cannot decide a request that is waiting for a decision. */
+export type RequestDecisionBlock = 'own_request' | 'own_request_no_other_approver' | 'not_stage_actor' | 'no_authority'
+
+/**
+ * The organisation naming someone for a decision step is their authority to take it, even when
+ * their role carries no approval permission. Separation of duties and explicit grant limits
+ * (a denial other than "no matching authority") still stand.
+ */
+function namedActorMayDecide(
+  result: { decision: string; reasonCode?: string },
+  named: boolean,
+  separationOfDuties: string[],
+  personId: string,
+): boolean {
+  if (result.decision === 'allow') return true
+  return named && result.reasonCode === 'no_matching_authority' && !separationOfDuties.includes(personId)
+}
+
 export class PlatformRequestService {
   public resolvePrincipal(tenantId: string, subjectRef: string) {
     const db = DatabaseManager.getDatabase()
@@ -466,6 +484,9 @@ export class PlatformRequestService {
       Boolean(completionStep) &&
       REQUESTER_FINISHES.has(String(current.requestType || '').toLowerCase())
 
+    if (actorIsRequester && ['in_review', 'approved', 'rejected'].includes(toStatus)) {
+      throw new StatusException('You raised this request, so someone else has to decide it.', 403)
+    }
     if (['in_review', 'approved', 'rejected'].includes(toStatus)) {
       const subjectRef =
         actorSubjectRef ||
@@ -513,8 +534,36 @@ export class PlatformRequestService {
         separationOfDutiesPersonIds: separationOfDuties,
       })
 
-      if (decision.decision !== 'allow') {
+      const deciding = ['in_review', 'approved', 'rejected'].includes(toStatus)
+      const actorRef = deciding
+        ? actorSubjectRef ||
+          (db
+            .prepare('SELECT subject_ref AS subjectRef FROM people WHERE id = ? AND organization_id = ?')
+            .get(actorPersonId, current.organizationId) as { subjectRef?: string } | undefined)?.subjectRef
+        : undefined
+      const stage = actorRef ? requestExperienceDefinition(tenantId, current.requestType || 'general') : undefined
+      const namedForStage = Boolean(
+        actorRef &&
+          stage &&
+          orgWorkflowActorService.isNamedActor({
+            orgTenantId: tenantId,
+            workflowType: stage.workflowType,
+            stageAction: stage.definition.reviewAction,
+            userId: actorRef,
+          }),
+      )
+      if (!namedActorMayDecide(decision, namedForStage, separationOfDuties, actorPersonId)) {
         throw new StatusException(`Insufficient authority: ${decision.reasonCode}`, 403)
+      }
+      if (decision.decision !== 'allow') {
+        this.recordDecisionEvent(
+          current.organizationId,
+          actorPersonId,
+          requestId,
+          permission || `request.transition.${toStatus}`,
+          'allow',
+          'named_stage_actor',
+        )
       }
     }
 
@@ -761,9 +810,16 @@ export class PlatformRequestService {
     )
     const authorizedActor = assigned || delegated
     const requester = Boolean(request.requester_person_id && request.requester_person_id === personId)
+    const named =
+      activeDecisionStage &&
+      orgWorkflowActorService.isNamedActor({
+        orgTenantId: tenantId,
+        workflowType: definition.workflowType,
+        stageAction: definition.definition.reviewAction,
+        userId: subjectRef,
+      })
     const context = this.parseContext(request.context_json)
-    const canDecide = (action: 'request.approve' | 'request.reject') => {
-      if (!activeDecisionStage || !authorizedActor || requester) return false
+    const decisionResult = (action: 'request.approve' | 'request.reject') => {
       const separationOfDuties = this.getSeparationOfDuties('in_review', action === 'request.approve' ? 'approved' : 'rejected', request.requester_person_id || '')
       const result = authorizationService.decide({
         tenantId,
@@ -780,8 +836,36 @@ export class PlatformRequestService {
         separationOfDutiesPersonIds: separationOfDuties,
         skipAudit: true,
       })
-      return result.decision === 'allow'
+      return namedActorMayDecide(result, named, separationOfDuties, personId)
     }
+    const canDecide = (action: 'request.approve' | 'request.reject') =>
+      activeDecisionStage && authorizedActor && !requester ? decisionResult(action) : false
+    const canApprove = canDecide('request.approve')
+    const canReject = canDecide('request.reject')
+    const othersCanDecide = () =>
+      orgWorkflowActorService
+        .listOrgMembers(tenantId)
+        .some(
+          (member) =>
+            member.userId !== subjectRef &&
+            orgWorkflowActorService.mayAct({
+              orgTenantId: tenantId,
+              workflowType: definition.workflowType,
+              stageAction: definition.definition.reviewAction,
+              userId: member.userId,
+            }).allowed,
+        )
+    // Why this person cannot decide, so the app can say it plainly instead of a generic wait.
+    const blockedReason: RequestDecisionBlock | undefined =
+      !activeDecisionStage || canApprove || canReject
+        ? undefined
+        : requester && authorizedActor
+          ? othersCanDecide()
+            ? 'own_request'
+            : 'own_request_no_other_approver'
+          : !authorizedActor
+            ? 'not_stage_actor'
+            : 'no_authority'
 
     return {
       version: lastEvent?.id || String(request.updated_at || status),
@@ -792,8 +876,10 @@ export class PlatformRequestService {
         : actorMember?.displayName || actorMember?.role || stageActor.role || 'Organization approver',
       actorMode: stageActor.mode,
       canAct: activeDecisionStage && authorizedActor && !requester,
-      canApprove: canDecide('request.approve'),
-      canReject: canDecide('request.reject'),
+      canApprove,
+      canReject,
+      blockedReason,
+      isRequester: requester,
     }
   }
 
