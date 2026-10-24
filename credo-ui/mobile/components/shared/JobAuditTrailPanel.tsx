@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import dayjs from 'dayjs';
 import { Alert, Badge, Box, Button, Card, Divider, Group, Image, Modal, SegmentedControl, Stack, Table, Text, ThemeIcon, Timeline, UnstyledButton } from '@mantine/core';
-import { IconCheck, IconChevronDown, IconClock, IconFileText, IconHandStop, IconMinus, IconPlayerPlay, IconUser } from '@tabler/icons-react';
+import { IconCheck, IconChevronDown, IconClock, IconDownload, IconFileText, IconFileZip, IconHandStop, IconMinus, IconPlayerPlay, IconUser } from '@tabler/icons-react';
 import { auditTableRows, closeoutSummary, type AuditStep, type JobAuditTrail, type StageMediaItem } from '@/lib/jobAuditTrail';
 import { safetyHoldStateWords } from '@/lib/uxCopy';
 import { RelatedWorkLinks } from './JobHandoffsPanel';
-import { canExportReports, csvFrom, EXPORT_MIME, exportFileName, saveExport } from '@/lib/exportFile';
+import { canExportReports, csvFrom, EXPORT_MIME, exportFileName, saveBinaryExport, saveExport } from '@/lib/exportFile';
+import { buildEvidencePack, bytesToBase64, evidencePhotos, photoFile } from '@/lib/evidencePack';
 
 /**
  * Full history of one field job: who did each step, when, with what proof, plus the
@@ -81,8 +82,11 @@ export default function JobAuditTrailPanel({ trail, compact = false, embedded = 
 
     useEffect(() => { setCanExport(canExportReports()); }, []);
 
-    const downloadAudit = (format: 'csv' | 'json') => {
-        const rows = tableRows.map((row) => ({
+    const [fileBusy, setFileBusy] = useState<'photo' | 'pack' | null>(null);
+    const [fileNote, setFileNote] = useState<{ color: 'red' | 'dimmed'; text: string } | null>(null);
+    const photoCount = evidencePhotos(trail).length;
+
+    const auditRows = () => tableRows.map((row) => ({
             step: row.event,
             at: when(row.at),
             status: STATUS_WORDS[row.status].label,
@@ -91,11 +95,46 @@ export default function JobAuditTrailPanel({ trail, compact = false, embedded = 
             confirmation: row.confirmation || '',
             details: row.details.join('; '),
         }));
+    const auditCsv = () => csvFrom(AUDIT_HEADERS, auditRows().map((row) => [row.step, row.at, row.status, row.person, row.evidence, row.confirmation, row.details]));
+
+    const downloadAudit = (format: 'csv' | 'json') => {
+        const rows = auditRows();
         const name = exportFileName(`${trail.reference || 'job'}-audit`, format);
-        const body = format === 'csv'
-            ? csvFrom(AUDIT_HEADERS, rows.map((row) => [row.step, row.at, row.status, row.person, row.evidence, row.confirmation, row.details]))
-            : JSON.stringify(rows, null, 2);
+        const body = format === 'csv' ? auditCsv() : JSON.stringify(rows, null, 2);
         void saveExport(name, EXPORT_MIME[format], body);
+    };
+
+    const downloadPhoto = async (item: StageMediaItem) => {
+        if (!item.src || fileBusy) return;
+        setFileBusy('photo');
+        setFileNote(null);
+        try {
+            const file = await photoFile(item.src);
+            const name = exportFileName(`${trail.reference || 'job'}-${item.label}`, file.extension);
+            await saveBinaryExport(name, file.mime, file.bytes, () => bytesToBase64(file.bytes));
+        } catch (error: any) {
+            setFileNote({ color: 'red', text: error?.message || 'The photo could not be downloaded.' });
+        } finally {
+            setFileBusy(null);
+        }
+    };
+
+    const downloadEvidencePack = async () => {
+        if (fileBusy) return;
+        setFileBusy('pack');
+        setFileNote(null);
+        try {
+            const pack = await buildEvidencePack(trail, auditCsv());
+            const name = exportFileName(`${trail.reference || 'job'}-evidence`, 'zip');
+            await saveBinaryExport(name, EXPORT_MIME.zip, pack.bytes, () => bytesToBase64(pack.bytes));
+            setFileNote(pack.missing.length
+                ? { color: 'red', text: `Saved ${pack.photoCount} photos. Could not load: ${pack.missing.join(', ')}.` }
+                : { color: 'dimmed', text: `Evidence pack saved: ${pack.photoCount} photos, audit table and photo list.` });
+        } catch (error: any) {
+            setFileNote({ color: 'red', text: error?.message || 'The evidence pack could not be made.' });
+        } finally {
+            setFileBusy(null);
+        }
     };
 
     const openPreview = (item: StageMediaItem, _kind: 'photo' | 'record') => {
@@ -168,6 +207,11 @@ export default function JobAuditTrailPanel({ trail, compact = false, embedded = 
                     <Group gap="xs">
                         {canExport && <Button size="xs" variant="default" onClick={() => downloadAudit('csv')}>Export CSV</Button>}
                         {canExport && <Button size="xs" variant="default" onClick={() => downloadAudit('json')}>Export JSON</Button>}
+                        {canExport && photoCount > 0 && (
+                            <Button size="xs" variant="default" leftSection={<IconFileZip size={14} />} loading={fileBusy === 'pack'} disabled={fileBusy === 'photo'} onClick={() => void downloadEvidencePack()}>
+                                Evidence pack
+                            </Button>
+                        )}
                         <SegmentedControl
                             size="xs"
                             value={view}
@@ -176,6 +220,7 @@ export default function JobAuditTrailPanel({ trail, compact = false, embedded = 
                         />
                     </Group>
                 </Group>
+                {fileNote && <Text size="xs" c={fileNote.color} mb="xs">{fileNote.text}</Text>}
                 {view === 'timeline' ? (
                 <Timeline bulletSize={22} lineWidth={2} active={trail.steps.reduce((last, step, index) => (step.status === 'pending' ? last : index), -1)} color="green">
                     {trail.steps.map((step) => {
@@ -397,6 +442,13 @@ export default function JobAuditTrailPanel({ trail, compact = false, embedded = 
             <Modal opened={Boolean(preview)} onClose={() => setPreview(null)} title={preview?.label} size="lg" centered>
                 <Stack gap="sm">
                     {preview?.src && <Image src={preview.src} alt={preview.label} fit="contain" mah="70vh" />}
+                    {preview?.src && (
+                        <Group justify="flex-end">
+                            <Button size="xs" variant="light" leftSection={<IconDownload size={14} />} loading={fileBusy === 'photo'} disabled={fileBusy === 'pack'} onClick={() => void downloadPhoto(preview)}>
+                                Download photo
+                            </Button>
+                        </Group>
+                    )}
                     {preview?.lines?.map((line) => (
                         <Text key={line} size="sm">{line}</Text>
                     ))}

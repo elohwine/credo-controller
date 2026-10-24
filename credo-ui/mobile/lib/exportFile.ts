@@ -46,16 +46,17 @@ export function exportFileName(base: string, extension: string): string {
 export const EXPORT_MIME = {
   csv: 'text/csv;charset=utf-8',
   json: 'application/json',
+  zip: 'application/zip',
 } as const
 
-function browserDownload(name: string, mime: string, body: string) {
+function browserDownload(name: string, mime: string, body: BlobPart) {
   const blob = new Blob([body], { type: mime })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
   link.download = name
   link.click()
-  URL.revokeObjectURL(url)
+  setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
 
 /**
@@ -64,7 +65,7 @@ function browserDownload(name: string, mime: string, body: string) {
  * WhatsApp or email). Writing straight into the public Documents folder is not reliable on
  * Android 11+, which is why the share sheet is the save path.
  */
-async function nativeShare(name: string, body: string): Promise<void> {
+async function nativeShare(name: string, body: string, base64 = false): Promise<void> {
   const [{ Filesystem, Directory, Encoding }, { Share }] = await Promise.all([
     import('@capacitor/filesystem'),
     import('@capacitor/share'),
@@ -73,7 +74,7 @@ async function nativeShare(name: string, body: string): Promise<void> {
     path: `exports/${name}`,
     data: body,
     directory: Directory.Cache,
-    encoding: Encoding.UTF8,
+    ...(base64 ? {} : { encoding: Encoding.UTF8 }),
     recursive: true,
   })
   await Share.share({ title: name, files: [written.uri], dialogTitle: 'Save or send this export' })
@@ -91,4 +92,17 @@ export async function saveExport(name: string, mime: string, body: string): Prom
     }
   }
   browserDownload(name, mime, body)
+}
+
+/** Save a photo or .zip the same way as a text export (share sheet in the Android app). */
+export async function saveBinaryExport(name: string, mime: string, bytes: Uint8Array, base64: () => string): Promise<void> {
+  if (isCapacitorNativeRuntime()) {
+    try {
+      await nativeShare(name, base64(), true)
+      return
+    } catch (error) {
+      if (error && typeof error === 'object' && /cancel/i.test(String((error as any).message || ''))) return
+    }
+  }
+  browserDownload(name, mime, bytes as BlobPart)
 }

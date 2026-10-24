@@ -45,19 +45,25 @@ export function exportFileName(base: string, extension: string): string {
 export const EXPORT_MIME = {
   csv: 'text/csv;charset=utf-8',
   json: 'application/json',
+  zip: 'application/zip',
 } as const
 
-function browserDownload(name: string, mime: string, body: string) {
+function browserDownload(name: string, mime: string, body: BlobPart) {
   const blob = new Blob([body], { type: mime })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
   link.download = name
   link.click()
-  URL.revokeObjectURL(url)
+  setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
 
 /** Save a text export. Resolves once the file has been handed to the browser. */
 export async function saveExport(name: string, mime: string, body: string): Promise<void> {
   browserDownload(name, mime, body)
+}
+
+/** Save a photo or .zip the same way as a text export. */
+export async function saveBinaryExport(name: string, mime: string, bytes: Uint8Array, _base64?: () => string): Promise<void> {
+  browserDownload(name, mime, bytes as BlobPart)
 }
