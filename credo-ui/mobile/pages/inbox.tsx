@@ -23,9 +23,10 @@ import EmptyState from '@/components/shared/EmptyState';
 import ErrorAlert from '@/components/shared/ErrorAlert';
 import ReceiptProofField, { receiptProofPayload, type ReceiptProof } from '@/components/shared/ReceiptProofField';
 import api, { safeArray } from '@/lib/api';
+import { appHref } from '@/lib/appPath';
 import { formatCredentialType } from '@/lib/format';
 import { SAFETY_HOLD_COPY, fieldStepExplanation, getInboxDisplayDescription, getInboxDisplayTitle, getInboxPrimaryActionLabel, offerReplacement, stepRequiredLabel, toFeptStageLabel } from '@/lib/uxCopy';
-import { applyOrgContext, beginTaskContext, endTaskContext, getTaskContext, getTaskPass, getActiveOrgId, getWalletToken, getActiveOrgLabel, getOrgRoleClaim, isEmployeeOrgRole, isOrgActionRole, getContextMode, getOrgToken, getPersonalWalletTenantId, getPersonalWalletToken } from '@/lib/auth';
+import { applyOrgContext, beginTaskContext, endTaskContext, getTaskContext, getTaskPass, getActiveOrgId, getWalletToken, getActiveOrgLabel, getOrgRoleClaim, isEmployeeOrgRole, isOrgActionRole, getContextMode, getOrgToken, getPersonalWalletTenantId, getPersonalWalletToken, setPersonalContext } from '@/lib/auth';
 import { openOrganizationForTask, taskRefs } from '@/lib/orgTaskAccess';
 import { findRunningProofResume, getRunningActions, removeRunningAction, RunningAction, upsertRunningAction } from '@/lib/runningActions';
 import { getOfflineStorageAdapter } from '@/lib/offline/storage';
@@ -47,6 +48,7 @@ import {
 import { readOrgProfile } from '@/lib/orgProfile';
 import { captureOrganizationSwitchContext } from '../../shared/taskContext';
 import { requestIdFromStageCard } from '../../shared/requestExperience';
+import { requestDecisionBlockText } from '../../shared/requestDecision';
 import BrandedDocumentView from '@/components/records/BrandedDocumentView';
 import { documentFromClaims } from '@/lib/brandedDocument';
 import { requestFamily } from '../../../src/config/requestExperience';
@@ -1129,17 +1131,58 @@ export default function InboxPage() {
   const [billDocumentOpen, setBillDocumentOpen] = useState(false);
   useEffect(() => setBillDocumentOpen(false), [selectedItem?.id]);
   const openedNotificationItem = useRef('');
+  // A link (WhatsApp, notification) can point at a card in the other inbox: stage cards and
+  // bills live in the person's own inbox, organisation requests in the organisation inbox.
+  const [otherInboxItem, setOtherInboxItem] = useState<{ itemId: string; target: 'personal' | 'org' } | null>(null);
   useEffect(() => {
     const itemId = typeof router.query.item === 'string' ? router.query.item : '';
     if (!itemId || loading || openedNotificationItem.current === itemId) return;
     const match = items.find((item) => item.id === itemId);
     if (match) {
       openedNotificationItem.current = itemId;
+      setOtherInboxItem(null);
       setSelectedItem(match);
-    } else {
-      setError('This inbox item is no longer available in this account. Refresh the inbox or check your records.');
+      return;
     }
-  }, [router.query.item, items, loading]);
+    // Wait for this session's own fetch before deciding the card is gone.
+    if (!inboxQuery.isFetchedAfterMount) return;
+    openedNotificationItem.current = itemId;
+    let cancelled = false;
+    void (async () => {
+      const inOrg = getContextMode() === 'org';
+      if (inOrg) {
+        const personalToken = getPersonalWalletToken() || getWalletToken();
+        if (personalToken) {
+          try {
+            const headers = { Authorization: 'Bearer ' + personalToken };
+            const [offersRes, receiptsRes] = await Promise.all([
+              api.get('/api/wallet/credentials/pending-offers', { headers }).catch(() => null),
+              api.get('/api/wallet/credentials/pending-receipts', { headers }).catch(() => null),
+            ]);
+            const offers = safeArray(offersRes?.data?.offers ?? offersRes?.data);
+            const receipts = safeArray(receiptsRes?.data?.pendingReceipts ?? receiptsRes?.data?.receipts ?? receiptsRes?.data);
+            const found = offers.some((o: any) => String(o?.id ?? o?.offerId ?? '') === itemId)
+              || receipts.some((r: any) => [r?.id, r?.receiptRowId, r?.offerId, r?.linkId].some((v) => v != null && String(v) === itemId));
+            if (found) {
+              if (!cancelled) setOtherInboxItem({ itemId, target: 'personal' });
+              return;
+            }
+          } catch {
+            // Fall through to the plain message.
+          }
+        }
+      } else if (itemId.startsWith('platform-request:') || readInboxItemCache().some((entry) => entry.item?.id === itemId && entry.item?.authContext === 'org')) {
+        if (!cancelled) setOtherInboxItem({ itemId, target: 'org' });
+        return;
+      }
+      if (!cancelled) setError('This card is finished or was removed, so there is nothing left to do here. Your records keep anything that was issued.');
+    })();
+    return () => { cancelled = true; };
+  }, [router.query.item, items, loading, inboxQuery.isFetchedAfterMount]);
+  const openPersonalInboxItem = useCallback((itemId: string) => {
+    setPersonalContext();
+    window.location.replace(appHref('/inbox?item=' + encodeURIComponent(itemId)));
+  }, []);
   useEffect(() => {
     const requestId = String(router.query.request || '').trim();
     if (!requestId || items.length === 0) return;
@@ -2873,13 +2916,7 @@ export default function InboxPage() {
           if (request?.id !== selectedItem.platformRequestId) throw new Error('The request details did not match this Inbox item.');
           const decisionKey = action === 'approve' ? 'canApprove' : 'canReject';
           if (!request?.decision?.[decisionKey]) {
-            if (request?.decision?.canAct) {
-              throw new Error('You are assigned to this step, but your current organization authority does not permit this decision.');
-            }
-            const assignedActor = String(request?.decision?.actorLabel || '').trim();
-            throw new Error(assignedActor
-              ? `This request is waiting for ${assignedActor} to act.`
-              : 'This request is no longer assigned to you.');
+            throw new Error(requestDecisionBlockText(request?.decision));
           }
           await api.post(
             `/api/platform/requests/${encodeURIComponent(selectedItem.platformRequestId)}/decision`,
@@ -3663,6 +3700,18 @@ export default function InboxPage() {
         <Divider />
 
         {error && <ErrorAlert message={error} />}
+        {otherInboxItem && (
+          <Alert color="blue" variant="light" icon={<IconShieldCheck size={16} />} withCloseButton onClose={() => setOtherInboxItem(null)}>
+            {otherInboxItem.target === 'personal' ? (
+              <Stack gap={8}>
+                <Text size="sm">This card is in your personal inbox, not the organisation inbox. Steps you are chosen for arrive there.</Text>
+                <Button size="xs" variant="light" onClick={() => openPersonalInboxItem(otherInboxItem.itemId)}>Open my personal inbox</Button>
+              </Stack>
+            ) : (
+              <Text size="sm">This card is in your organisation inbox. Switch to the organisation from the menu to open it.</Text>
+            )}
+          </Alert>
+        )}
 
         {filter !== 'archived' && attention === 'done' && (
           <Group justify="space-between" align="center" wrap="nowrap" gap="xs">
@@ -4198,9 +4247,7 @@ export default function InboxPage() {
                     {selectedItem.module === 'approvals' && !isRequisitionApproval(selectedItem) && (
                       selectedItem.requestDecision && !selectedItem.requestDecision.canApprove && !selectedItem.requestDecision.canReject ? (
                         <Alert color="blue" variant="light" icon={<IconShieldCheck size={16} />}>
-                          {selectedItem.requestDecision.canAct
-                            ? 'You are assigned to this step, but your current organization authority does not permit this decision.'
-                            : `Waiting for ${selectedItem.requestDecision.actorLabel || 'the assigned stage actor'} to decide this request.`}
+                          {requestDecisionBlockText(selectedItem.requestDecision)}
                         </Alert>
                       ) : (
                         selectedItem.requestDecision?.canReject !== false && (

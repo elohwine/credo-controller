@@ -95,6 +95,8 @@ export interface InboxItemData {
     canAct: boolean;
     canApprove: boolean;
     canReject: boolean;
+    blockedReason?: 'own_request' | 'own_request_no_other_approver' | 'not_stage_actor' | 'no_authority';
+    isRequester?: boolean;
   };
   requiredAction?: string;
   /** The step key stored on the card (sign-off, payment release, approval…); shown as "Your step". */
