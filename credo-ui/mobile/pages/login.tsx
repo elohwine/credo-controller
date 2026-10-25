@@ -4,23 +4,20 @@ import { GuidedSteps } from '@/components/feedback/GuidedSteps';
 import { useRouter } from 'next/router';
 import {
   Box,
-  Paper,
   Stack,
   Title,
   Text,
   TextInput,
   PasswordInput,
   Button,
-  Alert,
   Divider,
-  Anchor,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
-import { notifications } from '@mantine/notifications';
-import { IconPhone, IconLock, IconAlertCircle, IconShieldCheck } from '@tabler/icons-react';
+import { IconPhone, IconLock, IconFingerprint, IconShieldCheck } from '@tabler/icons-react';
 import api from '@/lib/api';
 import { applyPersonalWalletContext } from '@/lib/auth';
-import { confirmWithDevice, deviceTrustAvailable, rememberedWalletId, rememberPhoneWallet } from '@/lib/deviceTrust';
+import { confirmWithDevice, deviceTrustAvailable, rememberedDeviceKeyId, rememberedWalletId, rememberPhoneWallet } from '@/lib/deviceTrust';
+import { friendlyRequestError } from '@/lib/requestError';
 import ErrorAlert from '@/components/shared/ErrorAlert';
 
 interface LoginValues {
@@ -41,7 +38,23 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<'login' | 'register'>('login');
   const [setupStep, setSetupStep] = useState(1);
+  const [layoutHeight, setLayoutHeight] = useState<number>();
+  const [canUsePhone, setCanUsePhone] = useState(false);
   const submitting = useRef(false);
+
+  useEffect(() => {
+    let width = window.innerWidth;
+    setLayoutHeight(window.innerHeight);
+    setCanUsePhone(!!rememberedWalletId() && !!rememberedDeviceKeyId() && deviceTrustAvailable());
+    const resize = () => {
+      // Keyboard height changes must not recenter the form underneath a submit tap.
+      if (window.innerWidth === width) return;
+      width = window.innerWidth;
+      setLayoutHeight(window.innerHeight);
+    };
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
 
   const loginForm = useForm<LoginValues>({
     initialValues: { identifier: '', pin: '' },
@@ -107,7 +120,7 @@ export default function LoginPage() {
       const returnTo = router.query.returnTo as string | undefined;
       router.replace(returnTo ?? '/inbox');
     } catch (err: any) {
-      const msg = err.response?.data?.message ?? err.message ?? 'Login failed';
+      const msg = friendlyRequestError(err, 'Could not sign in');
       setError(msg);
     } finally {
       submitting.current = false;
@@ -143,7 +156,7 @@ export default function LoginPage() {
       const returnTo = router.query.returnTo as string | undefined;
       router.replace(returnTo ?? '/inbox');
     } catch (err: any) {
-      const message = err.response?.data?.message ?? err.message ?? 'Could not sign in with this phone';
+      const message = friendlyRequestError(err, 'Could not sign in with this phone');
       setError(/does not hold|identity card/i.test(message)
         ? 'Accept your identity card in Inbox, then try again.'
         : message);
@@ -187,7 +200,7 @@ export default function LoginPage() {
       setTab('login');
       loginForm.setValues({ identifier: values.phone, pin: '' });
     } catch (err: any) {
-      const msg = err.response?.data?.message ?? err.message ?? 'Registration failed';
+      const msg = friendlyRequestError(err, 'Could not create your account');
       setError(msg);
     } finally {
       setLoading(false);
@@ -195,95 +208,31 @@ export default function LoginPage() {
   };
 
   return (
-    <Box
-      style={{
-        minHeight: '100svh',
-        background: 'light-dark(linear-gradient(135deg, var(--mantine-color-blue-0) 0%, var(--mantine-color-gray-0) 100%), var(--mantine-color-dark-8))',
-        display: 'flex',
-        // Top-aligned so the Sign in button stays put when the keyboard closes; a centred form
-        // moved under the finger and the first tap only closed the keyboard.
-        alignItems: 'flex-start',
-        justifyContent: 'center',
-        padding: 'max(32px, env(safe-area-inset-top)) 16px 24px',
-      }}
-    >
-      <Box style={{ width: '100%', maxWidth: 400 }}>
-        {/* Logo / Brand */}
-        <Stack align="center" gap="xs" mb="xl">
-          <Box
-            style={{
-              width: 64,
-              height: 64,
-              borderRadius: 16,
-              background: 'var(--mantine-color-blue-6)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <IconShieldCheck size={36} color="var(--mantine-color-white)" />
-          </Box>
-          <Title order={2} c="credentis.7">
-            Credentis
-          </Title>
-          <Text size="sm" c="dimmed" ta="center">
-            Sign in with your phone or email and PIN
-          </Text>
+    <Box className="login-screen" style={{ minHeight: layoutHeight ?? '100svh' }}>
+      <Stack className="login-content" gap="xl">
+        <Stack align="center" gap="xs">
+          <Box className="login-brand" aria-hidden="true"><IconShieldCheck size={42} stroke={1.8} /></Box>
+          <Text fw={800} size="xl" className="login-brand-name">Credentis</Text>
         </Stack>
-
-        <Paper p="xl" radius="lg" shadow="md">
-          <Stack gap="md">
-            {/* Tab switch */}
-            <Box
-              style={{
-                display: 'flex',
-                background: 'light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-6))',
-                borderRadius: 8,
-                padding: 4,
-                gap: 4,
-              }}
-            >
-              {(['login', 'register'] as const).map((t) => (
-                <Box
-                  key={t}
-                  onClick={() => { setTab(t); setError(null); setSetupStep(1); }}
-                  style={{
-                    flex: 1,
-                    textAlign: 'center',
-                    padding: '8px 0',
-                    borderRadius: 6,
-                    background: tab === t
-                      ? 'light-dark(var(--mantine-color-white), var(--mantine-color-dark-4))'
-                      : 'transparent',
-                    boxShadow: tab === t
-                      ? 'light-dark(0 1px 3px color-mix(in srgb, var(--mantine-color-black) 10%, transparent), 0 1px 3px color-mix(in srgb, var(--mantine-color-black) 35%, transparent))'
-                      : 'none',
-                    cursor: 'pointer',
-                    fontWeight: tab === t ? 600 : 400,
-                    fontSize: 14,
-                    color: tab === t
-                      ? 'light-dark(var(--mantine-color-blue-6), var(--mantine-color-white))'
-                      : 'light-dark(var(--mantine-color-gray-6), var(--mantine-color-dark-2))',
-                    transition: 'all 150ms',
-                  }}
-                >
-                  {t === 'login' ? 'Sign in' : 'Register'}
-                </Box>
-              ))}
-            </Box>
-
+        <Stack gap="lg">
+          <Stack gap={6}>
+            <Title order={1} size="h2">{tab === 'login' ? 'Welcome back' : 'Your wallet starts here'}</Title>
+            <Text c="dimmed" size="sm">
+              {tab === 'login' ? 'Sign in to your cards, payments and work.' : 'A few simple steps, then you are ready.'}
+            </Text>
+          </Stack>
             {error && <ErrorAlert message={error} />}
 
             {tab === 'login' ? (
               <form onSubmit={loginForm.onSubmit(handleLogin)}>
-                <Stack gap="sm">
+                <Stack gap="md">
                   <TextInput
                     label="Phone or email"
                     placeholder="263771234567 or john@example.com"
                     leftSection={<IconPhone size={16} />}
                     size="md"
                     autoComplete="username"
-                    inputMode="tel"
+                    inputMode="text"
                     enterKeyHint="next"
                     {...loginForm.getInputProps('identifier')}
                   />
@@ -295,18 +244,19 @@ export default function LoginPage() {
                     inputMode="numeric"
                     enterKeyHint="go"
                     autoComplete="current-password"
+                    visibilityToggleButtonProps={{ 'aria-label': 'Show or hide PIN' }}
                     {...loginForm.getInputProps('pin')}
                   />
                   <Button type="submit" size="lg" fullWidth loading={loading} mt="xs">
                     Sign in
                   </Button>
-                  <Divider label="or" />
-                  <Button variant="default" size="lg" fullWidth loading={loading} onClick={() => void handlePhoneLogin()}>
-                    Sign in with this phone
-                  </Button>
-                  <Text size="xs" c="dimmed" ta="center">
-                    Uses the identity card already on this phone. Fingerprint or face confirms it. No QR.
-                  </Text>
+                  {canUsePhone && <>
+                    <Divider label="or" />
+                    <Button variant="light" size="lg" fullWidth leftSection={<IconFingerprint size={22} />} loading={loading} onClick={() => void handlePhoneLogin()}>
+                      Sign in with this phone
+                    </Button>
+                    <Text size="xs" c="dimmed" ta="center">Confirm with your fingerprint or face.</Text>
+                  </>}
                 </Stack>
               </form>
             ) : setupStep < 3 ? (
@@ -329,6 +279,7 @@ export default function LoginPage() {
                     label="Name"
                     placeholder="Your name"
                     size="md"
+                    autoComplete="name"
                     {...registerForm.getInputProps('username')}
                   />
                   <TextInput
@@ -337,6 +288,7 @@ export default function LoginPage() {
                     leftSection={<IconPhone size={16} />}
                     size="md"
                     inputMode="tel"
+                    autoComplete="tel"
                     {...registerForm.getInputProps('phone')}
                   />
                   <PasswordInput
@@ -345,6 +297,8 @@ export default function LoginPage() {
                     leftSection={<IconLock size={16} />}
                     size="md"
                     inputMode="numeric"
+                    autoComplete="new-password"
+                    visibilityToggleButtonProps={{ 'aria-label': 'Show or hide new PIN' }}
                     {...registerForm.getInputProps('pin')}
                   />
                   <PasswordInput
@@ -353,6 +307,8 @@ export default function LoginPage() {
                     leftSection={<IconLock size={16} />}
                     size="md"
                     inputMode="numeric"
+                    autoComplete="new-password"
+                    visibilityToggleButtonProps={{ 'aria-label': 'Show or hide confirmation PIN' }}
                     {...registerForm.getInputProps('confirmPin')}
                   />
                   <Button type="submit" size="lg" fullWidth loading={loading} mt="xs">
@@ -362,16 +318,18 @@ export default function LoginPage() {
                 </Stack>
               </form>
             )}
-          </Stack>
-        </Paper>
-
-        <Text size="xs" c="dimmed" ta="center" mt="md">
-          Organization setup is also on the website at{' '}
-          <Anchor size="xs" href="#" c="credentis.6">
-            credentis.app
-          </Anchor>
-        </Text>
-      </Box>
+        </Stack>
+        <Stack gap={4} align="center">
+          <Text size="sm" c="dimmed">{tab === 'login' ? 'New to Credentis?' : 'Already have an account?'}</Text>
+          <Button variant="subtle" fullWidth disabled={loading} onClick={() => {
+            setTab(tab === 'login' ? 'register' : 'login');
+            setSetupStep(1);
+            setError(null);
+          }}>
+            {tab === 'login' ? 'Create account' : 'Back to sign in'}
+          </Button>
+        </Stack>
+      </Stack>
     </Box>
   );
 }

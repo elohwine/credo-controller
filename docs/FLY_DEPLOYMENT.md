@@ -12,6 +12,33 @@ Data on the volume:
 | `/data/postgres` | Hydra only |
 | `/data/credo.log` | API log, appended. Empty it in place with `: > /data/credo.log` |
 
+## Mobile web and Android release
+
+The Fly script builds the mobile web app at `/app`; it does not deploy the separate portal.
+After it has staged `deploy/fly/mobile-web`, build the APK from `credo-ui/mobile`:
+
+```sh
+NEXT_PUBLIC_API_URL=https://credentis.fly.dev bash ./build-mobile.sh
+```
+
+The script increments the Android version and writes the signed APK to `credo-ui/mobile/dist`.
+For an undistributed rebuild of the same version, set `SKIP_VERSION_BUMP=1`.
+Verify the APK's version and signing certificate before sharing it.
+
+The login screen centers its content on a full-height surface, without a browser-style card.
+Its initial height stays stable across keyboard-only resizes so closing the keyboard cannot
+move Sign in under a tap. Width/orientation changes update the layout; short screens scroll.
+Phone/biometric sign-in is shown only for an enrolled, supported device with a remembered wallet.
+
+Android uses its native splash API through the existing AndroidX compatibility dependency:
+`MainActivity` installs it before activity creation, and the launch theme supplies a shield/check
+vector plus light/dark background colors. There is no second JavaScript splash or forced delay.
+The old `SplashScreen` Capacitor configuration was inert because that plugin is not installed.
+
+Design references: [Android splash screens](https://developer.android.com/develop/ui/views/launch/splash-screen),
+[accessibility](https://developer.android.com/guide/topics/ui/accessibility/apps),
+and [edge-to-edge insets](https://developer.android.com/develop/ui/views/layout/edge-to-edge).
+
 ## Resetting all organisations and users
 
 Use this to start onboarding again with the same phone numbers and emails. It removes:

@@ -44,6 +44,63 @@ body,
   max-width: 100%;
 }
 
+.login-screen {
+  --mantine-color-dimmed: light-dark(#596575, #a8b0bd);
+  display: flex;
+  flex-direction: column;
+  padding: calc(28px + var(--app-safe-top)) calc(24px + var(--app-safe-right)) calc(24px + var(--app-safe-bottom)) calc(24px + var(--app-safe-left));
+  background: light-dark(#f4f7fb, #1a1b1e);
+}
+
+.login-content {
+  width: 100%;
+  max-width: 380px;
+  margin: auto;
+}
+
+.login-brand {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 24px;
+  color: white;
+  background: var(--mantine-color-credentis-6);
+}
+
+.login-brand-name {
+  color: light-dark(#155782, #88c4e3);
+}
+
+.login-screen .mantine-Button-root[data-variant='filled'] {
+  background-color: #1b6fa6;
+  color: white;
+}
+
+.login-screen .mantine-Input-input,
+.login-screen .mantine-PasswordInput-input,
+.login-screen .mantine-Button-root {
+  min-height: 56px;
+  border-radius: 16px;
+  font-size: 16px;
+}
+
+.login-screen .mantine-PasswordInput-innerInput {
+  min-height: 54px;
+  font-size: 16px;
+}
+
+.login-screen .mantine-Input-input::placeholder,
+.login-screen .mantine-PasswordInput-innerInput::placeholder {
+  color: light-dark(#687482, #a8b0bd);
+  opacity: 1;
+}
+
+.login-screen .mantine-PasswordInput-visibilityToggle {
+  min-width: 48px;
+  min-height: 48px;
+}
+
 /* Page wrapper — accounts for bottom nav height */
 .page-content {
   padding-bottom: calc(96px + var(--app-safe-bottom));

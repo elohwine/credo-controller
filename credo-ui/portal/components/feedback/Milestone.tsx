@@ -52,9 +52,10 @@ export function MilestoneHost() {
   }, [active, waitsForUser])
 
   if (!active) return null
+  const { key, ...content } = active
   return (
     <Modal
-      key={active.key}
+      key={key}
       opened
       onClose={() => milestone.close()}
       title={active.title}
@@ -65,22 +66,20 @@ export function MilestoneHost() {
       zIndex={10000}
       closeOnClickOutside={!waitsForUser}
       transitionProps={{ duration: 0 }}
+      closeButtonProps={{ 'aria-label': 'Close milestone' }}
     >
       <Box className="milestone-card">
-        <MilestoneContent {...active} onDone={() => milestone.close()} />
+        <MilestoneContent {...content} onDone={() => milestone.close()} />
       </Box>
     </Modal>
   )
 }
 
-function MilestoneContent({ kind, title, detail, next, action, onDone }: MilestoneProps & { onDone: () => void }) {
+function MilestoneContent({ kind, detail, next, action, onDone }: MilestoneProps & { onDone: () => void }) {
   const waitsForUser = !!(next?.length || action)
   return (
     <Stack align="center" gap="xs" role="status" aria-live="polite">
       <LottiePlayer kind={kind} size={132} />
-      <Text fw={800} size="lg" ta="center">
-        {title}
-      </Text>
       {detail ? (
         <Text size="sm" c="dimmed" ta="center">
           {detail}
