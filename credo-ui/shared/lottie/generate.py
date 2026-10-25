@@ -212,51 +212,81 @@ def empty():
 
 def onboarding_receive():
     op = 120
-    phone = [
-        group([rect(100, 148, 18), fill(hexc('#123E66'))]),
-        group([rect(88, 132, 12), fill(WHITE)]),
-        group([rect(28, 4, 2), fill(LIGHT_BLUE)], p=(0, -54)),
-        group([rect(28, 4, 2), fill(LIGHT_BLUE)], p=(0, 55)),
+    wallet = [
+        group([rect(114, 146, 20), fill(hexc('#123E66'))]),
+        group([rect(102, 132, 14), fill(WHITE)]),
+        group([rect(32, 4, 2), fill(LIGHT_BLUE)], p=(0, -54)),
+        group([rect(70, 48, 10), fill(hexc('#EAF4FA')), stroke(LIGHT_BLUE, 1.6)], p=(0, 10)),
+        group([rect(54, 5, 2), fill(LIGHT_BLUE)], p=(0, -6)),
+        group([rect(40, 5, 2), fill(LIGHT_BLUE)], p=(0, 6)),
     ]
-    card = [
-        group([rect(110, 66, 10), fill(BLUE), stroke(hexc('#155782'), 2)]),
-        group([ellipse(18), fill(WHITE)], p=(-32, -7)),
-        group([rect(28, 7, 3), fill(LIGHT_BLUE)], p=(17, -9)),
-        group([rect(42, 5, 2), fill(LIGHT_BLUE)], p=(10, 4)),
-        group([rect(30, 5, 2), fill(LIGHT_BLUE)], p=(-23, 20)),
+    receipt = [
+        group([rect(92, 58, 10), fill(BLUE), stroke(hexc('#155782'), 2)]),
+        group([ellipse(14), fill(WHITE)], p=(-26, -8)),
+        group([rect(24, 6, 3), fill(LIGHT_BLUE)], p=(14, -9)),
+        group([rect(34, 4, 2), fill(LIGHT_BLUE)], p=(8, 3)),
+        group([rect(26, 4, 2), fill(LIGHT_BLUE)], p=(-18, 16)),
     ]
-    record = layer(10, 'card-arrives-in-wallet', card, op,
-                   o=anim((0, 0), (16, 100)),
-                   s=anim((0, [108, 108, 100]), (48, [82, 82, 100])))
-    record['ks']['p'] = anim((0, [100, 56, 0]), (48, [100, 98, 0]))
-    badge = check_layers(op, t0=50, size=40, start_ind=1)
+    sender = [
+        group([ellipse(26), fill(WHITE), stroke(LIGHT_BLUE, 1.5)]),
+        group([ellipse(9), fill(hexc('#7AB9DE'))], p=(0, -4)),
+        group([path([[-12, 10], [-8, 3], [8, 3], [12, 10]], True), fill(hexc('#7AB9DE'))]),
+    ]
+    arriving = layer(10, 'receipt-arrives', receipt, op,
+                     o=anim((0, 0), (10, 100)),
+                     s=anim((0, [112, 112, 100]), (26, [100, 100, 100]), (54, [84, 84, 100])))
+    arriving['ks']['p'] = anim((0, [60, 42, 0]), (26, [92, 72, 0]), (54, [100, 98, 0]))
+    avatar = layer(11, 'sender-avatar', sender, op, p=(52, 58),
+                   o=anim((0, 0), (16, 100), (60, 100), (84, 0)),
+                   s=anim((0, [84, 84, 100]), (18, [100, 100, 100])))
+    pulse = layer(12, 'arrival-pulse', [group([ellipse(124), stroke(hexc('#88C4E3'), 2)])], op, p=(100, 98),
+                  o=anim((26, 0), (34, 40), (74, 0)),
+                  s=anim((26, [56, 56, 100]), (74, [124, 124, 100])))
+    badge = check_layers(op, t0=56, size=42, start_ind=1)
     for item in badge:
-        item['ks']['p'] = static([142, 132, 0])
-    return doc('onboarding_receive', op, badge + [record, layer(20, 'wallet', phone, op)])
+        item['ks']['p'] = static([146, 130, 0])
+    return doc('onboarding_receive', op, badge + [pulse, avatar, arriving, layer(20, 'wallet', wallet, op)])
 
 
 def onboarding_share():
     op = 120
-    panel = [
-        group([rect(116, 128, 14), fill(WHITE), stroke(LIGHT_BLUE, 2)]),
-        group([rect(62, 6, 3), fill(BLUE)], p=(0, -44)),
-        group([rect(44, 4, 2), fill(LIGHT_BLUE)], p=(0, -30)),
-        group([rect(64, 5, 2), fill(LIGHT_BLUE)], p=(6, -6)),
-        group([ellipse(8), fill(GREEN)], p=(-36, -6)),
-        group([rect(64, 5, 2), fill(LIGHT_BLUE)], p=(6, 12)),
-        group([ellipse(8), fill(GREEN)], p=(-36, 12)),
-        group([rect(76, 18, 9), fill(BLUE)], p=(0, 42)),
-        group([path([[-8, 0], [8, 0], [3, -5], [8, 0], [3, 5]]), stroke(WHITE, 2)], p=(0, 42)),
+    request = [
+        group([rect(118, 132, 14), fill(WHITE), stroke(LIGHT_BLUE, 2)]),
+        group([rect(62, 6, 3), fill(BLUE)], p=(0, -46)),
+        group([rect(44, 4, 2), fill(LIGHT_BLUE)], p=(0, -32)),
+        group([rect(60, 5, 2), fill(LIGHT_BLUE)], p=(4, -8)),
+        group([ellipse(7), fill(GREEN)], p=(-34, -8)),
+        group([rect(60, 5, 2), fill(LIGHT_BLUE)], p=(4, 9)),
+        group([ellipse(7), fill(GREEN)], p=(-34, 9)),
+    ]
+    approver = [
+        group([ellipse(32), fill(hexc('#EAF4FA')), stroke(LIGHT_BLUE, 2)]),
+        group([ellipse(10), fill(hexc('#5AA6D3'))], p=(0, -7)),
+        group([path([[-15, 12], [-10, 2], [10, 2], [15, 12]], True), fill(hexc('#5AA6D3'))]),
+    ]
+    pill = [
+        group([rect(84, 22, 11), fill(BLUE)]),
+        group([path([[-10, 0], [10, 0], [4, -5], [10, 0], [4, 5]]), stroke(WHITE, 2)]),
     ]
     shield = [
         group([path([[0, -24], [22, -16], [20, 10], [0, 26], [-20, 10], [-22, -16]], True),
                fill(GREEN), stroke(hexc('#147D57'), 2)]),
-        group([path([[-9, 0], [-2, 7], [10, -7]]), trim(50, 75), stroke(WHITE, 4)]),
+        group([path([[-9, 0], [-2, 7], [10, -7]]), trim(56, 84), stroke(WHITE, 4)]),
     ]
+    bridge = layer(3, 'review-path', [group([path([[-20, 0], [20, 0]]), trim(8, 44), stroke(BLUE, 3)])], op, p=(118, 88))
+    request_layer = layer(10, 'review-request', request, op, p=(84, 98),
+                          o=anim((0, 0), (18, 100)), s=anim((0, [92, 92, 100]), (22, [100, 100, 100])))
+    approver_layer = layer(11, 'approver', approver, op, p=(150, 88),
+                           o=anim((10, 0), (28, 100)), s=anim((10, [84, 84, 100]), (30, [100, 100, 100])))
+    action = layer(12, 'approve-action', pill, op, p=(118, 136),
+                   o=anim((28, 0), (38, 100), (94, 100), (110, 0)),
+                   s=anim((28, [86, 86, 100]), (40, [100, 100, 100])))
     return doc('onboarding_share', op, [
-        layer(1, 'consent-shield', shield, op, p=(150, 130), s=pop(30, 48)),
-        layer(10, 'review-request', panel, op, p=(92, 98),
-              o=anim((0, 0), (18, 100)), s=anim((0, [94, 94, 100]), (22, [100, 100, 100]))),
+        layer(1, 'consent-shield', shield, op, p=(154, 132), s=pop(44, 60)),
+        bridge,
+        action,
+        approver_layer,
+        request_layer,
     ])
 
 

@@ -95,3 +95,9 @@ body {
     animation: none;
   }
 }
+
+.compact-form .mantine-InputWrapper-label {
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}

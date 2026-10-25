@@ -1,7 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { milestone } from '@/components/feedback/Milestone';
-import { GuidedSteps } from '@/components/feedback/GuidedSteps';
-import { LottiePlayer } from '@/components/feedback/LottiePlayer';
 import { WalletOnboarding } from '../../shared/WalletOnboarding';
 import { BrandMark } from '../../shared/BrandMark';
 import { useRouter } from 'next/router';
@@ -195,20 +193,20 @@ export default function LoginPage() {
     }
   };
 
+  const guiding = tab === 'register' && setupStep < 3;
+
   return (
-    <Box className="login-screen" style={{ minHeight: layoutHeight ?? '100svh' }}>
+    <Box className={`login-screen${guiding ? ' login-screen-guide' : ''}`} style={{ minHeight: guiding ? '100svh' : layoutHeight ?? '100svh' }}>
       <Stack className="login-content" gap="xl">
-        <Stack align="center" gap="xs">
+        <Box className="login-branding">
           <Box className="login-brand" aria-hidden="true"><BrandMark size={52} /></Box>
           <Text fw={800} size="xl" className="login-brand-name">Credentis</Text>
-        </Stack>
-        <Stack gap="lg">
-          <Stack gap={6}>
-            <Title order={1} size="h2">{tab === 'login' ? 'Welcome back' : 'Your wallet starts here'}</Title>
-            <Text c="dimmed" size="sm">
-              {tab === 'login' ? 'Sign in to your cards, payments and work.' : 'A few simple steps, then you are ready.'}
-            </Text>
-          </Stack>
+        </Box>
+        <Stack gap="lg" className="login-main">
+          {!guiding && <Stack gap={6} ta="center">
+            <Title order={1} size="h2">{tab === 'login' ? 'Welcome back' : 'Create your account'}</Title>
+            {tab === 'login' && <Text c="dimmed" size="sm">Sign in to your wallet.</Text>}
+          </Stack>}
             {error && <ErrorAlert message={error} />}
 
             {tab === 'login' ? (
@@ -216,7 +214,7 @@ export default function LoginPage() {
                 <Stack gap="md">
                   <TextInput
                     label="Phone or email"
-                    placeholder="263771234567 or john@example.com"
+                    placeholder="263771234567"
                     leftSection={<IconPhone size={16} />}
                     size="md"
                     autoComplete="username"
@@ -226,7 +224,6 @@ export default function LoginPage() {
                   />
                   <PasswordInput
                     label="PIN"
-                    placeholder="Enter your PIN"
                     leftSection={<IconLock size={16} />}
                     size="md"
                     inputMode="numeric"
@@ -251,17 +248,15 @@ export default function LoginPage() {
               <WalletOnboarding
                 key={setupStep}
                 step={setupStep === 1 ? 1 : 2}
-                illustration={<LottiePlayer kind={setupStep === 1 ? 'onboarding_receive' : 'onboarding_share'} size={176} />}
+                onSkip={() => setSetupStep(3)}
                 onNext={() => setSetupStep(setupStep + 1)}
                 onBack={() => setupStep === 1 ? setTab('login') : setSetupStep(1)}
               />
             ) : (
               <form onSubmit={registerForm.onSubmit(handleRegister)}>
                 <Stack gap="sm">
-                  <GuidedSteps current={3} total={3} />
                   <TextInput
                     label="Name"
-                    placeholder="Your name"
                     size="md"
                     autoComplete="name"
                     {...registerForm.getInputProps('username')}
@@ -277,7 +272,6 @@ export default function LoginPage() {
                   />
                   <PasswordInput
                     label="PIN"
-                    placeholder="Choose a PIN"
                     leftSection={<IconLock size={16} />}
                     size="md"
                     inputMode="numeric"
@@ -287,7 +281,6 @@ export default function LoginPage() {
                   />
                   <PasswordInput
                     label="Confirm PIN"
-                    placeholder="Repeat PIN"
                     leftSection={<IconLock size={16} />}
                     size="md"
                     inputMode="numeric"
@@ -298,12 +291,12 @@ export default function LoginPage() {
                   <Button type="submit" size="lg" fullWidth loading={loading} mt="xs">
                     Create account
                   </Button>
-                  <Button variant="subtle" disabled={loading} onClick={() => setSetupStep(2)}>Back</Button>
+                  <Button variant="subtle" disabled={loading} onClick={() => setSetupStep(2)}>Back to guide</Button>
                 </Stack>
               </form>
             )}
         </Stack>
-        <Stack gap={4} align="center">
+        {!guiding && <Stack gap={4} align="center">
           <Text size="sm" c="dimmed">{tab === 'login' ? 'New to Credentis?' : 'Already have an account?'}</Text>
           <Button variant="subtle" fullWidth disabled={loading} onClick={() => {
             setTab(tab === 'login' ? 'register' : 'login');
@@ -312,7 +305,7 @@ export default function LoginPage() {
           }}>
             {tab === 'login' ? 'Create account' : 'Back to sign in'}
           </Button>
-        </Stack>
+        </Stack>}
       </Stack>
     </Box>
   );

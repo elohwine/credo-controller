@@ -2,8 +2,8 @@ import React, { useState, useContext, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
-import { LottiePlayer } from '@/components/feedback/LottiePlayer';
 import { WalletOnboarding } from '../../../shared/WalletOnboarding';
+import onboardingStyles from '../../../shared/WalletOnboarding.module.css';
 import { EnvContext } from '@/pages/_app';
 import { clearStoredOrganizationContext } from '@/utils/organizationContext';
 import axios from 'axios';
@@ -88,7 +88,7 @@ export default function RegisterPage() {
         setError(null);
 
         if (form.password !== form.confirmPassword) {
-            setError('Passwords do not match');
+            setError('PINs do not match');
             return;
         }
 
@@ -99,7 +99,7 @@ export default function RegisterPage() {
 
         // Require either email or phone
         if (!form.email && !form.phone) {
-            setError('Please provide either email or phone number');
+            setError('Add a phone number or email.');
             return;
         }
 
@@ -186,14 +186,15 @@ export default function RegisterPage() {
         }
     };
 
+    const guiding = !success && setupStep < 3;
+
     return (
         <Layout title="Register">
-            <Container size="xs" py="xl">
-                <Paper shadow="md" p="xl" radius="md" withBorder>
-                    <Title order={2} ta="center" mb="lg">
-                        <IconUserPlus size={28} style={{ marginRight: 8, verticalAlign: 'middle' }} />
-                        Create Personal Account
-                    </Title>
+            <Container size="xs" py={guiding ? 0 : 'xl'} px={guiding ? 0 : undefined}>
+                <Paper className={guiding ? onboardingStyles.portalGuide : undefined} shadow={guiding ? undefined : 'md'} p={guiding ? 0 : 'xl'} radius="md" withBorder={!guiding}>
+                    {!guiding && <Title order={2} ta="center" mb="lg">
+                        Create account
+                    </Title>}
 
                     {success ? (
                         <Alert icon={<IconCheck size={16} />} title="Registration Successful!" color="green">
@@ -213,51 +214,52 @@ export default function RegisterPage() {
                         <WalletOnboarding
                             key={setupStep}
                             step={setupStep === 1 ? 1 : 2}
-                            illustration={<LottiePlayer kind={setupStep === 1 ? 'onboarding_receive' : 'onboarding_share'} size={176} />}
+                            onSkip={() => setSetupStep(3)}
                             onNext={() => setSetupStep(setupStep + 1)}
                             onBack={() => setupStep === 1 ? router.push('/auth/login') : setSetupStep(1)}
                         />
                     ) : (
                         <form onSubmit={handleSubmit}>
-                            <Stack gap="md">
+                            <Stack gap="sm" className="compact-form">
                                 {error && (
                                     <Alert icon={<IconAlertCircle size={16} />} title="Error" color="red">
                                         {error}
                                     </Alert>
                                 )}
-                                <Text size="xs" c="dimmed">Step 3 of 3 · Create your account</Text>
-
                                 <TextInput
                                     label="Username"
-                                    placeholder="johndoe"
+                                    autoComplete="username"
                                     required
                                     value={form.username}
                                     onChange={(e) => setForm({ ...form, username: e.target.value })}
                                 />
 
+                                <Text size="xs" c="dimmed">Add a phone number or email.</Text>
                                 <TextInput
-                                    label="Phone Number"
-                                    placeholder="+263 77 123 4567 or 0774 123 456"
-                                    description="📱 Required to link VCs from your EcoCash payments. Use the MSISDN you pay with."
+                                    label="Phone number"
+                                    placeholder="263771234567"
+                                    type="tel"
+                                    autoComplete="tel"
                                     leftSection={<IconPhone size={16} />}
                                     value={form.phone}
                                     onChange={(e) => setForm({ ...form, phone: e.target.value })}
                                 />
 
                                 <TextInput
-                                    label="Email (optional)"
+                                    label="Email"
                                     placeholder="john@example.com"
-                                    description="Optional if phone is provided"
                                     type="email"
+                                    autoComplete="email"
                                     leftSection={<IconMail size={16} />}
                                     value={form.email}
                                     onChange={(e) => setForm({ ...form, email: e.target.value })}
                                 />
 
                                 <PasswordInput
-                                    label="PIN (4-6 digits)"
-                                    placeholder="••••••"
-                                    description="Quick login PIN - your identity is stored securely in your wallet"
+                                    label="PIN"
+                                    inputMode="numeric"
+                                    autoComplete="new-password"
+                                    visibilityToggleButtonProps={{ 'aria-label': 'Show or hide new PIN' }}
                                     required
                                     maxLength={6}
                                     value={form.password}
@@ -266,7 +268,9 @@ export default function RegisterPage() {
 
                                 <PasswordInput
                                     label="Confirm PIN"
-                                    placeholder="••••••"
+                                    inputMode="numeric"
+                                    autoComplete="new-password"
+                                    visibilityToggleButtonProps={{ 'aria-label': 'Show or hide confirmation PIN' }}
                                     required
                                     maxLength={6}
                                     value={form.confirmPassword}
@@ -280,7 +284,7 @@ export default function RegisterPage() {
                                     mt="md"
                                     leftSection={loading ? <Loader size="xs" /> : <IconUserPlus size={18} />}
                                 >
-                                    {loading ? 'Creating Account...' : 'Create Account'}
+                                    {loading ? 'Creating account…' : 'Create account'}
                                 </Button>
 
                                 <Text ta="center" size="sm" c="dimmed">
@@ -289,7 +293,7 @@ export default function RegisterPage() {
                                         Sign in
                                     </Anchor>
                                 </Text>
-                                <Button variant="subtle" disabled={loading} onClick={() => setSetupStep(2)}>Back to the wallet guide</Button>
+                                <Button variant="subtle" disabled={loading} onClick={() => setSetupStep(2)}>Back to guide</Button>
                             </Stack>
                         </form>
                     )}

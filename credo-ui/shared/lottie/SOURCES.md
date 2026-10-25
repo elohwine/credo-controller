@@ -27,15 +27,32 @@ Both apps play these with `lottie-web`'s light SVG player. Under reduced motion 
 ## Guided wallet journey
 
 The mobile Create account flow and portal registration use the same interactive example.
-It demonstrates reviewing an incoming sample receipt and selecting optional information in
-a sample proof request before creating an account. It never issues a credential or sends
-information; every example is labelled. Copy explains the current server-hosted wallet model.
+It demonstrates keeping an incoming sample receipt and reusing it for a purchase return.
+The requester, purpose and shared record are explicit; the demo does not promise selective
+field disclosure. It never issues a credential or sends information; every example is labelled.
+Both screens replace feedback in place and keep navigation in a bottom row. Mobile uses a
+compact brand row and height-responsive artwork, targeting no scrolling at standard text
+size on 360x640 and larger portrait screens. Shorter screens, landscape and enlarged text
+can scroll so content and controls remain accessible. Account forms can scroll with a keyboard.
+Skip intro goes directly to account creation without submitting anything.
+
+The guide now composes its receipt, wallet and request as one interactive HTML/SVG scene
+in `WalletOnboarding.tsx`, rather than playing an icon above a separate demo card.
+CSS transitions move the actual sample receipt into its wallet after the user taps Save.
+Approving the sample changes the request's appearance without adding another panel.
+Reduced motion retains the same detailed scene and immediate state changes; it does not
+replace the artwork with a generic icon. The original onboarding Lottie JSON files remain
+available but are no longer used by the guide. Other milestone players are unchanged.
 
 The [BC Digital Trust Showcase](https://digital.gov.bc.ca/digital-trust/showcase/demo)
 informed the scenario-first approach: introduce a relatable situation, show a sample card,
 explain what happens next and let the person try a decision. No BC artwork or code is copied.
 These original vectors are generated locally; they are not LottieFiles library downloads
 or Creator exports. Regenerate with `python3 credo-ui/shared/lottie/generate.py`.
+
+Design references: [Apple onboarding](https://developer.apple.com/design/human-interface-guidelines/onboarding),
+[purposeful motion](https://developer.apple.com/design/human-interface-guidelines/motion),
+and [Nielsen Norman Group onboarding research](https://www.nngroup.com/articles/mobile-app-onboarding/).
 
 WhatsApp headers use an 800x418 vector artboard rendered at 1600x836 (2x), with reserved
 space between text and artwork. Regenerate with `node scripts/whatsapp-banners.js`.
