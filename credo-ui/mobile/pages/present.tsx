@@ -405,6 +405,19 @@ function resolveCredentialId(match: any): string | undefined {
     return undefined;
 }
 
+/** The organisation asking for the details: named in the link, else the verifier's web address. */
+function requesterName(orgName: string | undefined, requestUrl: string): string {
+    if (orgName && orgName.trim()) return orgName.trim();
+    try {
+        const params = new URL(requestUrl.replace(/^(openid4vp|openid-vc|openid):\/\//, 'https://x/')).searchParams;
+        const target = params.get('client_id') || params.get('response_uri') || params.get('request_uri') || '';
+        const host = target.startsWith('http') ? new URL(target).hostname : '';
+        return host.replace(/^www\./, '');
+    } catch {
+        return '';
+    }
+}
+
 export default function PresentPage() {
     const router = useRouter();
     const [initStage, setInitStage] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -1107,8 +1120,8 @@ export default function PresentPage() {
                             if (mode === 'ap-workflow-transition' && transactionId) {
                                 return (
                                     <>
-                                        <Title order={3}>AP Workflow Proof</Title>
-                                        <Text c="dimmed" size="sm">Verify your authority and continue AP workflow transaction {transactionId.slice(0, 10)}...</Text>
+                                        <Title order={3}>Confirm this payment step</Title>
+                                        <Text c="dimmed" size="sm">Share the card that shows you may approve this supplier payment, then the payment continues.</Text>
                                         <Group gap="xs" mt="xs">
                                             {transition && <Badge color="blue" variant="light">Action: {transition}</Badge>}
                                             {providerRef && <Badge color="indigo" variant="light">Ref: {providerRef}</Badge>}
@@ -1120,8 +1133,8 @@ export default function PresentPage() {
                             if (mode === 'ar-collection-consent' && transactionId) {
                                 return (
                                     <>
-                                        <Title order={3}>AR Collection Proof</Title>
-                                        <Text c="dimmed" size="sm">Present wallet proof for AR collection transaction {transactionId.slice(0, 10)} and continue the debtor workflow.</Text>
+                                        <Title order={3}>Confirm this collection</Title>
+                                        <Text c="dimmed" size="sm">Share your payment record so the organisation can mark this bill as paid.</Text>
                                         <Group gap="xs" mt="xs">
                                             {transition && <Badge color="indigo" variant="light">Action: {transition}</Badge>}
                                             {providerRef && <Badge color="blue" variant="light">Ref: {providerRef}</Badge>}
@@ -1133,8 +1146,8 @@ export default function PresentPage() {
                             if (mode === 'workflow-action') {
                                 return (
                                     <>
-                                        <Title order={3}>Workflow Verification</Title>
-                                        <Text c="dimmed" size="sm">Submit proof for an ongoing workflow action.</Text>
+                                        <Title order={3}>Confirm this step</Title>
+                                        <Text c="dimmed" size="sm">Share the card this step asks for, then the work continues.</Text>
                                         <Group gap="xs" mt="xs">
                                             {workflowRunId && <Badge color="violet" variant="light">Run: {workflowRunId.slice(0, 12)}</Badge>}
                                             {providerRef && <Badge color="blue" variant="light">Ref: {providerRef}</Badge>}
@@ -1145,8 +1158,8 @@ export default function PresentPage() {
 
                             return (
                                 <>
-                                    <Title order={3}>Verification Request</Title>
-                                    <Text c="dimmed" size="sm">An organization has requested proof from your wallet.</Text>
+                                    <Title order={3}>Share details</Title>
+                                    <Text c="dimmed" size="sm">An organisation asks to see details from your cards. Check what is shared before you agree.</Text>
                                 </>
                             );
                         })()}
@@ -1161,7 +1174,7 @@ export default function PresentPage() {
                         </Center>
                     )}
 
-                    {initStage === 'error' && <ErrorAlert title="Request Failed" message={errorText} />}
+                    {initStage === 'error' && <ErrorAlert title="This request could not be opened" message={errorText} />}
 
                     {initStage === 'ready' && submitStage === 'idle' && (
                         <Stack gap="lg">
@@ -1194,6 +1207,24 @@ export default function PresentPage() {
                                             currency: queryValue(router.query.currency),
                                         });
                                         return line ? <Text fw={600}>{line}</Text> : null;
+                                    })()}
+                                    {(() => {
+                                        const asker = requesterName(queryValue(router.query.orgName), presentationRequestUrl);
+                                        if (!asker) return null;
+                                        return (
+                                            <Paper withBorder radius="md" p="sm">
+                                                <Group gap="sm" wrap="nowrap">
+                                                    <ThemeIcon size={36} radius="xl" color="violet" variant="light">
+                                                        <IconShieldCheck size={20} />
+                                                    </ThemeIcon>
+                                                    <Box style={{ flex: 1, minWidth: 0 }}>
+                                                        <Text size="xs" c="dimmed">Who is asking</Text>
+                                                        <Text fw={700} size="sm" lineClamp={1}>{asker}</Text>
+                                                    </Box>
+                                                </Group>
+                                                <Text size="xs" c="dimmed" mt={6}>Nothing is sent until you tap Share.</Text>
+                                            </Paper>
+                                        );
                                     })()}
                                     <Group justify="space-between" align="center" wrap="nowrap">
                                         <Text fw={600} size="sm">These records will be shared:</Text>
@@ -1291,7 +1322,7 @@ export default function PresentPage() {
                                         disabled={selectedCredentials.length === 0 || !consentChecked}
                                         onClick={handleSubmit}
                                     >
-                                        Share and continue
+                                        Share
                                     </Button>
                                     <Button
                                         fullWidth
@@ -1360,7 +1391,7 @@ export default function PresentPage() {
 
                     {submitStage === 'error' && (
                         <Stack gap="sm">
-                            <ErrorAlert title="Submission Failed" message={errorText} />
+                            <ErrorAlert title="Not shared" message={errorText} />
                             <Button fullWidth variant="light" color="red" size="xs" onClick={() => setSubmitStage('idle')}>
                                 Try Again
                             </Button>
