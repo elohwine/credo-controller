@@ -4066,6 +4066,7 @@ export default function InboxPage() {
                     <OfferReviewCard
                       kind={selectedItem.itemType}
                       title={selectedItem.title}
+                      description={selectedItem.description}
                       issuerName={selectedItem.ownerDisplayName}
                       issuerLogoUrl={selectedItem.ownerLogoUrl}
                       savesTo={selectedItem.authContext === 'org' ? 'org' : 'personal'}

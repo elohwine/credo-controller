@@ -1,4 +1,5 @@
 import { feedback } from '@/lib/feedback';
+import { milestone } from '@/components/feedback/Milestone';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Stack,
@@ -2001,7 +2002,7 @@ export default function FinancePage() {
       setSelectedPlanDetails(res.data)
       setSelectedPlanId(planId)
     } catch (err: any) {
-      feedback.fromError(err, { title: 'Could not load plan' })
+      feedback.fromError(err, { title: 'Could not load plan', retry: () => void openPlanDetails(planId) })
     } finally {
       setLoadingPlanDetails(false)
     }
@@ -2443,7 +2444,7 @@ export default function FinancePage() {
       })
       setSupplierStatement(res.data)
     } catch (err: any) {
-      feedback.fromError(err, { title: 'Could not load statement' })
+      feedback.fromError(err, { title: 'Could not load statement', retry: () => void fetchSupplierStatement(supplierId) })
     } finally {
       setStatementLoading(false)
     }
@@ -4740,7 +4741,7 @@ export default function FinancePage() {
         { headers: { Authorization: `Bearer ${token}` } },
       )
       if (ackRes.data?.error) throw new Error(ackRes.data.error)
-      feedback.success('This requisition is now closed.', { title: 'Delivery confirmed' })
+      milestone.show({ kind: 'workflow_complete', title: 'Delivery confirmed', detail: 'This requisition is now closed.' })
       setShowAckModal(false)
       setAckRequestId(null)
       setAckRequestUrl(null)

@@ -18,3 +18,11 @@ All files use the Credentis palette (blue `#2188ca`, green `#1fb87e`) and are un
 3. If it came from lottiefiles.com, record the URL and author in the table above.
 
 Both apps play these with `lottie-web`'s light SVG player. Under reduced motion they show a still icon instead.
+
+## Release implementation notes
+
+- The light SVG player replaces the planned dotLottie WASM player so Android does not need to fetch a player binary from a CDN.
+- These are original generated animations, not downloaded LottieFiles assets. Creator replacements are optional; opening Creator must be followed by enabling its MCP connection.
+- Wallet registration has a short Next/Back guide; organisation setup reuses the same progress component within its existing question flow.
+- Offer reviews show the sender, description and save destination. Claims are not previewed because the inbox API does not supply them; the preview must not imply that a signature has already been verified.
+- Milestone dialogs use Mantine's focus trapping, Escape handling and focus restoration. Reduced-motion preferences disable the animated player and entry effect.

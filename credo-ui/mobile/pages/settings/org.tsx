@@ -1,6 +1,7 @@
 import { feedback } from '@/lib/feedback';
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { LottiePlayer } from '@/components/feedback/LottiePlayer';
+import { GuidedSteps } from '@/components/feedback/GuidedSteps';
 import {
   Stack, Title, Text, Box, Divider, Button, Group, Checkbox, TextInput, Alert, Loader, Center,
   Paper, Badge, Collapse, Stepper, SimpleGrid, ThemeIcon, Card, ColorInput, ScrollArea, Select, MultiSelect,
@@ -1658,8 +1659,7 @@ export default function OrgSettingsPage() {
             {section === null && canManageOrgSetup && orgQuestion > 0 && !orgReview && (
               <Paper p="md" radius="md" withBorder>
                 <Stack gap="sm">
-                  <Progress value={(orgQuestion / ORG_QUESTION_COUNT) * 100} size="sm" radius="xl" aria-label="Progress" />
-                  <Text size="xs" c="dimmed">Question {orgQuestion} of {ORG_QUESTION_COUNT}</Text>
+                  <GuidedSteps current={orgQuestion} total={ORG_QUESTION_COUNT} label="Question" />
                   <Text fw={700}>
                     {orgQuestion === 1
                       ? 'What does your organization do?'

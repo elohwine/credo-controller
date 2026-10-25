@@ -1,4 +1,4 @@
-import { Box, Button, List, Paper, Stack, Text } from '@mantine/core'
+import { Box, Button, List, Modal, Stack, Text } from '@mantine/core'
 import { useEffect, useSyncExternalStore } from 'react'
 import { MILESTONE_DURATION_MS, type MilestoneKind } from '../../../shared/lottie'
 import { LottiePlayer } from './LottiePlayer'
@@ -51,49 +51,25 @@ export function MilestoneHost() {
     return () => window.clearTimeout(timer)
   }, [active, waitsForUser])
 
-  useEffect(() => {
-    if (!active) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') milestone.close()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [active])
-
   if (!active) return null
   return (
-    <Box
+    <Modal
       key={active.key}
-      role="dialog"
-      aria-modal="true"
-      aria-label={active.title}
-      onClick={() => {
-        if (!waitsForUser) milestone.close()
-      }}
-      className="milestone-backdrop"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 10000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 24,
-        background: 'rgba(15, 30, 45, 0.45)',
-      }}
+      opened
+      onClose={() => milestone.close()}
+      title={active.title}
+      centered
+      size={360}
+      radius="lg"
+      padding="lg"
+      zIndex={10000}
+      closeOnClickOutside={!waitsForUser}
+      transitionProps={{ duration: 0 }}
     >
-      <Paper
-        radius="lg"
-        p="lg"
-        shadow="xl"
-        maw={360}
-        w="100%"
-        className="milestone-card"
-        onClick={(event) => event.stopPropagation()}
-      >
+      <Box className="milestone-card">
         <MilestoneContent {...active} onDone={() => milestone.close()} />
-      </Paper>
-    </Box>
+      </Box>
+    </Modal>
   )
 }
 

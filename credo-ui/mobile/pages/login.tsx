@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { milestone } from '@/components/feedback/Milestone';
+import { GuidedSteps } from '@/components/feedback/GuidedSteps';
 import { useRouter } from 'next/router';
 import {
   Box,
@@ -39,6 +40,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<'login' | 'register'>('login');
+  const [setupStep, setSetupStep] = useState(1);
   const submitting = useRef(false);
 
   const loginForm = useForm<LoginValues>({
@@ -244,7 +246,7 @@ export default function LoginPage() {
               {(['login', 'register'] as const).map((t) => (
                 <Box
                   key={t}
-                  onClick={() => { setTab(t); setError(null); }}
+                  onClick={() => { setTab(t); setError(null); setSetupStep(1); }}
                   style={{
                     flex: 1,
                     textAlign: 'center',
@@ -307,9 +309,22 @@ export default function LoginPage() {
                   </Text>
                 </Stack>
               </form>
+            ) : setupStep < 3 ? (
+              <Stack gap="md">
+                <GuidedSteps current={setupStep} total={3} />
+                <Title order={3}>{setupStep === 1 ? 'Keep your cards together' : 'Choose what you share'}</Title>
+                <Text size="sm">
+                  {setupStep === 1
+                    ? 'Your wallet keeps identity cards, work cards and payment receipts. After signing in, open Inbox to review your first card.'
+                    : 'When someone asks for details, check who is asking and what will be sent. Nothing is shared until you agree.'}
+                </Text>
+                <Button fullWidth onClick={() => setSetupStep(setupStep + 1)}>Next</Button>
+                <Button variant="subtle" onClick={() => setupStep === 1 ? setTab('login') : setSetupStep(setupStep - 1)}>Back</Button>
+              </Stack>
             ) : (
               <form onSubmit={registerForm.onSubmit(handleRegister)}>
                 <Stack gap="sm">
+                  <GuidedSteps current={3} total={3} />
                   <TextInput
                     label="Name"
                     placeholder="Your name"
@@ -343,6 +358,7 @@ export default function LoginPage() {
                   <Button type="submit" size="lg" fullWidth loading={loading} mt="xs">
                     Create account
                   </Button>
+                  <Button variant="subtle" disabled={loading} onClick={() => setSetupStep(2)}>Back</Button>
                 </Stack>
               </form>
             )}

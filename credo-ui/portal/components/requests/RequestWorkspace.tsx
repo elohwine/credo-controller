@@ -1703,7 +1703,11 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
         { requestId: finishing.id, toStatus: finishing.nextStep.toStatus, payload: { ...finishValues, receiptImage: finishPhoto || undefined } },
         { headers: { Authorization: `Bearer ${token}` } },
       )
-      feedback.success('Saved. Related work can continue when its required steps are complete.', { title: 'Done' })
+      if (finishing.nextStep.toStatus === 'completed') {
+        milestone.show({ kind: 'workflow_complete', title: 'Request completed', detail: finishing.title ? String(finishing.title) : undefined })
+      } else {
+        feedback.success('Saved. Related work can continue when its required steps are complete.', { title: 'Done' })
+      }
       setFinishing(null)
       setSelectedRequest(null)
       await loadRequests(null, false)

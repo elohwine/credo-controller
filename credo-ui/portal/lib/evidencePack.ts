@@ -63,7 +63,7 @@ export function bytesToBase64(bytes: Uint8Array): string {
 
 /** Bytes of one job photo: decoded from a data: URI, otherwise fetched (same URL the preview shows). */
 export async function photoFile(src: string, fetcher: typeof fetch = fetch): Promise<PhotoFile> {
-  const data = /^data:([^;,]+)?((?:;[^;,]+)*?)(;base64)?,(.*)$/s.exec(src)
+  const data = /^data:([^;,]+)?((?:;[^;,]+)*?)(;base64)?,([\s\S]*)$/.exec(src)
   if (data) {
     const mime = (data[1] || 'application/octet-stream').toLowerCase()
     const bytes = data[3] ? base64ToBytes(data[4]) : new TextEncoder().encode(decodeURIComponent(data[4]))
