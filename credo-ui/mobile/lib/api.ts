@@ -29,6 +29,7 @@ const IDEMPOTENCY_METHODS = new Set(['post', 'put', 'patch', 'delete'])
 const IDEMPOTENCY_REUSE_WINDOW_MS = 30_000
 const idempotencyCache = new Map<string, { key: string; createdAt: number }>()
 const PUBLIC_AUTH_PATH_PREFIXES = [
+  '/api/wallet/auth/device-login/',
   '/api/wallet/auth/login',
   '/api/wallet/auth/register',
   '/api/wallet/auth/login-challenge',

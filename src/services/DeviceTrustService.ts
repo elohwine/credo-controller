@@ -13,6 +13,7 @@ import { createHash, createPublicKey, createVerify, randomBytes, timingSafeEqual
 import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 
+import { verifyAndroidKeyAttestation } from './AndroidKeyAttestation'
 import { loginAudience } from './SSIAuthService'
 
 export const DEVICE_TRUST_ACTIONS = ['release_funds', 'trigger_payout', 'record_payment'] as const
@@ -42,6 +43,8 @@ export interface EnrolledDevice {
   userAuthRequired: boolean
   createdAt: string
   revokedAt?: string
+  verifiedAt?: string
+  usage?: string
 }
 
 interface DeviceKeyRow {
@@ -55,6 +58,9 @@ interface DeviceKeyRow {
   label: string | null
   created_at: string
   revoked_at: string | null
+  verified_at: string | null
+  key_usage: string
+  auth_policy: string
 }
 
 function sha256(value: string): string {
@@ -81,38 +87,7 @@ export function jwkThumbprint(jwk: Record<string, unknown>): string {
 
 function publicKeyFromJwk(jwk: Record<string, unknown>) {
   const thumbprint = jwkThumbprint(jwk)
-  return { key: createPublicKey({ key: jwk as any, format: 'jwk' }), thumbprint }
-}
-
-/**
- * Android key attestation, verified as far as a server can without Google's
- * attestation roots bundled here. A software key, or a key that does not require
- * user authentication, is refused. The certificate chain is stored so a later
- * check against the published roots can be added without re-enrollment.
- */
-export function readKeyAttestation(attestation: unknown): { hardwareBacked: boolean; userAuthRequired: boolean } {
-  if (!attestation || typeof attestation !== 'object') {
-    throw new StatusException('A device attestation is required to enroll this phone.', 400)
-  }
-  const record = attestation as Record<string, unknown>
-  const securityLevel = String(record.securityLevel || record.keymasterSecurityLevel || '').toLowerCase()
-  const hardwareBacked =
-    securityLevel === 'trustedenvironment' || securityLevel === 'strongbox' || record.hardwareBacked === true
-  const userAuthRequired = record.userAuthenticationRequired === true || record.userAuthRequired === true
-  const purposes = Array.isArray(record.purposes) ? record.purposes.map((item) => String(item)) : []
-  if (!hardwareBacked) {
-    throw new StatusException(
-      'This phone could not create a hardware-backed key. Fund release stays on a phone that can.',
-      400,
-    )
-  }
-  if (!userAuthRequired) {
-    throw new StatusException('The device key must require fingerprint or face before it can sign.', 400)
-  }
-  if (purposes.length > 0 && !purposes.some((purpose) => /sign/i.test(purpose))) {
-    throw new StatusException('The device key is not allowed to sign.', 400)
-  }
-  return { hardwareBacked: true, userAuthRequired: true }
+  return { key: createPublicKey({ key: { ...jwk }, format: 'jwk' }), thumbprint }
 }
 
 export function defaultDeviceTrustPolicy(): DeviceTrustPolicy {
@@ -137,6 +112,18 @@ export function deviceTrustRequired(policy: DeviceTrustPolicy | undefined, actio
   return policy.requiredActions.includes(action)
 }
 export class DeviceTrustService {
+  public createEnrollmentChallenge(walletTenantId: string): { nonce: string; expiresAt: string } {
+    const nonce = randomBytes(32).toString('base64url')
+    const expiresAt = new Date(Date.now() + CHALLENGE_TTL_MS).toISOString()
+    DatabaseManager.getDatabase()
+      .prepare('DELETE FROM device_enrollment_challenges WHERE expires_at <= ?')
+      .run(new Date().toISOString())
+    DatabaseManager.getDatabase()
+      .prepare('INSERT INTO device_enrollment_challenges (nonce, wallet_tenant_id, expires_at) VALUES (?, ?, ?)')
+      .run(nonce, walletTenantId, expiresAt)
+    return { nonce, expiresAt }
+  }
+
   public createChallenge(walletTenantId: string): { nonce: string; audience: string; expiresAt: string } {
     const nonce = randomBytes(32).toString('base64url')
     const expiresAt = new Date(Date.now() + CHALLENGE_TTL_MS).toISOString()
@@ -146,45 +133,99 @@ export class DeviceTrustService {
     return { nonce, audience: this.audience(), expiresAt }
   }
 
-  public enroll(input: {
+  public async enroll(input: {
     walletTenantId: string
     publicJwk: Record<string, unknown>
     attestation: unknown
     platform: string
     label?: string
-  }): EnrolledDevice {
-    const { thumbprint } = publicKeyFromJwk(input.publicJwk)
-    readKeyAttestation(input.attestation)
+    enrollmentChallenge: string
+    usage: 'login' | 'payment'
+  }): Promise<EnrolledDevice> {
+    if (input.platform !== 'android' || !['login', 'payment'].includes(input.usage)) {
+      throw new StatusException('This device enrollment request is invalid.', 400)
+    }
+    if (input.label && input.label.length > 80) {
+      throw new StatusException('Device name must be 80 characters or fewer.', 400)
+    }
     const db = DatabaseManager.getDatabase()
-    const existing = db.prepare('SELECT id, revoked_at FROM device_keys WHERE thumbprint = ?').get(thumbprint) as
-      | { id: string; revoked_at: string | null }
-      | undefined
-    if (existing && !existing.revoked_at) throw new StatusException('This phone is already enrolled.', 409)
-    const now = new Date().toISOString()
-    const id = existing?.id || randomBytes(16).toString('hex')
-    const values = [
-      input.walletTenantId,
-      canonical(input.publicJwk),
-      input.platform,
-      canonical(input.attestation),
-      input.label || null,
-    ]
-    if (existing) {
-      db.prepare(
-        `UPDATE device_keys
-         SET wallet_tenant_id = ?, public_jwk = ?, platform = ?, attestation_json = ?,
-             hardware_backed = 1, user_auth_required = 1, label = ?, revoked_at = NULL
-         WHERE id = ?`,
-      ).run(...values, id)
-    } else {
+    const pending = db
+      .prepare(
+        'SELECT nonce FROM device_enrollment_challenges WHERE nonce = ? AND wallet_tenant_id = ? AND expires_at > ? AND used_at IS NULL',
+      )
+      .get(input.enrollmentChallenge, input.walletTenantId, new Date().toISOString())
+    if (!pending) throw new StatusException('This phone enrollment has expired. Start again.', 401)
+    const { thumbprint } = publicKeyFromJwk(input.publicJwk)
+    if (input.platform !== 'android')
+      throw new StatusException('Trusted-device enrollment requires the Android app.', 400)
+    await verifyAndroidKeyAttestation({
+      publicJwk: input.publicJwk,
+      attestation: input.attestation,
+      challenge: input.enrollmentChallenge,
+      usage: input.usage,
+    })
+    return db.transaction(() => {
+      const consumed = db
+        .prepare(
+          'UPDATE device_enrollment_challenges SET used_at = ? WHERE nonce = ? AND wallet_tenant_id = ? AND used_at IS NULL AND expires_at > ?',
+        )
+        .run(
+          new Date().toISOString(),
+          input.enrollmentChallenge,
+          input.walletTenantId,
+          new Date().toISOString(),
+        ).changes
+      if (consumed !== 1) throw new StatusException('This phone enrollment was already used.', 401)
+      const existing = db.prepare('SELECT id FROM device_keys WHERE thumbprint = ?').get(thumbprint)
+      if (existing) throw new StatusException('This key was already enrolled. Create a new device key.', 409)
+      const now = new Date().toISOString()
+      const id = randomBytes(16).toString('hex')
+      const values = [
+        input.walletTenantId,
+        canonical(input.publicJwk),
+        input.platform,
+        canonical(input.attestation),
+        input.label || null,
+      ]
       db.prepare(
         `INSERT INTO device_keys (
            id, wallet_tenant_id, public_jwk, thumbprint, platform, attestation_json,
            hardware_backed, user_auth_required, label, created_at
          ) VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
       ).run(id, values[0], values[1], thumbprint, values[2], values[3], values[4], now)
+      db.prepare('UPDATE device_keys SET verified_at = ?, key_usage = ?, auth_policy = ? WHERE id = ?').run(
+        now,
+        input.usage,
+        input.usage === 'login' ? 'strong_or_device_credential' : 'strong_biometric',
+        id,
+      )
+      return this.toDevice(this.requireKey(id))
+    })()
+  }
+
+  public getVerifiedDevice(deviceKeyId: string): { id: string; walletTenantId: string } {
+    const row = this.requireKey(deviceKeyId)
+    if (
+      row.revoked_at ||
+      !row.verified_at ||
+      row.key_usage !== 'login' ||
+      row.auth_policy !== 'strong_or_device_credential'
+    ) {
+      throw new StatusException('Use your account PIN, then enroll this device under Account security.', 403)
     }
-    return this.toDevice(this.requireKey(id))
+    return { id: row.id, walletTenantId: row.wallet_tenant_id }
+  }
+
+  public verifyLoginSignature(deviceKeyId: string, payload: string, signature: string): void {
+    this.getVerifiedDevice(deviceKeyId)
+    const row = this.requireKey(deviceKeyId)
+    const { key } = publicKeyFromJwk(JSON.parse(row.public_jwk))
+    const verifier = createVerify('SHA256')
+    verifier.update(payload)
+    verifier.end()
+    if (!verifier.verify(key, Buffer.from(signature, 'base64url'))) {
+      throw new StatusException('This device confirmation could not be verified.', 401)
+    }
   }
 
   public list(walletTenantId: string): EnrolledDevice[] {
@@ -195,10 +236,16 @@ export class DeviceTrustService {
   }
 
   public revoke(walletTenantId: string, deviceKeyId: string): void {
-    const changed = DatabaseManager.getDatabase()
-      .prepare('UPDATE device_keys SET revoked_at = ? WHERE id = ? AND wallet_tenant_id = ? AND revoked_at IS NULL')
-      .run(new Date().toISOString(), deviceKeyId, walletTenantId).changes
-    if (changed !== 1) throw new StatusException('That phone is not enrolled on this wallet.', 404)
+    const db = DatabaseManager.getDatabase()
+    db.transaction(() => {
+      const changed = db
+        .prepare('UPDATE device_keys SET revoked_at = ? WHERE id = ? AND wallet_tenant_id = ? AND revoked_at IS NULL')
+        .run(new Date().toISOString(), deviceKeyId, walletTenantId).changes
+      if (changed !== 1) throw new StatusException('That phone is not enrolled on this wallet.', 404)
+      db.prepare('DELETE FROM device_login_approvals WHERE device_key_id = ?').run(deviceKeyId)
+      db.prepare('DELETE FROM device_login_challenges WHERE device_key_id = ?').run(deviceKeyId)
+      db.prepare('UPDATE ssi_users SET session_version = session_version + 1 WHERE tenant_id = ?').run(walletTenantId)
+    })()
   }
 
   /**
@@ -222,6 +269,9 @@ export class DeviceTrustService {
     if (row.hardware_backed !== 1 || row.user_auth_required !== 1) {
       throw new StatusException('This phone key is not allowed to release money.', 403)
     }
+    if (input.purpose !== 'vc_login' && row.key_usage === 'login') {
+      throw new StatusException('Use the biometric-only payment key for this money step.', 403)
+    }
     if (input.assertion.purpose !== input.purpose) {
       throw new StatusException('This confirmation was made for a different step.', 403)
     }
@@ -229,8 +279,9 @@ export class DeviceTrustService {
     if (!Number.isFinite(signedAt) || Math.abs(Date.now() - signedAt) > ASSERTION_TTL_SECONDS * 1000) {
       throw new StatusException('This confirmation has expired. Confirm again.', 401)
     }
-    if (input.consumeNonce !== false) this.consumeNonce(input.assertion.nonce, row.id, input.purpose)
     this.verifySignature(row, input)
+    if (input.consumeNonce !== false)
+      this.consumeNonce(input.assertion.nonce, row.id, input.purpose, input.walletTenantId)
     return { deviceKeyId: row.id }
   }
 
@@ -256,18 +307,20 @@ export class DeviceTrustService {
     }
   }
 
-  private consumeNonce(nonce: string, deviceKeyId: string, purpose: string): void {
+  private consumeNonce(nonce: string, deviceKeyId: string, purpose: string, walletTenantId: string): void {
     const db = DatabaseManager.getDatabase()
-    const live = db
-      .prepare('SELECT nonce FROM ssi_login_challenges WHERE nonce = ? AND expires_at > ?')
-      .get(nonce, new Date().toISOString()) as { nonce?: string } | undefined
-    if (live) {
-      db.prepare('DELETE FROM ssi_login_challenges WHERE nonce = ?').run(nonce)
-    }
-    const inserted = db
-      .prepare('INSERT OR IGNORE INTO device_assertions (nonce_hash, device_key_id, purpose, used_at) VALUES (?, ?, ?, ?)')
-      .run(sha256(nonce), deviceKeyId, purpose, new Date().toISOString()).changes
-    if (!live && inserted !== 1) throw new StatusException('This confirmation has already been used or has expired.', 401)
+    db.transaction(() => {
+      const consumed = db
+        .prepare('DELETE FROM ssi_login_challenges WHERE nonce = ? AND tenant_id = ? AND expires_at > ?')
+        .run(nonce, walletTenantId, new Date().toISOString()).changes
+      if (consumed !== 1) throw new StatusException('This confirmation has already been used or has expired.', 401)
+      db.prepare('INSERT INTO device_assertions (nonce_hash, device_key_id, purpose, used_at) VALUES (?, ?, ?, ?)').run(
+        sha256(nonce),
+        deviceKeyId,
+        purpose,
+        new Date().toISOString(),
+      )
+    })()
   }
 
   private requireKey(id: string): DeviceKeyRow {
@@ -287,6 +340,8 @@ export class DeviceTrustService {
       userAuthRequired: row.user_auth_required === 1,
       createdAt: row.created_at,
       revokedAt: row.revoked_at || undefined,
+      verifiedAt: row.verified_at || undefined,
+      usage: row.key_usage,
     }
   }
 
@@ -306,5 +361,3 @@ export function sameSecret(left: string, right: string): boolean {
   const b = Buffer.from(right)
   return a.length === b.length && timingSafeEqual(a, b)
 }
-
-

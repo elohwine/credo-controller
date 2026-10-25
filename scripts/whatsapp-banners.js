@@ -1,4 +1,4 @@
-// Renders the WhatsApp template header images (assets/whatsapp/<event>.png, 800x418, 1.91:1).
+// Renders WhatsApp template headers at 1600x836 from an 800x418 vector artboard.
 //
 //   node scripts/whatsapp-banners.js
 //
@@ -19,6 +19,7 @@ function loadSharp() {
 
 const W = 800
 const H = 418
+const SCALE = 2
 const BLUE = '#2188CA'
 const INK = '#0B2540'
 
@@ -98,8 +99,13 @@ function svg(event) {
       <stop offset="0" stop-color="${INK}"/>
       <stop offset="1" stop-color="#123E66"/>
     </linearGradient>
+    <radialGradient id="glow">
+      <stop offset="0" stop-color="${b.accent}" stop-opacity=".24"/>
+      <stop offset="1" stop-color="${b.accent}" stop-opacity="0"/>
+    </radialGradient>
   </defs>
   <rect width="${W}" height="${H}" fill="url(#bg)"/>
+  <circle cx="678" cy="208" r="190" fill="url(#glow)"/>
   <circle cx="${W - 60}" cy="-40" r="220" fill="${BLUE}" opacity="0.18"/>
   <circle cx="${W - 150}" cy="${H + 60}" r="160" fill="${b.accent}" opacity="0.14"/>
   <rect x="0" y="0" width="12" height="${H}" fill="${b.accent}"/>
@@ -114,11 +120,13 @@ function svg(event) {
     <text x="118" y="52" font-family="DejaVu Sans, Arial, sans-serif" font-size="34" font-weight="700" fill="#fff">Credentis</text>
   </g>
   <text x="56" y="200" font-family="DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="3" fill="${b.accent}">${esc(b.kicker)}</text>
-  <text x="56" y="256" font-family="DejaVu Sans, Arial, sans-serif" font-size="46" font-weight="700" fill="#fff">${esc(b.title)}</text>
-  <text x="56" y="304" font-family="DejaVu Sans, Arial, sans-serif" font-size="26" fill="#C9DCEE">${esc(b.line)}</text>
+  <text x="56" y="256" font-family="DejaVu Sans, Arial, sans-serif" font-size="38" font-weight="700" fill="#fff">${esc(b.title)}</text>
+  <text x="56" y="300" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#D7E6F3">${esc(b.line)}</text>
   <text x="56" y="370" font-family="DejaVu Sans, Arial, sans-serif" font-size="18" fill="#7FA6C9">Verified records you keep</text>
-  <g transform="translate(${W - 230} 150)">
-    <circle cx="80" cy="80" r="92" fill="${b.accent}"/>
+  <g transform="translate(${W - 190} 158) scale(.85)">
+    <circle cx="80" cy="86" r="88" fill="#061A2E" opacity=".4"/>
+    <circle cx="80" cy="80" r="88" fill="none" stroke="${b.accent}" stroke-opacity=".3" stroke-width="2"/>
+    <circle cx="80" cy="80" r="76" fill="${b.accent}"/>
     <g transform="translate(20 20)">${ICONS[event]}</g>
   </g>
 </svg>`
@@ -130,7 +138,8 @@ async function main() {
   fs.mkdirSync(out, { recursive: true })
   for (const event of Object.keys(BANNERS)) {
     const file = path.join(out, `${event}.png`)
-    await sharp(Buffer.from(svg(event)))
+    await sharp(Buffer.from(svg(event)), { density: 72 * SCALE })
+      .resize(W * SCALE, H * SCALE)
       .png({ compressionLevel: 9 })
       .toFile(file)
     console.log(`${path.relative(process.cwd(), file)} (${fs.statSync(file).size} bytes)`)

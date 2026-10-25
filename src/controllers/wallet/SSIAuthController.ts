@@ -215,7 +215,7 @@ export class SSIAuthController extends Controller {
       request.logger?.error({ error: error.message }, 'SSI Registration failed')
 
       if (error.message.includes('already exists')) {
-        this.setStatus(409)
+        throw new StatusException('An account already exists with these details. Sign in with your account PIN.', 409)
       } else {
         this.setStatus(500)
       }

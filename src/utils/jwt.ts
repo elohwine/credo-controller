@@ -4,6 +4,8 @@ import { Agent } from '@credo-ts/core'
 import jwt from 'jsonwebtoken'
 import { container } from 'tsyringe'
 
+import { assertPersonalSessionActive, personalSessionVersion } from '../services/PersonalSessionPolicy'
+
 /**
  * Retrieves the JWT secret, prioritizing the JWT_SECRET environment variable.
  * Fallback: Search generic records for a 'secretKey' if the env var is missing.
@@ -38,6 +40,9 @@ export async function getJwtSecret(): Promise<string> {
  */
 export async function signToken(payload: string | Buffer | object, options?: jwt.SignOptions): Promise<string> {
   const secret = await getJwtSecret()
+  if (typeof payload === 'object' && !Buffer.isBuffer(payload) && 'id' in payload && typeof payload.id === 'string') {
+    payload = { ...payload, sessionVersion: personalSessionVersion(payload.id) }
+  }
   return jwt.sign(payload, secret, options)
 }
 
@@ -46,5 +51,7 @@ export async function signToken(payload: string | Buffer | object, options?: jwt
  */
 export async function verifyToken(token: string, options?: jwt.VerifyOptions): Promise<any> {
   const secret = await getJwtSecret()
-  return jwt.verify(token, secret, options)
+  const claims = jwt.verify(token, secret, options)
+  if (typeof claims === 'object') assertPersonalSessionActive(claims)
+  return claims
 }

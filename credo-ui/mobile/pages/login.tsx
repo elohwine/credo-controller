@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { milestone } from '@/components/feedback/Milestone';
 import { GuidedSteps } from '@/components/feedback/GuidedSteps';
+import { LottiePlayer } from '@/components/feedback/LottiePlayer';
+import { WalletOnboarding } from '../../shared/WalletOnboarding';
+import { BrandMark } from '../../shared/BrandMark';
 import { useRouter } from 'next/router';
 import {
   Box,
@@ -13,10 +16,10 @@ import {
   Divider,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
-import { IconPhone, IconLock, IconFingerprint, IconShieldCheck } from '@tabler/icons-react';
+import { IconPhone, IconLock, IconFingerprint } from '@tabler/icons-react';
 import api from '@/lib/api';
 import { applyPersonalWalletContext } from '@/lib/auth';
-import { confirmWithDevice, deviceTrustAvailable, rememberedDeviceKeyId, rememberedWalletId, rememberPhoneWallet } from '@/lib/deviceTrust';
+import { authorizeDevice, loginDeviceAvailable, rememberPhoneWallet, rememberedWalletId } from '@/lib/deviceTrust';
 import { friendlyRequestError } from '@/lib/requestError';
 import ErrorAlert from '@/components/shared/ErrorAlert';
 
@@ -45,7 +48,11 @@ export default function LoginPage() {
   useEffect(() => {
     let width = window.innerWidth;
     setLayoutHeight(window.innerHeight);
-    setCanUsePhone(!!rememberedWalletId() && !!rememberedDeviceKeyId() && deviceTrustAvailable());
+    try {
+      setCanUsePhone(loginDeviceAvailable(rememberedWalletId() || undefined));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Use your account PIN to sign in.');
+    }
     const resize = () => {
       // Keyboard height changes must not recenter the form underneath a submit tap.
       if (window.innerWidth === width) return;
@@ -132,23 +139,15 @@ export default function LoginPage() {
     if (submitting.current) return;
     const walletId = rememberedWalletId();
     if (!walletId) {
-      setError('Sign in with your PIN once on this phone. After that you can use fingerprint or face.');
+      setError('Sign in with your account PIN, then enroll this phone under Account security.');
       return;
     }
     submitting.current = true;
     setLoading(true);
     setError(null);
     try {
-      const started = await api.post('/api/wallet/auth/login-wallet');
-      const deviceAssertion = deviceTrustAvailable()
-        ? await confirmWithDevice({ purpose: 'vc_login', required: true })
-        : undefined;
-      await api.post('/api/wallet/auth/login-wallet/present', {
-        walletId,
-        authorizationRequest: started.data.authorizationRequest,
-        ...(deviceAssertion ? { deviceAssertion } : {}),
-      });
-      const verified = await pollWalletLogin(started.data.loginId, started.data.pollToken);
+      const verified = await authorizeDevice({ purpose: 'device_login', walletId });
+      if (!verified.token || !verified.tenantId) throw new Error('The device sign-in was not completed.');
       applyPersonalWalletContext(verified.token, verified.tenantId);
       rememberPhoneWallet(verified.tenantId);
       const { rememberCurrentAccount } = await import('@/lib/savedAccounts');
@@ -164,17 +163,6 @@ export default function LoginPage() {
       submitting.current = false;
       setLoading(false);
     }
-  };
-
-  const pollWalletLogin = async (loginId: string, pollToken: string) => {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const response = await api.get(`/api/wallet/auth/login-wallet/${encodeURIComponent(loginId)}`, {
-        headers: { 'x-login-poll-token': pollToken },
-      });
-      if (response.data?.status === 'verified') return response.data;
-      await new Promise((resolve) => window.setTimeout(resolve, 400));
-    }
-    throw new Error('The identity card was not accepted. Accept it in Inbox, then try again.');
   };
 
   const handleRegister = async (values: typeof registerForm.values) => {
@@ -211,7 +199,7 @@ export default function LoginPage() {
     <Box className="login-screen" style={{ minHeight: layoutHeight ?? '100svh' }}>
       <Stack className="login-content" gap="xl">
         <Stack align="center" gap="xs">
-          <Box className="login-brand" aria-hidden="true"><IconShieldCheck size={42} stroke={1.8} /></Box>
+          <Box className="login-brand" aria-hidden="true"><BrandMark size={52} /></Box>
           <Text fw={800} size="xl" className="login-brand-name">Credentis</Text>
         </Stack>
         <Stack gap="lg">
@@ -255,22 +243,18 @@ export default function LoginPage() {
                     <Button variant="light" size="lg" fullWidth leftSection={<IconFingerprint size={22} />} loading={loading} onClick={() => void handlePhoneLogin()}>
                       Sign in with this phone
                     </Button>
-                    <Text size="xs" c="dimmed" ta="center">Confirm with your fingerprint or face.</Text>
+                    <Text size="xs" c="dimmed" ta="center">Confirm with strong biometrics or your phone screen lock.</Text>
                   </>}
                 </Stack>
               </form>
             ) : setupStep < 3 ? (
-              <Stack gap="md">
-                <GuidedSteps current={setupStep} total={3} />
-                <Title order={3}>{setupStep === 1 ? 'Keep your cards together' : 'Choose what you share'}</Title>
-                <Text size="sm">
-                  {setupStep === 1
-                    ? 'Your wallet keeps identity cards, work cards and payment receipts. After signing in, open Inbox to review your first card.'
-                    : 'When someone asks for details, check who is asking and what will be sent. Nothing is shared until you agree.'}
-                </Text>
-                <Button fullWidth onClick={() => setSetupStep(setupStep + 1)}>Next</Button>
-                <Button variant="subtle" onClick={() => setupStep === 1 ? setTab('login') : setSetupStep(setupStep - 1)}>Back</Button>
-              </Stack>
+              <WalletOnboarding
+                key={setupStep}
+                step={setupStep === 1 ? 1 : 2}
+                illustration={<LottiePlayer kind={setupStep === 1 ? 'onboarding_receive' : 'onboarding_share'} size={176} />}
+                onNext={() => setSetupStep(setupStep + 1)}
+                onBack={() => setupStep === 1 ? setTab('login') : setSetupStep(1)}
+              />
             ) : (
               <form onSubmit={registerForm.onSubmit(handleRegister)}>
                 <Stack gap="sm">

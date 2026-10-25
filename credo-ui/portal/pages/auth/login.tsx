@@ -291,8 +291,11 @@ export default function LoginPage() {
                     {authRequest && (
                         <>
                             <Paper withBorder p="md" radius="md" bg="white">
-                                <QRCode value={authRequest} size={200} />
+                                <QRCode value={`credentis://device-login?request=${encodeURIComponent(authRequest)}`} size={200} />
                             </Paper>
+                            <Button component="a" href={`credentis://device-login?request=${encodeURIComponent(authRequest)}`}>
+                                Open Credentis on this device
+                            </Button>
                             
                             <Text ta="center" size="xs" c="dimmed">
                                 Or copy the link to open in your wallet
@@ -310,7 +313,7 @@ export default function LoginPage() {
                                 >
                                     {authRequest.slice(0, 60)}...
                                 </Code>
-                                <CopyButton value={authRequest}>
+                                <CopyButton value={`credentis://device-login?request=${encodeURIComponent(authRequest)}`}>
                                     {({ copied, copy }) => (
                                         <Tooltip label={copied ? 'Copied!' : 'Copy'}>
                                             <ActionIcon color={copied ? 'teal' : 'gray'} onClick={copy}>

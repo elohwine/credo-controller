@@ -24,7 +24,7 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@/styles/globals.css';
 
-const PUBLIC_ROUTES = ['/login', '/login/', '/pay/[code]'];
+const PUBLIC_ROUTES = ['/login', '/login/', '/device-login', '/pay/[code]'];
 const ORG_ONLY_ROUTE_PREFIXES = ['/finance', '/workflows', '/field-jobs', '/intake', '/credential-operations', '/connected-systems', '/requests'];
 // /proofs is not here: with an organisation open it shows the organisation's own records.
 const PERSONAL_ONLY_ROUTE_PREFIXES = ['/shop', '/my-requests'];
@@ -50,6 +50,11 @@ function parseDeepLinkUrl(rawUrl: string): { route: string; query: URLSearchPara
   }
 
   const topParams = parsed.searchParams;
+  if (parsed.protocol === 'credentis:' && parsed.hostname === 'device-login') {
+    const request = topParams.get('request');
+    if (!request || request.length > 12000) return null;
+    return { route: '/device-login', query: new URLSearchParams({ request }) };
+  }
 
   // WhatsApp alert links: credentis://inbox?item=… or the verified https://<host>/inbox App Link.
   const isInboxLink =
@@ -195,6 +200,15 @@ export default function App({ Component, pageProps, router }: AppProps) {
   // from them would not match it. Pages draw only after the app has mounted on the device.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    if (!mounted || !Capacitor.isNativePlatform()) return;
+    const frame = window.requestAnimationFrame(() => {
+      void import('@capacitor/splash-screen')
+        .then(({ SplashScreen }) => SplashScreen.hide({ fadeOutDuration: 150 }))
+        .catch((error: unknown) => console.error('Could not dismiss the native splash screen', error));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [mounted]);
 
   useEffect(() => {
     let hadTask = Boolean(localStorage.getItem(TASK_CONTEXT_KEY));

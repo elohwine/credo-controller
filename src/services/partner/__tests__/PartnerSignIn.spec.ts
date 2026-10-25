@@ -6,6 +6,7 @@ import path from 'path'
 
 import { DatabaseManager } from '../../../persistence/DatabaseManager'
 import { authenticateConnectedSystem } from '../../connected/ConnectedRecordService'
+import { devicePolicyHash } from '../../PersonalSessionPolicy'
 
 class FakePresentation {}
 
@@ -70,6 +71,10 @@ describe('Partner sign-in', () => {
     ;({ PlatformIdentityError } = await import('../../SSIAuthService'))
     db = new Database(':memory:')
     db.exec(fs.readFileSync(path.join(process.cwd(), 'migrations/122_partner_clients.sql'), 'utf8'))
+    db.exec(`ALTER TABLE partner_verification_sessions ADD COLUMN authorization_request TEXT;
+      CREATE TABLE device_keys (id TEXT PRIMARY KEY, wallet_tenant_id TEXT, revoked_at TEXT, verified_at TEXT, key_usage TEXT, auth_policy TEXT);
+      INSERT INTO device_keys VALUES ('login-device', 'wallet-1', NULL, 'verified', 'login', 'strong_or_device_credential');
+      CREATE TABLE device_login_approvals (verification_id TEXT PRIMARY KEY, wallet_tenant_id TEXT, device_key_id TEXT, policy_hash TEXT, approved_at TEXT);`)
     db.exec(
       `CREATE TABLE org_memberships (user_id TEXT, org_tenant_id TEXT, role TEXT, status TEXT);
        INSERT INTO org_memberships VALUES ('user-member', '${ORG}', 'admin', 'active');
@@ -192,7 +197,19 @@ describe('Partner sign-in', () => {
         authorizationRequest: `openid4vp://authorize?client_id=did%3Adid%3Akey%3AzRoot&request_uri=${encodeURIComponent(`https://api.example/req/${counter}`)}&request_uri_method=get`,
         verificationSession: { id: `vs-${counter}`, authorizationRequestUri: `https://api.example/req/${counter}` },
       })
-      return service().start(client, binding)
+      const result = await service().start(client, binding)
+      approve(result.verificationId, client.policy)
+      return result
+    }
+
+    function approve(id: string, policy: { releaseClaims: string[]; audience: string }) {
+      db.prepare('INSERT INTO device_login_approvals VALUES (?, ?, ?, ?, ?)').run(
+        id,
+        'wallet-1',
+        'login-device',
+        devicePolicyHash(policy),
+        new Date().toISOString(),
+      )
     }
 
     function walletAnswered() {
@@ -351,6 +368,7 @@ describe('Partner sign-in', () => {
         })
         return service().start(record, BINDING)
       })()
+      approve(member.verificationId, record.policy)
       walletAnswered()
       await expect(service().result(record, member.verificationId, BINDING)).resolves.toMatchObject({
         status: 'verified',
@@ -362,11 +380,33 @@ describe('Partner sign-in', () => {
         verificationSession: { id: 'vs-former' },
       })
       const former = await service().start(record, BINDING)
+      approve(former.verificationId, record.policy)
       verifiedPlatformIdentity.mockResolvedValue({ ...identity, user: { id: 'user-left', did: 'did:key:zLeft' } })
       await expect(service().result(record, former.verificationId, BINDING)).resolves.toEqual({
         status: 'failed',
         reasonCode: 'not_org_member',
       })
+    })
+
+    it('refuses a holder presentation without device approval for this exact session', async () => {
+      const started = await openSession()
+      db.prepare('DELETE FROM device_login_approvals WHERE verification_id = ?').run(started.verificationId)
+      walletAnswered()
+      await expect(service().result(client, started.verificationId, BINDING)).resolves.toMatchObject({
+        status: 'failed',
+      })
+    })
+
+    it('does not release claims after the approved client policy changes', async () => {
+      const started = await openSession()
+      walletAnswered()
+      await expect(
+        service().result(
+          { ...client, policy: { ...client.policy, releaseClaims: ['email'] } },
+          started.verificationId,
+          BINDING,
+        ),
+      ).resolves.toMatchObject({ status: 'failed' })
     })
   })
 })

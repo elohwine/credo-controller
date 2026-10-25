@@ -10,8 +10,10 @@ export type MilestoneKind =
   | 'request_approved'
   | 'workflow_complete'
   | 'empty_inbox'
+  | 'onboarding_receive'
+  | 'onboarding_share'
 
-export type MilestoneAnimation = 'success' | 'payment' | 'celebration' | 'welcome' | 'completion' | 'empty'
+export type MilestoneAnimation = 'success' | 'payment' | 'celebration' | 'welcome' | 'completion' | 'empty' | 'onboarding_receive' | 'onboarding_share'
 
 export const MILESTONE_ANIMATION: Record<MilestoneKind, MilestoneAnimation> = {
   card_saved: 'success',
@@ -21,6 +23,8 @@ export const MILESTONE_ANIMATION: Record<MilestoneKind, MilestoneAnimation> = {
   request_approved: 'success',
   workflow_complete: 'completion',
   empty_inbox: 'empty',
+  onboarding_receive: 'onboarding_receive',
+  onboarding_share: 'onboarding_share',
 }
 
 /** Loops for in-place states; everything else plays once. */
@@ -31,6 +35,10 @@ export const MILESTONE_DURATION_MS = 2600
 
 export function loadMilestoneAnimation(kind: MilestoneKind): Promise<object> {
   switch (MILESTONE_ANIMATION[kind]) {
+    case 'onboarding_receive':
+      return import('./onboarding_receive.json').then((m) => m.default as object)
+    case 'onboarding_share':
+      return import('./onboarding_share.json').then((m) => m.default as object)
     case 'payment':
       return import('./payment.json').then((m) => m.default as object)
     case 'celebration':

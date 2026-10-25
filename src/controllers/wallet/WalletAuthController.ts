@@ -8,7 +8,7 @@ import type { Request as ExRequest } from 'express'
 import { Agent, W3cCredentialService, getPublicJwkFromVerificationMethod } from '@credo-ts/core'
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
-import { Controller, Post, Get, Route, Tags, Body, Request, Path, Header } from 'tsoa'
+import { Controller, Post, Get, Route, Tags, Body, Request, Path, Header, Security } from 'tsoa'
 import { container, inject, injectable } from 'tsyringe'
 
 import { AgentRole } from '../../enums'
@@ -22,6 +22,9 @@ import {
 } from '../../persistence/LoginChallengeRepository'
 import { getWalletUserByWalletId } from '../../persistence/UserRepository'
 import { saveWalletCredential, getWalletCredentialsByWalletId } from '../../persistence/WalletCredentialRepository'
+import { DeviceLoginService, type DeviceLoginStart, type DeviceLoginPurpose } from '../../services/DeviceLoginService'
+import { deviceTrustService } from '../../services/DeviceTrustService'
+import { assertPersonalSessionActive } from '../../services/PersonalSessionPolicy'
 import {
   findTenantByPhone,
   claimTenantForUser,
@@ -29,8 +32,6 @@ import {
 } from '../../services/PhoneTenantLinkingService'
 import { InviteRequiredError, SSIAuthService } from '../../services/SSIAuthService'
 import { WalletLoginService } from '../../services/WalletLoginService'
-import { stageProofService } from '../../services/ssi/StageProofService'
-import { deviceTrustService } from '../../services/DeviceTrustService'
 // import type { VerifyPresentationRequestBody } from '../../types/api'
 
 interface SameDeviceLoginBody {
@@ -124,6 +125,42 @@ export class WalletAuthController extends Controller {
     super()
   }
 
+  @Post('/device-login/start')
+  public startDeviceLogin(
+    @Body() body: { deviceKeyId: string; purpose: DeviceLoginPurpose; authorizationRequest?: string; newPin?: string },
+  ): DeviceLoginStart {
+    return new DeviceLoginService(container.resolve(Agent), this.ssiAuthService).start(body)
+  }
+
+  @Post('/device-login/finish')
+  public async finishDeviceLogin(
+    @Request() request: ExRequest,
+    @Body()
+    body: {
+      challengeId: string
+      signature: string
+    },
+  ): Promise<{ token?: string; tenantId?: string; presented?: boolean }> {
+    return new DeviceLoginService(container.resolve(Agent), this.ssiAuthService).finish(request, body)
+  }
+
+  @Post('/device-enrollment')
+  @Security('jwt')
+  public beginDeviceEnrollment(
+    @Request() request: ExRequest,
+    @Body() body: { pin: string },
+  ): { nonce: string; expiresAt: string } {
+    const user = (request as ExRequest & { user?: { tenantId?: string; orgRole?: string } }).user
+    if (!user?.tenantId || user.orgRole)
+      throw new StatusException('Switch to your personal account to enroll this device.', 403)
+    try {
+      this.ssiAuthService.verifyEnrollmentPin(user.tenantId, body.pin)
+    } catch {
+      throw new StatusException('Confirm your account PIN to enroll this device.', 401)
+    }
+    return deviceTrustService.createEnrollmentChallenge(user.tenantId)
+  }
+
   @Post('/register')
   public async register(
     @Request() request: ExRequest,
@@ -202,7 +239,7 @@ export class WalletAuthController extends Controller {
       }
     } catch (e: any) {
       if (e.message.includes('already exists')) {
-        this.setStatus(400)
+        throw new StatusException('An account already exists with these details. Sign in with your account PIN.', 409)
       } else {
         console.error('Registration failed:', e)
         this.setStatus(500)
@@ -301,36 +338,7 @@ export class WalletAuthController extends Controller {
     @Request() request: ExRequest,
     @Body() body: SameDeviceLoginBody,
   ): Promise<{ presented: true }> {
-    if (!body?.walletId || !body?.authorizationRequest) {
-      this.setStatus(400)
-      throw new StatusException('walletId and authorizationRequest are required', 400)
-    }
-    const account = DatabaseManager.getDatabase()
-      .prepare('SELECT id FROM ssi_users WHERE tenant_id = ?')
-      .get(body.walletId) as { id?: string } | undefined
-    if (!account?.id) {
-      this.setStatus(404)
-      throw new StatusException('This phone has no account yet. Sign in with your PIN once.', 404)
-    }
-    const enrolled = deviceTrustService.list(body.walletId).some((device) => !device.revokedAt)
-    if (enrolled) {
-      if (!body.deviceAssertion) {
-        this.setStatus(403)
-        throw new StatusException('Confirm with fingerprint or face on this phone.', 403)
-      }
-      deviceTrustService.verifyAssertion({
-        walletTenantId: body.walletId,
-        assertion: { ...body.deviceAssertion, purpose: 'vc_login' },
-        purpose: 'vc_login',
-      })
-    }
-    await stageProofService.presentFromEmbeddedWallet({
-      request,
-      walletId: body.walletId,
-      presentationRequestUrl: body.authorizationRequest,
-      allowUnsignedWallet: true,
-    })
-    return { presented: true }
+    throw new StatusException('Use the updated Android app and enroll this device under Account security.', 403)
   }
 
   @Get('/session')
@@ -345,6 +353,7 @@ export class WalletAuthController extends Controller {
 
     try {
       const decoded = jwt.verify(token, secret) as any
+      assertPersonalSessionActive(decoded)
       const user = getWalletUserByWalletId(decoded.walletId)
       if (!user) {
         throw new UnauthorizedError('User not found')

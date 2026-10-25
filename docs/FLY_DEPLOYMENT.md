@@ -25,15 +25,63 @@ The script increments the Android version and writes the signed APK to `credo-ui
 For an undistributed rebuild of the same version, set `SKIP_VERSION_BUMP=1`.
 Verify the APK's version and signing certificate before sharing it.
 
+The 1.0.38 (39) Android release includes the shared sample-receipt/sharing onboarding
+guide and eight original 1080×1080, 60 fps vector animations. The same guide is included
+in the portal source; deploying Fly's `/app` does not publish the separate portal.
+WhatsApp header assets retain their filenames and now render at 1600×836.
+Build and verify the upgrade certificate with `bash ./build-and-sign-apk.sh`.
+
 The login screen centers its content on a full-height surface, without a browser-style card.
 Its initial height stays stable across keyboard-only resizes so closing the keyboard cannot
 move Sign in under a tap. Width/orientation changes update the layout; short screens scroll.
 Phone/biometric sign-in is shown only for an enrolled, supported device with a remembered wallet.
 
-Android uses its native splash API through the existing AndroidX compatibility dependency:
-`MainActivity` installs it before activity creation, and the launch theme supplies a shield/check
-vector plus light/dark background colors. There is no second JavaScript splash or forced delay.
-The old `SplashScreen` Capacitor configuration was inert because that plugin is not installed.
+Android now installs the official `@capacitor/splash-screen` plugin (Capacitor 7).
+The plugin owns native splash installation; `MainActivity` must not also install it.
+The launch theme supplies a shield/check vector and light/dark background colors.
+The mounted app hides the native splash on the next frame, with a five-second automatic
+fallback if startup fails. That fallback is not a minimum branding delay.
+After a static build, run `npx cap sync android` and confirm SplashScreen is in the plugin list.
+
+### Trusted-device sign-in
+
+- First sign in with your existing account PIN and accept the PlatformIdentityVC.
+  Open **Settings > Account security** in the Android app and confirm your current PIN to enroll.
+- If registration already created the account before a response failed, sign in with that PIN.
+  Retrying registration returns HTTP 409 with sign-in guidance, not a server-error response.
+- Existing Android releases send a local key `alias` during enrollment. The API accepts that
+  optional field for compatibility but never uses it as server identity or attestation evidence.
+- Attestation roots are pinned by public key from Google's official root list, not by the
+  entire certificate fingerprint, so reissued root certificates with the same key are supported.
+  An untrusted-root rejection logs only the root certificate fingerprint for diagnosis.
+- Enrollment requires Android 11+, a secure screen lock, hardware key attestation,
+  a locked verified boot state, Google's trusted certificate roots/revocation service,
+  and the actual release signing certificate. Unsupported phones keep account-PIN login.
+- Configure `ANDROID_APP_CERT_SHA256` with the release certificate's SHA-256 fingerprint.
+  `ANDROID_APP_PACKAGE` defaults to `com.credentis.mobile`. Missing certificate configuration
+  fails enrollment closed; never use a debug certificate for the production application.
+- The login key allows strong biometrics **or the phone screen lock** per use.
+  Payment keys remain separate and biometric-only; phone-PIN fallback cannot release money.
+- “Sign in with this phone” obtains an unauthenticated one-time server challenge, signs
+  its exact bytes with the enrolled key, and checks the account's PlatformIdentityVC
+  through the existing holder/verifier flow. It does not depend on an unexpired bearer token.
+- Portal and partner/OIDC sign-ins display a Credentis app link/QR. The app shows the
+  server-resolved requester and released claims before local confirmation. Only an exact,
+  unexpired locally issued request can be approved; the browser's secret poll token is still required.
+- An enrolled phone can approve a new account PIN without the old account PIN, after
+  fresh device and platform-credential verification. Changing a PIN or removing a device
+  invalidates **all** existing personal and derived organisation sessions. Remaining enrolled
+  phones can sign in again. Device removal also cancels that key's pending approvals.
+- These are **device-gated server-hosted wallets**, not exclusive phone custody of the VC
+  holder key. A copied VC alone is not account recovery. Lost-device recovery, iOS enrollment,
+  passkeys and moving holder keys into native hardware remain separate work.
+
+Release gates: run the focused authentication/attestation suites, both UI builds, the bridge
+build and Android unit tests. Before enabling or distributing trusted-device authentication,
+test a real release-signed phone: enroll, sign out/expire the bearer token, confirm with
+strong biometrics and screen lock separately, approve portal and partner QR requests,
+reject/replay a request, change a forgotten account PIN, remove a device and retest sessions.
+An emulator/browser cannot prove production hardware attestation or OS authentication behavior.
 
 Design references: [Android splash screens](https://developer.android.com/develop/ui/views/launch/splash-screen),
 [accessibility](https://developer.android.com/guide/topics/ui/accessibility/apps),

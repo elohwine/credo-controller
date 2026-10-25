@@ -368,6 +368,18 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
 
   // apply rate limiter to all requests
   app.use(limiter)
+  app.use('/api/wallet/auth/device-login', rateLimit({
+    windowMs: 60 * 1000,
+    limit: 20,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: { message: 'Too many device sign-in attempts. Wait a moment and try again.' },
+  }))
+  app.use('/api/wallet/auth/device-enrollment', rateLimit({
+    windowMs: 15 * 60 * 1000, limit: 10,
+    standardHeaders: 'draft-7', legacyHeaders: false,
+    message: { message: 'Too many enrollment attempts. Wait before trying again.' },
+  }))
 
   // Audit middleware for compliance logging
   app.use(auditMiddleware)

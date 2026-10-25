@@ -9,8 +9,8 @@ import { PLATFORM_IDENTITY_VC_TYPE } from '../config/credentials/PlatformIdentit
 import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 
-import { shouldAllowWholeCardType } from './ssi/proofModeMatrix'
 import { shouldUseUnsignedLocalOid4vpRequest, stageProofService, verifierModuleOf } from './ssi/StageProofService'
+import { shouldAllowWholeCardType } from './ssi/proofModeMatrix'
 
 const LOGIN_TTL_MS = 5 * 60 * 1000
 
@@ -100,9 +100,9 @@ export class WalletLoginService {
     const expiresAt = new Date(now.getTime() + LOGIN_TTL_MS).toISOString()
     DatabaseManager.getDatabase()
       .prepare(
-        'INSERT INTO wallet_login_sessions (login_id, poll_token_hash, created_at, expires_at) VALUES (?, ?, ?, ?)',
+        'INSERT INTO wallet_login_sessions (login_id, poll_token_hash, created_at, expires_at, authorization_request) VALUES (?, ?, ?, ?, ?)',
       )
-      .run(loginId, hashToken(pollToken), now.toISOString(), expiresAt)
+      .run(loginId, hashToken(pollToken), now.toISOString(), expiresAt, authorizationRequest)
 
     return { loginId, authorizationRequest, pollToken, expiresAt }
   }
@@ -139,7 +139,7 @@ export class WalletLoginService {
     if (!presentation) throw new StatusException('The wallet did not share a platform identity', 401)
 
     try {
-      const session = await this.ssiAuthService.loginWithVerifiedPresentation(presentation)
+      const session = await this.ssiAuthService.loginWithVerifiedPresentation(presentation, loginId)
       return { status: 'verified', ...session }
     } catch (error: any) {
       throw new StatusException(error?.message || 'Wallet sign-in failed', 401)

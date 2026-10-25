@@ -11,6 +11,10 @@ const nextConfig = {
   // Shared org configuration lives in credo-ui/shared and src/config (one mapping for API and both apps).
   experimental: { externalDir: true },
   eslint: { ignoreDuringBuilds: true },
+  webpack: (config) => {
+    config.resolve.alias.react = require('path').dirname(require.resolve('react/package.json'))
+    return config
+  },
 }
 
 module.exports = nextConfig

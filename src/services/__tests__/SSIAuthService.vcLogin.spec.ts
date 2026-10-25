@@ -115,8 +115,10 @@ describe('SSIAuthService.loginWithVC', () => {
 
     db = new Database(':memory:')
     db.exec(`
-      CREATE TABLE ssi_users (id TEXT PRIMARY KEY, tenant_id TEXT UNIQUE, did TEXT, last_login_at TEXT);
+      CREATE TABLE ssi_users (id TEXT PRIMARY KEY, tenant_id TEXT UNIQUE, did TEXT, last_login_at TEXT, session_version INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE ssi_login_challenges (nonce TEXT PRIMARY KEY, tenant_id TEXT, expires_at TEXT, created_at TEXT);
+      CREATE TABLE device_keys (id TEXT PRIMARY KEY, wallet_tenant_id TEXT, revoked_at TEXT, verified_at TEXT, key_usage TEXT, created_at TEXT, auth_policy TEXT DEFAULT 'strong_or_device_credential');
+      CREATE TABLE device_login_approvals (verification_id TEXT PRIMARY KEY, wallet_tenant_id TEXT, device_key_id TEXT, policy_hash TEXT, approved_at TEXT);
     `)
     db.prepare('INSERT INTO ssi_users (id, tenant_id, did) VALUES (?, ?, ?)').run('user-1', TENANT_ID, holder.did)
     ;(DatabaseManager as any).instance = db
@@ -134,6 +136,7 @@ describe('SSIAuthService.loginWithVC', () => {
   beforeEach(() => {
     issued.clear()
     statuses.clear()
+    db.exec('DELETE FROM device_login_approvals; DELETE FROM device_keys')
   })
 
   async function validCredential() {
@@ -229,8 +232,24 @@ describe('SSIAuthService.loginWithVC', () => {
     it('signs in the bound holder of an active platform credential', async () => {
       const { signed } = await validCredential()
       const vp = W3cJwtVerifiablePresentation.fromSerializedJwt(await present(holder, signed, randomUUID()))
-      const result = await service.loginWithVerifiedPresentation(vp)
+      db.prepare(
+        'INSERT INTO device_keys (id,wallet_tenant_id,verified_at,key_usage,created_at) VALUES (?, ?, ?, ?, ?)',
+      ).run('enrolled-device', TENANT_ID, 'verified', 'login', new Date().toISOString())
+      db.prepare('INSERT INTO device_login_approvals VALUES (?, ?, ?, NULL, ?)').run(
+        'web-session',
+        TENANT_ID,
+        'enrolled-device',
+        new Date().toISOString(),
+      )
+      const result = await service.loginWithVerifiedPresentation(vp, 'web-session')
       expect(result.tenantId).toBe(TENANT_ID)
+    })
+
+    it('requires approval by a verified device even when the VC itself is valid', async () => {
+      const { signed } = await validCredential()
+      const vp = W3cJwtVerifiablePresentation.fromSerializedJwt(await present(holder, signed, randomUUID()))
+      await expect(service.loginWithVerifiedPresentation(vp, 'not-approved')).rejects.toThrow('enrolled')
+      await expect(service.loginWithVerifiedPresentation(vp)).rejects.toThrow('device-approved')
     })
 
     it('refuses a copied credential presented by someone else', async () => {

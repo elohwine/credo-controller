@@ -3,6 +3,10 @@ const nextConfig = {
   // Shared org configuration lives in credo-ui/shared and src/config (one mapping for API and both apps).
   experimental: { externalDir: true },
   output: 'standalone',
+  webpack: (config) => {
+    config.resolve.alias.react = require('path').dirname(require.resolve('react/package.json'))
+    return config
+  },
   publicRuntimeConfig: {
     // Credo Backend URLs
     NEXT_PUBLIC_VC_REPO: process.env.NEXT_PUBLIC_VC_REPO ?? 'http://localhost:3000',

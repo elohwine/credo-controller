@@ -1,4 +1,5 @@
 import React, { ReactNode, useContext, useEffect, useState } from 'react';
+import { BrandMark } from '../../shared/BrandMark';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
@@ -198,6 +199,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                     href: isOrg && canManageOrg ? '/wallet?holder=organization' : '/wallet',
                     icon: <IconWallet size={18} />,
                 },
+                { label: 'Account security', href: '/account-security', icon: <IconUserShield size={18} /> },
             ],
         },
     ];
@@ -258,7 +260,10 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                             <Burger opened={navOpened} onClick={() => setNavOpened((open) => !open)} aria-label="Open menu" />
                         )}
                         <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
-                            <img src="/credentis-logo.png" alt="Credentis" style={{ height: 48, width: 'auto', display: 'block' }} />
+                            <Group gap={6} wrap="nowrap" c={dark ? '#88C4E3' : BRAND.curious}>
+                                <BrandMark size={40} />
+                                <Text fw={700} size="lg">Credentis</Text>
+                            </Group>
                         </Link>
                     </Group>
                     <Group gap="sm" wrap="nowrap">

@@ -19,6 +19,7 @@ import {
   ORG_TASK_SCOPE_MESSAGE,
   taskRouteAllowed,
 } from './services/OrgContextPolicy'
+import { assertPersonalSessionActive } from './services/PersonalSessionPolicy'
 import { TsLogger } from './utils/logger'
 
 let dynamicApiKey: string =
@@ -101,6 +102,7 @@ export async function expressAuthentication(request: Request, securityName: stri
     try {
       decodedToken = decode(token) as jwt.JwtPayload
       if (!decodedToken || !decodedToken.role) throw new Error('Token not decoded')
+      assertPersonalSessionActive(decodedToken)
 
       // Expose normalized claims to downstream controllers that require tenant + subject identity.
       const fallbackSubject =

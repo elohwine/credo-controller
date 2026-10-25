@@ -8,8 +8,13 @@
 | `welcome.json` | Account created | Made for Credentis by `generate.py` |
 | `completion.json` | Request or job completed | Made for Credentis by `generate.py` |
 | `empty.json` | Inbox empty ("All caught up"), loops | Made for Credentis by `generate.py` |
+| `onboarding_receive.json` | Example receipt arriving in a wallet | Made for Credentis by `generate.py` |
+| `onboarding_share.json` | Reviewing details before approving a request | Made for Credentis by `generate.py` |
 
 All files use the Credentis palette (blue `#2188ca`, green `#1fb87e`) and are under 15 KB.
+Compositions are 1080x1080 at 60 fps, with vector paths only: no embedded raster images,
+external fonts or CDN assets. SVG rendering stays sharp at high device-pixel ratios;
+the larger export artboard is not a substitute for detailed vector artwork.
 
 ## Replacing an animation
 
@@ -18,6 +23,24 @@ All files use the Credentis palette (blue `#2188ca`, green `#1fb87e`) and are un
 3. If it came from lottiefiles.com, record the URL and author in the table above.
 
 Both apps play these with `lottie-web`'s light SVG player. Under reduced motion they show a still icon instead.
+
+## Guided wallet journey
+
+The mobile Create account flow and portal registration use the same interactive example.
+It demonstrates reviewing an incoming sample receipt and selecting optional information in
+a sample proof request before creating an account. It never issues a credential or sends
+information; every example is labelled. Copy explains the current server-hosted wallet model.
+
+The [BC Digital Trust Showcase](https://digital.gov.bc.ca/digital-trust/showcase/demo)
+informed the scenario-first approach: introduce a relatable situation, show a sample card,
+explain what happens next and let the person try a decision. No BC artwork or code is copied.
+These original vectors are generated locally; they are not LottieFiles library downloads
+or Creator exports. Regenerate with `python3 credo-ui/shared/lottie/generate.py`.
+
+WhatsApp headers use an 800x418 vector artboard rendered at 1600x836 (2x), with reserved
+space between text and artwork. Regenerate with `node scripts/whatsapp-banners.js`.
+The app login and portal header use a scalable pillar/network brand mark rather than
+enlarging a padded raster logo. Animation fallbacks reserve the same space as the SVG player.
 
 ## Release implementation notes
 

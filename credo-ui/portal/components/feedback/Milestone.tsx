@@ -79,7 +79,7 @@ function MilestoneContent({ kind, detail, next, action, onDone }: MilestoneProps
   const waitsForUser = !!(next?.length || action)
   return (
     <Stack align="center" gap="xs" role="status" aria-live="polite">
-      <LottiePlayer kind={kind} size={132} />
+      <LottiePlayer kind={kind} size={156} />
       {detail ? (
         <Text size="sm" c="dimmed" ta="center">
           {detail}

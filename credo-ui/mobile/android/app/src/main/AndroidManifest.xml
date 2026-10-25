@@ -33,6 +33,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="credentis" android:host="inbox" />
                 <data android:scheme="credentis" android:host="join" />
+                <data android:scheme="credentis" android:host="device-login" />
             </intent-filter>
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />

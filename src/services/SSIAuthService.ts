@@ -32,8 +32,10 @@ import { DatabaseManager } from '../persistence/DatabaseManager'
 import { getTenantById } from '../persistence/TenantRepository'
 import { rootLogger } from '../utils/pinoLogger'
 import { getIssuerApiKey } from '../utils/serviceApiKey'
+
 import { type DeviceAssertion, deviceTrustService } from './DeviceTrustService'
 import { memberInviteService } from './MemberInviteService'
+import { personalSessionVersion, requireDeviceLoginApproval } from './PersonalSessionPolicy'
 
 const logger = rootLogger.child({ module: 'SSIAuthService' })
 
@@ -401,19 +403,53 @@ export class SSIAuthService {
    */
   async loginWithVerifiedPresentation(
     presentation: W3cJwtVerifiablePresentation,
+    verificationId?: string,
   ): Promise<{ token: string; tenantId: string; claims: PlatformIdentityClaims }> {
-    return this.sessionForVerifiedPresentation(presentation, this.presentationSignerDid(presentation))
+    const identity = await this.verifiedPlatformIdentity(presentation, this.presentationSignerDid(presentation))
+    if (!verificationId) throw new Error('A device-approved verifier session is required')
+    const device = requireDeviceLoginApproval(verificationId, identity.tenantId)
+    return this.sessionForVerifiedPresentation(presentation, identity.holderDid, identity, device.deviceKeyId)
+  }
+
+  public async sessionForTrustedDevice(
+    tenantId: string,
+    deviceKeyId: string,
+  ): Promise<{ token: string; tenantId: string }> {
+    const account = DatabaseManager.getDatabase()
+      .prepare('SELECT id, did FROM ssi_users WHERE tenant_id = ?')
+      .get(tenantId) as { id: string; did: string } | undefined
+    if (!account) throw new Error('Account unavailable')
+    const device = deviceTrustService.getVerifiedDevice(deviceKeyId)
+    if (device.walletTenantId !== tenantId) throw new Error('This device belongs to a different account')
+    const token = await this.generateSessionToken(account.id, tenantId, account.did, deviceKeyId)
+    return { token, tenantId }
+  }
+
+  public pinDigest(pin: string): string {
+    return this.hashPin(pin)
+  }
+
+  public verifyEnrollmentPin(tenantId: string, pin: string): void {
+    const row = DatabaseManager.getDatabase()
+      .prepare('SELECT pin_hash FROM ssi_users WHERE tenant_id = ?')
+      .get(tenantId) as { pin_hash: string | null } | undefined
+    const expected = Buffer.from(row?.pin_hash || '', 'utf8')
+    const actual = Buffer.from(this.hashPin(pin), 'utf8')
+    if (!expected.length || actual.length !== expected.length || !crypto.timingSafeEqual(expected, actual)) {
+      throw new Error('Confirm your account PIN to enroll this device.')
+    }
   }
 
   private async sessionForVerifiedPresentation(
     presentation: W3cJwtVerifiablePresentation,
     holderDid: string | undefined,
     known?: { user: { id: string; did: string }; tenantId: string; claims: Record<string, unknown> },
+    deviceKeyId?: string,
   ): Promise<{ token: string; tenantId: string; claims: PlatformIdentityClaims }> {
     const resolved = known || (await this.verifiedPlatformIdentity(presentation, holderDid))
     const db = DatabaseManager.getDatabase()
     db.prepare('UPDATE ssi_users SET last_login_at = ? WHERE id = ?').run(new Date().toISOString(), resolved.user.id)
-    const token = await this.generateSessionToken(resolved.user.id, resolved.tenantId, resolved.user.did)
+    const token = await this.generateSessionToken(resolved.user.id, resolved.tenantId, resolved.user.did, deviceKeyId)
     return {
       token,
       tenantId: resolved.tenantId,
@@ -588,12 +624,12 @@ export class SSIAuthService {
       .prepare('SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ?')
       .get(invite.user_id, invite.org_tenant_id) as { role: string } | undefined
     const contact = db
-      .prepare(
-        `SELECT phone FROM org_contacts WHERE org_tenant_id = ? AND id IN (?, ?) AND phone IS NOT NULL LIMIT 1`,
-      )
-      .get(invite.org_tenant_id, `${invite.org_tenant_id}:member:${invite.user_id}`, `${invite.org_tenant_id}:owner:${invite.user_id}`) as
-      | { phone: string }
-      | undefined
+      .prepare(`SELECT phone FROM org_contacts WHERE org_tenant_id = ? AND id IN (?, ?) AND phone IS NOT NULL LIMIT 1`)
+      .get(
+        invite.org_tenant_id,
+        `${invite.org_tenant_id}:member:${invite.user_id}`,
+        `${invite.org_tenant_id}:owner:${invite.user_id}`,
+      ) as { phone: string } | undefined
     const digits = (contact?.phone || '').replace(/\D/g, '')
     return {
       orgName: getTenantById(invite.org_tenant_id)?.label || 'Your organisation',
@@ -621,7 +657,9 @@ export class SSIAuthService {
     if (!name) throw new Error('Enter your name')
     if (!/^\d{4,6}$/.test(String(input.pin || ''))) throw new Error('Choose a PIN of 4 to 6 digits')
     const db = DatabaseManager.getDatabase()
-    const user = db.prepare('SELECT id, tenant_id, did, phone_hash, pin_hash FROM ssi_users WHERE id = ?').get(invite.user_id) as
+    const user = db
+      .prepare('SELECT id, tenant_id, did, phone_hash, pin_hash FROM ssi_users WHERE id = ?')
+      .get(invite.user_id) as
       | { id: string; tenant_id: string; did?: string; phone_hash?: string; pin_hash?: string | null }
       | undefined
     if (!user) throw new Error('This invite link has expired or was replaced by a newer one')
@@ -632,7 +670,9 @@ export class SSIAuthService {
     const now = new Date().toISOString()
     const claimed = db.transaction(() => {
       const set = db
-        .prepare('UPDATE ssi_users SET pin_hash = ?, updated_at = ?, last_login_at = ? WHERE id = ? AND pin_hash IS NULL')
+        .prepare(
+          'UPDATE ssi_users SET pin_hash = ?, updated_at = ?, last_login_at = ? WHERE id = ? AND pin_hash IS NULL',
+        )
         .run(this.hashPin(input.pin), now, now, user.id)
       if (!set.changes) return false
       memberInviteService.markUsed(user.id)
@@ -652,7 +692,13 @@ export class SSIAuthService {
       const { notificationService } = await import('./NotificationService')
       for (const eventType of ['task', 'vc_offer', 'proof_request', 'payment_link', 'remittance']) {
         try {
-          notificationService.setPreference({ tenantId: invite.org_tenant_id, userId: user.id, phone, eventType, enabled: true })
+          notificationService.setPreference({
+            tenantId: invite.org_tenant_id,
+            userId: user.id,
+            phone,
+            eventType,
+            enabled: true,
+          })
         } catch (error: any) {
           logger.warn({ error: error?.message, eventType }, 'Could not turn on WhatsApp alerts after invite')
         }
@@ -1216,7 +1262,12 @@ export class SSIAuthService {
     }
   }
 
-  private async generateSessionToken(userId: string, tenantId: string, did?: string): Promise<string> {
+  private async generateSessionToken(
+    userId: string,
+    tenantId: string,
+    did?: string,
+    deviceKeyId?: string,
+  ): Promise<string> {
     let secret = process.env.JWT_SECRET
 
     if (!secret) {
@@ -1234,6 +1285,8 @@ export class SSIAuthService {
         tenantId,
         did: did || 'unknown',
         role: 'RestTenantAgent',
+        sessionVersion: personalSessionVersion(userId),
+        ...(deviceKeyId ? { deviceKeyId, amr: ['device_key'], auth_time: Math.floor(Date.now() / 1000) } : {}),
         // NO PII in token - claims come from VC when needed
         iat: Math.floor(Date.now() / 1000),
         exp: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60, // 30 days
@@ -1264,6 +1317,7 @@ export class SSIAuthService {
     return jwt.sign(
       {
         id: params.userId,
+        sessionVersion: personalSessionVersion(params.userId),
         tenantId: params.tenantId,
         did: params.did || 'unknown',
         role: 'RestTenantAgent',

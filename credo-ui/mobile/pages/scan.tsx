@@ -432,6 +432,12 @@ export default function ScanPage() {
     setState('processing');
     setError(null);
     try {
+      if (value.startsWith('credentis://device-login?')) {
+        const request = new URL(value).searchParams.get('request');
+        if (!request || request.length > 12000) throw new Error('This sign-in link is invalid.');
+        await router.push({ pathname: '/device-login', query: { request } });
+        return;
+      }
       const parsedPayload = parseScannedPayload(value);
       const { workflowContext } = parsedPayload;
       setDetectedPayloadKind(parsedPayload.kind);

@@ -10,7 +10,6 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
-import androidx.core.splashscreen.SplashScreen;
 
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.WebViewListener;
@@ -22,7 +21,6 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        SplashScreen.installSplashScreen(this);
         super.onCreate(savedInstanceState);
 
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
@@ -106,6 +104,51 @@ public class MainActivity extends BridgeActivity {
     }
 
     private final class DeviceKeyJsBridge {
+        @JavascriptInterface
+        public boolean loginAvailable() {
+            return deviceKeys.loginAvailable();
+        }
+
+        @JavascriptInterface
+        public boolean hasKey(String alias) {
+            try {
+                return deviceKeys.hasKey(alias);
+            } catch (Exception error) {
+                android.util.Log.w("CredentisDeviceKey", "Unable to read device key", error);
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public String enrollForAccount(String input) {
+            try {
+                return deviceKeys.enrollForAccount(input);
+            } catch (Exception error) {
+                return "{\"error\":" + org.json.JSONObject.quote(error.getMessage()) + "}";
+            }
+        }
+
+        @JavascriptInterface
+        public String removeKey(String alias) {
+            try {
+                deviceKeys.removeKey(alias);
+                return "{\"removed\":true}";
+            } catch (Exception error) {
+                return "{\"error\":" + org.json.JSONObject.quote(error.getMessage()) + "}";
+            }
+        }
+
+        @JavascriptInterface
+        public void signForKey(String alias, String payload) {
+            runOnUiThread(() -> {
+                try {
+                    deviceKeys.signForKey(alias, payload);
+                } catch (Exception error) {
+                    deliverDeviceSignature(null, error.getMessage());
+                }
+            });
+        }
+
         @JavascriptInterface
         public boolean isAvailable() {
             return deviceKeys.available();

@@ -16,6 +16,8 @@ const STILL_ICON = {
   welcome: IconUserCheck,
   completion: IconChecks,
   empty: IconInbox,
+  onboarding_receive: IconCreditCard,
+  onboarding_share: IconUserCheck,
 }
 
 /**
@@ -28,6 +30,7 @@ export function LottiePlayer({ kind, size = 140, loop }: { kind: MilestoneKind; 
   const shouldLoop = loop ?? !!MILESTONE_LOOPS[kind]
 
   useEffect(() => {
+    setStill(false)
     if (prefersReducedMotion()) {
       setStill(true)
       return
@@ -43,9 +46,11 @@ export function LottiePlayer({ kind, size = 140, loop }: { kind: MilestoneKind; 
           loop: shouldLoop,
           autoplay: true,
           animationData,
+          rendererSettings: { preserveAspectRatio: 'xMidYMid meet', progressiveLoad: false },
         })
       })
-      .catch(() => {
+      .catch((error) => {
+        console.warn('Milestone animation could not load; showing its still illustration.', error)
         if (!cancelled) setStill(true)
       })
     return () => {
@@ -54,14 +59,14 @@ export function LottiePlayer({ kind, size = 140, loop }: { kind: MilestoneKind; 
     }
   }, [kind, shouldLoop])
 
-  if (still) {
-    const Icon = STILL_ICON[MILESTONE_ANIMATION[kind]]
-    const tone = kind === 'account_created' || kind === 'empty_inbox' ? 'blue' : 'teal'
-    return (
-      <ThemeIcon size={Math.round(size * 0.6)} radius="xl" variant="light" color={tone} aria-hidden>
-        <Icon size={Math.round(size * 0.36)} />
-      </ThemeIcon>
-    )
-  }
-  return <div ref={container} aria-hidden style={{ width: size, height: size }} />
+  const Icon = STILL_ICON[MILESTONE_ANIMATION[kind]]
+  const tone = kind === 'account_created' || kind === 'empty_inbox' || kind.startsWith('onboarding_') ? 'blue' : 'teal'
+  return (
+    <div aria-hidden style={{ width: size, maxWidth: '100%', aspectRatio: '1', flexShrink: 0, position: 'relative', display: 'grid', placeItems: 'center' }}>
+      <div ref={container} style={{ width: '100%', height: '100%', display: still ? 'none' : 'block' }} />
+      {still && <ThemeIcon size={Math.round(size * 0.64)} radius="xl" variant="light" color={tone} style={{ position: 'absolute' }}>
+        <Icon size={Math.round(size * 0.36)} stroke={1.6} />
+      </ThemeIcon>}
+    </div>
+  )
 }

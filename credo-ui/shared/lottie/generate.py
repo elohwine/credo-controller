@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates the Credentis milestone Lottie animations (brand colours, flat, short).
+"""Generates original, vector-only Credentis milestone and onboarding animations.
 
 Run: python3 credo-ui/shared/lottie/generate.py
 Replace any file with a LottieFiles/Creator export of the same name to restyle it.
@@ -11,6 +11,7 @@ import os
 OUT = os.path.dirname(os.path.abspath(__file__))
 FR = 60
 W = H = 200
+EXPORT_SIZE = 1080
 
 
 def hexc(h, a=1):
@@ -82,7 +83,7 @@ def layer(ind, name, shapes, op, p=(100, 100), s=None, o=None):
 
 
 def pop(t0, t1):
-    return anim((t0, [0, 0, 100]), (t1, [112, 112, 100]), (t1 + 8, [100, 100, 100]))
+    return anim((t0, [0, 0, 100]), (t1, [104, 104, 100]), (t1 + 8, [100, 100, 100]))
 
 
 def check_layers(op, t0=0, color=GREEN, size=120, start_ind=1):
@@ -93,26 +94,54 @@ def check_layers(op, t0=0, color=GREEN, size=120, start_ind=1):
         layer(start_ind, 'tick', [group([path(tick), trim(t0 + 16, t0 + 38), stroke(WHITE, 12 * k)])], op),
         layer(start_ind + 1, 'disc', [group([ellipse(size), fill(color)])], op, s=pop(t0, t0 + 18)),
         layer(start_ind + 2, 'ring', [group([ellipse(size), stroke(color, 4)])], op,
-              s=anim((t0 + 10, [100, 100, 100]), (t0 + 50, [150, 150, 100])),
-              o=anim((t0 + 10, 60), (t0 + 50, 0))),
+              s=anim((t0 + 10, [100, 100, 100]), (t0 + 50, [128, 128, 100])),
+              o=anim((t0 + 10, 30), (t0 + 50, 0))),
     ]
 
 
 def doc(name, op, layers):
-    return {'v': '5.7.4', 'fr': FR, 'ip': 0, 'op': op, 'w': W, 'h': H, 'nm': name,
+    # Lottie shape groups are front-to-back; details must precede their opaque backing.
+    for item in layers:
+        item['shapes'].reverse()
+    layers += [
+        layer(900, 'ambient-blue', [group([ellipse(144), fill(hexc('#EDF6FC'))])], op, p=(100, 96)),
+        layer(901, 'ground-shadow', [group([ellipse(92), fill(hexc('#DCEAF3'))])], op,
+              p=(100, 178), s=static([100, 10, 100])),
+    ]
+    scale = EXPORT_SIZE / W
+    for item in layers:
+        for property_name in ('p', 's'):
+            prop = item['ks'][property_name]
+            values = [key['s'] for key in prop['k']] if prop['a'] else [prop['k']]
+            for value in values:
+                value[0] *= scale
+                value[1] *= scale
+    return {'v': '5.7.4', 'fr': FR, 'ip': 0, 'op': op, 'w': EXPORT_SIZE, 'h': EXPORT_SIZE, 'nm': name,
             'ddd': 0, 'assets': [], 'layers': layers}
 
 
 def success():
-    return doc('success', 90, check_layers(90))
+    op = 100
+    card = [
+        group([rect(112, 136, 16), fill(WHITE), stroke(LIGHT_BLUE, 2)]),
+        group([rect(58, 5, 2), fill(BLUE)], p=(0, -46)),
+        group([rect(42, 4, 2), fill(LIGHT_BLUE)], p=(0, -34)),
+        group([rect(50, 4, 2), fill(LIGHT_BLUE)], p=(0, 48)),
+    ]
+    return doc('success', op, check_layers(op, t0=12, size=62) + [
+        layer(10, 'signed-record', card, op, o=anim((0, 0), (16, 100)),
+              s=anim((0, [92, 92, 100]), (20, [100, 100, 100]))),
+    ])
 
 
 def payment():
     op = 100
     card = [
-        group([rect(124, 80, 12), fill(BLUE)]),
+        group([rect(124, 80, 12), fill(BLUE), stroke(hexc('#155782'), 2)]),
         group([rect(124, 14, 0), fill(hexc('#155782'))], p=(0, -16)),
         group([rect(34, 8, 4), fill(LIGHT_BLUE)], p=(-36, 18)),
+        group([rect(18, 14, 4), fill(GOLD)], p=(32, 16)),
+        group([path([[-6, 0], [6, 0]]), stroke(hexc('#B07B20'), 1.5)], p=(32, 16)),
     ]
     card_layer = layer(10, 'card', card, op, p=(92, 96),
                        o=anim((0, 0), (16, 100)),
@@ -129,7 +158,7 @@ def celebration():
     colours = [BLUE, GOLD, GREEN, hexc('#88c4e3')]
     for n in range(12):
         ang = n * math.pi * 2 / 12 + 0.2
-        dist = 78 + (n % 3) * 8
+        dist = 72 + (n % 3) * 5
         end = [100 + math.cos(ang) * dist, 100 + math.sin(ang) * dist, 0]
         shape = ellipse(10) if n % 2 else rect(10, 6, 2)
         confetti = layer(20 + n, 'confetti', [group([shape, fill(colours[n % 4])], r=static(n * 30))], op,
@@ -181,8 +210,58 @@ def empty():
     return doc('empty', op, [badge, tray_layer, shadow])
 
 
+def onboarding_receive():
+    op = 120
+    phone = [
+        group([rect(100, 148, 18), fill(hexc('#123E66'))]),
+        group([rect(88, 132, 12), fill(WHITE)]),
+        group([rect(28, 4, 2), fill(LIGHT_BLUE)], p=(0, -54)),
+        group([rect(28, 4, 2), fill(LIGHT_BLUE)], p=(0, 55)),
+    ]
+    card = [
+        group([rect(110, 66, 10), fill(BLUE), stroke(hexc('#155782'), 2)]),
+        group([ellipse(18), fill(WHITE)], p=(-32, -7)),
+        group([rect(28, 7, 3), fill(LIGHT_BLUE)], p=(17, -9)),
+        group([rect(42, 5, 2), fill(LIGHT_BLUE)], p=(10, 4)),
+        group([rect(30, 5, 2), fill(LIGHT_BLUE)], p=(-23, 20)),
+    ]
+    record = layer(10, 'card-arrives-in-wallet', card, op,
+                   o=anim((0, 0), (16, 100)),
+                   s=anim((0, [108, 108, 100]), (48, [82, 82, 100])))
+    record['ks']['p'] = anim((0, [100, 56, 0]), (48, [100, 98, 0]))
+    badge = check_layers(op, t0=50, size=40, start_ind=1)
+    for item in badge:
+        item['ks']['p'] = static([142, 132, 0])
+    return doc('onboarding_receive', op, badge + [record, layer(20, 'wallet', phone, op)])
+
+
+def onboarding_share():
+    op = 120
+    panel = [
+        group([rect(116, 128, 14), fill(WHITE), stroke(LIGHT_BLUE, 2)]),
+        group([rect(62, 6, 3), fill(BLUE)], p=(0, -44)),
+        group([rect(44, 4, 2), fill(LIGHT_BLUE)], p=(0, -30)),
+        group([rect(64, 5, 2), fill(LIGHT_BLUE)], p=(6, -6)),
+        group([ellipse(8), fill(GREEN)], p=(-36, -6)),
+        group([rect(64, 5, 2), fill(LIGHT_BLUE)], p=(6, 12)),
+        group([ellipse(8), fill(GREEN)], p=(-36, 12)),
+        group([rect(76, 18, 9), fill(BLUE)], p=(0, 42)),
+        group([path([[-8, 0], [8, 0], [3, -5], [8, 0], [3, 5]]), stroke(WHITE, 2)], p=(0, 42)),
+    ]
+    shield = [
+        group([path([[0, -24], [22, -16], [20, 10], [0, 26], [-20, 10], [-22, -16]], True),
+               fill(GREEN), stroke(hexc('#147D57'), 2)]),
+        group([path([[-9, 0], [-2, 7], [10, -7]]), trim(50, 75), stroke(WHITE, 4)]),
+    ]
+    return doc('onboarding_share', op, [
+        layer(1, 'consent-shield', shield, op, p=(150, 130), s=pop(30, 48)),
+        layer(10, 'review-request', panel, op, p=(92, 98),
+              o=anim((0, 0), (18, 100)), s=anim((0, [94, 94, 100]), (22, [100, 100, 100]))),
+    ])
+
+
 if __name__ == '__main__':
-    for fn in (success, payment, celebration, welcome, completion, empty):
+    for fn in (success, payment, celebration, welcome, completion, empty, onboarding_receive, onboarding_share):
         data = fn()
         with open(os.path.join(OUT, f'{fn.__name__}.json'), 'w') as f:
             json.dump(data, f, separators=(',', ':'))

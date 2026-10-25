@@ -48,6 +48,8 @@
     "check:debug-ingest": "node ./scripts/check-debug-ingest.js"
   },
   "dependencies": {
+    "@peculiar/x509": "^1.14.3",
+    "asn1js": "^3.0.10",
     "@credo-ts/anoncreds": "0.7.0",
     "@credo-ts/askar": "0.7.0",
     "@credo-ts/core": "0.7.0",

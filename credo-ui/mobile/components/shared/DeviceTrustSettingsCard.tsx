@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { Button, Group, Paper, Stack, Switch, Text } from '@mantine/core'
+import { Button, Group, Paper, PasswordInput, Stack, Switch, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import api from '@/lib/api'
 import { getPreferredToken, getWalletToken } from '@/lib/auth'
@@ -18,6 +18,7 @@ export default function DeviceTrustSettingsCard({ orgTenantId, canEdit }: { orgT
   const [policy, setPolicy] = useState<Policy | null>(null)
   const [saving, setSaving] = useState(false)
   const [enrolled, setEnrolled] = useState(false)
+  const [enrollmentPin, setEnrollmentPin] = useState('')
 
   const headers = () => {
     const token = getPreferredToken()
@@ -58,7 +59,8 @@ export default function DeviceTrustSettingsCard({ orgTenantId, canEdit }: { orgT
       return
     }
     try {
-      await enrollThisPhone()
+      await enrollThisPhone('This phone — money steps', enrollmentPin)
+      setEnrollmentPin('')
       setEnrolled(true)
       notifications.show({ title: 'Phone enrolled', message: 'Fingerprint or face will confirm money steps.', color: 'green' })
     } catch (err: any) {
@@ -96,6 +98,7 @@ export default function DeviceTrustSettingsCard({ orgTenantId, canEdit }: { orgT
           />
         ))}
         <Group>
+          {deviceTrustAvailable() && !enrolled && <PasswordInput label="Confirm your personal account PIN" value={enrollmentPin} inputMode="numeric" onChange={(event) => setEnrollmentPin(event.currentTarget.value)} />}
           {deviceTrustAvailable() && !enrolled && <Button size="xs" onClick={() => void enroll()}>Enroll this phone</Button>}
           {enrolled && (
             <Button size="xs" variant="default" onClick={() => void revokeRememberedPhone().then(() => setEnrolled(false))}>

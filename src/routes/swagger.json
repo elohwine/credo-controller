@@ -8258,6 +8258,12 @@
           },
           "revokedAt": {
             "type": "string"
+          },
+          "verifiedAt": {
+            "type": "string"
+          },
+          "usage": {
+            "type": "string"
           }
         },
         "required": [
@@ -8272,6 +8278,10 @@
       },
       "DeviceKeyEnrollBody": {
         "properties": {
+          "alias": {
+            "type": "string",
+            "description": "Local Android key reference sent by existing apps; not used as server identity."
+          },
           "publicJwk": {
             "$ref": "#/components/schemas/Record_string.unknown_"
           },
@@ -8283,12 +8293,24 @@
           },
           "label": {
             "type": "string"
+          },
+          "enrollmentChallenge": {
+            "type": "string"
+          },
+          "usage": {
+            "type": "string",
+            "enum": [
+              "login",
+              "payment"
+            ]
           }
         },
         "required": [
           "publicJwk",
           "attestation",
-          "platform"
+          "platform",
+          "enrollmentChallenge",
+          "usage"
         ],
         "type": "object",
         "additionalProperties": false
@@ -9006,6 +9028,45 @@
         ],
         "type": "object",
         "additionalProperties": false
+      },
+      "DeviceLoginStart": {
+        "properties": {
+          "challengeId": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "requester": {
+            "type": "string"
+          },
+          "requestedClaims": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "challengeId",
+          "payload",
+          "expiresAt",
+          "requester",
+          "requestedClaims"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "DeviceLoginPurpose": {
+        "type": "string",
+        "enum": [
+          "device_login",
+          "web_login",
+          "change_pin"
+        ]
       },
       "RegisterRequest": {
         "properties": {
@@ -27432,18 +27493,10 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "devices": {
-                      "items": {
-                        "$ref": "#/components/schemas/EnrolledDevice"
-                      },
-                      "type": "array"
-                    }
+                  "items": {
+                    "$ref": "#/components/schemas/EnrolledDevice"
                   },
-                  "required": [
-                    "devices"
-                  ],
-                  "type": "object"
+                  "type": "array"
                 }
               }
             },
@@ -28944,6 +28997,191 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/UpdateStatusPayload"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/auth/device-login/start": {
+      "post": {
+        "operationId": "StartDeviceLogin",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceLoginStart"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "newPin": {
+                    "type": "string"
+                  },
+                  "authorizationRequest": {
+                    "type": "string"
+                  },
+                  "purpose": {
+                    "$ref": "#/components/schemas/DeviceLoginPurpose"
+                  },
+                  "deviceKeyId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "purpose",
+                  "deviceKeyId"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/auth/device-login/finish": {
+      "post": {
+        "operationId": "FinishDeviceLogin",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "presented": {
+                      "type": "boolean"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "token": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "signature": {
+                    "type": "string"
+                  },
+                  "challengeId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "signature",
+                  "challengeId"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/auth/device-enrollment": {
+      "post": {
+        "operationId": "BeginDeviceEnrollment",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "expiresAt": {
+                      "type": "string"
+                    },
+                    "nonce": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "expiresAt",
+                    "nonce"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "pin": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pin"
+                ],
+                "type": "object"
               }
             }
           }

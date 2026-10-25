@@ -19,8 +19,8 @@ import { injectable } from 'tsyringe'
 import { container } from 'tsyringe'
 
 import { SCOPES } from '../../enums'
-import { UnauthorizedError } from '../../errors/errors'
 import { StatusException } from '../../errors/StatusException'
+import { UnauthorizedError } from '../../errors/errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { deleteDevicePushToken, saveDevicePushToken } from '../../persistence/DevicePushRepository'
 import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
@@ -31,10 +31,10 @@ import {
   getWalletCredentialById,
   saveWalletCredential,
 } from '../../persistence/WalletCredentialRepository'
-import { credentialLifecycleService } from '../../services/ssi/CredentialLifecycleService'
-import { didKeyUrl, tenantHolderDid, withTenantHolder } from '../../services/ssi/TenantHolder'
-import { stageActionFromClientStage } from '../../services/ProofVcPolicyService'
 import { deviceTrustService, type EnrolledDevice } from '../../services/DeviceTrustService'
+import { assertPersonalSessionActive } from '../../services/PersonalSessionPolicy'
+import { stageActionFromClientStage } from '../../services/ProofVcPolicyService'
+import { credentialLifecycleService } from '../../services/ssi/CredentialLifecycleService'
 import {
   holderActivityService,
   type HolderActivityEntry,
@@ -47,9 +47,10 @@ import {
   transactionDataSigners,
   type DcqlWalletCandidate,
 } from '../../services/ssi/StageProofService'
+import { didKeyUrl, tenantHolderDid, withTenantHolder } from '../../services/ssi/TenantHolder'
+import { canReadOrganisationRecords } from '../../services/ssi/organisationRecordsAccess'
 import { shareReviewRows } from '../../services/ssi/stageProofQuery'
 import { issuerMetadataCache } from '../../utils/issuerMetadataCache'
-import { canReadOrganisationRecords } from '../../services/ssi/organisationRecordsAccess'
 
 /** The id the issuer registered for a card: W3C `id`, or `jti` on a selective-disclosure card. */
 const issuedCredentialRepository = new IssuedCredentialRepository()
@@ -305,10 +306,14 @@ export interface PushDeviceRemoveBody {
 }
 
 export interface DeviceKeyEnrollBody {
+  /** Local Android key reference sent by existing apps; not used as server identity. */
+  alias?: string
   publicJwk: Record<string, unknown>
   attestation: Record<string, unknown>
   platform: string
   label?: string
+  enrollmentChallenge: string
+  usage: 'login' | 'payment'
 }
 
 export interface DeviceAssertionChallenge {
@@ -439,6 +444,7 @@ export class WalletController extends Controller {
     const secret = await this.getJwtSecret()
     try {
       const decoded = jwt.verify(token, secret) as any
+      assertPersonalSessionActive(decoded)
       const user = getWalletUserByWalletId(decoded.walletId)
       if (!user) {
         throw new UnauthorizedError('User not found')
@@ -1845,26 +1851,25 @@ export class WalletController extends Controller {
       attestation: body.attestation,
       platform: body.platform,
       label: body.label,
+      enrollmentChallenge: body.enrollmentChallenge,
+      usage: body.usage,
     })
   }
 
   @Get('device-keys')
   @Security('jwt')
-  public async listDeviceKeys(@Request() request: ExRequest): Promise<{ devices: EnrolledDevice[] }> {
+  public async listDeviceKeys(@Request() request: ExRequest): Promise<EnrolledDevice[]> {
     const tenantId = (request as any).user?.tenantId as string | undefined
     if (!tenantId) {
       this.setStatus(401)
       throw new UnauthorizedError('Sign in required')
     }
-    return { devices: deviceTrustService.list(tenantId) }
+    return deviceTrustService.list(tenantId)
   }
 
   @Delete('device-keys/{deviceKeyId}')
   @Security('jwt')
-  public async revokeDeviceKey(
-    @Request() request: ExRequest,
-    @Path() deviceKeyId: string,
-  ): Promise<{ ok: true }> {
+  public async revokeDeviceKey(@Request() request: ExRequest, @Path() deviceKeyId: string): Promise<{ ok: true }> {
     const tenantId = (request as any).user?.tenantId as string | undefined
     if (!tenantId) {
       this.setStatus(401)

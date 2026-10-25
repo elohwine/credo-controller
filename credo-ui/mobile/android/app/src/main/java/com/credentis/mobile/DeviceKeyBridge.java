@@ -17,6 +17,7 @@ import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.Signature;
+import java.security.MessageDigest;
 import java.security.cert.Certificate;
 import java.security.interfaces.ECPublicKey;
 import java.security.spec.ECGenParameterSpec;
@@ -36,6 +37,64 @@ public final class DeviceKeyBridge {
     boolean available() {
         int result = BiometricManager.from(activity).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG);
         return result == BiometricManager.BIOMETRIC_SUCCESS;
+    }
+
+    boolean loginAvailable() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            BiometricManager.from(activity).canAuthenticate(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            ) == BiometricManager.BIOMETRIC_SUCCESS;
+    }
+
+    String enrollForAccount(String input) throws Exception {
+        JSONObject options = new JSONObject(input);
+        String wallet = options.getString("walletTenantId");
+        String challenge = options.getString("challenge");
+        String usage = options.getString("usage");
+        if (wallet.isEmpty() || challenge.length() < 32 || (!usage.equals("login") && !usage.equals("payment"))) {
+            throw new IllegalArgumentException("Invalid device enrollment request.");
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            throw new IllegalStateException("Secure device login requires Android 11 or newer.");
+        }
+        String scope = base64(MessageDigest.getInstance("SHA-256").digest(wallet.getBytes("UTF-8")));
+        String alias = "credentis-" + usage + "-" + scope + "-" + java.util.UUID.randomUUID();
+        KeyPairGenerator generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, ANDROID_KEYSTORE);
+        boolean login = usage.equals("login");
+        generator.initialize(new KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
+            .setAlgorithmParameterSpec(new ECGenParameterSpec("secp256r1"))
+            .setDigests(KeyProperties.DIGEST_SHA256)
+            .setUserAuthenticationRequired(true)
+            .setInvalidatedByBiometricEnrollment(!login)
+            .setUserAuthenticationParameters(0, login
+                ? KeyProperties.AUTH_BIOMETRIC_STRONG | KeyProperties.AUTH_DEVICE_CREDENTIAL
+                : KeyProperties.AUTH_BIOMETRIC_STRONG)
+            .setAttestationChallenge(challenge.getBytes("UTF-8"))
+            .build());
+        generator.generateKeyPair();
+        JSONObject description = new JSONObject(describe(alias, true));
+        description.put("alias", alias);
+        return description.toString();
+    }
+
+    boolean hasKey(String alias) throws Exception {
+        requireAppAlias(alias);
+        KeyStore store = KeyStore.getInstance(ANDROID_KEYSTORE);
+        store.load(null);
+        return store.containsAlias(alias);
+    }
+
+    void removeKey(String alias) throws Exception {
+        requireAppAlias(alias);
+        KeyStore store = KeyStore.getInstance(ANDROID_KEYSTORE);
+        store.load(null);
+        store.deleteEntry(alias);
+    }
+
+    private void requireAppAlias(String alias) {
+        if (alias == null || !alias.matches("credentis-(login|payment)-[A-Za-z0-9_-]+-[a-f0-9-]{36}")) {
+            throw new IllegalArgumentException("Invalid Credentis device key.");
+        }
     }
 
     String enroll() throws Exception {
@@ -63,8 +122,17 @@ public final class DeviceKeyBridge {
     }
 
     void sign(String payload) throws Exception {
+        signWithKey(ALIAS, payload, false);
+    }
+
+    void signForKey(String alias, String payload) throws Exception {
+        requireAppAlias(alias);
+        signWithKey(alias, payload, alias.startsWith("credentis-login-"));
+    }
+
+    private void signWithKey(String alias, String payload, boolean login) throws Exception {
         Signature signature = Signature.getInstance(SIGN_ALGORITHM);
-        signature.initSign(privateKey());
+        signature.initSign(privateKey(alias));
         BiometricPrompt prompt = new BiometricPrompt(activity, activity.getMainExecutor(), new BiometricPrompt.AuthenticationCallback() {
             @Override
             public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
@@ -84,29 +152,39 @@ public final class DeviceKeyBridge {
                 activity.deliverDeviceSignature(null, String.valueOf(errString));
             }
         });
-        prompt.authenticate(
-            new BiometricPrompt.PromptInfo.Builder()
+        BiometricPrompt.PromptInfo.Builder promptInfo = new BiometricPrompt.PromptInfo.Builder()
                 .setTitle("Confirm it is you")
-                .setSubtitle("Fingerprint or face")
-                .setNegativeButtonText("Not now")
-                .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-                .build(),
+                .setSubtitle(login ? "Fingerprint, face or device screen lock" : "Fingerprint or face")
+                .setAllowedAuthenticators(login
+                    ? BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                    : BiometricManager.Authenticators.BIOMETRIC_STRONG);
+        if (!login) promptInfo.setNegativeButtonText("Not now");
+        prompt.authenticate(
+            promptInfo.build(),
             new BiometricPrompt.CryptoObject(signature)
         );
     }
 
     private PrivateKey privateKey() throws Exception {
+        return privateKey(ALIAS);
+    }
+
+    private PrivateKey privateKey(String alias) throws Exception {
         KeyStore keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
         keyStore.load(null);
-        KeyStore.Entry entry = keyStore.getEntry(ALIAS, null);
+        KeyStore.Entry entry = keyStore.getEntry(alias, null);
         if (!(entry instanceof KeyStore.PrivateKeyEntry)) throw new IllegalStateException("This phone is not enrolled yet.");
         return ((KeyStore.PrivateKeyEntry) entry).getPrivateKey();
     }
 
     private String describe(boolean requireHardware) throws Exception {
+        return describe(ALIAS, requireHardware);
+    }
+
+    private String describe(String alias, boolean requireHardware) throws Exception {
         KeyStore keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
         keyStore.load(null);
-        Certificate[] chain = keyStore.getCertificateChain(ALIAS);
+        Certificate[] chain = keyStore.getCertificateChain(alias);
         if (chain == null || chain.length == 0) throw new IllegalStateException("This phone is not enrolled yet.");
         ECPublicKey publicKey = (ECPublicKey) chain[0].getPublicKey();
         ECPoint point = publicKey.getW();
@@ -117,9 +195,9 @@ public final class DeviceKeyBridge {
         jwk.put("y", base64(unsigned(point.getAffineY().toByteArray(), 32)));
 
         KeyFactory factory = KeyFactory.getInstance(publicKey.getAlgorithm(), ANDROID_KEYSTORE);
-        KeyInfo info = factory.getKeySpec(privateKey(), KeyInfo.class);
+        KeyInfo info = factory.getKeySpec(privateKey(alias), KeyInfo.class);
         if (requireHardware && !info.isInsideSecureHardware()) {
-            keyStore.deleteEntry(ALIAS);
+            keyStore.deleteEntry(alias);
             throw new IllegalStateException("This phone could not keep the key in secure hardware.");
         }
         JSONObject attestation = new JSONObject();

@@ -9,6 +9,7 @@ import { PLATFORM_IDENTITY_VC_TYPE } from '../../config/credentials/PlatformIden
 import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { auditService } from '../AuditService'
+import { devicePolicyHash, requireDeviceLoginApproval } from '../PersonalSessionPolicy'
 import { PlatformIdentityError } from '../SSIAuthService'
 import { shouldUseUnsignedLocalOid4vpRequest, stageProofService, verifierModuleOf } from '../ssi/StageProofService'
 import { shouldAllowWholeCardType } from '../ssi/proofModeMatrix'
@@ -135,10 +136,10 @@ export class PartnerVerificationService {
     const expiresAt = new Date(now.getTime() + SESSION_TTL_MS).toISOString()
     DatabaseManager.getDatabase()
       .prepare(
-        `INSERT INTO partner_verification_sessions (verification_id, client_id, binding_ref_hash, created_at, expires_at)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO partner_verification_sessions (verification_id, client_id, binding_ref_hash, created_at, expires_at, authorization_request)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(verificationId, client.clientId, hashSecret(ref), now.toISOString(), expiresAt)
+      .run(verificationId, client.clientId, hashSecret(ref), now.toISOString(), expiresAt, authorizationRequest)
 
     return { verificationId, authorizationRequest, expiresAt }
   }
@@ -188,6 +189,7 @@ export class PartnerVerificationService {
     let identity: Awaited<ReturnType<SSIAuthService['verifiedPlatformIdentity']>>
     try {
       identity = await this.ssiAuthService.verifiedPlatformIdentity(presentation)
+      requireDeviceLoginApproval(verificationId, identity.tenantId, devicePolicyHash(client.policy))
     } catch (error) {
       const reasonCode = error instanceof PlatformIdentityError ? error.code : 'presenter_not_account_holder'
       return this.finish(client, verificationId, { status: 'failed', reasonCode })

@@ -185,6 +185,7 @@ export class DatabaseManager {
       { version: 136, file: '136_org_brand.sql', name: 'org_brand' },
       { version: 137, file: '137_notification_template_name.sql', name: 'notification_template_name' },
       { version: 138, file: '138_stage_co_actors.sql', name: 'stage_co_actors' },
+      { version: 139, file: '139_verified_device_enrollment.sql', name: 'verified_device_enrollment' },
     ]
 
     for (const migration of migrationFiles) {

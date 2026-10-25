@@ -626,6 +626,9 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
         }}
       >
         <Stack gap="md" pb="lg">
+          <Button variant="light" onClick={() => { setSettingsOpen(false); void router.push('/settings/security/'); }}>
+            Account security
+          </Button>
           <Stack gap="xs">
             <Text size="xs" c="dimmed" tt="uppercase" fw={600} px="xs">
               In use now

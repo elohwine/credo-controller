@@ -16,6 +16,11 @@
     ]
   },
   "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "launchShowDuration": 5000,
+      "showSpinner": false
+    },
     "CapacitorHttp": {
       "enabled": true
     },

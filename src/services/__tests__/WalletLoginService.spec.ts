@@ -50,6 +50,7 @@ describe('WalletLoginService', () => {
   beforeAll(async () => {
     db = new Database(':memory:')
     db.exec(readFileSync(join(process.cwd(), 'migrations/120_wallet_login_sessions.sql'), 'utf8'))
+    db.exec('ALTER TABLE wallet_login_sessions ADD COLUMN authorization_request TEXT')
     ;(DatabaseManager as any).instance = db
     const { WalletLoginService } = await import('../WalletLoginService')
     service = new WalletLoginService({} as any, { loginWithVerifiedPresentation } as any)
@@ -101,7 +102,7 @@ describe('WalletLoginService', () => {
     sessions.set(start.loginId, { state: 'ResponseVerified', presentations: [presentation] })
     const result = await service.poll(start.loginId, start.pollToken)
     expect(result).toMatchObject({ status: 'verified', token: 'session-token', tenantId: 'tenant-1' })
-    expect(loginWithVerifiedPresentation).toHaveBeenCalledWith(presentation)
+    expect(loginWithVerifiedPresentation).toHaveBeenCalledWith(presentation, start.loginId)
 
     await expect(service.poll(start.loginId, start.pollToken)).rejects.toMatchObject({ status: 410 })
     expect(loginWithVerifiedPresentation).toHaveBeenCalledTimes(1)

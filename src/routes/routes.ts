@@ -2879,6 +2879,8 @@ const models: TsoaRoute.Models = {
             "userAuthRequired": {"dataType":"boolean","required":true},
             "createdAt": {"dataType":"string","required":true},
             "revokedAt": {"dataType":"string"},
+            "verifiedAt": {"dataType":"string"},
+            "usage": {"dataType":"string"},
         },
         "additionalProperties": false,
     },
@@ -2886,10 +2888,13 @@ const models: TsoaRoute.Models = {
     "DeviceKeyEnrollBody": {
         "dataType": "refObject",
         "properties": {
+            "alias": {"dataType":"string"},
             "publicJwk": {"ref":"Record_string.unknown_","required":true},
             "attestation": {"ref":"Record_string.unknown_","required":true},
             "platform": {"dataType":"string","required":true},
             "label": {"dataType":"string"},
+            "enrollmentChallenge": {"dataType":"string","required":true},
+            "usage": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["login"]},{"dataType":"enum","enums":["payment"]}],"required":true},
         },
         "additionalProperties": false,
     },
@@ -3167,6 +3172,23 @@ const models: TsoaRoute.Models = {
             "tenantId": {"dataType":"string"},
         },
         "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "DeviceLoginStart": {
+        "dataType": "refObject",
+        "properties": {
+            "challengeId": {"dataType":"string","required":true},
+            "payload": {"dataType":"string","required":true},
+            "expiresAt": {"dataType":"string","required":true},
+            "requester": {"dataType":"string","required":true},
+            "requestedClaims": {"dataType":"array","array":{"dataType":"string"},"required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "DeviceLoginPurpose": {
+        "dataType": "refAlias",
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["device_login"]},{"dataType":"enum","enums":["web_login"]},{"dataType":"enum","enums":["change_pin"]}],"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "RegisterRequest": {
@@ -14630,6 +14652,114 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'updateStatus',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletAuthController_startDeviceLogin: Record<string, TsoaRoute.ParameterSchema> = {
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"newPin":{"dataType":"string"},"authorizationRequest":{"dataType":"string"},"purpose":{"ref":"DeviceLoginPurpose","required":true},"deviceKeyId":{"dataType":"string","required":true}}},
+        };
+        app.post('/api/wallet/auth/device-login/start',
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController.prototype.startDeviceLogin)),
+
+            async function WalletAuthController_startDeviceLogin(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletAuthController_startDeviceLogin, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletAuthController>(WalletAuthController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'startDeviceLogin',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletAuthController_finishDeviceLogin: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"signature":{"dataType":"string","required":true},"challengeId":{"dataType":"string","required":true}}},
+        };
+        app.post('/api/wallet/auth/device-login/finish',
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController.prototype.finishDeviceLogin)),
+
+            async function WalletAuthController_finishDeviceLogin(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletAuthController_finishDeviceLogin, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletAuthController>(WalletAuthController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'finishDeviceLogin',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletAuthController_beginDeviceEnrollment: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"pin":{"dataType":"string","required":true}}},
+        };
+        app.post('/api/wallet/auth/device-enrollment',
+            authenticateMiddleware([{"jwt":[]}]),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController.prototype.beginDeviceEnrollment)),
+
+            async function WalletAuthController_beginDeviceEnrollment(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletAuthController_beginDeviceEnrollment, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletAuthController>(WalletAuthController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'beginDeviceEnrollment',
                 controller,
                 response,
                 next,

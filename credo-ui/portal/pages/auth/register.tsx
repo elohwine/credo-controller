@@ -2,6 +2,8 @@ import React, { useState, useContext, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
+import { LottiePlayer } from '@/components/feedback/LottiePlayer';
+import { WalletOnboarding } from '../../../shared/WalletOnboarding';
 import { EnvContext } from '@/pages/_app';
 import { clearStoredOrganizationContext } from '@/utils/organizationContext';
 import axios from 'axios';
@@ -30,6 +32,7 @@ export default function RegisterPage() {
     const [success, setSuccess] = useState(false);
     const [claimedCredentials, setClaimedCredentials] = useState<number>(0);
     const [authChecked, setAuthChecked] = useState(false);
+    const [setupStep, setSetupStep] = useState(1);
 
     const [form, setForm] = useState({
         username: '',
@@ -206,6 +209,14 @@ export default function RegisterPage() {
                                 <Text>Your personal account has been created. Redirecting to login...</Text>
                             )}
                         </Alert>
+                    ) : setupStep < 3 ? (
+                        <WalletOnboarding
+                            key={setupStep}
+                            step={setupStep === 1 ? 1 : 2}
+                            illustration={<LottiePlayer kind={setupStep === 1 ? 'onboarding_receive' : 'onboarding_share'} size={176} />}
+                            onNext={() => setSetupStep(setupStep + 1)}
+                            onBack={() => setupStep === 1 ? router.push('/auth/login') : setSetupStep(1)}
+                        />
                     ) : (
                         <form onSubmit={handleSubmit}>
                             <Stack gap="md">
@@ -214,6 +225,7 @@ export default function RegisterPage() {
                                         {error}
                                     </Alert>
                                 )}
+                                <Text size="xs" c="dimmed">Step 3 of 3 · Create your account</Text>
 
                                 <TextInput
                                     label="Username"
@@ -277,6 +289,7 @@ export default function RegisterPage() {
                                         Sign in
                                     </Anchor>
                                 </Text>
+                                <Button variant="subtle" disabled={loading} onClick={() => setSetupStep(2)}>Back to the wallet guide</Button>
                             </Stack>
                         </form>
                     )}
