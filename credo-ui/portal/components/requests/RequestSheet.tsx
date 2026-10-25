@@ -1,3 +1,4 @@
+import { feedback } from '@/lib/feedback';
 import React, { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import {
@@ -135,7 +136,7 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
   }, [opened, initialKindId, loading, rows])
 
   const finish = (message: string, go?: string) => {
-    notifications.show({ title: 'Sent', message, color: 'green' })
+    feedback.success(message, { title: 'Sent' })
     onClose()
     if (go) void router.push(go)
   }
@@ -210,7 +211,7 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
         void router.push('/inbox')
       }
     } catch (error: any) {
-      notifications.show({ title: 'Could not send', message: errorMessage(error, 'Try again in a moment.'), color: 'red' })
+      feedback.error(errorMessage(error, 'Try again in a moment.'), { title: 'Could not send' })
     } finally {
       setBusy(false)
     }
@@ -230,7 +231,7 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
       )
       finish(`${askOrgFor.orgName || 'The organisation'} has your request.`, ROUTES.my_requests)
     } catch (error: any) {
-      notifications.show({ title: 'Could not send', message: errorMessage(error, 'Try again in a moment.'), color: 'red' })
+      feedback.error(errorMessage(error, 'Try again in a moment.'), { title: 'Could not send' })
     } finally {
       setBusy(false)
     }
@@ -315,7 +316,7 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
       })
       finish(`${active.orgName || 'The organisation'} has your request.`, ROUTES.my_requests)
     } catch (error: any) {
-      notifications.show({ title: 'Not sent', message: errorMessage(error, 'Try again in a moment.'), color: 'red' })
+      feedback.error(errorMessage(error, 'Try again in a moment.'), { title: 'Not sent' })
     } finally {
       setBusy(false)
     }

@@ -1,3 +1,4 @@
+import { feedback } from '@/lib/feedback';
 import { useState, useEffect, useContext, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../../components/Layout';
@@ -251,7 +252,7 @@ export default function ContactsPage() {
 
   const handleSave = async () => {
     if (!form.name.trim()) {
-      notifications.show({ title: 'Validation', message: 'Name is required', color: 'red' });
+      feedback.error('Name is required', { title: 'Validation' });
       return;
     }
     setSaving(true);
@@ -283,7 +284,7 @@ export default function ContactsPage() {
         }
       } else {
         if (form.contactScope === 'internal' && !form.teamRole) {
-          notifications.show({ title: 'Choose a role', message: 'Someone on the team needs a role from setup.', color: 'orange' });
+          feedback.warn('Someone on the team needs a role from setup.', { title: 'Choose a role' });
           setSaving(false);
           return;
         }
@@ -302,11 +303,7 @@ export default function ContactsPage() {
               joined = true;
               teamMessage = inviteRes.data?.message || '';
             } catch (inviteErr: any) {
-              notifications.show({
-                title: 'Contact saved',
-                message: inviteErr?.response?.data?.message || 'They were saved, but not added to the team.',
-                color: 'orange',
-              });
+              feedback.warn(inviteErr?.response?.data?.message || 'They were saved, but not added to the team.', { title: 'Contact saved' });
             }
           }
         }
@@ -325,18 +322,14 @@ export default function ContactsPage() {
         if (data?.invite?.claimUrl) {
           setInviteResult(data.invite);
           setShowInviteResult(true);
-          notifications.show({
-            title: 'Wallet invite created',
-            message: `Invite link ready for ${form.name}`,
-            color: 'teal',
-          });
+          feedback.success(`Invite link ready for ${form.name}`, { title: 'Wallet invite created' });
         }
       }
       setShowForm(false);
       fetchContacts();
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || 'Save failed';
-      notifications.show({ title: 'Error', message: msg, color: 'red' });
+      feedback.error(msg, { title: 'Something went wrong' });
     } finally {
       setSaving(false);
     }
@@ -369,7 +362,7 @@ export default function ContactsPage() {
     setResendingBills(false);
     setBillResend(null);
     if (sent) notifications.show({ title: 'Bills sent', message: `${sent} bill${sent === 1 ? '' : 's'} sent to ${billResend.name}`, color: 'green', icon: <IconCheck size={14} /> });
-    if (failed.length) notifications.show({ title: 'Some bills were not sent', message: failed.join(' · '), color: 'orange' });
+    if (failed.length) feedback.warn(failed.join(' · '), { title: 'Some bills were not sent' });
   };
 
   /* ── Delete ── */
@@ -377,10 +370,10 @@ export default function ContactsPage() {
     if (!confirm(`Remove ${c.name} from your directory?`)) return;
     try {
       await axios.delete(`${baseUrl}/api/contacts/${c.id}`, auth());
-      notifications.show({ title: 'Removed', message: `${c.name} deleted`, color: 'orange' });
+      feedback.warn(`${c.name} deleted`, { title: 'Removed' });
       fetchContacts();
     } catch (err: any) {
-      notifications.show({ title: 'Error', message: err?.response?.data?.message || 'Delete failed', color: 'red' });
+      feedback.fromError(err, { title: 'Something went wrong', fallback: 'Delete failed' });
     }
   };
 
@@ -399,7 +392,7 @@ export default function ContactsPage() {
     try {
       claims = JSON.parse(offerClaims);
     } catch {
-      notifications.show({ title: 'Invalid JSON', message: 'Claims must be valid JSON', color: 'red' });
+      feedback.error('Claims must be valid JSON', { title: 'Invalid JSON' });
       return;
     }
     setCreatingOffer(true);
@@ -411,11 +404,7 @@ export default function ContactsPage() {
       );
       setOfferResult(data);
     } catch (err: any) {
-      notifications.show({
-        title: 'Offer failed',
-        message: err?.response?.data?.message || err?.message || 'Unknown error',
-        color: 'red',
-      });
+      feedback.fromError(err, { title: 'Offer failed', fallback: 'Unknown error' });
     } finally {
       setCreatingOffer(false);
     }
@@ -450,11 +439,7 @@ export default function ContactsPage() {
       );
       setProofResult(data);
     } catch (err: any) {
-      notifications.show({
-        title: 'Proof request failed',
-        message: err?.response?.data?.message || err?.message || 'Unknown error',
-        color: 'red',
-      });
+      feedback.fromError(err, { title: 'Proof request not sent', fallback: 'Unknown error' });
     } finally {
       setRequestingProof(false);
     }
@@ -472,7 +457,7 @@ export default function ContactsPage() {
     if (!plContact) return;
     const amount = parseFloat(plForm.amount);
     if (!plForm.description.trim() || isNaN(amount) || amount <= 0) {
-      notifications.show({ title: 'Validation', message: 'Description and a positive amount are required', color: 'red' });
+      feedback.error('Description and a positive amount are required', { title: 'Validation' });
       return;
     }
     setCreatingPl(true);
@@ -490,11 +475,7 @@ export default function ContactsPage() {
       );
       setPlResult(data);
     } catch (err: any) {
-      notifications.show({
-        title: 'Failed',
-        message: err?.response?.data?.message || err?.message || 'Unknown error',
-        color: 'red',
-      });
+      feedback.fromError(err, { title: 'Failed', fallback: 'Unknown error' });
     } finally {
       setCreatingPl(false);
     }

@@ -1,3 +1,4 @@
+import { feedback } from '@/lib/feedback';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from 'axios'
 import { useRouter } from 'next/router'
@@ -25,7 +26,6 @@ import {
   Textarea,
   Title,
 } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
 import { IconAlertCircle, IconRefresh } from '@tabler/icons-react'
 
 type OfferRow = {
@@ -126,11 +126,7 @@ export default function CredentialOperationsPage() {
     } catch (error: any) {
       if (!isCurrentOrg()) return
       setLoadError(error?.response?.data?.message || error?.message || 'Request failed')
-      notifications.show({
-        color: 'red',
-        title: 'Could not load credential operations',
-        message: error?.response?.data?.message || error?.message || 'Request failed',
-      })
+      feedback.fromError(error, { title: 'Could not load credential operations', fallback: 'Request failed' })
     } finally {
       if (isCurrentOrg()) setLoading(false)
     }
@@ -212,21 +208,13 @@ export default function CredentialOperationsPage() {
           { headers },
         )
         if (!isCurrentOrg()) return
-        notifications.show({
-          color: 'green',
-          title: path === 'replace' ? 'Replacement sent' : 'Offer re-sent',
-          message: 'The inbox item was updated.',
-        })
+        feedback.success('The inbox item was updated.', { title: path === 'replace' ? 'Replacement sent' : 'Offer re-sent' })
         setPendingAction(null)
         await load()
         await openOfferLink(path === 'replace' && response.data.newRowId ? response.data.newRowId : offerRowId)
       } catch (error: any) {
         if (!isCurrentOrg()) return
-        notifications.show({
-          color: 'red',
-          title: path === 'replace' ? 'Could not replace offer' : 'Could not reoffer',
-          message: error?.response?.data?.message || error?.message || 'Request failed',
-        })
+        feedback.fromError(error, { title: path === 'replace' ? 'Could not replace offer' : 'Could not reoffer', fallback: 'Request failed' })
       } finally {
         setSubmitting(false)
       }
@@ -245,20 +233,12 @@ export default function CredentialOperationsPage() {
           { headers },
         )
         if (!isCurrentOrg()) return
-        notifications.show({
-          color: 'green',
-          title: 'Credential revoked',
-          message: 'The revocation was recorded in the credential status list.',
-        })
+        feedback.success('The revocation was recorded in the credential status list.', { title: 'Credential revoked' })
         setPendingAction(null)
         await load()
       } catch (error: any) {
         if (!isCurrentOrg()) return
-        notifications.show({
-          color: 'red',
-          title: 'Could not revoke credential',
-          message: error?.response?.data?.message || error?.message || 'Request failed',
-        })
+        feedback.fromError(error, { title: 'Could not revoke credential', fallback: 'Request failed' })
       } finally {
         setSubmitting(false)
       }
@@ -269,7 +249,7 @@ export default function CredentialOperationsPage() {
   const issueDirect = useCallback(async () => {
     if (!headers || !isCurrentOrg()) return
     if (!walletTenantId.trim() || !credentialType || !claimsSchema || !directTypes.includes(credentialType)) {
-      notifications.show({ color: 'yellow', title: 'Missing details', message: 'Wallet tenant and type are required.' })
+      feedback.warn('Wallet tenant and type are required.', { title: 'Missing details' })
       return
     }
     let submittedClaims: Record<string, unknown> = claims
@@ -303,22 +283,14 @@ export default function CredentialOperationsPage() {
         { headers },
       )
       if (!isCurrentOrg()) return
-      notifications.show({
-        color: 'green',
-        title: 'Direct offer queued',
-        message: 'The recipient will accept this from their personal inbox.',
-      })
+      feedback.success('The recipient will accept this from their personal inbox.', { title: 'Direct offer queued' })
       setIssueOpen(false)
       await load()
       await openOfferLink(response.data.rowId)
     } catch (error: any) {
       if (!isCurrentOrg()) return
       setIssueError(error?.response?.data?.message || error?.message || 'Request failed')
-      notifications.show({
-        color: 'red',
-        title: 'Could not queue direct offer',
-        message: error?.response?.data?.message || error?.message || 'Request failed',
-      })
+      feedback.fromError(error, { title: 'Could not queue direct offer', fallback: 'Request failed' })
     } finally {
       setSubmitting(false)
     }

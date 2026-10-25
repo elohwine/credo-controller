@@ -1,3 +1,4 @@
+import { feedback } from '@/lib/feedback';
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
@@ -416,11 +417,7 @@ export default function OrganizationActorsPage() {
       })
       await Promise.all([loadMyPendingRoleCards(), load()])
     } catch (err: any) {
-      notifications.show({
-        title: 'Could not add the role card',
-        message: err?.response?.data?.message || err?.response?.data?.error || err?.message || 'Please try again.',
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Could not add the role card', fallback: 'Please try again.' })
     } finally {
       setAcceptingRoleCard(null)
     }
@@ -487,11 +484,7 @@ export default function OrganizationActorsPage() {
       })
       await load()
     } catch (err: any) {
-      notifications.show({
-        title: 'Save failed',
-        message: err?.response?.data?.message || err?.message || 'Could not save stage actor',
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Save failed', fallback: 'Could not save stage actor' })
     } finally {
       setSavingStage(null)
     }
@@ -525,11 +518,7 @@ export default function OrganizationActorsPage() {
       })
       await load()
     } catch (err: any) {
-      notifications.show({
-        title: 'Save failed',
-        message: err?.response?.data?.message || err?.message || 'Could not save the people for this step',
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Save failed', fallback: 'Could not save the people for this step' })
     } finally {
       setSavingStage(null)
     }
@@ -547,11 +536,7 @@ export default function OrganizationActorsPage() {
       )
       await load()
     } catch (err: any) {
-      notifications.show({
-        title: 'Policy update failed',
-        message: err?.response?.data?.message || err?.message || 'Could not update fallback policy',
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Policy update failed', fallback: 'Could not update fallback policy' })
     } finally {
       setSavingPolicy(false)
     }
@@ -570,11 +555,7 @@ export default function OrganizationActorsPage() {
       setView(res.data)
       notifications.show({ title: 'Setup applied', message: 'Purchase-request steps now follow this setup.', color: 'green', icon: <IconCheck size={16} /> })
     } catch (err: any) {
-      notifications.show({
-        title: 'Could not apply setup',
-        message: err?.response?.data?.message || err?.message || 'Try again',
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Could not apply setup', fallback: 'Try again' })
     } finally {
       setApplyingPreset(null)
     }
@@ -610,11 +591,7 @@ export default function OrganizationActorsPage() {
       })
       await load()
     } catch (err: any) {
-      notifications.show({
-        title: 'Could not send role cards',
-        message: err?.response?.data?.message || err?.message || 'Please try again.',
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Could not send role cards', fallback: 'Please try again.' })
     } finally {
       setOffering(false)
     }

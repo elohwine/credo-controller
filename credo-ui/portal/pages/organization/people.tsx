@@ -1,3 +1,4 @@
+import { feedback } from '@/lib/feedback';
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 import Layout from '@/components/Layout'
@@ -149,10 +150,10 @@ export default function OrganizationPeoplePage() {
     setSavingStaffCardChange(true)
     try {
       await axios.put(profileUrl(), { staffCardChange: rule }, { headers: { Authorization: `Bearer ${token}` } })
-      notifications.show({ title: 'Saved', message: 'Applies the next time a role changes.', color: 'green' })
+      feedback.success('Applies the next time a role changes.', { title: 'Saved' })
     } catch (err: any) {
       setStaffCardChange(previous)
-      notifications.show({ title: 'Could not save', message: err?.response?.data?.message || err?.message, color: 'red' })
+      feedback.fromError(err, { title: 'Could not save' })
     } finally {
       setSavingStaffCardChange(false)
     }
@@ -217,7 +218,7 @@ export default function OrganizationPeoplePage() {
         color: sent.length > 0 ? 'green' : 'gray',
       })
     } catch (err: any) {
-      notifications.show({ title: 'Could not send', message: err?.response?.data?.message || err?.message, color: 'red' })
+      feedback.fromError(err, { title: 'Could not send' })
     } finally {
       setSending(null)
     }
@@ -250,7 +251,7 @@ export default function OrganizationPeoplePage() {
       await showInviteResult(res.data?.invite, res.data?.message || 'Invite sent again', 'Invite sent')
       void loadMembers()
     } catch (err: any) {
-      notifications.show({ title: 'Could not resend', message: err?.response?.data?.message || err?.message, color: 'red' })
+      feedback.fromError(err, { title: 'Could not resend' })
     } finally {
       setResendingInvite(null)
     }
@@ -272,7 +273,7 @@ export default function OrganizationPeoplePage() {
       setInviteOpen(false)
       void loadMembers()
     } catch (err: any) {
-      notifications.show({ title: 'Invite failed', message: err?.response?.data?.message || err?.message, color: 'red' })
+      feedback.fromError(err, { title: 'Invite failed' })
     } finally {
       setInviting(false)
     }
@@ -288,14 +289,10 @@ export default function OrganizationPeoplePage() {
         { role },
         { headers: { Authorization: `Bearer ${token}` } },
       )
-      notifications.show({
-        title: 'Role updated',
-        message: `${roleLabel(role)}. A new staff card is on its way to their app inbox.${['owner', 'admin'].includes(String(role).toLowerCase()) ? ' Once they accept it, they can open the organisation and its dashboard.' : ' Their jobs and approvals come to their personal inbox.'}`,
-        color: 'green',
-      })
+      feedback.success(`${roleLabel(role)}. A new staff card is on its way to their app inbox.${['owner', 'admin'].includes(String(role).toLowerCase()) ? ' Once they accept it, they can open the organisation and its dashboard.' : ' Their jobs and approvals come to their personal inbox.'}`, { title: 'Role updated' })
       void loadMembers()
     } catch (err: any) {
-      notifications.show({ title: 'Could not change role', message: err?.response?.data?.message || err?.message, color: 'red' })
+      feedback.fromError(err, { title: 'Could not change role' })
     } finally {
       setChangingRole(null)
     }
@@ -312,10 +309,10 @@ export default function OrganizationPeoplePage() {
         `${backendUrl}/api/organizations/${encodeURIComponent(orgTenantId)}/members/${encodeURIComponent(userId)}`,
         { headers: { Authorization: `Bearer ${token}` } },
       )
-      notifications.show({ title: 'Removed', message: who ? personLabel(who) : 'Team member', color: 'gray' })
+      feedback.info(who ? personLabel(who) : 'Team member', { title: 'Removed' })
       void loadMembers()
     } catch (err: any) {
-      notifications.show({ title: 'Remove failed', message: err?.response?.data?.message || err?.message, color: 'red' })
+      feedback.fromError(err, { title: 'Remove failed' })
     } finally {
       setRemoving(null)
     }

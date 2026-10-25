@@ -1,3 +1,4 @@
+import { feedback } from '@/lib/feedback';
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 import {
@@ -34,7 +35,6 @@ import {
   IconCash,
   IconWallet,
 } from '@tabler/icons-react'
-import { notifications } from '@mantine/notifications'
 import { isOrganisationJobRecord } from '../../../shared/fieldJobOutcomes'
 import { assertFieldStepSucceeded } from '../../../shared/fieldEvidence'
 import { BRAND } from '@/lib/theme'
@@ -209,7 +209,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
     const attachmentId = String(attachment?.id || '').trim()
     const token = getOrgScopedToken() || getPreferredTenantToken()
     if (!intakeId || !attachmentId || !token) {
-      notifications.show({ color: 'red', message: 'The source document is not available in this organization context.' })
+      feedback.error('The source document is not available in this organization context.')
       return
     }
     try {
@@ -229,12 +229,9 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
       link.click()
       URL.revokeObjectURL(url)
     } catch (error) {
-      notifications.show({
-        color: 'red',
-        message: axios.isAxiosError(error)
+      feedback.error(axios.isAxiosError(error)
           ? error.response?.data?.message || error.response?.data?.error || error.message
-          : 'Could not open the source document.',
-      })
+          : 'Could not open the source document.')
     }
   }
 
@@ -318,7 +315,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
         },
       )
       if (data?.error) throw new Error(String(data.error))
-      notifications.show({ title: 'Job resumed', message: 'The job carried on from where it stopped.', color: 'teal' })
+      feedback.success('The job carried on from where it stopped.', { title: 'Job resumed' })
     } catch (error: any) {
       setActionError(String(error?.response?.data?.error || error?.message || 'The job could not be resumed.'))
     } finally {
@@ -369,11 +366,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
       )
       if (data?.error) throw new Error(String(data.error))
       setHoldResolveNote('')
-      notifications.show({
-        title: 'Issue marked resolved',
-        message: 'The worker has been told to redo the safety check.',
-        color: 'teal',
-      })
+      feedback.success('The worker has been told to redo the safety check.', { title: 'Issue marked resolved' })
     } catch (error: any) {
       setActionError(String(error?.response?.data?.error || error?.message || 'The hold could not be marked resolved.'))
     } finally {
@@ -401,11 +394,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
     const credoBackend = ((window as any).__ENV?.NEXT_PUBLIC_VC_REPO as string) || 'http://localhost:3000'
     const token = getOrgScopedToken() || getPreferredTenantToken()
     if (!token) {
-      notifications.show({
-        title: 'Switch to the organization',
-        message: 'This step is done as the organization.',
-        color: 'orange',
-      })
+      feedback.warn('This step is done as the organization.', { title: 'Switch to the organization' })
       return
     }
     setProofStage(stage)
@@ -471,11 +460,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
       )
       onRefresh()
     } catch (err: any) {
-      notifications.show({
-        title: 'Could not move this job',
-        message: err?.response?.data?.message || err?.message || 'Try again.',
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Could not move this job', fallback: 'Try again.' })
     } finally {
       setReassigning(false)
     }
@@ -1190,7 +1175,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                   })
                   onRefresh()
                 } catch (error) {
-                  notifications.show({ color: 'red', message: axios.isAxiosError(error) ? error.response?.data?.message || error.message : 'Could not replace the assignment record' })
+                  feedback.error(axios.isAxiosError(error) ? error.response?.data?.message || error.message : 'Could not replace the assignment record')
                 } finally { setSubmitting(false) }
               }}>Replace legacy assignment record</Button>
             )}

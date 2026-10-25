@@ -1,4 +1,6 @@
+import { feedback } from '@/lib/feedback';
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { LottiePlayer } from '@/components/feedback/LottiePlayer';
 import {
   Stack, Title, Text, Box, Divider, Button, Group, Checkbox, TextInput, Alert, Loader, Center,
   Paper, Badge, Collapse, Stepper, SimpleGrid, ThemeIcon, Card, ColorInput, ScrollArea, Select, MultiSelect,
@@ -462,7 +464,7 @@ export default function OrgSettingsPage() {
         color: sent.length > 0 ? 'green' : 'gray',
       });
     } catch (err: any) {
-      notifications.show({ title: 'Could not send', message: err.response?.data?.message ?? err.message, color: 'red' });
+      feedback.error(err.response?.data?.message ?? err.message, { title: 'Could not send' });
     } finally { setSendingCards(null); }
   };
 
@@ -490,7 +492,7 @@ export default function OrgSettingsPage() {
       showInviteResult(res.data);
       void fetchMembers(activeId);
     } catch (err: any) {
-      notifications.show({ title: 'Could not resend', message: err.response?.data?.message ?? err.message, color: 'red' });
+      feedback.error(err.response?.data?.message ?? err.message, { title: 'Could not resend' });
     } finally {
       setResendingInvite(null);
     }
@@ -506,7 +508,7 @@ export default function OrgSettingsPage() {
       setInvitePhone(''); setInviteName(''); setShowInvite(false);
       void fetchMembers(activeId);
     } catch (err: any) {
-      notifications.show({ title: 'Invite failed', message: err.response?.data?.message ?? err.message, color: 'red' });
+      feedback.error(err.response?.data?.message ?? err.message, { title: 'Invite failed' });
     } finally { setInviting(false); }
   };
 
@@ -517,10 +519,10 @@ export default function OrgSettingsPage() {
     if (!window.confirm(`Remove ${personName(who, userId)} from the organization?`)) return;
     try {
       await api.delete(`/api/organizations/${activeId}/members/${encodeURIComponent(userId)}`, { headers: { Authorization: `Bearer ${token}` } });
-      notifications.show({ title: 'Removed', message: personName(who, userId), color: 'gray' });
+      feedback.info(personName(who, userId), { title: 'Removed' });
       void fetchMembers(activeId);
     } catch (err: any) {
-      notifications.show({ title: 'Remove failed', message: err.response?.data?.message ?? err.message, color: 'red' });
+      feedback.error(err.response?.data?.message ?? err.message, { title: 'Remove failed' });
     }
   };
 
@@ -660,9 +662,9 @@ export default function OrgSettingsPage() {
       });
       if (Array.isArray(res.data?.methods) && res.data.methods.length > 0) setPaymentMethods(res.data.methods);
       const chosen = (res.data?.methods || paymentMethods).find((item: { id: string; name: string }) => item.id === method);
-      notifications.show({ title: 'Payment method saved', message: chosen ? `${chosen.name} is how this organization takes and releases money.` : 'Saved.', color: 'green' });
+      feedback.success(chosen ? `${chosen.name} is how this organization takes and releases money.` : 'Saved.', { title: 'Payment method saved' });
     } catch (err: any) {
-      notifications.show({ title: 'Could not save the payment method', message: err?.response?.data?.message || err?.message, color: 'red' });
+      feedback.fromError(err, { title: 'Could not save the payment method' });
     } finally {
       setSetupBusy(false);
     }
@@ -677,9 +679,9 @@ export default function OrgSettingsPage() {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       setSetupPartners(res.data?.partners || []);
-      notifications.show({ title: 'This organization is trusted', message: 'Documents you issue here will be accepted.', color: 'green' });
+      feedback.success('Documents you issue here will be accepted.', { title: 'This organization is trusted' });
     } catch (err: any) {
-      notifications.show({ title: 'Could not update', message: err?.response?.data?.message || err?.message, color: 'red' });
+      feedback.fromError(err, { title: 'Could not update' });
     } finally {
       setSetupBusy(false);
     }
@@ -699,9 +701,9 @@ export default function OrgSettingsPage() {
       setSetupPartners(res.data?.partners || []);
       setPartnerName('');
       setPartnerRef('');
-      notifications.show({ title: 'Partner added', message: 'Documents from this partner can now be accepted.', color: 'green' });
+      feedback.success('Documents from this partner can now be accepted.', { title: 'Partner added' });
     } catch (err: any) {
-      notifications.show({ title: 'Could not add partner', message: err?.response?.data?.message || err?.message, color: 'red' });
+      feedback.fromError(err, { title: 'Could not add partner' });
     } finally {
       setSetupBusy(false);
     }
@@ -803,18 +805,10 @@ export default function OrgSettingsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      notifications.show({
-        title: selected ? 'Person saved for this step' : 'Person cleared for this step',
-        message: `${humanizeKey(stageAction)} · ${humanizeKey(workflowType)}`,
-        color: 'green',
-      });
+      feedback.success(`${humanizeKey(stageAction)} · ${humanizeKey(workflowType)}`, { title: selected ? 'Person saved for this step' : 'Person cleared for this step' });
       await loadWorkflowActorDefaults();
     } catch (err: any) {
-      notifications.show({
-        title: 'Save failed',
-        message: err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Could not save actor default.',
-        color: 'red',
-      });
+      feedback.fromError(err, { title: 'Save failed', fallback: 'Could not save actor default.' });
     } finally {
       setSavingActorAction(null);
     }
@@ -842,18 +836,10 @@ export default function OrgSettingsPage() {
         additionalUserIds: userIds,
         ...(renewAccess ? { renewAccess: true } : {}),
       }, { headers: { Authorization: 'Bearer ' + token } });
-      notifications.show({
-        title: renewAccess ? 'Approval access renewed' : userIds.length ? 'People saved for this step' : 'Extra people removed',
-        message: `${humanizeKey(stageAction)} · ${humanizeKey(workflowType)}`,
-        color: 'green',
-      });
+      feedback.success(`${humanizeKey(stageAction)} · ${humanizeKey(workflowType)}`, { title: renewAccess ? 'Approval access renewed' : userIds.length ? 'People saved for this step' : 'Extra people removed' });
       await loadWorkflowActorDefaults();
     } catch (err: any) {
-      notifications.show({
-        title: 'Save failed',
-        message: err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Could not save the people for this step.',
-        color: 'red',
-      });
+      feedback.fromError(err, { title: 'Save failed', fallback: 'Could not save the people for this step.' });
     } finally {
       setSavingActorAction(null);
     }
@@ -875,11 +861,7 @@ export default function OrgSettingsPage() {
       });
       await loadWorkflowActorDefaults();
     } catch (err: any) {
-      notifications.show({
-        title: 'Policy update failed',
-        message: err?.response?.data?.message || err?.message || 'Could not update fallback policy.',
-        color: 'red',
-      });
+      feedback.fromError(err, { title: 'Policy update failed', fallback: 'Could not update fallback policy.' });
     } finally {
       setSavingActorPolicy(false);
     }
@@ -908,10 +890,10 @@ export default function OrgSettingsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       setDeptName('');
-      notifications.show({ title: 'Department added', message: deptName.trim(), color: 'green' });
+      feedback.success(deptName.trim(), { title: 'Department added' });
       await loadDepartments(activeId);
     } catch (err: any) {
-      notifications.show({ title: 'Could not add department', message: err?.response?.data?.message || err?.message, color: 'red' });
+      feedback.fromError(err, { title: 'Could not add department' });
     } finally {
       setDeptBusy(false);
     }
@@ -926,9 +908,9 @@ export default function OrgSettingsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       setActorsView(res.data ?? null);
-      notifications.show({ title: 'Setup applied', message: 'Purchase-request steps now follow this setup.', color: 'green' });
+      feedback.success('Purchase-request steps now follow this setup.', { title: 'Setup applied' });
     } catch (err: any) {
-      notifications.show({ title: 'Could not apply setup', message: err?.response?.data?.message || err?.message, color: 'red' });
+      feedback.fromError(err, { title: 'Could not apply setup' });
     } finally {
       setApplyingPreset(null);
     }
@@ -945,10 +927,10 @@ export default function OrgSettingsPage() {
       await api.put(`/api/organizations/${encodeURIComponent(activeId)}${SETUP_PROFILE_PATH}`, { staffCardChange: rule }, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      notifications.show({ title: 'Saved', message: 'Applies the next time a role changes.', color: 'green' });
+      feedback.success('Applies the next time a role changes.', { title: 'Saved' });
     } catch (err: any) {
       setStaffCardChange(previous);
-      notifications.show({ title: 'Could not save', message: err?.response?.data?.message || err?.message, color: 'red' });
+      feedback.fromError(err, { title: 'Could not save' });
     } finally {
       setSavingStaffCardChange(false);
     }
@@ -962,14 +944,10 @@ export default function OrgSettingsPage() {
       await api.patch(`/api/organizations/${encodeURIComponent(activeId)}/members/${encodeURIComponent(userId)}`, { role }, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      notifications.show({
-        title: 'Role updated',
-        message: `${ROLE_LABELS[role] || humanizeKey(role)}. A new staff card is on its way to their app inbox.${['owner', 'admin'].includes(String(role).toLowerCase()) ? ' Once they accept it, they can open the organisation and its dashboard.' : ' Their jobs and approvals come to their personal inbox.'}`,
-        color: 'green',
-      });
+      feedback.success(`${ROLE_LABELS[role] || humanizeKey(role)}. A new staff card is on its way to their app inbox.${['owner', 'admin'].includes(String(role).toLowerCase()) ? ' Once they accept it, they can open the organisation and its dashboard.' : ' Their jobs and approvals come to their personal inbox.'}`, { title: 'Role updated' });
       await fetchMembers(activeId);
     } catch (err: any) {
-      notifications.show({ title: 'Could not change role', message: err?.response?.data?.message || err?.message, color: 'red' });
+      feedback.fromError(err, { title: 'Could not change role' });
     } finally {
       setChangingRole(null);
     }
@@ -986,18 +964,10 @@ export default function OrgSettingsPage() {
       });
       const offered = safeArray(res.data?.offered).length;
       const covered = safeArray(res.data?.alreadyCovered).length;
-      notifications.show({
-        title: 'Role cards',
-        message: offered > 0 ? `${offered} role card${offered === 1 ? '' : 's'} sent to team members' wallets.` : `${covered} ${covered === 1 ? 'person' : 'people'} already have theirs.`,
-        color: 'green',
-      });
+      feedback.success(offered > 0 ? `${offered} role card${offered === 1 ? '' : 's'} sent to team members' wallets.` : `${covered} ${covered === 1 ? 'person' : 'people'} already have theirs.`, { title: 'Role cards' });
       await loadWorkflowActorDefaults();
     } catch (err: any) {
-      notifications.show({
-        title: 'Could not offer credentials',
-        message: err?.response?.data?.message || err?.message || 'Offer failed.',
-        color: 'red',
-      });
+      feedback.fromError(err, { title: 'Could not offer credentials', fallback: 'Offer failed.' });
     } finally {
       setOfferingCredentials(false);
     }
@@ -1074,19 +1044,11 @@ export default function OrgSettingsPage() {
       );
 
       if (res.status >= 200 && res.status < 300) {
-        notifications.show({
-          title: 'Ways to pay saved',
-          message: 'Store payment rails updated.',
-          color: 'green',
-        });
+        feedback.success('Store payment rails updated.', { title: 'Ways to pay saved' });
         await loadStoreBasics(activeId);
       }
     } catch (err: any) {
-      notifications.show({
-        title: 'Save failed',
-        message: err?.response?.data?.message || err?.message || 'Could not update payment rails.',
-        color: 'red',
-      });
+      feedback.fromError(err, { title: 'Save failed', fallback: 'Could not update payment rails.' });
     } finally {
       setSavingRails(false);
     }
@@ -1112,7 +1074,7 @@ export default function OrgSettingsPage() {
       setActiveLabel(orgLabel);
       void loadActiveWorkflowTypes(orgId);
       void loadReadiness(orgId);
-      notifications.show({ title: 'Organisation switched', message: orgLabel, color: 'green' });
+      feedback.success(orgLabel, { title: 'Organisation switched' });
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Switch failed');
     } finally {
@@ -1156,7 +1118,7 @@ export default function OrgSettingsPage() {
         ]));
       } catch { /* storage quota */ }
 
-      notifications.show({ title: 'Organisation created', message: newOrgName.trim(), color: 'green' });
+      feedback.success(newOrgName.trim(), { title: 'Organisation created' });
       setActiveId(orgTenantId);
       setActiveLabel(newOrgName.trim());
       void loadActiveWorkflowTypes(orgTenantId);
@@ -1272,11 +1234,7 @@ export default function OrgSettingsPage() {
       }
       return res.data;
     } catch (err: any) {
-      notifications.show({
-        title: body.dryRun ? 'Could not prepare your setup' : 'Could not save',
-        message: err.response?.data?.message ?? err.message ?? 'Please try again.',
-        color: 'red',
-      });
+      feedback.error(err.response?.data?.message ?? err.message ?? 'Please try again.', { title: body.dryRun ? 'Could not prepare your setup' : 'Could not save' });
       return null;
     } finally {
       setActivating(false);
@@ -1375,7 +1333,7 @@ export default function OrgSettingsPage() {
   /** Save the answers. The server works out which kinds of request follow; nothing is named or switched on. */
   const saveOrgKinds = async (profile?: OrgProfile, partial?: Record<string, unknown>): Promise<boolean> => {
     if (!activeId) {
-      notifications.show({ title: 'No organization', message: 'Switch to an organization first.', color: 'red' });
+      feedback.error('Switch to an organization first.', { title: 'No organization' });
       return false;
     }
 
@@ -1396,11 +1354,7 @@ export default function OrgSettingsPage() {
       await loadReadiness(activeId);
       return true;
     } catch (err: any) {
-      notifications.show({
-        title: 'Could not save',
-        message: err.response?.data?.message ?? err.message ?? 'Please try again.',
-        color: 'red',
-      });
+      feedback.error(err.response?.data?.message ?? err.message ?? 'Please try again.', { title: 'Could not save' });
       return false;
     } finally {
       setActivating(false);
@@ -1604,13 +1558,15 @@ export default function OrgSettingsPage() {
             {section === null && orgDone !== null && (
               <Paper p="md" radius="md" withBorder>
                 <Stack gap="sm" align="center">
-                  <ThemeIcon color="teal" variant="light" radius="xl" size={44}><IconCheck size={22} /></ThemeIcon>
+                  {orgDone === 'all'
+                    ? <LottiePlayer kind="org_setup" size={120} />
+                    : <ThemeIcon color="teal" variant="light" radius="xl" size={44}><IconCheck size={22} /></ThemeIcon>}
                   <Text fw={700} ta="center">
                     {orgDone === 'all' ? `${activeLabel || 'Your organisation'} is set up` : `${STEP_SAVED_LABEL[orgDone]} saved`}
                   </Text>
                   {orgDone === 'all' && (
                     <Text size="xs" c="dimmed" ta="center">
-                      Open now: {['Purchase requests', 'Supplier bills', ...orgKinds.map((kind) => OPEN_FOR_KIND[kind]).filter(Boolean), ...orgModules.map((module) => ORG_MODULE_OPTIONS.find((option) => option.id === module)?.opens || '').filter(Boolean)].join(', ')}.
+                      What you can do now: {['Purchase requests', 'Supplier bills', ...orgKinds.map((kind) => OPEN_FOR_KIND[kind]).filter(Boolean), ...orgModules.map((module) => ORG_MODULE_OPTIONS.find((option) => option.id === module)?.opens || '').filter(Boolean)].join(', ')}.
                       {orgKinds.includes('field') ? ' You pick who goes out on the first job.' : ''}
                     </Text>
                   )}

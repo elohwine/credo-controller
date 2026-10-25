@@ -1,7 +1,7 @@
+import { feedback } from '@/lib/feedback';
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 import { Alert, Badge, Button, Container, Group, Paper, Stack, Text, TextInput, Title } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
 
 import Layout from '@/components/Layout'
 import { useRequireOrgContext } from '@/lib/portalContext'
@@ -70,9 +70,9 @@ export default function TrustedPartnersPage() {
       setPartners(res.data.partners || [])
       setName('')
       setReference('')
-      notifications.show({ title: 'Partner added', message: 'Documents from this partner can now be accepted.', color: 'green' })
+      feedback.success('Documents from this partner can now be accepted.', { title: 'Partner added' })
     } catch (err: any) {
-      notifications.show({ title: 'Could not add partner', message: err?.response?.data?.message || err?.message, color: 'red' })
+      feedback.fromError(err, { title: 'Could not add partner' })
     } finally {
       setSaving(false)
     }
@@ -89,9 +89,9 @@ export default function TrustedPartnersPage() {
         { headers: { Authorization: `Bearer ${auth}` } },
       )
       setPartners(res.data.partners || [])
-      notifications.show({ title: 'This organization is trusted', message: 'Documents you issue here will be accepted.', color: 'green' })
+      feedback.success('Documents you issue here will be accepted.', { title: 'This organization is trusted' })
     } catch (err: any) {
-      notifications.show({ title: 'Could not update', message: err?.response?.data?.message || err?.message, color: 'red' })
+      feedback.fromError(err, { title: 'Could not update' })
     } finally {
       setTrustingOwn(false)
     }
@@ -107,7 +107,7 @@ export default function TrustedPartnersPage() {
       )
       setPartners(res.data.partners || [])
     } catch (err: any) {
-      notifications.show({ title: 'Could not remove partner', message: err?.response?.data?.message || err?.message, color: 'red' })
+      feedback.fromError(err, { title: 'Could not remove partner' })
     }
   }
 

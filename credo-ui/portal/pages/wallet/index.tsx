@@ -1,3 +1,4 @@
+import { feedback } from '@/lib/feedback';
 import React, { useState, useContext, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '@/components/Layout';
@@ -25,7 +26,6 @@ import {
     TextInput,
     Tabs,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import {
     IconWallet,
     IconReceipt,
@@ -449,10 +449,10 @@ export default function WalletPage() {
             await axios.post(`${holderBackend}/api/wallet/credentials/accept-offer`, { offerUri: offer.offerUri }, {
                 headers: { Authorization: `Bearer ${token}` },
             });
-            notifications.show({ title: 'Added to records', message: `${formatCredentialType(offer.credentialType)} is now kept by the organisation.`, color: 'teal' });
+            feedback.success(`${formatCredentialType(offer.credentialType)} is now kept by the organisation.`, { title: 'Added to records' });
             await fetchOrganisationRecords();
         } catch (err: any) {
-            notifications.show({ title: 'Could not add it', message: err?.response?.data?.message || err?.message, color: 'red' });
+            feedback.fromError(err, { title: 'Could not add it' });
         } finally {
             setAddingOfferId(null);
         }
@@ -552,11 +552,7 @@ export default function WalletPage() {
         clearCurrentSession();
         clearStoredOrganizationContext();
         
-        notifications.show({
-            title: 'Logged out',
-            message: 'You have been signed out.',
-            color: 'blue',
-        });
+        feedback.info('You have been signed out.', { title: 'Logged out' });
         router.replace('/auth/login');
     };
 
@@ -586,9 +582,9 @@ export default function WalletPage() {
             setCredentials((prev) => prev.filter((item) => item.id !== credential.id));
             setDetailsModalOpen(false);
             setSelectedCredential(null);
-            notifications.show({ title: 'Removed', message: 'The card is no longer on this device.', color: 'gray' });
+            feedback.info('The card is no longer on this device.', { title: 'Removed' });
         } catch (err: any) {
-            notifications.show({ title: 'Could not remove', message: err?.response?.data?.message || err?.message, color: 'red' });
+            feedback.fromError(err, { title: 'Could not remove' });
         } finally {
             setRemovingCredential(false);
         }
@@ -699,12 +695,12 @@ export default function WalletPage() {
 
         const walletToken = getPersonalWalletToken();
         if (!walletToken) {
-            notifications.show({ title: 'Session required', message: 'Please sign in to your wallet before continuing.', color: 'red' });
+            feedback.error('Please sign in to your wallet before continuing.', { title: 'Session required' });
             return;
         }
 
         if (!approvalConsentChecked) {
-            notifications.show({ title: 'Confirmation needed', message: 'Tick the box to agree to share the selected details.', color: 'yellow' });
+            feedback.warn('Tick the box to agree to share the selected details.', { title: 'Confirmation needed' });
             return;
         }
 
@@ -713,7 +709,7 @@ export default function WalletPage() {
             .filter((id): id is string => typeof id === 'string' && id.length > 0);
 
         if (credentialsToSubmit.length === 0) {
-            notifications.show({ title: 'No credential selected', message: 'No wallet credential matches the request.', color: 'red' });
+            feedback.error('No wallet credential matches the request.', { title: 'No credential selected' });
             return;
         }
 
@@ -810,15 +806,11 @@ export default function WalletPage() {
                 );
             }
 
-            notifications.show({ title: 'Proof shared', message: 'The selected details were shared and this step has continued.', color: 'green' });
+            feedback.success('The selected details were shared and this step has continued.', { title: 'Proof shared' });
             router.push(returnTo || '/finance');
         } catch (err: any) {
             console.error('Embedded approval failed:', err);
-            notifications.show({
-                title: 'Approval failed',
-                message: err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Unable to continue the approval flow.',
-                color: 'red',
-            });
+            feedback.fromError(err, { title: 'Approval failed', fallback: 'Unable to continue the approval flow.' });
         } finally {
             setApprovalSubmitting(false);
         }

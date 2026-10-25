@@ -1,3 +1,4 @@
+import { feedback } from '@/lib/feedback';
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
@@ -205,7 +206,7 @@ export default function FinanceModulesPage() {
           ? error.response?.data?.message || error.message
           : error instanceof Error ? error.message : 'Could not open client billing'
         setLoadError(message)
-        notifications.show({ color: 'red', message })
+        feedback.error(message)
       } finally {
         if (assertContext.isCurrent() && `${window.location.pathname}${window.location.search}` === path) {
           setLoading(false)
@@ -447,12 +448,9 @@ export default function FinanceModulesPage() {
       await load()
     } catch (error) {
       if (!assertContext.isCurrent()) return
-      notifications.show({
-        color: 'red',
-        message: axios.isAxiosError(error)
+      feedback.error(axios.isAxiosError(error)
           ? error.response?.data?.message || error.message
-          : error instanceof Error ? error.message : 'Could not send the client invoice',
-      })
+          : error instanceof Error ? error.message : 'Could not send the client invoice')
     } finally {
       setBillingBusy(false)
     }
@@ -473,12 +471,9 @@ export default function FinanceModulesPage() {
       return saved.data as { changed: boolean; needsRenewal: boolean }
     } catch (error) {
       if (!assertContext.isCurrent()) return undefined
-      notifications.show({
-        color: 'red',
-        message: axios.isAxiosError(error)
+      feedback.error(axios.isAxiosError(error)
           ? error.response?.data?.message || error.message
-          : error instanceof Error ? error.message : 'Could not save the client details',
-      })
+          : error instanceof Error ? error.message : 'Could not save the client details')
       return undefined
     } finally {
       setBillingBusy(false)
@@ -1159,7 +1154,7 @@ export default function FinanceModulesPage() {
                     try {
                       if (getPortalTask()) registerLinkedTaskPath(localStorage, router.asPath, path, [path])
                     } catch (error) {
-                      notifications.show({ color: 'red', message: error instanceof Error ? error.message : 'Could not open linked job' })
+                      feedback.error(error instanceof Error ? error.message : 'Could not open linked job')
                       return
                     }
                     setBillingItem(null)

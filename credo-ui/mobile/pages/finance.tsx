@@ -1,3 +1,4 @@
+import { feedback } from '@/lib/feedback';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Stack,
@@ -712,7 +713,7 @@ function JobEvidenceTabs({
                   await api.post(`/workflows/runs/${encodeURIComponent(run.id)}/assignment-record/replace`, {})
                   await onRefresh()
                 } catch (err: any) {
-                  notifications.show({ color: 'red', message: err.response?.data?.message || 'Could not replace the assignment record' })
+                  feedback.fromError(err, { fallback: 'Could not replace the assignment record' })
                 } finally { setReplacing(false) }
               }}>Replace legacy assignment record</Button>
             )}
@@ -1969,11 +1970,7 @@ export default function FinancePage() {
     (link: PaymentLink) => {
       const routeToken = getLinkRouteToken(link)
       if (!routeToken) {
-        notifications.show({
-          title: 'Payment link unavailable',
-          message: 'This payment link is missing a checkout reference. Refresh and try again.',
-          color: 'red',
-        })
+        feedback.error('This payment link is missing a checkout reference. Refresh and try again.', { title: 'Payment link unavailable' })
         return
       }
 
@@ -2004,11 +2001,7 @@ export default function FinancePage() {
       setSelectedPlanDetails(res.data)
       setSelectedPlanId(planId)
     } catch (err: any) {
-      notifications.show({
-        title: 'Failed to load plan',
-        message: err.response?.data?.error || err.message,
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Could not load plan' })
     } finally {
       setLoadingPlanDetails(false)
     }
@@ -2336,11 +2329,7 @@ export default function FinancePage() {
         })
       } catch (err: any) {
         if (fieldTaskRunId) {
-          notifications.show({
-            title: 'Could not load the job',
-            message: err.response?.data?.error || err.response?.data?.message || err.message,
-            color: 'red',
-          })
+          feedback.fromError(err, { title: 'Could not load the job' })
         }
         // Keep the jobs already shown; a failed refresh should not empty the list.
         throw err
@@ -2454,11 +2443,7 @@ export default function FinancePage() {
       })
       setSupplierStatement(res.data)
     } catch (err: any) {
-      notifications.show({
-        title: 'Error loading statement',
-        message: err.response?.data?.error || err.message,
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Could not load statement' })
     } finally {
       setStatementLoading(false)
     }
@@ -2497,11 +2482,7 @@ export default function FinancePage() {
         'resolve_dispute',
       ])
       if (!supported.has(transition)) {
-        notifications.show({
-          title: 'Action not yet wired',
-          message: `Unsupported transition: ${transition}`,
-          color: 'yellow',
-        })
+        feedback.warn(`Unsupported transition: ${transition}`, { title: 'Action not yet wired' })
         return
       }
 
@@ -2533,11 +2514,7 @@ export default function FinancePage() {
           await router.push(`/present?${params.toString()}`)
           return
         } catch (err: any) {
-          notifications.show({
-            title: 'Proof request failed',
-            message: err.response?.data?.error || err.message,
-            color: 'red',
-          })
+          feedback.fromError(err, { title: 'Proof request not sent' })
           return
         }
       }
@@ -2555,11 +2532,7 @@ export default function FinancePage() {
           },
         )
 
-        notifications.show({
-          title: 'Workflow advanced',
-          message: `Moved stage using ${transition}.`,
-          color: 'teal',
-        })
+        feedback.success(`Moved stage using ${transition}.`, { title: 'Workflow advanced' })
 
         fetchApWorkflowActions()
         if (selectedApSupplier?.id) {
@@ -2568,11 +2541,7 @@ export default function FinancePage() {
           fetchApSuppliers()
         }
       } catch (err: any) {
-        notifications.show({
-          title: 'Transition failed',
-          message: err.response?.data?.error || err.message,
-          color: 'red',
-        })
+        feedback.fromError(err, { title: 'Step not moved' })
       }
     },
     [
@@ -2589,11 +2558,7 @@ export default function FinancePage() {
     async (transactionId: string, options?: { planId?: string | null; orgTenantId?: string | null }) => {
       const token = getWalletToken() || getPreferredToken()
       if (!token) {
-        notifications.show({
-          title: 'Organization session required',
-          message: 'Switch into the debtor organization context to launch this wallet proof.',
-          color: 'yellow',
-        })
+        feedback.warn('Switch into the debtor organization context to launch this wallet proof.', { title: 'Organization session required' })
         return
       }
 
@@ -2626,11 +2591,7 @@ export default function FinancePage() {
 
         await router.push(`/present?${params.toString()}`)
       } catch (err: any) {
-        notifications.show({
-          title: 'Proof request failed',
-          message: err.response?.data?.error || err.response?.data?.message || err.message,
-          color: 'red',
-        })
+        feedback.fromError(err, { title: 'Proof request not sent' })
       } finally {
         setCreatingArProofRequest(false)
       }
@@ -2709,11 +2670,7 @@ export default function FinancePage() {
         const escalationHint = decision.suggestedEscalationRole
           ? ` Escalate to ${decision.suggestedEscalationRole}.`
           : ''
-        notifications.show({
-          title: 'Policy Check Failed',
-          message: `${decision.reason || 'Action blocked by org policy.'}${escalationHint}`,
-          color: 'red',
-        })
+        feedback.error(`${decision.reason || 'Action blocked by org policy.'}${escalationHint}`, { title: 'Policy Check Failed' })
         return false
       }
 
@@ -2744,18 +2701,10 @@ export default function FinancePage() {
           beginTaskContext({ orgId: normalizedOrgId, target: window.location.pathname + window.location.search })
         }
 
-        notifications.show({
-          title: opened.taskPass ? `Working on a task for ${opened.orgName}` : 'Organization context active',
-          message: opened.taskPass ? 'Open for this item only.' : 'Switched to the organization.',
-          color: 'blue',
-        })
+        feedback.info(opened.taskPass ? 'Open for this item only.' : 'Switched to the organization.', { title: opened.taskPass ? `Working on a task for ${opened.orgName}` : 'Organization context active' })
         return true
       } catch (error: any) {
-        notifications.show({
-          title: 'Could not open this task',
-          message: error?.response?.data?.message || (error instanceof Error ? error.message : 'Please try again.'),
-          color: 'red',
-        })
+        feedback.error(error?.response?.data?.message || (error instanceof Error ? error.message : 'Please try again.'), { title: 'Could not open this task' })
         return false
       } finally {
         setContextSwitching(false)
@@ -2797,11 +2746,7 @@ export default function FinancePage() {
         if (orgTenantId) {
           const switched = await ensureOrgContextForRequisition(orgTenantId, 'requisition', [targetId])
           if (!switched) {
-            notifications.show({
-              title: 'Context switch required',
-              message: 'Please switch to the correct organization context to action this requisition.',
-              color: 'yellow',
-            })
+            feedback.warn('Please switch to the correct organization context to action this requisition.', { title: 'Context switch required' })
           }
         }
 
@@ -2831,11 +2776,7 @@ export default function FinancePage() {
             .catch(() => setRequisitionStageActors([]))
         }
       } catch (err: any) {
-        notifications.show({
-          title: 'Unable to load requisition details',
-          message: err.response?.data?.message ?? err.message,
-          color: 'red',
-        })
+        feedback.error(err.response?.data?.message ?? err.message, { title: 'Unable to load requisition details' })
         setSelectedRequisition(null)
       }
     },
@@ -2850,11 +2791,7 @@ export default function FinancePage() {
       if (orgTenantId) {
         const switched = await ensureOrgContextForRequisition(orgTenantId, 'job', [normalizedRunId])
         if (!switched) {
-          notifications.show({
-            title: 'Context switch required',
-            message: 'Switch to that organization to open this job.',
-            color: 'yellow',
-          })
+          feedback.warn('Switch to that organization to open this job.', { title: 'Context switch required' })
         }
       }
 
@@ -2903,11 +2840,7 @@ export default function FinancePage() {
         }
       } catch (err: any) {
         setFieldDeepLinkFailed(normalizedRunId)
-        notifications.show({
-          title: 'Could not open the job',
-          message: friendlyRequestError(err, 'Check your connection and try again from the inbox.'),
-          color: 'red',
-        })
+        feedback.error(friendlyRequestError(err, 'Check your connection and try again from the inbox.'), { title: 'Could not open the job' })
       }
     },
     [ensureOrgContextForRequisition, fieldRuns, queryClient, sessionScope],
@@ -3000,11 +2933,7 @@ export default function FinancePage() {
       if (orgTenantId) {
         const switched = await ensureOrgContextForRequisition(orgTenantId, 'requisition', [requisitionIdFromQuery, requestId])
         if (!switched && !cancelled) {
-          notifications.show({
-            title: 'Context switch required',
-            message: 'Sign in to your wallet and organization profile to action this requisition.',
-            color: 'yellow',
-          })
+          feedback.warn('Sign in to your wallet and organization profile to action this requisition.', { title: 'Context switch required' })
         }
       }
 
@@ -3049,7 +2978,7 @@ export default function FinancePage() {
         setChainRequest(res.data)
       })
       .catch((error) => {
-        notifications.show({ title: 'Could not open related work', message: error.response?.data?.error || error.response?.data?.message || error.message, color: 'red' })
+        feedback.fromError(error, { title: 'Could not open related work' })
       })
   }, [])
 
@@ -3057,23 +2986,19 @@ export default function FinancePage() {
     if (!chainRequest?.id) return
     const reason = chainDecisionReason.trim()
     if (decision === 'reject' && !reason) {
-      notifications.show({ title: 'Reason needed', message: 'Say why you are declining this request.', color: 'yellow' })
+      feedback.warn('Say why you are declining this request.', { title: 'Reason needed' })
       return
     }
     const token = getPreferredToken()
     if (!token || getContextMode() !== 'org') {
-      notifications.show({ title: 'Organization context required', message: 'Open this request in its organization to decide it.', color: 'yellow' })
+      feedback.warn('Open this request in its organization to decide it.', { title: 'Organization context required' })
       return
     }
     const permissionKey = decision === 'approve' ? 'canApprove' : 'canReject'
     if (!chainRequest.decision?.[permissionKey]) {
-      notifications.show({
-        title: 'Request is not assigned to you',
-        message: chainRequest.decision?.actorLabel
+      feedback.warn(chainRequest.decision?.actorLabel
           ? `This step is assigned to ${chainRequest.decision.actorLabel}.`
-          : 'Your current organization role cannot decide this request.',
-        color: 'yellow',
-      })
+          : 'Your current organization role cannot decide this request.', { title: 'Request is not assigned to you' })
       return
     }
 
@@ -3104,11 +3029,7 @@ export default function FinancePage() {
         color: decision === 'approve' ? 'green' : 'orange',
       })
     } catch (error: any) {
-      notifications.show({
-        title: 'Could not update request',
-        message: error.response?.data?.message || error.response?.data?.error || error.message || 'Try again.',
-        color: 'red',
-      })
+      feedback.fromError(error, { title: 'Could not update request', fallback: 'Try again.' })
     } finally {
       setChainDecisionLoading(false)
     }
@@ -3258,7 +3179,7 @@ export default function FinancePage() {
           setBillingItem({ link })
         } catch (err: any) {
           if (!assertContext.isCurrent()) return
-          notifications.show({ color: 'red', message: err.response?.data?.message || err.message || 'Could not open client billing' })
+          feedback.fromError(err, { fallback: 'Could not open client billing' })
         }
       }
 
@@ -3655,11 +3576,7 @@ export default function FinancePage() {
 
   const handleCreatePlan = async () => {
     if (!planForm.description.trim() || !planForm.totalAmount || !planForm.payerName.trim()) {
-      notifications.show({
-        title: 'Error',
-        message: 'Description, Total Amount, and Customer Name are required.',
-        color: 'red',
-      })
+      feedback.error('Description, Total Amount, and Customer Name are required.', { title: 'Something went wrong' })
       return
     }
 
@@ -3726,9 +3643,9 @@ export default function FinancePage() {
     try {
       await api.delete(`/api/payment-links/${id}`)
       setLinks((prev) => prev.map((l) => (l.id === id ? { ...l, status: 'cancelled' as const } : l)))
-      notifications.show({ title: 'Cancelled', message: 'Payment link cancelled', color: 'gray' })
+      feedback.info('Payment link cancelled', { title: 'Cancelled' })
     } catch (err: any) {
-      notifications.show({ title: 'Error', message: err.response?.data?.message ?? err.message, color: 'red' })
+      feedback.error(err.response?.data?.message ?? err.message, { title: 'Something went wrong' })
     }
   }
 
@@ -3739,11 +3656,7 @@ export default function FinancePage() {
 
     const invoiceAmount = Number.parseFloat(invoiceForm.amount)
     if (!Number.isFinite(invoiceAmount) || invoiceAmount <= 0) {
-      notifications.show({
-        title: 'Invalid Amount',
-        message: 'Provide a valid invoice amount before submitting.',
-        color: 'red',
-      })
+      feedback.error('Provide a valid invoice amount before submitting.', { title: 'Invalid Amount' })
       return
     }
 
@@ -3756,11 +3669,7 @@ export default function FinancePage() {
     if (!canIssueInvoice) return
 
     if (!invoiceForm.studentName.trim() || !invoiceForm.studentId.trim() || !invoiceForm.parentPhone.trim()) {
-      notifications.show({
-        title: 'Missing details',
-        message: 'Add the student name, student ID and the parent phone. The pay link goes to that phone.',
-        color: 'orange',
-      })
+      feedback.warn('Add the student name, student ID and the parent phone. The pay link goes to that phone.', { title: 'Missing details' })
       return
     }
 
@@ -3830,11 +3739,7 @@ export default function FinancePage() {
       setSelectedInvoiceContact(null)
       await fetchFeeRuns()
     } catch (err: any) {
-      notifications.show({
-        title: 'Fee not saved',
-        message: err.response?.data?.error ?? err.response?.data?.message ?? err.message,
-        color: 'red',
-      })
+      feedback.error(err.response?.data?.error ?? err.response?.data?.message ?? err.message, { title: 'Fee not saved' })
     } finally {
       setCreatingInvoice(false)
     }
@@ -3898,11 +3803,7 @@ export default function FinancePage() {
       })
       fetchRequisitions()
     } catch (err: any) {
-      notifications.show({
-        title: 'Could not send this request',
-        message: err.response?.data?.message ?? err.message,
-        color: 'red',
-      })
+      feedback.error(err.response?.data?.message ?? err.message, { title: 'Could not send this request' })
     } finally {
       setCreatingRequisition(false)
     }
@@ -3988,11 +3889,7 @@ export default function FinancePage() {
       // Refresh FEPT runs after a short delay to allow background event processing
       setTimeout(fetchFieldRuns, 1000)
     } catch (err: any) {
-      notifications.show({
-        title: 'Could not create the job',
-        message: err.response?.data?.message ?? err.message,
-        color: 'red',
-      })
+      feedback.error(err.response?.data?.message ?? err.message, { title: 'Could not create the job' })
     } finally {
       setCreatingFieldRun(false)
     }
@@ -4004,11 +3901,7 @@ export default function FinancePage() {
     if (!normalizedRunId) return
     const token = getPreferredToken()
     if (!token) {
-      notifications.show({
-        title: 'Switch to your organization',
-        message: 'This step is done as the organization.',
-        color: 'red',
-      })
+      feedback.error('This step is done as the organization.', { title: 'Switch to your organization' })
       return
     }
     const allowed = await enforceOrgActionPolicy({
@@ -4034,11 +3927,7 @@ export default function FinancePage() {
         purposeLine: String(data.purposeLine || ''),
       })
     } catch (err: any) {
-      notifications.show({
-        title: 'Not ready',
-        message: err.response?.data?.error || err.response?.data?.message || err.message,
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Not ready' })
       setFieldProofStage(null)
       setFieldProofRunId(null)
     } finally {
@@ -4048,11 +3937,7 @@ export default function FinancePage() {
 
   const openFieldProofInApp = () => {
     if (!fieldProofStage || !fieldProofRunId || !fieldProofRequest?.presentationRequestUrl) {
-      notifications.show({
-        title: 'Not ready',
-        message: 'Close this and open the step again.',
-        color: 'red',
-      })
+      feedback.error('Close this and open the step again.', { title: 'Not ready' })
       return
     }
     const params = new URLSearchParams({
@@ -4074,11 +3959,7 @@ export default function FinancePage() {
     if (!normalizedRunId) return
     const token = getPreferredToken()
     if (!token) {
-      notifications.show({
-        title: 'Organization profile needed',
-        message: 'Switch to your organization profile first.',
-        color: 'red',
-      })
+      feedback.error('Switch to your organization profile first.', { title: 'Organization profile needed' })
       return
     }
     setFeptActionLoading(true)
@@ -4089,7 +3970,7 @@ export default function FinancePage() {
         { headers: { Authorization: `Bearer ${token}` } },
       )
       if (res.data?.error) throw new Error(String(res.data.error))
-      notifications.show({ title: 'Job resumed', message: 'The job carried on from where it stopped.', color: 'teal' })
+      feedback.success('The job carried on from where it stopped.', { title: 'Job resumed' })
       await fetchFieldRuns()
       try {
         const refreshed = await api.get(`/workflows/runs/${encodeURIComponent(normalizedRunId)}`, {
@@ -4100,11 +3981,7 @@ export default function FinancePage() {
         // Keep existing drawer state if refresh fails.
       }
     } catch (err: any) {
-      notifications.show({
-        title: 'Could not resume this job',
-        message: String(err?.response?.data?.error || err?.message || 'Please try again.'),
-        color: 'red',
-      })
+      feedback.error(String(err?.response?.data?.error || err?.message || 'Please try again.'), { title: 'Could not resume this job' })
     } finally {
       setFeptActionLoading(false)
     }
@@ -4116,11 +3993,7 @@ export default function FinancePage() {
 
     const token = getPreferredToken()
     if (!token) {
-      notifications.show({
-        title: 'Organization profile needed',
-        message: 'Switch to your organization profile first.',
-        color: 'red',
-      })
+      feedback.error('Switch to your organization profile first.', { title: 'Organization profile needed' })
       return
     }
 
@@ -4138,7 +4011,7 @@ export default function FinancePage() {
       )
       assertFieldStepSucceeded(startRes.data)
 
-      notifications.show({ title: 'Job Started', message: 'Field run moved to in-progress.', color: 'green' })
+      feedback.success('Field run moved to in-progress.', { title: 'Job Started' })
       await fetchFieldRuns()
 
       try {
@@ -4150,11 +4023,7 @@ export default function FinancePage() {
         // Non-fatal if refreshed run fetch is unavailable.
       }
     } catch (err: any) {
-      notifications.show({
-        title: 'Start Job Failed',
-        message: err.response?.data?.error || err.response?.data?.message || err.message,
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Start Job Failed' })
     } finally {
       setFeptActionLoading(false)
     }
@@ -4200,11 +4069,7 @@ export default function FinancePage() {
     if (!normalizedRunId) return
     const token = getPreferredToken()
     if (!token) {
-      notifications.show({
-        title: 'Organization profile needed',
-        message: 'Switch to your organization profile first.',
-        color: 'red',
-      })
+      feedback.error('Switch to your organization profile first.', { title: 'Organization profile needed' })
       return
     }
     if (feptActionLoading || fieldStepSavedRunId) return
@@ -4224,21 +4089,12 @@ export default function FinancePage() {
       if (String(res?.data?.status || '').toLowerCase() === 'failed') {
         throw new Error(String(res?.data?.error || 'Could not save the receipts step'))
       }
-      notifications.show({
-        title: 'Noted',
-        message:
-          source === 'purchase'
+      feedback.success(source === 'purchase'
             ? 'Purchase receipts added. Take the after photos when the work is done.'
-            : 'No materials bought. Take the after photos when the work is done.',
-        color: 'green',
-      })
+            : 'No materials bought. Take the after photos when the work is done.', { title: 'Noted' })
       await openSavedFieldStep(normalizedRunId)
     } catch (err: any) {
-      notifications.show({
-        title: 'Could not carry on',
-        message: err.response?.data?.error || err.response?.data?.message || err.message,
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Could not carry on' })
     } finally {
       setFeptActionLoading(false)
     }
@@ -4258,11 +4114,7 @@ export default function FinancePage() {
       const escalationHint = runPolicyCheck.suggestedEscalationRole
         ? ` Escalate to ${runPolicyCheck.suggestedEscalationRole}.`
         : ''
-      notifications.show({
-        title: 'Policy Check Failed',
-        message: `${runPolicyCheck.reason || 'Capture evidence is blocked by org policy.'}${escalationHint}`,
-        color: 'red',
-      })
+      feedback.error(`${runPolicyCheck.reason || 'Capture evidence is blocked by org policy.'}${escalationHint}`, { title: 'Policy Check Failed' })
       return
     }
 
@@ -4294,11 +4146,7 @@ export default function FinancePage() {
       const shot = await captureHashedPhoto()
       setCpHoldPhoto({ photoUri: shot.photoUri, evidenceHash: shot.evidenceHash })
     } catch (err: any) {
-      notifications.show({
-        title: 'No photo taken',
-        message: err?.message || 'The camera did not return a photo.',
-        color: 'orange',
-      })
+      feedback.warn(err?.message || 'The camera did not return a photo.', { title: 'No photo taken' })
     } finally {
       setCpPhotoBusy(false)
     }
@@ -4310,20 +4158,12 @@ export default function FinancePage() {
     const note = holdResolveNote.trim()
     if (!normalizedRunId || !holdId) return
     if (!note) {
-      notifications.show({
-        title: 'Say what was done',
-        message: 'Write a short note on how the issue was sorted before you mark it resolved.',
-        color: 'orange',
-      })
+      feedback.warn('Write a short note on how the issue was sorted before you mark it resolved.', { title: 'Say what was done' })
       return
     }
     const token = getPreferredToken()
     if (!token) {
-      notifications.show({
-        title: 'Organization profile needed',
-        message: 'Switch to your organization profile first.',
-        color: 'red',
-      })
+      feedback.error('Switch to your organization profile first.', { title: 'Organization profile needed' })
       return
     }
     setFeptActionLoading(true)
@@ -4338,11 +4178,7 @@ export default function FinancePage() {
           },
         },
       )
-      notifications.show({
-        title: 'Issue marked resolved',
-        message: 'The worker has been told to redo the safety check.',
-        color: 'green',
-      })
+      feedback.success('The worker has been told to redo the safety check.', { title: 'Issue marked resolved' })
       setHoldResolveNote('')
       await fetchFieldRuns()
       const refreshed = await api.get(`/workflows/runs/${encodeURIComponent(normalizedRunId)}`, {
@@ -4350,11 +4186,7 @@ export default function FinancePage() {
       })
       setSelectedFieldRun(refreshed.data)
     } catch (err: any) {
-      notifications.show({
-        title: 'Could not mark it resolved',
-        message: err.response?.data?.error || err.response?.data?.message || err.message,
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Could not mark it resolved' })
     } finally {
       setFeptActionLoading(false)
     }
@@ -4369,11 +4201,7 @@ export default function FinancePage() {
 
     const token = getPreferredToken()
     if (!token) {
-      notifications.show({
-        title: 'Organization profile needed',
-        message: 'Switch to your organization profile first.',
-        color: 'red',
-      })
+      feedback.error('Switch to your organization profile first.', { title: 'Organization profile needed' })
       return
     }
 
@@ -4392,19 +4220,11 @@ export default function FinancePage() {
           .map((item) => item.trim())
           .filter(Boolean)
         if (!cpDecision) {
-          notifications.show({
-            title: 'Choose one',
-            message: 'Say whether it is safe to start or not safe (hold the job).',
-            color: 'orange',
-          })
+          feedback.warn('Say whether it is safe to start or not safe (hold the job).', { title: 'Choose one' })
           return
         }
         if (cpDecision === 'not_safe' && (!cpHoldReason.trim() || !cpHoldPhoto)) {
-          notifications.show({
-            title: 'Reason and photo needed',
-            message: 'Say why it is not safe and take a photo of it before you put the job on hold.',
-            color: 'orange',
-          })
+          feedback.warn('Say why it is not safe and take a photo of it before you put the job on hold.', { title: 'Reason and photo needed' })
           return
         }
         payload = {
@@ -4435,11 +4255,7 @@ export default function FinancePage() {
           })
         }
         if (!siteCode && !gps) {
-          notifications.show({
-            title: 'Location Needed',
-            message: 'Allow location access or enter the site code to prove arrival.',
-            color: 'orange',
-          })
+          feedback.warn('Allow location access or enter the site code to prove arrival.', { title: 'Location Needed' })
           return
         }
         payload = { arrival: siteCode ? { qrToken: siteCode } : { gps } }
@@ -4449,21 +4265,17 @@ export default function FinancePage() {
         headers: { Authorization: `Bearer ${token}` },
       })
       assertFieldStepSucceeded(data)
-      notifications.show({ title: 'Step saved', message: 'This step is now on the job.', color: 'green' })
+      feedback.success('This step is now on the job.', { title: 'Step saved' })
       await openSavedFieldStep(normalizedRunId)
     } catch (err: any) {
       const message = String(err.response?.data?.error || err.response?.data?.message || err.message || '')
       // A stop-work call is saved as a hold, so the server answers with the hold message. Not an error.
       const heldOnPurpose = reason === 'await_risk_assessment' && cpDecision === 'not_safe' && /on hold/i.test(message)
       if (heldOnPurpose) {
-        notifications.show({
-          title: SAFETY_HOLD_COPY.savedTitle,
-          message: cpFixBy === 'worker' ? SAFETY_HOLD_COPY.savedMessageWorker : SAFETY_HOLD_COPY.savedMessage,
-          color: 'orange',
-        })
+        feedback.warn(cpFixBy === 'worker' ? SAFETY_HOLD_COPY.savedMessageWorker : SAFETY_HOLD_COPY.savedMessage, { title: SAFETY_HOLD_COPY.savedTitle })
         await openSavedFieldStep(normalizedRunId)
       } else {
-        notifications.show({ title: 'Could not save this step', message: friendlyRequestError(err), color: 'red' })
+        feedback.error(friendlyRequestError(err), { title: 'Could not save this step' })
       }
     } finally {
       setFeptActionLoading(false)
@@ -4474,21 +4286,13 @@ export default function FinancePage() {
     if (!runId) return
     const resolved = resolveAssigneeSelection(assigneeId || fieldReassignAssigneeId, ownerUserId)
     if (!resolved.assigneeUserId && !resolved.assigneeId) {
-      notifications.show({
-        title: 'Assignee Required',
-        message: 'Choose an available member. The owner is not the default.',
-        color: 'red',
-      })
+      feedback.error('Choose an available member. The owner is not the default.', { title: 'Assignee Required' })
       return
     }
 
     const token = getPreferredToken()
     if (!token) {
-      notifications.show({
-        title: 'Organization profile needed',
-        message: 'Switch to your organization profile first.',
-        color: 'red',
-      })
+      feedback.error('Switch to your organization profile first.', { title: 'Organization profile needed' })
       return
     }
 
@@ -4505,11 +4309,7 @@ export default function FinancePage() {
         { headers: { Authorization: `Bearer ${token}` } },
       )
 
-      notifications.show({
-        title: 'Job moved',
-        message: 'The job now belongs to the selected team member.',
-        color: 'teal',
-      })
+      feedback.success('The job now belongs to the selected team member.', { title: 'Job moved' })
       await fetchFieldRuns()
 
       try {
@@ -4521,11 +4321,7 @@ export default function FinancePage() {
         // Keep existing drawer state if refresh fails.
       }
     } catch (err: any) {
-      notifications.show({
-        title: 'Reassign Failed',
-        message: err.response?.data?.error || err.response?.data?.message || err.message,
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Reassign Failed' })
     } finally {
       setFeptActionLoading(false)
     }
@@ -4588,11 +4384,7 @@ export default function FinancePage() {
 
     const token = getPreferredToken()
     if (!token) {
-      notifications.show({
-        title: 'Organization profile needed',
-        message: 'Switch to your organization profile to approve.',
-        color: 'red',
-      })
+      feedback.error('Switch to your organization profile to approve.', { title: 'Organization profile needed' })
       setShowApprovalModal(false)
       setCreatingApprovalRequest(false)
       return
@@ -4607,11 +4399,7 @@ export default function FinancePage() {
       setApprovalRequestId(data.requestId)
       setApprovalRequestUrl(data.presentationRequestUrl)
     } catch (err: any) {
-      notifications.show({
-        title: 'Approval Setup Failed',
-        message: err.response?.data?.error || err.message || 'Could not generate approval request.',
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Approval Setup Failed', fallback: 'Could not generate approval request.' })
       setShowApprovalModal(false)
     } finally {
       setCreatingApprovalRequest(false)
@@ -4620,11 +4408,7 @@ export default function FinancePage() {
 
   const handleApprove = async () => {
     if (!selectedRequisitionId || !approvalRequestId || !approvalRequestUrl) {
-      notifications.show({
-        title: 'Approval Request Missing',
-        message: 'Re-open the approval modal to generate a valid request.',
-        color: 'red',
-      })
+      feedback.error('Re-open the approval modal to generate a valid request.', { title: 'Approval Request Missing' })
       return
     }
 
@@ -4637,11 +4421,7 @@ export default function FinancePage() {
 
     const reauthOk = await requireSensitiveOrgReauth('approve this requisition')
     if (!reauthOk) {
-      notifications.show({
-        title: 'Re-authentication Cancelled',
-        message: 'Approval was cancelled before submission.',
-        color: 'yellow',
-      })
+      feedback.warn('Approval was cancelled before submission.', { title: 'Re-authentication Cancelled' })
       return
     }
 
@@ -4665,11 +4445,7 @@ export default function FinancePage() {
       // approveRequisition call fails (e.g., wrong org role for the current stage).
       if (res.data?.error) throw new Error(res.data.error)
 
-      notifications.show({
-        title: 'Approved',
-        message: 'This requisition is approved.',
-        color: 'green',
-      })
+      feedback.success('This requisition is approved.', { title: 'Approved' })
       setShowApprovalModal(false)
       setApprovalRequestId(null)
       setApprovalRequestUrl(null)
@@ -4686,17 +4462,9 @@ export default function FinancePage() {
   const handleCopyRequestUrl = async (requestUrl: string) => {
     try {
       await navigator.clipboard.writeText(requestUrl)
-      notifications.show({
-        title: 'Copied',
-        message: 'Approval request URL copied to clipboard.',
-        color: 'green',
-      })
+      feedback.success('Approval request URL copied to clipboard.', { title: 'Copied' })
     } catch {
-      notifications.show({
-        title: 'Copy Failed',
-        message: 'Unable to copy approval request URL.',
-        color: 'red',
-      })
+      feedback.error('Unable to copy approval request URL.', { title: 'Copy Failed' })
     }
   }
 
@@ -4707,11 +4475,7 @@ export default function FinancePage() {
 
   const handleOpenApprovalInApp = () => {
     if (!selectedRequisitionId || !approvalRequestUrl) {
-      notifications.show({
-        title: 'Approval Request Missing',
-        message: 'Generate the approval request before opening it in the mobile wallet.',
-        color: 'red',
-      })
+      feedback.error('Generate the approval request before opening it in the mobile wallet.', { title: 'Approval Request Missing' })
       return
     }
 
@@ -4730,11 +4494,7 @@ export default function FinancePage() {
 
   const handleOpenReleaseInApp = () => {
     if (!selectedRequisitionId || !releaseRequestUrl) {
-      notifications.show({
-        title: 'Release Request Missing',
-        message: 'Generate the release request before opening it in the mobile wallet.',
-        color: 'red',
-      })
+      feedback.error('Generate the release request before opening it in the mobile wallet.', { title: 'Release Request Missing' })
       return
     }
 
@@ -4755,11 +4515,7 @@ export default function FinancePage() {
 
   const handleOpenAckInApp = () => {
     if (!selectedRequisitionId || !ackRequestUrl) {
-      notifications.show({
-        title: 'Ack Request Missing',
-        message: 'Generate the acknowledge request before opening it in the mobile wallet.',
-        color: 'red',
-      })
+      feedback.error('Generate the acknowledge request before opening it in the mobile wallet.', { title: 'Ack Request Missing' })
       return
     }
 
@@ -4778,11 +4534,7 @@ export default function FinancePage() {
 
   const handleScanPortalApproval = () => {
     if (!selectedRequisitionId) {
-      notifications.show({
-        title: 'Requisition Missing',
-        message: 'Open a requisition before scanning a portal approval QR.',
-        color: 'red',
-      })
+      feedback.error('Open a requisition before scanning a portal approval QR.', { title: 'Requisition Missing' })
       return
     }
 
@@ -4800,11 +4552,7 @@ export default function FinancePage() {
 
   const handleScanPortalRelease = () => {
     if (!selectedRequisitionId) {
-      notifications.show({
-        title: 'Requisition Missing',
-        message: 'Open a requisition before scanning a portal release QR.',
-        color: 'red',
-      })
+      feedback.error('Open a requisition before scanning a portal release QR.', { title: 'Requisition Missing' })
       return
     }
 
@@ -4824,11 +4572,7 @@ export default function FinancePage() {
 
   const handleScanPortalAck = () => {
     if (!selectedRequisitionId) {
-      notifications.show({
-        title: 'Requisition Missing',
-        message: 'Open a requisition before scanning a portal acknowledgment QR.',
-        color: 'red',
-      })
+      feedback.error('Open a requisition before scanning a portal acknowledgment QR.', { title: 'Requisition Missing' })
       return
     }
 
@@ -4858,11 +4602,7 @@ export default function FinancePage() {
     setReleaseRequestUrl(null)
     const token = getPreferredToken()
     if (!token) {
-      notifications.show({
-        title: 'Organization profile needed',
-        message: 'Switch to your organization profile to release funds.',
-        color: 'red',
-      })
+      feedback.error('Switch to your organization profile to release funds.', { title: 'Organization profile needed' })
       setShowReleaseModal(false)
       setCreatingReleaseRequest(false)
       return
@@ -4876,11 +4616,7 @@ export default function FinancePage() {
       setReleaseRequestId(data.requestId)
       setReleaseRequestUrl(data.presentationRequestUrl)
     } catch (err: any) {
-      notifications.show({
-        title: 'Release Setup Failed',
-        message: err.response?.data?.error || err.message || 'Could not generate secure verification request.',
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Release Setup Failed', fallback: 'Could not generate secure verification request.' })
       setShowReleaseModal(false)
     } finally {
       setCreatingReleaseRequest(false)
@@ -4889,28 +4625,20 @@ export default function FinancePage() {
 
   const handleRequisitionRelease = async () => {
     if (!selectedRequisitionId || !releaseRequestId || !releaseRequestUrl) {
-      notifications.show({
-        title: 'Release Request Missing',
-        message: 'Re-open the release modal to generate a valid request.',
-        color: 'red',
-      })
+      feedback.error('Re-open the release modal to generate a valid request.', { title: 'Release Request Missing' })
       return
     }
 
     const reauthOk = await requireSensitiveOrgReauth('release funds for this requisition')
     if (!reauthOk) {
-      notifications.show({
-        title: 'Re-authentication Cancelled',
-        message: 'Release was cancelled before submission.',
-        color: 'yellow',
-      })
+      feedback.warn('Release was cancelled before submission.', { title: 'Re-authentication Cancelled' })
       return
     }
     const deviceAssertion = await confirmWithDevice({
       purpose: 'release_funds',
       transaction: { requisitionId: selectedRequisitionId, amount: requestedAmount.amount, currency: requestedAmount.currency },
     }).catch((error: Error) => {
-      notifications.show({ title: 'Confirmation needed', message: error.message, color: 'yellow' })
+      feedback.warn(error.message, { title: 'Confirmation needed' })
       return null
     })
     if (deviceAssertion === null) return
@@ -4934,11 +4662,7 @@ export default function FinancePage() {
         { headers: { Authorization: `Bearer ${token}` } },
       )
       if (releaseRes.data?.error) throw new Error(releaseRes.data.error)
-      notifications.show({
-        title: 'Money released',
-        message: 'The release is recorded for this requisition.',
-        color: 'green',
-      })
+      feedback.success('The release is recorded for this requisition.', { title: 'Money released' })
       setShowReleaseModal(false)
       setReleaseRequestId(null)
       setReleaseRequestUrl(null)
@@ -4960,11 +4684,7 @@ export default function FinancePage() {
     setAckRequestUrl(null)
     const token = getPreferredToken()
     if (!token) {
-      notifications.show({
-        title: 'Organization profile needed',
-        message: 'Switch to your organization profile to confirm delivery.',
-        color: 'red',
-      })
+      feedback.error('Switch to your organization profile to confirm delivery.', { title: 'Organization profile needed' })
       setShowAckModal(false)
       setCreatingAckRequest(false)
       return
@@ -4978,11 +4698,7 @@ export default function FinancePage() {
       setAckRequestId(data.requestId)
       setAckRequestUrl(data.presentationRequestUrl)
     } catch (err: any) {
-      notifications.show({
-        title: 'Ack Setup Failed',
-        message: err.response?.data?.error || err.message || 'Could not generate secure verification request.',
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Ack Setup Failed', fallback: 'Could not generate secure verification request.' })
       setShowAckModal(false)
     } finally {
       setCreatingAckRequest(false)
@@ -4991,11 +4707,7 @@ export default function FinancePage() {
 
   const handleRequisitionAcknowledge = async () => {
     if (!selectedRequisitionId || !ackRequestId || !ackRequestUrl) {
-      notifications.show({
-        title: 'Ack Request Missing',
-        message: 'Re-open the acknowledge modal to generate a valid request.',
-        color: 'red',
-      })
+      feedback.error('Re-open the acknowledge modal to generate a valid request.', { title: 'Ack Request Missing' })
       return
     }
 
@@ -5007,11 +4719,7 @@ export default function FinancePage() {
 
     const reauthOk = await requireSensitiveOrgReauth('acknowledge this requisition')
     if (!reauthOk) {
-      notifications.show({
-        title: 'Re-authentication Cancelled',
-        message: 'Acknowledgement was cancelled before submission.',
-        color: 'yellow',
-      })
+      feedback.warn('Acknowledgement was cancelled before submission.', { title: 'Re-authentication Cancelled' })
       return
     }
 
@@ -5032,7 +4740,7 @@ export default function FinancePage() {
         { headers: { Authorization: `Bearer ${token}` } },
       )
       if (ackRes.data?.error) throw new Error(ackRes.data.error)
-      notifications.show({ title: 'Delivery confirmed', message: 'This requisition is now closed.', color: 'teal' })
+      feedback.success('This requisition is now closed.', { title: 'Delivery confirmed' })
       setShowAckModal(false)
       setAckRequestId(null)
       setAckRequestUrl(null)
@@ -5073,11 +4781,7 @@ export default function FinancePage() {
   const shareWhatsApp = (link: PaymentLink, phone?: string) => {
     const checkoutUrl = getLinkCheckoutUrl(link)
     if (!checkoutUrl) {
-      notifications.show({
-        title: 'Missing Payment URL',
-        message: 'This link is missing a checkout URL. Refresh and try again.',
-        color: 'red',
-      })
+      feedback.error('This link is missing a checkout URL. Refresh and try again.', { title: 'Missing Payment URL' })
       return
     }
 
@@ -5282,7 +4986,7 @@ export default function FinancePage() {
       setBillingItem({ link })
     } catch (err: any) {
       if (!assertContext.isCurrent()) return
-      notifications.show({ color: 'red', message: err.response?.data?.message || err.message || 'Could not open client billing' })
+      feedback.fromError(err, { fallback: 'Could not open client billing' })
     }
   }
   const openClientBilling = async (run: any) => {
@@ -5298,7 +5002,7 @@ export default function FinancePage() {
       setSelectedFieldRun(null)
     } catch (err: any) {
       if (!assertContext.isCurrent()) return
-      notifications.show({ color: 'red', message: err.response?.data?.message || err.message || 'Could not open client billing' })
+      feedback.fromError(err, { fallback: 'Could not open client billing' })
     }
   }
   const sendBilling = async (contact: { payerName: string; payerPhone: string }, renew: boolean) => {
@@ -5328,7 +5032,7 @@ export default function FinancePage() {
       await Promise.all([...(itemTaskActive ? [] : [fetchLinks()]), fetchFieldRuns()])
     } catch (err: any) {
       if (!assertContext.isCurrent()) return
-      notifications.show({ color: 'red', message: err.response?.data?.message || err.message || 'Could not send the client invoice' })
+      feedback.fromError(err, { fallback: 'Could not send the client invoice' })
     } finally {
       setBillingBusy(false)
     }
@@ -5347,7 +5051,7 @@ export default function FinancePage() {
       return saved.data as { changed: boolean; needsRenewal: boolean }
     } catch (err: any) {
       if (!assertContext.isCurrent()) return undefined
-      notifications.show({ color: 'red', message: err.response?.data?.message || err.message || 'Could not save the client details' })
+      feedback.fromError(err, { fallback: 'Could not save the client details' })
       return undefined
     } finally {
       setBillingBusy(false)
@@ -6171,10 +5875,7 @@ export default function FinancePage() {
                       setSelectedFieldRun(run)
                       setBillingItem(null)
                     } catch (err: any) {
-                      notifications.show({
-                        color: 'red',
-                        message: err.response?.data?.message || 'Could not open linked job',
-                      })
+                      feedback.fromError(err, { fallback: 'Could not open linked job' })
                     }
                   }
                 : undefined
@@ -6277,10 +5978,7 @@ export default function FinancePage() {
                             setBillingItem({ link, run })
                           } catch (err: any) {
                             if (!assertContext.isCurrent()) return
-                            notifications.show({
-                              color: 'red',
-                              message: err.response?.data?.message || err.message || 'Could not open client billing',
-                            })
+                            feedback.fromError(err, { fallback: 'Could not open client billing' })
                           }
                         }}
                       >
@@ -6917,15 +6615,11 @@ export default function FinancePage() {
             loading={submittingApAction}
             onClick={async () => {
               if (!apInvoiceForm.supplierName.trim() && !selectedApSupplier?.id) {
-                notifications.show({ title: 'Validation Alert', message: 'Enter the supplier name.', color: 'orange' })
+                feedback.warn('Enter the supplier name.', { title: 'Validation Alert' })
                 return
               }
               if (!apInvoiceForm.invoiceRef || !apInvoiceForm.amount) {
-                notifications.show({
-                  title: 'Validation Alert',
-                  message: 'Reference and Amount are required.',
-                  color: 'orange',
-                })
+                feedback.warn('Reference and Amount are required.', { title: 'Validation Alert' })
                 return
               }
 
@@ -6961,21 +6655,13 @@ export default function FinancePage() {
                     headers: { Authorization: `Bearer ${token}` },
                   },
                 )
-                notifications.show({
-                  title: 'Invoice Recorded',
-                  message: `Invoice ${apInvoiceForm.invoiceRef} registered successfully.`,
-                  color: 'green',
-                })
+                feedback.success(`Invoice ${apInvoiceForm.invoiceRef} registered successfully.`, { title: 'Invoice Recorded' })
                 setShowRecordApInvoice(false)
                 fetchApSuppliers()
                 fetchApWorkflowActions()
                 if (selectedApSupplier?.id) fetchSupplierStatement(selectedApSupplier.id)
               } catch (err: any) {
-                notifications.show({
-                  title: 'Recording failed',
-                  message: err.response?.data?.error || err.message,
-                  color: 'red',
-                })
+                feedback.fromError(err, { title: 'Recording failed' })
               } finally {
                 setSubmittingApAction(false)
               }
@@ -7037,7 +6723,7 @@ export default function FinancePage() {
             loading={submittingApAction}
             onClick={async () => {
               if (!apPaymentForm.amountPaid || !selectedApSupplier?.id) {
-                notifications.show({ title: 'Validation Alert', message: 'Amount Paid is required.', color: 'orange' })
+                feedback.warn('Amount Paid is required.', { title: 'Validation Alert' })
                 return
               }
 
@@ -7069,21 +6755,13 @@ export default function FinancePage() {
                     headers: { Authorization: `Bearer ${token}` },
                   },
                 )
-                notifications.show({
-                  title: 'Payment Recorded',
-                  message: 'The payment has been successfully recorded and Remittance VC offered config queued.',
-                  color: 'green',
-                })
+                feedback.success('The payment has been successfully recorded and Remittance VC offered config queued.', { title: 'Payment Recorded' })
                 setShowRecordApPayment(false)
                 fetchApSuppliers()
                 fetchApWorkflowActions()
                 if (selectedApSupplier?.id) fetchSupplierStatement(selectedApSupplier.id)
               } catch (err: any) {
-                notifications.show({
-                  title: 'Recording failed',
-                  message: err.response?.data?.error || err.message,
-                  color: 'red',
-                })
+                feedback.fromError(err, { title: 'Recording failed' })
               } finally {
                 setSubmittingApAction(false)
               }
@@ -9539,11 +9217,7 @@ export default function FinancePage() {
                                 `/api/finance/ar/plans/${encodeURIComponent(selectedPlanId)}/installments/${encodeURIComponent(nextInstallment.id)}/remind`,
                                 {},
                               )
-                              notifications.show({
-                                title: 'Reminder sent',
-                                message: 'The client received the next payment link.',
-                                color: 'teal',
-                              })
+                              feedback.success('The client received the next payment link.', { title: 'Reminder sent' })
                             }}
                           >
                             Send reminder
@@ -9822,20 +9496,12 @@ export default function FinancePage() {
                                         headers: { Authorization: `Bearer ${token}` },
                                       },
                                     )
-                                    notifications.show({
-                                      title: 'Dispute raised',
-                                      message: 'Plan marked as disputed. Counterparty will be notified.',
-                                      color: 'orange',
-                                    })
+                                    feedback.warn('Plan marked as disputed. Counterparty will be notified.', { title: 'Dispute raised' })
                                     setSelectedPlanId(null)
                                     setSelectedPlanDetails(null)
                                     void fetchLinks()
                                   } catch (err: any) {
-                                    notifications.show({
-                                      title: 'Dispute failed',
-                                      message: err.response?.data?.message ?? err.message,
-                                      color: 'red',
-                                    })
+                                    feedback.error(err.response?.data?.message ?? err.message, { title: 'Dispute failed' })
                                   }
                                 }}
                               >
@@ -9855,16 +9521,12 @@ export default function FinancePage() {
                                         headers: { Authorization: `Bearer ${token}` },
                                       },
                                     )
-                                    notifications.show({
-                                      title: 'Plan cancelled',
-                                      message: 'Instalment plan has been cancelled.',
-                                      color: 'green',
-                                    })
+                                    feedback.success('Instalment plan has been cancelled.', { title: 'Plan cancelled' })
                                     setSelectedPlanId(null)
                                     setSelectedPlanDetails(null)
                                     void fetchLinks()
                                   } catch (err: any) {
-                                    notifications.show({ title: 'Cancel failed', message: err.message, color: 'red' })
+                                    feedback.fromError(err, { title: 'Cancel failed' })
                                   }
                                 }}
                               >

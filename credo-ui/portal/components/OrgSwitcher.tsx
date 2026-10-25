@@ -1,7 +1,7 @@
+import { feedback } from '@/lib/feedback';
 import React, { useCallback, useEffect, useState } from 'react'
 import { Box, Badge, Divider, Group, Loader, Menu, ScrollArea, Text, UnstyledButton } from '@mantine/core'
 import { IconBuilding, IconCheck, IconChevronDown, IconPlus, IconUser, IconWallet } from '@tabler/icons-react'
-import { notifications } from '@mantine/notifications'
 import { useRouter } from 'next/router'
 import axios from 'axios'
 import { clearPortalTask, CONTEXT_UPDATED_EVENT, OPEN_ORG_SWITCHER_EVENT } from '@/lib/portalContext'
@@ -246,7 +246,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
       setActiveAccountId(currentAccountId())
       loadOrganizations()
       void loadSavedAccountNames(holderBackend).finally(() => setAccounts(listSavedAccounts())).catch((error: Error) => {
-        notifications.show({ title: 'Account names unavailable', message: error.message, color: 'orange' })
+        feedback.warn(error.message, { title: 'Account names unavailable' })
       })
     }
   }, [opened, loadOrganizations, holderBackend])
@@ -275,11 +275,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
           return
         }
 
-        notifications.show({
-          title: 'Switch requires personal context',
-          message: 'Return to personal wallet first, then switch into organization context.',
-          color: 'orange',
-        })
+        feedback.warn('Return to personal wallet first, then switch into organization context.', { title: 'Switch requires personal context' })
         return
       }
 
@@ -327,17 +323,9 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
 
       if (status === 409) {
         setOrganizations((prev) => prev.filter((o) => o.orgTenantId !== org.orgTenantId))
-        notifications.show({
-          title: 'Organization unavailable',
-          message: `${org.name} is currently unavailable in runtime context.`,
-          color: 'orange',
-        })
+        feedback.warn(`${org.name} is currently unavailable in runtime context.`, { title: 'Organization unavailable' })
       } else {
-        notifications.show({
-          title: 'Switch failed',
-          message,
-          color: 'red',
-        })
+        feedback.error(message, { title: 'Switch failed' })
       }
     } finally {
       setSwitching(false)
@@ -354,11 +342,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
     const currentOrg = getActiveOrg()
     const personalToken = localStorage.getItem('walletToken')
     if (!personalToken) {
-      notifications.show({
-        title: 'Personal context unavailable',
-        message: 'No personal wallet token is available in this session. Stay in org context or sign in again.',
-        color: 'orange',
-      })
+      feedback.warn('No personal wallet token is available in this session. Stay in org context or sign in again.', { title: 'Personal context unavailable' })
       return
     }
 

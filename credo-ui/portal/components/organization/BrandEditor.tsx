@@ -1,3 +1,4 @@
+import { feedback } from '@/lib/feedback';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -14,7 +15,6 @@ import {
   TextInput,
   Textarea,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { IconPhotoUp, IconTrash } from '@tabler/icons-react';
 
 import axios from 'axios';
@@ -74,13 +74,13 @@ export default function BrandEditor({ orgTenantId, getToken, onSaved }: Props) {
     setBrand(view);
     setDraft((current) => ({ ...(current || view), logoUrl: view.logoUrl, primaryColor: view.primaryColor }));
     onSaved?.(view);
-    notifications.show({ color: 'teal', title: message, message: 'New quotes, invoices and receipts use it. Earlier ones keep the brand they were issued with.' });
+    feedback.success('New quotes, invoices and receipts use it. Earlier ones keep the brand they were issued with.', { title: message });
   };
 
   const save = async () => {
     if (!draft) return;
     if (!draft.displayName?.trim()) {
-      notifications.show({ color: 'red', title: 'Add a name', message: 'Documents need the name your customers know you by.' });
+      feedback.error('Documents need the name your customers know you by.', { title: 'Add a name' });
       return;
     }
     setSaving(true);
@@ -90,7 +90,7 @@ export default function BrandEditor({ orgTenantId, getToken, onSaved }: Props) {
       setDraft(view);
       applySaved(view, 'Brand saved');
     } catch (error) {
-      notifications.show({ color: 'red', title: 'Could not save', message: errorText(error, 'Try again.') });
+      feedback.error(errorText(error, 'Try again.'), { title: 'Could not save' });
     } finally {
       setSaving(false);
     }
@@ -104,7 +104,7 @@ export default function BrandEditor({ orgTenantId, getToken, onSaved }: Props) {
       const response = await axios.put(`${path}/logo`, { dataUrl }, { headers: await headers() });
       applySaved(response.data as OrgBrandView, 'Logo saved');
     } catch (error) {
-      notifications.show({ color: 'red', title: 'Could not use that logo', message: errorText(error, 'Try a PNG or JPG.') });
+      feedback.error(errorText(error, 'Try a PNG or JPG.'), { title: 'Could not use that logo' });
     } finally {
       setLogoBusy(false);
       if (fileInput.current) fileInput.current.value = '';
@@ -117,7 +117,7 @@ export default function BrandEditor({ orgTenantId, getToken, onSaved }: Props) {
       const response = await axios.delete(`${path}/logo`, { headers: await headers() });
       applySaved(response.data as OrgBrandView, 'Logo removed');
     } catch (error) {
-      notifications.show({ color: 'red', title: 'Could not remove the logo', message: errorText(error, 'Try again.') });
+      feedback.error(errorText(error, 'Try again.'), { title: 'Could not remove the logo' });
     } finally {
       setLogoBusy(false);
     }

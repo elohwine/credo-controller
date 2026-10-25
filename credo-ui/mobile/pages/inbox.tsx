@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { OfferReviewCard } from '@/components/feedback/OfferReviewCard';
 import dayjs from 'dayjs';
 import { isPlatformRequestDecided, isPlatformRequestWaiting, platformRequestDecidedAt, type PlatformInboxRequest } from '../../shared/requestInbox';
 import {
@@ -6,7 +7,6 @@ import {
   Loader, Alert, Group, Badge, ActionIcon, Tabs, Textarea, Modal, SegmentedControl, NumberInput, TextInput,
   useMantineColorScheme, useMantineTheme,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys, STALE_TIME } from '@/lib/queries/keys';
 import { useSessionStore } from '@/lib/state/session';
@@ -49,6 +49,9 @@ import { readOrgProfile } from '@/lib/orgProfile';
 import { captureOrganizationSwitchContext } from '../../shared/taskContext';
 import { requestIdFromStageCard } from '../../shared/requestExperience';
 import { requestDecisionBlockText } from '../../shared/requestDecision';
+import { feedback } from '@/lib/feedback';
+import { milestone } from '@/components/feedback/Milestone';
+import { LottiePlayer } from '@/components/feedback/LottiePlayer';
 import BrandedDocumentView from '@/components/records/BrandedDocumentView';
 import { documentFromClaims } from '@/lib/brandedDocument';
 import { requestFamily } from '../../../src/config/requestExperience';
@@ -2550,10 +2553,11 @@ export default function InboxPage() {
       if (holderOffersFailed && holderReceiptsFailed) {
         const warning = 'Unable to load pending offers and receipts. Pull to refresh or retry after reconnection.';
         setError(warning);
-        notifications.show({
-          title: 'Inbox Sync Warning',
-          message: warning,
-          color: 'yellow',
+        feedback.warn(warning, {
+          title: 'Some items did not load',
+          id: 'inbox-sync',
+          silent: true,
+          action: { label: 'Retry', onClick: () => void queryClient.refetchQueries({ queryKey: inboxKey, exact: true }) },
         });
       }
       return scopedItems;
@@ -2568,10 +2572,11 @@ export default function InboxPage() {
 
       const message = err.response?.data?.message ?? 'Failed to load inbox';
       setError(message);
-      notifications.show({
-        title: 'Inbox Load Failed',
-        message,
-        color: 'red',
+      feedback.fromError(err, {
+        title: 'Inbox did not refresh',
+        fallback: 'Failed to load inbox',
+        id: 'inbox-sync',
+        retry: () => void queryClient.refetchQueries({ queryKey: inboxKey, exact: true }),
       });
       // Failing keeps the last list on screen instead of emptying it.
       throw err;
@@ -2595,7 +2600,7 @@ export default function InboxPage() {
       void inboxQuery.refetch();
     } catch (e) {
       setDoneDays(previous);
-      notifications.show({ title: 'Not saved', message: 'Could not change how long finished items stay. Try again.', color: 'red' });
+      feedback.error('Could not change how long finished items stay.', { title: 'Not saved', action: { label: 'Retry', onClick: () => void saveDoneDays(days) } });
     } finally {
       setDoneDaysSaving(false);
     }
@@ -2726,12 +2731,12 @@ export default function InboxPage() {
             headers: token ? { Authorization: `Bearer ${token}` } : undefined,
           });
           dismissItem(selectedItem.id);
-          notifications.show({
-            title: selectedItem.itemType === 'receipt_offer' ? 'Receipt saved' : 'Saved',
-            message: selectedItem.authContext && selectedItem.authContext !== 'personal'
+          milestone.show({
+            kind: 'card_saved',
+            title: selectedItem.itemType === 'receipt_offer' ? 'Receipt saved' : 'Card saved',
+            detail: selectedItem.authContext && selectedItem.authContext !== 'personal'
               ? "Kept in the organisation's records."
               : 'Kept in your records.',
-            color: 'green',
           });
         } else {
           // Reject — remove from local state without a server call
@@ -2751,11 +2756,7 @@ export default function InboxPage() {
 
           dismissItem(selectedItem.id);
 
-          notifications.show({
-            title: 'Invoice Accepted',
-            message: 'Invoice VC saved. Redirecting to checkout...',
-            color: 'green',
-          });
+          feedback.success('Invoice saved. Opening checkout…', { title: 'Invoice accepted' });
 
           setSelectedItem(null);
           const { paymentCode, paymentUrl } = resolvePaymentNavigationTarget({
@@ -2773,13 +2774,9 @@ export default function InboxPage() {
             return;
           }
 
-          notifications.show({
-            title: 'Payment Link Unavailable',
-            message: paymentUrl
+          feedback.warn(paymentUrl
               ? 'Invoice saved, but checkout token could not be parsed. Refresh inbox to re-sync this payment card.'
-              : 'Invoice saved, but no payment link was attached. Refresh inbox to fetch the payment card.',
-            color: 'yellow',
-          });
+              : 'Invoice saved, but no payment link was attached. Refresh inbox to fetch the payment card.', { title: 'Payment link not ready' });
           await syncAndFetch();
           return;
         }
@@ -2799,11 +2796,7 @@ export default function InboxPage() {
         const running = toRunningActionFromItem(selectedItem);
         if (running) upsertRunningAction(running);
 
-        notifications.show({
-          title: 'Opening checkout',
-          message: 'Opening in-app checkout with payment options.',
-          color: 'blue',
-        });
+        feedback.info('Opening in-app checkout with payment options.', { title: 'Opening checkout' });
 
         setSelectedItem(null);
         if (paymentToken) {
@@ -2813,13 +2806,9 @@ export default function InboxPage() {
             orgTenantId: selectedItem.ownerOrgTenantId,
           }));
         } else {
-          notifications.show({
-            title: 'Payment Link Unavailable',
-            message: paymentUrl
+          feedback.error(paymentUrl
               ? 'Checkout token could not be parsed from this link. Refresh inbox and try again.'
-              : 'Missing payment link URL.',
-            color: 'red',
-          });
+              : 'Missing payment link URL.', { title: 'Payment link not ready' });
         }
         return;
       } else if (selectedItem.itemType === 'ar_collection') {
@@ -2863,11 +2852,7 @@ export default function InboxPage() {
         }
 
         if (paymentUrl) {
-          notifications.show({
-            title: 'Checkout Link Parse Failed',
-            message: 'Could not derive in-app checkout token. Refresh inbox and retry.',
-            color: 'red',
-          });
+          feedback.error('This payment link could not be opened in the app. Refresh the inbox and try again.', { title: 'Checkout did not open' });
         }
 
         await router.push(buildArCollectionSettlementRoute(selectedItem));
@@ -2904,7 +2889,11 @@ export default function InboxPage() {
               },
               { headers },
             );
-            notifications.show({ title: 'Saved', message: selectedItem.partOfLine ? 'The job continues.' : 'Anything waiting on it continues now.', color: 'green' });
+            milestone.show({
+              kind: 'workflow_complete',
+              title: 'Request completed',
+              detail: selectedItem.partOfLine ? 'The job continues.' : 'Anything waiting on it continues now.',
+            });
             setSelectedItem(null);
             setNextStepValues({});
             setReceiptProof(null);
@@ -2928,13 +2917,15 @@ export default function InboxPage() {
               },
             },
           );
-          notifications.show({
-            title: action === 'approve' ? 'Approved' : 'Declined',
-            message: action === 'approve'
-              ? 'The request is approved. The linked job will wait until the required purchase or fulfillment is recorded.'
-              : 'The request was declined.',
-            color: action === 'approve' ? 'green' : 'orange',
-          });
+          if (action === 'approve') {
+            milestone.show({
+              kind: 'request_approved',
+              title: 'Approved',
+              detail: 'The linked job waits until the purchase or delivery is recorded.',
+            });
+          } else {
+            feedback.info('The request was declined.', { title: 'Declined' });
+          }
           setSelectedItem(null);
           setDecisionReason('');
           setNextStepValues({});
@@ -2965,10 +2956,10 @@ export default function InboxPage() {
               headers: { Authorization: `Bearer ${token}` },
             });
 
-            notifications.show({
-              title: 'Approved on behalf of org',
-              message: 'Request approved using your assigned org authority.',
-              color: 'green',
+            milestone.show({
+              kind: 'request_approved',
+              title: 'Approved',
+              detail: 'Approved for the organisation with the approval access you were given.',
             });
           } else if (action === 'reject') {
             await api.put(`/workflow-requests/${selectedItem.workflowRequestId}/reject-from-inbox`, {
@@ -2977,11 +2968,7 @@ export default function InboxPage() {
               headers: { Authorization: `Bearer ${token}` },
             });
 
-            notifications.show({
-              title: 'Rejected on behalf of org',
-              message: 'Request rejected using your assigned org authority.',
-              color: 'orange',
-            });
+            feedback.info('Declined for the organisation with the approval access you were given.', { title: 'Declined' });
           }
 
           setSelectedItem(null);
@@ -3064,7 +3051,7 @@ export default function InboxPage() {
       setDecisionReason('');
       syncAndFetch();
     } catch (err: any) {
-      notifications.show({ title: 'Action failed', message: err.response?.data?.message ?? err.message, color: 'red' });
+      feedback.fromError(err, { title: 'That did not go through', retry: () => void handleAction(action) });
     } finally {
       setActionLoading(false);
     }
@@ -3266,7 +3253,7 @@ export default function InboxPage() {
       }
 
       // Fall back to the obligations view so the user can resume from there.
-      notifications.show({ title: 'AR Proof', message: (err.response?.data?.message ?? err.message) + ' — redirecting to settlement workflow.', color: 'yellow' });
+      feedback.warn(`${err.response?.data?.message ?? err.message}. Opening the payment steps instead.`, { title: 'Proof of payment not requested' });
       setSelectedItem(null);
       void router.push(buildArCollectionSettlementRoute(item));
     } finally {
@@ -3336,7 +3323,7 @@ export default function InboxPage() {
     } catch (err: any) {
       // Keep finance requisition view available as fallback when OID4VP request setup fails.
       await handleOpenRequisitionDetails(item);
-      notifications.show({ title: 'Open Requisition Approval', message: err.response?.data?.message ?? err.message, color: 'yellow' });
+      feedback.fromError(err, { title: 'Could not open the approval', retry: () => void handleOpenRequisitionApproval(item) });
     } finally {
       setActionLoading(false);
     }
@@ -3345,11 +3332,7 @@ export default function InboxPage() {
   const handleOpenFieldRun = async (item: InboxItemData) => {
     const runId = normalizeRunId(item.workflowRunId);
     if (!runId) {
-      notifications.show({
-        title: 'Run ID Missing',
-        message: 'This job is not ready yet. Refresh and try again.',
-        color: 'yellow',
-      });
+      feedback.warn('This job is not ready yet. Refresh and try again.', { title: 'Run ID Missing' });
       return;
     }
 
@@ -3375,7 +3358,7 @@ export default function InboxPage() {
       await router.push(`/finance?tab=field&runId=${encodeURIComponent(runId)}${item.ownerOrgTenantId ? `&orgTenantId=${encodeURIComponent(item.ownerOrgTenantId)}` : ''}`);
     } catch (err: any) {
       unblockScreen('open-job');
-      notifications.show({ title: 'Could not open the job', message: err.response?.data?.message ?? err.message, color: 'red' });
+      feedback.error(err.response?.data?.message ?? err.message, { title: 'Could not open the job' });
     } finally {
       setActionLoading(false);
     }
@@ -3388,7 +3371,7 @@ export default function InboxPage() {
     const note = decisionReason.trim();
     if (!runId || !holdId) return;
     if (!note) {
-      notifications.show({ title: 'Say what was done', message: 'Write a short note on how the issue was sorted before you mark it resolved.', color: 'orange' });
+      feedback.warn('Write a short note on how the issue was sorted before you mark it resolved.', { title: 'Say what was done' });
       return;
     }
     setActionLoading(true);
@@ -3404,18 +3387,14 @@ export default function InboxPage() {
         { note },
         { headers: { Authorization: `Bearer ${orgToken}`, 'x-idempotency-key': `safety-hold-resolve:${runId}:${holdId}` } },
       );
-      notifications.show({ title: 'Issue marked resolved', message: 'The worker has been told to redo the safety check.', color: 'green' });
+      feedback.success('The worker has been told to redo the safety check.', { title: 'Issue marked resolved' });
       setDecisionReason('');
       setSelectedItem(null);
       dismissItem(item.id);
     } catch (err: any) {
       const status = err.response?.status;
       const message = err.response?.data?.error || err.response?.data?.message || err.message;
-      notifications.show({
-        title: status === 403 ? 'You cannot resolve this hold' : 'Could not mark it resolved',
-        message,
-        color: 'red',
-      });
+      feedback.error(message, { title: status === 403 ? 'You cannot resolve this hold' : 'Could not mark it resolved' });
     } finally {
       setActionLoading(false);
     }
@@ -3736,6 +3715,7 @@ export default function InboxPage() {
           <Stack gap="xs">
           <EmptyState
             icon={<IconInbox size={28} />}
+            art={attention === 'opened' || attention === 'done' ? undefined : <LottiePlayer kind="empty_inbox" size={104} />}
             title={attention === 'new' ? 'Nothing new' : attention === 'opened' ? 'Nothing opened' : attention === 'done' ? 'Nothing finished' : 'All caught up'}
             description={
               attention === 'new'
@@ -4083,12 +4063,20 @@ export default function InboxPage() {
                 {/* Holder actions: accept offers / save receipts — always visible */}
                 {(selectedItem.itemType === 'credential_offer' || selectedItem.itemType === 'receipt_offer' || selectedItem.itemType === 'invoice_offer') && (
                   <>
+                    <OfferReviewCard
+                      kind={selectedItem.itemType}
+                      title={selectedItem.title}
+                      issuerName={selectedItem.ownerDisplayName}
+                      issuerLogoUrl={selectedItem.ownerLogoUrl}
+                      savesTo={selectedItem.authContext === 'org' ? 'org' : 'personal'}
+                      orgLabel={activeOrgLabel || undefined}
+                    />
                     <Button fullWidth size="lg" color="green" leftSection={<IconCheck size={18} />} loading={actionLoading} onClick={() => handleAction('approve')}>
-                      {selectedItem.itemType === 'receipt_offer' ? 'Save Receipt' : selectedItem.itemType === 'invoice_offer' ? 'Accept & Pay' : 'Accept'}
+                      {selectedItem.itemType === 'receipt_offer' ? 'Save receipt' : selectedItem.itemType === 'invoice_offer' ? 'Accept and pay' : 'Accept card'}
                     </Button>
                     {selectedItem.itemType === 'credential_offer' && (
                       <Button fullWidth size="lg" color="red" variant="light" leftSection={<IconX size={18} />} loading={actionLoading} onClick={() => handleAction('reject')}>
-                        Reject
+                        Decline
                       </Button>
                     )}
                     {selectedItem.itemType === 'invoice_offer' && (
