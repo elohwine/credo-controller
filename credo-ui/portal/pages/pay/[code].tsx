@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { milestone } from '@/components/feedback/Milestone';
 import axios from 'axios';
 import { useRouter } from 'next/router';
 import { Alert, Badge, Box, Button, Card, Center, Group, Loader, Paper, Radio, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
@@ -120,6 +121,9 @@ export default function PortalPayPage() {
         { headers: { Authorization: `Bearer ${token}`, 'x-idempotency-key': idempotencyKey } },
       );
       setSuccess({ providerRef: data?.providerRef, instructions: data?.instructions });
+      if (/^(success|paid|completed)$/i.test(String(data?.status || ''))) {
+        milestone.show({ kind: 'payment_done', title: 'Payment made', detail: 'Your invoice and receipt are on their way to your records.' });
+      }
     } catch (e: any) {
       if (e.response?.status === 401 || e.response?.status === 403) {
         goLogin();

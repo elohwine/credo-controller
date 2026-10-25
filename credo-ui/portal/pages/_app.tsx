@@ -8,6 +8,7 @@ import type { AppProps } from "next/app";
 import { AvailableCredential } from "@/types/credentials";
 import { MantineProvider, localStorageColorSchemeManager } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
+import { MilestoneHost } from '@/components/feedback/Milestone';
 import { credentisTheme } from '@/lib/theme/credentis-theme';
 import { useActiveTabInView } from '@/lib/tabs';
 
@@ -216,7 +217,8 @@ export default function App({ Component, pageProps }: AppProps) {
       defaultColorScheme="light"
       colorSchemeManager={localStorageColorSchemeManager({ key: 'credentis-color-scheme' })}
     >
-      <Notifications position="top-right" />
+      <Notifications position="top-right" limit={3} />
+      <MilestoneHost />
       <EnvContext.Provider value={env}>
         <CredentialsContext.Provider
           value={[AvailableCredentials, setAvailableCredentials]}

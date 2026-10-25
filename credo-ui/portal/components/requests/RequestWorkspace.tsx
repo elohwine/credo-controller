@@ -1,4 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { feedback } from '@/lib/feedback'
+import { milestone } from '@/components/feedback/Milestone'
+import { LottiePlayer } from '@/components/feedback/LottiePlayer'
 import axios from 'axios'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
@@ -64,7 +67,6 @@ import {
   type InboxAttentionFilter,
 } from '@/lib/inboxAttention'
 import { purchaseReceiptLine, trailFromRequest } from '@/components/finance/jobAuditTrail'
-import { notifications } from '@mantine/notifications'
 import BottomSheet from '@/components/shared/BottomSheet'
 import { FamilyStrip, RelatedWorkLinks, useRelatedWorkNavigation } from '@/components/workflows/JobHandoffsPanel'
 import JobAuditTrailPanel from '@/components/workflows/JobAuditTrailPanel'
@@ -1309,11 +1311,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
           }
         } catch (err) {
           if (!loadContext.isCurrent()) return
-          notifications.show({
-            title: 'Could not load payment receipts',
-            message: axios.isAxiosError(err) ? err.response?.data?.message || err.message : 'Refresh your inbox to try again.',
-            color: 'red',
-          })
+          feedback.error(axios.isAxiosError(err) ? err.response?.data?.message || err.message : 'Refresh your inbox to try again.', { title: 'Could not load payment receipts' })
         }
       }
 
@@ -1416,7 +1414,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
     if (!orgSwitchPrompt) return
     const personalToken = getPersonalToken()
     if (!personalToken) {
-      notifications.show({ title: 'Sign in again', message: 'Your personal session has ended. Sign in to continue as this organization.', color: 'orange' })
+      feedback.warn('Your personal session has ended. Sign in to continue as this organization.', { title: 'Sign in again' })
       setOrgSwitchPrompt(null)
       return
     }
@@ -1428,7 +1426,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
       // Full load so the header, menus and the finance page all pick up the organization session.
       window.location.assign(orgSwitchPrompt.href)
     } catch (err: any) {
-      notifications.show({ title: 'Could not switch', message: err?.response?.data?.message || err?.message || 'Try again from the account picker.', color: 'red' })
+      feedback.fromError(err, { title: 'Could not switch', fallback: 'Try again from the account picker.' })
       setOrgSwitching(false)
       setOrgSwitchPrompt(null)
     }
@@ -1594,6 +1592,8 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
         await transition('approved')
       }
       if (temporary) endPortalTask()
+      if (action === 'approve') milestone.show({ kind: 'request_approved', title: 'Approved', detail: row.title ? String(row.title) : undefined })
+      else feedback.info('The request was declined.', { title: 'Declined' })
       await loadRequests(null, false)
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || `Could not ${action === 'approve' ? 'approve' : 'decline'} this request`)
@@ -1703,7 +1703,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
         { requestId: finishing.id, toStatus: finishing.nextStep.toStatus, payload: { ...finishValues, receiptImage: finishPhoto || undefined } },
         { headers: { Authorization: `Bearer ${token}` } },
       )
-      notifications.show({ title: 'Done', message: 'Saved. Related work can continue when its required steps are complete.', color: 'green' })
+      feedback.success('Saved. Related work can continue when its required steps are complete.', { title: 'Done' })
       setFinishing(null)
       setSelectedRequest(null)
       await loadRequests(null, false)
@@ -1739,6 +1739,8 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
 
       await axios.put(url, body, { headers: { Authorization: `Bearer ${token}` } })
 
+      if (action === 'approve') milestone.show({ kind: 'request_approved', title: 'Approved' })
+      else feedback.info('The request was declined.', { title: 'Declined' })
       await loadRequests(null, false)
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || `Failed to ${action} workflow request`)
@@ -1751,7 +1753,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
     const personal = row.workflowRequestContext === 'personal'
     const token = personal ? getPersonalToken() : getOrgScopedToken()
     if (!offerUri || !token) {
-      notifications.show({ title: 'Could not keep this record', message: 'The offer or wallet session is unavailable. Refresh your inbox or sign in again.', color: 'red' })
+      feedback.error('The offer or wallet session is unavailable. Refresh your inbox or sign in again.', { title: 'Could not keep this record' })
       return
     }
     setKeepingRecordId(row.id)
@@ -1763,15 +1765,11 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
         { headers: { Authorization: `Bearer ${token}` } },
       )
       assertContext()
-      notifications.show({ title: 'Saved', message: personal ? 'Kept in your personal records.' : "Kept in the organisation's records.", color: 'green' })
+      milestone.show({ kind: 'card_saved', title: 'Saved to records', detail: personal ? 'Kept in your personal records.' : "Kept in the organisation's records." })
       await loadRequests(null, false)
     } catch (err: any) {
       if (!assertContext.isCurrent()) return
-      notifications.show({
-        title: 'Could not keep this record',
-        message: err?.response?.data?.message || err?.message || 'Please try again.',
-        color: 'red',
-      })
+      feedback.fromError(err, { title: 'Could not keep this record', retry: () => void keepRecordOffer(row) })
     } finally {
       setKeepingRecordId(null)
     }
@@ -2046,7 +2044,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
           <Text c="dimmed" size="sm">Loading…</Text>
         ) : visibleItems.length === 0 ? (
           <Stack align="center" py="xl" gap="xs">
-            {mode === 'inbox' ? <IconInbox size={40} color="var(--mantine-color-gray-4)" /> : <IconListDetails size={40} color="var(--mantine-color-gray-4)" />}
+            {mode === 'inbox' && attention !== 'opened' && attention !== 'done' ? <LottiePlayer kind="empty_inbox" size={110} /> : mode === 'inbox' ? <IconInbox size={40} color="var(--mantine-color-gray-4)" /> : <IconListDetails size={40} color="var(--mantine-color-gray-4)" />}
             <Text c="dimmed">
               {mode === 'inbox'
                 ? attention === 'new'
@@ -2055,7 +2053,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
                     ? 'Nothing you have opened is still waiting.'
                     : attention === 'done'
                       ? 'Nothing finished yet.'
-                      : 'No items in your inbox right now.'
+                      : 'All caught up. Nothing is waiting for you.'
                 : 'No requests found for the current filters.'}
             </Text>
             <Anchor component={Link} href="/organization/setup" size="sm" fw={500}>

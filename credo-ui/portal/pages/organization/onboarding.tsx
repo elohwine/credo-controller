@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { LottiePlayer } from '@/components/feedback/LottiePlayer'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
 import Layout from '@/components/Layout'
@@ -453,16 +454,20 @@ export default function OnboardingPage() {
       <Layout title="Saved">
         <Container size="sm" py={60}>
           <Stack gap="xl" align="center">
-            <ThemeIcon color="teal" variant="light" radius="xl" size={56}>
-              <IconCheck size={28} />
-            </ThemeIcon>
+            {single ? (
+              <ThemeIcon color="teal" variant="light" radius="xl" size={56}>
+                <IconCheck size={28} />
+              </ThemeIcon>
+            ) : (
+              <LottiePlayer kind="org_setup" size={140} />
+            )}
             <Box ta="center">
               <Title order={2} mb={4}>
                 {single ? `${STEP_LABEL[single]} saved` : `${orgName || 'Your organization'} is set up`}
               </Title>
               {!single && (
                 <Text c="dimmed" size="sm">
-                  Open now: {open.join(', ')}.
+                  What you can do now: {open.join(', ')}.
                 </Text>
               )}
               {!single && kinds.includes('field') && (
