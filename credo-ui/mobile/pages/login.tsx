@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { milestone } from '@/components/feedback/Milestone';
 import { useRouter } from 'next/router';
 import {
   Box,
@@ -170,7 +171,17 @@ export default function LoginPage() {
         phone: values.phone,
         pin: values.pin,
       });
-      notifications.show({ title: 'Account created', message: 'You can now log in', color: 'green' });
+      milestone.show({
+        kind: 'account_created',
+        title: 'Your account is ready',
+        detail: 'Sign in with your phone number and PIN.',
+        next: [
+          'Accept your identity card in Inbox',
+          'Keep receipts and cards in your records',
+          'Set up or join an organisation',
+        ],
+        action: { label: 'Sign in', onClick: () => undefined },
+      });
       setTab('login');
       loginForm.setValues({ identifier: values.phone, pin: '' });
     } catch (err: any) {

@@ -32,6 +32,8 @@ import {
   IconX,
 } from '@tabler/icons-react';
 import AppShellMobile from '@/components/layout/AppShellMobile';
+import { milestone } from '@/components/feedback/Milestone';
+import { feedback } from '@/lib/feedback';
 import api from '@/lib/api';
 import { getPersonalWalletTenantId, getPersonalWalletToken } from '@/lib/auth';
 import { clientPayCopy } from '@/lib/uxCopy';
@@ -363,11 +365,15 @@ export default function MobilePayPage() {
         // Non-fatal; inbox/wallet can sync later.
       }
 
-      notifications.show({
-        title: 'Payment submitted',
-        message: 'Your invoice and receipt will appear in your records once the payment is confirmed.',
-        color: 'green',
-      });
+      if (/^(success|paid|completed)$/i.test(String(data?.status || ''))) {
+        milestone.show({
+          kind: 'payment_done',
+          title: 'Payment made',
+          detail: 'Your invoice and receipt are on their way to your records.',
+        });
+      } else {
+        feedback.success('Your invoice and receipt will appear in your records once the payment is confirmed.', { title: 'Payment submitted' });
+      }
     } catch (e: any) {
       const status = e.response?.status;
       const message = e.response?.data?.message || e.message || 'Payment failed';

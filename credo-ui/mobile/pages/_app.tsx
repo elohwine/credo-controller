@@ -4,6 +4,7 @@ import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { Center, Loader, MantineProvider, localStorageColorSchemeManager } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
+import { MilestoneHost } from '@/components/feedback/Milestone';
 import { credentisTheme } from '@/lib/theme/credentis-theme';
 import { registerAndroidPush } from '@/lib/androidPush';
 import { bindTaskPath, endTaskContext, getTaskContext, getActiveOrgId, getContextMode, getOrgToken, isAuthenticated } from '@/lib/auth';
@@ -513,7 +514,7 @@ export default function App({ Component, pageProps, router }: AppProps) {
           dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },
         }}
       >
-        <Notifications position="bottom-center" limit={1} autoClose={3000} zIndex={9999} style={{ marginBottom: 'calc(88px + var(--app-safe-bottom))' }} />
+        <Notifications position="bottom-center" limit={2} autoClose={3000} zIndex={9999} style={{ marginBottom: 'calc(88px + var(--app-safe-bottom))' }} />
         {mounted ? (
           <Component {...pageProps} />
         ) : (
@@ -522,6 +523,7 @@ export default function App({ Component, pageProps, router }: AppProps) {
           </Center>
         )}
         <BlockingOverlay />
+        <MilestoneHost />
       </PersistQueryClientProvider>
     </MantineProvider>
   );
