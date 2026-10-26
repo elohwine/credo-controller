@@ -1,10 +1,12 @@
 import axios from 'axios'
 import { captureOrganizationSwitchContext } from '../../shared/taskContext'
+import { readMemberships, persistMemberships, refreshMemberships } from '../../shared/organizationMemberships'
 
 export type OrganizationMembership = {
   orgTenantId: string
   name: string
   role?: string
+  canOpenOrgContext?: boolean
 }
 
 /** Older builds stored a "first workflow" choice here; onboarding now stores answers in orgProfile.ts. */
@@ -19,11 +21,6 @@ function decodeJwtPayload(token: string): Record<string, any> | null {
   } catch {
     return null
   }
-}
-
-function normalizeRole(role: unknown): string {
-  if (Array.isArray(role)) return String(role[0] || '').trim()
-  return String(role || '').trim()
 }
 
 export function getOrgScopedToken(): string | null {
@@ -59,10 +56,7 @@ export function getPersonalToken(): string | null {
   if (!candidate) return null
 
   const payload = decodeJwtPayload(candidate)
-  const role = normalizeRole(payload?.role)
-
-  // Tenant-scoped org tokens should not be used to discover the user's org memberships.
-  if (role === 'RestTenantAgent') return null
+  if (payload?.orgRole) return null
 
   return candidate
 }
@@ -70,28 +64,12 @@ export function getPersonalToken(): string | null {
 export function readOrganizationsFromCache(): OrganizationMembership[] {
   if (typeof window === 'undefined') return []
 
-  try {
-    const raw = window.localStorage.getItem('credoOrganizations')
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-
-    return parsed
-      .map((entry: any) => ({
-        orgTenantId: entry?.orgTenantId || entry?.id || entry?.orgTenantID,
-        name: entry?.name || entry?.label || 'Organization',
-        role: entry?.role || 'member',
-      }))
-      .filter((entry) => !!entry.orgTenantId)
-  } catch {
-    return []
-  }
+  return readMemberships(window.localStorage, getPersonalToken())
 }
 
 export function persistOrganizationsToCache(orgs: OrganizationMembership[]) {
   if (typeof window === 'undefined') return
-  if (!Array.isArray(orgs) || orgs.length === 0) return
-  window.localStorage.setItem('credoOrganizations', JSON.stringify(orgs))
+  persistMemberships(window.localStorage, getPersonalToken(), orgs.map((org) => ({ ...org, role: org.role || 'member' })))
 }
 
 export function readActiveOrganization(): OrganizationMembership | null {
@@ -129,34 +107,13 @@ export function clearStoredOrganizationContext() {
 }
 
 export async function fetchOrganizations(backendUrl: string, personalToken: string): Promise<OrganizationMembership[]> {
-  if (!personalToken) return readOrganizationsFromCache()
-
-  const response = await axios.get(`${backendUrl}/api/organizations`, {
-    headers: { Authorization: `Bearer ${personalToken}` },
-  })
-
-  const orgs = Array.isArray(response.data)
-    ? response.data
-    : Array.isArray(response.data?.organizations)
-      ? response.data.organizations
-      : Array.isArray(response.data?.data)
-        ? response.data.data
-        : []
-
-  const normalized = orgs
-    .map((entry: any) => ({
-      orgTenantId: entry?.orgTenantId || entry?.id || entry?.tenantId,
-      name: entry?.name || entry?.label || 'Organization',
-      role: entry?.role || 'member',
-    }))
-    .filter((entry: OrganizationMembership) => !!entry.orgTenantId)
-
-  if (normalized.length > 0) {
-    persistOrganizationsToCache(normalized)
-    return normalized
-  }
-
-  return readOrganizationsFromCache()
+  if (!personalToken) throw new Error('Sign in to your personal account to refresh organisations.')
+  return refreshMemberships(window.localStorage, personalToken, async () => {
+    const response = await axios.get(`${backendUrl}/api/organizations`, {
+      headers: { Authorization: `Bearer ${personalToken}` },
+    })
+    return response.data
+  }, getPersonalToken)
 }
 
 export async function switchOrganizationContext(params: {

@@ -82,6 +82,7 @@ import {
   IconDots,
 } from '@tabler/icons-react'
 import AppShellMobile from '@/components/layout/AppShellMobile'
+import { SectionTip } from '@/components/guides/SectionGuides';
 import ErrorAlert from '@/components/shared/ErrorAlert'
 import JobHandoffsPanel, { FamilyStrip, useRelatedWorkNavigation } from '@/components/shared/JobHandoffsPanel'
 import { familyLinks, handoffLinks } from '../../shared/relatedWork'
@@ -5338,6 +5339,8 @@ export default function FinancePage() {
             </ActionIcon>
           </Group>
         </Group>
+
+        <SectionTip tip="tip_operations" />
 
         {/* One stat row, for money only */}
         {area === 'money' && (

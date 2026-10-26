@@ -152,43 +152,126 @@ def payment():
     return doc('payment', op, badge + [card_layer])
 
 
+def cubic(p0, p1, p2, p3, steps=6):
+    """Points along a cubic curve, so curved outlines stay smooth without bezier tangents."""
+    pts = []
+    for n in range(1, steps + 1):
+        t = n / steps
+        u = 1 - t
+        pts.append([u ** 3 * p0[i] + 3 * u * u * t * p1[i] + 3 * u * t * t * p2[i] + t ** 3 * p3[i] for i in (0, 1)])
+    return pts
+
+
+def shield_points(k=1.0):
+    """The Credentis shield from the launch icon, centred on 0,0."""
+    pts = [[0, -45], [34, -32], [34, -4]]
+    pts += cubic([34, -4], [34, 20], [21, 36], [0, 45])
+    pts += cubic([0, 45], [-21, 36], [-34, 20], [-34, -4])
+    pts += [[-34, -32]]
+    return [[x * k, y * k] for x, y in pts]
+
+
+def placed_check(op, t0, size, at, start_ind=1):
+    badge = check_layers(op, t0=t0, size=size, start_ind=start_ind)
+    for item in badge:
+        item['ks']['p'] = static([at[0], at[1], 0])
+    return badge
+
+
+def person_avatar(d, tone=hexc('#5AA6D3'), back=hexc('#EAF4FA')):
+    return [
+        group([ellipse(d), fill(back), stroke(LIGHT_BLUE, 1.5)]),
+        group([ellipse(d * .34), fill(tone)], p=(0, -d * .12)),
+        group([path([[-d * .3, d * .32], [-d * .2, d * .1], [d * .2, d * .1], [d * .3, d * .32]], True), fill(tone)]),
+    ]
+
+
 def celebration():
-    op = 110
-    layers = check_layers(op)
+    """Organisation set up: the organisation card fills with its team, then it is confirmed."""
+    op = 120
+    card = [
+        group([rect(132, 112, 16), fill(WHITE), stroke(LIGHT_BLUE, 2)]),
+        group([rect(132, 32, 16), fill(BLUE)], p=(0, -40)),
+        group([rect(132, 14, 0), fill(BLUE)], p=(0, -31)),
+        group([rect(16, 16, 4), fill(WHITE)], p=(-48, -40)),
+        group([rect(4, 4, 1), fill(BLUE)], p=(-51, -43)),
+        group([rect(4, 4, 1), fill(BLUE)], p=(-45, -43)),
+        group([rect(4, 6, 1), fill(BLUE)], p=(-48, -36)),
+        group([rect(46, 6, 3), fill(WHITE)], p=(-6, -43)),
+        group([rect(30, 4, 2), fill(hexc('#9FD0EC'))], p=(-14, -33)),
+        group([rect(72, 5, 2), fill(LIGHT_BLUE)], p=(0, 38)),
+    ]
+    card_layer = layer(30, 'organisation-card', card, op, p=(100, 102),
+                       o=anim((0, 0), (12, 100)), s=anim((0, [90, 90, 100]), (18, [100, 100, 100])))
+    team = []
+    for n, x in enumerate((-36, 0, 36)):
+        t = 18 + n * 9
+        team.append(layer(20 + n, f'member-{n + 1}', person_avatar(28), op, p=(100 + x, 108),
+                          s=anim((t, [0, 0, 100]), (t + 12, [108, 108, 100]), (t + 18, [100, 100, 100]))))
+    burst = []
     colours = [BLUE, GOLD, GREEN, hexc('#88c4e3')]
-    for n in range(12):
-        ang = n * math.pi * 2 / 12 + 0.2
-        dist = 72 + (n % 3) * 5
-        end = [100 + math.cos(ang) * dist, 100 + math.sin(ang) * dist, 0]
-        shape = ellipse(10) if n % 2 else rect(10, 6, 2)
-        confetti = layer(20 + n, 'confetti', [group([shape, fill(colours[n % 4])], r=static(n * 30))], op,
-                         o=anim((14, 0), (18, 100), (60, 100), (80, 0)))
-        confetti['ks']['p'] = anim((14, [100, 100, 0]), (52, end))
-        layers.append(confetti)
-    return doc('celebration', op, layers)
+    for n in range(8):
+        ang = -math.pi / 2 + (n - 3.5) * 0.42
+        end = [154 + math.cos(ang) * 34, 56 + math.sin(ang) * 34, 0]
+        shape = ellipse(7) if n % 2 else rect(8, 4, 2)
+        piece = layer(40 + n, 'spark', [group([shape, fill(colours[n % 4])], r=static(n * 40))], op,
+                      o=anim((64, 0), (68, 100), (90, 100), (104, 0)))
+        piece['ks']['p'] = anim((64, [154, 56, 0]), (92, end))
+        burst.append(piece)
+    return doc('celebration', op, burst + placed_check(op, 52, 40, (154, 56)) + team + [card_layer])
 
 
 def welcome():
-    op = 90
-    person = [
-        group([ellipse(30), fill(WHITE)], p=(0, -18)),
-        group([path([[-30, 34], [-30, 24], [-20, 8], [20, 8], [30, 24], [30, 34]], closed=True), fill(WHITE)]),
+    """Account created: the Credentis shield draws itself, then your card slides into place."""
+    op = 110
+    tile = [
+        group([rect(80, 80, 22), fill(BLUE)]),
+        group([path(shield_points(.5), True), trim(10, 36), stroke(WHITE, 4.5)]),
+        group([path([[-8, 0], [-2, 6], [9, -6]]), trim(30, 42), stroke(WHITE, 4.5)], p=(0, -1)),
     ]
-    return doc('welcome', op, [
-        layer(1, 'person', person, op, o=anim((14, 0), (28, 100)), s=anim((14, [70, 70, 100]), (30, [100, 100, 100]))),
-        layer(2, 'disc', [group([ellipse(120), fill(BLUE)])], op, s=pop(0, 18)),
-        layer(3, 'ring', [group([ellipse(120), stroke(BLUE, 4)])], op,
-              s=anim((10, [100, 100, 100]), (50, [150, 150, 100])), o=anim((10, 60), (50, 0))),
-    ])
+    tile_layer = layer(20, 'brand-tile', tile, op, p=(100, 74),
+                       s=anim((0, [60, 60, 100]), (16, [106, 106, 100]), (24, [100, 100, 100])),
+                       o=anim((0, 0), (8, 100)))
+    tile_layer['ks']['r'] = anim((0, -10), (24, 0))
+    card = [
+        group([rect(136, 62, 14), fill(WHITE), stroke(LIGHT_BLUE, 2)]),
+        # Nested groups are not reordered by doc(), so list them front-to-back here.
+        group(list(reversed(person_avatar(30))), p=(-42, 0)),
+        group([rect(56, 6, 3), fill(BLUE)], p=(14, -12)),
+        group([rect(46, 5, 2), fill(LIGHT_BLUE)], p=(9, 1)),
+        group([rect(30, 5, 2), fill(LIGHT_BLUE)], p=(1, 13)),
+    ]
+    card_layer = layer(10, 'your-card', card, op, o=anim((30, 0), (40, 100)))
+    card_layer['ks']['p'] = anim((30, [100, 166, 0]), (50, [100, 140, 0]))
+    return doc('welcome', op, placed_check(op, 52, 32, (160, 116)) + [card_layer, tile_layer])
 
 
 def completion():
-    op = 110
-    progress = layer(10, 'progress', [group([ellipse(124), trim(0, 40), stroke(BLUE, 8)])], op,
-                     o=anim((40, 100), (52, 0)))
-    progress['ks']['r'] = static(-90)
-    track = layer(11, 'track', [group([ellipse(124), stroke(LIGHT_BLUE, 8)])], op, o=anim((40, 100), (52, 0)))
-    return doc('completion', op, check_layers(op, t0=38) + [progress, track])
+    """Request finished: each step on the request ticks off in turn."""
+    op = 120
+    card = [
+        group([rect(120, 136, 16), fill(WHITE), stroke(LIGHT_BLUE, 2)]),
+        group([rect(62, 6, 3), fill(BLUE)], p=(-8, -48)),
+        group([rect(40, 4, 2), fill(LIGHT_BLUE)], p=(-19, -37)),
+        group([path([[0, -14], [0, 38]]), stroke(LIGHT_BLUE, 3)], p=(-36, 0)),
+    ]
+    rows = [-14, 12, 38]
+    for y in rows:
+        card += [group([ellipse(16), fill(WHITE), stroke(LIGHT_BLUE, 2)], p=(-36, y)),
+                 group([rect(52, 5, 2), fill(LIGHT_BLUE)], p=(6, y))]
+    card_layer = layer(30, 'request-card', card, op, p=(100, 100),
+                       o=anim((0, 0), (12, 100)), s=anim((0, [92, 92, 100]), (18, [100, 100, 100])))
+    progress = layer(25, 'progress', [group([path([[0, -14], [0, 38]]), trim(20, 60), stroke(GREEN, 3)])], op,
+                     p=(64, 100))
+    steps = []
+    for n, y in enumerate(rows):
+        t = 16 + n * 18
+        steps.append(layer(10 + n * 2, f'step-{n + 1}-tick',
+                           [group([path([[-4, 0], [-1, 3], [4, -3]]), trim(t + 6, t + 14), stroke(WHITE, 2.4)])],
+                           op, p=(64, 100 + y)))
+        steps.append(layer(11 + n * 2, f'step-{n + 1}', [group([ellipse(16), fill(GREEN)])], op, p=(64, 100 + y),
+                           s=anim((t, [0, 0, 100]), (t + 8, [112, 112, 100]), (t + 12, [100, 100, 100]))))
+    return doc('completion', op, placed_check(op, 70, 40, (150, 150)) + steps + [progress, card_layer])
 
 
 def empty():

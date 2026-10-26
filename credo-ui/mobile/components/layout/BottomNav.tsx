@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { Text, Box } from '@mantine/core';
 import { IconHome, IconScan, IconInbox, IconWallet, IconBuilding, IconBriefcase } from '@tabler/icons-react';
+import { RECORDS_TARGET_ATTR } from '../../../shared/cardMotion';
 import { CREDENTIS_CONTEXT_CHANGED_EVENT, getContextMode, getUserRole } from '@/lib/auth';
 
 interface BottomNavProps {
@@ -112,6 +113,7 @@ export default function BottomNav({ inboxCount = 0 }: BottomNavProps) {
               aria-current={active ? 'page' : undefined}
               aria-label={tab.href === '/inbox' && inboxCount > 0 ? `${tab.label}, ${inboxCount} new items` : tab.label}
               key={tab.href} onClick={() => router.replace(tab.href)}
+              {...(tab.href === '/proofs' ? { [RECORDS_TARGET_ATTR]: '' } : null)}
               style={{
                 background: 'transparent',
                 border: 0,

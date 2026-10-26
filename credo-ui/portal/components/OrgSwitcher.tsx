@@ -9,6 +9,7 @@ import { roleLabel } from '../../shared/orgPeople'
 import { beginAddAccount, currentAccountId, listSavedAccounts, loadSavedAccountNames, rememberCurrentAccount, restoreAccount } from '@/lib/savedAccounts'
 import { isOrgContextActive } from '@/utils/portalTenant'
 import { captureOrganizationSwitchContext } from '../../shared/taskContext'
+import { readMemberships, persistMemberships, refreshMemberships } from '../../shared/organizationMemberships'
 
 export interface OrgInfo {
   orgTenantId: string
@@ -29,7 +30,6 @@ interface OrgSwitcherProps {
 
 const ORG_TOKEN_KEY = 'credoOrgToken'
 const ACTIVE_ORG_KEY = 'credoActiveOrg'
-const ORGS_CACHE_KEY = 'credoOrganizations'
 
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
@@ -80,28 +80,12 @@ function getPersonalToken(): string | null {
 
 function readOrganizationsFromCache(): OrgInfo[] {
   if (typeof window === 'undefined') return []
-  try {
-    const raw = window.localStorage.getItem(ORGS_CACHE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .map((entry: any) => ({
-        orgTenantId: entry?.orgTenantId || entry?.id || entry?.orgTenantID,
-        name: entry?.name || entry?.label || 'Organization',
-        role: entry?.role || 'member',
-        canOpenOrgContext: typeof entry?.canOpenOrgContext === 'boolean' ? entry.canOpenOrgContext : undefined,
-      }))
-      .filter((entry: OrgInfo) => !!entry.orgTenantId)
-  } catch {
-    return []
-  }
+  return readMemberships(window.localStorage, getPersonalToken())
 }
 
 function persistOrganizationsToCache(orgs: OrgInfo[]) {
   if (typeof window === 'undefined') return
-  if (!Array.isArray(orgs) || orgs.length === 0) return
-  window.localStorage.setItem(ORGS_CACHE_KEY, JSON.stringify(orgs))
+  persistMemberships(window.localStorage, getPersonalToken(), orgs)
 }
 
 export function getActiveOrg(): OrgInfo | null {
@@ -140,6 +124,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
   const [organizations, setOrganizations] = useState<OrgInfo[]>([])
   const [activeOrg, setActiveOrg] = useState<OrgInfo | null>(null)
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [switching, setSwitching] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [opened, setOpened] = useState(false)
@@ -162,24 +147,21 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
     setActiveOrg(getActiveOrg())
     const token = getPersonalToken()
     if (!token) {
-      const cachedOrgs = readOrganizationsFromCache()
-      const active = getActiveOrg()
-      if (active && !cachedOrgs.some((org) => org.orgTenantId === active.orgTenantId)) {
-        cachedOrgs.unshift(active)
-      }
-      setOrganizations(cachedOrgs)
+      setOrganizations([])
+      setLoadError('Sign in to your personal account to load organisations.')
       return
     }
 
     setLoading(true)
-    axios
-      .get(`${holderBackend}/api/organizations`, {
+    setLoadError(null)
+    refreshMemberships(localStorage, token, async () => {
+      const res = await axios.get(`${holderBackend}/api/organizations`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      .then((res) => {
-        const orgs = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.organizations) ? res.data.organizations : []
+      return res.data
+    }, getPersonalToken)
+      .then((orgs) => {
         setOrganizations(orgs)
-        persistOrganizationsToCache(orgs)
 
         const current = getActiveOrg()
         if (current && !orgs.some((org: OrgInfo) => org.orgTenantId === current.orgTenantId && canOpenOrg(org))) {
@@ -187,6 +169,17 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
           localStorage.removeItem('credoOrgName')
           localStorage.removeItem('credoTenantSector')
           localStorage.removeItem('credoTenantFeatures')
+          localStorage.setItem('credoContextMode', 'personal')
+          localStorage.setItem('credoTenantToken', token)
+          localStorage.setItem('tenantToken', token)
+          const personalId = decodeJwtPayload(token)?.tenantId
+          if (typeof personalId === 'string') {
+            localStorage.setItem('credoTenantId', personalId)
+            localStorage.setItem('tenantId', personalId)
+          }
+          clearPortalTask()
+          setActiveOrg(null)
+          window.dispatchEvent(new Event(CONTEXT_UPDATED_EVENT))
         } else if (current) {
           // The membership on the server decides the role. When it changed since this organisation
           // session was opened, open a new session so the page, the token and the server agree.
@@ -203,13 +196,11 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
           }
         }
       })
-      .catch(() => {
+      .catch((error) => {
+        console.warn('Could not refresh organisation switcher', error)
         const cachedOrgs = readOrganizationsFromCache()
-        const active = getActiveOrg()
-        if (active && !cachedOrgs.some((org) => org.orgTenantId === active.orgTenantId)) {
-          cachedOrgs.unshift(active)
-        }
         setOrganizations(cachedOrgs)
+        setLoadError(cachedOrgs.length ? 'Saved organisations; could not refresh. Retry.' : 'Could not load organisations. Retry.')
       })
       .finally(() => setLoading(false))
   }, [holderBackend])
@@ -231,10 +222,15 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
     }
     window.addEventListener('storage', onContext)
     window.addEventListener(CONTEXT_UPDATED_EVENT, onContext)
+    const resume = () => { if (document.visibilityState !== 'hidden') onContext() }
+    window.addEventListener('focus', resume)
+    document.addEventListener('visibilitychange', resume)
     router.events.on('routeChangeComplete', onContext)
     return () => {
       window.removeEventListener('storage', onContext)
       window.removeEventListener(CONTEXT_UPDATED_EVENT, onContext)
+      window.removeEventListener('focus', resume)
+      document.removeEventListener('visibilitychange', resume)
       router.events.off('routeChangeComplete', onContext)
     }
   }, [loadOrganizations, router])
@@ -339,15 +335,10 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
   }, [roleChangedOrg, switching, switchToOrg])
 
   const switchToPersonal = useCallback(() => {
-    const currentOrg = getActiveOrg()
     const personalToken = localStorage.getItem('walletToken')
     if (!personalToken) {
       feedback.warn('No personal wallet token is available in this session. Stay in org context or sign in again.', { title: 'Personal context unavailable' })
       return
-    }
-
-    if (currentOrg) {
-      persistOrganizationsToCache([currentOrg, ...organizations.filter((entry) => entry.orgTenantId !== currentOrg.orgTenantId)])
     }
 
     if (personalToken) {
@@ -454,6 +445,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
               Loading organizations…
             </Menu.Item>
           )}
+          {loadError && <Menu.Item color="orange" onClick={() => loadOrganizations()}>{loadError}</Menu.Item>}
           {!loading && organizations.length === 0 && (
             <Menu.Item disabled>
               <Text size="sm">No organizations yet</Text>

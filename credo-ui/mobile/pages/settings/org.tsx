@@ -18,6 +18,8 @@ import {
 import { useRouter } from 'next/router';
 import { StepHelp } from '@/components/help/StepHelp';
 import AppShellMobile from '@/components/layout/AppShellMobile';
+import { SectionTip } from '@/components/guides/SectionGuides';
+import { reveal } from '../../../shared/reveal';
 import BottomSheet from '@/components/shared/BottomSheet';
 import ErrorAlert from '@/components/shared/ErrorAlert';
 import HandoffSettingsCard from '@/components/shared/HandoffSettingsCard';
@@ -30,12 +32,12 @@ import api, { safeArray } from '@/lib/api';
 import BrandEditor from '@/components/org/BrandEditor';
 import { getActiveOrgLabel, getActiveOrgId, getWalletToken, getPreferredToken, applyOrgContext, getOrgRoleClaim, decodeJwtPayload } from '@/lib/auth';
 import {
-  CARD_STATE_COLOR, CARD_STATE_LABEL, ONBOARDING_PATH, SUMMARY_COLOR, SUMMARY_LABEL,
+  CARD_STATE_COLOR, CARD_STATE_LABEL, MY_SUMMARY_LABEL, ONBOARDING_PATH, SUMMARY_COLOR, SUMMARY_LABEL,
   DEFAULT_STAFF_CARD_CHANGE, STAFF_CARD_CHANGE_OPTIONS,
   cardCanResend, cardPurpose, cardResendHint, memberAccessBadge, myOnboardingSteps, readyCount, sendCardsPath, staffCardChangeRule,
   type MemberCardKind, type MemberOnboarding, type StaffCardChangeRule,
 } from '@/lib/orgOnboarding';
-import { MONEY_CHOICES, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, TEAM_ROLE_FALLBACK, kindsFromRequestTypes, modulePlanNote, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, setupChecklist, teamRolesFromCatalog, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
+import { MONEY_CHOICES, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, TEAM_ROLE_FALLBACK, kindsFromRequestTypes, markOrgSetupLater, modulePlanNote, orgSetupLater, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, setupChecklist, teamRolesFromCatalog, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
 import { SETUP_BOOTSTRAP_PATH, bootstrapRequest, cleanDepartmentNames, suggestedDepartmentsFor, suggestedOrgModules, type OrgOperatingModel, type OrgSetupPlan } from '@/lib/orgProfile';
 
 // ── Org list types ──
@@ -1112,13 +1114,6 @@ export default function OrgSettingsPage() {
         workflowTypes,
       });
 
-      try {
-        const existing = JSON.parse(localStorage.getItem('credoOrganizations') ?? '[]');
-        localStorage.setItem('credoOrganizations', JSON.stringify([
-          ...existing, { orgTenantId, name: newOrgName.trim(), role: orgRole ?? 'owner' }
-        ]));
-      } catch { /* storage quota */ }
-
       feedback.success(newOrgName.trim(), { title: 'Organisation created' });
       setActiveId(orgTenantId);
       setActiveLabel(newOrgName.trim());
@@ -1177,7 +1172,8 @@ export default function OrgSettingsPage() {
 
   useEffect(() => {
     if (!canManageOrgSetup || !activeId) return;
-    if (readOrgProfile()) {
+    // A cached profile alone does not mean answered: the server returns one for new organisations too.
+    if (readOrgProfile()?.completedAt || orgSetupLater(activeId)) {
       setOrgQuestion(0);
       return;
     }
@@ -1472,6 +1468,7 @@ export default function OrgSettingsPage() {
           />
         </Group>
 
+        <SectionTip tip="tip_org_settings" when={canManageOrgSetup && Boolean(activeId) && section === null} />
         <Divider />
         {error && <ErrorAlert message={error} />}
         {activeId && serverProfile?.access?.drainingWork?.length ? (
@@ -1558,7 +1555,7 @@ export default function OrgSettingsPage() {
           <Stack gap="md">
             {section === null && orgDone !== null && (
               <Paper p="md" radius="md" withBorder>
-                <Stack gap="sm" align="center">
+                <Stack key={`done-${orgDone}`} className={reveal.stagger} gap="sm" align="center">
                   {orgDone === 'all'
                     ? <LottiePlayer kind="org_setup" size={120} />
                     : <ThemeIcon color="teal" variant="light" radius="xl" size={44}><IconCheck size={22} /></ThemeIcon>}
@@ -1606,7 +1603,7 @@ export default function OrgSettingsPage() {
             )}
             {section === null && canManageOrgSetup && orgQuestion > 0 && orgReview && (
               <Paper p="md" radius="md" withBorder>
-                <Stack gap="sm">
+                <Stack key="review" className={reveal.stagger} gap="sm">
                   <Text fw={700}>Here is what we will set up</Text>
                   <Text size="xs" c="dimmed">Nothing is saved until you confirm. You can change any of this later.</Text>
                   <Stack gap={2}>
@@ -1614,7 +1611,9 @@ export default function OrgSettingsPage() {
                     <Text size="sm">
                       {orgReview.workAreas.length > 0
                         ? orgReview.workAreas.map((area) => area.label).join(', ')
-                        : 'None here. Connect your own systems after setup.'}
+                        : operatingModel === 'integration'
+                          ? 'None here. Connect your own systems after setup.'
+                          : 'Purchase requests and supplier bills. Add more any time.'}
                     </Text>
                   </Stack>
                   <Stack gap={2}>
@@ -1658,11 +1657,11 @@ export default function OrgSettingsPage() {
             )}
             {section === null && canManageOrgSetup && orgQuestion > 0 && !orgReview && (
               <Paper p="md" radius="md" withBorder>
-                <Stack gap="sm">
+                <Stack key={`question-${orgQuestion}`} className={reveal.stagger} gap="sm">
                   <GuidedSteps current={orgQuestion} total={ORG_QUESTION_COUNT} label="Question" />
                   <Text fw={700}>
                     {orgQuestion === 1
-                      ? 'What does your organization do?'
+                      ? `What does ${activeLabel || 'your organisation'} do?`
                       : orgQuestion === 2
                         ? 'Which of these would be useful for your organisation?'
                         : orgQuestion === 3
@@ -1853,6 +1852,7 @@ export default function OrgSettingsPage() {
                       onClick={() => {
                         if (orgQuestion === 1) {
                           persistOrgProfile({ kinds: orgKinds, modules: orgModules, approvalPresetId: '', approvalTitle: '', paymentChoice: 'none', completedAt: '' });
+                          if (activeId) markOrgSetupLater(activeId);
                           setOrgQuestion(0);
                           return;
                         }
@@ -1877,10 +1877,10 @@ export default function OrgSettingsPage() {
             )}
             {section === null && orgQuestion === 0 && orgDone === null && myOnboarding && myOnboarding.summary !== 'ready' && (
             <Paper p="md" radius="md" withBorder>
-              <Stack gap="xs">
+              <Stack className={reveal.stagger} gap="xs">
                 <Group justify="space-between" align="start">
                   <Text fw={700}>Your getting started</Text>
-                  <Badge size="xs" variant="light" color={SUMMARY_COLOR[myOnboarding.summary]}>{SUMMARY_LABEL[myOnboarding.summary]}</Badge>
+                  <Badge size="xs" variant="light" color={SUMMARY_COLOR[myOnboarding.summary]}>{MY_SUMMARY_LABEL[myOnboarding.summary]}</Badge>
                 </Group>
                 {myOnboardingSteps(myOnboarding).map((step) => (
                   <Group key={step.label} gap="xs" wrap="nowrap" align="start">
@@ -1912,7 +1912,7 @@ export default function OrgSettingsPage() {
                       const doneCount = setupSteps.filter((step) => step.done).length;
                       const firstOpen = setupSteps.find((step) => !step.done);
                       return (
-                        <Stack gap={8}>
+                        <Stack className={reveal.stagger} gap={8}>
                           <Text size="sm" c={firstOpen ? 'dimmed' : 'teal'}>
                             {firstOpen ? `${doneCount} of ${setupSteps.length} done` : 'You are set. Everything is in place.'}
                           </Text>

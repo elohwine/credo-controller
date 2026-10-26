@@ -8,7 +8,9 @@ import {
 import { useRouter } from 'next/router';
 import { notifications } from '@mantine/notifications';
 import AppShellMobile from '@/components/layout/AppShellMobile';
-import { getPersonalWalletToken, getPreferredToken, getUserName, getWalletToken, isAuthenticated } from '@/lib/auth';
+import { applyOrgContext, clearTaskContext, getPersonalWalletToken, getUserName, getWalletToken, isAuthenticated, mayOpenOrgContext } from '@/lib/auth';
+import { refreshMemberships } from '../../../shared/organizationMemberships';
+import { captureOrganizationSwitchContext } from '../../../shared/taskContext';
 import { fetchOrgBrand } from '@/lib/documentDownload';
 import { safeBrandColor, type DocumentBrand } from '@/lib/brandedDocument';
 import api from '@/lib/api';
@@ -116,11 +118,6 @@ interface CatalogItem {
   category?: string;
 }
 
-interface OrganizationProfileApiResponse extends Partial<Organization> {
-  org?: Organization;
-  services?: Service[];
-}
-
 function ServiceCard({ service, onRequest }: { service: Service; onRequest: () => void }) {
   return (
     <Paper p="md" radius="md" withBorder>
@@ -211,6 +208,8 @@ export default function OrganizationDetailPage() {
   const source = typeof router.query.source === 'string' ? router.query.source : 'discover';
   const [profile, setProfile] = useState<OrganizationProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [ownerPreview, setOwnerPreview] = useState(false);
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [askKind, setAskKind] = useState<AskKind>('quote');
@@ -232,7 +231,7 @@ export default function OrganizationDetailPage() {
   useEffect(() => {
     if (checkingAuth || !id) return;
     loadOrganizationProfile();
-  }, [checkingAuth, id]);
+  }, [checkingAuth, id, source]);
 
   const brandOrgId = profile?.org?.tenantId || profile?.org?.id;
   useEffect(() => {
@@ -242,15 +241,45 @@ export default function OrganizationDetailPage() {
   }, [brandOrgId]);
 
   const loadOrganizationProfile = async () => {
+    if (typeof id !== 'string') return;
     setLoading(true);
+    setProfile(null);
+    setProfileError(null);
+    setOwnerPreview(false);
+    let privatePreview = false;
     try {
-      try {
-        // Owners see their own profile even while it is private; everyone else gets the public one.
-        const ownerToken = source === 'my-orgs' ? getPreferredToken() : null;
+        const personalToken = getPersonalWalletToken();
+        const assertContextUnchanged = captureOrganizationSwitchContext(localStorage);
+        let ownerToken: string | null = null;
+        if (source === 'my-orgs') {
+          if (!personalToken) throw new Error('Sign in to your personal account to check this membership.');
+          const memberships = await refreshMemberships(localStorage, personalToken, async () => {
+            const response = await api.get('/api/organizations', { headers: { Authorization: 'Bearer ' + personalToken } });
+            return response.data;
+          }, getPersonalWalletToken);
+          const membership = memberships.find((item) => item.orgTenantId === id);
+          if (!membership) throw new Error('This organisation is no longer in your memberships. The saved card has been removed.');
+          privatePreview = membership.canOpenOrgContext ?? mayOpenOrgContext(membership.role);
+          if (privatePreview) {
+            const response = await api.post(`/api/organizations/${encodeURIComponent(id)}/switch`, {}, {
+              headers: { Authorization: 'Bearer ' + personalToken },
+            });
+            assertContextUnchanged();
+            if (typeof response.data?.token !== 'string' || !response.data.token) {
+              throw new Error('Organisation entry did not return a session.');
+            }
+            ownerToken = response.data.token;
+            clearTaskContext();
+            applyOrgContext({
+              orgId: id, orgName: membership.name, orgToken: ownerToken,
+              orgRole: response.data.orgRole, sector: response.data.sector,
+              workflowTypes: response.data.workflowTypes,
+            });
+          }
+        }
         const storefrontResponse = ownerToken
-          ? await api.get(`/api/organizations/${id}/offerings/preview`, { headers: { Authorization: 'Bearer ' + ownerToken } })
-            .catch(() => api.get(`/api/discovery/organizations/${id}/storefront`))
-          : await api.get(`/api/discovery/organizations/${id}/storefront`);
+          ? await api.get(`/api/organizations/${encodeURIComponent(id)}/offerings/preview`, { headers: { Authorization: 'Bearer ' + ownerToken } })
+          : await api.get(`/api/discovery/organizations/${encodeURIComponent(id)}/storefront`);
         const storefront = (storefrontResponse.data || {}) as StorefrontApiResponse;
 
         if (!storefront?.orgId) {
@@ -285,8 +314,9 @@ export default function OrganizationDetailPage() {
           didDocumentUrl: storefront.didDocumentUrl,
           shopUrl: storefront.shopUrl,
         });
+        setOwnerPreview(privatePreview);
 
-        if (source === 'my-orgs') {
+        if (privatePreview) {
           notifications.show({
             title: 'Owner preview',
             message: 'This is how other wallets see your public profile.',
@@ -294,90 +324,16 @@ export default function OrganizationDetailPage() {
           });
         }
         return;
-      } catch (storefrontError: any) {
-        console.warn('Storefront endpoint unavailable, falling back to profile endpoint:', storefrontError?.message);
-      }
-
-      if (source !== 'my-orgs') {
-        const response = await api.get(`/api/discovery/organizations/${id}`);
-        const data = (response.data || {}) as OrganizationProfileApiResponse;
-
-        const normalizedOrg: Organization | undefined = data.org || (data.id
-          ? {
-            id: data.id,
-            tenantId: data.tenantId || '',
-            displayName: data.displayName || 'Organization',
-            description: data.description,
-            logoUrl: data.logoUrl,
-            category: data.category || 'other',
-            trustScore: Number(data.trustScore || 0),
-            verificationStatus: data.verificationStatus || 'unverified',
-            issuerDid: data.issuerDid || '',
-            website: data.website,
-            contactPhone: data.contactPhone,
-            contactEmail: data.contactEmail,
-            address: data.address,
-          }
-          : undefined);
-
-        if (!normalizedOrg) throw new Error('Invalid organization profile response');
-
-        setProfile({
-          org: normalizedOrg,
-          services: Array.isArray(data.services) ? data.services : [],
-          catalogItems: [],
-          trustBadges: [],
-          paymentRails: [],
-          isPublic: undefined,
-        });
-        return;
-      }
-
-      throw new Error('Use membership fallback for my-org context');
     } catch (error: any) {
-      try {
-        const token = getWalletToken();
-        const res = await api.get('/api/organizations', {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        });
-        const memberships = Array.isArray(res.data) ? res.data : [];
-        const ownOrg = memberships.find((m: any) => (m.orgTenantId || m.id) === id);
-        if (!ownOrg) throw new Error('Organization not found in memberships');
-
-        setProfile({
-          org: {
-            id: ownOrg.orgTenantId || ownOrg.id,
-            tenantId: ownOrg.orgTenantId || ownOrg.id,
-            displayName: ownOrg.name || ownOrg.label || 'My Organization',
-            description: ownOrg.domain ? `Domain: ${ownOrg.domain}` : (ownOrg.issuerDid ? `Issuer DID: ${ownOrg.issuerDid}` : undefined),
-            category: 'organization',
-            trustScore: 0,
-            verificationStatus: 'verified',
-            issuerDid: ownOrg.issuerDid || '',
-          },
-          services: [],
-          catalogItems: [],
-          trustBadges: [],
-          paymentRails: [],
-          isPublic: undefined,
-        });
-
-        if (source === 'my-orgs') {
-          notifications.show({
-            title: 'My Organization',
-            message: 'Loaded from your organization account context.',
-            color: 'blue',
-          });
-        }
-      } catch {
-        console.error('Failed to load organization:', error);
-        notifications.show({
-          title: 'Error',
-          message: 'Failed to load organization details',
-          color: 'red',
-        });
-        router.push('/organizations');
-      }
+      console.error('Failed to load organization:', error);
+      const status = error?.response?.status;
+      setProfileError(status === 404
+        ? (privatePreview ? 'This organisation is no longer available.' : 'This organisation has no available public profile. It may be private or removed.')
+        : status === 403
+          ? 'You do not have permission to open this organisation. Use your personal inbox for assigned work.'
+          : status === 401
+            ? 'Your session expired. Sign in again to continue.'
+            : error?.response?.data?.message || error?.message || 'Could not reach the organisation. Check your connection and retry.');
     } finally {
       setLoading(false);
     }
@@ -472,8 +428,9 @@ export default function OrganizationDetailPage() {
       <AppShellMobile>
         <Box p="md">
           <Alert color="red" icon={<IconAlertCircle />}>
-            Organization not found
+            {profileError || 'Organisation not found'}
           </Alert>
+          <Button mt="md" variant="light" onClick={() => void loadOrganizationProfile()}>Retry</Button>
           <Button mt="md" onClick={() => router.push('/organizations')}>
             Back to Organizations
           </Button>
@@ -621,7 +578,7 @@ export default function OrganizationDetailPage() {
             </Stack>
           )}
 
-          {source === 'my-orgs' && (
+          {ownerPreview && (
             <Paper m="md" p="md" radius="md" withBorder style={{ background: 'linear-gradient(135deg, rgba(14,165,233,0.08), rgba(13,148,136,0.06))' }}>
               <Stack gap="sm">
                 <Group justify="space-between" align="start">
@@ -760,7 +717,7 @@ export default function OrganizationDetailPage() {
             </Text>
             {services.length === 0 ? (
               <Text size="sm" c="dimmed">
-                {source === 'my-orgs' ? 'No services shown yet. Switch some on in Public profile.' : 'No services listed yet. You can still ask for a quote.'}
+                {ownerPreview ? 'No services shown yet. Switch some on in Public profile.' : 'No services listed yet. You can still ask for a quote.'}
               </Text>
             ) : (
               <Stack gap="sm">

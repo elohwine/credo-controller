@@ -8688,6 +8688,81 @@
         "type": "object",
         "additionalProperties": false
       },
+      "GuideStatus": {
+        "type": "string",
+        "enum": [
+          "done",
+          "dismissed"
+        ]
+      },
+      "GuideState": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/GuideStatus"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "updatedAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "GuideProgress": {
+        "properties": {
+          "guides": {
+            "properties": {},
+            "additionalProperties": {
+              "$ref": "#/components/schemas/GuideState"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "guides"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "GettingStartedStatus": {
+        "properties": {
+          "identityCard": {
+            "type": "boolean"
+          },
+          "deviceSignIn": {
+            "type": "boolean"
+          },
+          "organisation": {
+            "type": "boolean"
+          },
+          "cardSaving": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "identityCard",
+          "deviceSignIn",
+          "organisation",
+          "cardSaving"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "HolderSettings": {
+        "properties": {
+          "autoSaveCards": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "autoSaveCards"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
       "FinishedOutcome": {
         "type": "string",
         "enum": [
@@ -28134,6 +28209,262 @@
                     "type": "string"
                   }
                 },
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/credentials/guides": {
+      "get": {
+        "operationId": "GetGuideProgress",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuideProgress"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Welcome screens, getting-started guide and section tips this person finished: the same on every device.",
+        "tags": [
+          "Wallet-Credentials"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          },
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": []
+      }
+    },
+    "/api/wallet/credentials/guides/{key}": {
+      "put": {
+        "operationId": "SetGuideProgress",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuideProgress"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Credentials"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          },
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "done",
+                      "dismissed",
+                      "reset"
+                    ]
+                  }
+                },
+                "required": [
+                  "status"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/credentials/getting-started": {
+      "get": {
+        "operationId": "GetGettingStarted",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GettingStartedStatus"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Which getting-started steps this account has really finished.",
+        "tags": [
+          "Wallet-Credentials"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          },
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": []
+      }
+    },
+    "/api/wallet/credentials/holder-settings": {
+      "get": {
+        "operationId": "GetHolderSettings",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HolderSettings"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Account-wide holder choices, such as saving new cards without a tap.",
+        "tags": [
+          "Wallet-Credentials"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          },
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": []
+      },
+      "put": {
+        "operationId": "SetHolderSettings",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HolderSettings"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Credentials"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          },
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "autoSaveCards": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "autoSaveCards"
+                ],
                 "type": "object"
               }
             }

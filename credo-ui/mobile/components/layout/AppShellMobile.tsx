@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Box, Group, Text, ActionIcon, Avatar, Drawer, Stack, Button, Divider, useMantineColorScheme, Menu, UnstyledButton } from '@mantine/core';
-import { IconSettings, IconLogout, IconBuilding, IconCertificate, IconPlugConnected, IconChevronDown, IconSun, IconMoon, IconCheck, IconUser, IconPlus, IconArrowLeft, IconBrandWhatsapp } from '@tabler/icons-react';
+import { IconSettings, IconLogout, IconBuilding, IconChevronDown, IconSun, IconMoon, IconCheck, IconUser, IconPlus, IconArrowLeft } from '@tabler/icons-react';
 import BottomNav from './BottomNav';
 import { CREDENTIS_CONTEXT_CHANGED_EVENT, clearTaskContext, getTaskContext, getActiveOrgLabel, getUserName, getUserRole, clearAuth, getWalletToken, syncOrgContextFromServer, applyOrgContext, setPersonalContext, mayOpenOrgContext, getContextMode, getOrgToken, getContextTokenStrict, getPersonalWalletToken } from '@/lib/auth';
 import { beginAddAccount, currentAccountId, listSavedAccounts, loadSavedAccountNames, rememberCurrentAccount, restoreAccount } from '@/lib/savedAccounts';
@@ -9,6 +9,7 @@ import api, { API_BASE_URL } from '@/lib/api';
 import { notifications } from '@mantine/notifications';
 import { captureOrganizationSwitchContext } from '../../../shared/taskContext';
 import { roleLabel } from '../../../shared/orgPeople';
+import { readMemberships, refreshMemberships } from '../../../shared/organizationMemberships';
 import { HeaderProgressBar, useBackgroundBusy } from '@/components/feedback/HeaderProgressBar';
 import { PullRefreshIndicator, PULL_TRIGGER_PX } from '@/components/feedback/PullRefreshIndicator';
 import { useActivityStore } from '@/lib/state/activity';
@@ -38,6 +39,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
   const workplaces = orgs.filter((org) => !org.canOpen);
   const [orgSwitching, setOrgSwitching] = useState(false);
   const [orgsLoading, setOrgsLoading] = useState(false);
+  const [orgsError, setOrgsError] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<Array<{ id: string; label: string; signedOut?: boolean; phone?: string }>>([]);
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
   const [inboxTask, setInboxTask] = useState(false);
@@ -312,33 +314,31 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
   const loadOrgs = async () => {
     if (orgsLoading) return;
     setOrgsLoading(true);
+    setOrgsError(null);
+    const token = getPersonalWalletToken();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const mapOrg = (o: { orgTenantId: string; name: string; role: string; canOpenOrgContext?: boolean }) => ({
+      id: o.orgTenantId, name: o.name, role: o.role,
+      canOpen: o.canOpenOrgContext ?? mayOpenOrgContext(o.role),
+    });
     try {
-      const token = getWalletToken();
-      if (!token) { setOrgsLoading(false); return; }
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-      const res = await api.get('/api/organizations', {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      const data: any[] = res.data ?? [];
-      const mapped = data.map((o: any) => ({
-        id: o.orgTenantId ?? o.id,
-        name: o.name ?? o.label ?? o.id,
-        role: o.role ?? 'holder',
-        canOpen: typeof o.canOpenOrgContext === 'boolean' ? o.canOpenOrgContext : mayOpenOrgContext(o.role),
-      }));
-      // Keep credoOrganizations cache in sync
-      if (mapped.length > 0) {
-        try { localStorage.setItem('credoOrganizations', JSON.stringify(
-          data.map((o: any) => ({ orgTenantId: o.orgTenantId ?? o.id, name: o.name ?? o.label ?? o.id, role: o.role ?? 'holder', canOpenOrgContext: typeof o.canOpenOrgContext === 'boolean' ? o.canOpenOrgContext : mayOpenOrgContext(o.role) }))
-        )); } catch { /* quota */ }
-      }
-      setOrgs(mapped);
-    } catch {
-      // silently fail — menu will show empty state
+      if (!token) { setOrgs([]); return; }
+      const data = await refreshMemberships(localStorage, token, async () => {
+        const res = await api.get('/api/organizations', {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        return res.data;
+      }, getPersonalWalletToken);
+      setOrgs(data.map(mapOrg));
+    } catch (error) {
+      console.warn('Could not refresh switcher organisations', error);
+      const cached = readMemberships(localStorage, getPersonalWalletToken());
+      setOrgs(cached.map(mapOrg));
+      setOrgsError(cached.length ? 'Saved organisations; refresh failed. Tap to retry.' : 'Could not load organisations. Tap to retry.');
     } finally {
+      clearTimeout(timeout);
       setOrgsLoading(false);
     }
   };
@@ -516,6 +516,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                 {orgsLoading && (
                   <Menu.Item disabled>Loading organisations…</Menu.Item>
                 )}
+                {orgsError && <Menu.Item color="orange" onClick={() => void loadOrgs()}>{orgsError}</Menu.Item>}
                 <Menu.Item
                   leftSection={<IconUser size={14} />}
                   rightSection={!orgLabel ? <IconCheck size={14} color="#2188ca" /> : null}
@@ -613,7 +614,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
         onClose={() => setSettingsOpen(false)}
         position="bottom"
         size="auto"
-        title="Settings"
+        title="Account"
         radius="lg"
         styles={{
           content: {
@@ -626,8 +627,11 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
         }}
       >
         <Stack gap="md" pb="lg">
-          <Button variant="light" onClick={() => { setSettingsOpen(false); void router.push('/settings/security/'); }}>
-            Account security
+          <Button variant="light" leftSection={<IconSettings size={16} />} onClick={() => {
+            // Closing first would let the drawer's Back entry cancel a navigation that is still loading.
+            void router.push('/settings/').finally(() => setSettingsOpen(false));
+          }}>
+            All settings
           </Button>
           <Stack gap="xs">
             <Text size="xs" c="dimmed" tt="uppercase" fw={600} px="xs">
@@ -670,6 +674,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
             {orgsLoading && orgs.length === 0 && (
               <Text size="xs" c="dimmed" px="xs">Loading organisations…</Text>
             )}
+            {orgsError && <Button variant="subtle" color="orange" onClick={() => void loadOrgs()}>{orgsError}</Button>}
             {switchableOrgs.filter((org) => org.name !== orgLabel).map((org) => (
               <Button
                 key={org.id}
@@ -694,61 +699,9 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                 ))}
               </>
             )}
-            {orgLabel && !inboxTask && ['owner', 'admin'].includes(String(userRole || '').toLowerCase()) && (
-              <>
-                <Button
-                  variant="light"
-                  color="credentis"
-                  leftSection={<IconBuilding size={16} />}
-                  onClick={() => {
-                    setSettingsOpen(false);
-                    router.push('/settings/org/');
-                  }}
-                >
-                  Organisation settings
-                </Button>
-                <Button
-                  variant="light"
-                  color="credentis"
-                  leftSection={<IconCertificate size={16} />}
-                  onClick={() => {
-                    setSettingsOpen(false);
-                    router.push('/credential-operations');
-                  }}
-                >
-                  Credential operations
-                </Button>
-                <Button
-                  variant="light"
-                  color="credentis"
-                  leftSection={<IconPlugConnected size={16} />}
-                  onClick={() => {
-                    setSettingsOpen(false);
-                    router.push('/connected-systems');
-                  }}
-                >
-                  Connected systems
-                </Button>
-              </>
-            )}
           </Stack>
 
           <Divider />
-
-          {!inboxTask && (
-            <Button
-              variant="light"
-              color="green"
-              justify="flex-start"
-              leftSection={<IconBrandWhatsapp size={16} />}
-              onClick={() => {
-                setSettingsOpen(false);
-                router.push('/settings/alerts/');
-              }}
-            >
-              WhatsApp alerts
-            </Button>
-          )}
 
           <Stack gap="xs">
             <Text size="xs" c="dimmed" tt="uppercase" fw={600} px="xs">

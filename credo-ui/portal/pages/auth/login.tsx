@@ -224,7 +224,7 @@ export default function LoginPage() {
 
                                 <PasswordInput
                                     label="PIN"
-                                    placeholder="••••••"
+                                    placeholder="Account PIN"
                                     required
                                     maxLength={6}
                                     value={form.pin}

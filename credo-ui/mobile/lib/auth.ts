@@ -2,6 +2,7 @@
  * Auth helpers — mirrors portal localStorage key conventions
  */
 import { resolveMobileApiBaseUrl } from './baseUrl'
+import { refreshMemberships } from '../../shared/organizationMemberships'
 import {
   isBoundTaskPath,
   readInboxTask,
@@ -369,17 +370,20 @@ export function setPersonalContext(): void {
 export function applyPersonalWalletContext(token: string, tenantId?: string | null): void {
   if (typeof window === 'undefined') return
 
+  const payload = decodeJwtPayload(token)
+  const normalizedTenantId = tenantId?.trim() || (typeof payload?.tenantId === 'string' ? payload.tenantId : null)
+  if (!normalizedTenantId || payload?.tenantId !== normalizedTenantId || payload?.orgRole) {
+    throw new Error('The sign-in did not return a personal wallet session.')
+  }
   setPersonalContext()
+  localStorage.removeItem('credoOrganizations')
   localStorage.setItem('walletToken', token)
   // Keep compatibility with API clients still reading tenant token keys.
   localStorage.setItem('credoTenantToken', token)
   localStorage.setItem('tenantToken', token)
 
-  const normalizedTenantId = tenantId && String(tenantId).trim().length > 0 ? String(tenantId) : null
-  if (normalizedTenantId) {
-    localStorage.setItem('credoTenantId', normalizedTenantId)
-    localStorage.setItem('tenantId', normalizedTenantId)
-  }
+  localStorage.setItem('credoTenantId', normalizedTenantId)
+  localStorage.setItem('tenantId', normalizedTenantId)
   announceContextChanged()
 }
 
@@ -519,12 +523,7 @@ function allowBrowserCustomHeadersForApi(apiBase: string): boolean {
 export async function syncOrgContextFromServer(): Promise<boolean> {
   if (typeof window === 'undefined') return false
 
-  // Respect explicit user choice to stay in personal mode.
-  if (localStorage.getItem('credoContextMode') === 'personal') {
-    return false
-  }
-
-  const walletToken = getWalletToken()
+  const walletToken = getPersonalWalletToken()
   if (!walletToken) return false
 
   const apiBase = resolveMobileApiBaseUrl()
@@ -541,19 +540,15 @@ export async function syncOrgContextFromServer(): Promise<boolean> {
     const orgsRes = await fetch(`${apiBase}/api/organizations`, {
       headers: personalGuardHeaders,
     })
-    if (!orgsRes.ok) return false
+    if (!orgsRes.ok) throw new Error(`Could not refresh organisations (${orgsRes.status}).`)
+    const organizations = await refreshMemberships(
+      localStorage, walletToken, () => orgsRes.json(), getPersonalWalletToken,
+    )
 
-    const organizations = await orgsRes.json()
-    if (!Array.isArray(organizations) || organizations.length === 0) {
-      setPersonalContext()
-      return true
-    }
+    // Refresh even in personal mode, but never auto-promote into an organisation.
+    if (getContextMode() === 'personal') return false
 
-    const orgById = new Map<string, any>()
-    for (const org of organizations) {
-      const orgId = org?.orgTenantId ?? org?.id
-      if (orgId) orgById.set(orgId, org)
-    }
+    const orgById = new Map(organizations.map((org) => [org.orgTenantId, org]))
 
     const currentOrgId = getActiveOrgId()
 
@@ -578,26 +573,9 @@ export async function syncOrgContextFromServer(): Promise<boolean> {
     const existingPayload = existingOrgToken ? decodeJwtPayload(existingOrgToken) : null
     const tokenTenantId = existingPayload?.tenantId ?? existingPayload?.orgTenantId ?? existingPayload?.sub
 
-    // The membership on the server decides the role. Keep the saved list, name and role in step
-    // with it, and fetch a new organisation session when the role changed since this one was made.
+    // The membership on the server decides the role, not the saved session.
     const liveRole = String(currentOrg.role || '').trim()
-    const liveName = String(currentOrg.name ?? currentOrg.label ?? '').trim()
-    try {
-      localStorage.setItem(
-        'credoOrganizations',
-        JSON.stringify(
-          organizations.map((org: any) => ({
-            orgTenantId: org?.orgTenantId ?? org?.id,
-            name: org?.name ?? org?.label ?? org?.id,
-            role: org?.role ?? 'holder',
-            canOpenOrgContext:
-              typeof org?.canOpenOrgContext === 'boolean' ? org.canOpenOrgContext : mayOpenOrgContext(org?.role),
-          })),
-        ),
-      )
-    } catch {
-      /* storage full */
-    }
+    const liveName = currentOrg.name.trim()
     const tokenRole = String(existingPayload?.orgRole || '').trim()
     const sessionMatches = Boolean(existingOrgToken) && (!tokenTenantId || tokenTenantId === currentOrgId)
     if (sessionMatches && (!liveRole || !tokenRole || tokenRole === liveRole)) {
@@ -630,7 +608,7 @@ export async function syncOrgContextFromServer(): Promise<boolean> {
     const orgToken = switched?.token
     if (!orgToken) return false
 
-    const currentOrgName = currentOrg?.name ?? currentOrg?.label ?? currentOrgId
+    const currentOrgName = currentOrg.name
     applyOrgContext({
       orgId: currentOrgId,
       orgName: currentOrgName,
@@ -641,7 +619,8 @@ export async function syncOrgContextFromServer(): Promise<boolean> {
     })
 
     return true
-  } catch {
+  } catch (error) {
+    console.warn('Could not reconcile organisation context with the server', error)
     return false
   }
 }

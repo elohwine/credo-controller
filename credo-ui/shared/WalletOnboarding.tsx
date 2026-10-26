@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import styles from './WalletOnboarding.module.css'
+import { reveal } from './reveal'
 
 /** A sample journey only: no credential is issued and no information is sent. */
 export function WalletOnboarding({
@@ -18,15 +19,16 @@ export function WalletOnboarding({
   const heading = useRef<HTMLHeadingElement>(null)
 
   useEffect(() => {
+    setComplete(false)
     heading.current?.focus({ preventScroll: true })
   }, [step])
 
   return (
     <section className={styles.guide} aria-label="Try your wallet">
       <div className={styles.progressHeader}>
-        <div className={styles.steps} role="img" aria-label={`Wallet guide ${step} of 2`}>
-          <span data-active={step === 1} />
-          <span data-active={step === 2} />
+        <div className={styles.steps}>
+          <span role="img" aria-label={`Wallet guide ${step} of 2`}>{step} / 2</span>
+          <span className={styles.journeyLabel}>Your first day, made simpler</span>
         </div>
         <button type="button" className={styles.skipButton} onClick={onSkip}>Skip intro</button>
       </div>
@@ -38,42 +40,57 @@ export function WalletOnboarding({
           <circle cx="55" cy="181" r="4" fill="currentColor" opacity=".2" />
           <path d="M293 214V224M288 219H298M93 51V61M88 56H98" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity=".4" />
         </svg>
-        <div className={styles.merchant} aria-hidden="true">
+        <div className={styles.employer} aria-hidden="true">
           <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
-            <path d="M6 14V27H26V14M4 14L7 5H25L28 14M4 14C4 19 10 19 10 14C10 19 16 19 16 14C16 19 22 19 22 14C22 19 28 19 28 14M13 27V21H20V27" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+            <rect x="5" y="10" width="22" height="17" rx="4" stroke="currentColor" strokeWidth="1.8" />
+            <path d="M11 10V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v3M5 17c6 4 16 4 22 0M16 17v5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
         </div>
         <div className={styles.walletBack} aria-hidden="true">
           <div /><div />
         </div>
-        <article className={styles.receipt} aria-label={receiving ? 'Sample shop receipt' : 'Sample sharing request'}>
-          <div className={styles.receiptHeader}>
-            <span className={styles.shopMark} aria-hidden="true">E</span>
+        <article className={styles.card} aria-label={receiving ? 'Sample staff card' : 'Sample assigned work request'}>
+          <div className={styles.cardHeader}>
+            <span className={styles.orgMark} aria-hidden="true">M</span>
             <div>
-              <strong>Example Shop</strong>
-              <span>{receiving ? 'Payment receipt' : 'Customer support'}</span>
+              <strong>Mavambo Works</strong>
+              <span>{receiving ? 'Staff card' : 'Assigned to you'}</span>
             </div>
             <span className={styles.sample}>DEMO</span>
           </div>
+          {/* The card stays put and turns; only what is written on it changes, line by line. */}
+          <div key={step} className={reveal.stagger} style={{ display: 'contents' }}>
           {receiving ? (
             <>
-              <div className={styles.amount}><span>Paid in full</span><strong>USD 12<span>.00</span></strong></div>
-              <div className={styles.receiptMeta}><span>Reference</span><strong>EX-012</strong></div>
-              <div className={styles.receiptFoot}>
+              <div className={styles.person}>
+                <div className={styles.portrait} aria-hidden="true">
+                  <svg viewBox="0 0 64 64" fill="none"><circle cx="32" cy="23" r="11" fill="currentColor" /><path d="M12 58v-6a20 20 0 0 1 40 0v6" fill="currentColor" /></svg>
+                </div>
+                <div><strong>Tendai Moyo</strong><span>Field team</span></div>
+              </div>
+              <dl className={styles.cardDetails}>
+                <div><dt>Issued by</dt><dd>Your employer</dd></div>
+                <div><dt>For</dt><dd>Assigned deliveries</dd></div>
+              </dl>
+              <div className={styles.cardFoot}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                A record you can keep
+                Your role, in your wallet
               </div>
             </>
           ) : (
             <>
-              <div className={styles.requestTitle}>Confirm your purchase</div>
+              <div className={styles.requestTitle}>Confirm a delivery</div>
               <dl className={styles.requestDetails}>
-                <div><dt>Purpose</dt><dd>Return an item</dd></div>
-                <div><dt>Requested</dt><dd>Your shop receipt</dd></div>
+                <div><dt>Job</dt><dd>Deliver supplies</dd></div>
               </dl>
-              <div className={styles.receiptFoot}>Review the whole record before sharing</div>
+              <div className={styles.proof}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4" stroke="currentColor" strokeWidth="1.5" /><path d="m8 12 3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                <div><strong>Your staff card</strong><span>Proves your assigned role</span></div>
+              </div>
+              <div className={styles.cardFoot}>{complete ? 'Sample confirmation complete' : 'Only for work assigned to you'}</div>
             </>
           )}
+          </div>
         </article>
         {receiving && <div className={styles.walletPocket} aria-hidden="true">
           <span>My wallet</span>
@@ -81,19 +98,19 @@ export function WalletOnboarding({
         </div>}
         <button type="button" className={styles.tryButton} disabled={complete} onClick={() => setComplete(true)}>
           {complete && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-          {receiving ? (complete ? 'Saved to your sample wallet' : 'Try saving this receipt') : (complete ? 'Example approved' : 'Try approving this request')}
+          {receiving ? (complete ? 'Sample card saved' : 'Try saving your staff card') : (complete ? 'Sample delivery confirmed' : 'Try confirming the delivery')}
         </button>
       </div>
-      <div className={styles.introduction}>
-        <h2 ref={heading} tabIndex={-1} className={styles.heading}>{receiving ? 'Keep what matters.' : 'Have proof when you need it.'}</h2>
+      <div key={step} className={`${styles.introduction} ${reveal.stagger}`} style={{ ['--reveal-delay' as string]: '160ms' }}>
+        <h2 ref={heading} tabIndex={-1} className={styles.heading}>{receiving ? 'New team. Your card.' : 'Your card. Ready for work.'}</h2>
         <p className={styles.description}>
           {receiving
-            ? 'Your receipts and identity cards, organised in one wallet.'
-            : 'Reuse a saved record. You review the request and decide whether to share.'}
+            ? 'Imagine joining a team. Your employer sends a staff card. Review it and keep it in your wallet.'
+            : 'A delivery arrives in your inbox. Review the task and use your staff card to confirm your part.'}
         </p>
       </div>
       <p className={styles.explanation} role="status">
-        {complete ? 'Just a demo. Nothing was saved or sent.' : 'An interactive example. No real information is used.'}
+        {complete ? 'Demo only. Nothing was saved or sent.' : 'A fictional team. Try it without using real details.'}
       </p>
       <nav className={styles.navigation} aria-label="Wallet guide">
         <button type="button" className={styles.backButton} onClick={onBack}>{receiving ? 'Sign in' : 'Back'}</button>

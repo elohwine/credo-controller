@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { milestone } from '@/components/feedback/Milestone';
+import { WelcomeScreen } from '../../shared/Guides';
+import { GUIDE_PATHS } from '../../shared/guides';
+import { guideClient } from '@/lib/guides';
+import { tick } from '@/lib/feedback';
 import { WalletOnboarding } from '../../shared/WalletOnboarding';
 import { BrandMark } from '../../shared/BrandMark';
 import { useRouter } from 'next/router';
@@ -16,8 +19,8 @@ import {
 import { useForm } from '@mantine/form';
 import { IconPhone, IconLock, IconFingerprint } from '@tabler/icons-react';
 import api from '@/lib/api';
-import { applyPersonalWalletContext } from '@/lib/auth';
-import { authorizeDevice, loginDeviceAvailable, rememberPhoneWallet, rememberedWalletId } from '@/lib/deviceTrust';
+import { applyPersonalWalletContext, getPersonalWalletTenantId, syncOrgContextFromServer } from '@/lib/auth';
+import { authorizeDevice, deviceLoginWalletId, loginDevices, rememberPhoneWallet, supportsDeviceLogin } from '@/lib/deviceTrust';
 import { friendlyRequestError } from '@/lib/requestError';
 import ErrorAlert from '@/components/shared/ErrorAlert';
 
@@ -41,16 +44,20 @@ export default function LoginPage() {
   const [setupStep, setSetupStep] = useState(1);
   const [layoutHeight, setLayoutHeight] = useState<number>();
   const [canUsePhone, setCanUsePhone] = useState(false);
+  const [welcomeName, setWelcomeName] = useState<string | null>(null);
   const submitting = useRef(false);
 
   useEffect(() => {
     let width = window.innerWidth;
     setLayoutHeight(window.innerHeight);
-    try {
-      setCanUsePhone(loginDeviceAvailable(rememberedWalletId() || undefined));
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Use your account PIN to sign in.');
-    }
+    const refreshPhoneLogin = () => {
+      try {
+        setCanUsePhone(supportsDeviceLogin() || loginDevices().length > 0);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : 'Use your account PIN to sign in.');
+      }
+    };
+    refreshPhoneLogin();
     const resize = () => {
       // Keyboard height changes must not recenter the form underneath a submit tap.
       if (window.innerWidth === width) return;
@@ -58,7 +65,17 @@ export default function LoginPage() {
       setLayoutHeight(window.innerHeight);
     };
     window.addEventListener('resize', resize);
-    return () => window.removeEventListener('resize', resize);
+    window.addEventListener('focus', refreshPhoneLogin);
+    window.addEventListener('storage', refreshPhoneLogin);
+    document.addEventListener('deviceready', refreshPhoneLogin);
+    document.addEventListener('visibilitychange', refreshPhoneLogin);
+    return () => {
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('focus', refreshPhoneLogin);
+      window.removeEventListener('storage', refreshPhoneLogin);
+      document.removeEventListener('deviceready', refreshPhoneLogin);
+      document.removeEventListener('visibilitychange', refreshPhoneLogin);
+    };
   }, []);
 
   const loginForm = useForm<LoginValues>({
@@ -89,6 +106,26 @@ export default function LoginPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router.query.phone]);
 
+  /** Signs in and restores this account's context. Shared by the sign-in form and new accounts. */
+  const signIn = async (identifier: string, pin: string) => {
+    const email = identifier.includes('@') ? identifier : undefined;
+    const phone = email ? undefined : identifier;
+    const res = await api.post('/api/wallet/auth/login', { phone, email, pin });
+    const { token } = res.data;
+
+    applyPersonalWalletContext(token);
+    const tenantId = getPersonalWalletTenantId();
+    if (!tenantId) throw new Error('The sign-in did not return a wallet identity.');
+    rememberPhoneWallet(tenantId);
+    await syncOrgContextFromServer();
+    if (phone) localStorage.setItem('credoUserPhone', phone);
+    const { rememberCurrentAccount } = await import('@/lib/savedAccounts');
+    rememberCurrentAccount(identifier);
+    // Read this person's name from their identity card now, so the account switcher shows it.
+    void import('@/lib/offline/walletSnapshotSync').then(({ syncWalletSnapshot }) => syncWalletSnapshot()).catch(() => undefined);
+    // Org context is NEVER set on login — user must manually switch via the org selector.
+  };
+
   const handleLogin = async (values: typeof loginForm.values) => {
     // One tap signs in once, even if the keyboard closing fires a second submit.
     if (submitting.current) return;
@@ -96,32 +133,7 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      const identifier = values.identifier.trim();
-      const email = identifier.includes('@') ? identifier : undefined;
-      const phone = email ? undefined : identifier;
-      const res = await api.post('/api/wallet/auth/login', {
-        phone,
-        email,
-        pin: values.pin,
-      });
-      const { token, tenantId, organizations } = res.data;
-
-      applyPersonalWalletContext(token, tenantId);
-      rememberPhoneWallet(tenantId);
-      if (phone) localStorage.setItem('credoUserPhone', phone);
-      const { rememberCurrentAccount } = await import('@/lib/savedAccounts');
-      rememberCurrentAccount(identifier);
-      // Read this person's name from their identity card now, so the account switcher shows it.
-      void import('@/lib/offline/walletSnapshotSync').then(({ syncWalletSnapshot }) => syncWalletSnapshot()).catch(() => undefined);
-
-      // Cache orgs from login response so the user can manually switch later.
-      const orgs: Array<{ orgTenantId: string; name: string; role: string }> = organizations ?? [];
-      if (orgs.length > 0) {
-        localStorage.setItem('credoOrganizations', JSON.stringify(orgs));
-      }
-
-      // Org context is NEVER set on login — user must manually switch via the org selector.
-
+      await signIn(values.identifier.trim(), values.pin);
       const returnTo = router.query.returnTo as string | undefined;
       router.replace(returnTo ?? '/inbox');
     } catch (err: any) {
@@ -135,19 +147,16 @@ export default function LoginPage() {
 
   const handlePhoneLogin = async () => {
     if (submitting.current) return;
-    const walletId = rememberedWalletId();
-    if (!walletId) {
-      setError('Sign in with your account PIN, then enroll this phone under Account security.');
-      return;
-    }
     submitting.current = true;
     setLoading(true);
     setError(null);
     try {
+      const walletId = deviceLoginWalletId();
       const verified = await authorizeDevice({ purpose: 'device_login', walletId });
       if (!verified.token || !verified.tenantId) throw new Error('The device sign-in was not completed.');
       applyPersonalWalletContext(verified.token, verified.tenantId);
       rememberPhoneWallet(verified.tenantId);
+      await syncOrgContextFromServer();
       const { rememberCurrentAccount } = await import('@/lib/savedAccounts');
       rememberCurrentAccount();
       const returnTo = router.query.returnTo as string | undefined;
@@ -164,6 +173,8 @@ export default function LoginPage() {
   };
 
   const handleRegister = async (values: typeof registerForm.values) => {
+    if (submitting.current) return;
+    submitting.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -172,28 +183,36 @@ export default function LoginPage() {
         phone: values.phone,
         pin: values.pin,
       });
-      milestone.show({
-        kind: 'account_created',
-        title: 'Your account is ready',
-        detail: 'Sign in with your phone number and PIN.',
-        next: [
-          'Accept your identity card in Inbox',
-          'Keep receipts and cards in your records',
-          'Set up or join an organisation',
-        ],
-        action: { label: 'Sign in', onClick: () => undefined },
-      });
+    } catch (err: any) {
+      setError(friendlyRequestError(err, 'Could not create your account'));
+      submitting.current = false;
+      setLoading(false);
+      return;
+    }
+    try {
+      // The account exists: sign straight in rather than asking for the same PIN again.
+      await signIn(values.phone.trim(), values.pin);
+      setWelcomeName(values.username.trim());
+    } catch {
       setTab('login');
       loginForm.setValues({ identifier: values.phone, pin: '' });
-    } catch (err: any) {
-      const msg = friendlyRequestError(err, 'Could not create your account');
-      setError(msg);
+      setError('Your account is ready. Sign in with your phone number and PIN.');
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   };
 
+  const finishWelcome = () => {
+    void guideClient.put(`${GUIDE_PATHS.guides}/welcome`, { status: 'done' }).catch(() => undefined);
+    router.replace('/inbox');
+  };
+
   const guiding = tab === 'register' && setupStep < 3;
+
+  if (welcomeName !== null) {
+    return <WelcomeScreen name={welcomeName} onContinue={finishWelcome} onCardLanded={tick} />;
+  }
 
   return (
     <Box className={`login-screen${guiding ? ' login-screen-guide' : ''}`} style={{ minHeight: guiding ? '100svh' : layoutHeight ?? '100svh' }}>
@@ -224,6 +243,7 @@ export default function LoginPage() {
                   />
                   <PasswordInput
                     label="PIN"
+                    placeholder="Account PIN"
                     leftSection={<IconLock size={16} />}
                     size="md"
                     inputMode="numeric"
@@ -257,6 +277,7 @@ export default function LoginPage() {
                 <Stack gap="sm">
                   <TextInput
                     label="Name"
+                    placeholder="Full name"
                     size="md"
                     autoComplete="name"
                     {...registerForm.getInputProps('username')}
@@ -272,6 +293,7 @@ export default function LoginPage() {
                   />
                   <PasswordInput
                     label="PIN"
+                    placeholder="Choose PIN"
                     leftSection={<IconLock size={16} />}
                     size="md"
                     inputMode="numeric"
@@ -281,6 +303,7 @@ export default function LoginPage() {
                   />
                   <PasswordInput
                     label="Confirm PIN"
+                    placeholder="Repeat PIN"
                     leftSection={<IconLock size={16} />}
                     size="md"
                     inputMode="numeric"

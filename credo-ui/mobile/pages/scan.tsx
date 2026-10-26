@@ -9,6 +9,7 @@ import {
   IconScan, IconCheck, IconX, IconAlertCircle
 } from '@tabler/icons-react';
 import AppShellMobile from '@/components/layout/AppShellMobile';
+import { SectionTip } from '@/components/guides/SectionGuides';
 import ScanModeSheet, { ScanMode } from '@/components/scan/ScanModeSheet';
 import QrScanner from '@/components/scan/QrScanner';
 import EvidenceCapture, { EvidencePayload } from '@/components/scan/EvidenceCapture';
@@ -621,6 +622,7 @@ export default function ScanPage() {
               : 'Scan to sign in, review a request to share details, or receive a credential.'}
           </Text>
         </Box>
+        <SectionTip tip="tip_scan" when={!mode} />
         {hasOrgSession && (
           <Paper p="sm" radius="md" withBorder>
             <Group justify="space-between" align="flex-start" gap="xs" wrap="nowrap">

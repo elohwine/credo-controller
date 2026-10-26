@@ -40,6 +40,7 @@ import {
   Title,
 } from '@mantine/core'
 import { IconAlertCircle, IconBuildingPlus, IconCheck, IconRefresh } from '@tabler/icons-react'
+import { reveal } from '../../../shared/reveal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -268,7 +269,7 @@ export default function OrganizationSetupPage() {
 
     const personalToken = getPersonalToken()
     if (!personalToken) {
-      setError('Sign in with your personal wallet first, then create an organization here.')
+      setError('Sign in with your personal wallet first, then create an organisation here.')
       return
     }
 
@@ -306,7 +307,7 @@ export default function OrganizationSetupPage() {
       // Redirect to first-run onboarding screen after org creation
       void router.push('/organization/onboarding')
     } catch (err: any) {
-      setError(err?.response?.data?.message || err?.message || 'Failed to create organization')
+      setError(err?.response?.data?.message || err?.message || 'Failed to create organisation')
     } finally {
       setCreatingOrg(false)
     }
@@ -317,7 +318,7 @@ export default function OrganizationSetupPage() {
     const activeOrg = readActiveOrganization()
     const selectedOrgId = (orgTenantId || activeOrg?.orgTenantId || '').trim()
     if (!selectedOrgId) {
-      setError('Use the account picker in the header to select an organization first.')
+      setError('Use the account picker in the header to select an organisation first.')
       return
     }
     setOrgTenantId(selectedOrgId)
@@ -434,7 +435,7 @@ export default function OrganizationSetupPage() {
                 <Box>
                   <Group gap="xs" mb={4}>
                     <IconBuildingPlus size={18} />
-                    <Title order={4}>Create Organization</Title>
+                    <Title order={4}>Create organisation</Title>
                   </Group>
                   <Text size="sm" c="dimmed">
                     Give it a name. A few questions come next.
@@ -442,7 +443,7 @@ export default function OrganizationSetupPage() {
                 </Box>
                 <Group align="end" wrap="wrap">
                   <TextInput
-                    label="Organization name"
+                    label="Organisation name"
                     placeholder="Acme Holdings"
                     value={newOrgName}
                     onChange={(e) => setNewOrgName(e.currentTarget.value)}
@@ -454,7 +455,7 @@ export default function OrganizationSetupPage() {
                     onClick={createOrganization}
                     disabled={!newOrgName.trim()}
                   >
-                    Create Organization
+                    Create organisation
                   </Button>
                   <Button variant="default" component={Link} href="/inbox">
                     Go to Inbox
@@ -475,7 +476,7 @@ export default function OrganizationSetupPage() {
           {readiness && (
             <Stack gap="md">
               <Card withBorder radius="md" p="lg">
-                <Stack gap="sm">
+                <Stack className={reveal.stagger} gap="sm">
                   <Progress value={(doneCount / steps.length) * 100} size="sm" radius="xl" aria-label="Setup progress" />
                   {steps.map((step) => {
                     const isNext = firstOpen?.id === step.id

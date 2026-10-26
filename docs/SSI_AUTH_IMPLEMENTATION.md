@@ -4,6 +4,66 @@
 **Status:** Historical implementation summary; verification claims require the
 current-code qualification below.
 
+## Android phone sign-in availability (2026-10-26)
+
+The mobile login screen keeps **Sign in with this phone** visible on supported
+Android devices or when a local login enrollment is recorded. It refreshes
+availability when the app resumes. A remembered wallet is used only if its login
+key still exists; otherwise, a sole valid login enrollment can be used. Multiple
+enrolled accounts without a matching remembered account require a PIN sign-in to
+choose the account. Authentication still requires the server challenge and native
+key signature.
+
+Payment-device enrollment does not enable account sign-in. If a server-side device
+is listed but this app has no corresponding local login key, sign in with the
+account PIN and enroll for sign-in under **Account security**. The app reports this
+condition rather than silently hiding the button.
+
+### Organisation and installation recovery
+
+Server memberships, not saved organisation cards, determine which organisations
+an account can enter. Mobile and portal cache memberships by personal wallet ID
+using `credentisMembershipsV2:<walletId>`. Every valid online result replaces that
+cache, including an empty array. The old unscoped `credoOrganizations` value is
+not imported as membership evidence. Refresh failures are shown explicitly; a
+saved list can be displayed as cached, but entry still requires server authorization.
+Saved-account snapshots no longer carry the unscoped membership list.
+
+PIN-login session hydration reads the tenant ID from the returned personal JWT;
+it does not assume `/api/wallet/auth/login` returns a separate tenant ID or
+organisation list. Memberships are fetched separately, including when resuming
+in personal mode. Account changes invalidate in-flight membership cache writes.
+Private owner previews first validate current membership and obtain the existing
+server-controlled organisation session. Public discovery does not attempt a
+manager preview. A removed/private organisation is not replaced with an invented
+successful profile.
+
+An in-place, same-signature APK update should retain private app data and Android
+Keystore keys. Clearing Android's **cache** is different from **clear storage**:
+the latter resets local sessions and registration metadata. Uninstalling removes
+the installation's device keys. The server account and its memberships survive
+those phone operations and are recovered by signing in; a lost native private key
+requires fresh device enrollment, not restoration of a server record alone.
+
+The Android backup rules exclude private app data from both cloud backup and
+device transfer. WebView storage currently mixes preferences with session secrets
+and device-bound metadata, so even local appearance preferences reset on reinstall
+rather than restoring that mixed store. This does not change in-place upgrade
+behaviour. Any future preference backup must use a separately scoped, explicitly
+allowlisted store. OEM backup/restore and Keystore persistence still require
+physical-device validation.
+
+The account security panel distinguishes **server registration verified** from
+**sign-in key present in this installation**. A missing local key can also mean a
+different enrolled device; it does not automatically revoke the server registration.
+Do not recreate memberships or roles from cached cards after a server data reset.
+
+Regression checks:
+
+```sh
+npm test -- --runInBand tests/organization_membership_cache.test.ts tests/mobile_session_rehydration.test.ts tests/mobile_device_login.test.ts tests/android_backup_rules.test.ts tests/org_context_policy.test.ts
+```
+
 ## Architecture decision and current-code qualification (2026-10-15)
 
 SSI remains foundational, not an organisation-selectable feature. Continue offering

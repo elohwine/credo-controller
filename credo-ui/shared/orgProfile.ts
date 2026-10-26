@@ -175,7 +175,7 @@ export const PAYMENT_CHOICES: Array<{ id: PaymentChoice; label: string; detail: 
   { id: 'clicknpay', label: 'Click n Pay', detail: 'Card payments' },
   { id: 'ecocash', label: 'EcoCash', detail: 'Mobile money' },
   { id: 'simulated', label: 'Practice payments', detail: 'No real money moves. Good for trying things out.' },
-  { id: 'none', label: 'Not yet', detail: 'Choose later under Organization → Payments' },
+  { id: 'none', label: 'Not yet', detail: 'Choose later under Organisation → Payments' },
 ]
 
 export type OrgProfile = {
@@ -345,6 +345,28 @@ export function clearOrgProfile() {
   window.localStorage.removeItem(ORG_PROFILE_KEY)
 }
 
+const SETUP_LATER_KEY = 'credoOrgSetupLater'
+
+/** The owner chose "I'll answer later"; the questions should not open on their own again for this organisation. */
+export function markOrgSetupLater(orgTenantId: string) {
+  if (typeof window === 'undefined' || !orgTenantId) return
+  try {
+    const later: string[] = JSON.parse(window.localStorage.getItem(SETUP_LATER_KEY) || '[]')
+    if (!later.includes(orgTenantId)) window.localStorage.setItem(SETUP_LATER_KEY, JSON.stringify([...later, orgTenantId]))
+  } catch {
+    window.localStorage.setItem(SETUP_LATER_KEY, JSON.stringify([orgTenantId]))
+  }
+}
+
+export function orgSetupLater(orgTenantId: string): boolean {
+  if (typeof window === 'undefined' || !orgTenantId) return false
+  try {
+    return (JSON.parse(window.localStorage.getItem(SETUP_LATER_KEY) || '[]') as string[]).includes(orgTenantId)
+  } catch {
+    return false
+  }
+}
+
 /** Steps that approve, release, record or receipt money. They share the purchase-request people. */
 const MONEY_STAGES = new Set([
   'approve_requisition',
@@ -387,9 +409,9 @@ export function setupChecklist(input: {
   const moneyNote =
     moneyDone && moneyMissing ? moneyInviteNote(input.profile?.approvalPresetId || '', input.roles || []) : undefined
   return [
-    { id: 'kinds', label: 'Choose operating model and modules', done: Boolean(input.profile?.completedAt) },
+    { id: 'kinds', label: 'Say what your organisation does', done: Boolean(input.profile?.completedAt) },
     // Answered together with "what you do"; the same saved answers tick both.
-    { id: 'people', label: 'Choose modules', done: Boolean(input.profile?.completedAt) },
+    { id: 'people', label: 'Choose what you will use', done: Boolean(input.profile?.completedAt) },
     { id: 'money', label: 'Choose who handles money', done: moneyDone, note: moneyNote },
     { id: 'payments', label: 'Pick how you take payments', done: !paymentMissing },
     { id: 'brand', label: 'Add your logo and document details', done: Boolean(input.brandConfigured) },

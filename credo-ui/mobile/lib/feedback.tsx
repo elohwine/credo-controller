@@ -42,6 +42,14 @@ async function vibrate(tone: FeedbackTone) {
   }
 }
 
+/** A light tap for small physical moments, such as a card landing. Phone only. */
+export function tick() {
+  if (!Capacitor.isNativePlatform()) return
+  void import('@capacitor/haptics')
+    .then(({ Haptics, ImpactStyle }) => Haptics.impact({ style: ImpactStyle.Light }))
+    .catch(() => undefined)
+}
+
 function body(id: string, message: ReactNode, action?: FeedbackAction): ReactNode {
   if (!action) return message
   return (

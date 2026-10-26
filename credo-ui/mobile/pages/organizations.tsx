@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Box, Stack, Text, Title, Group, Button, Badge, Paper, ThemeIcon, TextInput, Tabs, Card, Skeleton, SimpleGrid, Divider, Avatar, Select, Modal, Switch, NumberInput
+  Box, Stack, Text, Title, Group, Button, Badge, Paper, ThemeIcon, TextInput, Tabs, Card, Skeleton, SimpleGrid, Divider, Avatar, Select, Modal, Switch, NumberInput, Alert
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -8,10 +8,12 @@ import {
 } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
 import AppShellMobile from '@/components/layout/AppShellMobile';
-import { getActiveOrgId, getActiveOrgLabel, getContextMode, getPreferredToken, getWalletToken, isAuthenticated } from '@/lib/auth';
+import { SectionTip } from '@/components/guides/SectionGuides';
+import { getActiveOrgId, getActiveOrgLabel, getContextMode, getPersonalWalletToken, getPreferredToken, getWalletToken, isAuthenticated } from '@/lib/auth';
 import api, { safeArray } from '@/lib/api';
 import { TEAM_ROLE_FALLBACK, teamRolesFromCatalog } from '@/lib/orgProfile';
 import { contactAppStatus, contactInviteUrl } from '@/lib/contactAvailability';
+import { readMemberships, refreshMemberships } from '../../shared/organizationMemberships';
 
 interface Organization {
   id: string;
@@ -182,6 +184,7 @@ export default function OrganizationsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [membershipNotice, setMembershipNotice] = useState<string | null>(null);
   const isOrgContext = getContextMode() === 'org';
   const activeOrgLabel = getActiveOrgLabel();
 
@@ -214,6 +217,15 @@ export default function OrganizationsPage() {
   useEffect(() => {
     if (checkingAuth) return;
     loadOrganizations();
+    const resume = () => {
+      if (document.visibilityState !== 'hidden') void loadOrganizations();
+    };
+    window.addEventListener('focus', resume);
+    document.addEventListener('visibilitychange', resume);
+    return () => {
+      window.removeEventListener('focus', resume);
+      document.removeEventListener('visibilitychange', resume);
+    };
   }, [checkingAuth, activeTab, selectedCategory]);
 
   useEffect(() => {
@@ -239,31 +251,27 @@ export default function OrganizationsPage() {
   };
 
   const loadOrganizationsFromCache = (): Organization[] => {
-    try {
-      const cached = JSON.parse(localStorage.getItem('credoOrganizations') || '[]');
-      if (!Array.isArray(cached)) return [];
-      return mapMembershipsToOrganizations(cached as MembershipOrg[]);
-    } catch {
-      return [];
-    }
+    return mapMembershipsToOrganizations(readMemberships(localStorage, getPersonalWalletToken()));
   };
 
   const loadOrganizations = async () => {
     setLoading(true);
     try {
-      const token = getWalletToken();
+      const token = getPersonalWalletToken();
       if (!token) {
         router.push('/login');
         return;
       }
 
       if (activeTab === 'my-orgs') {
-        const response = await api.get('/api/organizations', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        const orgs = mapMembershipsToOrganizations(Array.isArray(response.data) ? response.data : []);
-        setMyOrgs(orgs.length > 0 ? orgs : loadOrganizationsFromCache());
+        const memberships = await refreshMemberships(localStorage, token, async () => {
+          const response = await api.get('/api/organizations', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          return response.data;
+        }, getPersonalWalletToken);
+        setMyOrgs(mapMembershipsToOrganizations(memberships));
+        setMembershipNotice(null);
       } else {
         const params: any = { verifiedOnly: true };
         if (selectedCategory) {
@@ -275,7 +283,11 @@ export default function OrganizationsPage() {
     } catch (error: any) {
       const msg = error?.response?.data?.message ?? error?.message ?? 'Failed to load organizations';
       if (activeTab === 'my-orgs') {
-        setMyOrgs(loadOrganizationsFromCache());
+        const cached = loadOrganizationsFromCache();
+        setMyOrgs(cached);
+        setMembershipNotice(cached.length
+          ? 'Showing saved organisations. Membership could not be refreshed; access must be checked online.'
+          : 'Could not refresh your organisations. Try again when connected.');
         notifications.show({ title: 'My Orgs', message: msg, color: 'red' });
       } else {
         notifications.show({ title: 'Discovery Error', message: msg, color: 'red' });
@@ -536,6 +548,7 @@ export default function OrganizationsPage() {
           </Text>
         </Box>
 
+        <SectionTip tip="tip_network" wrap={{ padding: '16px 16px 0' }} />
         {/* Tabs */}
         <Tabs value={activeTab} onChange={(v) => v && setActiveTab(v)} variant="pills" px="md" pt="md">
           <Tabs.List grow>
@@ -546,6 +559,10 @@ export default function OrganizationsPage() {
 
           {/* My Organizations Tab */}
           <Tabs.Panel value="my-orgs" pt="md">
+            {membershipNotice && <Alert color="orange" mb="md" title="Membership refresh unavailable">
+              {membershipNotice}
+              <Button variant="subtle" size="xs" onClick={() => void loadOrganizations()}>Retry</Button>
+            </Alert>}
             <Stack gap="md">
               {loading ? (
                 <>

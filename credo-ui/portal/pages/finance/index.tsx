@@ -22,6 +22,7 @@ import {
 import { IconCash, IconChartBar, IconReceipt, IconRefresh, IconUsers } from '@tabler/icons-react'
 
 import Layout from '@/components/Layout'
+import { SectionTip } from '@/components/guides/SectionGuides';
 import { ClientBillingDetails } from '@/components/finance/ClientBillingDetails'
 import { ContactPickerSelect, type PickerContact } from '@/components/finance/ContactPickerSelect'
 import { fieldJobBillingExceptions } from '../../../shared/fieldJobOutcomes'
@@ -813,6 +814,7 @@ export default function FinanceModulesPage() {
     <Layout title="Money">
       {inboxTask && loadError && <Paper p="md"><Text c="red">{loadError}</Text><Button onClick={() => void load()}>Try again</Button></Paper>}
       <Container size="xl" py="md" style={inboxTask ? { display: 'none' } : undefined}>
+        <SectionTip tip="tip_operations" wrap={{ maxWidth: 720, marginBottom: 16 }} />
         <Group justify="space-between" mb="md">
           <div>
             <Title order={3}>Money</Title>

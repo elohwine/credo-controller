@@ -41,7 +41,6 @@ const SESSION_KEYS = [
   'walletPhone',
   'walletEmail',
   'credoUserRole',
-  'credoOrganizations',
   'credoTenantSector',
   'credoActiveWorkflowTypes',
   'credoActiveTemplateId',
@@ -115,6 +114,7 @@ function snapshotSession(): Record<string, string> {
 }
 
 function applySnapshot(session: Record<string, string>) {
+  localStorage.removeItem('credoOrganizations')
   for (const key of SESSION_KEYS) {
     if (session[key]) localStorage.setItem(key, session[key])
     else localStorage.removeItem(key)

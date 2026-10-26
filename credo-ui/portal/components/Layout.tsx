@@ -26,6 +26,7 @@ import {
     IconBuilding,
     IconShieldCheck,
     IconUserShield,
+    IconSettings,
     IconUsersGroup,
     IconChecklist,
     IconInbox,
@@ -47,6 +48,7 @@ import { getOrgScopedToken, getPersonalToken } from '@/utils/organizationContext
 import { readOrgProfile } from '@/utils/orgProfile';
 import { getWorkflowCapabilityFlags } from '@/lib/workflowCapabilities';
 import { openInboxOffers } from '@/lib/inboxAttention';
+import { RECORDS_TARGET_ATTR } from '../../shared/cardMotion';
 
 const LayoutNestingContext = React.createContext(false);
 
@@ -88,13 +90,15 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
     const [counts, setCounts] = useState({ inbox: 0, requests: 0, jobs: 0 });
     const [workflowTypes, setWorkflowTypes] = useState<string[]>([]);
     const canManageOrg = ['owner', 'admin'].includes(String(activeOrg?.role || '').toLowerCase());
+    // Sign-in pages and signed-out visitors get the header only: the app menu and account picker need a session.
+    const publicPage = router.pathname.startsWith('/auth') || (mounted && !getPersonalToken() && !getOrgScopedToken());
 
     useEffect(() => {
         setNavOpened(false);
     }, [router.pathname]);
 
     useEffect(() => {
-        if (!mounted || isNested || task) return;
+        if (!mounted || isNested || task || publicPage) return;
         const token = (isOrg ? getOrgScopedToken() : null) || getPersonalToken();
         if (!token) return;
         const headers = { Authorization: `Bearer ${token}` };
@@ -122,7 +126,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
         };
         void load();
         return () => { cancelled = true; };
-    }, [mounted, isOrg, activeOrg?.orgTenantId, isNested, task]);
+    }, [mounted, isOrg, activeOrg?.orgTenantId, isNested, task, publicPage]);
 
     if (isNested) {
         return (
@@ -199,7 +203,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                     href: isOrg && canManageOrg ? '/wallet?holder=organization' : '/wallet',
                     icon: <IconWallet size={18} />,
                 },
-                { label: 'Account security', href: '/account-security', icon: <IconUserShield size={18} /> },
+                { label: 'Settings', href: '/settings', icon: <IconSettings size={18} /> },
             ],
         },
     ];
@@ -239,7 +243,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
     return (
         <AppShell
             header={{ height: 64 }}
-            navbar={{ width: 260, breakpoint: '900px', collapsed: { mobile: !navOpened || Boolean(task), desktop: Boolean(task) } }}
+            navbar={publicPage ? undefined : { width: 260, breakpoint: '900px', collapsed: { mobile: !navOpened || Boolean(task), desktop: Boolean(task) } }}
             padding="md"
             styles={{
                 header: { background: 'var(--mantine-color-body)', borderBottom: '1px solid var(--mantine-color-default-border)' },
@@ -256,7 +260,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                 <Box style={{ height: 3, background: `linear-gradient(90deg, ${BRAND.curious} 0%, ${BRAND.viking} 100%)` }} />
                 <Group justify="space-between" h={61} px="md" wrap="nowrap">
                     <Group gap="sm" wrap="nowrap">
-                        {compactHeader && (
+                        {compactHeader && !publicPage && (
                             <Burger opened={navOpened} onClick={() => setNavOpened((open) => !open)} aria-label="Open menu" />
                         )}
                         <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
@@ -276,13 +280,15 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                         >
                             {dark ? <IconSun size={18} /> : <IconMoon size={18} />}
                         </ActionIcon>
-                        <Box style={{ flexShrink: 0, minWidth: compactHeader ? undefined : 220, maxWidth: 340 }}>
-                            <OrgSwitcher compact={!!compactHeader} />
-                        </Box>
+                        {!publicPage && (
+                            <Box style={{ flexShrink: 0, minWidth: compactHeader ? undefined : 220, maxWidth: 340 }}>
+                                <OrgSwitcher compact={!!compactHeader} />
+                            </Box>
+                        )}
                     </Group>
                 </Group>
             </AppShell.Header>
-            <AppShell.Navbar p="sm">
+            {!publicPage && <AppShell.Navbar p="sm">
                 <Box style={{ visibility: mounted ? 'visible' : 'hidden' }}>
                     {!task && groups.map((group) => (
                         <Box key={group.label} mb="md">
@@ -299,13 +305,14 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                                         active={isActive(item.href)}
                                         rightSection={count > 0 ? <Badge size="sm" circle>{count > 9 ? '9+' : count}</Badge> : undefined}
                                         onClick={() => setNavOpened(false)}
+                                        {...(item.href === '/wallet' ? { [RECORDS_TARGET_ATTR]: '' } : null)}
                                     />
                                 );
                             })}
                         </Box>
                     ))}
                 </Box>
-            </AppShell.Navbar>
+            </AppShell.Navbar>}
             <AppShell.Main>
                 <LayoutNestingContext.Provider value={true}>
                     <div className="max-w-7xl mx-auto">

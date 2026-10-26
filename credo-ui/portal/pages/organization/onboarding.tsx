@@ -30,6 +30,7 @@ import {
   type OrgSetupPlan,
   type PaymentChoice,
 } from '@/utils/orgProfile'
+import { reveal } from '../../../shared/reveal'
 import {
   Alert,
   Box,
@@ -80,7 +81,7 @@ const FALLBACK_PRESETS: ApprovalPreset[] = [
 // ─── What was set up for you (display-only) ───────────────────────────────────
 
 const PROVISIONING_ITEMS = [
-  { label: 'Organization created', icon: <IconBuildingCommunity size={14} /> },
+  { label: 'Organisation created', icon: <IconBuildingCommunity size={14} /> },
   { label: 'You are the owner', icon: <IconUsersGroup size={14} /> },
 ]
 
@@ -139,6 +140,18 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null)
   const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
 
+  const [brandConfigured, setBrandConfigured] = useState<boolean | undefined>(undefined)
+
+  useEffect(() => {
+    if (!orgTenantId) return
+    let live = true
+    axios
+      .get(`${backendUrl}/api/public/orgs/${encodeURIComponent(orgTenantId)}/brand`)
+      .then((res) => { if (live) setBrandConfigured(Boolean(res.data?.configured)) })
+      .catch(() => { if (live) setBrandConfigured(false) })
+    return () => { live = false }
+  }, [orgTenantId])
+
   useEffect(() => {
     if (!single) return
     setQuestion(STEP_QUESTION[single])
@@ -159,7 +172,7 @@ export default function OnboardingPage() {
       if (saved.approvalPresetId) setPresetId(saved.approvalPresetId)
       setPaymentChoice(saved.paymentChoice)
       // Coming back to change an answer: skip the welcome screen.
-      setStep('questions')
+      if (saved.completedAt) setStep('questions')
     }
   }, [])
 
@@ -288,9 +301,9 @@ export default function OnboardingPage() {
 
   /** Answers, teams, roles, money people and payments go up together; the server does the rest. */
   const sendBootstrap = async (dryRun: boolean) => {
-    if (!orgTenantId) throw new Error('No organization context. Please return to setup and try again.')
+    if (!orgTenantId) throw new Error('No organisation context. Please return to setup and try again.')
     const auth = authHeaders()
-    if (!auth) throw new Error('Organization session missing. Switch to the organization and try again.')
+    if (!auth) throw new Error('Organisation session missing. Switch to the organisation and try again.')
     const body = bootstrapRequest(currentProfile(), { departments: selectedTeams, moneyPresetId: presetId, dryRun })
     return (await axios.post(orgUrl(SETUP_BOOTSTRAP_PATH), body, auth)).data as OrgSetupPlan & { profile?: unknown }
   }
@@ -335,7 +348,7 @@ export default function OnboardingPage() {
     setError(null)
     const auth = authHeaders()
     if (!auth || !orgTenantId) {
-      setError('Organization session missing. Switch to the organization and try again.')
+      setError('Organisation session missing. Switch to the organisation and try again.')
       return
     }
     setSaving(true)
@@ -396,13 +409,13 @@ export default function OnboardingPage() {
     return (
       <Layout title="Welcome to Credentis">
         <Container size="sm" py={60}>
-          <Stack gap="xl" align="center">
+          <Stack className={reveal.stagger} gap="xl" align="center">
             <Box ta="center">
               <ThemeIcon color="teal" variant="light" radius="xl" size={56} mb="md">
                 <IconCheck size={28} />
               </ThemeIcon>
               <Title order={2} mb={4}>
-                {orgName ? `${orgName} is ready` : 'Your organization is ready'}
+                {orgName ? `${orgName} is ready` : 'Your organisation is ready'}
               </Title>
               <Text c="dimmed" size="sm">
                 A few short questions, then you can start.
@@ -448,12 +461,15 @@ export default function OnboardingPage() {
     const nextStep = thenSteps[0]
     // Same list as the phone app's done card (customer payments are hidden on this branch).
     const open = [
+      'Purchase requests',
+      'Supplier bills',
+      ...kinds.map((kind) => OPEN_FOR_KIND[kind]).filter(Boolean),
       ...modules.map((module) => ORG_MODULE_OPTIONS.find((option) => option.id === module)?.opens || '').filter(Boolean),
     ]
     return (
       <Layout title="Saved">
         <Container size="sm" py={60}>
-          <Stack gap="xl" align="center">
+          <Stack key={`done-${single || "all"}`} className={reveal.stagger} gap="xl" align="center">
             {single ? (
               <ThemeIcon color="teal" variant="light" radius="xl" size={56}>
                 <IconCheck size={28} />
@@ -463,7 +479,7 @@ export default function OnboardingPage() {
             )}
             <Box ta="center">
               <Title order={2} mb={4}>
-                {single ? `${STEP_LABEL[single]} saved` : `${orgName || 'Your organization'} is set up`}
+                {single ? `${STEP_LABEL[single]} saved` : `${orgName || 'Your organisation'} is set up`}
               </Title>
               {!single && (
                 <Text c="dimmed" size="sm">
@@ -486,9 +502,22 @@ export default function OnboardingPage() {
                   Next: {STEP_LABEL[nextStep]}
                 </Button>
               ) : !single ? (
-                <Button size="md" rightSection={<IconArrowRight size={16} />} component={Link} href="/organization/people">
-                  Invite your team
-                </Button>
+                <>
+                  {brandConfigured === false && (
+                    <Button size="md" rightSection={<IconArrowRight size={16} />} component={Link} href="/organization/brand">
+                      Next: add your logo and document details
+                    </Button>
+                  )}
+                  <Button
+                    size="md"
+                    variant={brandConfigured === false ? 'light' : 'filled'}
+                    rightSection={<IconArrowRight size={16} />}
+                    component={Link}
+                    href="/organization/people"
+                  >
+                    Invite your team
+                  </Button>
+                </>
               ) : null}
               <Button size="md" variant={nextStep || !single ? 'subtle' : 'filled'} component={Link} href="/organization/setup">
                 {nextStep ? 'Finish later' : 'Back to setup'}
@@ -507,7 +536,7 @@ export default function OnboardingPage() {
     return (
       <Layout title="Review your setup">
         <Container size="sm" py={60}>
-          <Stack gap="lg">
+          <Stack key="review" className={reveal.stagger} gap="lg">
             <Box>
               <Title order={2} mb={4}>
                 Here is what we will set up
@@ -529,7 +558,9 @@ export default function OnboardingPage() {
               </Text>
               {review.workAreas.length === 0 ? (
                 <Text size="sm" c="dimmed">
-                  None here. Connect your own systems after setup.
+                  {operatingModel === 'integration'
+                    ? 'None here. Connect your own systems after setup.'
+                    : 'Purchase requests and supplier bills. Add more any time.'}
                 </Text>
               ) : (
                 <Group gap={6}>
@@ -608,7 +639,7 @@ export default function OnboardingPage() {
 
   const questionTitle =
     question === 1
-      ? `What does ${orgName || 'your organization'} do?`
+      ? `What does ${orgName || 'your organisation'} do?`
       : question === 2
         ? 'Which of these would be useful for your organisation?'
         : question === 3
@@ -621,7 +652,7 @@ export default function OnboardingPage() {
   return (
     <Layout title="About your organization">
       <Container size="sm" py={60}>
-        <Stack gap="xl">
+        <Stack key={`question-${question}`} className={reveal.stagger} gap="xl">
           <Box>
             <Progress value={(question / QUESTION_COUNT) * 100} size="sm" radius="xl" mb={8} aria-label="Progress" />
             <Text size="sm" c="dimmed" mb={6}>

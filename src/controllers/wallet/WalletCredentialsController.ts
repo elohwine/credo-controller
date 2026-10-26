@@ -23,6 +23,14 @@ import { AuthContext, SCOPES } from '../../enums'
 import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import {
+  gettingStartedService,
+  guideProgressService,
+  holderSettingsService,
+  type GettingStartedStatus,
+  type GuideProgress,
+  type HolderSettings,
+} from '../../services/GuideProgressService'
+import {
   clampDoneDays,
   finishedOutcome,
   inboxPreferenceService,
@@ -563,6 +571,92 @@ export class WalletCredentialsController extends Controller {
     }
   }
 
+  /** Welcome screens, getting-started guide and section tips this person finished: the same on every device. */
+  @Get('/guides')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
+  @Security('jwt', ['wallet'])
+  public async getGuideProgress(@Request() request: ExRequest): Promise<GuideProgress> {
+    return guideProgressService.get(this.guideOwner(request))
+  }
+
+  @Put('/guides/{key}')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
+  @Security('jwt', ['wallet'])
+  public async setGuideProgress(
+    @Request() request: ExRequest,
+    @Path() key: string,
+    @Body() body: { status: 'done' | 'dismissed' | 'reset' },
+  ): Promise<GuideProgress> {
+    const owner = this.guideOwner(request)
+    try {
+      return guideProgressService.set(owner, key, body?.status)
+    } catch (error: any) {
+      throw new StatusException(error?.message || 'Invalid guide update', 400)
+    }
+  }
+
+  /** Which getting-started steps this account has really finished. */
+  @Get('/getting-started')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
+  @Security('jwt', ['wallet'])
+  public async getGettingStarted(@Request() request: ExRequest): Promise<GettingStartedStatus> {
+    return gettingStartedService.status(this.guideOwner(request))
+  }
+
+  private guideOwner(request: ExRequest): string {
+    const { walletTenantId } = this.resolveWalletContext(request)
+    if (!walletTenantId) throw new StatusException('Unauthorized', 401)
+    return walletTenantId
+  }
+
+  /** Account-wide holder choices, such as saving new cards without a tap. */
+  @Get('/holder-settings')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
+  @Security('jwt', ['wallet'])
+  public async getHolderSettings(@Request() request: ExRequest): Promise<HolderSettings> {
+    return holderSettingsService.get(this.guideOwner(request))
+  }
+
+  @Put('/holder-settings')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
+  @Security('jwt', ['wallet'])
+  public async setHolderSettings(
+    @Request() request: ExRequest,
+    @Body() body: { autoSaveCards: boolean },
+  ): Promise<HolderSettings> {
+    const owner = this.guideOwner(request)
+    try {
+      return holderSettingsService.set(owner, body)
+    } catch (error: any) {
+      throw new StatusException(error?.message || 'Invalid setting', 400)
+    }
+  }
+
+  /**
+   * Saves waiting card offers when the person turned that on. Uses the same path as a tap on
+   * "Accept", so custody, dedupe and the audit trail are identical. A failure leaves the card in
+   * the inbox for a manual decision and is not retried automatically.
+   */
+  private async autoSaveCards(request: ExRequest, walletTenantId: string): Promise<void> {
+    let candidates: Array<{ id: string; offerUri: string }> = []
+    try {
+      candidates = holderSettingsService.autoSaveCandidates(walletTenantId)
+    } catch (error: any) {
+      request.logger?.warn({ err: error?.message }, 'Could not read cards to save automatically')
+      return
+    }
+    for (const candidate of candidates) {
+      try {
+        await this.acceptOffer(request, { offerUri: candidate.offerUri })
+      } catch (error: any) {
+        holderSettingsService.markAutoSaveFailed(candidate.id, String(error?.message || 'could not save'))
+        request.logger?.info({ offerId: candidate.id, err: error?.message }, 'Card left for a manual decision')
+      }
+    }
+    // A failed save above must not change the status of this inbox read.
+    if (candidates.length) this.setStatus(200)
+  }
+
   /** The person's own wallet owns the setting. An organisation inbox needs a sign-in to that organisation. */
   private inboxPreferenceTarget(request: ExRequest, scope?: string): { ownerTenantId: string; inboxScope: string } {
     const context = this.resolveWalletContext(request)
@@ -622,6 +716,8 @@ export class WalletCredentialsController extends Controller {
     const db = DatabaseManager.getDatabase()
     const nowIso = new Date().toISOString()
     custodyRebindService.scheduleRebind(tenantId)
+
+    if (!wantsOrgHolder) await this.autoSaveCards(request, tenantId)
 
     // Same leave window or the same expense offered more than once: keep one card.
     try {

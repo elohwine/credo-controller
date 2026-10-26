@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { Button, Divider, PasswordInput, Stack, Text, TextInput } from '@mantine/core'
+import { IconArrowLeft } from '@tabler/icons-react'
 import AppShellMobile from '@/components/layout/AppShellMobile'
 import ErrorAlert from '@/components/shared/ErrorAlert'
 import api from '@/lib/api'
 import { applyPersonalWalletContext, clearAuth, getPersonalWalletTenantId, getPersonalWalletToken } from '@/lib/auth'
-import { authorizeDevice, enrollLoginDevice, removeLoginDevice, supportsDeviceLogin } from '@/lib/deviceTrust'
+import { authorizeDevice, enrollLoginDevice, hasLocalLoginKey, removeLoginDevice, supportsDeviceLogin } from '@/lib/deviceTrust'
 import { friendlyRequestError } from '@/lib/requestError'
 import { DeviceSecurityPanel, type AccountDevice } from '../../../shared/security/DeviceSecurityPanel'
 
@@ -23,7 +24,12 @@ export default function AccountSecurity() {
   const headers = () => ({ Authorization: `Bearer ${getPersonalWalletToken() || ''}` })
   const load = useCallback(async (): Promise<AccountDevice[]> => {
     const result = await api.get('/api/wallet/device-keys', { headers: headers() })
-    return Array.isArray(result.data) ? result.data : result.data?.devices || []
+    const devices: AccountDevice[] = Array.isArray(result.data) ? result.data : result.data?.devices
+    if (!Array.isArray(devices)) throw new Error('The enrolled-device response is invalid. Refresh to try again.')
+    return devices.map((device) => ({
+      ...device,
+      ...(device.usage === 'login' ? { localLoginKey: hasLocalLoginKey(device.id) } : {}),
+    }))
   }, [])
   const remove = async (id: string) => {
     await removeLoginDevice(id)
@@ -57,6 +63,9 @@ export default function AccountSecurity() {
   }
   return <AppShellMobile>
     <Stack p="md" gap="lg">
+      <Button variant="subtle" color="gray" leftSection={<IconArrowLeft size={16} />} w="fit-content" onClick={() => void router.push('/settings/')}>
+        Settings
+      </Button>
       <DeviceSecurityPanel load={load} remove={remove}>
         <Text size="sm">These are your personal devices, even when an organisation is selected.</Text>
         {supported ? <Stack gap="md">

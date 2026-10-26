@@ -7,6 +7,7 @@ export interface AccountDevice {
   revokedAt?: string
   verifiedAt?: string
   usage?: string
+  localLoginKey?: boolean
 }
 
 export function DeviceSecurityPanel({ load, remove, children }: {
@@ -79,7 +80,16 @@ export function DeviceSecurityPanel({ load, remove, children }: {
     {!busy && !devices.length && <p>No devices enrolled yet.</p>}
     {devices.map((device) => <article key={device.id} style={{ ...stack, gap: 10, padding: 16, border: '1px solid var(--mantine-color-default-border)', borderRadius: 12 }}>
       <strong>{device.label || 'Android device'}</strong>
-      <span>{device.revokedAt ? 'Removed' : device.verifiedAt ? 'Verified' : 'Legacy — enroll again'}</span>
+      <span>{device.revokedAt ? 'Removed' : device.verifiedAt ? 'Server registration verified' : 'Legacy — enroll again'}</span>
+      {!device.revokedAt && device.usage === 'login' && (
+        <span style={{ fontSize: 14 }}>
+          {device.localLoginKey === true
+            ? 'Sign-in key is present in this installation.'
+            : device.localLoginKey === false
+              ? 'No matching sign-in key in this installation. This may be another device or a registration from before reinstalling. Use your account PIN to enroll this installation; the server record alone cannot sign you in.'
+              : 'Usable only on the Android installation that holds its private key. Reinstalling or clearing storage can remove that key.'}
+        </span>
+      )}
       <span style={{ fontSize: 14 }}>{device.usage === 'login' ? 'Account and website sign-in · screen lock or strong biometrics' : 'Money steps · strong biometrics only'}</span>
       <span style={{ fontSize: 12 }}>Enrolled {new Date(device.createdAt).toLocaleDateString()}</span>
       {!device.revokedAt && <button type="button" style={{ ...button, color: 'var(--mantine-color-red-text)' }} onClick={() => setSelected(device)}>Remove access</button>}

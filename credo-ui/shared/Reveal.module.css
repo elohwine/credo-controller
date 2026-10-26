@@ -1,0 +1,40 @@
+/*
+ * Staggered entrance: each direct child fades and rises a moment after the one before.
+ * Only opacity and transform move, so it stays smooth on low-end Android WebViews.
+ * Give the container a `key` that changes per step to play it again.
+ */
+.stagger > * {
+  --n: 12;
+  animation: revealIn 480ms cubic-bezier(.2, .8, .2, 1) both;
+  animation-delay: calc(var(--reveal-delay, 40ms) + var(--n) * 55ms);
+}
+.stagger > :nth-child(1) { --n: 0; }
+.stagger > :nth-child(2) { --n: 1; }
+.stagger > :nth-child(3) { --n: 2; }
+.stagger > :nth-child(4) { --n: 3; }
+.stagger > :nth-child(5) { --n: 4; }
+.stagger > :nth-child(6) { --n: 5; }
+.stagger > :nth-child(7) { --n: 6; }
+.stagger > :nth-child(8) { --n: 7; }
+.stagger > :nth-child(9) { --n: 8; }
+.stagger > :nth-child(10) { --n: 9; }
+.stagger > :nth-child(11) { --n: 10; }
+.stagger > :nth-child(12) { --n: 11; }
+
+/* One block arriving on its own (a tip, a card). */
+.rise { animation: revealIn 420ms cubic-bezier(.2, .8, .2, 1) both; }
+
+/* Opening a collapsed part: the new rows slide down into place. */
+.unfold > * { animation: unfold 360ms cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--n, 0) * 45ms); }
+.unfold > :nth-child(2) { --n: 1; }
+.unfold > :nth-child(3) { --n: 2; }
+.unfold > :nth-child(4) { --n: 3; }
+.unfold > :nth-child(5) { --n: 4; }
+.unfold > :nth-child(6) { --n: 5; }
+
+@keyframes revealIn { from { opacity: 0; transform: translateY(12px); } }
+@keyframes unfold { from { opacity: 0; transform: translateY(-6px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .stagger > *, .rise, .unfold > * { animation: none; }
+}

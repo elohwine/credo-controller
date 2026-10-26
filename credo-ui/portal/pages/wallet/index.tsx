@@ -2,6 +2,8 @@ import { feedback } from '@/lib/feedback';
 import React, { useState, useContext, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '@/components/Layout';
+import { SectionTip } from '@/components/guides/SectionGuides';
+import { useAppGuides } from '@/lib/guides';
 import { StepHelp } from '@/components/help/StepHelp';
 import { EnvContext } from '@/pages/_app';
 import {
@@ -368,6 +370,13 @@ export default function WalletPage() {
     useEffect(() => {
         setWalletReady(true);
     }, []);
+
+    const guides = useAppGuides();
+    const recordsSeen = guides.isDone('records_seen');
+    useEffect(() => {
+        if (walletReady && !orgRecords && !loading && credentials.length > 0 && !recordsSeen) void guides.mark('records_seen', 'done');
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [walletReady, orgRecords, loading, credentials.length, recordsSeen]);
 
     const holderBackend = env?.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000';
     const fallbackQuery = parseWalletQueryParams(router.asPath || '');
@@ -866,6 +875,7 @@ export default function WalletPage() {
     return (
         <Layout title="My wallet">
             <Container size="lg" py="xl">
+                <SectionTip tip="tip_records" when={!orgRecords} wrap={{ maxWidth: 720, marginBottom: 16 }} />
                 {walletReady && presentationMode === 'approval' && !showApprovalConsent && (
                     <Paper shadow="sm" p="xl" radius="md" mb="xl" withBorder>
                         <Stack gap="sm">

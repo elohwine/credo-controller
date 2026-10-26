@@ -49,9 +49,11 @@ import { readOrgProfile } from '@/lib/orgProfile';
 import { captureOrganizationSwitchContext } from '../../shared/taskContext';
 import { requestIdFromStageCard } from '../../shared/requestExperience';
 import { requestDecisionBlockText } from '../../shared/requestDecision';
-import { feedback } from '@/lib/feedback';
+import { feedback, tick } from '@/lib/feedback';
+import { CARD_TARGET_ATTR, celebrateSaved } from '../../shared/cardMotion';
 import { milestone } from '@/components/feedback/Milestone';
 import { LottiePlayer } from '@/components/feedback/LottiePlayer';
+import { InboxGettingStarted } from '@/components/guides/SectionGuides';
 import BrandedDocumentView from '@/components/records/BrandedDocumentView';
 import { documentFromClaims } from '@/lib/brandedDocument';
 import { requestFamily } from '../../../src/config/requestExperience';
@@ -2731,13 +2733,26 @@ export default function InboxPage() {
             headers: token ? { Authorization: `Bearer ${token}` } : undefined,
           });
           dismissItem(selectedItem.id);
-          milestone.show({
+          const savedTitle = selectedItem.itemType === 'receipt_offer' ? 'Receipt saved' : 'Card saved';
+          const personalRecord = !selectedItem.authContext || selectedItem.authContext === 'personal';
+          const showMilestone = () => milestone.show({
             kind: 'card_saved',
-            title: selectedItem.itemType === 'receipt_offer' ? 'Receipt saved' : 'Card saved',
-            detail: selectedItem.authContext && selectedItem.authContext !== 'personal'
-              ? "Kept in the organisation's records."
-              : 'Kept in your records.',
+            title: savedTitle,
+            detail: personalRecord ? 'Kept in your records.' : "Kept in the organisation's records.",
           });
+          if (personalRecord) {
+            // Runs alongside the sheet closing; the card drops into the Records tab.
+            void celebrateSaved({
+              title: selectedItem.sourceType === 'platform_identity' ? 'Identity card' : selectedItem.title,
+              detail: 'Saved to Records',
+              onCheck: tick,
+            }).then((flew) => {
+              if (flew) feedback.success('Kept in your records.', { title: savedTitle, action: { label: 'Open', onClick: () => void router.push('/proofs') } });
+              else showMilestone();
+            });
+          } else {
+            showMilestone();
+          }
         } else {
           // Reject — remove from local state without a server call
           dismissItem(selectedItem.id);
@@ -3632,6 +3647,17 @@ export default function InboxPage() {
           </Group>
         </Group>
 
+        {getContextMode() !== 'org' && (
+          <InboxGettingStarted
+            refreshKey={pendingCount}
+            onShowIdentityCard={() => {
+              const card = items.find((item) => item.sourceType === 'platform_identity' && item.status === 'pending');
+              if (card) openInboxItem(card);
+              else void syncAndFetch();
+            }}
+          />
+        )}
+
         {filter !== 'archived' && (
           <SegmentedControl
             fullWidth
@@ -3778,7 +3804,7 @@ export default function InboxPage() {
                 const unit = entry.item;
                 const rowKey = `${entry.pinned ? 'pin:' : ''}${entry.key}`;
                 if (unit.type === 'standalone') {
-                  return (
+                  const row = (
                     <InboxItem
                       key={rowKey}
                       item={unit.data}
@@ -3787,6 +3813,10 @@ export default function InboxPage() {
                       onClick={openInboxItem}
                     />
                   );
+                  // The welcome screen's card flies into this row.
+                  return unit.data.sourceType === 'platform_identity' && unit.data.status === 'pending'
+                    ? <div key={rowKey} {...{ [CARD_TARGET_ATTR]: 'identity' }} style={{ borderRadius: 16 }}>{row}</div>
+                    : row;
                 }
                 return (
                   <WorkflowGroupRow

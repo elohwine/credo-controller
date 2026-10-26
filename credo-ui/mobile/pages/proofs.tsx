@@ -9,6 +9,8 @@ import {
   IconWallet, IconRefresh, IconAlertCircle, IconShare
 } from '@tabler/icons-react';
 import AppShellMobile from '@/components/layout/AppShellMobile';
+import { SectionTip } from '@/components/guides/SectionGuides';
+import { useAppGuides } from '@/lib/guides';
 import BottomSheet from '@/components/shared/BottomSheet';
 import StatusBadge from '@/components/shared/StatusBadge';
 import EmptyState from '@/components/shared/EmptyState';
@@ -173,6 +175,13 @@ export default function ProofsPage() {
     title: RECORD_SECTION_LABELS[key],
     rows: active.filter((c) => recordSectionOf(primaryType(c.type), c.parsedDocument?.credentialSubject) === key),
   })).filter((section) => section.rows.length > 0);
+
+  // The getting-started step "Find it in Records" ticks once a saved card is actually on screen.
+  const guides = useAppGuides();
+  const seenPersonalCard = !viewingOrg && !loading && credentials.length > 0;
+  useEffect(() => {
+    if (seenPersonalCard && guides.ready && !guides.isDone('records_seen')) void guides.mark('records_seen', 'done');
+  }, [seenPersonalCard, guides]);
 
   /**
    * Load the wallet. A background refresh (`silent`: app came back to the front, connection came
@@ -555,6 +564,7 @@ export default function ProofsPage() {
           </Group>
         </Box>
 
+        <SectionTip tip="tip_records" when={!viewingOrg} wrap={{ padding: '4px 16px 8px' }} />
         {!(viewingOrg && !canOpenOrgRecords) && (
         <Tabs value={tab} onChange={(v) => setTab(v ?? 'active')} px="md">
           <Tabs.List grow>

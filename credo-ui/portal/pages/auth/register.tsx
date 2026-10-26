@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect } from 'react';
+import React, { useState, useContext, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
@@ -6,6 +6,10 @@ import { WalletOnboarding } from '../../../shared/WalletOnboarding';
 import onboardingStyles from '../../../shared/WalletOnboarding.module.css';
 import { EnvContext } from '@/pages/_app';
 import { clearStoredOrganizationContext } from '@/utils/organizationContext';
+import { applyPersonalLogin } from '@/lib/personalSession';
+import { useGuideClient } from '@/lib/guides';
+import { WelcomeScreen } from '../../../shared/Guides';
+import { GUIDE_PATHS } from '../../../shared/guides';
 import axios from 'axios';
 import {
     Container,
@@ -33,6 +37,10 @@ export default function RegisterPage() {
     const [claimedCredentials, setClaimedCredentials] = useState<number>(0);
     const [authChecked, setAuthChecked] = useState(false);
     const [setupStep, setSetupStep] = useState(1);
+    const [welcome, setWelcome] = useState<{ name: string; next: string } | null>(null);
+    const guideClient = useGuideClient();
+    // Set before the new session is stored, so the signed-in redirect below does not skip the welcome.
+    const welcoming = useRef(false);
 
     const [form, setForm] = useState({
         username: '',
@@ -52,6 +60,7 @@ export default function RegisterPage() {
             localStorage.getItem('walletToken')
         );
 
+        if (welcoming.current) return;
         if (hasPersonalSession) {
             router.replace('/wallet');
             return;
@@ -124,52 +133,31 @@ export default function RegisterPage() {
 
             const sessionToken = response.data.token as string | undefined;
             const walletId = response.data.walletId as string | undefined;
+            const identifier = (form.phone || form.email || '').trim();
+            const claimedCount = response.data.claimedExisting ? Number(response.data.existingCredentialsCount || 0) : 0;
+            setClaimedCredentials(claimedCount);
+
+            if (sessionToken && walletId) {
+                // The account exists and is signed in: welcome the person instead of asking for the PIN again.
+                welcoming.current = true;
+                applyPersonalLogin(
+                    { token: sessionToken, tenantId: walletId, claims: { displayName: form.username.trim() } },
+                    identifier,
+                );
+                setWelcome({ name: form.username.trim(), next: claimedCount > 0 ? '/wallet' : '/inbox' });
+                return;
+            }
 
             clearStoredOrganizationContext();
-            localStorage.removeItem('walletPhone');
-            localStorage.removeItem('walletEmail');
-            if (walletId) {
-                localStorage.setItem('credoTenantId', walletId);
-                localStorage.setItem('tenantId', walletId);
-            }
-            if (sessionToken) {
-                localStorage.setItem('credoTenantToken', sessionToken);
-                localStorage.setItem('walletToken', sessionToken);
-                localStorage.setItem('tenantToken', sessionToken);
-            }
-
-            console.log('[Register] Success:', response.data);
             setSuccess(true);
-
-            // Check if we claimed existing credentials
-            const claimedCount = response.data.existingCredentialsCount || 0;
-            if (response.data.claimedExisting && claimedCount > 0) {
-                setClaimedCredentials(claimedCount);
-                notifications.show({
-                    title: 'Welcome back!',
-                    message: `Found ${claimedCount} saved item(s) from your previous purchases`,
-                    color: 'green',
-                    icon: <IconReceipt size={18} />,
-                    autoClose: 5000,
-                });
-            } else {
-                notifications.show({
-                    title: 'Account Created!',
-                    message: response.data.message || 'Your wallet is ready',
-                    color: 'green',
-                    icon: <IconCheck size={18} />,
-                    autoClose: 4000,
-                });
-            }
-
-            // Redirect after showing success
-            setTimeout(() => {
-                if (response.data.claimedExisting) {
-                    router.push('/wallet'); // Go to wallet to see claimed VCs
-                } else {
-                    router.push('/auth/login');
-                }
-            }, 2500);
+            notifications.show({
+                title: 'Account created',
+                message: 'Sign in with your phone number or email and PIN.',
+                color: 'green',
+                icon: <IconCheck size={18} />,
+                autoClose: 4000,
+            });
+            setTimeout(() => router.push('/auth/login'), 2500);
         } catch (err: any) {
             console.error('[Register] Error:', err);
             const errorMsg = err.response?.data?.message || err.message || 'Registration failed';
@@ -187,6 +175,20 @@ export default function RegisterPage() {
     };
 
     const guiding = !success && setupStep < 3;
+
+    if (welcome) {
+        return (
+            <WelcomeScreen
+                name={welcome.name}
+                flyToInbox={welcome.next !== '/wallet'}
+                continueLabel={welcome.next === '/wallet' ? 'See my saved items' : 'Go to Inbox'}
+                onContinue={() => {
+                    void guideClient.put(`${GUIDE_PATHS.guides}/welcome`, { status: 'done' }).catch(() => undefined);
+                    void router.replace(welcome.next);
+                }}
+            />
+        );
+    }
 
     return (
         <Layout title="Register">
@@ -228,6 +230,7 @@ export default function RegisterPage() {
                                 )}
                                 <TextInput
                                     label="Username"
+                                    placeholder="e.g. tendai"
                                     autoComplete="username"
                                     required
                                     value={form.username}
@@ -257,6 +260,7 @@ export default function RegisterPage() {
 
                                 <PasswordInput
                                     label="PIN"
+                                    placeholder="Choose PIN"
                                     inputMode="numeric"
                                     autoComplete="new-password"
                                     visibilityToggleButtonProps={{ 'aria-label': 'Show or hide new PIN' }}
@@ -268,6 +272,7 @@ export default function RegisterPage() {
 
                                 <PasswordInput
                                     label="Confirm PIN"
+                                    placeholder="Repeat PIN"
                                     inputMode="numeric"
                                     autoComplete="new-password"
                                     visibilityToggleButtonProps={{ 'aria-label': 'Show or hide confirmation PIN' }}

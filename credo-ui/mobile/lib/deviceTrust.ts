@@ -55,16 +55,32 @@ export function loginDevices(): LoginDevice[] {
 
 export function loginDeviceAvailable(walletId?: string): boolean {
   const native = bridge()
-  try {
-    return native?.loginAvailable?.() === true &&
-      loginDevices().some((item) => (!walletId || item.walletId === walletId) && native.hasKey?.(item.alias))
-  } catch {
-    return false
+  return native?.loginAvailable?.() === true &&
+    loginDevices().some((item) => (!walletId || item.walletId === walletId) && native.hasKey?.(item.alias))
+}
+
+export function deviceLoginWalletId(): string {
+  const native = bridge()
+  if (!native?.loginAvailable?.()) {
+    throw new Error('Phone sign-in is unavailable. Check your phone screen lock, or use your account PIN.')
   }
+  const devices = loginDevices().filter((item) => native.hasKey?.(item.alias))
+  const remembered = devices.find((item) => item.walletId === rememberedWalletId())
+  if (remembered) return remembered.walletId
+  if (devices.length === 1) return devices[0].walletId
+  if (devices.length > 1) {
+    throw new Error('Sign in with your account PIN once to choose which enrolled account to use on this phone.')
+  }
+  throw new Error('No sign-in key was found for this app. Sign in with your account PIN, then enroll under Account security. Payment enrollment alone does not enable phone sign-in.')
 }
 
 export function supportsDeviceLogin(): boolean {
   return bridge()?.loginAvailable?.() === true
+}
+
+export function hasLocalLoginKey(deviceKeyId: string): boolean {
+  const device = loginDevices().find((item) => item.deviceKeyId === deviceKeyId)
+  return !!device && bridge()?.hasKey?.(device.alias) === true
 }
 
 export async function enrollLoginDevice(pin: string, label = 'This Android phone'): Promise<void> {

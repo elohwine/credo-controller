@@ -42,6 +42,8 @@ import {
 } from '@/utils/organizationContext'
 import { beginPortalTask, endPortalTask, getPortalTask, openOrgSwitcher, readPortalContext } from '@/lib/portalContext'
 import { captureOrganizationSwitchContext } from '../../../shared/taskContext'
+import { announceInboxChanged } from '../../../shared/guides'
+import { CARD_TARGET_ATTR, celebrateSaved } from '../../../shared/cardMotion'
 import { familyLinks, requestEventLinks } from '../../../shared/relatedWork'
 import { assertRequestDetail, requestExperienceForRow, requestIdFromStageCard, type RequestExperience } from '../../../shared/requestExperience'
 import { requestFamily } from '../../../../src/config/requestExperience'
@@ -1000,7 +1002,15 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
     const itemId = typeof router.query.item === 'string' ? router.query.item : ''
     if (!itemId || loading || openedNotificationItem.current === itemId) return
     const row = items.find((item) => item.inboxItemId === itemId)
-    if (row) {
+    if (row && isRecordOfferRow(row)) {
+      // Card offers are accepted from their row, not the job drawer: bring the row into view instead.
+      openedNotificationItem.current = itemId
+      requestAnimationFrame(() => {
+        const element = document.querySelector<HTMLElement>(`[data-inbox-item="${CSS.escape(itemId)}"]`)
+        element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        element?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
+      })
+    } else if (row) {
       openedNotificationItem.current = itemId
       setSelectedRequest(row)
     } else {
@@ -1288,6 +1298,8 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
             const row = mapStageCardToRow(card) || mapPurchaseStageCardToRow(card) || mapRecordOfferToRow(card, 'personal')
             if (row) workflowRows.push({ ...row, inboxItemId: card.id || card.offerId })
           })
+          // Reading pending offers may have saved cards automatically.
+          announceInboxChanged()
         } catch {
           // Cards are optional; the rest of the inbox still loads.
         }
@@ -1769,7 +1781,20 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
         { headers: { Authorization: `Bearer ${token}` } },
       )
       assertContext()
-      milestone.show({ kind: 'card_saved', title: 'Saved to records', detail: personal ? 'Kept in your personal records.' : "Kept in the organisation's records." })
+      const offerSource = String(parseRequestContext(row).offerSourceType || '')
+      const showMilestone = () => milestone.show({ kind: 'card_saved', title: 'Saved to records', detail: personal ? 'Kept in your personal records.' : "Kept in the organisation's records." })
+      if (personal) {
+        void celebrateSaved({
+          title: offerSource === 'platform_identity' ? 'Identity card' : String(row.title || 'Record'),
+          detail: 'Saved to My records',
+        }).then((flew) => {
+          if (flew) feedback.success('Kept in your personal records.', { title: 'Saved', action: { label: 'Open', onClick: () => void router.push('/wallet') } })
+          else showMilestone()
+        })
+      } else {
+        showMilestone()
+      }
+      announceInboxChanged()
       await loadRequests(null, false)
     } catch (err: any) {
       if (!assertContext.isCurrent()) return
@@ -2159,26 +2184,36 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
               if (isRecordOfferRow(row)) {
                 const recordAt = formatTxnTime(normalizeCreatedAt(row))
                 const sourceType = String(parseRequestContext(row).offerSourceType || 'workflow_vc_offer')
+                const isReceipt = ['payment', 'invoice_offer', 'quote_offer'].includes(sourceType)
+                const highlighted = typeof router.query.item === 'string' && router.query.item === row.inboxItemId
                 return (
-                  <Paper key={entry.key} withBorder radius="md" p="md" style={newRowStyle}>
+                  <Paper
+                    key={entry.key}
+                    withBorder
+                    radius="md"
+                    p="md"
+                    data-inbox-item={row.inboxItemId || undefined}
+                    {...(sourceType === 'platform_identity' ? { [CARD_TARGET_ATTR]: 'identity' } : null)}
+                    style={{ ...newRowStyle, ...(highlighted ? { boxShadow: '0 0 0 2px var(--mantine-color-blue-filled)' } : null) }}
+                  >
                     <Group gap="xs" mb={4}>
                       <Badge size="xs" color={rowAttention === 'new' ? 'blue' : 'gray'} variant={rowAttention === 'new' ? 'filled' : 'light'}>
                         {rowAttention === 'new' ? 'New' : 'Opened'}
                       </Badge>
                       <Badge size="xs" color="teal" variant="light">Record</Badge>
                       <Badge size="xs" color="teal" variant="outline">
-                        Your step: {['payment', 'invoice_offer', 'quote_offer'].includes(sourceType)
+                        Your step: {isReceipt
                           ? 'Keep the record'
                           : stepRequiredLabel({ itemType: 'credential_offer', sourceType })}
                       </Badge>
                     </Group>
                     <Group justify="space-between" wrap="nowrap" gap="xs">
-                      <Text fw={600} size="sm">{row.title}</Text>
+                      <Text fw={600} size="sm">{sourceType === 'platform_identity' ? 'Identity card' : row.title}</Text>
                       {recordAt && <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>{recordAt}</Text>}
                     </Group>
                     {row.description && <Text size="xs" c="dimmed" mt={2}>{row.description}</Text>}
                     <Button size="xs" mt="md" loading={keepingRecordId === row.id} onClick={() => void keepRecordOffer(row)}>
-                      Keep record
+                      {isReceipt ? 'Keep record' : 'Accept card'}
                     </Button>
                   </Paper>
                 )

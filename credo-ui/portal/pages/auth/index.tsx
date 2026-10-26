@@ -148,8 +148,8 @@ export default function AuthPage() {
             notifications.show({
                 title: 'Account Created!',
                 message: vcOfferAutoAccepted
-                    ? `Your wallet (${walletId.slice(0, 8)}...) has been created and the Platform VC was auto-added.`
-                    : `Your wallet (${walletId.slice(0, 8)}...) has been created. Claim the Platform VC to finish setup.`,
+                    ? 'Your identity card is saved. Sign in to continue.'
+                    : 'Sign in, then accept your identity card in Inbox to finish setting up.',
                 color: 'green',
                 icon: <IconCheck size={18} />,
             });
@@ -157,11 +157,7 @@ export default function AuthPage() {
             setLoginPhone(regPhone);
             setRegPassword('');
             setRegConfirmPassword('');
-            if (vcOfferUrl && !vcOfferAutoAccepted) {
-                setActiveTab('register');
-            } else {
-                setActiveTab('login');
-            }
+            setActiveTab('login');
         } catch (err: any) {
             const message = err.response?.data?.message || err.message || 'Registration failed';
             setError(message);
@@ -295,37 +291,14 @@ export default function AuthPage() {
                                     </Alert>
 
                                     {registrationWalletId && (
-                                        <Alert
-                                            color={registrationVcAutoAccepted ? 'green' : 'violet'}
-                                            variant="light"
-                                            icon={registrationVcAutoAccepted ? <IconCheck size={16} /> : <IconWallet size={16} />}
-                                        >
+                                        <Alert color="green" variant="light" icon={<IconCheck size={16} />}>
                                             <Stack gap={6}>
-                                                <Text size="sm" fw={600}>
-                                                    {registrationVcAutoAccepted ? 'Platform VC added to your wallet' : 'Platform VC ready to claim'}
-                                                </Text>
+                                                <Text size="sm" fw={600}>Your account is ready</Text>
                                                 <Text size="sm">
                                                     {registrationVcAutoAccepted
-                                                        ? 'The Platform Identity VC was automatically issued and stored in your wallet.'
-                                                        : 'Open the VC offer to add your Platform Identity VC to the new wallet before signing in.'}
+                                                        ? 'Your identity card is saved. Sign in to continue.'
+                                                        : 'Sign in, then accept your identity card in Inbox to finish setting up.'}
                                                 </Text>
-                                                {registrationVcOfferUrl && !registrationVcAutoAccepted && (
-                                                    <Group gap="sm">
-                                                        <Button
-                                                            size="xs"
-                                                            onClick={() => window.open(registrationVcOfferUrl, '_blank', 'noopener,noreferrer')}
-                                                        >
-                                                            Open VC Offer
-                                                        </Button>
-                                                        <Button
-                                                            size="xs"
-                                                            variant="light"
-                                                            onClick={() => navigator.clipboard?.writeText(registrationVcOfferUrl)}
-                                                        >
-                                                            Copy Offer URL
-                                                        </Button>
-                                                    </Group>
-                                                )}
                                             </Stack>
                                         </Alert>
                                     )}

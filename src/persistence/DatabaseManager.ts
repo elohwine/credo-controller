@@ -186,6 +186,7 @@ export class DatabaseManager {
       { version: 137, file: '137_notification_template_name.sql', name: 'notification_template_name' },
       { version: 138, file: '138_stage_co_actors.sql', name: 'stage_co_actors' },
       { version: 139, file: '139_verified_device_enrollment.sql', name: 'verified_device_enrollment' },
+      { version: 140, file: '140_wallet_guides_and_holder_settings.sql', name: 'wallet_guides_and_holder_settings' },
     ]
 
     for (const migration of migrationFiles) {

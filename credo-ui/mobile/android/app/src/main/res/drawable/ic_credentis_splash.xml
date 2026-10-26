@@ -1,16 +1,108 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="288dp"
-    android:height="288dp"
-    android:viewportWidth="288"
-    android:viewportHeight="288">
-    <path
-        android:fillColor="#2188CA"
-        android:pathData="M108,72 L180,72 Q216,72 216,108 L216,180 Q216,216 180,216 L108,216 Q72,216 72,180 L72,108 Q72,72 108,72 Z" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M144,99 L178,112 L178,140 C178,164 165,180 144,189 C123,180 110,164 110,140 L110,112 Z M129,143 L140,154 L160,132" />
-</vector>
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ animated launch icon. The static values below are the final frame,
+  so Android 6-11 (which shows the icon without playing it) still sees the full mark.
+  Total length stays under 1000ms, as the SplashScreen API recommends.
+-->
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt">
+    <aapt:attr name="android:drawable">
+        <vector
+            android:width="288dp"
+            android:height="288dp"
+            android:viewportWidth="288"
+            android:viewportHeight="288">
+            <group
+                android:name="tile"
+                android:pivotX="144"
+                android:pivotY="144">
+                <path
+                    android:name="tileFill"
+                    android:fillColor="#2188CA"
+                    android:pathData="M108,72 L180,72 Q216,72 216,108 L216,180 Q216,216 180,216 L108,216 Q72,216 72,180 L72,108 Q72,72 108,72 Z" />
+                <path
+                    android:name="shield"
+                    android:fillColor="#00000000"
+                    android:strokeColor="#FFFFFF"
+                    android:strokeWidth="7"
+                    android:strokeLineCap="round"
+                    android:strokeLineJoin="round"
+                    android:pathData="M144,99 L178,112 L178,140 C178,164 165,180 144,189 C123,180 110,164 110,140 L110,112 Z" />
+                <path
+                    android:name="check"
+                    android:fillColor="#00000000"
+                    android:strokeColor="#FFFFFF"
+                    android:strokeWidth="7"
+                    android:strokeLineCap="round"
+                    android:strokeLineJoin="round"
+                    android:pathData="M129,143 L140,154 L160,132" />
+            </group>
+        </vector>
+    </aapt:attr>
+
+    <target android:name="tile">
+        <aapt:attr name="android:animation">
+            <set>
+                <objectAnimator
+                    android:propertyName="scaleX"
+                    android:duration="460"
+                    android:valueFrom="0.6"
+                    android:valueTo="1"
+                    android:valueType="floatType"
+                    android:interpolator="@android:anim/overshoot_interpolator" />
+                <objectAnimator
+                    android:propertyName="scaleY"
+                    android:duration="460"
+                    android:valueFrom="0.6"
+                    android:valueTo="1"
+                    android:valueType="floatType"
+                    android:interpolator="@android:anim/overshoot_interpolator" />
+                <objectAnimator
+                    android:propertyName="rotation"
+                    android:duration="520"
+                    android:valueFrom="-10"
+                    android:valueTo="0"
+                    android:valueType="floatType"
+                    android:interpolator="@android:interpolator/fast_out_slow_in" />
+            </set>
+        </aapt:attr>
+    </target>
+
+    <target android:name="tileFill">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:propertyName="fillAlpha"
+                android:duration="220"
+                android:valueFrom="0"
+                android:valueTo="1"
+                android:valueType="floatType"
+                android:interpolator="@android:interpolator/linear" />
+        </aapt:attr>
+    </target>
+
+    <target android:name="shield">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:propertyName="trimPathEnd"
+                android:startOffset="220"
+                android:duration="440"
+                android:valueFrom="0"
+                android:valueTo="1"
+                android:valueType="floatType"
+                android:interpolator="@android:interpolator/fast_out_slow_in" />
+        </aapt:attr>
+    </target>
+
+    <target android:name="check">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:propertyName="trimPathEnd"
+                android:startOffset="640"
+                android:duration="260"
+                android:valueFrom="0"
+                android:valueTo="1"
+                android:valueType="floatType"
+                android:interpolator="@android:interpolator/fast_out_slow_in" />
+        </aapt:attr>
+    </target>
+</animated-vector>

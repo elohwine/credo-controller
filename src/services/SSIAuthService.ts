@@ -317,9 +317,9 @@ export class SSIAuthService {
     // Generate Auth Token
     const token = await this.generateSessionToken(userId, tenantId!, userDid)
 
-    const vcOfferAutoAccepted = vcOfferUrl
-      ? await this.acceptCredentialOfferForWallet(tenantId!, token, vcOfferUrl)
-      : undefined
+    // The identity card waits in the inbox: the person reviews and accepts it, like every other card.
+    // It is saved without a tap only after they turn on "Save new cards automatically".
+    const vcOfferAutoAccepted = vcOfferUrl ? false : undefined
 
     return {
       tenantId: tenantId!,
@@ -824,7 +824,12 @@ export class SSIAuthService {
           },
         },
       })
-      userDid = result.didState.did!
+      if (!result.didState.did) {
+        await tenantAgent.endSession()
+        const reason = (result.didState as { reason?: string }).reason
+        throw new Error(`Could not create the account DID (${result.didState.state}${reason ? `: ${reason}` : ''})`)
+      }
+      userDid = result.didState.did
     } else {
       userDid = existingDids[0].did
     }
@@ -923,47 +928,6 @@ export class SSIAuthService {
       displayName,
     })
     return offerUri
-  }
-
-  private async acceptCredentialOfferForWallet(
-    tenantId: string,
-    sessionToken: string,
-    offerUri: string,
-  ): Promise<boolean> {
-    const holderApiUrl =
-      process.env.HOLDER_API_URL ||
-      process.env.HOLDER_BASE_URL ||
-      process.env.PUBLIC_BASE_URL ||
-      'http://localhost:3000'
-
-    try {
-      const response = await fetch(`${holderApiUrl.replace(/\/+$/, '')}/api/wallet/credentials/accept-offer`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${sessionToken}`,
-        },
-        body: JSON.stringify({ offerUri }),
-      })
-
-      if (!response.ok) {
-        const body = await response.text().catch(() => '')
-        logger.warn(
-          { tenantId, status: response.status, body: body.slice(0, 300) },
-          'Platform identity VC offer was created but auto-accept failed',
-        )
-        return false
-      }
-
-      logger.info({ tenantId }, 'Platform identity VC auto-accepted into wallet')
-      return true
-    } catch (error: any) {
-      logger.warn(
-        { tenantId, error: error?.message || String(error) },
-        'Platform identity VC offer was created but auto-accept threw an error',
-      )
-      return false
-    }
   }
 
   /**

@@ -50,6 +50,14 @@ export const SUMMARY_LABEL: Record<MemberOnboardingSummary, string> = {
   no_app: 'Not in the app yet',
 }
 
+/** The same summary when it is about the person reading it. */
+export const MY_SUMMARY_LABEL: Record<MemberOnboardingSummary, string> = {
+  ready: 'Ready',
+  waiting: 'Your turn',
+  needs_cards: 'Cards on the way',
+  no_app: 'Finish signing in',
+}
+
 export const SUMMARY_COLOR: Record<MemberOnboardingSummary, string> = {
   ready: 'teal',
   waiting: 'yellow',
