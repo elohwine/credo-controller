@@ -14,7 +14,7 @@ export default function CardSettingsPage() {
           <Anchor component={Link} href="/settings" size="sm">← Settings</Anchor>
           <div>
             <Title order={2}>Saving new cards</Title>
-            <Text size="sm" c="dimmed">Choose what happens when an organisation sends you a card.</Text>
+            <Text size="sm" c="dimmed">You accept each card until you turn this on. Your identity card always waits for you.</Text>
           </div>
           <CardSavingPanel client={client} />
         </Stack>

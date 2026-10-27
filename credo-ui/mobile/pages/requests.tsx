@@ -26,6 +26,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useRouter } from 'next/router'
 import AppShellMobile from '@/components/layout/AppShellMobile'
 import JobAuditTrailPanel from '@/components/shared/JobAuditTrailPanel'
+import RecordActions from '@/components/shared/RecordActions'
 import { StageActorTimeline } from '@/components/shared/StageActorTimeline'
 import api from '@/lib/api'
 import { getOrgRoleClaim, getOrgToken } from '@/lib/auth'
@@ -382,7 +383,7 @@ export default function OrganisationRequests() {
                     {progress && <StageActorTimeline stages={progress.stages} title="Request progress" />}
                   </Tabs.Panel>
                   <Tabs.Panel value="history" pt="md">
-                    {trail && <JobAuditTrailPanel trail={trail} compact embedded subject="request" />}
+                    {trail && <JobAuditTrailPanel trail={trail} compact embedded />}
                     {activeSelection?.source === 'contact' && (
                       <Paper withBorder p="sm">
                         <Text fw={600} mb="sm">
@@ -404,6 +405,17 @@ export default function OrganisationRequests() {
                     )}
                   </Tabs.Panel>
                 </Tabs>
+                {activeSelection?.source === 'platform' && (
+                  <RecordActions
+                    kind="request"
+                    id={activeSelection.id}
+                    canCancel={['draft', 'submitted', 'in_review'].includes(String(detail.data.status || ''))}
+                    onCancelled={() => {
+                      setSelected(null)
+                      void list.refetch()
+                    }}
+                  />
+                )}
                 {['submitted', 'pending', 'in_review', 'approved', 'in_fulfilment'].includes(detail.data.status) && (
                   <Button
                     onClick={() =>

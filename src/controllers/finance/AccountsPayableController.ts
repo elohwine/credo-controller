@@ -15,6 +15,7 @@ import { orgWorkflowActorService } from '../../services/OrgWorkflowActorService'
 import { outboxService } from '../../services/OutboxService'
 import { buildVcTypeArrayFilter, resolveAcceptedProofVcTypes } from '../../services/ProofVcPolicyService'
 import { requestHandoffService } from '../../services/RequestHandoffService'
+import { resolveMoneyStepInboxCards, upsertMoneyStepInboxCard } from '../../services/WorkflowStageInboxService'
 import { requireDeviceTrust } from '../../services/deviceAssertion'
 import { assertProofRequestAllowed, stageProofModeFor } from '../../services/ssi/proofModeMatrix'
 import {
@@ -482,183 +483,6 @@ export class AccountsPayableController extends Controller {
       role: resolved.role || 'owner',
       mode: resolved.mode,
     }
-  }
-
-  private upsertApWorkflowInboxAssignment(
-    db: ReturnType<typeof DatabaseManager.getDatabase>,
-    params: {
-      transactionId: string
-      actorTenantId: string
-      actorRole: string
-      orgTenantId?: string | null
-      requiredAction: string
-      requiredProofType?: string | null
-    },
-  ): void {
-    const now = new Date().toISOString()
-    const normalizedOrgTenantId = String(params.orgTenantId || '').trim()
-    const orgTenantRecord = normalizedOrgTenantId ? getTenantById(normalizedOrgTenantId) : null
-    const contextOrgTenantId = orgTenantRecord?.tenantType === 'ORG' ? normalizedOrgTenantId : null
-
-    const txActor = db
-      .prepare(
-        `
-            SELECT required_actor_tenant_id, required_actor_role, source_plan_id, source_payment_link_id
-            FROM ar_ap_workflow_transactions
-            WHERE id = ?
-            LIMIT 1
-        `,
-      )
-      .get(params.transactionId) as
-      | {
-          required_actor_tenant_id?: string | null
-          required_actor_role?: string | null
-          source_plan_id?: string | null
-          source_payment_link_id?: string | null
-        }
-      | undefined
-
-    const actorTenantId =
-      String(txActor?.required_actor_tenant_id || params.actorTenantId || '').trim() || params.actorTenantId
-    const actorRole = String(txActor?.required_actor_role || params.actorRole || 'owner').trim() || 'owner'
-
-    db.prepare(
-      `
-            UPDATE wallet_pending_offers
-            SET resolved_at = COALESCE(resolved_at, ?),
-                accepted_at = COALESCE(accepted_at, ?),
-                last_attempt_at = ?
-            WHERE source_type = 'ap_workflow_assignment'
-              AND source_id = ?
-              AND tenant_id != ?
-              AND resolved_at IS NULL
-        `,
-    ).run(now, now, now, params.transactionId, actorTenantId)
-
-    const existing = db
-      .prepare(
-        `
-            SELECT id
-            FROM wallet_pending_offers
-            WHERE tenant_id = ?
-              AND source_type = 'ap_workflow_assignment'
-              AND source_id = ?
-              AND resolved_at IS NULL
-            LIMIT 1
-        `,
-      )
-      .get(actorTenantId, params.transactionId) as { id: string } | undefined
-
-    const metadata = JSON.stringify({
-      transactionId: params.transactionId,
-      targetOrgTenantId: contextOrgTenantId,
-      workflowType: 'ap_trust_workflow',
-      requestType: 'ap_workflow',
-      requiredAction: params.requiredAction,
-      requiredProofType: params.requiredProofType || null,
-      assigneeRole: actorRole,
-      sourcePlanId: txActor?.source_plan_id || null,
-      sourcePaymentLinkId: txActor?.source_payment_link_id || null,
-    })
-    const pushTitle = 'AP Workflow Action Required'
-    const pushBody = `Action '${params.requiredAction}' is ready for you to continue in your organization workflow.`
-    const pushActionUrl = contextOrgTenantId
-      ? `/inbox?focus=ap-workflow&transactionId=${encodeURIComponent(params.transactionId)}&orgTenantId=${encodeURIComponent(contextOrgTenantId)}`
-      : `/inbox?focus=ap-workflow&transactionId=${encodeURIComponent(params.transactionId)}`
-
-    if (existing?.id) {
-      db.prepare(
-        `
-                UPDATE wallet_pending_offers
-                SET title = ?, body = ?, metadata = ?, last_attempt_at = ?
-                WHERE id = ?
-            `,
-      ).run(
-        'AP Workflow Action Required',
-        `Action '${params.requiredAction}' is assigned to you for AP workflow execution.`,
-        metadata,
-        now,
-        existing.id,
-      )
-      notificationService
-        .sendWalletPush({
-          title: pushTitle,
-          body: pushBody,
-          actionUrl: pushActionUrl,
-          type: 'generic',
-        })
-        .catch(() => {
-          /* logged in service */
-        })
-      return
-    }
-
-    db.prepare(
-      `
-            INSERT INTO wallet_pending_offers (
-                id, tenant_id, issuer_tenant_id, source_type, source_id,
-                credential_type, offer_uri, title, body, metadata, created_at,
-                attempt_count, last_attempt_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
-        `,
-    ).run(
-      `apw-${randomUUID().slice(0, 12)}`,
-      actorTenantId,
-      contextOrgTenantId || normalizedOrgTenantId || actorTenantId,
-      'ap_workflow_assignment',
-      params.transactionId,
-      'WorkflowActionAssignment',
-      `ap-workflow://${encodeURIComponent(params.transactionId)}`,
-      'AP Workflow Action Required',
-      `Action '${params.requiredAction}' is assigned to you for AP workflow execution.`,
-      metadata,
-      now,
-      now,
-    )
-
-    outboxService.enqueue({
-      topic: 'wallet.vc.offered',
-      aggregateKey: actorTenantId,
-      dedupeKey: `wpo:${actorTenantId}:ap_workflow_assignment:${params.transactionId}:${params.requiredAction}`,
-      payload: {
-        tenantId: actorTenantId,
-        issuerTenantId: contextOrgTenantId || normalizedOrgTenantId || actorTenantId,
-        sourceType: 'ap_workflow_assignment',
-        sourceId: params.transactionId,
-        credentialType: 'WorkflowActionAssignment',
-        offerUri: `ap-workflow://${params.transactionId}`,
-        queuedAt: now,
-      },
-    })
-
-    notificationService
-      .sendWalletPush({
-        title: pushTitle,
-        body: pushBody,
-        actionUrl: pushActionUrl,
-        type: 'generic',
-      })
-      .catch(() => {
-        /* logged in service */
-      })
-  }
-
-  private resolveApWorkflowInboxAssignments(
-    db: ReturnType<typeof DatabaseManager.getDatabase>,
-    transactionId: string,
-  ): void {
-    const now = new Date().toISOString()
-    db.prepare(
-      `
-            UPDATE wallet_pending_offers
-            SET resolved_at = COALESCE(resolved_at, ?),
-                accepted_at = COALESCE(accepted_at, ?),
-                last_attempt_at = ?
-            WHERE source_type = 'ap_workflow_assignment'
-              AND source_id = ?
-              AND resolved_at IS NULL
-        `,
-    ).run(now, now, now, transactionId)
   }
 
   // Who handles a supplier-bill step is the same money-people list as purchase requests
@@ -1457,7 +1281,7 @@ export class AccountsPayableController extends Controller {
         const orgTenantForAction =
           nextRequiredAction === 'record_payment' ? String(tx.payer_tenant_id) : String(tx.collector_tenant_id)
 
-        this.upsertApWorkflowInboxAssignment(db, {
+        upsertMoneyStepInboxCard(db, {
           transactionId,
           actorTenantId: nextRequiredActorTenant,
           actorRole: nextRequiredActorRole,
@@ -1466,7 +1290,7 @@ export class AccountsPayableController extends Controller {
           requiredProofType: nextRequiredProofType,
         })
       } else {
-        this.resolveApWorkflowInboxAssignments(db, transactionId)
+        resolveMoneyStepInboxCards(db, transactionId)
       }
 
       const updated = db
@@ -1943,7 +1767,7 @@ export class AccountsPayableController extends Controller {
           },
         })
 
-        this.upsertApWorkflowInboxAssignment(db, {
+        upsertMoneyStepInboxCard(db, {
           transactionId: transaction.id,
           actorTenantId: nextAssignment.tenantId,
           actorRole: nextAssignment.role,
@@ -2419,7 +2243,7 @@ export class AccountsPayableController extends Controller {
           },
         })
 
-        this.upsertApWorkflowInboxAssignment(db, {
+        upsertMoneyStepInboxCard(db, {
           transactionId: tx.id,
           actorTenantId: assignment.tenantId,
           actorRole: assignment.role,

@@ -191,7 +191,7 @@ export default function OrganizationDepartmentsPage() {
                             </Box>
                             <Group gap="xs">
                                 <Button variant="default" size="sm" component="a" href="/organization/setup">
-                                    ← Setup Center
+                                    ← Setup
                                 </Button>
                                 <Button
                                     leftSection={<IconPlus size={16} />}

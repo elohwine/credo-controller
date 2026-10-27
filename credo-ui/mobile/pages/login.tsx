@@ -233,7 +233,7 @@ export default function LoginPage() {
                 <Stack gap="md">
                   <TextInput
                     label="Phone or email"
-                    placeholder="263771234567"
+                    placeholder="e.g. 0771234567"
                     leftSection={<IconPhone size={16} />}
                     size="md"
                     autoComplete="username"
@@ -276,15 +276,15 @@ export default function LoginPage() {
               <form onSubmit={registerForm.onSubmit(handleRegister)}>
                 <Stack gap="sm">
                   <TextInput
-                    label="Name"
-                    placeholder="Full name"
+                    label="Your name"
+                    placeholder="e.g. Tendai"
                     size="md"
                     autoComplete="name"
                     {...registerForm.getInputProps('username')}
                   />
                   <TextInput
                     label="Phone number"
-                    placeholder="263771234567"
+                    placeholder="e.g. 0771234567"
                     leftSection={<IconPhone size={16} />}
                     size="md"
                     inputMode="tel"

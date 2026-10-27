@@ -43,11 +43,13 @@
 .next .action { border-color: #1b6fa6; background: #1b6fa6; color: #fff; }
 .allDone { display: flex; align-items: center; gap: 12px; }
 .allDone > div:first-child { width: 72px; height: 72px; flex-shrink: 0; }
-/* The one open step: words on the left, the action beside them, so it takes two lines at most. */
+/* The one open step: words on the left, the action beside them. A choice sits on its own row. */
 .nextStep { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'title action' 'detail action'; column-gap: 12px; align-items: center; margin-top: 10px; padding: 10px 12px; border-radius: 14px; background: var(--soft); }
 .nextStep strong { grid-area: title; font-size: 14px; font-weight: 650; }
 .nextStep span { grid-area: detail; color: var(--muted); font-size: 12px; text-wrap: pretty; }
 .nextStep .action { grid-area: action; border-color: #1b6fa6; background: #1b6fa6; color: #fff; }
+.nextChoices { grid-column: 1 / -1; grid-row: 3; display: flex; flex-wrap: wrap; gap: 8px; }
+.nextChoices .action { grid-area: auto; min-height: 48px; }
 .disclosure { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; margin-top: 4px; padding: 0 4px; border: 0; background: transparent; color: var(--blue); font-weight: 600; font-size: 12px; }
 .items .next strong { color: var(--blue); }
 

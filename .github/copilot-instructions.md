@@ -4,6 +4,8 @@
 
 ---
 
+NOTE!!! CREDO-UI/portal and mobile should be changed together since they share common components and workflows, ensuring consistency across the user experience.
+
 ## Quick Start
 
 **Entry points:** `src/server.ts` (Express app), `src/cliAgent.ts` (Credo agent bootstrap), `bin/afj-rest.js` (CLI).  

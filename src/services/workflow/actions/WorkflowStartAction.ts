@@ -29,6 +29,7 @@ import type { WorkflowActionContext } from '../ActionRegistry'
 import { randomUUID } from 'crypto'
 
 import { DatabaseManager } from '../../../persistence/DatabaseManager'
+import { workflowRunRepository } from '../../../persistence/WorkflowRunRepository'
 import { rootLogger } from '../../../utils/pinoLogger'
 import { platformRequestService } from '../../PlatformRequestService'
 import { workflowReadinessService } from '../../WorkflowReadinessService'
@@ -182,16 +183,29 @@ export function createWorkflowStartAction(getExecutor: () => Executor) {
       'workflow.start: child workflow started',
     )
 
-    // waitForCompletion: the parent pauses here and continues by itself when the child ends.
-    // The link row is what WorkflowHandoffService settles when the child run finishes.
-    if (config.waitForCompletion === true && result.runId && result.status === 'running') {
+    // Every child is linked to the parent so it shows under the job's related work. Only
+    // waitForCompletion holds the parent: it pauses here and continues when the child ends.
+    const holdParent = config.waitForCompletion === true && result.status === 'running'
+    if (result.runId && context.runId) {
+      const childStatus = String(workflowRunRepository.findRunById(result.runId)?.status || result.status)
+      const linkStatus = ['completed', 'failed', 'cancelled'].includes(childStatus) ? childStatus : 'running'
       DatabaseManager.getDatabase()
         .prepare(
           `INSERT OR IGNORE INTO workflow_handoff_links
              (id, org_tenant_id, parent_run_id, handoff_key, child_kind, child_id, hold_parent, status)
-           VALUES (?, ?, ?, ?, 'run', ?, 1, 'running')`,
+           VALUES (?, ?, ?, ?, 'run', ?, ?, ?)`,
         )
-        .run(randomUUID(), context.tenantId, context.runId, key, result.runId)
+        .run(
+          randomUUID(),
+          context.tenantId,
+          context.runId,
+          key,
+          result.runId,
+          holdParent ? 1 : 0,
+          holdParent ? 'running' : linkStatus,
+        )
+    }
+    if (holdParent) {
       context.state.pauseReason = `await_handoff:${key}`
       context.state.pauseRequestedAt = new Date().toISOString()
       throw new Error('WORKFLOW_PAUSE')

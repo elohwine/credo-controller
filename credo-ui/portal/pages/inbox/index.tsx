@@ -10,7 +10,7 @@ export default function PortalInboxPage() {
   React.useEffect(() => setPersonal(!isOrgContextActive()), [])
   return (
     <Layout title="Inbox">
-      <Container size="xl" py="lg">
+      <Container size={760} py="lg">
         {personal && <InboxGettingStarted wrap={{ maxWidth: 720, marginBottom: 16 }} />}
         <RequestWorkspace mode="inbox" />
       </Container>

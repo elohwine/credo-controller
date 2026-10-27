@@ -243,6 +243,11 @@ const TYPE_LABELS: Record<string, string> = {
   'field.maintenance': 'Maintenance follow-up',
 }
 
+/** Children a template step starts by itself (`workflow.start`), named for the job's related work. */
+const STARTED_CHILD_LABELS: Record<string, string> = {
+  'tpl-payment-collection': 'Client bill',
+}
+
 export function handoffTypeLabel(type: string): string {
   return (
     TYPE_LABELS[type] ||
@@ -633,7 +638,10 @@ export class WorkflowHandoffService {
     return rows.map((row) => ({
       id: row.id,
       key: row.key,
-      label: WORKFLOW_HANDOFF_CATALOG.find((def) => def.key === row.key)?.label || row.key,
+      label:
+        WORKFLOW_HANDOFF_CATALOG.find((def) => def.key === row.key)?.label ||
+        STARTED_CHILD_LABELS[row.key] ||
+        handoffTypeLabel(String(row.key)),
       childKind: row.childKind,
       childId: row.childId,
       holdParent: row.holdParent !== 0,

@@ -1,3 +1,4 @@
+import { isStageAction } from '../config/requestExperience'
 import { DELEGATION_VC_TYPE } from '../config/credentials/DelegationVC'
 import { EMPLOYEE_VC_TYPE } from '../config/credentials/EmployeeVC'
 import { ORG_WORKFLOW_ACTOR_VC_TYPE } from '../config/credentials/OrgWorkflowActorVC'
@@ -13,7 +14,8 @@ import {
 import { orgWorkflowActorService } from './OrgWorkflowActorService'
 import { TEMPLATE_PREREQUISITES } from './workflow/prerequisites'
 
-export type ProofVcActionKey =
+/** The proof steps the platform ships with; each one maps to a stage action below. */
+export type KnownProofVcActionKey =
   | 'requisition_approval'
   | 'requisition_release'
   | 'requisition_ack'
@@ -25,6 +27,14 @@ export type ProofVcActionKey =
   | 'receipt_issue'
   | 'field_ack'
   | 'field_payout'
+
+/**
+ * A step a template declared for itself gets its own key, `stage:<step>`, so the organisation can
+ * name the cards it accepts for that step exactly as it does for a built-in one.
+ */
+export type DerivedProofVcActionKey = `stage:${string}`
+
+export type ProofVcActionKey = KnownProofVcActionKey | DerivedProofVcActionKey
 
 export interface OrgProofVcPolicy {
   orgTenantId: string
@@ -53,7 +63,7 @@ const PROOF_VC_HINT_KEYS = [
   'requiredVCs',
 ] as const
 
-const ACTION_STAGE_MAP: Record<ProofVcActionKey, string> = {
+const ACTION_STAGE_MAP: Record<KnownProofVcActionKey, string> = {
   requisition_approval: 'approve_requisition',
   requisition_release: 'release_funds',
   requisition_ack: 'acknowledge_execution',
@@ -72,7 +82,7 @@ const ACTION_STAGE_MAP: Record<ProofVcActionKey, string> = {
  * is now the prerequisite registry: any template that declares a `stage_actor`
  * prerequisite for the action's stage is a candidate for that action.
  */
-const LEGACY_ACTION_WORKFLOW_CANDIDATES: Record<ProofVcActionKey, string[]> = {
+const LEGACY_ACTION_WORKFLOW_CANDIDATES: Record<KnownProofVcActionKey, string[]> = {
   requisition_approval: ['internal_requisitions', 'requisition_workflow', 'internal_requisition_approval'],
   requisition_release: ['internal_requisitions', 'requisition_workflow', 'internal_requisition_approval'],
   requisition_ack: ['internal_requisitions', 'requisition_workflow', 'internal_requisition_approval'],
@@ -87,8 +97,8 @@ const LEGACY_ACTION_WORKFLOW_CANDIDATES: Record<ProofVcActionKey, string[]> = {
 }
 
 function resolveActionWorkflowCandidates(actionKey: ProofVcActionKey): string[] {
-  const stageAction = ACTION_STAGE_MAP[actionKey]
-  const candidates = new Set<string>(LEGACY_ACTION_WORKFLOW_CANDIDATES[actionKey] || [])
+  const stageAction = stageActionForProofAction(actionKey)
+  const candidates = new Set<string>(LEGACY_ACTION_WORKFLOW_CANDIDATES[actionKey as KnownProofVcActionKey] || [])
   for (const [templateRef, prerequisites] of Object.entries(TEMPLATE_PREREQUISITES)) {
     if (
       prerequisites.some((entry) => entry.key === 'stage_actor' && normalizeStage(entry.stageAction) === stageAction)
@@ -218,7 +228,7 @@ function configuredWorkflowTypesForStage(orgTenantId: string, stageAction: strin
 }
 
 export function hasResolvedStageActor(orgTenantId: string, actionKey: ProofVcActionKey): boolean {
-  const stageAction = ACTION_STAGE_MAP[actionKey]
+  const stageAction = stageActionForProofAction(actionKey)
   if (!stageAction) return false
 
   const workflowTypes = new Set<string>([
@@ -275,7 +285,7 @@ export function workflowTypesForStageAction(orgTenantId: string, stageAction: st
   const stage = normalizeStage(stageAction)
   if (!stage) return []
   const types = new Set<string>()
-  for (const [actionKey, mapped] of Object.entries(ACTION_STAGE_MAP) as Array<[ProofVcActionKey, string]>) {
+  for (const [actionKey, mapped] of Object.entries(ACTION_STAGE_MAP) as Array<[KnownProofVcActionKey, string]>) {
     if (mapped === stage) resolveActionWorkflowCandidates(actionKey).forEach((type) => types.add(type))
   }
   if (orgTenantId) configuredWorkflowTypesForStage(orgTenantId, stage).forEach((type) => types.add(type))
@@ -284,7 +294,27 @@ export function workflowTypesForStageAction(orgTenantId: string, stageAction: st
 
 /** Stage action key (as used by actor defaults / actor credentials) for a proof action. */
 export function stageActionForProofAction(actionKey: ProofVcActionKey): string {
-  return ACTION_STAGE_MAP[actionKey]
+  if (typeof actionKey === 'string' && actionKey.startsWith('stage:')) {
+    return normalizeStage(actionKey.slice('stage:'.length))
+  }
+  return ACTION_STAGE_MAP[actionKey as KnownProofVcActionKey] || ''
+}
+
+/**
+ * The proof key for a step. A step the platform ships keeps its own key, so the organisation's
+ * existing policy still applies; a step a template declared for itself gets `stage:<step>`.
+ *
+ * Two keys can describe one step (a requisition and a job both acknowledge execution), so a
+ * caller that knows its flow passes `prefer` and gets that key back.
+ */
+export function proofActionForStage(stageAction: unknown, prefer?: ProofVcActionKey): ProofVcActionKey | undefined {
+  const stage = normalizeStage(stageAction)
+  if (!isStageAction(stage)) return undefined
+  if (prefer && stageActionForProofAction(prefer) === stage) return prefer
+  for (const [actionKey, mapped] of Object.entries(ACTION_STAGE_MAP) as Array<[KnownProofVcActionKey, string]>) {
+    if (mapped === stage) return actionKey
+  }
+  return `stage:${stage}`
 }
 
 /** The step a share screen is completing. Unknown values do not widen the cards that are offered. */
@@ -302,7 +332,9 @@ export function stageActionFromClientStage(stage: unknown): string {
     'requisition-ack': 'acknowledge_execution',
   }
   if (named[key]) return named[key]
-  return Object.values(ACTION_STAGE_MAP).includes(key as (typeof ACTION_STAGE_MAP)[ProofVcActionKey]) ? key : ''
+  // A step the platform ships, or one a template declared for itself; anything else stays empty
+  // so an unknown value never widens the cards that are offered.
+  return isStageAction(key) ? key : ''
 }
 
 function readStoredPolicy(row: {

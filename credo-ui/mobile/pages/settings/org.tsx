@@ -13,7 +13,7 @@ import {
   IconPalette, IconRocket, IconArrowLeft, IconArrowRight, IconShieldCheck, IconBuildingStore,
   IconCash, IconQrcode, IconDeviceMobile, IconBuildingBank, IconReceipt,
   IconTruck, IconSchool, IconUsers, IconClipboardList, IconShoppingCart, IconUserPlus, IconTrash,
-  IconEdit,
+  IconEdit, IconUsersGroup,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
 import { StepHelp } from '@/components/help/StepHelp';
@@ -21,6 +21,7 @@ import AppShellMobile from '@/components/layout/AppShellMobile';
 import { SectionTip } from '@/components/guides/SectionGuides';
 import { reveal } from '../../../shared/reveal';
 import BottomSheet from '@/components/shared/BottomSheet';
+import FormCard from '@/components/shared/FormCard';
 import ErrorAlert from '@/components/shared/ErrorAlert';
 import HandoffSettingsCard from '@/components/shared/HandoffSettingsCard';
 import RecordSettingsCard from '@/components/shared/RecordSettingsCard';
@@ -37,7 +38,7 @@ import {
   cardCanResend, cardPurpose, cardResendHint, memberAccessBadge, myOnboardingSteps, readyCount, sendCardsPath, staffCardChangeRule,
   type MemberCardKind, type MemberOnboarding, type StaffCardChangeRule,
 } from '@/lib/orgOnboarding';
-import { MONEY_CHOICES, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, TEAM_ROLE_FALLBACK, kindsFromRequestTypes, markOrgSetupLater, modulePlanNote, orgSetupLater, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, setupChecklist, teamRolesFromCatalog, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
+import { MONEY_CHOICES, OPERATING_MODEL_NOTE, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, TEAM_ROLE_FALLBACK, kindsFromRequestTypes, markOrgSetupLater, modulePlanNote, orgSetupLater, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, openedWorkAreas, setupChecklist, startingModules, teamRolesFromCatalog, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
 import { SETUP_BOOTSTRAP_PATH, bootstrapRequest, cleanDepartmentNames, suggestedDepartmentsFor, suggestedOrgModules, type OrgOperatingModel, type OrgSetupPlan } from '@/lib/orgProfile';
 
 // ── Org list types ──
@@ -306,8 +307,6 @@ type OrgQuestion = 1 | 2 | 3 | 4 | 5;
 const ORG_QUESTION_COUNT = 5;
 const QUESTION_FOR_STEP: Partial<Record<SetupStepId, OrgQuestion>> = { kinds: 1, people: 2, money: 4, payments: 5 };
 const STEP_SAVED_LABEL: Record<OrgQuestion, string> = { 1: 'What you do', 2: 'Staff leave and payroll', 3: 'Teams', 4: 'Who handles money', 5: 'Payments' };
-const OPEN_FOR_KIND: Record<OrgKind, string> = { office: '', field: 'Jobs', school: 'School fees', shop: 'Counter sales' };
-
 /** Which card on this page fixes a checklist item. */
 function readinessFixTarget(item: ReadinessItem): ReadinessFixTarget | null {
   const key = String(item.key || '').toLowerCase();
@@ -410,6 +409,7 @@ export default function OrgSettingsPage() {
   const [savingStaffCardChange, setSavingStaffCardChange] = useState(false);
   const [departments, setDepartments] = useState<Array<{ id: string; name: string; code?: string }>>([]);
   const [deptName, setDeptName] = useState('');
+  const [createSheet, setCreateSheet] = useState<'partner' | 'department' | null>(null);
   const [deptBusy, setDeptBusy] = useState(false);
   const [applyingPreset, setApplyingPreset] = useState<string | null>(null);
 
@@ -538,7 +538,7 @@ export default function OrgSettingsPage() {
 
   // What the organization does (prepares the kinds of requests it uses)
   const [orgKinds, setOrgKinds] = useState<OrgKind[]>(['office']);
-  const [orgModules, setOrgModules] = useState<OrgModule[]>([]);
+  const [orgModules, setOrgModules] = useState<OrgModule[]>(() => startingModules(null, ['office']));
   const [operatingModel, setOperatingModel] = useState<OrgOperatingModel>('internal');
   const [orgQuestion, setOrgQuestion] = useState<0 | OrgQuestion>(0);
   const [orgQuestionPreset, setOrgQuestionPreset] = useState('keep_current');
@@ -690,8 +690,8 @@ export default function OrgSettingsPage() {
     }
   };
 
-  const addTrustedPartner = async () => {
-    if (!activeId || !partnerRef.trim()) return;
+  const addTrustedPartner = async (): Promise<boolean> => {
+    if (!activeId || !partnerRef.trim()) return false;
     const token = getPreferredToken() || getWalletToken();
     setSetupBusy(true);
     try {
@@ -705,8 +705,10 @@ export default function OrgSettingsPage() {
       setPartnerName('');
       setPartnerRef('');
       feedback.success('Documents from this partner can now be accepted.', { title: 'Partner added' });
+      return true;
     } catch (err: any) {
       feedback.fromError(err, { title: 'Could not add partner' });
+      return false;
     } finally {
       setSetupBusy(false);
     }
@@ -884,9 +886,9 @@ export default function OrgSettingsPage() {
     }
   };
 
-  const addDepartment = async () => {
+  const addDepartment = async (): Promise<boolean> => {
     const token = getPreferredToken();
-    if (!token || !activeId || !deptName.trim()) return;
+    if (!token || !activeId || !deptName.trim()) return false;
     setDeptBusy(true);
     try {
       await api.post(`/api/organizations/${encodeURIComponent(activeId)}/departments`, { name: deptName.trim() }, {
@@ -895,8 +897,10 @@ export default function OrgSettingsPage() {
       setDeptName('');
       feedback.success(deptName.trim(), { title: 'Department added' });
       await loadDepartments(activeId);
+      return true;
     } catch (err: any) {
       feedback.fromError(err, { title: 'Could not add department' });
+      return false;
     } finally {
       setDeptBusy(false);
     }
@@ -1133,14 +1137,15 @@ export default function OrgSettingsPage() {
 
 
   useEffect(() => {
-    if (serverProfile) setOrgModules(serverProfile.modules);
     if (serverProfile && serverProfile.kinds.length > 0) {
       setOrgKinds(serverProfile.kinds);
+      setOrgModules(startingModules(serverProfile, serverProfile.kinds, serverProfile.operatingModel));
       return;
     }
     const kinds = new Set<OrgKind>(kindsFromRequestTypes(activeWorkflowTypes));
     if (kinds.size === 0) kinds.add('office');
     setOrgKinds(Array.from(kinds));
+    setOrgModules(startingModules(serverProfile, Array.from(kinds), serverProfile?.operatingModel));
   }, [activeWorkflowTypes, serverProfile]);
 
   useEffect(() => {
@@ -1483,34 +1488,30 @@ export default function OrgSettingsPage() {
           </Alert>
         ) : null}
 
-        {/* ── Create Org ── */}
-        {section === null && !answering && (
-        <Button variant="light" leftSection={<IconPlus size={16} />} onClick={() => setShowCreate((c) => !c)} fullWidth>
-          {showCreate ? 'Close' : 'Create Organisation'}
-        </Button>
-        )}
-
-        {!answering && <Collapse in={showCreate}>
-          <Paper p="md" radius="md" withBorder>
-            <Stack gap="sm">
-              <Title order={5}>New Organisation</Title>
-              <Text size="xs" c="dimmed">Give it a name. You will answer a few questions about what it does next.</Text>
-              <TextInput
-                label="Name"
-                placeholder="Acme Traders"
-                value={newOrgName}
-                onChange={(e) => setNewOrgName(e.target.value)}
-                required
-              />
-              <Group justify="flex-end">
-                <Button variant="subtle" size="sm" onClick={() => { setShowCreate(false); setNewOrgName(''); }}>Cancel</Button>
-                <Button size="sm" loading={creating} disabled={!newOrgName.trim()} onClick={createOrg}>
-                  Create & Continue
+        <BottomSheet opened={showCreate && !answering} onClose={() => { setShowCreate(false); setNewOrgName(''); }}>
+          <FormCard
+            title="New organisation"
+            subtitle="Give it a name. A few short questions about what it does come next."
+            icon={<IconBuilding size={24} />}
+            actions={
+              <>
+                <Button variant="subtle" radius="xl" h={48} onClick={() => { setShowCreate(false); setNewOrgName(''); }}>Cancel</Button>
+                <Button radius="xl" h={48} loading={creating} disabled={!newOrgName.trim()} onClick={createOrg}>
+                  Create and continue
                 </Button>
-              </Group>
-            </Stack>
-          </Paper>
-        </Collapse>}
+              </>
+            }
+          >
+            <TextInput
+              label="Organisation name"
+              placeholder="Acme Traders"
+              value={newOrgName}
+              onChange={(e) => setNewOrgName(e.target.value)}
+              required
+              data-autofocus
+            />
+          </FormCard>
+        </BottomSheet>
 
         {/* ── Org List (reused from original) ── */}
         {section !== null || answering ? null : loading ? (
@@ -1522,20 +1523,23 @@ export default function OrgSettingsPage() {
                 key={org.value}
                 p="md"
                 radius="md"
+                withBorder
+                bg={org.value === activeId ? 'var(--mantine-color-credentis-light)' : undefined}
                 style={{
-                  border: `2px solid ${org.value === activeId ? '#2188ca' : '#e2e8f0'}`,
-                  background: org.value === activeId ? '#e8f4fa' : '#ffffff',
+                  borderColor: org.value === activeId ? 'var(--mantine-color-credentis-filled)' : undefined,
+                  borderWidth: 2,
                   cursor: 'pointer',
+                  minHeight: 72,
                 }}
                 onClick={() => org.value !== activeId && switchOrg(org.value)}
               >
                 <Group justify="space-between" align="center">
                   <Group gap="sm">
-                    <Box style={{ width: 36, height: 36, borderRadius: 8, background: '#2188ca22', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <IconBuilding size={18} color="#2188ca" />
-                    </Box>
+                    <ThemeIcon variant="light" color="credentis" size={40} radius="md">
+                      <IconBuilding size={24} />
+                    </ThemeIcon>
                     <Box>
-                      <Text fw={600} size="sm">{org.label}</Text>
+                      <Text fw={500} size="sm">{org.label}</Text>
                     </Box>
                   </Group>
                   {org.value === activeId ? (
@@ -1548,6 +1552,17 @@ export default function OrgSettingsPage() {
                 </Group>
               </Paper>
             ))}
+            <Button
+              variant={orgs.length === 0 ? 'filled' : 'subtle'}
+              radius="xl"
+              h={48}
+              leftSection={<IconPlus size={20} />}
+              onClick={() => setShowCreate(true)}
+              fullWidth={orgs.length === 0}
+              style={orgs.length === 0 ? undefined : { alignSelf: 'flex-start' }}
+            >
+              New organisation
+            </Button>
           </Stack>
         )}
 
@@ -1564,7 +1579,7 @@ export default function OrgSettingsPage() {
                   </Text>
                   {orgDone === 'all' && (
                     <Text size="xs" c="dimmed" ta="center">
-                      What you can do now: {['Purchase requests', 'Supplier bills', ...orgKinds.map((kind) => OPEN_FOR_KIND[kind]).filter(Boolean), ...orgModules.map((module) => ORG_MODULE_OPTIONS.find((option) => option.id === module)?.opens || '').filter(Boolean)].join(', ')}.
+                      What you can do now: {openedWorkAreas(orgKinds, orgModules).join(', ')}.
                       {orgKinds.includes('field') ? ' You pick who goes out on the first job.' : ''}
                     </Text>
                   )}
@@ -1625,6 +1640,7 @@ export default function OrgSettingsPage() {
                   <Stack gap={2}>
                     <Text size="xs" fw={600}>Roles</Text>
                     <Text size="sm">{orgReview.roles.map((role) => (role.status === 'new' ? `${role.name} (new)` : role.name)).join(', ')}</Text>
+                    <Text size="xs" c="dimmed">Invite people into these roles under Organisation → Members.</Text>
                   </Stack>
                   <Stack gap={2}>
                     <Text size="xs" fw={600}>Money</Text>
@@ -1639,16 +1655,16 @@ export default function OrgSettingsPage() {
                     )}
                     <Text size="sm">Payments: {orgReview.payment.name || 'Not yet'}</Text>
                   </Stack>
-                  <Alert color="teal" variant="light" radius="md" p="xs">
+                  <Alert color="teal" variant="light" radius="md" p="xs" title="Nothing has to be set up first">
                     <Text size="xs">
                       {orgReview.askedOnFirstUse.join(' ')} If nobody is chosen for a step, the usual role order is used, then the owner stands in.
                     </Text>
                   </Alert>
                   <Group justify="space-between">
-                    <Button size="xs" variant="subtle" color="gray" onClick={() => setOrgReview(null)} disabled={activating}>
+                    <Button size="md" mih={48} variant="subtle" color="gray" onClick={() => setOrgReview(null)} disabled={activating}>
                       Back
                     </Button>
-                    <Button size="xs" loading={activating || setupBusy} onClick={() => void finishOrgQuestions()}>
+                    <Button size="md" mih={48} loading={activating || setupBusy} onClick={() => void finishOrgQuestions()}>
                       Set it up
                     </Button>
                   </Group>
@@ -1683,7 +1699,7 @@ export default function OrgSettingsPage() {
                         <Radio value="hybrid" label="Both" />
                       </Stack>
                     </Radio.Group>
-                    <Text size="xs">Identity, wallets and required proofs are always retained.</Text>
+                    <Text size="xs">{OPERATING_MODEL_NOTE}</Text>
                     {operatingModel !== 'integration' && <Chip.Group multiple value={orgKinds} onChange={(value) => {
                       const answers = value as OrgKind[];
                       setOrgKinds(answers);
@@ -2040,17 +2056,49 @@ export default function OrgSettingsPage() {
                   <Button size="xs" variant="light" loading={setupBusy} disabled={setupPartners.some((item) => item.isOwnOrganization && item.status === 'active')} onClick={() => void trustOwnOrganization()}>
                     {setupPartners.some((item) => item.isOwnOrganization && item.status === 'active') ? 'Our documents are accepted' : 'Accept our documents'}
                   </Button>
-                  <TextInput size="xs" label="Partner name" value={partnerName} onChange={(e) => setPartnerName(e.currentTarget.value)} />
-                  <TextInput size="xs" label="Identifier they gave you" value={partnerRef} onChange={(e) => setPartnerRef(e.currentTarget.value)} />
-                  <Button size="xs" variant="light" disabled={!partnerRef.trim()} loading={setupBusy} onClick={() => void addTrustedPartner()}>
-                    Add partner
-                  </Button>
                   {setupPartners.filter((item) => item.status === 'active').map((item) => (
                     <Text key={item.id} size="xs">{item.name}{item.isOwnOrganization ? ' (this organization)' : ''}</Text>
                   ))}
+                  <Button variant="light" radius="xl" h={48} leftSection={<IconPlus size={20} />} onClick={() => setCreateSheet('partner')}>
+                    Add a partner
+                  </Button>
                 </Stack>
               </Paper>
             )}
+
+            <BottomSheet opened={createSheet === 'partner'} onClose={() => setCreateSheet(null)}>
+              <FormCard
+                title="Add a partner"
+                subtitle="Documents and approvals from this partner will be accepted on your jobs."
+                issuer={getActiveOrgLabel() || undefined}
+                icon={<IconUsersGroup size={24} />}
+                actions={
+                  <>
+                    <Button variant="default" radius="xl" h={48} onClick={() => setCreateSheet(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      radius="xl"
+                      h={48}
+                      disabled={!partnerRef.trim()}
+                      loading={setupBusy}
+                      onClick={() => void addTrustedPartner().then((added) => added && setCreateSheet(null))}
+                    >
+                      Add partner
+                    </Button>
+                  </>
+                }
+              >
+                <TextInput label="Name" placeholder="Partner organization" value={partnerName} onChange={(e) => setPartnerName(e.currentTarget.value)} />
+                <TextInput
+                  label="Identifier they gave you"
+                  placeholder="Paste the identifier from the partner"
+                  required
+                  value={partnerRef}
+                  onChange={(e) => setPartnerRef(e.currentTarget.value)}
+                />
+              </FormCard>
+            </BottomSheet>
 
             {section === 'departments' && canManageOrgSetup && (
               <Paper id="org-card-departments" p="md" radius="md" withBorder>
@@ -2063,21 +2111,45 @@ export default function OrgSettingsPage() {
                       <Text key={dept.id} size="xs">{dept.name}{dept.code ? ` · ${dept.code}` : ''}</Text>
                     ))
                   )}
-                  <Group gap="xs" wrap="nowrap">
-                    <TextInput
-                      style={{ flex: 1 }}
-                      size="xs"
-                      placeholder="Department name"
-                      value={deptName}
-                      onChange={(e) => setDeptName(e.currentTarget.value)}
-                    />
-                    <Button size="xs" loading={deptBusy} disabled={!deptName.trim()} onClick={() => void addDepartment()}>
-                      Add
-                    </Button>
-                  </Group>
+                  <Button variant="light" radius="xl" h={48} leftSection={<IconPlus size={20} />} onClick={() => setCreateSheet('department')}>
+                    Add a department
+                  </Button>
                 </Stack>
               </Paper>
             )}
+
+            <BottomSheet opened={createSheet === 'department'} onClose={() => setCreateSheet(null)}>
+              <FormCard
+                title="Add a department"
+                subtitle="Requests and approvals can be routed to a department."
+                issuer={getActiveOrgLabel() || undefined}
+                icon={<IconBuilding size={24} />}
+                actions={
+                  <>
+                    <Button variant="default" radius="xl" h={48} onClick={() => setCreateSheet(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      radius="xl"
+                      h={48}
+                      loading={deptBusy}
+                      disabled={!deptName.trim()}
+                      onClick={() => void addDepartment().then((added) => added && setCreateSheet(null))}
+                    >
+                      Add department
+                    </Button>
+                  </>
+                }
+              >
+                <TextInput
+                  label="Department name"
+                  placeholder="e.g. Operations"
+                  required
+                  value={deptName}
+                  onChange={(e) => setDeptName(e.currentTarget.value)}
+                />
+              </FormCard>
+            </BottomSheet>
 
             {section === 'actors' && (
             <Paper id="org-card-actors" p="md" radius="md" withBorder>
@@ -2318,7 +2390,7 @@ export default function OrgSettingsPage() {
               <Stack gap="sm">
                 <Group justify="space-between" align="start">
                   <Box>
-                    <Group gap="xs"><IconUsers size={18} color="var(--mantine-color-indigo-6)" /><Text fw={700}>Team Members</Text></Group>
+                    <Group gap="xs"><IconUsers size={18} color="var(--mantine-color-indigo-6)" /><Text fw={700}>Team members</Text></Group>
                     <Text size="xs" c="dimmed" mt={4}>
                       {onboardingRows.length > 0
                         ? (() => { const c = readyCount(onboardingRows); return c.ready === c.total ? 'Everyone has what they need in the app.' : `${c.ready} of ${c.total} ready. Tap a person to see what is still missing.`; })()

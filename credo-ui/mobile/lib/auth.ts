@@ -1,6 +1,7 @@
 /**
  * Auth helpers — mirrors portal localStorage key conventions
  */
+import { currentAccountId } from '../../shared/savedAccounts'
 import { resolveMobileApiBaseUrl } from './baseUrl'
 import { refreshMemberships } from '../../shared/organizationMemberships'
 import {
@@ -374,6 +375,12 @@ export function applyPersonalWalletContext(token: string, tenantId?: string | nu
   const normalizedTenantId = tenantId?.trim() || (typeof payload?.tenantId === 'string' ? payload.tenantId : null)
   if (!normalizedTenantId || payload?.tenantId !== normalizedTenantId || payload?.orgRole) {
     throw new Error('The sign-in did not return a personal wallet session.')
+  }
+  // Another person's name must not stay on the bar. The identity card fills the name in after it is accepted.
+  const previousId = currentAccountId()
+  if (previousId && previousId !== normalizedTenantId) {
+    localStorage.removeItem('credoUserName')
+    localStorage.removeItem('holderUsername')
   }
   setPersonalContext()
   localStorage.removeItem('credoOrganizations')

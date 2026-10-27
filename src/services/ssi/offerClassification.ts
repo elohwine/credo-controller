@@ -27,7 +27,7 @@ export function classifyOfferFailure(message: string): OfferFailure {
     /pre-authorized code has expired/i.test(msg) ||
     (msg.includes('invalid_grant') && msg.includes('expired'))
   const unreachable =
-    /fetch failed|ETIMEDOUT|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|unsuccessful response with status '5\d\d'/i.test(
+    /fetch failed|ETIMEDOUT|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|unsuccessful response with status '5\d\d'|token error response with status 5\d\d/i.test(
       msg,
     )
   return {

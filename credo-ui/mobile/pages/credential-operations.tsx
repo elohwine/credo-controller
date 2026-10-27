@@ -1,13 +1,16 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { Alert, Badge, Button, Group, Loader, Paper, Select, Stack, Text, TextInput, Textarea, Title } from '@mantine/core'
+import { Alert, Badge, Button, Group, Loader, Modal, Paper, Select, Stack, Text, TextInput, Textarea, Title } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconRefresh, IconShieldCheck } from '@tabler/icons-react'
+import { IconCertificate, IconPlus, IconRefresh, IconShieldCheck } from '@tabler/icons-react'
 import { useRouter } from 'next/router'
 import AppShellMobile from '@/components/layout/AppShellMobile'
+import BottomSheet from '@/components/shared/BottomSheet'
+import FormCard from '@/components/shared/FormCard'
 import api from '@/lib/api'
 import {
   CREDENTIS_CONTEXT_CHANGED_EVENT,
   getActiveOrgId,
+  getActiveOrgLabel,
   getContextMode,
   getContextTokenStrict,
   getTaskContext,
@@ -33,6 +36,14 @@ type IssuedCredential = {
 
 type Lifecycle = { offers: Offer[]; issued: IssuedCredential[] }
 
+type LifecycleAction = 'reoffer' | 'replace' | 'revoke'
+
+const ACTION_WORDS: Record<LifecycleAction, string> = {
+  reoffer: 'Reoffer',
+  replace: 'Replace',
+  revoke: 'Revoke',
+}
+
 function errorMessage(error: any): string {
   return error?.response?.data?.message || error?.message || 'Request failed'
 }
@@ -49,6 +60,8 @@ export default function CredentialOperationsPage() {
   const [credentialType, setCredentialType] = useState<string | null>(null)
   const [claims, setClaims] = useState('{\n  "reference": "MANUAL-001"\n}')
   const [reason, setReason] = useState('')
+  const [showIssue, setShowIssue] = useState(false)
+  const [pendingAction, setPendingAction] = useState<{ kind: LifecycleAction; id: string } | null>(null)
 
   const currentAuth = () => {
     if (getContextMode() !== 'org' || getTaskContext()) return null
@@ -146,16 +159,16 @@ export default function CredentialOperationsPage() {
     }
   }
 
-  const issueDirect = async () => {
+  const issueDirect = async (): Promise<boolean> => {
     const auth = currentAuth()
-    if (!auth || !walletTenantId.trim() || !credentialType) return
+    if (!auth || !walletTenantId.trim() || !credentialType) return false
     let claimsObject: Record<string, unknown>
     try {
       claimsObject = JSON.parse(claims)
       if (!claimsObject || Array.isArray(claimsObject) || typeof claimsObject !== 'object') throw new Error()
     } catch {
       notifications.show({ color: 'yellow', title: 'Invalid claims', message: 'Enter claims as a JSON object.' })
-      return
+      return false
     }
 
     setSubmitting(true)
@@ -165,17 +178,19 @@ export default function CredentialOperationsPage() {
         { walletTenantId: walletTenantId.trim(), credentialType, claims: claimsObject },
         { headers: auth.headers },
       )
-      if (currentAuth()?.orgId !== auth.orgId) return
+      if (currentAuth()?.orgId !== auth.orgId) return false
       notifications.show({
         color: 'green',
         title: 'Offer queued',
         message: 'The holder must accept it from their personal inbox.',
       })
       await load()
+      return true
     } catch (error: any) {
       if (currentAuth()?.orgId === auth.orgId) {
         notifications.show({ color: 'red', title: 'Could not queue offer', message: errorMessage(error) })
       }
+      return false
     } finally {
       setSubmitting(false)
     }
@@ -199,35 +214,87 @@ export default function CredentialOperationsPage() {
               Issuer actions never accept a credential for its holder. Acceptance stays in the holder&apos;s personal inbox.
             </Alert>
 
-            <TextInput
-              label="Reason for lifecycle action"
-              placeholder="Explain the business reason"
-              value={reason}
-              onChange={(event) => setReason(event.currentTarget.value)}
-              maxLength={240}
-            />
+            {directTypes.length === 0 ? (
+              <Text size="sm" c="dimmed">No standalone credential types are configured for this organisation.</Text>
+            ) : (
+              <Button radius="xl" h={48} leftSection={<IconPlus size={20} />} onClick={() => setShowIssue(true)}>
+                Issue a record
+              </Button>
+            )}
 
-            <Paper withBorder p="md" radius="md">
-              <Stack gap="sm">
-                <Text fw={700}>Issue a supported standalone credential</Text>
-                {directTypes.length === 0 ? (
-                  <Text size="sm" c="dimmed">No standalone credential types are configured for this organisation.</Text>
-                ) : (
+            <BottomSheet opened={showIssue} onClose={() => setShowIssue(false)}>
+              <FormCard
+                title="Issue a record"
+                subtitle="The person reviews it and accepts it in their own inbox."
+                issuer={getActiveOrgLabel() || undefined}
+                icon={<IconCertificate size={24} />}
+                actions={
                   <>
-                    <TextInput
-                      label="Recipient wallet tenant ID"
-                      value={walletTenantId}
-                      onChange={(event) => setWalletTenantId(event.currentTarget.value)}
-                    />
-                    <Select label="Credential type" data={directTypes} value={credentialType} onChange={setCredentialType} />
-                    <Textarea label="Claims JSON" minRows={5} value={claims} onChange={(event) => setClaims(event.currentTarget.value)} />
-                    <Button onClick={() => void issueDirect()} loading={submitting} disabled={!walletTenantId.trim() || !credentialType}>
+                    <Button variant="default" radius="xl" h={48} onClick={() => setShowIssue(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      radius="xl"
+                      h={48}
+                      onClick={() => void issueDirect().then((queued) => queued && setShowIssue(false))}
+                      loading={submitting}
+                      disabled={!walletTenantId.trim() || !credentialType}
+                    >
                       Queue offer
                     </Button>
                   </>
-                )}
+                }
+              >
+                <TextInput
+                  label="Recipient wallet tenant ID"
+                  value={walletTenantId}
+                  onChange={(event) => setWalletTenantId(event.currentTarget.value)}
+                />
+                <Select label="Credential type" data={directTypes} value={credentialType} onChange={setCredentialType} />
+                <Textarea label="Claims JSON" minRows={5} value={claims} onChange={(event) => setClaims(event.currentTarget.value)} />
+              </FormCard>
+            </BottomSheet>
+
+            <Modal
+              opened={Boolean(pendingAction)}
+              onClose={() => setPendingAction(null)}
+              centered
+              title={pendingAction ? ACTION_WORDS[pendingAction.kind] : ''}
+            >
+              <Stack gap="md">
+                <TextInput
+                  label="Reason"
+                  placeholder="Explain the business reason"
+                  value={reason}
+                  onChange={(event) => setReason(event.currentTarget.value)}
+                  maxLength={240}
+                  data-autofocus
+                />
+                <Group justify="flex-end" gap="sm">
+                  <Button variant="default" radius="xl" h={48} onClick={() => setPendingAction(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    radius="xl"
+                    h={48}
+                    color={pendingAction?.kind === 'revoke' ? 'red' : undefined}
+                    disabled={reason.trim().length < 3}
+                    loading={submitting}
+                    onClick={() => {
+                      const action = pendingAction
+                      if (!action) return
+                      const run = action.kind === 'revoke' ? revoke(action.id) : offerAction(action.id, action.kind)
+                      void run.then(() => {
+                        setPendingAction(null)
+                        setReason('')
+                      })
+                    }}
+                  >
+                    {pendingAction ? ACTION_WORDS[pendingAction.kind] : ''}
+                  </Button>
+                </Group>
               </Stack>
-            </Paper>
+            </Modal>
 
             <Stack gap="sm">
               <Text fw={700}>Offers</Text>
@@ -246,18 +313,16 @@ export default function CredentialOperationsPage() {
                       <Button
                         size="xs"
                         variant="light"
-                        disabled={offer.lifecycleStatus !== 'pending' || reason.trim().length < 3}
-                        loading={submitting}
-                        onClick={() => void offerAction(offer.rowId, 'reoffer')}
+                        disabled={offer.lifecycleStatus !== 'pending'}
+                        onClick={() => setPendingAction({ kind: 'reoffer', id: offer.rowId })}
                       >
                         Reoffer
                       </Button>
                       <Button
                         size="xs"
                         variant="light"
-                        disabled={!['pending', 'expired'].includes(offer.lifecycleStatus) || reason.trim().length < 3}
-                        loading={submitting}
-                        onClick={() => void offerAction(offer.rowId, 'replace')}
+                        disabled={!['pending', 'expired'].includes(offer.lifecycleStatus)}
+                        onClick={() => setPendingAction({ kind: 'replace', id: offer.rowId })}
                       >
                         Replace
                       </Button>
@@ -288,9 +353,8 @@ export default function CredentialOperationsPage() {
                         size="xs"
                         color="red"
                         variant="light"
-                        disabled={credential.allocationStatus !== 'valid' || reason.trim().length < 3}
-                        loading={submitting}
-                        onClick={() => void revoke(credential.credentialId)}
+                        disabled={credential.allocationStatus !== 'valid'}
+                        onClick={() => setPendingAction({ kind: 'revoke', id: credential.credentialId })}
                       >
                         Revoke
                       </Button>

@@ -398,6 +398,8 @@ export default function WalletPage() {
     const requisitionAction = queryValue(router.query.requisitionAction) || fallbackQuery.requisitionAction;
     const workflowRunId = queryValue(router.query.workflowRunId) || fallbackQuery.workflowRunId;
     const proofStage = queryValue(router.query.proofStage) || fallbackQuery.proofStage;
+    const platformRequestId = queryValue(router.query.platformRequestId) || fallbackQuery.platformRequestId;
+    const requestToStatus = queryValue(router.query.toStatus) || fallbackQuery.toStatus || 'approved';
     const requestId = queryValue(router.query.requestId) || fallbackQuery.requestId;
     // The organisation whose request this is. Only its records are offered and sent.
     const shareOrgTenantId = queryValue(router.query.orgTenantId)
@@ -777,15 +779,28 @@ export default function WalletPage() {
             }
 
             const orgToken = getOrgScopedToken() || localStorage.getItem('credoTenantToken') || walletToken;
-            if (workflowRunId && (proofStage === 'acknowledgement' || proofStage === 'payout')) {
+            // Any step a workflow is waiting at: a job's sign-off and payout, and the steps other
+            // workflows name for themselves. The server checks the step before it moves the work.
+            if (workflowRunId && proofStage) {
                 const done = await axios.post(
                     `${holderBackend}/workflows/runs/${encodeURIComponent(workflowRunId)}/proof/complete`,
                     { stage: proofStage, requestId },
-                    { headers: { Authorization: `Bearer ${orgToken}` } },
+                    {
+                        headers: {
+                            Authorization: `Bearer ${orgToken}`,
+                            'x-idempotency-key': `wallet-step:${workflowRunId}:${proofStage}:${requestId}`,
+                        },
+                    },
                 );
                 if (done.data?.status === 'failed' || done.data?.error) {
                     throw new Error(String(done.data?.error || 'This step was not accepted.'));
                 }
+            } else if (platformRequestId) {
+                await axios.post(
+                    `${holderBackend}/api/platform/requests/${encodeURIComponent(platformRequestId)}/proof/complete`,
+                    { toStatus: requestToStatus, requestId, vpToken, idToken, presentationSubmission },
+                    { headers: { Authorization: `Bearer ${orgToken}`, 'x-idempotency-key': `wallet-request-card:${platformRequestId}:${requestToStatus}:${requestId}` } },
+                );
             } else if (requisitionId && requisitionAction === 'release') {
                 const amountRaw = queryValue(router.query.amount) || fallbackQuery.amount;
                 const currency = queryValue(router.query.currency) || fallbackQuery.currency;
@@ -989,7 +1004,11 @@ export default function WalletPage() {
                                     {workflowRunId
                                         ? (proofStage === 'payout'
                                             ? 'This checks that you are the person chosen to release the worker payout for this job.'
-                                            : 'This checks that you are the person chosen to sign off this job.')
+                                            : proofStage && proofStage !== 'acknowledgement'
+                                                ? `This checks that you are the person chosen to ${proofStage.replace(/_/g, ' ')}.`
+                                                : 'This checks that you are the person chosen to sign off this job.')
+                                        : platformRequestId && requestToStatus === 'completed'
+                                            ? 'This checks that you are the person chosen to finish this purchase or payment.'
                                         : requisitionAction === 'release'
                                             ? 'This checks that you are the person chosen to release the money.'
                                             : requisitionAction === 'ack'

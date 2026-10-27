@@ -15,6 +15,8 @@ export type GuideKey =
   | 'tip_operations'
   | 'tip_org_settings'
   | 'records_seen'
+  | 'device_signin'
+  | 'next_use'
 
 export type GuideStatus = 'done' | 'dismissed'
 
@@ -23,11 +25,20 @@ export interface GuideClient {
   put<T>(path: string, body: unknown): Promise<T>
 }
 
+export interface GettingStartedOrg {
+  orgTenantId: string
+  orgName: string
+}
+
 export interface GettingStartedStatus {
   identityCard: boolean
   deviceSignIn: boolean
   organisation: boolean
   cardSaving: boolean
+  /** An organisation sent this person a staff card they have not accepted yet. */
+  staffCardWaiting?: (GettingStartedOrg & { offerId: string }) | null
+  /** An organisation this person runs whose setup questions are not answered yet. */
+  setupToFinish?: GettingStartedOrg | null
 }
 
 export interface HolderSettings {
@@ -40,7 +51,7 @@ export const GUIDE_PATHS = {
   holderSettings: '/api/wallet/credentials/holder-settings',
 }
 
-export type TipKey = Exclude<GuideKey, 'welcome' | 'getting_started' | 'records_seen'>
+export type TipKey = Exclude<GuideKey, 'welcome' | 'getting_started' | 'records_seen' | 'device_signin' | 'next_use'>
 
 /** One short line per section: what this place is for and the one thing to do first. */
 export const TIP_COPY: Record<TipKey, { title: string; body: string }> = {
@@ -68,6 +79,27 @@ export const TIP_COPY: Record<TipKey, { title: string; body: string }> = {
     title: 'Set up your organisation',
     body: 'Answer a few short questions and we prepare the rest. The checklist shows what is left.',
   },
+}
+
+const FIELD_ROLES = new Set(['field_worker', 'technician', 'driver', 'worker'])
+const MONEY_ROLES = new Set(['finance_manager', 'finance_officer', 'accountant', 'payroll', 'cashier'])
+const DECIDER_ROLES = new Set(['manager', 'supervisor', 'approver', 'director', 'inspector', 'dispatcher', 'hr_manager'])
+
+/** The tip for a section in words that fit the person's role in the organisation in use. */
+export function tipCopyFor(tip: TipKey, role?: string | null): { title: string; body: string } {
+  const value = String(role || '').toLowerCase()
+  if (tip === 'tip_operations' && value) {
+    if (FIELD_ROLES.has(value)) {
+      return { title: 'Your jobs', body: 'Jobs assigned to you are here. Open one to start it, add photos and mark it done.' }
+    }
+    if (MONEY_ROLES.has(value)) {
+      return { title: 'Money waiting for you', body: 'Payouts to release, supplier bills to pay and payments coming in. Each one opens its history.' }
+    }
+    if (DECIDER_ROLES.has(value)) {
+      return { title: 'Work to check', body: 'Jobs to sign off and requests to decide. You confirm with your staff card.' }
+    }
+  }
+  return TIP_COPY[tip]
 }
 
 type Progress = Partial<Record<GuideKey, GuideStatus>>
@@ -113,11 +145,16 @@ function fromServer(value: unknown): Progress {
   return progress
 }
 
-async function load(client: GuideClient, account: string) {
+let guideRevision = 0
+
+export async function loadGuides(client: GuideClient, account: string) {
   if (loading === account) return
   loading = account
+  const revisionAtStart = guideRevision
   try {
     const progress = fromServer(await client.get(GUIDE_PATHS.guides))
+    // A guide marked while this load was in flight is newer than the server copy.
+    if (guideRevision !== revisionAtStart) return
     writeCache(account, progress)
     if (snapshot.account === account) emit({ account, ready: true, progress })
   } catch {
@@ -125,6 +162,25 @@ async function load(client: GuideClient, account: string) {
     if (snapshot.account === account && !snapshot.ready) emit({ ...snapshot, ready: Boolean(readCache(account)) })
   } finally {
     if (loading === account) loading = null
+  }
+}
+
+export async function markGuide(
+  client: GuideClient,
+  account: string,
+  key: GuideKey,
+  status: GuideStatus | 'reset',
+) {
+  guideRevision += 1
+  const progress = { ...(snapshot.account === account ? snapshot.progress : {}) }
+  if (status === 'reset') delete progress[key]
+  else progress[key] = status
+  writeCache(account, progress)
+  emit({ account, ready: true, progress })
+  try {
+    await client.put(`${GUIDE_PATHS.guides}/${key}`, { status })
+  } catch {
+    /* kept locally; the next load reconciles with the server */
   }
 }
 
@@ -144,24 +200,15 @@ export function useGuides(client: GuideClient | null, account: string | null) {
       const cached = readCache(account)
       emit({ account, ready: Boolean(cached), progress: cached || {} })
     }
-    void load(client, account)
+    void loadGuides(client, account)
   }, [client, account])
 
   const current = state.account === account ? state : serverSnapshot
 
   const mark = useCallback(
     async (key: GuideKey, status: GuideStatus | 'reset') => {
-      if (!account) return
-      const progress = { ...(snapshot.account === account ? snapshot.progress : {}) }
-      if (status === 'reset') delete progress[key]
-      else progress[key] = status
-      writeCache(account, progress)
-      emit({ account, ready: true, progress })
-      try {
-        await client?.put(`${GUIDE_PATHS.guides}/${key}`, { status })
-      } catch {
-        /* kept locally; the next load reconciles with the server */
-      }
+      if (!account || !client) return
+      await markGuide(client, account, key, status)
     },
     [client, account],
   )
@@ -191,14 +238,105 @@ export function announceInboxChanged() {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(INBOX_CHANGED_EVENT))
 }
 
-export type ChecklistStep = keyof ChecklistStatus
-
-/** Server state plus progress only the app knows, such as having looked at Records. */
-export interface ChecklistStatus extends GettingStartedStatus {
-  records: boolean
+/** True when every listed step is done. The portal list omits phone sign-in. */
+export function checklistMarkedDone(stepIds: ChecklistStep[], status: ChecklistStatus): boolean {
+  const finished = stepIds.every((id) => Boolean(status[id]))
+  return finished
 }
 
-export const CHECKLIST_COPY: Record<ChecklistStep, { title: string; detail: string; action: string }> = {
+export type ChecklistStep = keyof ChecklistStatus
+
+/** The phone sign-in step stays up after the shared checklist is closed, until this phone is enrolled or the prompt is dismissed. */
+export function phoneDeviceStepStillOpen(input: {
+  deviceLogin: boolean
+  deviceSignIn: boolean
+  devicePromptDone: boolean
+}): boolean {
+  const open = input.deviceLogin && !input.deviceSignIn && !input.devicePromptDone
+  return open
+}
+
+/** Server state plus progress only the app knows, such as having looked at Records. */
+export interface ChecklistStatus extends Omit<GettingStartedStatus, 'staffCardWaiting' | 'setupToFinish'> {
+  records: boolean
+  /** Ticked when no organisation is waiting on this person's setup answers. */
+  orgSetup: boolean
+  /** Ticked when no staff card is waiting for this person. */
+  staffCard: boolean
+  /** Ticked when this person chose to keep cards only, with no organisation. */
+  nextUse: boolean
+}
+
+export interface ChecklistChoice {
+  id: string
+  label: string
+}
+
+export interface ChecklistCopy {
+  title: string
+  detail: string
+  action: string
+  /** Replaces the single action when the step is a choice. Value first, then the action. */
+  choices?: ChecklistChoice[]
+}
+
+/**
+ * The steps this person sees, in order. Until the identity card is accepted, that is the only step.
+ * After it, saving other cards is a choice, then Records, then either a waiting staff card, unfinished
+ * organisation setup, or what they want to do next. An organisation is never required.
+ * `withDevice` adds phone sign-in (phone only).
+ */
+export function checklistFor(
+  server: GettingStartedStatus,
+  local: { records: boolean; withDevice: boolean; nextUse: boolean },
+): { status: ChecklistStatus; steps: ChecklistStep[]; copy: Partial<Record<ChecklistStep, ChecklistCopy>> } {
+  const status: ChecklistStatus = {
+    identityCard: server.identityCard,
+    deviceSignIn: server.deviceSignIn,
+    organisation: server.organisation,
+    cardSaving: server.cardSaving,
+    records: local.records,
+    orgSetup: !server.setupToFinish,
+    staffCard: !server.staffCardWaiting,
+    nextUse: local.nextUse || server.organisation,
+  }
+  const copy: Partial<Record<ChecklistStep, ChecklistCopy>> = {}
+  if (!server.identityCard) {
+    return { status, steps: ['identityCard'], copy }
+  }
+  const steps: ChecklistStep[] = ['identityCard', 'cardSaving', 'records']
+  if (local.withDevice) steps.push('deviceSignIn')
+  if (server.staffCardWaiting) {
+    steps.push('staffCard')
+    copy.staffCard = {
+      title: `Accept your staff card from ${server.staffCardWaiting.orgName}`,
+      detail: 'It shows you work there and lets you confirm the steps you handle. It is waiting in Inbox.',
+      action: 'Show card',
+    }
+  } else if (server.setupToFinish) {
+    steps.push('orgSetup')
+    copy.orgSetup = {
+      title: `Finish setting up ${server.setupToFinish.orgName}`,
+      detail: 'A few short questions decide which work it runs. You can stop and come back.',
+      action: 'Continue',
+    }
+  } else if (!server.organisation) {
+    steps.push('nextUse')
+  }
+  return { status, steps, copy }
+}
+
+export const CHECKLIST_COPY: Record<ChecklistStep, ChecklistCopy> = {
+  staffCard: {
+    title: 'Accept your staff card',
+    detail: 'It shows you work there and lets you confirm the steps you handle. It is waiting in Inbox.',
+    action: 'Show card',
+  },
+  orgSetup: {
+    title: 'Finish setting up your organisation',
+    detail: 'A few short questions decide which work it runs. You can stop and come back.',
+    action: 'Continue',
+  },
   identityCard: {
     title: 'Accept your identity card',
     detail: 'It is waiting in Inbox. You need it to sign in with your phone and to prove who you are.',
@@ -215,13 +353,27 @@ export const CHECKLIST_COPY: Record<ChecklistStep, { title: string; detail: stri
     action: 'Set up',
   },
   organisation: {
-    title: 'Join or start an organisation',
-    detail: 'Find your employer or a business you work with, or set up your own.',
-    action: 'Find',
+    title: 'Start an organisation',
+    detail: 'Only if you want to run one. You can keep cards here without it.',
+    action: 'Start',
+  },
+  nextUse: {
+    title: 'What do you want to do?',
+    detail: 'You can keep cards here with no organisation. Or find a business to ask for a service, or start an organisation.',
+    action: 'Choose',
+    choices: [
+      { id: 'keep', label: 'Just my cards' },
+      { id: 'find', label: 'Find a business' },
+      { id: 'start', label: 'Start an organisation' },
+    ],
   },
   cardSaving: {
-    title: 'Choose how new cards are saved',
-    detail: 'Keep tapping Accept for each card, or let Credentis save cards for you.',
+    title: 'Save some cards for you?',
+    detail: 'You accept each card yourself, including your identity card. If you turn this on, receipts, staff cards and records are saved the next time you open Inbox. Tasks, bills, payment requests and requests to share still wait for you.',
     action: 'Choose',
+    choices: [
+      { id: 'on', label: 'Turn on' },
+      { id: 'off', label: 'Not now' },
+    ],
   },
 }

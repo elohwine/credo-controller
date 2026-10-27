@@ -13,7 +13,7 @@ import { useSessionStore } from '@/lib/state/session';
 import { useActivityStore } from '@/lib/state/activity';
 import { useUiStore } from '@/lib/state/ui';
 import { ListSkeleton } from '@/components/feedback/ListSkeleton';
-import { IconInbox, IconRefresh, IconCheck, IconX, IconAlertCircle, IconReceipt, IconTrash, IconShieldCheck, IconPlayerPlay, IconActivity, IconChevronRight, IconChevronDown } from '@tabler/icons-react';
+import { IconInbox, IconRefresh, IconCheck, IconX, IconAlertCircle, IconReceipt, IconTrash, IconShieldCheck, IconId, IconPlayerPlay, IconActivity, IconChevronRight, IconChevronDown } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
 import AppShellMobile from '@/components/layout/AppShellMobile';
 import InboxItem, { InboxItemData, isExpiredItem } from '@/components/inbox/InboxItem';
@@ -47,8 +47,9 @@ import {
 } from '@/lib/workflowCapabilities';
 import { readOrgProfile } from '@/lib/orgProfile';
 import { captureOrganizationSwitchContext } from '../../shared/taskContext';
+import { UnreadCount } from '../../shared/UnreadCount';
 import { requestIdFromStageCard } from '../../shared/requestExperience';
-import { requestDecisionBlockText } from '../../shared/requestDecision';
+import { requestDecisionBlockText, STAFF_CARD_APPROVE_LABEL } from '../../shared/requestDecision';
 import { feedback, tick } from '@/lib/feedback';
 import { CARD_TARGET_ATTR, celebrateSaved } from '../../shared/cardMotion';
 import { milestone } from '@/components/feedback/Milestone';
@@ -143,21 +144,6 @@ function formatFreshnessLabel(lastSyncAt?: string): string {
 
   const days = Math.floor(hours / 24);
   return `Last synced ${days}d ago`;
-}
-
-function getFreshnessColor(lastSyncAt?: string): 'green' | 'yellow' | 'red' | 'gray' {
-  if (!lastSyncAt) return 'gray';
-
-  const parsedAt = Date.parse(lastSyncAt);
-  if (!Number.isFinite(parsedAt)) return 'gray';
-
-  const deltaMs = Date.now() - parsedAt;
-  if (deltaMs < 0) return 'gray';
-
-  const hours = deltaMs / (60 * 60 * 1000);
-  if (hours <= 1) return 'green';
-  if (hours <= 12) return 'yellow';
-  return 'red';
 }
 
 function readInboxItemCache(): CachedInboxEntry[] {
@@ -405,28 +391,28 @@ function getAssignmentRequestUiCopy(requestTypeRaw: string): { title: string; ac
 
 function getApWorkflowActionUiCopy(requiredActionRaw: string, isArCollection: boolean): { title: string; actionLabel: string } {
   if (isArCollection) {
-    return { title: 'AR Collection Assignment', actionLabel: 'Open AR Collection' };
+    return { title: 'A customer payment needs you', actionLabel: 'Open payment plan' };
   }
 
   const requiredAction = String(requiredActionRaw || '').toLowerCase();
   if (requiredAction === 'approve_payment') {
-    return { title: 'AP Approval Required', actionLabel: 'Approve Payment' };
+    return { title: 'A supplier bill needs your approval', actionLabel: 'Approve payment' };
   }
   if (requiredAction === 'record_payment') {
-    return { title: 'AP Payment Recording Required', actionLabel: 'Record Payment' };
+    return { title: 'Record a supplier payment', actionLabel: 'Record payment' };
   }
   if (requiredAction === 'release_funds') {
-    return { title: 'AP Funds Release Required', actionLabel: 'Release Funds' };
+    return { title: 'Release money for a supplier bill', actionLabel: 'Release money' };
   }
   if (requiredAction === 'acknowledge_remittance') {
-    return { title: 'AP Remittance Acknowledgement Required', actionLabel: 'Acknowledge Remittance' };
+    return { title: 'Confirm a payment arrived', actionLabel: 'Confirm payment' };
   }
   if (requiredAction === 'issue_receipt_vc') {
-    return { title: 'AP Receipt Issuance Required', actionLabel: 'Issue Receipt' };
+    return { title: 'Send a receipt', actionLabel: 'Send receipt' };
   }
 
   const pretty = toReadableActionLabel(requiredAction || 'review');
-  return { title: 'AP Workflow Action Required', actionLabel: pretty };
+  return { title: 'A supplier bill step is waiting for you', actionLabel: pretty };
 }
 
 function toOperationalWorkflowType(
@@ -645,6 +631,16 @@ function isRequisitionApproval(item: InboxItemData): boolean {
   return requestType === 'requisition' || requestType.includes('requis') || Boolean(item.requisitionId);
 }
 
+/**
+ * A card for a step a workflow is waiting at. It names the run and the step, and is confirmed
+ * with a staff card, so it is not approved or declined through the request screens.
+ */
+function isWorkflowStepCard(item: InboxItemData): boolean {
+  if (item.itemType !== 'workflow' || item.platformRequestId) return false;
+  if (String(item.module || '').toLowerCase() !== 'approvals') return false;
+  return Boolean(item.workflowRunId && item.stageAction);
+}
+
 function isApWorkflowApproval(item: InboxItemData): boolean {
   if (item.itemType !== 'workflow') return false;
   if (String(item.module || '').toLowerCase() !== 'approvals') return false;
@@ -656,6 +652,13 @@ function isArCollectionAssignment(item: InboxItemData): boolean {
   if (String(item.workflowRequestType || '').toLowerCase() === 'ar_collection') return true;
   return String(item.requiredAction || '').toLowerCase() === 'present_payment_proof';
 }
+
+const AR_COLLECTION_STAGE_WORDS: Record<string, string> = {
+  issued: 'Bill sent',
+  proof_requested: 'Waiting for the customer to confirm',
+  proof_presented: 'Customer confirmed',
+  settled: 'Paid',
+};
 
 function deriveArCollectionFlowStage(item: InboxItemData): 'issued' | 'proof_requested' | 'proof_presented' | 'settled' {
   const trustState = String(item.trustStatus || '').toLowerCase();
@@ -861,6 +864,20 @@ function groupInboxItems(items: InboxItemData[]): GroupedInboxEntry[] {
   return entries.sort((a, b) => groupedEntryTime(b) - groupedEntryTime(a))
 }
 
+/** The latest stamp on a row. A step that moved today sorts as today, not as the day the job started. */
+function latestStamp(...values: Array<string | undefined | null>): string {
+  let best = ''
+  let bestTime = -Infinity
+  for (const value of values) {
+    const time = Date.parse(value || '')
+    if (Number.isFinite(time) && time >= bestTime) {
+      bestTime = time
+      best = String(value)
+    }
+  }
+  return best
+}
+
 function inboxItemTime(item: InboxItemData): number {
   const time = Date.parse(item.createdAt || '')
   return Number.isFinite(time) ? time : 0
@@ -881,10 +898,6 @@ function groupedEntryTime(entry: GroupedInboxEntry): number {
 /** Waiting for this person's step: pinned under "Needs your action". */
 function itemNeedsAction(item: InboxItemData): boolean {
   return item.status === 'pending' && !isExpiredItem(item) && Boolean(stepRequiredLabel(item))
-}
-
-const GROUP_FLOW_COLORS: Record<string, string> = {
-  PAYMENT: 'teal', RECEIPT: 'green', REQUEST: 'indigo', WORKFLOW: 'blue', SYSTEM: 'orange',
 }
 
 function fmtMoney(amount?: number, currency = 'USD') {
@@ -911,16 +924,14 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick, atte
   const { primaryItem, secondaryItems, orgLabel } = group
   const secondaryCount = secondaryItems.length
   const totalCount = 1 + secondaryCount
-  const flowColor = GROUP_FLOW_COLORS[primaryItem.flowType || 'SYSTEM'] || 'gray'
-  const borderAccent = theme.colors[flowColor]?.[isDark ? 5 : 6] || theme.colors.gray[4]
   const amountText = fmtMoney(primaryItem.amount, primaryItem.currency)
   const attention = attentionProp || inboxAttention({ status: primaryItem.status, isRead: primaryItem.isRead === true })
   const attentionWord = attention === 'new' ? 'New' : attention === 'opened' ? 'Opened' : 'Done'
   const stepLine = stepRequiredLabel(primaryItem)
   const stepAttentionOf = (item: InboxItemData) => attentionOf ? attentionOf(item) : inboxAttention({ status: item.status, isRead: item.isRead === true })
   const newSteps = secondaryItems.filter((item) => stepAttentionOf(item) === 'new').length
-  const isNew = attention === 'new' || newSteps > 0
-  const newAccent = isDark ? theme.colors.blue[4] : theme.colors.blue[6]
+  const unreadCount = (attention === 'new' ? 1 : 0) + newSteps
+  const isNew = unreadCount > 0
   const latestAt = Math.max(...[primaryItem, ...secondaryItems].map(inboxItemTime))
 
   return (
@@ -928,10 +939,8 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick, atte
       radius="md"
       withBorder
       style={{
-        borderLeft: `${isNew ? 4 : 3}px solid ${isNew ? newAccent : borderAccent}`,
         overflow: 'hidden',
         cursor: 'default',
-        background: isNew ? (isDark ? 'rgba(66, 153, 225, 0.10)' : theme.colors.blue[0]) : undefined,
         opacity: attention === 'done' && !isNew ? 0.8 : 1,
       }}
     >
@@ -939,19 +948,13 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick, atte
       <Box px="sm" pt="sm" pb={secondaryCount > 0 ? 'xs' : 'sm'} style={{ cursor: 'pointer' }} onClick={() => onItemClick(primaryItem)}>
         <Group gap={6} mb={4} wrap="wrap">
           {kindLabel && (
-            <Badge size="xs" variant="outline" color="gray">{kindLabel}</Badge>
+            <Text size="xs" c="dimmed">{kindLabel}</Text>
           )}
-          {orgLabel && (
-            <Badge size="xs" variant="light" color="violet">{orgLabel}</Badge>
-          )}
-          <Badge size="xs" variant={attention === 'new' ? 'filled' : 'light'} color={attention === 'done' ? 'teal' : attention === 'opened' ? 'gray' : 'blue'}>
+          <Badge size="xs" variant="light" color="gray">
             {attentionWord}
           </Badge>
           {stepLine && attention !== 'done' && (
-            <Badge size="xs" variant="outline" color="teal">Your step: {stepLine}</Badge>
-          )}
-          {attention === 'new' && (
-            <Box style={{ width: 7, height: 7, borderRadius: '50%', background: isDark ? theme.colors.blue[4] : theme.colors.blue[6], flexShrink: 0 }} />
+            <Text size="xs" c="dimmed">Your step: {stepLine}</Text>
           )}
         </Group>
         <Group justify="space-between" align="flex-start" wrap="nowrap">
@@ -961,17 +964,16 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick, atte
                 Organization: {orgLabel}
               </Text>
             )}
-            <Text fw={attention === 'new' ? 700 : 600} size="sm" truncate c={attention === 'done' ? 'dimmed' : undefined}>{primaryItem.title}</Text>
-            <Text size="xs" c="dimmed" lineClamp={2} mt={2}>{primaryItem.description}</Text>
-            {amountText && <Text fw={700} size="sm" c="teal.7" mt={4}>{amountText}</Text>}
+            <Text fw={isNew ? 700 : 500} size="sm" truncate c={attention === 'done' && !isNew ? 'dimmed' : undefined}>{primaryItem.title}</Text>
+            <Text size="xs" c={isNew ? undefined : 'dimmed'} fw={isNew ? 600 : undefined} lineClamp={2} mt={2}>{primaryItem.description}</Text>
+            {amountText && <Text fw={500} size="sm" mt={4}>{amountText}</Text>}
           </Box>
           <Stack gap={4} align="flex-end" style={{ flexShrink: 0 }}>
-            <Badge size="sm" variant="light" color="gray">
-              {primaryItem.actionLabel || 'Open'}
-            </Badge>
-            <Text size="xs" c={isNew ? 'blue' : 'dimmed'} fw={isNew ? 600 : undefined} style={{ whiteSpace: 'nowrap' }}>
+            <Text size="xs" c={isNew ? 'credentis' : 'dimmed'} fw={isNew ? 600 : undefined} style={{ whiteSpace: 'nowrap' }}>
               {inboxWhenLabel(latestAt > 0 ? new Date(latestAt).toISOString() : primaryItem.createdAt)}
             </Text>
+            {isNew && <UnreadCount count={unreadCount} />}
+            <Text size="xs" c="dimmed">{primaryItem.actionLabel || 'Open'}</Text>
             <IconChevronRight size={13} color={theme.colors.gray[5]} />
           </Stack>
         </Group>
@@ -993,7 +995,7 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick, atte
                 {secondaryCount} other step{secondaryCount > 1 ? 's' : ''} in this workflow
               </Text>
               <Badge size="xs" variant="outline" color="gray">{totalCount} total</Badge>
-              {newSteps > 0 && <Badge size="xs" variant="filled" color="blue">{newSteps} new</Badge>}
+              {newSteps > 0 && <Badge size="xs" variant="light" color="gray">{newSteps} new</Badge>}
             </Group>
           </Box>
           {isExpanded && (
@@ -1012,16 +1014,17 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick, atte
                   >
                     <Group justify="space-between" align="center" wrap="nowrap">
                       <Group gap={6} style={{ flex: 1, minWidth: 0 }}>
-                        <Badge size="xs" variant="light" color={stepAttention === 'done' ? 'teal' : stepAttention === 'opened' ? 'gray' : 'blue'}>
+                        <Badge size="xs" variant="light" color="gray">
                           {stepWord}
                         </Badge>
-                        <Text size="xs" fw={500} truncate>{item.title}</Text>
+                        <Text size="xs" fw={stepAttention === 'new' ? 700 : 500} truncate>{item.title}</Text>
                         {item.amount != null && (
-                          <Text size="xs" c="teal.6" fw={600}>{fmtMoney(item.amount, item.currency) || ''}</Text>
+                          <Text size="xs" fw={500}>{fmtMoney(item.amount, item.currency) || ''}</Text>
                         )}
                       </Group>
                       <Group gap={4} style={{ flexShrink: 0 }}>
-                        <Text size="xs" c="dimmed">{inboxWhenLabel(item.createdAt)}</Text>
+                        <Text size="xs" c={stepAttention === 'new' ? 'credentis' : 'dimmed'} fw={stepAttention === 'new' ? 600 : undefined}>{inboxWhenLabel(item.createdAt)}</Text>
+                        {stepAttention === 'new' && <UnreadCount count={1} />}
                         <IconChevronRight size={11} color={theme.colors.gray[5]} />
                       </Group>
                     </Group>
@@ -1709,6 +1712,38 @@ export default function InboxPage() {
           const isFieldStage = !declaredRequestId &&
             requestFamily(requestType, workflowTypeLower)?.experience.family === 'field_jobs';
           const stageAction = String(claim.stageAction || '').toLowerCase();
+          // A step any workflow declared for itself: the card carries the run and the step, and is
+          // confirmed with a staff card like a job sign-off.
+          const gateRunId = String(claim.pauseReason || '').startsWith('await_stage:')
+            ? normalizeRunId(o.workflowRunId || claim.workflowRunId)
+            : undefined;
+          if (!isFieldStage && gateRunId && stageAction) {
+            return {
+              id: o.id ?? o.offerId,
+              title: o.title || requestCopy.title,
+              description: delegated
+                ? `Passed to you. ${o.body || requestCopy.title}`
+                : (o.body || 'This step is waiting for you.'),
+              module: 'approvals',
+              flowType: 'WORKFLOW' as const,
+              status: 'pending' as const,
+              priority: 'high' as const,
+              createdAt: o.createdAt ?? new Date().toISOString(),
+              actionLabel: 'Confirm with staff card',
+              itemType: 'workflow' as const,
+              stageAction,
+              workflowRunId: gateRunId,
+              workflowRequestType: requestType,
+              amount: Number.isFinite(Number(claim.amount)) ? Number(claim.amount) : undefined,
+              currency: String(claim.currency || 'USD').trim() || 'USD',
+              actingOrgTenantId: targetOrgTenantId,
+              ownerOrgTenantId: targetOrgTenantId,
+              ownerDisplayName: claim.targetOrgName || claim.orgName || activeOrgLabel || undefined,
+              assignmentRole: claim.assigneeRole,
+              authContext: 'personal',
+              authToken: o._token || holderToken,
+            };
+          }
           const stageRunId = isFieldStage
             ? normalizeRunId(
               o.workflowRunId
@@ -1874,8 +1909,8 @@ export default function InboxPage() {
             id: o.id ?? o.offerId,
             title: apCopy.title,
             description: isArCollection
-              ? `${oweCounterpartyText}.${amountValue != null ? ` Amount ${currency} ${amountValue}.` : ''} Present consent proof to continue.`
-              : `Action required: ${requiredAction}. Switch to org context to continue.`,
+              ? `${oweCounterpartyText}.${amountValue != null ? ` Amount ${currency} ${amountValue}.` : ''} Confirm in the app to continue.`
+              : `${apCopy.title}. Open it for your organisation to continue.`,
             module: isArCollection ? 'finance' : 'approvals',
             flowType: isArCollection ? 'PAYMENT' as const : 'WORKFLOW' as const,
             status: 'pending' as const,
@@ -2239,7 +2274,8 @@ export default function InboxPage() {
               : mapOffer(o);
           if (!item) return item;
           const replaces = offerReplacement(o.claims);
-          return replaces && !item.replaces ? { ...item, replaces } : item;
+          const at = latestStamp(o.updatedAt, o.updated_at, o.resolvedAt, o.resolved_at, o.createdAt, item.createdAt)
+          return { ...(replaces && !item.replaces ? { ...item, replaces } : item), createdAt: at || item.createdAt };
         })
         .filter(Boolean);
 
@@ -2412,7 +2448,7 @@ export default function InboxPage() {
           flowType: 'WORKFLOW' as const,
           status: terminalStages.has(stage) || String(run.status || '').toLowerCase() === 'completed' ? 'completed' : 'pending',
           priority: stage === 'ASSIGNED' || stage === 'IN_PROGRESS' || stage === 'EVIDENCE_CAPTURED' ? 'high' as const : 'medium' as const,
-          createdAt: run.createdAt || run.created_at || new Date().toISOString(),
+          createdAt: latestStamp(run.updatedAt, run.updated_at, run.output?.updatedAt, run.createdAt, run.created_at) || new Date().toISOString(),
           actionLabel: stepRequiredLabel({
             workflowStage: stage,
             pauseReason: String(run.output?.pauseReason || ''),
@@ -2476,14 +2512,18 @@ export default function InboxPage() {
           seen.set(key, item);
           continue;
         }
+        const at = latestStamp(kept.createdAt, item.createdAt)
         const keptAbout = String(kept.description || '').trim();
         const nextAbout = String(item.description || '').trim();
         const keptIsStageOnly = /^stage\s/i.test(keptAbout);
         const incomingIsWork = item.id.startsWith('field-') && Boolean(nextAbout) && !/^stage\s/i.test(nextAbout);
+        const timed = at && at !== kept.createdAt ? { ...kept, createdAt: at } : kept
         if ((!keptAbout || keptIsStageOnly) && nextAbout) {
-          seen.set(key, { ...kept, description: nextAbout });
+          seen.set(key, { ...timed, description: nextAbout });
         } else if (incomingIsWork && !keptAbout.includes(nextAbout)) {
-          seen.set(key, { ...kept, description: nextAbout });
+          seen.set(key, { ...timed, description: nextAbout });
+        } else if (timed !== kept) {
+          seen.set(key, timed);
         }
       }
       const mapped = [...seen.values()];
@@ -3344,6 +3384,103 @@ export default function InboxPage() {
     }
   };
 
+  /**
+   * Confirm a step any workflow is waiting at by sharing the acting person's staff card.
+   * The step names itself, so a workflow added later needs no new screen here.
+   */
+  const handleOpenWorkflowStep = async (item: InboxItemData) => {
+    const runId = normalizeRunId(item.workflowRunId);
+    const stage = String(item.stageAction || '').toLowerCase();
+    if (!runId || !stage) return;
+    setActionLoading(true);
+    try {
+      if (item.actingOrgTenantId) {
+        const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, item.ownerDisplayName, 'request', undefined, [runId]);
+        if (!switched) return;
+      }
+      const orgToken = getOrgToken();
+      if (!orgToken) throw new Error('Open the organization first, then try again.');
+      const requestRes = await api.post(
+        `/workflows/runs/${encodeURIComponent(runId)}/proof/request`,
+        { stage },
+        { headers: { Authorization: `Bearer ${orgToken}` } },
+      );
+      const requestUrl = requestRes.data?.presentationRequestUrl as string | undefined;
+      if (!requestUrl) throw new Error('This step could not be prepared. Try again.');
+      const params = new URLSearchParams({
+        request_uri: requestUrl,
+        mode: 'workflow-step',
+        workflowRunId: runId,
+        stage,
+      });
+      if (item.actingOrgTenantId) params.set('orgTenantId', item.actingOrgTenantId);
+      if (requestRes.data?.requestId) params.set('requestId', String(requestRes.data.requestId));
+      upsertRunningAction({
+        id: `step:${runId}:${stage}`,
+        type: 'proof',
+        title: item.title || 'Step waiting for you',
+        description: item.description,
+        route: `/present?${params.toString()}`,
+        refId: runId,
+        orgTenantId: item.actingOrgTenantId,
+        status: 'active',
+      });
+      setSelectedItem(null);
+      setDecisionReason('');
+      await router.push(`/present?${params.toString()}`);
+    } catch (err: any) {
+      feedback.fromError(err, { title: 'Could not open this step', retry: () => void handleOpenWorkflowStep(item) });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  /** Approve an organisation purchase or payment request by sharing the approver's staff card. */
+  const handleOpenRequestStaffCard = async (item: InboxItemData) => {
+    if (!item.platformRequestId) return;
+    setActionLoading(true);
+    try {
+      if (item.actingOrgTenantId) {
+        const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, item.ownerDisplayName, 'request', undefined, [item.platformRequestId, item.workflowRequestId]);
+        if (!switched) return;
+      }
+      const orgToken = getOrgToken();
+      if (!orgToken) throw new Error('Open the organization first, then try again.');
+      const requestRes = await api.post(
+        `/api/platform/requests/${encodeURIComponent(item.platformRequestId)}/proof/request`,
+        { toStatus: 'approved' },
+        { headers: { Authorization: `Bearer ${orgToken}` } },
+      );
+      const requestUrl = requestRes.data?.presentationRequestUrl as string | undefined;
+      if (!requestUrl) throw new Error('This approval could not be prepared. Try again.');
+      const params = new URLSearchParams({
+        request_uri: requestUrl,
+        mode: 'request-staff-card',
+        platformRequestId: item.platformRequestId,
+        toStatus: 'approved',
+      });
+      if (item.actingOrgTenantId) params.set('orgTenantId', item.actingOrgTenantId);
+      if (requestRes.data?.requestId) params.set('requestId', String(requestRes.data.requestId));
+      upsertRunningAction({
+        id: `request:${item.platformRequestId}`,
+        type: 'proof',
+        title: item.title || 'Request approval',
+        description: item.description,
+        route: `/present?${params.toString()}`,
+        refId: item.platformRequestId,
+        orgTenantId: item.actingOrgTenantId,
+        status: 'active',
+      });
+      setSelectedItem(null);
+      setDecisionReason('');
+      await router.push(`/present?${params.toString()}`);
+    } catch (err: any) {
+      feedback.fromError(err, { title: 'Could not open the approval', retry: () => void handleOpenRequestStaffCard(item) });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleOpenFieldRun = async (item: InboxItemData) => {
     const runId = normalizeRunId(item.workflowRunId);
     if (!runId) {
@@ -3521,27 +3658,7 @@ export default function InboxPage() {
     if (isArchived(item)) return attention === 'done' || attention === 'all';
     return matchesInboxAttention(itemAttention(item), attention);
   }).sort((a, b) => {
-    if (filter === 'payments' || filter === 'school_fees' || filter === 'counter_sales') {
-      const financeRank = (item: InboxItemData) => {
-        if (item.itemType === 'invoice_offer') return 0;
-        if (item.itemType === 'payment_link') return 1;
-        return 2;
-      };
-      const rankDiff = financeRank(a) - financeRank(b);
-      if (rankDiff !== 0) return rankDiff;
-    }
-
-    if (filter === 'jobs' || filter === 'requisitions' || filter === 'supplier_bills') {
-      const opsRank = (item: InboxItemData) => {
-        if (item.module === 'field' || item.workflowRunId) return 0;
-        if (item.module === 'approvals' || item.workflowRequestId) return 1;
-        return 2;
-      };
-      const rankDiff = opsRank(a) - opsRank(b);
-      if (rankDiff !== 0) return rankDiff;
-    }
-
-    const createdDiff = dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf();
+    const createdDiff = inboxItemTime(b) - inboxItemTime(a);
     if (createdDiff !== 0) return createdDiff;
 
     const priorityDiff = (priorityRank[a.priority] ?? 99) - (priorityRank[b.priority] ?? 99);
@@ -3610,20 +3727,14 @@ export default function InboxPage() {
                   ? `${pendingCount} still waiting`
                   : 'Nothing new'}
             </Text>
-            <Group gap="xs" mt={6}>
-              <Badge size="sm" color={onlineReady ? (online ? 'green' : 'gray') : 'blue'} variant="light">
-                {onlineReady ? (online ? 'Online' : 'Offline') : 'Status'}
-              </Badge>
-              <Badge size="sm" color={syncMetaReady ? getFreshnessColor(syncMeta.lastSyncAt) : 'gray'} variant="light">
-                {syncMetaReady ? formatFreshnessLabel(syncMeta.lastSyncAt) : 'Sync status'}
-              </Badge>
-              {syncEngineState.isSyncing && (
-                <Badge size="sm" color="blue" variant="light">Syncing...</Badge>
-              )}
-              {!!syncMeta.lastError && (
-                <Badge size="sm" color="red" variant="light">Sync pending retry</Badge>
-              )}
-            </Group>
+            <Text size="xs" c="dimmed" mt={4}>
+              {onlineReady ? (online ? 'Online' : 'Offline') : 'Checking connection'}
+              {syncMetaReady ? ` · ${formatFreshnessLabel(syncMeta.lastSyncAt)}` : ''}
+              {syncEngineState.isSyncing ? ' · Syncing' : ''}
+            </Text>
+            {!!syncMeta.lastError && (
+              <Text size="xs" c="red">Sync pending retry</Text>
+            )}
           </Box>
           <Group gap="xs">
             {filter === 'archived' && expiredCount > 0 && (
@@ -3672,8 +3783,8 @@ export default function InboxPage() {
 
         {filter !== 'archived' && newInView.length > 0 && (
           <Group justify="space-between" align="center" gap="xs">
-            <Text size="xs" c="blue" fw={600}>{newInView.length} new {newInView.length === 1 ? 'item' : 'items'}</Text>
-            <Button size="compact-xs" variant="subtle" color="blue" leftSection={<IconCheck size={12} />} onClick={markAllRead}>
+            <Text size="xs" c="dimmed">{newInView.length} new {newInView.length === 1 ? 'item' : 'items'}</Text>
+            <Button size="compact-xs" variant="subtle" color="gray" leftSection={<IconCheck size={12} />} onClick={markAllRead}>
               Mark all read
             </Button>
           </Group>
@@ -3787,8 +3898,8 @@ export default function InboxPage() {
                 if (entry.kind === 'pinned-head') {
                   return (
                     <Group key={entry.key} gap={6} mt={4}>
-                      <Text size="xs" fw={800} c="orange" tt="uppercase">{entry.label}</Text>
-                      <Badge size="xs" color="orange" variant="filled">{entry.total}</Badge>
+                      <Text size="sm" fw={500}>{entry.label}</Text>
+                      <Text size="sm" c="dimmed">{entry.total}</Text>
                       {entry.total > entry.shown && (
                         <Text size="xs" c="dimmed">newest {entry.shown} shown here</Text>
                       )}
@@ -3859,7 +3970,7 @@ export default function InboxPage() {
               <Text size="xs" c="dimmed">{inboxWhenLabel(selectedItem.createdAt)}</Text>
             )}
             <Group gap="xs">
-              <Badge color={itemAttention(selectedItem) === 'done' ? 'teal' : itemAttention(selectedItem) === 'opened' ? 'gray' : 'blue'} variant={itemAttention(selectedItem) === 'new' ? 'filled' : 'light'}>
+              <Badge color="gray" variant="light">
                 {itemAttention(selectedItem) === 'new' ? 'New' : itemAttention(selectedItem) === 'opened' ? 'Opened' : 'Done'}
               </Badge>
               <StatusBadge status={selectedItem.status === 'pending' ? 'pending' : 'done'} />
@@ -4010,21 +4121,19 @@ export default function InboxPage() {
                       <Group justify="space-between" align="center" wrap="nowrap">
                         <Group gap={6}>
                           <IconShieldCheck size={14} />
-                          <Text size="sm" fw={700}>SSI Trust Panel</Text>
+                          <Text size="sm" fw={500}>Payment checks</Text>
                         </Group>
-                        <Badge size="xs" color={stageColor} variant="light">Flow: {stage}</Badge>
+                        <Badge size="xs" color={stageColor} variant="light">{AR_COLLECTION_STAGE_WORDS[stage] || 'Waiting'}</Badge>
                       </Group>
                     );
                   })()}
                   <Text size="xs" c="dimmed">
-                    Counterparty: {selectedItem.counterpartyOrgName || selectedItem.ownerDisplayName || selectedItem.ownerOrgTenantId || 'Unknown org'}
+                    From: {selectedItem.counterpartyOrgName || selectedItem.ownerDisplayName || 'Another organisation'}
                   </Text>
                   <Text size="xs" c="dimmed">
-                    Trust State: {String(selectedItem.trustStatus || 'pending').replace(/_/g, ' ')}
+                    Checks: {AR_COLLECTION_STAGE_WORDS[String(selectedItem.trustStatus || '')] || 'Not started'}
                   </Text>
-                  {selectedItem.invoiceRef && <Text size="xs" c="dimmed">Invoice Ref: {selectedItem.invoiceRef}</Text>}
-                  {selectedItem.proofRequestId && <Text size="xs" c="dimmed">Proof Request: {selectedItem.proofRequestId}</Text>}
-                  {selectedItem.proofResponseId && <Text size="xs" c="dimmed">Proof Response: {selectedItem.proofResponseId}</Text>}
+                  {selectedItem.invoiceRef && <Text size="xs" c="dimmed">Invoice: {selectedItem.invoiceRef}</Text>}
                 </Stack>
               </Paper>
             )}
@@ -4263,7 +4372,7 @@ export default function InboxPage() {
                 )}
                 {selectedItem.itemType === 'workflow' && !selectedItem.platformNextStep && (
                   <>
-                    {selectedItem.module === 'approvals' && !isRequisitionApproval(selectedItem) && (
+                    {selectedItem.module === 'approvals' && !isRequisitionApproval(selectedItem) && !isWorkflowStepCard(selectedItem) && (
                       selectedItem.requestDecision && !selectedItem.requestDecision.canApprove && !selectedItem.requestDecision.canReject ? (
                         <Alert color="blue" variant="light" icon={<IconShieldCheck size={16} />}>
                           {requestDecisionBlockText(selectedItem.requestDecision)}
@@ -4375,7 +4484,20 @@ export default function InboxPage() {
                         Open job
                       </Button>
                     ) : null}
+                    {isWorkflowStepCard(selectedItem) ? (
+                      <Button
+                        fullWidth
+                        size="lg"
+                        variant="outline"
+                        leftSection={<IconId size={18} />}
+                        loading={actionLoading}
+                        onClick={() => void handleOpenWorkflowStep(selectedItem)}
+                      >
+                        {STAFF_CARD_APPROVE_LABEL}
+                      </Button>
+                    ) : null}
                     {selectedItem.module !== 'field'
+                      && !isWorkflowStepCard(selectedItem)
                       && (!isRequisitionApproval(selectedItem) || selectedItem.module !== 'approvals')
                       && (selectedItem.requestDecision?.canApprove !== false || !selectedItem.platformRequestId) && (
                       <Button
@@ -4391,7 +4513,24 @@ export default function InboxPage() {
                       </Button>
                     )}
                     {selectedItem.module === 'approvals'
+                      && selectedItem.platformRequestId
+                      && !selectedItem.platformNextStep
+                      && selectedItem.requestDecision?.staffCard
+                      && selectedItem.requestDecision?.canApprove !== false && (
+                      <Button
+                        fullWidth
+                        size="lg"
+                        variant="outline"
+                        leftSection={<IconId size={18} />}
+                        loading={actionLoading}
+                        onClick={() => void handleOpenRequestStaffCard(selectedItem)}
+                      >
+                        {STAFF_CARD_APPROVE_LABEL}
+                      </Button>
+                    )}
+                    {selectedItem.module === 'approvals'
                       && !isRequisitionApproval(selectedItem)
+                      && !isWorkflowStepCard(selectedItem)
                       && (selectedItem.requestDecision?.canReject !== false || !selectedItem.platformRequestId) && (
                       <Button
                         fullWidth

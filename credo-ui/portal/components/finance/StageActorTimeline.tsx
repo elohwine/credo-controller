@@ -61,12 +61,12 @@ export function StageActorTimeline({
       <Group justify="space-between" align="center" mb="xs" wrap="nowrap">
         <Text fw={600}>{title}</Text>
         <StepHelp
-          title={help?.title || 'Job progress'}
+          title={help?.title || title.replace(/\s*\(.*\)$/, '')}
           points={help?.points || [
             'Each step shows what happens and who does it.',
             'A step is marked done when that person finishes it.',
             'The person named for a step gets it in their inbox.',
-            'Photos and records on a step were taken for that step.',
+            ...(media && Object.keys(media).length > 0 ? ['Photos and records on a step were taken for that step.'] : []),
           ]}
         />
       </Group>

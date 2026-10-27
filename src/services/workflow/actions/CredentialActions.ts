@@ -26,8 +26,8 @@ const logger = rootLogger.child({ module: 'CredentialActions' })
 
 /**
  * The organisation's saved record settings decide whether a stage may issue.
- * `disabled` never issues. `optional` issues only when the organisation turned
- * optional records on. Anything else, including no setting, still issues.
+ * `disabled` never issues. `optional` issues unless the organisation turned
+ * optional records off. Anything else, including no setting, still issues.
  */
 export function credentialOfferAllowed(orgTenantId: string, workflowType: string, credentialType: string): boolean {
   try {
@@ -50,7 +50,7 @@ export function credentialOfferAllowed(orgTenantId: string, workflowType: string
         ? policy.vcOfferModes?.RequisitionVC
         : undefined)
     if (mode === 'disabled') return false
-    if (mode === 'optional' && !policy.sendOptionalOffers) return false
+    if (mode === 'optional' && policy.sendOptionalOffers === false) return false
     return true
   } catch (error) {
     logger.error({ err: error, orgTenantId, workflowType, credentialType }, 'Cannot read organization record settings')

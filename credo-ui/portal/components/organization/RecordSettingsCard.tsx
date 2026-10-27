@@ -83,7 +83,7 @@ export default function RecordSettingsCard({ orgTenantId, canEdit }: { orgTenant
               name: workflowName(template),
               types: issuedTypes(template),
               modes: { ...(template.credentialPolicy?.vcOfferModes || {}) },
-              optionalOn: template.credentialPolicy?.sendOptionalOffers === true,
+              optionalOn: template.credentialPolicy?.sendOptionalOffers !== false,
             }))
             .filter((row) => row.types.length > 0),
         )

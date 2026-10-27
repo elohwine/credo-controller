@@ -190,7 +190,7 @@ export default function OrganizationDelegationsPage() {
                 </Text>
               </Box>
               <Group gap="xs">
-                <Button variant="default" size="sm" component="a" href="/organization/setup">← Setup Center</Button>
+                <Button variant="default" size="sm" component="a" href="/organization/setup">← Setup</Button>
                 <Button leftSection={<IconPlus size={16} />} size="sm" onClick={() => setCreateOpen(true)} disabled={!orgTenantId}>Add stand-in</Button>
               </Group>
             </Group>

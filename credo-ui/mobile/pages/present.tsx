@@ -127,13 +127,32 @@ const FINISHING_MODES = new Set<string | undefined>([
     'field-payout',
     'ap-workflow-transition',
     'ar-collection-consent',
+    'request-staff-card',
+    // Any step a workflow waits at, named by the step itself (approve_shipment, release_funds, …).
+    'workflow-step',
 ]);
 
-function consentLabelForMode(mode?: string): string {
+/** Plain words for a step a workflow named itself, for example `approve_shipment`. */
+function stageWords(stage?: string): string {
+    return String(stage || '').replace(/_/g, ' ').trim();
+}
+
+function consentLabelForMode(mode?: string, stage?: string): string {
     const normalizedMode = normalizePresentationMode(mode);
+
+    if (mode === 'workflow-step') {
+        const words = stageWords(stage);
+        return words
+            ? `I agree to share my staff card to ${words}`
+            : 'I agree to share my staff card for this step';
+    }
 
     if (mode === 'ar-collection-consent') {
         return 'I agree to share the selected details for this collection step'
+    }
+
+    if (mode === 'request-staff-card') {
+        return 'I agree to share my staff card for this purchase step'
     }
 
     if (mode === 'ap-workflow-transition') {
@@ -438,16 +457,20 @@ export default function PresentPage() {
 
         // The item this proof is for: a member opens it with a task pass bound to it.
         const mode = normalizePresentationMode(queryValue(router.query.mode));
-        const purpose: OrgTaskPurpose = mode?.startsWith('requisition-')
-            ? 'requisition'
-            : mode?.startsWith('field-')
-                ? 'job'
-                : 'collection';
-        const refs = purpose === 'requisition'
-            ? [queryValue(router.query.requisitionId)]
-            : purpose === 'job'
-                ? [queryValue(router.query.workflowRunId)]
-                : [queryValue(router.query.transactionId)];
+        const purpose: OrgTaskPurpose = mode === 'request-staff-card'
+            ? 'request'
+            : mode?.startsWith('requisition-')
+                ? 'requisition'
+                : mode?.startsWith('field-')
+                    ? 'job'
+                    : 'collection';
+        const refs = purpose === 'request'
+            ? [queryValue(router.query.platformRequestId)]
+            : purpose === 'requisition'
+                ? [queryValue(router.query.requisitionId)]
+                : purpose === 'job'
+                    ? [queryValue(router.query.workflowRunId)]
+                    : [queryValue(router.query.transactionId)];
 
         const currentOrgId = (getActiveOrgId() || '').trim();
         const existingOrgToken = getOrgToken();
@@ -461,7 +484,7 @@ export default function PresentPage() {
         }
 
         await openOrganizationForTask({ orgId: normalizedOrgId, purpose, refs });
-    }, [router.query.mode, router.query.requisitionId, router.query.workflowRunId, router.query.transactionId]);
+    }, [router.query.mode, router.query.requisitionId, router.query.platformRequestId, router.query.workflowRunId, router.query.transactionId]);
 
     const initializeRequest = useCallback(async () => {
         if (!router.isReady) return;
@@ -488,6 +511,8 @@ export default function PresentPage() {
                 || mode === 'requisition-ack'
                 || mode === 'field-signoff'
                 || mode === 'field-payout'
+                || mode === 'workflow-step'
+                || mode === 'request-staff-card'
                 || (mode === 'ar-collection-consent' && !!queryOrgTenantId && queryOrgTenantId !== personalTenantId);
 
             if (shouldSwitchOrgContext && queryOrgTenantId) {
@@ -642,6 +667,7 @@ export default function PresentPage() {
             const workflowId = queryValue(router.query.workflowId);
             const transactionId = queryValue(router.query.transactionId);
             const transition = queryValue(router.query.transition);
+            const platformRequestId = queryValue(router.query.platformRequestId);
 
             const personalTenantIdForSubmit = getPersonalWalletTenantId();
             const isOrgProofMode =
@@ -649,7 +675,9 @@ export default function PresentPage() {
                 || mode === 'requisition-release'
                 || mode === 'requisition-ack'
                 || mode === 'field-signoff'
-                || mode === 'field-payout';
+                || mode === 'field-payout'
+                || mode === 'workflow-step'
+                || mode === 'request-staff-card';
             const shouldSwitchOrgContextForSubmit =
                 isOrgProofMode
                 || (mode === 'ar-collection-consent' && !!orgTenantId && orgTenantId !== personalTenantIdForSubmit);
@@ -694,7 +722,7 @@ export default function PresentPage() {
 
             // The step this proof finishes (a requisition, a job, a payment). One guard for all of
             // them: a resumed attempt whose request has ended drops its resume entry and says so.
-            const finishRef = requisitionId || workflowRunId || transactionId || '';
+            const finishRef = requisitionId || platformRequestId || workflowRunId || transactionId || '';
             const resumedAfterShare = Boolean(submissionData?.resumedAfterShare);
             const finishStep = async (run: () => Promise<void>) => {
                 try {
@@ -813,12 +841,17 @@ export default function PresentPage() {
                 });
             }
 
-            if ((mode === 'field-signoff' || mode === 'field-payout') && workflowRunId) {
+            if ((mode === 'field-signoff' || mode === 'field-payout' || mode === 'workflow-step') && workflowRunId) {
                 const orgToken = getOrgToken();
                 if (!orgToken) {
                     throw new Error('Switch to the organization before finishing this step.');
                 }
+                // A job's sign-off and payout have their own names; any other workflow sends the
+                // step it is waiting at, so a new workflow finishes here without a new branch.
                 const stage = queryValue(router.query.stage) || (mode === 'field-payout' ? 'payout' : 'acknowledgement');
+                if (mode === 'workflow-step' && !queryValue(router.query.stage)) {
+                    throw new Error('This step is missing its name. Open it again from your inbox.');
+                }
                 const idempotencyKey = `mobile-step:${workflowRunId}:${stage}:${requestId}:${walletId}`;
                 await finishStep(async () => {
                     const done = await api.post(
@@ -829,6 +862,29 @@ export default function PresentPage() {
                     if (done.data?.status === 'failed' || done.data?.error) {
                         throw new Error(String(done.data?.error || 'This step was not accepted.'));
                     }
+                });
+            }
+
+            if (mode === 'request-staff-card' && platformRequestId) {
+                const orgToken = getOrgToken();
+                if (!orgToken) {
+                    throw new Error('Switch to the organization before finishing this step.');
+                }
+                const toStatus = queryValue(router.query.toStatus) || 'approved';
+                let stepPayload: Record<string, unknown> | undefined;
+                try {
+                    const rawPayload = queryValue(router.query.payload);
+                    stepPayload = rawPayload ? JSON.parse(rawPayload) : undefined;
+                } catch {
+                    stepPayload = undefined;
+                }
+                const idempotencyKey = `mobile-request-card:${platformRequestId}:${toStatus}:${requestId}:${walletId}`;
+                await finishStep(async () => {
+                    await api.post(
+                        `/api/platform/requests/${encodeURIComponent(platformRequestId)}/proof/complete`,
+                        { toStatus, requestId, payload: stepPayload, vpToken, idToken, presentationSubmission },
+                        { headers: { Authorization: `Bearer ${orgToken}`, 'x-idempotency-key': idempotencyKey } },
+                    );
                 });
             }
 
@@ -918,6 +974,9 @@ export default function PresentPage() {
                     });
                     router.push(`/finance?${params.toString()}`);
                 }, 1500);
+            } else if (mode === 'workflow-step') {
+                // Back to the inbox: the person came from a card and may have more waiting.
+                setTimeout(() => router.push('/inbox'), 1500);
             } else if ((mode === 'requisition-release' || mode === 'requisition-ack') && requisitionId) {
                 setTimeout(() => {
                     const params = new URLSearchParams({
@@ -945,6 +1004,10 @@ export default function PresentPage() {
 
                     router.push('/activity');
                 }, 2000);
+            } else if (mode === 'request-staff-card') {
+                setTimeout(() => {
+                    router.push('/inbox');
+                }, 1500);
             } else if (mode === 'ap-workflow-transition') {
                 setTimeout(() => {
                     const params = new URLSearchParams({
@@ -1089,6 +1152,16 @@ export default function PresentPage() {
                             const providerRef = queryValue(router.query.providerRef);
                             const transactionId = queryValue(router.query.transactionId);
                             const transition = queryValue(router.query.transition);
+
+                            if (mode === 'workflow-step') {
+                                const words = stageWords(queryValue(router.query.stage));
+                                return (
+                                    <>
+                                        <Title order={3}>{words ? `Confirm: ${words}` : 'Confirm this step'}</Title>
+                                        <Text c="dimmed" size="sm">Review the details below, then share them to confirm you are the person chosen for this step.</Text>
+                                    </>
+                                );
+                            }
 
                             if (mode === 'field-signoff') {
                                 return (
@@ -1311,7 +1384,7 @@ export default function PresentPage() {
                                         mt="sm"
                                         checked={consentChecked}
                                         onChange={(event) => setConsentChecked(event.currentTarget.checked)}
-                                        label={consentLabelForMode(currentMode)}
+                                        label={consentLabelForMode(currentMode, queryValue(router.query.stage))}
                                     />
                                     <Button
                                         fullWidth

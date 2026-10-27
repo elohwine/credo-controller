@@ -258,7 +258,7 @@ export const INBOX_TAB_ORDER: InboxTabKey[] = [
 ]
 
 export const INBOX_TAB_LABELS: Record<InboxTabKey, string> = {
-  all: 'All',
+  all: 'All kinds',
   requests: 'Requests',
   jobs: 'Jobs',
   requisitions: 'Purchase requests',

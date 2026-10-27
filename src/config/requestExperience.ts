@@ -24,7 +24,32 @@ export const REQUEST_STAGE_ACTIONS = [
   'mark_disputed',
 ] as const
 
-export type RequestStageAction = (typeof REQUEST_STAGE_ACTIONS)[number]
+/** The steps the platform ships with: labels, permission aliases and actor defaults are written for these. */
+export type KnownRequestStageAction = (typeof REQUEST_STAGE_ACTIONS)[number]
+
+/**
+ * A step any workflow may name. Templates onboarded later (by hand or from the builder) bring
+ * their own steps, so the vocabulary stays open: a step the platform does not ship still routes
+ * to an inbox and still asks the acting person for their staff card.
+ *
+ * Plain `string` because this crosses the API boundary and the generated routes must accept a
+ * step the platform has never heard of. The shape is checked by `isStageAction`, and every
+ * saved experience goes through `validateRequestExperience`.
+ */
+export type RequestStageAction = string
+
+/** Shape a template's own step must take: lowercase words joined by underscores. */
+const CUSTOM_STAGE_ACTION = /^[a-z][a-z0-9_]{2,47}$/
+
+export function isKnownStageAction(value: unknown): value is KnownRequestStageAction {
+  return REQUEST_STAGE_ACTIONS.some((action) => action === value)
+}
+
+/** A step the platform ships, or a well-formed step a template declared for itself. */
+export function isStageAction(value: unknown): value is RequestStageAction {
+  return isKnownStageAction(value) || CUSTOM_STAGE_ACTION.test(String(value || ''))
+}
+
 export type RequestPhase = 'draft' | 'submitted' | 'in_review' | 'approved' | 'in_fulfilment' | 'completed'
 
 /** Presentation/routing metadata for the existing request lifecycle, not executable workflow steps. */
@@ -236,8 +261,10 @@ export function validateRequestExperience(value: RequestExperienceDefinition): v
     throw new Error('Unsupported request experience version or family')
   }
   for (const action of [value.reviewAction, value.fulfilmentAction].filter(Boolean)) {
-    if (!REQUEST_STAGE_ACTIONS.some((supported) => supported === action)) {
-      throw new Error(`Unsupported request stage action: ${action}`)
+    if (!isStageAction(action)) {
+      throw new Error(
+        `Unsupported request stage action: ${action}. Use lowercase words joined by underscores, for example approve_shipment.`,
+      )
     }
   }
   if (!value.reviewAction) throw new Error('A request experience must declare its review action')

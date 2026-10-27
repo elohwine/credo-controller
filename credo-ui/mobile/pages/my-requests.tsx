@@ -11,7 +11,7 @@ import AppShellMobile from '@/components/layout/AppShellMobile';
 import EmptyState from '@/components/shared/EmptyState';
 import JobAuditTrailPanel from '@/components/shared/JobAuditTrailPanel';
 import { StageActorTimeline } from '@/components/shared/StageActorTimeline';
-import { assertRequestDetail, requestExperienceForRow, type RequestExperience } from '../../shared/requestExperience';
+import { assertRequestDetail, requestExperienceForRow, requestWhoDid, type RequestExperience } from '../../shared/requestExperience';
 import { getPersonalWalletToken, getWalletToken, isAuthenticated } from '@/lib/auth';
 import api from '@/lib/api';
 import { formatTxnTime } from '@/lib/inboxAttention';
@@ -224,10 +224,7 @@ export default function MyRequestsPage() {
 
   const trail = useMemo(() => (detail && selected?.source === 'org' ? trailFromRequest(detail, Array.isArray(detail.people) ? detail.people : []) : null), [detail, selected?.source]);
   const progress = selected ? requestExperienceForRow(detail || selected) : null;
-  const whoDid = Object.fromEntries((progress?.stages || []).flatMap((stage) => {
-    const actor = detail?.people?.find((person: { userId: string }) => person.userId === stage.actorUserId);
-    return actor?.displayName ? [[stage.key, actor.displayName]] : [];
-  }));
+  const whoDid = selected ? requestWhoDid(detail || selected, Array.isArray(detail?.people) ? detail.people : []) : {};
 
   const open = rows.filter((row) => requestListBucket(row.kind, row.status) === 'waiting');
   const done = rows.filter((row) => requestListBucket(row.kind, row.status) === 'done');
@@ -354,7 +351,7 @@ export default function MyRequestsPage() {
                 </Stack>
               </Paper>
             )}
-            {selected.source === 'org' && trail && <JobAuditTrailPanel trail={trail} compact embedded subject="request" />}
+            {selected.source === 'org' && trail && <JobAuditTrailPanel trail={trail} compact embedded />}
             {selected.source === 'business' && (
               <Text size="sm" c="dimmed">
                 {requestListBucket(selected.kind, selected.status) === 'waiting'

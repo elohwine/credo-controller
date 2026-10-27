@@ -262,7 +262,9 @@ export class WorkflowVcOfferDispatcher {
         currency: holder.run.input?.currency,
       },
     })
-    const current = this.assignmentHolder(runId)
+    // A worker picked from "Who does what" is saved only when this step finishes.
+    const saved = workflowRunRepository.findRunById(runId)?.output?.assignment?.assigneeId
+    const current = this.assignmentHolder(runId, saved ? undefined : state)
     if (current.userId !== holder.userId) {
       this.withdrawAssignmentOffers(runId, holder.run.tenantId, 'the job was reassigned to another worker')
       throw new StatusException(

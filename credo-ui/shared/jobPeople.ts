@@ -2,6 +2,8 @@
  * How people are offered on a job. Shared by the portal and the mobile app.
  */
 
+import { roleLabel } from './orgPeople'
+
 export type JobContact = {
   name: string
   phone: string
@@ -127,6 +129,46 @@ export function orgMemberName(member: OrgMemberNameSource): string {
 }
 
 export function orgMemberLabel(member: OrgMemberNameSource): string {
-  const role = String(member.role || 'member').replace(/_/g, ' ')
-  return `${orgMemberName(member)} (${role})`
+  return `${orgMemberName(member)} (${roleLabel(String(member.role || 'member')).toLowerCase()})`
+}
+
+const phoneKey = (value?: string | null) => String(value || '').replace(/\D/g, '').slice(-9)
+
+/**
+ * Who can go out or check the work: team members by name and role, then contacts who are
+ * not on the team already (inviting someone also saves them as a team contact).
+ */
+export function jobPeopleOptions(
+  members: OrgMemberNameSource[],
+  contacts: JobContact[],
+): Array<{ value: string; label: string }> {
+  const onTeam = new Set(members.map((member) => phoneKey(member.phone)).filter(Boolean))
+  return [
+    ...members.map((member) => ({ value: member.userId, label: orgMemberLabel(member) })),
+    ...contacts.filter((contact) => !onTeam.has(phoneKey(contact.phone))).map(jobContactOption),
+  ]
+}
+
+export const NOBODY_CHOSEN_YET = 'Nobody chosen yet. Pick someone below.'
+
+/**
+ * First choice of "Who goes out" / "Who checks the work": names the person the server would use
+ * (`GET .../workflows/actors`, or the field job's stage list from it), or says nobody is chosen yet.
+ * Value is always STAGE_ACTOR_CHOICE.
+ */
+export function stageActorOption(
+  actorsViewOrStages: unknown,
+  stageAction: string,
+  members: OrgMemberNameSource[],
+): { value: string; label: string } {
+  const stages = Array.isArray(actorsViewOrStages) ? actorsViewOrStages : fieldJobStages(actorsViewOrStages)
+  const label = stageActorChoiceLabelForStage(stages, stageAction, members)
+  if (label !== 'Use the person already chosen' || stages.length === 0) return { value: STAGE_ACTOR_CHOICE, label }
+  // Only going out needs a named person; any other step falls back to the owner.
+  const owner = members.find((member) => String(member.role || '').toLowerCase() === 'owner')
+  return {
+    value: STAGE_ACTOR_CHOICE,
+    label:
+      stageAction === FIELD_WORKER_STAGE || !owner ? NOBODY_CHOSEN_YET : `${orgMemberName(owner)} (owner, until someone is chosen)`,
+  }
 }

@@ -24,6 +24,7 @@ import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { workflowRunRepository } from '../../persistence/WorkflowRunRepository'
 import { orgWorkflowActorService } from '../../services/OrgWorkflowActorService'
+import { proofActionForStage, type ProofVcActionKey } from '../../services/ProofVcPolicyService'
 import { assertRunResume, canAccessRun, resumeFieldsForRun } from '../../services/RunAccessPolicy'
 import {
   workflowAuditService,
@@ -33,6 +34,7 @@ import {
 import { workflowService, ExecuteWorkflowOptions, WorkflowExecutionResult } from '../../services/WorkflowService'
 import { stageProofService, type EmbeddedPresentationResult } from '../../services/ssi/StageProofService'
 import { ActionRegistry } from '../../services/workflow/ActionRegistry'
+import { stageGateOf, stageGateReason } from '../../services/workflow/stageGate'
 import {
   workflowHandoffService,
   type HandoffLink,
@@ -49,8 +51,16 @@ interface StartHandoffBody {
   input?: Record<string, unknown>
 }
 
-/** Steps of a job that need the acting person to prove themselves from their wallet first. */
-type StageProofStage = 'acknowledgement' | 'payout'
+/**
+ * A step that needs the acting person to prove themselves from their wallet first.
+ *
+ * A job's sign-off and payout keep their own names (`acknowledgement`, `payout`). Every other
+ * workflow names the step itself (`approve_requisition`, `release_funds`, or a step a template
+ * declared for itself), so a workflow onboarded later is proof-gated the same way without a new
+ * endpoint. Plain `string` because the step must cross the API boundary; the run itself says
+ * which step it is waiting at, and anything else is refused with a plain message.
+ */
+type StageProofStage = string
 
 interface StageProofRequestBody {
   stage: StageProofStage
@@ -83,23 +93,26 @@ interface StageProofEmbeddedWalletBody extends StageProofCompleteBody {
   walletId: string
 }
 
-const STAGE_PROOF_CONFIG: Record<
-  StageProofStage,
-  {
-    pauseReason: string
-    actionKey: 'field_ack' | 'field_payout'
-    stageAction: string
-    presentationField: 'acknowledgementPresentation' | 'releasePresentation'
-    idPrefix: string
-    descriptorName: string
-    purpose: string
-    notesField: string
-  }
-> = {
+interface StageProofConfig {
+  pauseReason: string
+  actionKey: ProofVcActionKey
+  stageAction: string
+  /** The workflow whose "Who does what" names the person for this step. */
+  workflowType: string
+  presentationField: string
+  idPrefix: string
+  descriptorName: string
+  purpose: string
+  notesField: string
+}
+
+/** The two steps of a field job that were proof-gated before any workflow could name its own. */
+const STAGE_PROOF_CONFIG: Record<'acknowledgement' | 'payout', StageProofConfig> = {
   acknowledgement: {
     pauseReason: 'await_acknowledgement',
     actionKey: 'field_ack',
     stageAction: 'acknowledge_execution',
+    workflowType: 'field_execution_fept',
     presentationField: 'acknowledgementPresentation',
     idPrefix: 'job-signoff',
     descriptorName: 'Your role credential',
@@ -110,6 +123,7 @@ const STAGE_PROOF_CONFIG: Record<
     pauseReason: 'await_payout_release',
     actionKey: 'field_payout',
     stageAction: 'trigger_payout',
+    workflowType: 'field_execution_fept',
     presentationField: 'releasePresentation',
     idPrefix: 'job-payout',
     descriptorName: 'Your role credential',
@@ -119,7 +133,12 @@ const STAGE_PROOF_CONFIG: Record<
 }
 
 /** Fields only the server may set on a resume submission. */
-const SERVER_ONLY_RESUME_FIELDS = ['actedByUserId', 'acknowledgementPresentation', 'releasePresentation'] as const
+const SERVER_ONLY_RESUME_FIELDS = [
+  'actedByUserId',
+  'acknowledgementPresentation',
+  'releasePresentation',
+  'stagePresentation',
+] as const
 
 interface RegisterWorkflowRequest {
   id: string
@@ -277,10 +296,34 @@ export class WorkflowController extends Controller {
     return result
   }
 
-  private stageConfig(stage: unknown) {
-    const config = STAGE_PROOF_CONFIG[String(stage || '') as StageProofStage]
-    if (!config) throw new StatusException(`Unknown step '${String(stage)}'. Use acknowledgement or payout.`, 400)
-    return config
+  /**
+   * What this step asks for. A job's sign-off and payout keep their own settings; any other step
+   * is read from the run itself, so a workflow that named its own step is gated the same way.
+   */
+  private stageConfig(stage: unknown, run?: { output?: unknown }): StageProofConfig {
+    const named = String(stage || '').toLowerCase()
+    const builtIn = STAGE_PROOF_CONFIG[named as 'acknowledgement' | 'payout']
+    if (builtIn) return builtIn
+    const state = (run?.output && typeof run.output === 'object' ? run.output : {}) as Record<string, unknown>
+    const gate = stageGateOf(state)
+    if (!gate || gate.stageAction !== named) {
+      throw new StatusException(
+        `This job is not waiting at a step called '${String(stage)}'. Open it again to see the step it is waiting for.`,
+        400,
+      )
+    }
+    const words = gate.stageAction.replace(/_/g, ' ')
+    return {
+      pauseReason: stageGateReason(gate.stageAction),
+      actionKey: proofActionForStage(gate.stageAction) || `stage:${gate.stageAction}`,
+      stageAction: gate.stageAction,
+      workflowType: gate.workflowType,
+      presentationField: 'stagePresentation',
+      idPrefix: `stage-${gate.stageAction.replace(/_/g, '-')}`,
+      descriptorName: 'Your role credential',
+      purpose: `Confirm you are the person this organization chose to ${words}.`,
+      notesField: 'stageNotes',
+    }
   }
 
   /**
@@ -288,7 +331,6 @@ export class WorkflowController extends Controller {
    * caller must be the person chosen for it (or an owner/admin standing in).
    */
   private assertStageActor(request: ExRequest, runId: string, stage: StageProofStage) {
-    const config = this.stageConfig(stage)
     const user = (request as any).user || {}
     const callerTenantId = String(user.tenantId || '')
     const callerUserId = String(user.id || '')
@@ -298,12 +340,15 @@ export class WorkflowController extends Controller {
       throw new StatusException('This job belongs to another organization.', 403)
     }
     if (run.status !== 'paused') throw new StatusException('This job is not waiting for this step right now.', 409)
+    const config = this.stageConfig(stage, run)
     const state = (run.output && typeof run.output === 'object' ? run.output : {}) as Record<string, any>
     if (String(state.pauseReason || '').toLowerCase() !== config.pauseReason) {
       throw new StatusException(
         stage === 'acknowledgement'
           ? 'The job is not ready for sign-off yet.'
-          : 'The job is not ready for payout yet. It must be signed off first.',
+          : stage === 'payout'
+            ? 'The job is not ready for payout yet. It must be signed off first.'
+            : `This is not the step the work is waiting for right now.`,
         409,
       )
     }
@@ -312,7 +357,7 @@ export class WorkflowController extends Controller {
     // configured person, anyone holding the step's role, or an owner/admin standing in.
     const verdict = orgWorkflowActorService.mayAct({
       orgTenantId: run.tenantId,
-      workflowType: 'field_execution_fept',
+      workflowType: config.workflowType,
       stageAction: config.stageAction,
       userId: callerUserId,
       namedUserId: stageProofService.namedPersonOnRun(run.id, config.stageAction),
@@ -321,7 +366,9 @@ export class WorkflowController extends Controller {
       throw new StatusException(
         stage === 'acknowledgement'
           ? 'Only the person chosen to sign off this job (or an organization admin) can do this.'
-          : 'Only the person chosen to release payment (or an organization admin) can do this.',
+          : stage === 'payout'
+            ? 'Only the person chosen to release payment (or an organization admin) can do this.'
+            : 'Only the person this organization chose for this step (or an organization admin) can do this.',
         403,
       )
     }
@@ -370,15 +417,15 @@ export class WorkflowController extends Controller {
   ): Promise<WorkflowExecutionResult> {
     const { config, orgTenantId, callerUserId } = this.assertStageActor(request, runId, body?.stage)
     if (!body?.requestId) throw new StatusException('requestId is required', 400)
-    if (body.stage === 'payout') {
-      requireDeviceTrust({
-        request,
-        orgTenantId,
-        stageAction: 'trigger_payout',
-        body,
-        transaction: { runId, requestId: body.requestId },
-      })
-    }
+    // Whether this step needs the enrolled phone is the organization's own device-trust policy,
+    // so a money step in any workflow is held to it, not only a job payout.
+    requireDeviceTrust({
+      request,
+      orgTenantId,
+      stageAction: config.stageAction,
+      body,
+      transaction: { runId, requestId: body.requestId },
+    })
 
     // Idempotency: a retried completion (same proof request) returns the first outcome
     // instead of trying to move the job twice.
@@ -451,12 +498,12 @@ export class WorkflowController extends Controller {
         throw new StatusException('requestId, presentationRequestUrl and walletId are required', 400)
       }
       // Check the step and the actor before touching the wallet.
-      this.assertStageActor(request, runId, body.stage)
+      const { config } = this.assertStageActor(request, runId, body.stage)
       const submitted = await stageProofService.presentFromEmbeddedWallet({
         request,
         walletId: body.walletId,
         presentationRequestUrl: body.presentationRequestUrl,
-        stageAction: STAGE_PROOF_CONFIG[body.stage]?.stageAction,
+        stageAction: config.stageAction,
         workflowRunId: runId,
       })
       return await this.completeStageWithProof(request, runId, body, submitted)

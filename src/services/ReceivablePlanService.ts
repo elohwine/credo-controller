@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 
+import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 
 import { businessTransactionService } from './BusinessTransactionService'
@@ -183,6 +184,90 @@ export class ReceivablePlanService {
       if (!firstLink) firstLink = link
     }
     return { planId, firstLink: firstLink!, transactionId, obligationIds }
+  }
+
+  /**
+   * A pay link was just paid. Mark its instalment paid and close the plan when every instalment
+   * is paid. Safe to call twice. A link that is not on a plan does nothing.
+   */
+  public recordLinkPaid(linkId: string, paidAt?: string): void {
+    const db = DatabaseManager.getDatabase()
+    const table = db
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'ar_plan_installments'`)
+      .get() as { name?: string } | undefined
+    if (!table) return
+    const instalment = db
+      .prepare(`SELECT plan_id AS planId FROM ar_plan_installments WHERE payment_link_id = ?`)
+      .get(linkId) as { planId?: string } | undefined
+    if (!instalment?.planId) return
+    const now = paidAt || new Date().toISOString()
+    db.prepare(
+      `UPDATE ar_plan_installments
+          SET status = 'paid', paid_at = COALESCE(paid_at, ?)
+        WHERE payment_link_id = ? AND status IN ('pending', 'overdue')`,
+    ).run(now, linkId)
+    db.prepare(
+      `UPDATE ar_payment_plans
+          SET installments_paid = (
+                SELECT COUNT(*) FROM ar_plan_installments WHERE plan_id = ar_payment_plans.id AND status = 'paid'
+              ),
+              amount_collected = (
+                SELECT COALESCE(SUM(amount), 0) FROM ar_plan_installments WHERE plan_id = ar_payment_plans.id AND status = 'paid'
+              ),
+              status = CASE
+                WHEN status = 'cancelled' THEN 'cancelled'
+                WHEN (
+                  SELECT COUNT(*) FROM ar_plan_installments WHERE plan_id = ar_payment_plans.id AND status = 'paid'
+                ) >= installments_total THEN 'completed'
+                ELSE 'active'
+              END,
+              updated_at = ?
+        WHERE id = ?`,
+    ).run(now, instalment.planId)
+  }
+
+  /**
+   * Cancel a payment plan: the plan, its unpaid instalments, their pay links and the amounts still
+   * owed. Paid instalments stay paid. Called by the collections screen and `/api/records`.
+   */
+  public cancelPlan(tenantId: string, planId: string): { planId: string; status: 'cancelled' } {
+    const db = DatabaseManager.getDatabase()
+    const plan = db
+      .prepare('SELECT id, status, business_transaction_id FROM ar_payment_plans WHERE id = ? AND buyer_tenant_id = ?')
+      .get(planId, tenantId) as { id: string; status: string; business_transaction_id?: string | null } | undefined
+    if (!plan) throw new StatusException('Plan not found', 404)
+    if (plan.status === 'cancelled') throw new StatusException('Plan already cancelled', 409)
+
+    const now = new Date().toISOString()
+    db.transaction(() => {
+      db.prepare('UPDATE ar_payment_plans SET status = ?, updated_at = ? WHERE id = ?').run('cancelled', now, planId)
+      const pendingLinks = db
+        .prepare(
+          `SELECT payment_link_id FROM ar_plan_installments
+           WHERE plan_id = ? AND status = 'pending' AND payment_link_id IS NOT NULL`,
+        )
+        .all(planId) as { payment_link_id: string }[]
+      for (const row of pendingLinks) {
+        db.prepare('UPDATE payment_links SET status = ?, updated_at = ? WHERE id = ?').run(
+          'cancelled',
+          now,
+          row.payment_link_id,
+        )
+      }
+      db.prepare("UPDATE ar_plan_installments SET status = 'cancelled' WHERE plan_id = ? AND status = 'pending'").run(
+        planId,
+      )
+      db.prepare(
+        `UPDATE financial_obligations
+            SET status = 'cancelled', updated_at = ?
+          WHERE id IN (
+            SELECT obligation_id FROM ar_plan_installments
+            WHERE plan_id = ? AND status = 'cancelled' AND obligation_id IS NOT NULL
+          ) AND status != 'settled'`,
+      ).run(now, planId)
+    })()
+    if (plan.business_transaction_id) businessTransactionService.refreshTransactionStatus(plan.business_transaction_id)
+    return { planId, status: 'cancelled' }
   }
 }
 

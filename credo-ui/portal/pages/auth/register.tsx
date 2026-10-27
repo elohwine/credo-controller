@@ -62,7 +62,7 @@ export default function RegisterPage() {
 
         if (welcoming.current) return;
         if (hasPersonalSession) {
-            router.replace('/wallet');
+            router.replace('/inbox');
             return;
         }
 
@@ -78,15 +78,6 @@ export default function RegisterPage() {
             }
         }
     }, []);
-
-    useEffect(() => {
-        if (!router.isReady) return;
-
-        const requestedTenantType = router.query.tenantType;
-        if (requestedTenantType === 'ORG') {
-            router.replace('/organization/onboard');
-        }
-    }, [router, router.isReady, router.query.tenantType]);
 
     if (!authChecked) {
         return null;
@@ -144,7 +135,7 @@ export default function RegisterPage() {
                     { token: sessionToken, tenantId: walletId, claims: { displayName: form.username.trim() } },
                     identifier,
                 );
-                setWelcome({ name: form.username.trim(), next: claimedCount > 0 ? '/wallet' : '/inbox' });
+                setWelcome({ name: form.username.trim(), next: '/inbox' });
                 return;
             }
 
@@ -180,8 +171,8 @@ export default function RegisterPage() {
         return (
             <WelcomeScreen
                 name={welcome.name}
-                flyToInbox={welcome.next !== '/wallet'}
-                continueLabel={welcome.next === '/wallet' ? 'See my saved items' : 'Go to Inbox'}
+                flyToInbox={welcome.next === '/inbox'}
+                continueLabel="Go to Inbox"
                 onContinue={() => {
                     void guideClient.put(`${GUIDE_PATHS.guides}/welcome`, { status: 'done' }).catch(() => undefined);
                     void router.replace(welcome.next);
@@ -229,8 +220,8 @@ export default function RegisterPage() {
                                     </Alert>
                                 )}
                                 <TextInput
-                                    label="Username"
-                                    placeholder="e.g. tendai"
+                                    label="Your name"
+                                    placeholder="e.g. Tendai"
                                     autoComplete="username"
                                     required
                                     value={form.username}
@@ -240,7 +231,7 @@ export default function RegisterPage() {
                                 <Text size="xs" c="dimmed">Add a phone number or email.</Text>
                                 <TextInput
                                     label="Phone number"
-                                    placeholder="263771234567"
+                                    placeholder="e.g. 0771234567"
                                     type="tel"
                                     autoComplete="tel"
                                     leftSection={<IconPhone size={16} />}

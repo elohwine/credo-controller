@@ -17,9 +17,11 @@ import { createHash, randomUUID } from 'crypto'
 import { DatabaseManager } from '../../../persistence/DatabaseManager'
 import { workflowRunRepository } from '../../../persistence/WorkflowRunRepository'
 import { rootLogger } from '../../../utils/pinoLogger'
+import { businessTransactionService } from '../../BusinessTransactionService'
 import { orgWorkflowActorService } from '../../OrgWorkflowActorService'
 import { outboxService } from '../../OutboxService'
 import { ReconciliationService } from '../../ReconciliationService'
+import { jobEventReference } from '../../WorkflowAuditService'
 import { routeWorkflowStageInbox } from '../../WorkflowStageInboxService'
 
 import {
@@ -277,7 +279,7 @@ function hasAfterEvidence(context: WorkflowActionContext): boolean {
 }
 
 function providerRefOf(input: Record<string, any> | undefined, runId: string | undefined): string {
-  return input?.providerReference || input?.reference || input?.requestId || runId || `fept-${Date.now()}`
+  return jobEventReference(input, runId) || `fept-${Date.now()}`
 }
 
 function getProviderRef(context: WorkflowActionContext): string {
@@ -1447,6 +1449,67 @@ export class FieldExecutionActions {
     })
 
     await FieldExecutionActions.transition(context, { to: 'ACKNOWLEDGED' })
+    if (payoutWanted(context.input)) FieldExecutionActions.recordPayoutOwed(context)
+  }
+
+  private static payoutAmountOf(context: WorkflowActionContext, config: any = {}): number {
+    return positiveAmount(context.input?.payoutAmount)
+      ? Number(context.input.payoutAmount)
+      : Number(context.input?.amount || config.amount || 0)
+  }
+
+  /**
+   * The worker is owed the payout once the job is signed off: a payable on the job's money record,
+   * beside the client's bill. Releasing the payout settles it. Safe to call again.
+   */
+  private static recordPayoutOwed(
+    context: WorkflowActionContext,
+    config: any = {},
+    settledBy?: string,
+  ): string | undefined {
+    const runId = context.runId
+    const amount = FieldExecutionActions.payoutAmountOf(context, config)
+    if (!runId || !(amount > 0)) return undefined
+    try {
+      const reference = String(context.input?.reference || '').trim()
+      const currency = String(context.input?.currency || config.currency || 'USD')
+      const workerId = String(context.state.assignment?.assigneeId || context.input?.assigneeId || '')
+      const transactionId = businessTransactionService.ensureTransaction({
+        tenantId: context.tenantId,
+        transactionType: 'field_job',
+        sourceType: 'workflow_run',
+        sourceId: runId,
+        title: reference ? `Job ${reference}` : 'Field job',
+        reference: reference || undefined,
+      })
+      const obligationId = businessTransactionService.ensureObligation({
+        transactionId,
+        tenantId: context.tenantId,
+        direction: 'payable',
+        sourceType: 'worker_payout',
+        sourceId: runId,
+        description: reference ? `Worker payout for job ${reference}` : 'Worker payout',
+        amount,
+        currency,
+        counterpartyRef: workerId || undefined,
+        metadata: { workflowRunId: runId },
+      })
+      if (settledBy) {
+        businessTransactionService.allocateSettlement({
+          obligationId,
+          settlementType: 'worker_payout',
+          settlementId: settledBy,
+          amount,
+          currency,
+          metadata: { workflowRunId: runId, releasedBy: context.input?.actedByUserId },
+        })
+      }
+      context.state.payout = { ...(context.state.payout || {}), transactionId, obligationId }
+      return obligationId
+    } catch (error: any) {
+      logger.warn({ runId, error: error?.message }, 'Worker payout was not recorded as an amount owed')
+      return undefined
+    }
   }
 
   public static async triggerPayment(context: WorkflowActionContext, config: any = {}) {
@@ -1495,9 +1558,7 @@ export class FieldExecutionActions {
       )
     }
 
-    const amount = positiveAmount(context.input?.payoutAmount)
-      ? Number(context.input.payoutAmount)
-      : context.input?.amount || config.amount
+    const amount = FieldExecutionActions.payoutAmountOf(context, config)
     const currency = context.input?.currency || config.currency || 'USD'
 
     context.state.payment = {
@@ -1513,6 +1574,7 @@ export class FieldExecutionActions {
       holderDid: releasePresentation?.holderDid,
     }
     delete context.state.pauseReason
+    FieldExecutionActions.recordPayoutOwed(context, config, providerRef)
     if (context.runId) {
       const runId = context.runId
       FieldExecutionActions.closeStageCards(runId, `${runId}:payout`)

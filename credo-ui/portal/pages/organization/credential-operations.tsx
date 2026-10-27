@@ -26,7 +26,9 @@ import {
   Textarea,
   Title,
 } from '@mantine/core'
-import { IconAlertCircle, IconRefresh } from '@tabler/icons-react'
+import { IconAlertCircle, IconCertificate, IconRefresh } from '@tabler/icons-react'
+import FormCard from '@/components/shared/FormCard'
+import { readActiveOrganization } from '@/utils/organizationContext'
 
 type OfferRow = {
   rowId: string
@@ -384,9 +386,8 @@ export default function CredentialOperationsPage() {
           <BaseModal
             show={issueOpen && ctx.isOrg}
             onClose={closeIssue}
-            title={`Issue ${holderCardName(credentialType || undefined)}`}
             size="lg"
-            showClose={!submitting}
+            showClose={false}
           >
             <form
               onSubmit={(event) => {
@@ -395,10 +396,22 @@ export default function CredentialOperationsPage() {
               }}
             >
               <fieldset disabled={submitting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-                <Stack gap="md">
-                  <Text size="sm" c="dimmed">
-                    Prepare an offer for the recipient to review and accept in their wallet.
-                  </Text>
+                <FormCard
+                  title={`Issue ${holderCardName(credentialType || undefined)}`}
+                  subtitle="Prepare an offer for the recipient to review and accept in their wallet."
+                  issuer={readActiveOrganization()?.name}
+                  icon={<IconCertificate size={24} />}
+                  actions={
+                    <>
+                      <Button type="button" variant="default" radius="xl" onClick={closeIssue}>
+                        Cancel
+                      </Button>
+                      <Button type="submit" radius="xl" loading={submitting} disabled={schemaLoading || !claimsSchema}>
+                        Queue offer for acceptance
+                      </Button>
+                    </>
+                  }
+                >
                   <TextInput
                     required
                     label="Recipient wallet tenant ID"
@@ -472,15 +485,7 @@ export default function CredentialOperationsPage() {
                       {issueError}
                     </Alert>
                   )}
-                  <Group justify="flex-end">
-                    <Button type="button" variant="default" onClick={closeIssue}>
-                      Cancel
-                    </Button>
-                    <Button type="submit" loading={submitting} disabled={schemaLoading || !claimsSchema}>
-                      Queue offer for acceptance
-                    </Button>
-                  </Group>
-                </Stack>
+                </FormCard>
               </fieldset>
             </form>
           </BaseModal>

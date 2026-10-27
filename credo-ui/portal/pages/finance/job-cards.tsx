@@ -8,7 +8,7 @@ export default function JobCardsPage() {
   useRequireOrgContext('/inbox');
 
     return (
-        <Layout title="Job Cards">
+        <Layout title="Jobs">
             <Container size="xl" py="md">
                 <JobCardsBoard />
             </Container>

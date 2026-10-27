@@ -1,13 +1,15 @@
+import type { ProofVcActionKey } from './ProofVcPolicyService'
+
 import { createHash, randomUUID } from 'crypto'
 
 import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
+import { compactReceiptRecord, readReceiptProof } from '../utils/receiptProof'
 
 import { authorizationService } from './AuthorizationService'
 import { orgEntitlementService } from './OrgEntitlementService'
 import { orgSetupProfileService } from './OrgSetupProfileService'
 import { orgWorkflowActorService } from './OrgWorkflowActorService'
-import { compactReceiptRecord, readReceiptProof } from '../utils/receiptProof'
 import { requestContextValidator } from './RequestContextValidator'
 import { experienceForRequest, requestExperienceDefinition, requestExperienceEvents } from './RequestExperienceService'
 import { isActiveStageDelegate } from './WorkflowStageInboxService'
@@ -137,6 +139,22 @@ const GENERIC_STEP: Omit<RequestNextStep, 'toStatus'> = {
  * photo or wallet receipt record is still required.
  */
 const REQUESTER_FINISHES = new Set(['procurement.requisition', 'requisition'])
+
+/**
+ * Purchase and payment steps a person can confirm with their staff card, by request type and the
+ * status the step moves to. Same proof keys as the older requisition screens and the job payout,
+ * so one policy (Settings → proof cards) decides which cards each step accepts.
+ */
+const STAFF_CARD_STEPS: Record<string, Partial<Record<RequestStatus, ProofVcActionKey>>> = {
+  'procurement.requisition': { approved: 'requisition_approval' },
+  requisition: { approved: 'requisition_approval' },
+  'finance.purchase_order': { approved: 'requisition_approval', completed: 'requisition_release' },
+  'finance.payment_request': { approved: 'requisition_approval', completed: 'payment_record' },
+}
+
+export function staffCardStepFor(requestType: unknown, toStatus: unknown): ProofVcActionKey | undefined {
+  return STAFF_CARD_STEPS[String(requestType || '').toLowerCase()]?.[String(toStatus || '') as RequestStatus]
+}
 
 const DONE_WHEN_APPROVED = new Set(['hr.leave', 'platform.general', 'finance.payout_request'])
 
@@ -475,9 +493,11 @@ export class PlatformRequestService {
     if (['in_review', 'approved', 'rejected'].includes(toStatus)) {
       const subjectRef =
         actorSubjectRef ||
-        (db
-          .prepare('SELECT subject_ref AS subjectRef FROM people WHERE id = ? AND organization_id = ?')
-          .get(actorPersonId, current.organizationId) as { subjectRef?: string } | undefined)?.subjectRef
+        (
+          db
+            .prepare('SELECT subject_ref AS subjectRef FROM people WHERE id = ? AND organization_id = ?')
+            .get(actorPersonId, current.organizationId) as { subjectRef?: string } | undefined
+        )?.subjectRef
       this.assertRequestStageActor({
         tenantId,
         requestType: current.requestType || 'general',
@@ -530,15 +550,17 @@ export class PlatformRequestService {
 
     const now = new Date().toISOString()
     db.transaction(() => {
-      const update = db.prepare(
-        `
+      const update = db
+        .prepare(
+          `
         UPDATE requests
         SET status = ?, updated_at = CURRENT_TIMESTAMP,
             submitted_at = CASE WHEN ? = 'submitted' THEN COALESCE(submitted_at, ?) ELSE submitted_at END,
             completed_at = CASE WHEN ? = 'completed' THEN ? ELSE completed_at END
         WHERE id = ? AND COALESCE(status, 'draft') = ?
       `,
-      ).run(toStatus, toStatus, now, toStatus, now, requestId, current.status ?? 'draft')
+        )
+        .run(toStatus, toStatus, now, toStatus, now, requestId, current.status ?? 'draft')
 
       if (update.changes !== 1) {
         throw new StatusException('Request changed before the decision could be recorded. Reload and try again.', 409)
@@ -551,7 +573,7 @@ export class PlatformRequestService {
         requestId,
         'request.status_changed',
         actorPersonId,
-        current.status === 'submitted' && toStatus === 'approved' ? 'in_review' : current.status ?? null,
+        current.status === 'submitted' && toStatus === 'approved' ? 'in_review' : (current.status ?? null),
         toStatus,
         stored,
       )
@@ -706,14 +728,14 @@ export class PlatformRequestService {
     })
     const delegate = Boolean(
       assignedActor.userId &&
-      isActiveStageDelegate({
-        orgTenantId: input.tenantId,
-        delegatorUserId: assignedActor.userId,
-        delegateUserId: input.subjectRef,
-        stageAction: resolved.definition.reviewAction,
-        requestType: input.requestType,
-        amount: input.amount,
-      }),
+        isActiveStageDelegate({
+          orgTenantId: input.tenantId,
+          delegatorUserId: assignedActor.userId,
+          delegateUserId: input.subjectRef,
+          stageAction: resolved.definition.reviewAction,
+          requestType: input.requestType,
+          amount: input.amount,
+        }),
     )
     if (!directActor && !delegate) {
       throw new StatusException('This request is waiting for its assigned stage actor', 403)
@@ -758,22 +780,28 @@ export class PlatformRequestService {
           userId: subjectRef,
         }).allowed
       : false
-    const delegated = activeDecisionStage && Boolean(
-      stageActor.userId &&
-      isActiveStageDelegate({
-        orgTenantId: tenantId,
-        delegatorUserId: stageActor.userId,
-        delegateUserId: subjectRef,
-        stageAction: definition.definition.reviewAction,
-        requestType,
-        amount: typeof request.amount === 'number' ? request.amount : undefined,
-      }),
-    )
+    const delegated =
+      activeDecisionStage &&
+      Boolean(
+        stageActor.userId &&
+          isActiveStageDelegate({
+            orgTenantId: tenantId,
+            delegatorUserId: stageActor.userId,
+            delegateUserId: subjectRef,
+            stageAction: definition.definition.reviewAction,
+            requestType,
+            amount: typeof request.amount === 'number' ? request.amount : undefined,
+          }),
+      )
     const authorizedActor = assigned || delegated
     const requester = Boolean(request.requester_person_id && request.requester_person_id === personId)
     const context = this.parseContext(request.context_json)
     const decisionResult = (action: 'request.approve' | 'request.reject') => {
-      const separationOfDuties = this.getSeparationOfDuties('in_review', action === 'request.approve' ? 'approved' : 'rejected', request.requester_person_id || '')
+      const separationOfDuties = this.getSeparationOfDuties(
+        'in_review',
+        action === 'request.approve' ? 'approved' : 'rejected',
+        request.requester_person_id || '',
+      )
       const result = authorizationService.decide({
         tenantId,
         personId,
@@ -798,18 +826,16 @@ export class PlatformRequestService {
     const canApprove = canDecide('request.approve')
     const canReject = canDecide('request.reject')
     const othersCanDecide = () =>
-      orgWorkflowActorService
-        .listOrgMembers(tenantId)
-        .some(
-          (member) =>
-            member.userId !== subjectRef &&
-            orgWorkflowActorService.mayAct({
-              orgTenantId: tenantId,
-              workflowType: definition.workflowType,
-              stageAction: definition.definition.reviewAction,
-              userId: member.userId,
-            }).allowed,
-        )
+      orgWorkflowActorService.listOrgMembers(tenantId).some(
+        (member) =>
+          member.userId !== subjectRef &&
+          orgWorkflowActorService.mayAct({
+            orgTenantId: tenantId,
+            workflowType: definition.workflowType,
+            stageAction: definition.definition.reviewAction,
+            userId: member.userId,
+          }).allowed,
+      )
     // Why this person cannot decide, so the app can say it plainly instead of a generic wait.
     const blockedReason: RequestDecisionBlock | undefined =
       !activeDecisionStage || canApprove || canReject
@@ -835,7 +861,51 @@ export class PlatformRequestService {
       canReject,
       blockedReason,
       isRequester: requester,
+      /** The approval can be confirmed with the person's staff card (purchase and payment steps). */
+      staffCard: Boolean(staffCardStepFor(requestType, 'approved')),
     }
+  }
+
+  /**
+   * Before a staff-card request is sent: the step takes a card, the request can move there now,
+   * and a decision is the caller's to make. The move itself still runs every check in `transition`.
+   */
+  public staffCardStep(
+    requestId: string,
+    tenantId: string,
+    subjectRef: string,
+    toStatus: RequestStatus,
+  ): { actionKey: ProofVcActionKey; requestType: string; title?: string } {
+    const row = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT r.status, r.request_type AS requestType, r.title, r.amount, r.requester_person_id AS requesterPersonId
+           FROM requests r JOIN organizations o ON o.id = r.organization_id
+          WHERE r.id = ? AND o.tenant_id = ? AND o.status = 'active'`,
+      )
+      .get(requestId, tenantId) as
+      | { status?: string; requestType?: string; title?: string; amount?: number; requesterPersonId?: string }
+      | undefined
+    if (!row) throw new StatusException('Request not found', 404)
+    const actionKey = staffCardStepFor(row.requestType, toStatus)
+    if (!actionKey) throw new StatusException('This step does not ask for a staff card.', 400)
+    const waiting =
+      toStatus === 'approved'
+        ? ['submitted', 'in_review'].includes(String(row.status))
+        : ['approved', 'in_fulfilment'].includes(String(row.status))
+    if (!waiting) throw new StatusException('This request is not waiting for this step right now.', 409)
+    if (toStatus === 'approved') {
+      const principal = this.resolvePrincipal(tenantId, subjectRef)
+      if (principal.personId === row.requesterPersonId) {
+        throw new StatusException('You raised this request, so someone else has to decide it.', 403)
+      }
+      this.assertRequestStageActor({
+        tenantId,
+        requestType: row.requestType || 'general',
+        subjectRef,
+        amount: typeof row.amount === 'number' ? row.amount : undefined,
+      })
+    }
+    return { actionKey, requestType: String(row.requestType || ''), title: row.title }
   }
 
   /**
@@ -952,9 +1022,9 @@ export class PlatformRequestService {
    */
   public raisedReceipt(requestId: string, withPhoto = true): RequestReceipt | undefined {
     const db = DatabaseManager.getDatabase()
-    const row = db.prepare(`SELECT context_json AS contextJson, created_at AS createdAt FROM requests WHERE id = ?`).get(
-      requestId,
-    ) as { contextJson?: string; createdAt?: string } | undefined
+    const row = db
+      .prepare(`SELECT context_json AS contextJson, created_at AS createdAt FROM requests WHERE id = ?`)
+      .get(requestId) as { contextJson?: string; createdAt?: string } | undefined
     if (!row) return undefined
     const context = this.parseContext(row.contextJson)
     const record = compactReceiptRecord(context.receiptRecord)
@@ -1049,8 +1119,7 @@ export class PlatformRequestService {
     status?: string,
   ): (Omit<RequestReceipt, 'photoUri'> & { hasPhoto: boolean }) | undefined {
     const receipt =
-      (status === 'completed' ? this.completionReceipt(requestId) : undefined) ||
-      this.raisedReceipt(requestId, false)
+      (status === 'completed' ? this.completionReceipt(requestId) : undefined) || this.raisedReceipt(requestId, false)
     if (!receipt) return undefined
     const { photoUri, ...rest } = receipt
     return { ...rest, hasPhoto: Boolean(photoUri || rest.sha256) }
@@ -1299,7 +1368,7 @@ export class PlatformRequestService {
         } catch {
           throw new StatusException('Invalid request history cursor', 400)
         }
-        if (!Array.isArray(position) || position.length !== 2 || position.some(value => typeof value !== 'string')) {
+        if (!Array.isArray(position) || position.length !== 2 || position.some((value) => typeof value !== 'string')) {
           throw new StatusException('Invalid request history cursor', 400)
         }
         sql += ' AND (r.created_at < ? OR (r.created_at = ? AND r.id < ?))'
@@ -1540,7 +1609,11 @@ export class PlatformRequestService {
 
   /** One of the person's own requests with its history, or undefined when it is not theirs. */
   /** "Mark as bought" on the person's own approved purchase, when that is theirs to do. */
-  public requesterStepFor(request: { id: string; request_type?: string; status?: string }): RequestNextStep | undefined {
+  public requesterStepFor(request: {
+    id: string
+    request_type?: string
+    status?: string
+  }): RequestNextStep | undefined {
     if (!REQUESTER_FINISHES.has(String(request.request_type || '').toLowerCase())) return undefined
     return this.nextStepFor(request)
   }

@@ -56,4 +56,9 @@ export class ActionRegistry {
   static has(name: string): boolean {
     return this.actions.has(name)
   }
+
+  /** Step names in a workflow that no action implements; such a workflow cannot finish a run. */
+  static missing(steps: Array<{ action: string }> | undefined): string[] {
+    return Array.from(new Set((steps || []).map((step) => step.action).filter((name) => !this.actions.has(name))))
+  }
 }

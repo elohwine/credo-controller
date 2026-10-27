@@ -1118,6 +1118,51 @@ export function schoolFeeTitle(run: SchoolFeeRunLike): string {
   return term ? `${who} · ${term}` : who
 }
 
+export const SCHOOL_FEE_HELP = {
+  title: 'School fee progress',
+  points: [
+    'The pay link goes to the parent phone on the fee.',
+    'The parent pays from the link; instalments follow the payment plan.',
+    'The receipt is kept once the payment is in. The person named for that step gets it in their inbox.',
+  ],
+}
+
+const SCHOOL_FEE_PROOF: Record<SchoolFeeStep['key'], string> = {
+  FEE_SET: 'Record',
+  LINK_SENT: 'Pay link',
+  PAID: 'Payment',
+  RECEIPT: 'Receipt',
+}
+
+/** School fee steps in the shared Progress list. The receipt step is the staff step from Who does what. */
+export function schoolFeeStages(run: SchoolFeeRunLike) {
+  return schoolFeeProgress(run).map((step) => ({
+    key: step.key,
+    label: step.label,
+    proof: SCHOOL_FEE_PROOF[step.key],
+    vcType: step.key === 'RECEIPT' ? 'SchoolFeeReceiptVC' : '',
+    stageAction: step.key === 'RECEIPT' ? 'issue_receipt_vc' : undefined,
+    status: step.status,
+    at: step.at,
+  }))
+}
+
+/** Who did a school fee step when it was not staff: the parent pays. */
+export function schoolFeeWhoDid(run: SchoolFeeRunLike): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const step of schoolFeeProgress(run)) if (step.by) out[step.key] = step.by
+  return out
+}
+
+/** The pay link and payment plan a school fee made, for the Related work strip. */
+export function schoolFeeRelated(run: SchoolFeeRunLike): Array<{ kind: 'pay_link' | 'payment_plan'; id: string; label: string }> {
+  const bill = run.output?.clientBill || {}
+  const out: Array<{ kind: 'pay_link' | 'payment_plan'; id: string; label: string }> = []
+  if (typeof bill.linkId === 'string' && bill.linkId) out.push({ kind: 'pay_link', id: bill.linkId, label: 'Pay link' })
+  if (typeof bill.planId === 'string' && bill.planId) out.push({ kind: 'payment_plan', id: bill.planId, label: 'Payment plan' })
+  return out
+}
+
 /** First word of a money-in finance line: a school fee link says so, everything else is a sale. */
 export function moneyInKindWord(link: { sector?: string } | undefined): string {
   return String(link?.sector || '').toLowerCase() === 'education' ? 'School fee' : 'Sale'

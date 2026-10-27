@@ -38,7 +38,7 @@ describe.each([
     ])
   })
 
-  it('pins up to three items that need action, newest first, without repeating them', () => {
+  it('never puts an older step above a newer item', () => {
     const rows: Row[] = [
       { id: 'a', at: local(10, 9), action: true },
       { id: 'b', at: local(10, 12) },
@@ -46,9 +46,27 @@ describe.each([
       { id: 'd', at: local(8, 9), action: true },
       { id: 'e', at: local(7, 9), action: true },
     ]
+    expect(shape(build(rows, { needsAction: (row) => Boolean(row.action) }))).toEqual([
+      '[Today]', 'b', 'a',
+      '[Yesterday]', 'c',
+      '[Earlier this week]', 'd', 'e',
+    ])
+  })
+
+  it('heads the newest steps that need action, and does not repeat them', () => {
+    const rows: Row[] = [
+      { id: 'fresh', at: local(10, 14), action: true },
+      { id: 'next', at: local(10, 13), action: true },
+      { id: 'note', at: local(10, 12) },
+      { id: 'older', at: local(9, 9), action: true },
+    ]
     const entries = build(rows, { needsAction: (row) => Boolean(row.action) })
-    expect(shape(entries)).toEqual(['[Needs your action]', '*a', '*c', '*d', '[Today]', 'b', '[Earlier this week]', 'e'])
-    expect(entries[0]).toMatchObject({ kind: 'pinned-head', shown: 3, total: 4 })
+    expect(shape(entries)).toEqual([
+      '[Needs your action]', '*fresh', '*next',
+      '[Today]', 'note',
+      '[Yesterday]', 'older',
+    ])
+    expect(entries[0]).toMatchObject({ kind: 'pinned-head', shown: 2, total: 3 })
   })
 
   it('marks where the items from before the last visit start', () => {

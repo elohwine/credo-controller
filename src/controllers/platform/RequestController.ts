@@ -1,21 +1,21 @@
-import type { Request as ExRequest } from 'express'
-
-import { Body, Get, Path, Post, Query, Request, Route, Security, Tags } from 'tsoa'
-
-import { StatusException } from '../../errors'
-import { DatabaseManager } from '../../persistence/DatabaseManager'
-import {
-  platformRequestService,
-  MODULE_OFF_MESSAGE,
-} from '../../services/PlatformRequestService'
 import type {
   CreatePlatformRequestInput,
   RaiseRequestInput,
   RequestOptions,
   RequestStatus,
 } from '../../services/PlatformRequestService'
-import { requestHandoffService } from '../../services/RequestHandoffService'
 import type { SpawnedRequest } from '../../services/RequestHandoffService'
+import type { EmbeddedPresentationResult, StageProofRequest } from '../../services/ssi/StageProofService'
+import type { Request as ExRequest } from 'express'
+
+import { Body, Get, Path, Post, Query, Request, Route, Security, Tags } from 'tsoa'
+
+import { StatusException } from '../../errors'
+import { DatabaseManager } from '../../persistence/DatabaseManager'
+import { platformRequestService, MODULE_OFF_MESSAGE } from '../../services/PlatformRequestService'
+import { stageActionForProofAction } from '../../services/ProofVcPolicyService'
+import { requestHandoffService } from '../../services/RequestHandoffService'
+import { stageProofService } from '../../services/ssi/StageProofService'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 
 type AuthenticatedClaims = {
@@ -180,6 +180,157 @@ export class RequestController {
     )
     if (idempotency.key) IdempotencyGuard.record(db, idempotency.key, principal.tenantId, action, result)
     return result
+  }
+
+  /**
+   * Start a staff-card share for a purchase or payment step (approve, mark bought, mark paid).
+   * Returns the request the wallet answers; finish with `/proof/complete` or `/proof/embedded-wallet`.
+   */
+  @Post('/{requestId}/proof/request')
+  public async staffCardRequest(
+    @Request() request: ExRequest,
+    @Path() requestId: string,
+    @Body() body: { toStatus: RequestStatus },
+  ): Promise<StageProofRequest & { requestRef: string; toStatus: RequestStatus }> {
+    const principal = getPrincipal(request)
+    const step = platformRequestService.staffCardStep(
+      requestId,
+      principal.tenantId,
+      principal.subjectRef,
+      body?.toStatus,
+    )
+    const proof = await stageProofService.createStageProofRequest({
+      verifierAgent: (request as any).agent,
+      orgTenantId: principal.tenantId,
+      actionKey: step.actionKey,
+      reference: requestId,
+      idPrefix: 'request-step',
+      descriptorName: 'Your staff card',
+      purpose: `Confirm you are the person this organisation chose for this step on "${step.title || 'this request'}".`,
+    })
+    return { ...proof, requestRef: requestId, toStatus: body.toStatus }
+  }
+
+  /** Check the shared staff card, then move the request. A retry with the same share answers once. */
+  @Post('/{requestId}/proof/complete')
+  public async staffCardComplete(
+    @Request() request: ExRequest,
+    @Path() requestId: string,
+    @Body()
+    body: {
+      toStatus: RequestStatus
+      requestId: string
+      payload?: Record<string, unknown>
+      vpToken?: string
+      idToken?: string
+      presentationSubmission?: unknown
+    },
+  ): Promise<any> {
+    const submitted =
+      body?.vpToken || body?.idToken
+        ? {
+            vpToken: body.vpToken,
+            idToken: body.idToken,
+            presentationSubmission: body.presentationSubmission,
+            state: body.requestId,
+          }
+        : undefined
+    return this.finishWithStaffCard(request, requestId, body, submitted)
+  }
+
+  /** Share from the caller's own wallet on this server, then move the request. */
+  @Post('/{requestId}/proof/embedded-wallet')
+  public async staffCardEmbedded(
+    @Request() request: ExRequest,
+    @Path() requestId: string,
+    @Body()
+    body: {
+      toStatus: RequestStatus
+      requestId: string
+      presentationRequestUrl: string
+      walletId: string
+      payload?: Record<string, unknown>
+    },
+  ): Promise<any> {
+    const principal = getPrincipal(request)
+    if (!body?.requestId || !body?.presentationRequestUrl || !body?.walletId) {
+      throw new StatusException('requestId, presentationRequestUrl and walletId are required', 400)
+    }
+    const replayed = this.staffCardReplay(request, requestId, body)
+    if (replayed.response) return replayed.response
+    const step = platformRequestService.staffCardStep(
+      requestId,
+      principal.tenantId,
+      principal.subjectRef,
+      body.toStatus,
+    )
+    const submitted = await stageProofService.presentFromEmbeddedWallet({
+      request,
+      walletId: body.walletId,
+      presentationRequestUrl: body.presentationRequestUrl,
+      orgTenantId: principal.tenantId,
+      stageAction: stageActionForProofAction(step.actionKey),
+      reference: requestId,
+    })
+    return this.finishWithStaffCard(request, requestId, body, submitted)
+  }
+
+  private async finishWithStaffCard(
+    request: ExRequest,
+    requestId: string,
+    body: { toStatus: RequestStatus; requestId: string; payload?: Record<string, unknown> },
+    submitted?: EmbeddedPresentationResult,
+  ) {
+    const principal = getPrincipal(request)
+    if (!body?.requestId) throw new StatusException('requestId is required', 400)
+    const replayed = this.staffCardReplay(request, requestId, body)
+    if (replayed.response) return replayed.response
+    const { db, action, idempotencyKey, naturalKey } = replayed
+    const step = platformRequestService.staffCardStep(
+      requestId,
+      principal.tenantId,
+      principal.subjectRef,
+      body.toStatus,
+    )
+    const verified = await stageProofService.verifyStageProof({
+      verifierAgent: (request as any).agent,
+      requestId: body.requestId,
+      orgTenantId: principal.tenantId,
+      actionKey: step.actionKey,
+      submitted,
+    })
+    const result = platformRequestService.transitionBySubject(
+      requestId,
+      principal.tenantId,
+      principal.subjectRef,
+      body.toStatus,
+      {
+        ...(body.payload || {}),
+        staffCard: {
+          requestId: verified.requestId,
+          holderDid: verified.holderDid,
+          presentedTypes: verified.presentedTypes,
+          actorCredential: verified.actorProof.present && verified.actorProof.valid,
+          verifiedAt: verified.verifiedAt,
+        },
+      },
+    )
+    if (idempotencyKey) IdempotencyGuard.record(db, idempotencyKey, principal.tenantId, action, result)
+    IdempotencyGuard.record(db, naturalKey, principal.tenantId, action, result)
+    return result
+  }
+
+  /** A finish already answered (same header key, or same share on the same step) returns its first result. */
+  private staffCardReplay(request: ExRequest, requestId: string, body: { toStatus: RequestStatus; requestId: string }) {
+    const principal = getPrincipal(request)
+    const db = DatabaseManager.getDatabase()
+    const action = `request-staff-card:${requestId}:${body.toStatus}`
+    const naturalKey = `natural:request-staff-card:${principal.tenantId}:${requestId}:${body.toStatus}:${body.requestId}`
+    const idempotency = IdempotencyGuard.guard(db, request, principal.tenantId, action)
+    if (idempotency.duplicate)
+      return { db, action, naturalKey, idempotencyKey: undefined, response: idempotency.response }
+    const replay = IdempotencyGuard.checkAndReturn(db, naturalKey, principal.tenantId, action)
+    return { db, action, naturalKey, idempotencyKey: idempotency.key, response: replay?.response }
   }
 
   @Get('/')

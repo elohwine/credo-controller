@@ -11,11 +11,13 @@
 
 import { randomUUID } from 'crypto'
 
-import { requestFamily, REQUEST_STAGE_ACTIONS } from '../config/requestExperience'
+import { isStageAction, requestFamily } from '../config/requestExperience'
 import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
+import { getTenantById } from '../persistence/TenantRepository'
 import { rootLogger } from '../utils/pinoLogger'
 
+import { notificationService } from './NotificationService'
 import { orgWorkflowActorCredentialService } from './OrgWorkflowActorCredentialService'
 import { orgWorkflowActorService, roleFallbackFor } from './OrgWorkflowActorService'
 import { outboxService } from './OutboxService'
@@ -404,8 +406,11 @@ export function routeWorkflowStageInbox(params: RouteStageInboxParams): {
 } {
   const definition = requestExperienceDefinition(params.orgTenantId, params.requestType, params.workflowType)
   const resolvedRoute = { workflowType: definition.workflowType, stageAction: definition.definition.reviewAction }
-  if (params.stageAction && !REQUEST_STAGE_ACTIONS.some((action) => action === params.stageAction)) {
-    throw new StatusException(`Unsupported request stage action: ${params.stageAction}`, 400)
+  if (params.stageAction && !isStageAction(params.stageAction)) {
+    throw new StatusException(
+      `Unsupported request stage action: ${params.stageAction}. Use lowercase words joined by underscores, for example approve_shipment.`,
+      400,
+    )
   }
   const route = params.stageAction ? { ...resolvedRoute, stageAction: params.stageAction } : resolvedRoute
   const named = namedMember(params.orgTenantId, params.assigneeUserId)
@@ -489,7 +494,9 @@ export function routeWorkflowStageInbox(params: RouteStageInboxParams): {
         .listOrgMembers(params.orgTenantId)
         .filter(
           (member) =>
-            ['owner', 'admin'].includes(normalize(member.role)) && member.userId !== requesterUserId && member.walletTenantId,
+            ['owner', 'admin'].includes(normalize(member.role)) &&
+            member.userId !== requesterUserId &&
+            member.walletTenantId,
         )
         .map((member) => ({
           userId: member.userId,
@@ -620,4 +627,175 @@ export function notifyStageDelegates(params: {
     }
   }
   return routed
+}
+
+export const MONEY_STEP_SOURCE_TYPE = 'ap_workflow_assignment'
+
+const MONEY_STEP_WORDS: Record<string, string> = {
+  approve_payment: 'approve a supplier payment',
+  record_payment: 'record a payment',
+  release_funds: 'release money',
+  acknowledge_remittance: 'confirm a payment arrived',
+  issue_receipt_vc: 'send a receipt',
+}
+
+/**
+ * The one inbox card for a supplier-bill or customer-collection step (`ar_ap_workflow_transactions`).
+ * Supplier bills (AccountsPayableController) and collections (ArController) both call this.
+ * Writes or refreshes the named person's card, closes cards held by anyone else, and hands the
+ * same card to role stand-ins and active delegates through `notifyStageDelegates`.
+ * Returns the card id.
+ */
+export function upsertMoneyStepInboxCard(
+  db: ReturnType<typeof DatabaseManager.getDatabase>,
+  params: {
+    transactionId: string
+    actorTenantId: string
+    actorRole: string
+    orgTenantId?: string | null
+    requiredAction: string
+    requiredProofType?: string | null
+  },
+): string {
+  const now = new Date().toISOString()
+  const normalizedOrgTenantId = String(params.orgTenantId || '').trim()
+  const orgTenantRecord = normalizedOrgTenantId ? getTenantById(normalizedOrgTenantId) : null
+  const contextOrgTenantId = orgTenantRecord?.tenantType === 'ORG' ? normalizedOrgTenantId : null
+
+  const txActor = db
+    .prepare(
+      `SELECT required_actor_tenant_id, required_actor_role, source_plan_id, source_payment_link_id
+       FROM ar_ap_workflow_transactions WHERE id = ? LIMIT 1`,
+    )
+    .get(params.transactionId) as
+    | {
+        required_actor_tenant_id?: string | null
+        required_actor_role?: string | null
+        source_plan_id?: string | null
+        source_payment_link_id?: string | null
+      }
+    | undefined
+
+  const actorTenantId =
+    String(txActor?.required_actor_tenant_id || params.actorTenantId || '').trim() || params.actorTenantId
+  const actorRole = String(txActor?.required_actor_role || params.actorRole || 'owner').trim() || 'owner'
+  const isCollection = Boolean(txActor?.source_plan_id)
+
+  db.prepare(
+    `UPDATE wallet_pending_offers
+     SET resolved_at = COALESCE(resolved_at, ?), accepted_at = COALESCE(accepted_at, ?), last_attempt_at = ?
+     WHERE source_type = ? AND source_id = ? AND tenant_id != ? AND resolved_at IS NULL`,
+  ).run(now, now, now, MONEY_STEP_SOURCE_TYPE, params.transactionId, actorTenantId)
+
+  const existing = db
+    .prepare(
+      `SELECT id FROM wallet_pending_offers
+       WHERE tenant_id = ? AND source_type = ? AND source_id = ? AND resolved_at IS NULL LIMIT 1`,
+    )
+    .get(actorTenantId, MONEY_STEP_SOURCE_TYPE, params.transactionId) as { id: string } | undefined
+
+  const metadataObject = {
+    transactionId: params.transactionId,
+    targetOrgTenantId: contextOrgTenantId,
+    workflowType: 'ap_trust_workflow',
+    requestType: 'ap_workflow',
+    requiredAction: params.requiredAction,
+    requiredProofType: params.requiredProofType || null,
+    assigneeRole: actorRole,
+    sourcePlanId: txActor?.source_plan_id || null,
+    sourcePaymentLinkId: txActor?.source_payment_link_id || null,
+  }
+  const metadata = JSON.stringify(metadataObject)
+  const step = MONEY_STEP_WORDS[normalize(params.requiredAction)] || 'take the next step'
+  const title = isCollection ? 'A customer payment needs you' : 'A supplier bill needs you'
+  const body = `You were chosen to ${step}.`
+  const offerUri = `ap-workflow://${encodeURIComponent(params.transactionId)}`
+  const pushActionUrl = contextOrgTenantId
+    ? `/inbox?focus=ap-workflow&transactionId=${encodeURIComponent(params.transactionId)}&orgTenantId=${encodeURIComponent(contextOrgTenantId)}`
+    : `/inbox?focus=ap-workflow&transactionId=${encodeURIComponent(params.transactionId)}`
+  const push = () =>
+    notificationService.sendWalletPush({ title, body, actionUrl: pushActionUrl, type: 'generic' }).catch(() => {
+      /* logged in service */
+    })
+
+  let cardId = existing?.id
+  if (cardId) {
+    db.prepare(
+      `UPDATE wallet_pending_offers SET title = ?, body = ?, metadata = ?, last_attempt_at = ? WHERE id = ?`,
+    ).run(title, body, metadata, now, cardId)
+  } else {
+    cardId = `apw-${randomUUID().slice(0, 12)}`
+    db.prepare(
+      `INSERT INTO wallet_pending_offers (
+         id, tenant_id, issuer_tenant_id, source_type, source_id,
+         credential_type, offer_uri, title, body, metadata, created_at,
+         attempt_count, last_attempt_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+    ).run(
+      cardId,
+      actorTenantId,
+      contextOrgTenantId || normalizedOrgTenantId || actorTenantId,
+      MONEY_STEP_SOURCE_TYPE,
+      params.transactionId,
+      'WorkflowActionAssignment',
+      offerUri,
+      title,
+      body,
+      metadata,
+      now,
+      now,
+    )
+    outboxService.enqueue({
+      topic: 'wallet.vc.offered',
+      aggregateKey: actorTenantId,
+      dedupeKey: `wpo:${actorTenantId}:${MONEY_STEP_SOURCE_TYPE}:${params.transactionId}:${params.requiredAction}`,
+      payload: {
+        tenantId: actorTenantId,
+        issuerTenantId: contextOrgTenantId || normalizedOrgTenantId || actorTenantId,
+        sourceType: MONEY_STEP_SOURCE_TYPE,
+        sourceId: params.transactionId,
+        credentialType: 'WorkflowActionAssignment',
+        offerUri: `ap-workflow://${params.transactionId}`,
+        queuedAt: now,
+      },
+    })
+  }
+  push()
+
+  if (contextOrgTenantId) {
+    try {
+      const named = orgWorkflowActorService
+        .listOrgMembers(contextOrgTenantId)
+        .find((member) => member.walletTenantId === actorTenantId)
+      notifyStageDelegates({
+        orgTenantId: contextOrgTenantId,
+        actorUserId: named?.userId,
+        stageAction: params.requiredAction,
+        requestType: isCollection ? 'ar_workflow' : 'ap_workflow',
+        sourceType: MONEY_STEP_SOURCE_TYPE,
+        sourceId: params.transactionId,
+        title,
+        body,
+        offerUri,
+        credentialType: 'WorkflowActionAssignment',
+        metadata: metadataObject,
+      })
+    } catch (error: any) {
+      logger.warn(
+        { transactionId: params.transactionId, error: error?.message },
+        'Stand-in cards for a money step failed',
+      )
+    }
+  }
+  return cardId
+}
+
+/** Close every open card for a supplier-bill or collection step once it has no next step. */
+export function resolveMoneyStepInboxCards(db: ReturnType<typeof DatabaseManager.getDatabase>, transactionId: string) {
+  const now = new Date().toISOString()
+  db.prepare(
+    `UPDATE wallet_pending_offers
+     SET resolved_at = COALESCE(resolved_at, ?), accepted_at = COALESCE(accepted_at, ?), last_attempt_at = ?
+     WHERE source_type = ? AND source_id = ? AND resolved_at IS NULL`,
+  ).run(now, now, now, MONEY_STEP_SOURCE_TYPE, transactionId)
 }

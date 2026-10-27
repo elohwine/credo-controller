@@ -80,7 +80,7 @@ export default function HRHub() {
         return Array.isArray(data?.items) ? data.items : [];
       };
       const [employeesRes, leaveData, expenseData, onboardingRes] = await Promise.all([
-        fetch(`${backendUrl}/api/payroll/employees`),
+        fetch(`${backendUrl}/api/payroll/employees`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }),
         requestsOf('hr.leave'),
         requestsOf('finance.expense_claim'),
         fetch(`${backendUrl}/api/onboarding/cases`),
@@ -89,7 +89,7 @@ export default function HRHub() {
       const employeesData = await employeesRes.json();
       const onboardingData = await onboardingRes.json();
 
-      setEmployees(employeesData || []);
+      setEmployees(Array.isArray(employeesData) ? employeesData : []);
       setLeaveRequests(leaveData);
       setExpenseClaims(expenseData);
       setOnboardingCases(onboardingData?.cases || []);
@@ -105,9 +105,10 @@ export default function HRHub() {
     setLoading(true);
     setError(null);
     try {
+      const token = getOrgScopedToken();
       const res = await fetch(`${backendUrl}/api/payroll/employees`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify(newEmployee),
       });
 

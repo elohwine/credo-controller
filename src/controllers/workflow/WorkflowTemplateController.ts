@@ -14,14 +14,28 @@
 import { Controller, Get, Path, Query, Route, Tags, Security, Post, Body } from 'tsoa'
 
 import { workflowRepository } from '../../persistence/WorkflowRepository'
+import '../../services/WorkflowService'
+import { ActionRegistry } from '../../services/workflow/ActionRegistry'
 import {
-  workflowTemplates,
-  getTemplateById,
-  getTemplatesByCategory,
-  getTemplatesByIndustry,
+  workflowTemplates as allTemplates,
+  getTemplateById as findTemplate,
   instantiateTemplate,
   WorkflowTemplate,
 } from '../../services/workflow/templates'
+
+/** The catalogue lists only templates whose every step is built; the rest cannot finish a run. */
+function isAvailable(template: WorkflowTemplate): boolean {
+  return ActionRegistry.missing(template.steps).length === 0
+}
+
+function availableTemplates(): WorkflowTemplate[] {
+  return allTemplates.filter(isAvailable)
+}
+
+function getTemplateById(id: string): WorkflowTemplate | undefined {
+  const template = findTemplate(id)
+  return template && isAvailable(template) ? template : undefined
+}
 
 interface TemplateListItem {
   id: string
@@ -67,12 +81,12 @@ export class WorkflowTemplateController extends Controller {
    */
   @Get('/')
   public async listTemplates(@Query() category?: string, @Query() industry?: string): Promise<TemplateListItem[]> {
-    let templates: WorkflowTemplate[] = workflowTemplates
+    let templates: WorkflowTemplate[] = availableTemplates()
 
     if (category) {
-      templates = getTemplatesByCategory(category)
+      templates = templates.filter((t) => t.category === category)
     } else if (industry) {
-      templates = getTemplatesByIndustry(industry)
+      templates = templates.filter((t) => t.industry.includes(industry) || t.industry.includes('all'))
     }
 
     return templates.map((t: WorkflowTemplate) => ({
@@ -120,7 +134,7 @@ export class WorkflowTemplateController extends Controller {
   @Get('/meta/categories')
   public async getCategories(): Promise<string[]> {
     const categories = new Set<string>()
-    workflowTemplates.forEach((t: WorkflowTemplate) => categories.add(t.category))
+    availableTemplates().forEach((t: WorkflowTemplate) => categories.add(t.category))
     return Array.from(categories)
   }
 
@@ -130,7 +144,7 @@ export class WorkflowTemplateController extends Controller {
   @Get('/meta/industries')
   public async getIndustries(): Promise<string[]> {
     const industries = new Set<string>()
-    workflowTemplates.forEach((t: WorkflowTemplate) => t.industry.forEach((i: string) => industries.add(i)))
+    availableTemplates().forEach((t: WorkflowTemplate) => t.industry.forEach((i: string) => industries.add(i)))
     return Array.from(industries)
   }
 
@@ -140,7 +154,7 @@ export class WorkflowTemplateController extends Controller {
   @Get('/meta/vc-types')
   public async getVcTypes(): Promise<string[]> {
     const vcTypes = new Set<string>()
-    workflowTemplates.forEach((t: WorkflowTemplate) => t.outputVCs.forEach((v: string) => vcTypes.add(v)))
+    availableTemplates().forEach((t: WorkflowTemplate) => t.outputVCs.forEach((v: string) => vcTypes.add(v)))
     return Array.from(vcTypes)
   }
 

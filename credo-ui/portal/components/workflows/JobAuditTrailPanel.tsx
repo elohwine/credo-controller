@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import dayjs from 'dayjs';
 import { Alert, Badge, Box, Button, Card, Divider, Group, Image, Modal, SegmentedControl, Stack, Table, Text, ThemeIcon, Timeline, UnstyledButton } from '@mantine/core';
 import { IconCheck, IconChevronDown, IconClock, IconDownload, IconFileText, IconFileZip, IconHandStop, IconMinus, IconPlayerPlay, IconUser } from '@tabler/icons-react';
-import { auditTableRows, closeoutSummary, type AuditStep, type JobAuditTrail, type StageMediaItem } from '@/components/finance/jobAuditTrail';
+import { AUDIT_SUBJECT_WORDS, auditTableRows, closeoutSummary, type AuditStep, type AuditSubject, type JobAuditTrail, type StageMediaItem } from '@/components/finance/jobAuditTrail';
 import { safetyHoldStateWords } from '@/components/finance/financeStages';
 import { RelatedWorkLinks } from './JobHandoffsPanel';
 import { canExportReports, csvFrom, EXPORT_MIME, exportFileName, saveBinaryExport, saveExport } from '@/lib/exportFile';
@@ -70,7 +70,9 @@ function stageLines(step: AuditStep, extra: string[] = []): string[] {
     return lines;
 }
 
-export default function JobAuditTrailPanel({ trail, compact = false, embedded = false, subject = 'job' }: { trail: JobAuditTrail; compact?: boolean; embedded?: boolean; /** What the history is about, in plain words: "job" or "request". */ subject?: 'job' | 'request' }) {
+export default function JobAuditTrailPanel({ trail, compact = false, embedded = false, subject: subjectProp }: { trail: JobAuditTrail; compact?: boolean; embedded?: boolean; /** Overrides the trail's own subject. */ subject?: AuditSubject }) {
+    const subject: AuditSubject = subjectProp || trail.subject || 'job';
+    const words = AUDIT_SUBJECT_WORDS[subject];
     const closeout = closeoutSummary(trail);
     const openHolds = trail.holds.filter((h) => !h.cleared);
     const thumb = compact ? 48 : 64;
@@ -99,7 +101,7 @@ export default function JobAuditTrailPanel({ trail, compact = false, embedded = 
 
     const downloadAudit = (format: 'csv' | 'json') => {
         const rows = auditRows();
-        const name = exportFileName(`${trail.reference || 'job'}-audit`, format);
+        const name = exportFileName(`${trail.reference || subject}-audit`, format);
         const body = format === 'csv' ? auditCsv() : JSON.stringify(rows, null, 2);
         void saveExport(name, EXPORT_MIME[format], body);
     };
@@ -110,7 +112,7 @@ export default function JobAuditTrailPanel({ trail, compact = false, embedded = 
         setFileNote(null);
         try {
             const file = await photoFile(item.src);
-            const name = exportFileName(`${trail.reference || 'job'}-${item.label}`, file.extension);
+            const name = exportFileName(`${trail.reference || subject}-${item.label}`, file.extension);
             await saveBinaryExport(name, file.mime, file.bytes, () => bytesToBase64(file.bytes));
         } catch (error: any) {
             setFileNote({ color: 'red', text: error?.message || 'The photo could not be downloaded.' });
@@ -125,7 +127,7 @@ export default function JobAuditTrailPanel({ trail, compact = false, embedded = 
         setFileNote(null);
         try {
             const pack = await buildEvidencePack(trail, auditCsv());
-            const name = exportFileName(`${trail.reference || 'job'}-evidence`, 'zip');
+            const name = exportFileName(`${trail.reference || subject}-evidence`, 'zip');
             await saveBinaryExport(name, EXPORT_MIME.zip, pack.bytes, () => bytesToBase64(pack.bytes));
             setFileNote(pack.missing.length
                 ? { color: 'red', text: `Saved ${pack.photoCount} photos. Could not load: ${pack.missing.join(', ')}.` }
@@ -151,7 +153,7 @@ export default function JobAuditTrailPanel({ trail, compact = false, embedded = 
             {!embedded && <Group justify="space-between" align="flex-start">
                 <Box>
                     <Text fw={600}>{trail.title}</Text>
-                    <Text size="xs" c="dimmed">Job {trail.reference} · {closeout.settled} of {closeout.total} steps done or not needed</Text>
+                    <Text size="xs" c="dimmed">{words.title} {trail.reference} · {closeout.settled} of {closeout.total} steps done or not needed</Text>
                     {subject === 'job' && closeout.stillOpen.length > 0 && trail.status !== 'failed' && (
                         <Text size="xs" c="dimmed">Still to do: {closeout.stillOpen.join(', ')}</Text>
                     )}
@@ -162,7 +164,7 @@ export default function JobAuditTrailPanel({ trail, compact = false, embedded = 
             </Group>}
 
             {openHolds.length > 0 && (
-                <Alert color="orange" variant="light" title="This job is on hold">
+                <Alert color="orange" variant="light" title={`This ${words.noun} is on hold`}>
                     {openHolds.map((hold, idx) => (
                         <Text key={hold.id || idx} size="sm">
                             {hold.label}: {hold.reason}{hold.by ? ` — ${hold.by}` : ''}{hold.at ? `, ${when(hold.at)}` : ''}
@@ -173,9 +175,9 @@ export default function JobAuditTrailPanel({ trail, compact = false, embedded = 
             )}
 
             <Card withBorder radius="md" padding={compact ? 'sm' : 'md'}>
-                <Text fw={600} size="sm" mb="xs">People on this {subject}</Text>
+                <Text fw={600} size="sm" mb="xs">People on this {words.noun}</Text>
                 {trail.people.length === 0 ? (
-                    <Text size="sm" c="dimmed">Nobody has acted on this job yet.</Text>
+                    <Text size="sm" c="dimmed">Nobody has acted on this {words.noun} yet.</Text>
                 ) : (
                     <Stack gap="xs">
                         {trail.people.map((person) => (

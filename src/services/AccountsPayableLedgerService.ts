@@ -12,11 +12,12 @@
 
 import { createHash, randomUUID } from 'crypto'
 
+import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
 
-import { outboxService } from './OutboxService'
 import { businessTransactionService } from './BusinessTransactionService'
+import { outboxService } from './OutboxService'
 
 const logger = rootLogger.child({ module: 'AccountsPayableLedgerService' })
 
@@ -529,6 +530,39 @@ export class AccountsPayableLedgerService {
         sourceRequestId: p.source_request_id || undefined,
       })),
     }
+  }
+
+  /**
+   * Cancel a supplier bill nobody has paid yet. A bill with any payment against it stays: record a
+   * credit or refund instead. The amount owed is cancelled with it and the purchase record refreshed.
+   */
+  public cancelBill(tenantId: string, invoiceId: string): { invoiceId: string; status: 'cancelled' } {
+    const db = DatabaseManager.getDatabase()
+    const bill = db
+      .prepare(`SELECT id, status, obligation_id FROM ap_invoices WHERE id = ? AND buyer_tenant_id = ?`)
+      .get(invoiceId, tenantId) as { id: string; status: string; obligation_id?: string | null } | undefined
+    if (!bill) throw new StatusException('Supplier bill not found', 404)
+    if (bill.status === 'cancelled') throw new StatusException('This supplier bill is already cancelled.', 409)
+    const paid = db.prepare(`SELECT COUNT(*) AS n FROM ap_payments WHERE ap_invoice_id = ?`).get(invoiceId) as {
+      n: number
+    }
+    if (paid.n > 0 || bill.status === 'paid') {
+      throw new StatusException('This bill has a payment against it, so it cannot be cancelled.', 409)
+    }
+    const now = new Date().toISOString()
+    db.transaction(() => {
+      db.prepare(`UPDATE ap_invoices SET status = 'cancelled', updated_at = ? WHERE id = ?`).run(now, invoiceId)
+      db.prepare(
+        `UPDATE ar_ap_workflow_transactions SET required_action = NULL, updated_at = ? WHERE ap_invoice_id = ?`,
+      ).run(now, invoiceId)
+      db.prepare(
+        `UPDATE wallet_pending_offers SET resolved_at = COALESCE(resolved_at, ?)
+          WHERE source_type = 'ap_workflow_assignment' AND resolved_at IS NULL
+            AND source_id IN (SELECT id FROM ar_ap_workflow_transactions WHERE ap_invoice_id = ?)`,
+      ).run(now, invoiceId)
+    })()
+    if (bill.obligation_id) businessTransactionService.setObligationStatus(bill.obligation_id, 'cancelled')
+    return { invoiceId, status: 'cancelled' }
   }
 }
 

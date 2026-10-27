@@ -91,6 +91,50 @@ describe('BusinessTransactionService', () => {
     db.close()
   })
 
+  it('closes a transaction when everything it owes is paid or cancelled, and reopens it for a new amount', () => {
+    const service = new BusinessTransactionService()
+    const transactionId = service.ensureTransaction({
+      tenantId: 'tenant-1',
+      transactionType: 'field_job',
+      sourceType: 'workflow_run',
+      sourceId: 'RUN-1',
+      title: 'Job J-1',
+    })
+    const owed = (sourceId: string, direction: 'payable' | 'receivable', amount: number) =>
+      service.ensureObligation({ transactionId, tenantId: 'tenant-1', direction, sourceType: 'test', sourceId, description: sourceId, amount })
+
+    const bill = owed('bill', 'receivable', 100)
+    expect(service.transactionStatus(transactionId)).toBe('open')
+    service.allocateSettlement({ obligationId: bill, settlementType: 'link', settlementId: 'L-1', amount: 60 })
+    expect(service.transactionStatus(transactionId)).toBe('open')
+    service.allocateSettlement({ obligationId: bill, settlementType: 'link', settlementId: 'L-2', amount: 40 })
+    expect(service.transactionStatus(transactionId)).toBe('settled')
+
+    const payout = owed('payout', 'payable', 30)
+    expect(service.transactionStatus(transactionId)).toBe('open')
+    service.setObligationStatus(payout, 'cancelled')
+    expect(service.transactionStatus(transactionId)).toBe('settled')
+
+    const other = service.ensureTransaction({
+      tenantId: 'tenant-1',
+      transactionType: 'sale',
+      sourceType: 'payment_link',
+      sourceId: 'Q-1',
+      title: 'Quote',
+    })
+    const quoted = service.ensureObligation({
+      transactionId: other,
+      tenantId: 'tenant-1',
+      direction: 'receivable',
+      sourceType: 'payment_link',
+      sourceId: 'Q-1',
+      description: 'Quote',
+      amount: 50,
+    })
+    service.setObligationStatus(quoted, 'cancelled')
+    expect(service.transactionStatus(other)).toBe('cancelled')
+  })
+
   it('keeps a purchase, its payable and partial payments as separate linked records', () => {
     db.prepare(`INSERT INTO requests VALUES (?, ?, NULL, ?, ?)`).run(
       'REQ-ROOT',

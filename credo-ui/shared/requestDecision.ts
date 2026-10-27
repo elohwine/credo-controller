@@ -7,7 +7,12 @@ export interface RequestDecisionView {
   canApprove?: boolean
   canReject?: boolean
   blockedReason?: RequestDecisionBlock
+  /** This request type's approval can be done with the approver's staff card (purchases, payments). */
+  staffCard?: boolean
 }
+
+/** Same words on the portal and the phone for the staff-card approval button. */
+export const STAFF_CARD_APPROVE_LABEL = 'Approve with staff card'
 
 /** One plain sentence explaining who decides, for a person who cannot decide this request. */
 export function requestDecisionBlockText(decision: RequestDecisionView | undefined): string {

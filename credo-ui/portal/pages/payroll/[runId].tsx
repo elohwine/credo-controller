@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '@/components/Layout';
 import Link from 'next/link';
@@ -11,6 +11,8 @@ import {
     BuildingLibraryIcon,
     UserIcon
 } from '@heroicons/react/24/outline';
+import { EnvContext } from '@/pages/_app';
+import { getOrgScopedToken } from '@/utils/organizationContext';
 
 // Credentis brand colors
 const BRAND = {
@@ -74,6 +76,15 @@ export default function PayrollRunDetailPage() {
     const [payslips, setPayslips] = useState<Payslip[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isProcessing, setIsProcessing] = useState(false);
+    const env = useContext(EnvContext);
+    const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+    const payrollFetch = (path: string, init: RequestInit = {}) => {
+        const token = getOrgScopedToken();
+        return fetch(`${backendUrl}${path}`, {
+            ...init,
+            headers: { ...(init.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        });
+    };
 
     useEffect(() => {
         if (runId) {
@@ -84,8 +95,9 @@ export default function PayrollRunDetailPage() {
     const fetchRunDetails = async () => {
         setIsLoading(true);
         try {
-            const res = await fetch(`http://localhost:3000/api/payroll/runs/${runId}`);
+            const res = await payrollFetch(`/api/payroll/runs/${runId}`);
             const data = await res.json();
+            if (!res.ok) throw new Error(data?.message || 'Payroll run not found');
             setRun(data.run);
             setPayslips(data.payslips || []);
         } catch (error) {
@@ -98,7 +110,7 @@ export default function PayrollRunDetailPage() {
     const handleIssuePayslips = async () => {
         setIsProcessing(true);
         try {
-            const res = await fetch(`http://localhost:3000/api/payroll/runs/${runId}/issue`, {
+            const res = await payrollFetch(`/api/payroll/runs/${runId}/issue`, {
                 method: 'POST'
             });
             if (res.ok) {

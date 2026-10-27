@@ -282,7 +282,7 @@ export default function JobCardsBoard() {
             <Box style={inboxTask ? { display: 'none' } : undefined}>
             <Group justify="space-between" mb="lg">
                 <div>
-                    <Title order={2} style={{ color: BRAND.dark }}>Job Cards</Title>
+                    <Title order={2} style={{ color: BRAND.dark }}>Jobs</Title>
                     <Text size="sm" c="dimmed">Create field jobs, follow progress, sign off and release payment</Text>
                 </div>
                 <Group>

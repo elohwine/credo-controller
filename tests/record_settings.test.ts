@@ -77,7 +77,7 @@ describe('organisation record settings', () => {
       ).toEqual([])
     })
 
-    test('record settings exclude disabled and unselected optional records', () => {
+    test('record settings exclude disabled records, and optional records once optional records are turned off', () => {
       const configured = template({
         steps: [{ action: 'credential.issue', description: 'Receipt', config: { type: 'ReceiptVC' } }],
         credentialPolicy: {
@@ -88,12 +88,17 @@ describe('organisation record settings', () => {
       })
       expect(configuredCredentialCatalogue('field-org', [configured], []).map((item) => item.credentialType)).toEqual([
         'JobAssignmentVC',
-      ])
-      configured.credentialPolicy.sendOptionalOffers = true
-      expect(configuredCredentialCatalogue('field-org', [configured], []).map((item) => item.credentialType)).toEqual([
-        'JobAssignmentVC',
         'ReceiptVC',
       ])
+      configured.credentialPolicy.sendOptionalOffers = false
+      expect(configuredCredentialCatalogue('field-org', [configured], []).map((item) => item.credentialType)).toEqual([
+        'JobAssignmentVC',
+      ])
+    })
+
+    test('optional records stay on when a save leaves the switch out', () => {
+      expect(sanitizeRecordSettings(['ReceiptVC'], { vcOfferModes: { ReceiptVC: 'optional' } }).sendOptionalOffers).toBe(true)
+      expect(sanitizeRecordSettings(['ReceiptVC'], { sendOptionalOffers: false }).sendOptionalOffers).toBe(false)
     })
 
     test('custom generic credential workflows use exact tenant definitions, not sector-name guesses', () => {

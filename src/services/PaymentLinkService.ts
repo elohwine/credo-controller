@@ -458,6 +458,9 @@ export class PaymentLinkService {
         metadata: { linkId, paidAt },
       })
     }
+    // The plan history reads the instalment, so it is marked paid here, not when a finance screen opens.
+    const { receivablePlanService } = await import('./ReceivablePlanService')
+    receivablePlanService.recordLinkPaid(linkId, paidAt)
     const waiting = this.waitingRun(linkId)
     if (!waiting) return
     const { workflowService } = await import('./WorkflowService')
@@ -477,6 +480,13 @@ export class PaymentLinkService {
     DatabaseManager.getDatabase()
       .prepare(`UPDATE payment_links SET status = 'cancelled', updated_at = ? WHERE id = ?`)
       .run(new Date().toISOString(), linkId)
+    // A declined quote never became a debt. An invoice keeps what is owed; only its link closes.
+    if (link.metadata.kind === 'quote') {
+      const owed = DatabaseManager.getDatabase()
+        .prepare(`SELECT obligation_id AS obligationId FROM payment_links WHERE id = ?`)
+        .get(linkId) as { obligationId?: string | null } | undefined
+      if (owed?.obligationId) businessTransactionService.setObligationStatus(owed.obligationId, 'cancelled')
+    }
     this.closePayerInbox(linkId, 'declined')
     const waiting = this.waitingRun(linkId)
     if (waiting) {

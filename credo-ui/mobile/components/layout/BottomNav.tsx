@@ -156,7 +156,7 @@ export default function BottomNav({ inboxCount = 0 }: BottomNavProps) {
                         height: 16,
                         padding: '0 4px',
                         borderRadius: 8,
-                        background: 'var(--mantine-color-red-6)',
+                        background: 'var(--mantine-color-credentis-6)',
                         color: 'var(--mantine-color-white)',
                         fontSize: 11,
                         fontWeight: 700,

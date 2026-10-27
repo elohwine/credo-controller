@@ -997,14 +997,10 @@ export class OrgWorkflowActorService {
   }
 
   /** The explicit setting for a stage (person, wallet or role), or undefined when none is saved. */
-  private resolveConfigured(
-    orgTenantId: string,
-    workflowType: string,
-    stageAction: string,
-  ): ResolvedOrgWorkflowActor | undefined {
-    // Exact workflow type wins; otherwise any alias in the same group applies.
+  /** The saved row for a stage. Exact workflow type wins; otherwise any alias in the same group applies. */
+  private configuredRow(orgTenantId: string, workflowType: string, stageAction: string): any | undefined {
     const candidates = workflowActorTypeCandidates(workflowType)
-    const config = this.db
+    return this.db
       .prepare(
         `
       SELECT *
@@ -1018,6 +1014,33 @@ export class OrgWorkflowActorService {
     `,
       )
       .get(orgTenantId, ...candidates, stageAction, workflowType) as any | undefined
+  }
+
+  /**
+   * The role chosen for a stage (its own, or the purchase-request money role it borrows) when
+   * nobody on the team holds that role yet. Undefined when a person is named or the role is filled.
+   */
+  public chosenRoleWithoutMember(input: ResolveOrgWorkflowActorInput): string | undefined {
+    const orgTenantId = normalizeId(input.orgTenantId)
+    const workflowType = normalize(input.workflowType)
+    const stageAction = normalize(input.stageAction)
+    const own = this.configuredRow(orgTenantId, workflowType, stageAction)
+    const sharedStage = SHARED_FINANCE_STAGES[stageAction]
+    const row =
+      own?.default_role || own?.default_user_id || own?.default_wallet_tenant_id || !sharedStage
+        ? own
+        : this.configuredRow(orgTenantId, SHARED_FINANCE_WORKFLOW_TYPE, sharedStage)
+    const role = row?.default_role ? normalize(row.default_role) : ''
+    if (!role || row.default_user_id || row.default_wallet_tenant_id) return undefined
+    return findMemberByRole(this.db, orgTenantId, [role])?.walletTenantId ? undefined : role
+  }
+
+  private resolveConfigured(
+    orgTenantId: string,
+    workflowType: string,
+    stageAction: string,
+  ): ResolvedOrgWorkflowActor | undefined {
+    const config = this.configuredRow(orgTenantId, workflowType, stageAction)
 
     if (config) {
       const defaultUserId = config.default_user_id ? normalizeId(config.default_user_id) : ''

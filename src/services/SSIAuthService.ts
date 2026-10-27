@@ -317,8 +317,8 @@ export class SSIAuthService {
     // Generate Auth Token
     const token = await this.generateSessionToken(userId, tenantId!, userDid)
 
-    // The identity card waits in the inbox: the person reviews and accepts it, like every other card.
-    // It is saved without a tap only after they turn on "Save new cards automatically".
+    // The identity card waits in the inbox until the person accepts it. Saving other cards
+    // automatically never includes this card.
     const vcOfferAutoAccepted = vcOfferUrl ? false : undefined
 
     return {

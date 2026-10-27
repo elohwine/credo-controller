@@ -4,8 +4,18 @@ import { Stack, TextInput, Textarea, NumberInput, Select, Group, Button, Alert, 
 import { notifications } from '@mantine/notifications'
 import { getOrgScopedToken, readActiveOrganization } from '@/utils/organizationContext'
 import { getPreferredTenantToken } from '@/utils/portalTenant'
-import { jobContactOption, OUTSIDE_CONTACT_NEEDS_APP, parseJobContactSelection } from '@/lib/jobPeople'
+import {
+  FIELD_CHECKER_STAGE,
+  FIELD_WORKER_STAGE,
+  jobPeopleOptions,
+  OUTSIDE_CONTACT_NEEDS_APP,
+  parseJobContactSelection,
+  stageActorOption,
+} from '@/lib/jobPeople'
 import BaseModal from '@/components/walt/modal/BaseModal'
+import FormCard from '@/components/shared/FormCard'
+import { ContactPickerSelect } from '@/components/finance/ContactPickerSelect'
+import { IconBriefcase } from '@tabler/icons-react'
 
 interface Member {
   userId: string
@@ -15,6 +25,7 @@ interface Member {
   status?: string
 }
 interface Contact {
+  id: string
   name: string
   phone: string
   contactScope?: 'internal' | 'external'
@@ -34,20 +45,6 @@ function backendUrl(): string {
   return ((window as any).__ENV?.NEXT_PUBLIC_VC_REPO as string) || 'http://localhost:3000'
 }
 
-function personName(member: Member): string {
-  const name = String(member.displayName || '').trim()
-  const generic = !name || /^organization owner$/i.test(name)
-  if (!generic) return name
-  if (member.phone) return member.phone
-  if (String(member.role || '').toLowerCase() === 'owner') return 'Organization owner'
-  return `Team member · ${member.userId.slice(0, 6)}`
-}
-
-function memberLabel(member: Member): string {
-  const role = String(member.role || 'member').replace(/_/g, ' ')
-  return `${personName(member)} (${role})`
-}
-
 /**
  * Create a field job from the portal: who does the work, who signs it off, what and where.
  * Mirrors the mobile "New job" form so both surfaces send the same request.
@@ -56,6 +53,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
   const [members, setMembers] = useState<Member[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
   const [templateId, setTemplateId] = useState<string | null>(null)
+  const [actorsView, setActorsView] = useState<unknown>(null)
   const [loadingSetup, setLoadingSetup] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -108,8 +106,12 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
       axios
         .get(`${backend}/api/organizations/${encodeURIComponent(org.orgTenantId)}/workflows`, { headers })
         .catch(() => ({ data: {} })),
+      axios
+        .get(`${backend}/api/organizations/${encodeURIComponent(org.orgTenantId)}/workflows/actors`, { headers })
+        .catch(() => ({ data: null })),
     ])
-      .then(([membersRes, contactsRes, workflowsRes]) => {
+      .then(([membersRes, contactsRes, workflowsRes, actorsRes]) => {
+        setActorsView(actorsRes.data)
         const memberRows = Array.isArray(membersRes.data) ? membersRes.data : []
         setMembers(
           memberRows
@@ -118,6 +120,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
               userId: String(m.userId),
               role: String(m.role || 'member'),
               displayName: m.displayName ? String(m.displayName) : undefined,
+              phone: m.phone ? String(m.phone) : undefined,
               status: m.status,
             })),
         )
@@ -130,6 +133,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
           contactRows
             .filter((c: any) => c?.phone)
             .map((c: any) => ({
+              id: String(c.id || c.phone),
               name: String(c.name || 'Contact'),
               phone: String(c.phone),
               contactScope: c.contactScope === 'internal' ? ('internal' as const) : ('external' as const),
@@ -145,11 +149,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
       .finally(() => setLoadingSetup(false))
   }, [opened])
 
-  const peopleOptions = useMemo(() => {
-    const memberOptions = members.map((m) => ({ value: m.userId, label: memberLabel(m) }))
-    const contactOptions = contacts.map((c) => jobContactOption(c))
-    return [...memberOptions, ...contactOptions]
-  }, [members, contacts])
+  const peopleOptions = useMemo(() => jobPeopleOptions(members, contacts), [members, contacts])
 
   const ensureOnTeam = async (selection: string, role: string, headers: Record<string, string>) => {
     if (!selection || selection === STAGE_ACTOR) return undefined
@@ -301,6 +301,15 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
           value={form.problemType}
           onChange={(value) => setForm({ ...form, problemType: value || '' })}
         />
+        <ContactPickerSelect
+          contacts={contacts}
+          requirePhone={false}
+          label="Pick the client from contacts"
+          description="Fills the client name and mobile number."
+          onPick={(picked) => {
+            if (picked) setForm((prev) => ({ ...prev, clientName: picked.name || prev.clientName, clientPhone: picked.phone || prev.clientPhone }))
+          }}
+        />
         <Group grow>
           <TextInput
             label="Client / site name"
@@ -402,15 +411,15 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
           label="Who goes out"
           description="Someone on the team is added if they are not already. An outside contact gets this job only, and only if they already have the app."
           searchable
-          data={[{ value: STAGE_ACTOR, label: 'Use the person already chosen' }, ...peopleOptions]}
+          data={[stageActorOption(actorsView, FIELD_WORKER_STAGE, members), ...peopleOptions]}
           value={form.assigneeId}
           onChange={(value) => setForm({ ...form, assigneeId: value || STAGE_ACTOR })}
         />
         <Select
           label="Who checks the work"
-          description="They review the finished work and confirm it."
+          description="They review the finished work and confirm it. Not the person who does the job."
           searchable
-          data={[{ value: STAGE_ACTOR, label: 'Use the person already chosen' }, ...peopleOptions]}
+          data={[stageActorOption(actorsView, FIELD_CHECKER_STAGE, members), ...peopleOptions]}
           value={form.receiverId}
           onChange={(value) => setForm({ ...form, receiverId: value || STAGE_ACTOR })}
         />
@@ -436,11 +445,17 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
       onClose={() => {
         if (!saving) onClose()
       }}
-      title="New field job"
       size="lg"
       showClose={!saving}
     >
-      {content}
+      <FormCard
+        title="New job"
+        subtitle="Create a job and send it to the worker. The sign-off person is notified when the work is done."
+        issuer={readActiveOrganization()?.name}
+        icon={<IconBriefcase size={24} />}
+      >
+        {content}
+      </FormCard>
     </BaseModal>
   )
 }

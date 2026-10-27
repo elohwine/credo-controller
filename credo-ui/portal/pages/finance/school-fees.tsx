@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import FormCard from '@/components/shared/FormCard'
+import { ContactPickerSelect, type PickerContact } from '@/components/finance/ContactPickerSelect'
 import axios from 'axios'
 import Layout from '@/components/Layout'
 import { formatTxnTime } from '@/lib/inboxAttention'
@@ -27,7 +29,6 @@ import {
   TextInput,
   ThemeIcon,
   Title,
-  Timeline,
   Tooltip,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
@@ -53,17 +54,23 @@ import {
   readActiveOrganization,
 } from '@/utils/organizationContext'
 import {
-  actorDisplay,
-  actorForStage,
   actorsForWorkflow,
   isSchoolFeeRun,
   requestStatusWords,
   schoolFeeProgress,
   schoolFeeStatusWords,
   schoolFeeTitle,
-  type SchoolFeeStep,
+  SCHOOL_FEE_HELP,
+  schoolFeeRelated,
+  schoolFeeStages,
+  schoolFeeWhoDid,
+  type StagePerson,
   type WorkflowActorReport,
 } from '@/components/finance/financeStages'
+import { StageActorTimeline } from '@/components/finance/StageActorTimeline'
+import { trailFromSchoolFee } from '@/components/finance/jobAuditTrail'
+import JobAuditTrailPanel from '@/components/workflows/JobAuditTrailPanel'
+import { useJobBillingNavigation } from '@/components/workflows/JobHandoffsPanel'
 
 import { useRequireOrgContext } from '@/lib/portalContext'
 
@@ -94,11 +101,6 @@ interface EarlierFeeEntry {
 const fmt = (n: number, c = 'USD') =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: c }).format(n)
 
-/** Who does a staff school-fee step, from Who does what. The parent's step carries `by` instead. */
-const STEP_ACTION: Partial<Record<SchoolFeeStep['key'], string>> = {
-  RECEIPT: 'issue_receipt_vc',
-}
-
 function payLinkOf(run: SchoolFeeRun): string | undefined {
   const url = run.output?.clientBill?.url
   return typeof url === 'string' && url ? url : undefined
@@ -123,12 +125,16 @@ function SchoolFeeDetail({
   onClose,
   onShowQr,
   actors,
+  people,
 }: {
   run: SchoolFeeRun
   onClose: () => void
   onShowQr: (url: string, title: string, amount: number, currency: string) => void
   actors?: WorkflowActorReport[]
+  people?: StagePerson[]
 }) {
+  const openBilling = useJobBillingNavigation()
+  const related = schoolFeeRelated(run)
   const input = run.input || {}
   const steps = schoolFeeProgress(run)
   const doneCount = steps.filter((s) => s.status === 'done').length
@@ -167,28 +173,30 @@ function SchoolFeeDetail({
       </Paper>
 
       <Paper withBorder radius="md" p="sm">
-        <Text fw={600} size="sm" mb="sm">Progress</Text>
-        <Timeline active={doneCount - 1} bulletSize={24} lineWidth={2}>
-          {steps.map((step) => {
-            const stageAction = STEP_ACTION[step.key]
-            return (
-              <Timeline.Item
-                key={step.key}
-                bullet={step.status === 'done' ? <IconCheck size={12} /> : step.status === 'active' ? <IconClock size={12} /> : undefined}
-                color={step.status === 'done' ? 'teal' : step.status === 'active' ? 'blue' : 'gray'}
-                title={<Text size="sm" fw={step.status === 'active' ? 700 : 500}>{step.label}</Text>}
-              >
-                {step.at && <Text size="xs" c="dimmed">{formatTxnTime(step.at)}</Text>}
-                {(step.by || stageAction) && (
-                  <Text size="xs" c="dimmed" mt={4}>
-                    Who: {step.by || actorDisplay(actorForStage(feeActors, stageAction!), { stageAction })}
-                  </Text>
-                )}
-              </Timeline.Item>
-            )
-          })}
-        </Timeline>
+        <StageActorTimeline
+          stages={schoolFeeStages(run)}
+          actors={feeActors}
+          people={people}
+          whoDid={schoolFeeWhoDid(run)}
+          title={`Progress (${doneCount} of ${steps.length} steps done)`}
+          help={SCHOOL_FEE_HELP}
+        />
       </Paper>
+
+      {related.length > 0 && (
+        <Paper withBorder radius="md" p="sm">
+          <Text fw={600} size="sm" mb={4}>Related work</Text>
+          <Group gap="xs" wrap="wrap">
+            {related.map((item) => (
+              <Button key={item.id} size="xs" variant="light" onClick={() => openBilling(run.id, item.kind === 'pay_link' ? item.id : undefined)}>
+                Open {item.label.toLowerCase()} in Money in
+              </Button>
+            ))}
+          </Group>
+        </Paper>
+      )}
+
+      <JobAuditTrailPanel trail={trailFromSchoolFee(run, steps)} compact embedded />
 
       {link && (
         <Group grow>
@@ -254,11 +262,13 @@ function CreateFeeModal({
   onClose,
   onCreated,
   backendUrl,
+  contacts,
 }: {
   opened: boolean
   onClose: () => void
   onCreated: (run: SchoolFeeRun | null) => void
   backendUrl: string
+  contacts: PickerContact[]
 }) {
   const [form, setForm] = useState<CreateFeeForm>(BLANK_FORM)
   const [loading, setLoading] = useState(false)
@@ -330,15 +340,18 @@ function CreateFeeModal({
     <Modal
       opened={opened}
       onClose={onClose}
-      title={
-        <Group gap="xs">
-          <IconSchool size={20} />
-          <Text fw={600}>New school fee</Text>
-        </Group>
-      }
+      withCloseButton={false}
+      centered
+      padding={0}
+      radius="lg"
       size="lg"
     >
-      <Stack gap="md">
+      <FormCard
+        title="New school fee"
+        subtitle="The parent gets a pay link by text."
+        issuer={readActiveOrganization()?.name}
+        icon={<IconSchool size={24} />}
+      >
         <Divider label="Student" labelPosition="left" />
         <Group grow>
           <TextInput label="Student name" placeholder="Tatenda Moyo" required value={form.studentName} onChange={(e) => set('studentName')(e.currentTarget.value)} />
@@ -404,6 +417,15 @@ function CreateFeeModal({
           </Group>
         )}
         <Divider label="Parent / guardian" labelPosition="left" />
+        <ContactPickerSelect
+          contacts={contacts}
+          requirePhone={false}
+          label="Pick the parent from contacts"
+          description="Fills the name and phone. Leave blank to type a new one."
+          onPick={(picked) => {
+            if (picked) setForm((prev) => ({ ...prev, payerName: picked.name || prev.payerName, payerPhone: picked.phone || prev.payerPhone }))
+          }}
+        />
         <Group grow>
           <TextInput label="Name" placeholder="Rudo Moyo" value={form.payerName} onChange={(e) => set('payerName')(e.currentTarget.value)} />
           <TextInput
@@ -426,7 +448,7 @@ function CreateFeeModal({
             Send pay link
           </Button>
         </Group>
-      </Stack>
+      </FormCard>
     </Modal>
   )
 }
@@ -450,6 +472,8 @@ export default function SchoolFeesPage() {
   const [error, setError] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
   const [actorReports, setActorReports] = useState<WorkflowActorReport[]>([])
+  const [people, setPeople] = useState<StagePerson[]>([])
+  const [contacts, setContacts] = useState<PickerContact[]>([])
 
   const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
 
@@ -465,7 +489,26 @@ export default function SchoolFeesPage() {
           headers: { Authorization: `Bearer ${token}` },
         }).then((res) => {
           setActorReports(Array.isArray(res.data?.workflows) ? res.data.workflows : [])
+          setPeople(Array.isArray(res.data?.members) ? res.data.members.filter((m: any) => m?.userId) : [])
         }).catch(() => setActorReports([]))
+        // Saved contacts, so the parent field can be picked instead of typed.
+        void Promise.allSettled(
+          (['external', 'internal'] as const).map((contactScope) =>
+            axios.get(`${backendUrl}/api/contacts`, { headers: { Authorization: `Bearer ${token}` }, params: { contactScope } }).then((res) => {
+              const rows = Array.isArray(res.data?.contacts) ? res.data.contacts : Array.isArray(res.data) ? res.data : []
+              return rows.map((c: any) => ({
+                id: String(c.id),
+                name: String(c.name || 'Unknown'),
+                phone: c.phone || undefined,
+                email: c.email || undefined,
+                contactScope,
+              })) as PickerContact[]
+            }),
+          ),
+        ).then((results) => {
+          const merged = results.flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
+          setContacts(Array.from(new Map(merged.map((contact) => [contact.id, contact])).values()))
+        })
       }
     }
   }, [backendUrl])
@@ -762,6 +805,7 @@ export default function SchoolFeesPage() {
             void load()
           }}
           backendUrl={backendUrl}
+          contacts={contacts}
         />
 
         <Drawer
@@ -778,7 +822,7 @@ export default function SchoolFeesPage() {
           padding="md"
         >
           {selectedRun && (
-            <SchoolFeeDetail run={selectedRun} onClose={() => setSelectedId(null)} onShowQr={showQr} actors={actorReports} />
+            <SchoolFeeDetail run={selectedRun} onClose={() => setSelectedId(null)} onShowQr={showQr} actors={actorReports} people={people} />
           )}
         </Drawer>
 

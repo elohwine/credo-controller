@@ -365,7 +365,42 @@ export class BusinessTransactionService {
       now,
       now,
     )
+    this.refreshTransactionStatus(input.transactionId)
     return id
+  }
+
+  /**
+   * The transaction follows what it owes: `settled` once every amount is paid or cancelled
+   * (at least one paid), `cancelled` when all were cancelled, otherwise `open`. A new amount
+   * owed on a closed transaction opens it again.
+   */
+  public refreshTransactionStatus(transactionId: string): string | undefined {
+    if (!transactionId) return undefined
+    const db = DatabaseManager.getDatabase()
+    const counts = db
+      .prepare(
+        `SELECT COUNT(*) AS total,
+                SUM(CASE WHEN status = 'settled' THEN 1 ELSE 0 END) AS settled,
+                SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled
+           FROM financial_obligations WHERE business_transaction_id = ?`,
+      )
+      .get(transactionId) as { total: number; settled: number | null; cancelled: number | null }
+    const total = Number(counts?.total || 0)
+    if (!total) return undefined
+    const settled = Number(counts.settled || 0)
+    const cancelled = Number(counts.cancelled || 0)
+    const status = settled + cancelled < total ? 'open' : settled > 0 ? 'settled' : 'cancelled'
+    db.prepare(
+      `UPDATE business_transactions SET status = ?, updated_at = ? WHERE id = ? AND status != ?`,
+    ).run(status, new Date().toISOString(), transactionId, status)
+    return status
+  }
+
+  public transactionStatus(transactionId: string): string | undefined {
+    const row = DatabaseManager.getDatabase()
+      .prepare(`SELECT status FROM business_transactions WHERE id = ?`)
+      .get(transactionId) as { status: string } | undefined
+    return row?.status
   }
 
   /** Apply one payment to one obligation; replays are ignored by the natural unique key. */
@@ -386,8 +421,12 @@ export class BusinessTransactionService {
       .get(input.obligationId, input.settlementType, input.settlementId) as { id: string } | undefined
     if (existing) return existing.id
     const obligation = db
-      .prepare(`SELECT balance_due, currency, status FROM financial_obligations WHERE id = ?`)
-      .get(input.obligationId) as { balance_due: number; currency: string; status: string } | undefined
+      .prepare(
+        `SELECT balance_due, currency, status, business_transaction_id FROM financial_obligations WHERE id = ?`,
+      )
+      .get(input.obligationId) as
+      | { balance_due: number; currency: string; status: string; business_transaction_id: string }
+      | undefined
     if (!obligation) return undefined
     if (obligation.status === 'cancelled') throw new Error('Cannot pay a cancelled amount owed')
     const settlementCurrency = input.currency || obligation.currency
@@ -420,21 +459,23 @@ export class BusinessTransactionService {
             SET balance_due = ?, status = ?, updated_at = ?
           WHERE id = ?`,
       ).run(balance, balance === 0 ? 'settled' : 'partially_settled', now, input.obligationId)
+      this.refreshTransactionStatus(obligation.business_transaction_id)
     })()
     return id
   }
 
   public setObligationStatus(obligationId: string, status: 'open' | 'disputed' | 'cancelled'): void {
     const db = DatabaseManager.getDatabase()
-    const row = db.prepare(`SELECT balance_due FROM financial_obligations WHERE id = ?`).get(obligationId) as
-      | { balance_due: number }
-      | undefined
+    const row = db
+      .prepare(`SELECT balance_due, business_transaction_id FROM financial_obligations WHERE id = ?`)
+      .get(obligationId) as { balance_due: number; business_transaction_id: string } | undefined
     if (!row) return
     db.prepare(`UPDATE financial_obligations SET status = ?, updated_at = ? WHERE id = ?`).run(
       status === 'open' && Number(row.balance_due) === 0 ? 'settled' : status,
       new Date().toISOString(),
       obligationId,
     )
+    this.refreshTransactionStatus(row.business_transaction_id)
   }
 
   public obligationForSource(

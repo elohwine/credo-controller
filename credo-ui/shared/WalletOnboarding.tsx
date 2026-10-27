@@ -49,12 +49,12 @@ export function WalletOnboarding({
         <div className={styles.walletBack} aria-hidden="true">
           <div /><div />
         </div>
-        <article className={styles.card} aria-label={receiving ? 'Sample staff card' : 'Sample assigned work request'}>
+        <article className={styles.card} aria-label={receiving ? 'Sample identity card' : 'What you can do next'}>
           <div className={styles.cardHeader}>
-            <span className={styles.orgMark} aria-hidden="true">M</span>
+            <span className={styles.orgMark} aria-hidden="true">C</span>
             <div>
-              <strong>Mavambo Works</strong>
-              <span>{receiving ? 'Staff card' : 'Assigned to you'}</span>
+              <strong>Credentis</strong>
+              <span>{receiving ? 'Identity card' : 'Your choice'}</span>
             </div>
             <span className={styles.sample}>DEMO</span>
           </div>
@@ -66,28 +66,26 @@ export function WalletOnboarding({
                 <div className={styles.portrait} aria-hidden="true">
                   <svg viewBox="0 0 64 64" fill="none"><circle cx="32" cy="23" r="11" fill="currentColor" /><path d="M12 58v-6a20 20 0 0 1 40 0v6" fill="currentColor" /></svg>
                 </div>
-                <div><strong>Tendai Moyo</strong><span>Field team</span></div>
+                <div><strong>Your name</strong><span>Your account</span></div>
               </div>
               <dl className={styles.cardDetails}>
-                <div><dt>Issued by</dt><dd>Your employer</dd></div>
-                <div><dt>For</dt><dd>Assigned deliveries</dd></div>
+                <div><dt>Issued by</dt><dd>Credentis</dd></div>
+                <div><dt>For</dt><dd>Proving who you are</dd></div>
               </dl>
               <div className={styles.cardFoot}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                Your role, in your wallet
+                Accepted only when you say so
               </div>
             </>
           ) : (
             <>
-              <div className={styles.requestTitle}>Confirm a delivery</div>
+              <div className={styles.requestTitle}>After your card</div>
               <dl className={styles.requestDetails}>
-                <div><dt>Job</dt><dd>Deliver supplies</dd></div>
+                <div><dt>Keep</dt><dd>Cards, with no organisation</dd></div>
+                <div><dt>Find</dt><dd>A business to ask for a service</dd></div>
+                <div><dt>Start</dt><dd>An organisation, when you want one</dd></div>
               </dl>
-              <div className={styles.proof}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4" stroke="currentColor" strokeWidth="1.5" /><path d="m8 12 3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                <div><strong>Your staff card</strong><span>Proves your assigned role</span></div>
-              </div>
-              <div className={styles.cardFoot}>{complete ? 'Sample confirmation complete' : 'Only for work assigned to you'}</div>
+              <div className={styles.cardFoot}>{complete ? 'You choose this later' : 'Nothing here is decided for you'}</div>
             </>
           )}
           </div>
@@ -98,19 +96,19 @@ export function WalletOnboarding({
         </div>}
         <button type="button" className={styles.tryButton} disabled={complete} onClick={() => setComplete(true)}>
           {complete && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-          {receiving ? (complete ? 'Sample card saved' : 'Try saving your staff card') : (complete ? 'Sample delivery confirmed' : 'Try confirming the delivery')}
+          {receiving ? (complete ? 'Sample card accepted' : 'Try accepting the card') : (complete ? 'Choices noted' : 'See the choices')}
         </button>
       </div>
       <div key={step} className={`${styles.introduction} ${reveal.stagger}`} style={{ ['--reveal-delay' as string]: '160ms' }}>
-        <h2 ref={heading} tabIndex={-1} className={styles.heading}>{receiving ? 'New team. Your card.' : 'Your card. Ready for work.'}</h2>
+        <h2 ref={heading} tabIndex={-1} className={styles.heading}>{receiving ? 'Your identity card' : 'Then you choose'}</h2>
         <p className={styles.description}>
           {receiving
-            ? 'Imagine joining a team. Your employer sends a staff card. Review it and keep it in your wallet.'
-            : 'A delivery arrives in your inbox. Review the task and use your staff card to confirm your part.'}
+            ? 'Credentis sends an identity card to Inbox. You read it and accept it. Nothing is saved until you do.'
+            : 'Keep cards here, find a business to ask for a service, or start an organisation later. You can skip this and decide after you sign in.'}
         </p>
       </div>
       <p className={styles.explanation} role="status">
-        {complete ? 'Demo only. Nothing was saved or sent.' : 'A fictional team. Try it without using real details.'}
+        {complete ? 'Demo only. Nothing was saved or sent.' : 'A sample only. Nothing is saved until you accept a real card.'}
       </p>
       <nav className={styles.navigation} aria-label="Wallet guide">
         <button type="button" className={styles.backButton} onClick={onBack}>{receiving ? 'Sign in' : 'Back'}</button>

@@ -22,6 +22,7 @@ import { workflowReadinessService } from '../src/services/WorkflowReadinessServi
 import { workflowService } from '../src/services/WorkflowService'
 import { ActionRegistry } from '../src/services/workflow/ActionRegistry'
 import { ensureExecutableWorkflow } from '../src/services/workflow/materialize'
+import { workflowHandoffService } from '../src/services/workflow/WorkflowHandoffService'
 
 import {
   addMember,
@@ -621,6 +622,24 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
     const paidState = runState(handoff.runId)
     expect(paidState.clientBill.status).toBe('paid')
     expect(paidState.payment).toMatchObject({ status: 'completed', reference: 'ECO-TEST-1', amount: 250 })
+
+    // The client bill shows under the job's related work, without holding the job.
+    const billLink = workflowHandoffService.links(runId).find((link) => link.childId === handoff.runId)
+    expect(billLink).toMatchObject({ label: 'Client bill', childKind: 'run', holdParent: false, status: 'completed' })
+
+    // One money record for the job: the client's bill (paid) and the worker's payout (released), so it is closed.
+    const money = DatabaseManager.getDatabase()
+    const jobTransaction = money
+      .prepare(`SELECT id, transaction_type AS type, status FROM business_transactions WHERE source_type = 'workflow_run' AND source_id = ?`)
+      .get(runId) as { id: string; type: string; status: string }
+    expect(jobTransaction).toMatchObject({ type: 'field_job', status: 'settled' })
+    const owed = money
+      .prepare(`SELECT direction, source_type AS sourceType, original_amount AS amount, status FROM financial_obligations WHERE business_transaction_id = ? ORDER BY direction`)
+      .all(jobTransaction.id)
+    expect(owed).toEqual([
+      { direction: 'payable', sourceType: 'worker_payout', amount: 90, status: 'settled' },
+      { direction: 'receivable', sourceType: 'ar_installment', amount: 250, status: 'settled' },
+    ])
 
     // Reconciliation ledger for the job reference is complete.
     const events = reconciliationEvents(reference)

@@ -4,6 +4,7 @@ import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 
 import { orgWorkflowActorService } from './OrgWorkflowActorService'
+import { stageGateOf } from './workflow/stageGate'
 import { FEPT_CHECKPOINT_BY_PAUSE_REASON } from './workflow/actions/fieldCheckpoints'
 
 /**
@@ -111,6 +112,19 @@ export function canAccessRun(
     .get(run.tenantId, userId) as { status: string } | undefined
   if (membership && membership.status !== 'active') return false
   if (runActorIds(run).has(userId)) return true
+  // The step the work is waiting at names a person the way a job names its worker, so that person
+  // reads this one run with their own token — and nothing else in the organisation.
+  const gate = stageGateOf(parsed(run.output))
+  if (
+    gate &&
+    orgWorkflowActorService.mayAct({
+      orgTenantId: run.tenantId,
+      workflowType: gate.workflowType,
+      stageAction: gate.stageAction,
+      userId,
+    }).allowed
+  )
+    return true
   if (tenantId !== run.tenantId) return false
   // A token for the organisation itself (no person behind it) acts as the organisation.
   if (userId === tenantId) return true
@@ -179,6 +193,23 @@ export function assertRunResume(user: { id?: string; tenantId?: string } | undef
   const access = membershipFor(run.tenantId, userId)
   const admin = access && MANAGING_ROLES.has(access.role)
   const worker = assignedWorker(run)
+  // A step any workflow declared. One that asks for a staff card is finished from the wallet,
+  // like a job sign-off; a plain confirmation stays with the person named for the step.
+  const gate = stageGateOf(state)
+  if (gate) {
+    if (gate.requireProof) throw new StatusException('Complete this step through its wallet proof.', 403)
+    if (
+      orgWorkflowActorService.mayAct({
+        orgTenantId: run.tenantId,
+        workflowType: gate.workflowType,
+        stageAction: gate.stageAction,
+        userId,
+      }).allowed ||
+      admin
+    )
+      return
+    throw new StatusException('You are not assigned to complete this step.', 403)
+  }
   if (WORKER_STAGES[reason]) {
     if (userId === worker || admin) return
     throw new StatusException('Only the assigned worker or an organisation admin can complete this step.', 403)

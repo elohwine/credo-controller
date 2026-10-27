@@ -3,7 +3,8 @@ import styles from './Guides.module.css'
 import {
   CHECKLIST_COPY,
   GUIDE_PATHS,
-  TIP_COPY,
+  tipCopyFor,
+  type ChecklistCopy,
   type ChecklistStatus,
   type ChecklistStep,
   type GuideClient,
@@ -26,8 +27,8 @@ const Bulb = () => (
 )
 
 /** A one-time, dismissible hint at the top of a section. */
-export function GuideTip({ tip, onDismiss }: { tip: TipKey; onDismiss: () => void }) {
-  const copy = TIP_COPY[tip]
+export function GuideTip({ tip, onDismiss, role }: { tip: TipKey; onDismiss: () => void; role?: string | null }) {
+  const copy = tipCopyFor(tip, role)
   return (
     <aside className={`${styles.root} ${styles.tip} ${reveal.rise}`} role="note" aria-label="Tip">
       <span className={styles.tipIcon}><Bulb /></span>
@@ -59,6 +60,7 @@ function Ring({ done, total }: { done: number; total: number }) {
 export interface ChecklistAction {
   step: ChecklistStep
   onAction: () => void
+  onChoice?: (choiceId: string) => void
 }
 
 /**
@@ -70,12 +72,16 @@ export function GettingStartedChecklist({
   steps,
   onDismiss,
   celebration,
+  copy,
 }: {
   status: ChecklistStatus
   steps: ChecklistAction[]
   onDismiss: () => void
   celebration?: ReactNode
+  /** Wording for steps that name an organisation, from `checklistFor`. */
+  copy?: Partial<Record<ChecklistStep, ChecklistCopy>>
 }) {
+  const copyOf = (step: ChecklistStep): ChecklistCopy => copy?.[step] ?? CHECKLIST_COPY[step]
   const done = steps.filter((step) => status[step.step]).length
   const next = steps.find((step) => !status[step.step])
   const [showAll, setShowAll] = useState(false)
@@ -93,7 +99,8 @@ export function GettingStartedChecklist({
       </section>
     )
   }
-  const nextCopy = CHECKLIST_COPY[next.step]
+  const nextCopy = copyOf(next.step)
+  const choices = nextCopy.choices?.length && next.onChoice ? nextCopy.choices : null
   return (
     <section className={`${styles.root} ${styles.checklist} ${reveal.rise}`} aria-labelledby="getting-started-title">
       <div className={styles.checkHead}>
@@ -108,9 +115,19 @@ export function GettingStartedChecklist({
       <div key={next.step} className={`${styles.nextStep} ${reveal.stagger}`}>
         <strong>{nextCopy.title}</strong>
         <span>{nextCopy.detail}</span>
-        <button type="button" className={styles.action} onClick={next.onAction} aria-label={`${nextCopy.action}: ${nextCopy.title}`}>
-          {nextCopy.action}
-        </button>
+        {choices ? (
+          <div className={styles.nextChoices}>
+            {choices.map((choice) => (
+              <button key={choice.id} type="button" className={styles.action} onClick={() => next.onChoice!(choice.id)}>
+                {choice.label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <button type="button" className={styles.action} onClick={next.onAction} aria-label={`${nextCopy.action}: ${nextCopy.title}`}>
+            {nextCopy.action}
+          </button>
+        )}
       </div>
       <button
         type="button"
@@ -127,17 +144,17 @@ export function GettingStartedChecklist({
       {showAll && (
       <ul id="getting-started-steps" className={`${styles.items} ${reveal.unfold}`}>
         {steps.map((step) => {
-          const copy = CHECKLIST_COPY[step.step]
+          const stepCopy = copyOf(step.step)
           const isDone = status[step.step]
           return (
             <li key={step.step} className={`${styles.item} ${step === next ? styles.next : ''}`} data-done={isDone}>
               <span className={styles.mark} role="img" aria-label={isDone ? 'Done' : 'To do'}><Check /></span>
               <span className={styles.itemText}>
-                <strong>{copy.title}</strong>
+                <strong>{stepCopy.title}</strong>
               </span>
               {!isDone && step !== next && (
-                <button type="button" className={styles.action} onClick={step.onAction} aria-label={`${copy.action}: ${copy.title}`}>
-                  {copy.action}
+                <button type="button" className={styles.action} onClick={step.onAction} aria-label={`${stepCopy.action}: ${stepCopy.title}`}>
+                  {stepCopy.action}
                 </button>
               )}
             </li>
@@ -251,7 +268,7 @@ export function WelcomeScreen({
           </li>
           <li className={styles.stage} style={{ ['--i' as string]: 6 }}>
             <span><PointIcon kind="work" /></span>
-            <span><strong>Work comes to you</strong><span>Tasks and approvals from organisations you join show up in the same Inbox.</span></span>
+            <span><strong>An organisation is optional</strong><span>Keep cards here, find a business to ask for a service, or start an organisation later.</span></span>
           </li>
         </ul>
         <button type="button" className={`${styles.primary} ${styles.stage}`} style={{ ['--i' as string]: 7 }} onClick={proceed}>{continueLabel}</button>
@@ -279,7 +296,7 @@ export function useHolderSettings(client: GuideClient) {
   return { settings, failed, save }
 }
 
-/** The one choice about receiving cards: accept each yourself (default) or have them saved. */
+/** The one choice about receiving cards: accept each one, or save the allowed kinds automatically. */
 export function CardSavingPanel({ client }: { client: GuideClient }) {
   const { settings, failed, save } = useHolderSettings(client)
   const [message, setMessage] = useState('')
@@ -290,7 +307,7 @@ export function CardSavingPanel({ client }: { client: GuideClient }) {
     setMessage('')
     try {
       await save(autoSaveCards)
-      setMessage(autoSaveCards ? 'New cards will be saved for you.' : 'You will accept each new card yourself.')
+      setMessage(autoSaveCards ? 'Receipts, staff cards and records will be saved for you.' : 'You will accept each new card yourself.')
     } catch {
       setMessage('Could not save. Try again.')
     } finally {
@@ -304,8 +321,7 @@ export function CardSavingPanel({ client }: { client: GuideClient }) {
         <div>
           <strong id="auto-save-label">Save new cards automatically</strong>
           <span id="auto-save-help">
-            Off: each new card waits in Inbox for you to accept. On: cards and receipts are saved to Records the next time
-            you open Inbox.
+            Off until you turn it on. On: receipts, staff cards and records are saved to Records the next time you open Inbox. Your identity card always waits for you.
           </span>
         </div>
         <label className={styles.switch}>

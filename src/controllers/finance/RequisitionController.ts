@@ -2,7 +2,7 @@ import type { RestMultiTenantAgentModules } from '../../cliAgent'
 import type { Request as ExRequest } from 'express'
 
 import { Agent } from '@credo-ts/core'
-import { randomUUID, randomBytes } from 'crypto'
+import { randomUUID } from 'crypto'
 import { Controller, Post, Get, Route, Tags, Body, Path, Request, Security } from 'tsoa'
 
 import { SCOPES } from '../../enums'
@@ -14,11 +14,12 @@ import { evaluateOrgEvidenceProof, extractPresentedCredentials } from '../../ser
 import { orgWorkflowActorCredentialService } from '../../services/OrgWorkflowActorCredentialService'
 import { orgWorkflowActorService, requisitionApprovalSignMode } from '../../services/OrgWorkflowActorService'
 import { outboxService } from '../../services/OutboxService'
+import { platformRequestService } from '../../services/PlatformRequestService'
 import { ReconciliationService } from '../../services/ReconciliationService'
 import { ShortlinkService } from '../../services/ShortlinkService'
 import { notifyStageDelegates } from '../../services/WorkflowStageInboxService'
-import { stageProofService, verifierModuleOf } from '../../services/ssi/StageProofService'
 import { requireDeviceTrust } from '../../services/deviceAssertion'
+import { stageProofService, verifierModuleOf } from '../../services/ssi/StageProofService'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 import { getIssuerApiKey } from '../../utils/serviceApiKey'
 
@@ -995,139 +996,59 @@ export class RequisitionController extends Controller {
   }
 
   /**
-   * Request a new internal requisition. Issues a RequisitionVC.
+   * Raise a purchase request. New purchases live on the one request path (`/api/platform/requests`,
+   * type `procurement.requisition`), the same one the portal and phone forms use, so they get the
+   * money record, the inbox routing and the staff-card check from there. This endpoint stays for
+   * older clients; the approve / release / acknowledge endpoints below finish requisitions raised
+   * before the paths were merged.
    */
   @Post('request')
   @Security('jwt', [SCOPES.TENANT_AGENT])
   @Security('jwt', ['wallet'])
   public async requestRequisition(@Body() body: RequisitionRequest, @Request() request: ExRequest): Promise<any> {
-    return this.atomicQueue.enqueue(async () => {
-      const reqId = `REQ-${randomBytes(4).toString('hex')}`
+    try {
       const tenantId = this.resolveRequisitionTenantId(request, body.orgTenantId)
-      const actorName = this.getActorLabel(request, 'Requester')
-
-      try {
-        let credentialOffer: Record<string, unknown> = {}
-        let offerErrorMessage: string | undefined
-
-        // In a real flow, this sends an offer via custom-oidc
-        const apiKey = getIssuerApiKey()
-        const issuerApiUrl = process.env.ISSUER_API_URL || 'http://localhost:3000'
-        const response = await fetch(`${issuerApiUrl}/custom-oidc/issuer/credential-offers`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-          },
-          body: JSON.stringify({
-            credentials: [
-              {
-                credentialDefinitionId: 'RequisitionVC',
-                format: 'jwt_vc_json',
-                type: ['VerifiableCredential', 'RequisitionVC'],
-                claims: {
-                  requisitionId: reqId,
-                  items: body.items,
-                  department: body.department,
-                  totalAmount: body.totalAmount,
-                  currency: body.currency,
-                  vendor: body.vendor || 'TBD',
-                  timestamp: new Date().toISOString(),
-                },
-              },
-            ],
-          }),
-        })
-
-        if (response.ok) {
-          credentialOffer = (await response.json()) as Record<string, unknown>
-        } else {
-          const error = await response.text()
-          offerErrorMessage = `Failed to create offer: ${error}`
-          request.logger?.warn(
-            {
-              requisitionId: reqId,
-              tenantId,
-              error: offerErrorMessage,
-            },
-            'Proceeding without requisition credential offer due to issuer error',
-          )
-        }
-
-        // Create assignment-capable workflow request so approvals are forwarded to the assignee inbox.
-        // This runs before the reconciliation event so a failure here cannot leave a requisition
-        // in the list that has no request behind it.
-        const requesterTenantId = ((request as any).user?.tenantId || tenantId) as string
-        const requesterDid = (request as any).user?.did as string | undefined
-        const workflowRequest = workflowRequestRepository.create({
-          requesterTenantId,
-          requesterDid,
-          targetOrgTenantId: tenantId,
-          requestType: 'requisition',
-          workflowType: 'internal_requisition_approval',
-          payload: {
-            requisitionId: reqId,
-            amount: body.totalAmount,
-            currency: body.currency,
-            department: body.department,
-            vendor: body.vendor || null,
-            paymentMethod: body.paymentMethod || null,
-            notes: body.notes || null,
-            items: body.items,
-          },
-          status: 'pending',
-        })
-
-        // Record Recon event
-        new ReconciliationService().recordEvent(reqId, 'REQUISITION_CREATED', 'portal', {
-          amount: body.totalAmount,
-          currency: body.currency,
-          actorName,
-          subjectName: actorName,
-          tenantId,
-        })
-
-        const assignment = this.resolveRequisitionAssignee(tenantId, body.assignToUserId)
-        if (assignment) {
-          try {
-            workflowRequestRepository.assignRequest(workflowRequest.id, {
-              assigneeUserId: assignment.userId,
-              assigneeWalletTenantId: assignment.walletTenantId,
-              assigneeRole: assignment.role,
-              assignmentMode: assignment.mode,
-              assignmentNote: this.describeAssignmentMode(assignment.mode),
-            })
-
-            const assignedRequest = workflowRequestRepository.findById(workflowRequest.id)!
-            this.enqueueApproverInboxNotification({
-              request: assignedRequest,
-              assigneeWalletTenantId: assignment.walletTenantId,
-              assigneeUserId: assignment.userId,
-              assigneeRole: assignment.role,
-            })
-          } catch (notificationError: any) {
-            request.logger?.warn(
-              {
-                requestId: workflowRequest.id,
-                error: notificationError?.message || String(notificationError),
-              },
-              'Requisition inbox notification failed after request creation',
-            )
-          }
-        }
-
-        return {
-          ...credentialOffer,
-          requisitionId: reqId,
-          workflowRequestId: workflowRequest.id,
-          status: 'REQUISITION_CREATED',
-          ...(offerErrorMessage ? { offerWarning: offerErrorMessage } : {}),
-        }
-      } catch (error: any) {
-        this.setStatus(500)
-        return { error: error.message }
+      const user = (request as any).user || {}
+      const subjectRef = String(user.sub || user.id || '')
+      if (!subjectRef) throw new StatusException('A signed-in person is required', 401)
+      const items = Array.isArray(body.items) ? body.items : []
+      const title =
+        items
+          .map((item) => item?.name)
+          .filter(Boolean)
+          .join(', ') ||
+        body.vendor ||
+        'Purchase request'
+      const created = platformRequestService.create({
+        tenantId,
+        subjectRef,
+        requestType: 'procurement.requisition',
+        title,
+        description: body.notes || undefined,
+        amount: Number(body.totalAmount) || undefined,
+        currency: body.currency || undefined,
+        targetModule: 'finance',
+        context: {
+          department: body.department || undefined,
+          supplierRef: body.paymentMethod === 'cash' ? undefined : body.vendor || undefined,
+          paymentMethod: body.paymentMethod === 'cash' ? 'cash' : 'supplier',
+        },
+        items: items.map((item) => ({
+          description: String(item?.name || 'Item'),
+          quantity: Number(item?.quantity) || 1,
+          unitPrice: Number(item?.price) || undefined,
+        })),
+      }) as any
+      const submitted = platformRequestService.submit(created.id, tenantId, subjectRef) as any
+      return {
+        requisitionId: created.id,
+        requestId: created.id,
+        status: String(submitted?.status || 'submitted'),
       }
-    })
+    } catch (error: any) {
+      this.setStatus(error instanceof StatusException ? error.status : 500)
+      return { error: error.message }
+    }
   }
 
   /**

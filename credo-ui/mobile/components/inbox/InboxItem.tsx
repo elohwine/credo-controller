@@ -1,11 +1,12 @@
 import React from 'react';
-import { Card, Group, Text, Stack, Box, Badge, Avatar, useMantineColorScheme, useMantineTheme } from '@mantine/core';
+import { Card, Group, Text, Stack, Box, Badge, Avatar, useMantineTheme } from '@mantine/core';
 import { IconChevronRight } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { formatCredentialType } from '@/lib/format';
 import { OfferReplacementNote, fieldJobStatusLabel, stepRequiredLabel, toFeptStageLabel } from '@/lib/uxCopy';
 import { inboxAttention, inboxWhenLabel, type InboxAttention } from '@/lib/inboxAttention';
+import { UnreadCount } from '../../../shared/UnreadCount';
 
 dayjs.extend(relativeTime);
 
@@ -97,6 +98,7 @@ export interface InboxItemData {
     canReject: boolean;
     blockedReason?: 'own_request' | 'own_request_no_other_approver' | 'not_stage_actor' | 'no_authority';
     isRequester?: boolean;
+    staffCard?: boolean;
   };
   requiredAction?: string;
   /** The step key stored on the card (sign-off, payment release, approval…); shown as "Your step". */
@@ -257,8 +259,6 @@ interface InboxItemProps {
 
 export default function InboxItem({ item, onClick, attention, kindLabel }: InboxItemProps) {
   const theme = useMantineTheme();
-  const { colorScheme } = useMantineColorScheme();
-  const isDark = colorScheme === 'dark';
   const expired = isExpiredItem(item);
   const attentionState = attention || inboxAttention({ status: item.status, isRead: item.isRead === true });
   const isNew = attentionState === 'new';
@@ -273,28 +273,13 @@ export default function InboxItem({ item, onClick, attention, kindLabel }: Inbox
   const senderPrefix = getSenderPrefix(item);
   const stepRequired = stepRequiredLabel(item);
   const rawRightLabel = item.actionLabel || (item.itemType === 'payment_link' ? 'Pay now' : 'Open');
-  // The step badge already says what to do; do not repeat the same words on the right.
+  // The step line already says what to do; do not repeat the same words on the right.
   const rightLabel = stepRequired && rawRightLabel.toLowerCase() === stepRequired.toLowerCase() ? 'Open' : rawRightLabel;
-  const rightTone = item.itemType === 'payment_link' || item.itemType === 'invoice_offer'
-      ? 'teal'
-      : item.module === 'field'
-        ? 'teal'
-        : item.module === 'approvals'
-          ? 'indigo'
-          : 'gray';
   const moneyValue = formatMoney(item.amount, item.currency || 'USD');
   const hintSource = [item.invoiceRef, item.paymentCode]
     .map((value) => String(value || '').trim())
     .find((value) => value && !looksLikeId(value));
   const valueHint = hintSource ? hintSource : null;
-  // New items stand out at a glance: tinted card, blue edge, dot, bold title, blue time.
-  const surface = isNew
-    ? (isDark ? 'rgba(66, 153, 225, 0.10)' : theme.colors.blue[0])
-    : isDark ? theme.colors.dark[6] : theme.white;
-  const borderColor = isNew
-    ? (isDark ? theme.colors.blue[8] : theme.colors.blue[2])
-    : isDark ? theme.colors.dark[4] : theme.colors.gray[2];
-  const newAccent = isDark ? theme.colors.blue[4] : theme.colors.blue[6];
   return (
     <Card
       p="md"
@@ -304,15 +289,12 @@ export default function InboxItem({ item, onClick, attention, kindLabel }: Inbox
         cursor: 'pointer',
         minHeight: 104,
         width: '100%',
-        border: `1px solid ${borderColor}`,
-        borderLeft: isNew ? `4px solid ${newAccent}` : `1px solid ${borderColor}`,
-        background: surface,
         opacity: expired ? 0.72 : attentionState === 'done' ? 0.8 : 1,
       }}
       onClick={() => onClick(item)}
     >
       <Group justify="space-between" align="flex-start" wrap="nowrap">
-        <Avatar radius="xl" size="sm" color="teal" variant="light">
+        <Avatar radius="xl" size="sm" color="gray" variant="light">
           {getInitials(senderName)}
         </Avatar>
         <Box style={{ flex: 1, minWidth: 0 }}>
@@ -321,57 +303,48 @@ export default function InboxItem({ item, onClick, attention, kindLabel }: Inbox
           </Text>
           <Group gap={6} wrap="nowrap" align="baseline" justify="space-between">
             <Group gap={6} wrap="nowrap" align="center" style={{ minWidth: 0, flex: 1 }}>
-              {isNew && (
-                <Box
-                  style={{
-                    width: 9,
-                    height: 9,
-                    borderRadius: '50%',
-                    background: newAccent,
-                    flexShrink: 0,
-                  }}
-                />
-              )}
-              <Text fw={isNew ? 700 : 600} size="sm" truncate c={attentionState === 'done' ? 'dimmed' : undefined}>
+              <Text fw={isNew ? 700 : 500} size="sm" truncate c={attentionState === 'done' ? 'dimmed' : undefined}>
                 {displayTitle}
               </Text>
             </Group>
-            <Text size="xs" c={isNew ? 'blue' : 'dimmed'} fw={isNew ? 600 : undefined} style={{ flexShrink: 0 }}>{inboxWhenLabel(item.createdAt)}</Text>
+            <Text size="xs" c={isNew ? 'credentis' : 'dimmed'} fw={isNew ? 600 : undefined} style={{ flexShrink: 0 }}>{inboxWhenLabel(item.createdAt)}</Text>
           </Group>
 
           {item.replaces ? (
-            <Text size="xs" c="orange.8" fw={600} mt={6} lineClamp={2}>
+            <Text size="xs" c={isNew ? undefined : 'dimmed'} fw={isNew ? 600 : undefined} mt={6} lineClamp={2}>
               {item.replaces.note}
             </Text>
           ) : (
-            <Text size="xs" c="dimmed" mt={6} lineClamp={2}>
+            <Text size="xs" c={isNew ? undefined : 'dimmed'} fw={isNew ? 600 : undefined} mt={6} lineClamp={2}>
               {item.description}
             </Text>
           )}
 
           <Group gap={6} mt={8} wrap="wrap">
-            {kindLabel && <Badge size="xs" color="gray" variant="outline">{kindLabel}</Badge>}
-            {item.replaces && (
-              <Badge size="xs" color="orange" variant="filled">{item.replaces.label}</Badge>
-            )}
-            <Badge size="xs" color={stageBadge.color} variant="light">{stageBadge.label}</Badge>
+            {kindLabel && <Text size="xs" c="dimmed">{kindLabel}</Text>}
+            <Badge size="xs" color="gray" variant="light">{stageBadge.label}</Badge>
             {stepRequired && !expired && item.status === 'pending' && (
-              <Badge size="xs" color="teal" variant="outline">Your step: {stepRequired}</Badge>
+              <Text size="xs" c="dimmed">Your step: {stepRequired}</Text>
             )}
             {expired && <Badge size="xs" color="gray" variant="light">Expired</Badge>}
           </Group>
         </Box>
 
         <Box ta="right" style={{ flexShrink: 0, minWidth: 72 }}>
+          {isNew && (
+            <Box mb={4} style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <UnreadCount count={1} />
+            </Box>
+          )}
           {moneyValue ? (
-            <Text fw={700} size="sm" c={item.itemType === 'payment_link' || item.itemType === 'invoice_offer' ? 'teal' : item.module === 'approvals' ? 'indigo' : 'gray.8'}>
+            <Text fw={500} size="sm">
               {moneyValue}
             </Text>
           ) : (
-            <Badge size="xs" color={rightTone} variant="dot">{rightLabel}</Badge>
+            <Text size="xs" c="dimmed">{rightLabel}</Text>
           )}
           {moneyValue && (
-            <Badge size="xs" color={rightTone} variant="dot" mt={4}>{rightLabel}</Badge>
+            <Text size="xs" c="dimmed" mt={4}>{rightLabel}</Text>
           )}
           {valueHint && (
             <Text size="xs" c="dimmed" mt={moneyValue ? 2 : 0} truncate maw={120}>

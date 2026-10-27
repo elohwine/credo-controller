@@ -1,4 +1,6 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') })
+// Registers native Askar before the ESM @credo-ts/askar build reads it (see src/index.ts).
+require('@openwallet-foundation/askar-nodejs')
 
 const { startServer } = require('../build/index')
 const { createLoopbackFetch } = require('../build/utils/loopbackFetch')

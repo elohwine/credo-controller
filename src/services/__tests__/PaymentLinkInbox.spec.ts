@@ -140,6 +140,31 @@ describe('PaymentLinkService payer inbox', () => {
     expect(paymentLinkService.cancelAttempt('L3')).toBe(true)
     expect(openCards()).toHaveLength(0)
   })
+  it('marks the instalment paid and completes the plan as soon as the link is paid', async () => {
+    db.exec(`
+      CREATE TABLE ar_payment_plans (
+        id TEXT PRIMARY KEY, status TEXT, installments_total INTEGER, installments_paid INTEGER,
+        amount_collected REAL, updated_at TEXT
+      );
+      CREATE TABLE ar_plan_installments (
+        id TEXT PRIMARY KEY, plan_id TEXT, payment_link_id TEXT, amount REAL, status TEXT, paid_at TEXT
+      );
+    `)
+    insertLink('PLAN', '263774183277')
+    db.prepare(`INSERT INTO ar_payment_plans VALUES ('P1', 'active', 1, 0, 0, 'now')`).run()
+    db.prepare(`INSERT INTO ar_plan_installments VALUES ('I1', 'P1', 'PLAN', 2123, 'pending', NULL)`).run()
+
+    await paymentLinkService.settlePaid('PLAN', { paidAt: '2026-10-27T14:29:37.654Z', reference: 'SIM' })
+
+    expect(db.prepare(`SELECT status, paid_at FROM ar_plan_installments WHERE id = 'I1'`).get()).toEqual({
+      status: 'paid',
+      paid_at: '2026-10-27T14:29:37.654Z',
+    })
+    expect(
+      db.prepare(`SELECT status, installments_paid, amount_collected FROM ar_payment_plans WHERE id = 'P1'`).get(),
+    ).toEqual({ status: 'completed', installments_paid: 1, amount_collected: 2123 })
+  })
+
   it('sends every resend as a new message and brings the card back to the top', async () => {
     insertLink('R1', '263774183277')
     await paymentLinkService.resend('R1', 'org-1', { payerName: 'Eloh' })

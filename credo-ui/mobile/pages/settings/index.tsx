@@ -32,7 +32,7 @@ export default function SettingsHome() {
   }, [])
 
   const go = (path: string) => () => void router.push(path)
-  const cardSummary = !settings ? 'Accept each card yourself, or save them automatically' : settings.autoSaveCards ? 'Saved automatically' : 'You accept each new card'
+  const cardSummary = settings?.autoSaveCards ? 'Saved automatically' : 'You accept each new card'
 
   const groups: SettingsGroup[] = [
     {

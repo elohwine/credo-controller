@@ -4,6 +4,7 @@
  * New: arrived, not opened yet.
  * Opened: looked at, still waiting for the person.
  * Done: finished, declined, or filed away.
+ * Any status: New, Opened and Done together. The kind tabs (All kinds, Jobs, …) are a different filter.
  *
  * A card to accept stays New or Opened until it is accepted. Opening it is not the same as keeping it.
  */
@@ -15,7 +16,7 @@ export const INBOX_ATTENTION_FILTERS: Array<{ value: InboxAttentionFilter; label
   { value: 'new', label: 'New' },
   { value: 'opened', label: 'Opened' },
   { value: 'done', label: 'Done' },
-  { value: 'all', label: 'Everything' },
+  { value: 'all', label: 'Any status' },
 ]
 
 const DONE_STATUSES = new Set([
@@ -185,9 +186,11 @@ export const INBOX_SEEN_DIVIDER_LABEL = 'Before your last visit'
 /**
  * The inbox as one list, newest first, the way mail and chat apps show it.
  *
- * - Every item is placed by `timeOf` (its latest activity), so something new is always on top.
- * - Up to `pinLimit` items for which `needsAction` is true are pinned above the list
- *   (newest first) and not repeated below.
+ * - Every item is placed by `timeOf` (its latest activity). A newer item is never
+ *   placed under an older one, including one that still needs a step.
+ * - When the newest items are the ones that need a step, up to `pinLimit` of them
+ *   are headed "Needs your action" and not repeated below. An older step stays
+ *   in its time place.
  * - Date headings (Today, Yesterday, ...) split the rest.
  * - With `lastSeenAt`, a line marks where the items from before the person's last visit start.
  */
@@ -212,12 +215,19 @@ export function buildInboxFeed<T>(
   const entries: InboxFeedEntry<T>[] = []
 
   const pinLimit = Math.max(0, options.pinLimit ?? 3)
-  const waiting = options.needsAction ? ordered.filter((entry) => options.needsAction!(entry.item)) : []
-  const pinned = new Set(waiting.slice(0, pinLimit).map((entry) => entry.item))
-  if (pinned.size > 0) {
-    entries.push({ kind: 'pinned-head', key: 'pinned', label: INBOX_NEEDS_ACTION_LABEL, shown: pinned.size, total: waiting.length })
+  const pinned = new Set<T>()
+  if (options.needsAction && pinLimit > 0) {
     for (const entry of ordered) {
-      if (pinned.has(entry.item)) entries.push({ kind: 'item', key: options.keyOf(entry.item), item: entry.item, pinned: true })
+      if (pinned.size >= pinLimit || !options.needsAction(entry.item)) break
+      pinned.add(entry.item)
+    }
+  }
+  const waitingTotal = options.needsAction ? ordered.filter((entry) => options.needsAction!(entry.item)).length : 0
+  if (pinned.size > 0) {
+    entries.push({ kind: 'pinned-head', key: 'pinned', label: INBOX_NEEDS_ACTION_LABEL, shown: pinned.size, total: waitingTotal })
+    for (const entry of ordered) {
+      if (!pinned.has(entry.item)) break
+      entries.push({ kind: 'item', key: options.keyOf(entry.item), item: entry.item, pinned: true })
     }
   }
 

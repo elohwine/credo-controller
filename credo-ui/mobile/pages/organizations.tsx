@@ -197,6 +197,12 @@ export default function OrganizationsPage() {
   }, [router]);
 
   useEffect(() => {
+    if (!router.isReady) return;
+    const tab = router.query.tab;
+    if (tab === 'discover' || tab === 'my-orgs' || tab === 'contacts') setActiveTab(tab);
+  }, [router.isReady, router.query.tab]);
+
+  useEffect(() => {
     if (!showCreateContact) return;
     const orgId = getActiveOrgId();
     const token = getPreferredToken();

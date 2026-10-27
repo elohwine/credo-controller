@@ -39,6 +39,7 @@ import {
     IconPalette,
     IconUsers,
     IconSchool,
+    IconSearch,
     IconShoppingBag,
     IconReportMoney,
 } from '@tabler/icons-react';
@@ -49,6 +50,7 @@ import { readOrgProfile } from '@/utils/orgProfile';
 import { getWorkflowCapabilityFlags } from '@/lib/workflowCapabilities';
 import { openInboxOffers } from '@/lib/inboxAttention';
 import { RECORDS_TARGET_ATTR } from '../../shared/cardMotion';
+import { UnreadCount } from '../../shared/UnreadCount';
 
 const LayoutNestingContext = React.createContext(false);
 
@@ -171,6 +173,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                     { label: 'Home', href: '/', icon: <IconHome size={18} /> },
                     { label: 'Inbox', href: '/inbox', icon: <IconInbox size={18} /> },
                     { label: 'My requests', href: '/requests/mine', icon: <IconReceipt size={18} /> },
+                    { label: 'Discover services', href: '/discover', icon: <IconSearch size={18} /> },
                 ],
         },
         ...(isOrg ? [{
@@ -303,7 +306,11 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                                         label={item.label}
                                         leftSection={item.icon}
                                         active={isActive(item.href)}
-                                        rightSection={count > 0 ? <Badge size="sm" circle>{count > 9 ? '9+' : count}</Badge> : undefined}
+                                        rightSection={count > 0
+                                            ? (item.href === '/inbox'
+                                                ? <UnreadCount count={count} />
+                                                : <Badge size="sm" circle>{count > 9 ? '9+' : count}</Badge>)
+                                            : undefined}
                                         onClick={() => setNavOpened(false)}
                                         {...(item.href === '/wallet' ? { [RECORDS_TARGET_ATTR]: '' } : null)}
                                     />

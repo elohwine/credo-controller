@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS wallet_guide_progress (
 );
 
 -- Holder choices that apply to the whole account. auto_save_cards = 1 saves new cards
--- (identity, staff and role cards, records) without a tap. Tasks, bills, payments and proof
--- requests always wait for the person.
+-- (identity, staff and role cards, and payment receipts) without a tap. Tasks, bills,
+-- payment requests, workflow records and proof requests always wait for the person.
 CREATE TABLE IF NOT EXISTS wallet_holder_settings (
   owner_tenant_id TEXT PRIMARY KEY,
   auto_save_cards INTEGER NOT NULL DEFAULT 0,

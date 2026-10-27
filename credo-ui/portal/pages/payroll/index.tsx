@@ -17,6 +17,8 @@ import {
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { EnvContext } from '@/pages/_app';
+import { getOrgScopedToken } from '@/utils/organizationContext';
+import { useRequireOrgContext } from '@/lib/portalContext';
 
 // Credentis brand colors
 const BRAND = {
@@ -104,8 +106,16 @@ export default function PayrollPage() {
         tin: ''
     });
 
+    useRequireOrgContext('/inbox');
     const env = useContext(EnvContext);
     const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+    const payrollFetch = (path: string, init: RequestInit = {}) => {
+        const token = getOrgScopedToken();
+        return fetch(`${backendUrl}${path}`, {
+            ...init,
+            headers: { ...(init.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        });
+    };
 
     useEffect(() => {
         if (env.NEXT_PUBLIC_BACKEND_URL) {
@@ -117,9 +127,9 @@ export default function PayrollPage() {
 
     const fetchPayrollRuns = async () => {
         try {
-            const res = await fetch(`${backendUrl}/api/payroll/runs`);
+            const res = await payrollFetch(`/api/payroll/runs`);
             const data = await res.json();
-            setRuns(data || []);
+            setRuns(Array.isArray(data) ? data : []);
         } catch (error) {
             console.error('Failed to fetch payroll runs:', error);
         }
@@ -127,9 +137,9 @@ export default function PayrollPage() {
 
     const fetchEmployees = async () => {
         try {
-            const res = await fetch(`${backendUrl}/api/payroll/employees`);
+            const res = await payrollFetch(`/api/payroll/employees`);
             const data = await res.json();
-            setEmployees(data || []);
+            setEmployees(Array.isArray(data) ? data : []);
         } catch (error) {
             console.error('Failed to fetch employees:', error);
         }
@@ -137,7 +147,7 @@ export default function PayrollPage() {
 
     const fetchTaxCompliance = async () => {
         try {
-            const res = await fetch(`${backendUrl}/api/payroll/tax-compliance`);
+            const res = await payrollFetch(`/api/payroll/tax-compliance`);
             const data = await res.json();
             setTaxRecords(Array.isArray(data) ? data : []);
         } catch (error) {
@@ -150,7 +160,7 @@ export default function PayrollPage() {
         e.preventDefault();
         setIsLoading(true);
         try {
-            const res = await fetch(`${backendUrl}/api/payroll/runs`, {
+            const res = await payrollFetch(`/api/payroll/runs`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newRun)
@@ -169,7 +179,7 @@ export default function PayrollPage() {
     const handleIssuePayslips = async (runId: string) => {
         setIsLoading(true);
         try {
-            const res = await fetch(`${backendUrl}/api/payroll/runs/${runId}/issue`, {
+            const res = await payrollFetch(`/api/payroll/runs/${runId}/issue`, {
                 method: 'POST'
             });
             if (res.ok) {
@@ -185,7 +195,7 @@ export default function PayrollPage() {
     const handleIssueTaxCompliance = async (runId: string, taxType: string) => {
         setIsLoading(true);
         try {
-            const res = await fetch(`${backendUrl}/api/payroll/runs/${runId}/tax-compliance`, {
+            const res = await payrollFetch(`/api/payroll/runs/${runId}/tax-compliance`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ taxType })
@@ -203,7 +213,7 @@ export default function PayrollPage() {
     const handleReoffer = async (runId: string) => {
         setIsLoading(true);
         try {
-            const res = await fetch(`${backendUrl}/api/payroll/runs/${runId}/reoffer`, {
+            const res = await payrollFetch(`/api/payroll/runs/${runId}/reoffer`, {
                 method: 'POST'
             });
             if (!res.ok) {
@@ -226,7 +236,7 @@ export default function PayrollPage() {
         e.preventDefault();
         setIsLoading(true);
         try {
-            const res = await fetch(`${backendUrl}/api/payroll/employees`, {
+            const res = await payrollFetch(`/api/payroll/employees`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newEmployee)

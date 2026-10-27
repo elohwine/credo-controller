@@ -1,5 +1,16 @@
 # SGK Implementation TODO (Execution)
 
+## 2026-10-27 - Every workflow uses the job architecture
+
+- [x] A workflow onboarded later (by hand or by the builder) declares one step,
+      `stage.await_actor` with its own `stageAction`, and inherits the whole chain:
+      the `stage_actor:<step>` entry under Who does what, inbox routing with stand-ins,
+      the staff-card check against the derived key `stage:<step>`, the organisation's
+      device-trust policy on a money step, and the share screens on both apps
+      (portal `wstep:` rows, phone mode `workflow-step`). Field sign-off and payout
+      keep `field_ack` / `field_payout` unchanged.
+      Details in `docs/WORKFLOW_ALIGNMENT.md` (2026-10-27) and `docs/SGK_FEPT_GAP_MAP.md`.
+
 ## 2026-10-16 - Purchase requests in Operations
 
 - [x] Operations > Purchase requests uses the shared request list, scoped to purchases.

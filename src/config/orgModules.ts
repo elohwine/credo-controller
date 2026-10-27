@@ -34,7 +34,7 @@ export const ORG_MODULE_CATALOGUE = [
   {
     id: 'field_jobs',
     label: 'Field jobs',
-    detail: 'Jobs with evidence, sign-off and payment.',
+    detail: 'Jobs with photos, sign-off and payment.',
     opens: 'Jobs',
     requestTypes: ['field_execution_fept'],
     templateIds: ['tpl-fept-field-execution'],

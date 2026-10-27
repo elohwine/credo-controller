@@ -319,7 +319,7 @@ export default function OrganizationPeoplePage() {
   }
 
   return (
-    <Layout title="People">
+    <Layout title="Members">
       <Container size="xl" py="lg">
         <Stack gap="lg">
           <Paper withBorder={false}>
@@ -327,7 +327,7 @@ export default function OrganizationPeoplePage() {
               <Box>
                 <Group gap="xs" mb={4}>
                   <IconUsers size={20} />
-                  <Title order={2}>People</Title>
+                  <Title order={2}>Members</Title>
                 </Group>
                 <Text c="dimmed" size="sm">
                   {orgName ? `Members of ${orgName}` : 'Manage organization members, roles, and invitations.'}
@@ -335,10 +335,10 @@ export default function OrganizationPeoplePage() {
               </Box>
               <Group gap="xs">
                 <Button variant="default" size="sm" component="a" href="/organization/setup">
-                  ← Setup Center
+                  ← Setup
                 </Button>
                 <Button leftSection={<IconPlus size={16} />} size="sm" onClick={() => setInviteOpen(true)} disabled={!orgTenantId}>
-                  Invite Member
+                  Invite a member
                 </Button>
               </Group>
             </Group>
@@ -360,7 +360,7 @@ export default function OrganizationPeoplePage() {
             <Card withBorder radius="md" p="lg">
               <Group justify="space-between" mb="md">
                 <Box>
-                  <Title order={4}>Team Members</Title>
+                  <Title order={4}>Team members</Title>
                   {members.length > 0 && Object.keys(onboarding).length > 0 && (() => {
                     const counts = readyCount(Object.values(onboarding))
                     return (
@@ -384,7 +384,7 @@ export default function OrganizationPeoplePage() {
                   <IconUsers size={40} color="var(--mantine-color-gray-4)" />
                   <Text c="dimmed">No members yet. Invite your first team member.</Text>
                   <Button size="sm" leftSection={<IconPlus size={14} />} onClick={() => setInviteOpen(true)}>
-                    Invite Member
+                    Invite a member
                   </Button>
                 </Stack>
               ) : (
@@ -523,7 +523,7 @@ export default function OrganizationPeoplePage() {
         </Stack>
       </Container>
 
-      <Modal opened={inviteOpen} onClose={() => setInviteOpen(false)} title="Invite Member" centered>
+      <Modal opened={inviteOpen} onClose={() => setInviteOpen(false)} title="Invite a member" centered>
         <Stack gap="md">
           <TextInput
             label="Phone number"

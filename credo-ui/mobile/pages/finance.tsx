@@ -25,7 +25,6 @@ import {
   CopyButton,
   Tooltip,
   Modal,
-  Code,
   Image,
   Textarea,
   Grid,
@@ -80,14 +79,22 @@ import {
   IconFiles,
   IconHistory,
   IconDots,
+  IconBriefcase,
+  IconShoppingCart,
 } from '@tabler/icons-react'
 import AppShellMobile from '@/components/layout/AppShellMobile'
+import FormCard from '@/components/shared/FormCard'
 import { SectionTip } from '@/components/guides/SectionGuides';
 import ErrorAlert from '@/components/shared/ErrorAlert'
 import JobHandoffsPanel, { FamilyStrip, useRelatedWorkNavigation } from '@/components/shared/JobHandoffsPanel'
 import { familyLinks, handoffLinks } from '../../shared/relatedWork'
 import { captureOrganizationSwitchContext, isBoundTaskPath } from '../../shared/taskContext'
 import JobAuditTrailPanel from '@/components/shared/JobAuditTrailPanel'
+import RecordActions from '@/components/shared/RecordActions'
+import type { RecordKind } from '../../shared/recordHistory'
+import { requestDecisionBlockText } from '../../shared/requestDecision'
+import { FINANCE_FLOW_WORDS, financeStatusWord } from '../../shared/financeWords'
+import { requestExperienceForRow, requestWhoDid } from '../../shared/requestExperience'
 import ReceiptProofField, { receiptProofPayload, type ReceiptProof } from '@/components/shared/ReceiptProofField'
 import { ClientBillingDetails } from '@/components/shared/ClientBillingDetails'
 import { ContactPickerSelect } from '@/components/shared/ContactPickerSelect'
@@ -112,6 +119,7 @@ import {
   stageRelatedWork,
   trailFromPaymentLink,
   trailFromRequest,
+  trailFromSchoolFee,
   trailFromSupplierBill,
   whoDidStages,
   type JobAuditTrail,
@@ -121,7 +129,7 @@ import {
 import { relatedWorkLine, requestStatusWords } from '@/lib/uxCopy'
 import { formatTxnTime } from '@/lib/inboxAttention'
 import { captureHashedPhoto } from '@/lib/evidenceHash'
-import { jobContactOption, OUTSIDE_CONTACT_NEEDS_APP, parseJobContactSelection } from '@/lib/jobPeople'
+import { FIELD_CHECKER_STAGE, FIELD_WORKER_STAGE, jobContactOption, jobPeopleOptions, OUTSIDE_CONTACT_NEEDS_APP, parseJobContactSelection, stageActorOption } from '@/lib/jobPeople'
 import api, { safeArray } from '@/lib/api'
 import { friendlyRequestError } from '@/lib/requestError'
 import {
@@ -173,7 +181,11 @@ import {
   requisitionNextStep,
   requisitionStatusLabel,
   safetyHoldStateWords,
+  SCHOOL_FEE_HELP,
   schoolFeeProgress,
+  schoolFeeRelated,
+  schoolFeeStages,
+  schoolFeeWhoDid,
   schoolFeeStatusWords,
   schoolFeeTitle,
   type JobActorStage,
@@ -1227,12 +1239,10 @@ function getPaymentFlowKind(link: PaymentLink): PaymentFlowKind {
 }
 
 function getPaymentFlowBadge(flow: PaymentFlowKind): { label: string; color: string } {
-  if (flow === 'checkout') return { label: 'CHECKOUT FLOW', color: 'cyan' }
-  if (flow === 'invoice') return { label: 'INVOICE FLOW', color: 'indigo' }
-  if (flow === 'instalment') return { label: 'INSTALMENT PLAN', color: 'orange' }
-  if (flow === 'recurring') return { label: 'RECURRING BILL', color: 'pink' }
-  if (flow === 'one_time') return { label: 'ONE-TIME COLLECTION', color: 'violet' }
-  return { label: 'GENERIC FLOW', color: 'teal' }
+  if (flow === 'checkout' || flow === 'invoice' || flow === 'instalment' || flow === 'recurring' || flow === 'one_time') {
+    return FINANCE_FLOW_WORDS[flow]
+  }
+  return FINANCE_FLOW_WORDS.customer_payment
 }
 
 function getPaymentAuditRefs(link: PaymentLink): string[] {
@@ -1696,7 +1706,11 @@ export default function FinancePage() {
   const [chainDecisionReason, setChainDecisionReason] = useState('')
   const [chainDecisionLoading, setChainDecisionLoading] = useState(false)
   /** History of a client payment or a supplier bill without a purchase chain (same panel as a job). */
-  const [historyItem, setHistoryItem] = useState<null | { title: string; trail: JobAuditTrail }>(null)
+  const [historyItem, setHistoryItem] = useState<null | {
+    title: string
+    trail: JobAuditTrail
+    record?: { kind: RecordKind; id: string; canCancel: boolean }
+  }>(null)
   const [listView, setListView] = useFinanceListView()
   /** Supplier bills from the payables ledger (money out), same list as the website. */
   const [apBills, setApBills] = useState<any[]>([])
@@ -1790,6 +1804,16 @@ export default function FinancePage() {
       actor?: { userId?: string; walletTenantId?: string; role?: string; mode?: string }
     }>
   >([])
+  const fieldJobPeople = useMemo(
+    () =>
+      jobPeopleOptions(
+        orgMembers.filter((member) => member.status === 'active'),
+        contacts
+          .filter((contact) => contact.phone)
+          .map((contact) => ({ name: contact.name, phone: contact.phone || '', contactScope: contact.contactScope })),
+      ),
+    [orgMembers, contacts],
+  )
   // Who does what for school fees (the receipt step), the same lookup the website uses.
   const [feeStageActors, setFeeStageActors] = useState<JobActorStage[]>([])
   const [contextSwitching, setContextSwitching] = useState(false)
@@ -4834,7 +4858,7 @@ export default function FinancePage() {
       title: link.description || 'Client payment',
       flowLabel,
       flowColor,
-      status: String(link.status || '').toUpperCase(),
+      status: financeStatusWord(link.status),
       statusColor: statusColor[link.status] || 'gray',
       dateLabel: formatTxnTime(link.createdAt) || undefined,
       note: link.invoiceRef ? `Reference ${link.invoiceRef}` : undefined,
@@ -4887,7 +4911,7 @@ export default function FinancePage() {
       linkAny.debtor_org_name || linkAny.debtorOrgName || metadata.debtorOrgName || '',
     ).trim()
     const debtorOrgId = String(linkAny.debtor_org_id || linkAny.debtorOrgId || metadata.debtorOrgId || '').trim()
-    const debtorLabel = debtorOrgName || (debtorOrgId ? 'Another organisation' : 'Counterparty')
+    const debtorLabel = debtorOrgName || (debtorOrgId ? 'Another organisation' : 'Customer')
     const ts = String(linkAny.trust_status || '').toLowerCase()
     const proofStage =
       link.status === 'paid' || linkAny.receipt_vc_id
@@ -5063,8 +5087,8 @@ export default function FinancePage() {
     ...fieldJobBillingExceptions(fieldRuns, trackedPaymentLinks).map((item) => ({
       id: `billing-${item.runId}`,
       title: item.reference,
-      flowLabel: 'CLIENT BILLING',
-      flowColor: 'orange',
+      flowLabel: FINANCE_FLOW_WORDS.client_billing.label,
+      flowColor: FINANCE_FLOW_WORDS.client_billing.color,
       status: item.status,
       note: item.note,
       onClick: () => void openClientBilling(fieldRuns.find((run: any) => run.id === item.runId)),
@@ -5079,8 +5103,8 @@ export default function FinancePage() {
     return {
       id: run.id,
       title: schoolFeeTitle(run),
-      flowLabel: 'School fee',
-      flowColor: 'teal',
+      flowLabel: FINANCE_FLOW_WORDS.school_fee.label,
+      flowColor: FINANCE_FLOW_WORDS.school_fee.color,
       status: status.label,
       statusColor: status.color,
       dateLabel: run.createdAt ? dayjs(run.createdAt).format('D MMM YYYY') : undefined,
@@ -5120,8 +5144,8 @@ export default function FinancePage() {
       return {
         id: req.id,
         title: req.metadata?.department ? `Requisition · ${req.metadata.department}` : `Requisition · ${req.id}`,
-        flowLabel: 'REQUISITION',
-        flowColor: 'indigo',
+        flowLabel: FINANCE_FLOW_WORDS.requisition.label,
+        flowColor: FINANCE_FLOW_WORDS.requisition.color,
         status: requisitionStatusLabel(status),
         statusColor: REQUISITION_STATUS_COLOR[status] || 'gray',
         dateLabel: formatTxnTime(req.updatedAt) || undefined,
@@ -5133,9 +5157,10 @@ export default function FinancePage() {
     ...purchaseRequests.map((row) => ({
       id: String(row.id),
       title: row.title || 'Purchase request',
-      flowLabel: 'PURCHASE',
-      flowColor: 'indigo',
-      status: String(row.status || '').toUpperCase(),
+      flowLabel: FINANCE_FLOW_WORDS.purchase.label,
+      flowColor: FINANCE_FLOW_WORDS.purchase.color,
+      status: requestStatusWords(row.status).label,
+      statusColor: requestStatusWords(row.status).color,
       dateLabel: formatTxnTime(row.updated_at || row.updatedAt || row.created_at || row.createdAt) || undefined,
       note: relatedWorkLine(row.family),
       amountLabel: row.amount != null ? fmt(Number(row.amount), row.currency || 'USD') : undefined,
@@ -5163,8 +5188,8 @@ export default function FinancePage() {
     return {
       id: String(run.id),
       title: jobHeading(input).title,
-      flowLabel: 'JOB',
-      flowColor: 'teal',
+      flowLabel: FINANCE_FLOW_WORDS.job.label,
+      flowColor: FINANCE_FLOW_WORDS.job.color,
       status: fieldJobStatusLabel(run.status, stage, run.output?.pauseReason),
       statusColor: FEPT_STAGE_COLOR[stage] || 'gray',
       dateLabel: formatTxnTime(run.updatedAt || run.updated_at || run.createdAt || run.created_at) || undefined,
@@ -5195,9 +5220,9 @@ export default function FinancePage() {
       return {
         id: String(row.id),
         title: `${row.invoice_ref || 'Bill'} · ${supplier?.supplier_name || 'Supplier'}`,
-        flowLabel: 'MONEY OUT',
-        flowColor: 'orange',
-        status: String(row.status || '').toUpperCase(),
+        flowLabel: FINANCE_FLOW_WORDS.supplier_bill.label,
+        flowColor: FINANCE_FLOW_WORDS.supplier_bill.color,
+        status: financeStatusWord(row.status),
         statusColor: row.status === 'paid' ? 'green' : 'orange',
         dateLabel: formatTxnTime(row.updated_at || row.created_at) || undefined,
         note: row.project_ref ? `Job ${row.project_ref}` : row.description,
@@ -5235,6 +5260,7 @@ export default function FinancePage() {
           setHistoryItem({
             title: `Supplier bill ${row.invoice_ref || ''}`.trim(),
             trail: trailFromSupplierBill({ ...row, supplierName: supplier?.supplier_name }),
+            record: { kind: 'supplier_bill', id: String(row.id), canCancel: !['paid', 'cancelled'].includes(String(row.status)) },
           })
         },
       }
@@ -5242,9 +5268,9 @@ export default function FinancePage() {
     ...apSuppliers.map((sup) => ({
       id: `supplier-${sup.id}`,
       title: sup.supplier_name || 'Supplier',
-      flowLabel: 'SUPPLIER',
-      flowColor: 'orange',
-      status: sup.total_outstanding > 0 ? 'OUTSTANDING' : 'SETTLED',
+      flowLabel: FINANCE_FLOW_WORDS.supplier.label,
+      flowColor: FINANCE_FLOW_WORDS.supplier.color,
+      status: financeStatusWord(sup.total_outstanding > 0 ? 'outstanding' : 'settled'),
       statusColor: sup.total_outstanding > 0 ? 'orange' : 'green',
       note: sup.supplier_email || undefined,
       amountLabel: fmt(sup.total_outstanding ?? 0),
@@ -5340,7 +5366,7 @@ export default function FinancePage() {
           </Group>
         </Group>
 
-        <SectionTip tip="tip_operations" />
+        <SectionTip tip="tip_operations" role={getOrgRoleClaim()} />
 
         {/* One stat row, for money only */}
         {area === 'money' && (
@@ -5513,7 +5539,7 @@ export default function FinancePage() {
                       <Group justify="space-between" align="flex-start" wrap="nowrap">
                         <Box style={{ minWidth: 0 }}>
                           <Text size="sm" fw={600} truncate>
-                            {item.collector_org_name || 'Counterparty org'}
+                            {item.collector_org_name || 'Another organisation'}
                           </Text>
                           <Text size="xs" c="dimmed" truncate>
                             {item.description || item.id}
@@ -5722,7 +5748,7 @@ export default function FinancePage() {
                   }}
                   color="indigo"
                 >
-                  Record Supplier Invoice
+                  Record supplier bill
                 </Button>
                 <StepHelp
                   title="Money out"
@@ -5738,7 +5764,7 @@ export default function FinancePage() {
                 <Alert
                   color="orange"
                   variant="light"
-                  title="Proof Consent Required"
+                  title="Your staff card is needed"
                   mb="md"
                   icon={<IconAlertCircle size={16} />}
                 >
@@ -5746,7 +5772,7 @@ export default function FinancePage() {
                     {pendingApProofActions.slice(0, 2).map((item) => (
                       <Group key={`proof-${item.id}`} justify="space-between" wrap="nowrap">
                         <Text size="xs" style={{ minWidth: 0 }} truncate>
-                          {item.invoice_ref || item.invoice_description || item.id} · {item.required_proof_type}
+                          {item.invoice_ref || item.invoice_description || 'Supplier bill'} · {formatLedgerLabel(item.required_action, 'Next step')}
                         </Text>
                         {item.myActionRequired && (
                           <Button
@@ -5755,7 +5781,7 @@ export default function FinancePage() {
                             color="orange"
                             onClick={() => runApWorkflowTransition(item)}
                           >
-                            Present Proof
+                            Share staff card
                           </Button>
                         )}
                       </Group>
@@ -5768,7 +5794,7 @@ export default function FinancePage() {
                 <Paper p="sm" radius="md" withBorder mb="md">
                   <Group justify="space-between" mb="xs">
                     <Text size="xs" c="dimmed" fw={700}>
-                      CROSS-ORG ACTION QUEUE
+                      STEPS WITH OTHER ORGANISATIONS
                     </Text>
                     <Badge size="xs" color="indigo" variant="light">
                       {apWorkflowActions.length}
@@ -5777,13 +5803,13 @@ export default function FinancePage() {
                   <DetailTimelineList
                     items={apWorkflowActions.slice(0, 4).map((item) => ({
                       id: item.id,
-                      title: `${item.invoice_ref || 'AR mirror'} · ${item.supplier_name || 'Counterparty'}`,
-                      source: 'trust workflow',
-                      description: `${item.workflow_stage || 'issued'} → ${item.required_action || 'awaiting update'}`,
+                      title: `${item.invoice_ref || 'Bill'} · ${item.supplier_name || 'Other organisation'}`,
+                      source: 'Payment steps',
+                      description: `${formatLedgerLabel(item.workflow_stage || 'issued')} · Next: ${formatLedgerLabel(item.required_action || 'none', 'Nothing yet')}`,
                       note:
                         [
-                          item.required_proof_type ? `Proof required: ${item.required_proof_type}` : null,
-                          item.proof_response_id ? `Proof ref: ${item.proof_response_id}` : null,
+                          item.required_proof_type ? 'Staff card needed' : null,
+                          item.proof_response_id ? 'Staff card checked' : null,
                           item.consent_timestamp
                             ? `Consent: ${dayjs(item.consent_timestamp).format('D MMM YYYY HH:mm')}`
                             : null,
@@ -5792,11 +5818,11 @@ export default function FinancePage() {
                           .join(' · ') || undefined,
                       timestamp: item.updated_at ? dayjs(item.updated_at).format('D MMM YYYY HH:mm') : '—',
                       badge: {
-                        label: item.myActionRequired ? 'MY ACTION' : (item.status || 'WATCH').toUpperCase(),
+                        label: item.myActionRequired ? 'Your turn' : financeStatusWord(item.status || 'open'),
                         color: item.myActionRequired ? 'orange' : 'blue',
                       },
                     }))}
-                    emptyText="No pending workflow actions"
+                    emptyText="Nothing waiting"
                   />
                   {apWorkflowActions.some((item) => item.myActionRequired && item.required_action) && (
                     <Stack gap="xs" mt="sm">
@@ -6214,26 +6240,26 @@ export default function FinancePage() {
                     }
                     sections={[
                       {
-                        title: 'CROSS-ORG WORKFLOW ACTIONS',
+                        title: 'STEPS WITH THIS SUPPLIER',
                         content:
                           selectedSupplierActions.length === 0 ? (
                             <Text size="xs" c="dimmed">
-                              No staged actions recorded yet for this relationship.
+                              No steps recorded with this supplier yet.
                             </Text>
                           ) : (
                             <Stack gap="xs">
                               <DetailTimelineList
                                 items={selectedSupplierActions.slice(0, 8).map((item) => ({
                                   id: item.id,
-                                  title: `${item.invoice_ref || 'AR mirror'} · ${item.workflow_stage || 'issued'}`,
-                                  source: 'trust workflow',
+                                  title: `${item.invoice_ref || 'Bill'} · ${formatLedgerLabel(item.workflow_stage || 'issued')}`,
+                                  source: 'Payment steps',
                                   description: item.required_action
-                                    ? `Next: ${item.required_action}`
-                                    : `State: ${item.status || 'pending'}`,
+                                    ? `Next: ${formatLedgerLabel(item.required_action)}`
+                                    : financeStatusWord(item.status || 'pending'),
                                   note:
                                     [
-                                      item.required_proof_type ? `Proof required: ${item.required_proof_type}` : null,
-                                      item.proof_response_id ? `Proof ref: ${item.proof_response_id}` : null,
+                                      item.required_proof_type ? 'Staff card needed' : null,
+                                      item.proof_response_id ? 'Staff card checked' : null,
                                       item.consent_timestamp
                                         ? `Consent: ${dayjs(item.consent_timestamp).format('D MMM YYYY HH:mm')}`
                                         : null,
@@ -6243,8 +6269,8 @@ export default function FinancePage() {
                                   timestamp: item.updated_at ? dayjs(item.updated_at).format('D MMM YYYY HH:mm') : '—',
                                   badge: {
                                     label: item.myActionRequired
-                                      ? 'MY ACTION'
-                                      : (item.status || 'TRACKING').toUpperCase(),
+                                      ? 'Your turn'
+                                      : financeStatusWord(item.status || 'open'),
                                     color: item.myActionRequired ? 'orange' : 'indigo',
                                   },
                                 }))}
@@ -6268,7 +6294,7 @@ export default function FinancePage() {
                           ),
                       },
                       {
-                        title: 'SSI TRUST & CREDENTIAL STATE',
+                        title: 'PAYMENT RECORDS',
                         content: (
                           <Stack gap="xs">
                             <Group gap="xs" wrap="wrap">
@@ -6278,7 +6304,7 @@ export default function FinancePage() {
                                 variant={hasWallet ? 'light' : 'outline'}
                                 leftSection={<IconWallet size={11} />}
                               >
-                                {hasWallet ? 'Wallet Linked' : 'No Wallet – Notify via WhatsApp'}
+                                {hasWallet ? 'Has the app' : 'No app yet: told by WhatsApp'}
                               </Badge>
                               <Badge
                                 size="sm"
@@ -6286,16 +6312,16 @@ export default function FinancePage() {
                                 variant="light"
                                 leftSection={<IconShieldCheck size={11} />}
                               >
-                                {anyVc ? 'RemittanceAdviceVC Issued' : 'No VC Yet'}
+                                {anyVc ? 'Payment advice sent' : 'No payment advice yet'}
                               </Badge>
                               <Badge size="sm" color={allAcknowledged ? 'teal' : 'gray'} variant="light">
-                                {allAcknowledged ? '✓ All Acknowledged' : 'Pending Supplier Ack'}
+                                {allAcknowledged ? 'Supplier confirmed all' : 'Waiting for the supplier to confirm'}
                               </Badge>
                             </Group>
                             {lastPayment?.remittance_vc_id && (
                               <Group justify="space-between" align="center" wrap="nowrap">
-                                <Text size="xs" c="dimmed" ff="monospace" style={{ minWidth: 0 }} truncate>
-                                  Latest VC: {lastPayment.remittance_vc_id}
+                                <Text size="xs" c="dimmed" style={{ minWidth: 0 }} truncate>
+                                  Latest payment advice{lastPayment.reference ? ` · ${lastPayment.reference}` : ''}
                                 </Text>
                                 <Button
                                   size="xs"
@@ -6303,7 +6329,7 @@ export default function FinancePage() {
                                   color="teal"
                                   onClick={() =>
                                     openCredentialArtifact({
-                                      title: 'Latest Remittance Credential',
+                                      title: 'Payment advice',
                                       credentialId: String(lastPayment.remittance_vc_id),
                                       credentialType: 'RemittanceAdviceVC',
                                       status: lastPayment.supplier_acknowledged_at ? 'acknowledged' : 'issued',
@@ -6318,7 +6344,7 @@ export default function FinancePage() {
                                     })
                                   }
                                 >
-                                  View VC
+                                  Open
                                 </Button>
                               </Group>
                             )}
@@ -6326,11 +6352,11 @@ export default function FinancePage() {
                         ),
                       },
                       {
-                        title: 'VC ARTIFACT DRILLDOWN',
+                        title: 'PAYMENT ADVICE SENT',
                         content:
                           paymentVcArtifacts.length === 0 ? (
                             <Text size="xs" c="dimmed">
-                              No RemittanceAdviceVC artifacts are available yet for this supplier.
+                              No payment advice has been sent to this supplier yet.
                             </Text>
                           ) : (
                             <Stack gap="xs">
@@ -6344,10 +6370,7 @@ export default function FinancePage() {
                                   <Group justify="space-between" align="flex-start" wrap="nowrap">
                                     <Box style={{ minWidth: 0 }}>
                                       <Text size="xs" fw={700}>
-                                        RemittanceAdviceVC · {artifact.paymentId}
-                                      </Text>
-                                      <Text size="10px" c="dimmed" ff="monospace" truncate>
-                                        {artifact.credentialId}
+                                        Payment advice{artifact.sourceRef ? ` · ${artifact.sourceRef}` : ''}
                                       </Text>
                                       <Text size="10px" c="dimmed">
                                         Amount: {fmt(artifact.amount, artifact.currency)}
@@ -6359,7 +6382,7 @@ export default function FinancePage() {
                                     </Box>
                                     <Stack gap={4} align="flex-end" style={{ flexShrink: 0 }}>
                                       <Badge size="xs" color={artifact.acknowledged ? 'teal' : 'gray'} variant="light">
-                                        {artifact.acknowledged ? 'Acknowledged' : 'Pending Ack'}
+                                        {artifact.acknowledged ? 'Confirmed' : 'Not confirmed yet'}
                                       </Badge>
                                       <Button
                                         size="xs"
@@ -6367,7 +6390,7 @@ export default function FinancePage() {
                                         color="teal"
                                         onClick={() =>
                                           openCredentialArtifact({
-                                            title: `Remittance VC · ${artifact.paymentId}`,
+                                            title: 'Payment advice',
                                             credentialId: artifact.credentialId,
                                             credentialType: 'RemittanceAdviceVC',
                                             status: artifact.acknowledged ? 'acknowledged' : 'issued',
@@ -6377,12 +6400,12 @@ export default function FinancePage() {
                                             amount: artifact.amount,
                                             currency: artifact.currency,
                                             note: artifact.acknowledged
-                                              ? 'Supplier acknowledgment has been captured for this credential.'
-                                              : 'Supplier acknowledgment is still pending for this credential.',
+                                              ? 'The supplier confirmed this payment.'
+                                              : 'Waiting for the supplier to confirm this payment.',
                                           })
                                         }
                                       >
-                                        Inspect VC Artifact
+                                        Open
                                       </Button>
                                     </Stack>
                                   </Group>
@@ -6549,11 +6572,20 @@ export default function FinancePage() {
         onClose={() => setShowRecordApInvoice(false)}
         position="bottom"
         size="auto"
-        title="Record Supplier Invoice"
         radius="lg"
         styles={{ content: { borderRadius: '16px 16px 0 0' } }}
       >
-        <Stack gap="sm" p="md">
+        <div className="sheet-handle" aria-hidden />
+        <FormCard title="Record a supplier bill" subtitle="What the organisation owes a supplier. It shows under Money out until it is paid." icon={<IconCash size={24} />} issuer={getActiveOrgLabel() || undefined}>
+          <ContactPickerSelect
+            contacts={contacts}
+            requirePhone={false}
+            label="Pick the supplier from contacts"
+            description="Fills the supplier name. Leave blank to type a new one."
+            onPick={(picked) => {
+              if (picked) setApInvoiceForm((prev) => ({ ...prev, supplierName: picked.name || prev.supplierName }))
+            }}
+          />
           <TextInput
             label="Supplier"
             placeholder="Supplier name"
@@ -6563,7 +6595,7 @@ export default function FinancePage() {
           />
           {apSuppliers.length > 0 && (
             <Select
-              label="Or choose a saved supplier"
+              label="Or choose a supplier you have billed before"
               placeholder="Select supplier"
               data={apSuppliers.map((s) => ({ value: s.id, label: s.supplier_name }))}
               value={selectedApSupplier?.id || null}
@@ -6671,9 +6703,9 @@ export default function FinancePage() {
               }
             }}
           >
-            Submit Invoice
+            Record supplier bill
           </Button>
-        </Stack>
+        </FormCard>
       </Drawer>
 
       {/* ── Record Payment Drawer ── */}
@@ -6918,11 +6950,11 @@ export default function FinancePage() {
         onClose={() => setShowCreate(false)}
         position="bottom"
         size="auto"
-        title={hasArCollections ? 'New AR Collection' : 'New Payment Link'}
         radius="lg"
         styles={{ content: { borderRadius: '16px 16px 0 0' } }}
       >
-        <Stack gap="md" pb="lg">
+        <div className="sheet-handle" aria-hidden />
+        <FormCard title="Collect a client payment" subtitle={hasArCollections ? 'The client gets a pay link by text. Choose one payment, instalments or a recurring amount.' : 'The client gets a pay link by text.'} icon={<IconReceipt size={24} />} issuer={getActiveOrgLabel() || undefined}>
           <Alert color="blue" variant="light" icon={<IconAlertCircle size={16} />}>
             {hasArCollections
               ? 'Create a one-time link, instalment plan, or recurring billing schedule — all tracked under Payments.'
@@ -7095,7 +7127,7 @@ export default function FinancePage() {
                   : 'Create Recurring Billing'
               : 'Create & Get Link'}
           </Button>
-        </Stack>
+        </FormCard>
       </Drawer>
 
       {/* ── Create Invoice Drawer ── */}
@@ -7104,11 +7136,11 @@ export default function FinancePage() {
         onClose={() => setShowInvoice(false)}
         position="bottom"
         size="auto"
-        title="New school fee"
         radius="lg"
         styles={{ content: { borderRadius: '16px 16px 0 0' } }}
       >
-        <Stack gap="md" pb="lg">
+        <div className="sheet-handle" aria-hidden />
+        <FormCard title="New school fee" subtitle="The parent gets a pay link by text." icon={<IconSchool size={24} />} issuer={getActiveOrgLabel() || undefined}>
           <TextInput
             label="Student name"
             required
@@ -7255,7 +7287,7 @@ export default function FinancePage() {
           >
             Send pay link
           </Button>
-        </Stack>
+        </FormCard>
       </Drawer>
 
       {/* ── School fee detail ── */}
@@ -7288,45 +7320,40 @@ export default function FinancePage() {
                 .filter(Boolean)
                 .join(' · ')}
             </Text>
-            <Timeline
-              active={schoolFeeProgress(selectedFeeRun).filter((step) => step.status === 'done').length - 1}
-              bulletSize={20}
-              lineWidth={2}
-            >
-              {schoolFeeProgress(selectedFeeRun).map((step) => (
-                <Timeline.Item
-                  key={step.key}
-                  color={step.status === 'done' ? 'teal' : step.status === 'active' ? 'blue' : 'gray'}
-                  bullet={
-                    step.status === 'done' ? (
-                      <IconCheck size={10} />
-                    ) : step.status === 'active' ? (
-                      <IconClock size={10} />
-                    ) : undefined
-                  }
-                  title={
-                    <Text size="sm" fw={step.status === 'active' ? 700 : 500}>
-                      {step.label}
-                    </Text>
-                  }
-                >
-                  {step.at && (
-                    <Text size="xs" c="dimmed">
-                      {formatTxnTime(step.at)}
-                    </Text>
-                  )}
-                  {(step.by || step.key === 'RECEIPT') && (
-                    <Text size="xs" c="dimmed" mt={4}>
-                      Who:{' '}
-                      {step.by ||
-                        actorDisplay(actorForStage(feeStageActors, 'issue_receipt_vc'), {
-                          stageAction: 'issue_receipt_vc',
-                        })}
-                    </Text>
-                  )}
-                </Timeline.Item>
-              ))}
-            </Timeline>
+            <StageActorTimeline
+              stages={schoolFeeStages(selectedFeeRun)}
+              actors={feeStageActors}
+              people={orgMembers}
+              whoDid={schoolFeeWhoDid(selectedFeeRun)}
+              title={`Progress (${schoolFeeProgress(selectedFeeRun).filter((step) => step.status === 'done').length} of ${schoolFeeProgress(selectedFeeRun).length} steps done)`}
+              help={SCHOOL_FEE_HELP}
+            />
+            {schoolFeeRelated(selectedFeeRun).length > 0 && (
+              <Stack gap={6}>
+                <Text fw={500} size="sm">Related work</Text>
+                {schoolFeeRelated(selectedFeeRun).map((item) => (
+                  <Button
+                    key={item.id}
+                    variant="light"
+                    radius="xl"
+                    fullWidth
+                    style={{ minHeight: 48 }}
+                    onClick={() => {
+                      setSelectedFeeRunId(null)
+                      if (item.kind === 'payment_plan') void openPlanDetails(item.id)
+                      else void openBillingLink(item.id)
+                    }}
+                  >
+                    Open {item.label.toLowerCase()}
+                  </Button>
+                ))}
+              </Stack>
+            )}
+            <JobAuditTrailPanel
+              trail={trailFromSchoolFee(selectedFeeRun, schoolFeeProgress(selectedFeeRun))}
+              compact
+              embedded
+            />
             {selectedFeeLink && selectedFeeRun.status !== 'completed' && (
               <Stack gap="xs" align="center">
                 <QRCode value={selectedFeeLink} size={160} />
@@ -7364,11 +7391,11 @@ export default function FinancePage() {
         onClose={() => setShowRequisition(false)}
         position="bottom"
         size="auto"
-        title="New Requisition Request"
         radius="lg"
         styles={{ content: { borderRadius: '16px 16px 0 0' } }}
       >
-        <Stack gap="md" pb="lg">
+        <div className="sheet-handle" aria-hidden />
+        <FormCard title="New purchase request" subtitle="Ask for something to be bought. It goes to the person who approves purchases." icon={<IconShoppingCart size={24} />} issuer={getActiveOrgLabel() || undefined}>
           <Select
             label="Department"
             value={requisitionForm.department}
@@ -7419,13 +7446,23 @@ export default function FinancePage() {
           </Group>
 
           {requisitionForm.payWith === 'supplier' && (
-            <TextInput
-              label="Supplier"
-              placeholder="e.g. BuildMart"
-              description="Who you are buying from. Leave empty if you do not know yet."
-              value={requisitionForm.vendor}
-              onChange={(e) => setRequisitionForm({ ...requisitionForm, vendor: e.currentTarget.value })}
-            />
+            <>
+              <ContactPickerSelect
+                contacts={contacts}
+                requirePhone={false}
+                label="Pick the supplier from contacts"
+                onPick={(picked) => {
+                  if (picked) setRequisitionForm({ ...requisitionForm, vendor: picked.name || requisitionForm.vendor })
+                }}
+              />
+              <TextInput
+                label="Supplier"
+                placeholder="e.g. BuildMart"
+                description="Who you are buying from. Leave empty if you do not know yet."
+                value={requisitionForm.vendor}
+                onChange={(e) => setRequisitionForm({ ...requisitionForm, vendor: e.currentTarget.value })}
+              />
+            </>
           )}
 
           <Group grow>
@@ -7468,7 +7505,7 @@ export default function FinancePage() {
           >
             Submit Requisition
           </Button>
-        </Stack>
+        </FormCard>
       </Drawer>
 
       <Drawer
@@ -7476,15 +7513,11 @@ export default function FinancePage() {
         onClose={() => setShowFieldRun(false)}
         position="bottom"
         size="85%"
-        title="New job"
         radius="lg"
         styles={{ content: { borderRadius: '16px 16px 0 0' } }}
       >
-        <Stack gap="md" pb="xl" px="xs">
-          <Text size="sm" c="dimmed">
-            Create a job and send it to the worker. The sign-off person is notified when the work is done.
-          </Text>
-
+        <div className="sheet-handle" aria-hidden />
+        <FormCard title="New job" subtitle="Create a job and send it to the worker. The sign-off person is notified when the work is done." icon={<IconBriefcase size={24} />} issuer={getActiveOrgLabel() || undefined}>
           <TextInput
             label="What is the job?"
             placeholder="e.g. Site maintenance at SGK Construction"
@@ -7669,39 +7702,15 @@ export default function FinancePage() {
             description="Someone on the team is added if they are not already. An outside contact gets this job only, and only if they already have the app."
             value={fieldRunForm.assigneeId}
             onChange={(val) => setFieldRunForm({ ...fieldRunForm, assigneeId: val || 'stage-actor' })}
-            data={[
-              { value: 'stage-actor', label: 'Use the person already chosen' },
-              ...memberSelectData(orgMembers),
-              ...contacts
-                .filter((contact) => contact.phone)
-                .map((contact) =>
-                  jobContactOption({
-                    name: contact.name,
-                    phone: contact.phone || '',
-                    contactScope: contact.contactScope,
-                  }),
-                ),
-            ]}
+            data={[stageActorOption(fieldStageActors, FIELD_WORKER_STAGE, orgMembers), ...fieldJobPeople]}
           />
 
           <Select
             label="Who checks the work"
-            description="They review the finished work. Not the person who does the job."
+            description="They review the finished work and confirm it. Not the person who does the job."
             value={fieldRunForm.receiverId}
             onChange={(val) => setFieldRunForm({ ...fieldRunForm, receiverId: val || 'stage-actor' })}
-            data={[
-              { value: 'stage-actor', label: 'Use the person already chosen' },
-              ...memberSelectData(orgMembers),
-              ...contacts
-                .filter((contact) => contact.phone)
-                .map((contact) =>
-                  jobContactOption({
-                    name: contact.name,
-                    phone: contact.phone || '',
-                    contactScope: contact.contactScope,
-                  }),
-                ),
-            ]}
+            data={[stageActorOption(fieldStageActors, FIELD_CHECKER_STAGE, orgMembers), ...fieldJobPeople]}
           />
 
           <Button
@@ -7715,7 +7724,7 @@ export default function FinancePage() {
           >
             Create job
           </Button>
-        </Stack>
+        </FormCard>
       </Drawer>
 
       <Modal
@@ -8124,18 +8133,9 @@ export default function FinancePage() {
             const childWait = handoffWaitingLine(run?.output?.handoffs)
             const pauseLine = (stepsHeld && childWait?.line) || fieldPauseLine(pauseReason, waitingWho)
             const knownPause = Boolean(pauseLine)
-            const reassignOptions = [
-              ...memberSelectData(orgMembers, 'member:'),
-              ...contacts
-                .filter((contact) => contact.phone)
-                .map((contact) =>
-                  jobContactOption({
-                    name: contact.name,
-                    phone: contact.phone || '',
-                    contactScope: contact.contactScope,
-                  }),
-                ),
-            ]
+            const reassignOptions = fieldJobPeople.map((option) =>
+              option.value.startsWith('contact:') ? option : { ...option, value: `member:${option.value}` },
+            )
             return (
               <WorkflowDetailBody
                 statusCard={<DetailStatusCard status={stageLabel} amount={amount} currency={currency} lines={[]} />}
@@ -8602,7 +8602,7 @@ export default function FinancePage() {
                   <Badge color="blue" variant="light">{chainRequest.decision?.stageLabel || 'Review and decide'}</Badge>
                 </Group>
                 <Text size="sm" c="dimmed">
-                  Assigned to {chainRequest.decision?.actorLabel || 'the configured organization actor'}.
+                  Chosen for this step: {chainRequest.decision?.actorLabel || 'the person named under Who does what'}.
                 </Text>
                 {chainRequest.decision?.canApprove && (
                   <Button
@@ -8638,13 +8638,19 @@ export default function FinancePage() {
                 )}
                 {!chainRequest.decision?.canApprove && !chainRequest.decision?.canReject && (
                   <Alert color={chainRequest.decision?.canAct ? 'yellow' : 'blue'} variant="light" icon={<IconShieldCheck size={16} />}>
-                    {chainRequest.decision?.canAct
-                      ? 'You are assigned to this step, but your organization authority does not permit this decision.'
-                      : `Waiting for ${chainRequest.decision?.actorLabel || 'the assigned stage actor'} to act.`}
+                    {requestDecisionBlockText(chainRequest.decision)}
                   </Alert>
                 )}
               </Stack>
             </Paper>
+          )}
+          {chainRequest && (
+            <StageActorTimeline
+              stages={requestExperienceForRow(chainRequest).stages}
+              people={orgMembers}
+              whoDid={requestWhoDid(chainRequest, chainRequest.people || orgMembers)}
+              title="Request progress"
+            />
           )}
           {chainRequest && familyLinks(chainRequest.family, chainRequest.id).length > 0 && (
             <FamilyStrip
@@ -8657,8 +8663,29 @@ export default function FinancePage() {
             trail={historyItem?.trail || trailFromRequest(chainRequest, orgMembers)}
             compact
             embedded
-            subject={chainRequest ? 'request' : 'job'}
           />
+          {chainRequest && (
+            <RecordActions
+              kind="request"
+              id={String(chainRequest.id)}
+              canCancel={['draft', 'submitted', 'in_review'].includes(String(chainRequest.status || '').toLowerCase())}
+              onCancelled={() => {
+                setChainRequest(null)
+                void fetchRequisitions()
+              }}
+            />
+          )}
+          {!chainRequest && historyItem?.record && (
+            <RecordActions
+              kind={historyItem.record.kind}
+              id={historyItem.record.id}
+              canCancel={historyItem.record.canCancel}
+              onCancelled={() => {
+                setHistoryItem(null)
+                void fetchApSuppliers()
+              }}
+            />
+          )}
           </Stack>
         )}
       </Drawer>
@@ -9233,13 +9260,13 @@ export default function FinancePage() {
                 }
                 sections={[
                   {
-                    title: 'COUNTERPARTY IDENTITY',
+                    title: 'WHO PAYS',
                     content: (
                       <Stack gap="xs">
                         <Group justify="space-between" align="flex-start" wrap="nowrap">
                           <Box style={{ minWidth: 0 }}>
                             <Text fw={700} size="sm">
-                              {selectedPlanDetails.payer_name || 'Debtor counterparty'}
+                              {selectedPlanDetails.payer_name || 'Customer'}
                             </Text>
                             {selectedPlanDetails.payer_phone && (
                               <Text size="xs" c="dimmed">
@@ -9253,20 +9280,17 @@ export default function FinancePage() {
                             )}
                           </Box>
                           <Badge color="blue" variant="light">
-                            Debtor View
+                            Customer
                           </Badge>
                         </Group>
                         <Group gap="xs" wrap="wrap">
-                          <Badge size="sm" color="indigo" variant="light">
-                            Collector {selectedPlanDetails.buyer_tenant_id || 'Unknown'}
-                          </Badge>
                           <Badge size="sm" color="grape" variant="light">
-                            Debtor{' '}
-                            {selectedPlanDetails.debtor_org_name || selectedPlanDetails.debtor_org_id || 'Pending link'}
+                            {selectedPlanDetails.debtor_org_name ||
+                              (selectedPlanDetails.debtor_org_id ? 'Another organisation' : 'Not linked to an organisation')}
                           </Badge>
                           {latestWorkflow?.source_payment_link_id && (
                             <Badge size="sm" color="cyan" variant="light">
-                              Link {String(latestWorkflow.source_payment_link_id).slice(0, 10)}…
+                              Has a pay link
                             </Badge>
                           )}
                         </Group>
@@ -9274,7 +9298,7 @@ export default function FinancePage() {
                     ),
                   },
                   {
-                    title: 'PROOF & CONSENT STATE',
+                    title: 'CUSTOMER CONSENT',
                     content: (
                       <Stack gap="xs">
                         <Text size="sm">{lifecycleStage.description}</Text>
@@ -9284,30 +9308,28 @@ export default function FinancePage() {
                           </Badge>
                           {latestWorkflow?.required_proof_type && (
                             <Badge color="orange" variant="light">
-                              Proof {latestWorkflow.required_proof_type}
+                              Confirmation needed
                             </Badge>
                           )}
                           {latestWorkflow?.required_action && (
                             <Badge color="blue" variant="outline">
-                              Next {formatLedgerLabel(latestWorkflow.required_action)}
+                              Next: {formatLedgerLabel(latestWorkflow.required_action)}
                             </Badge>
                           )}
                         </Group>
                         <Text size="xs" c="dimmed">
-                          Request:{' '}
-                          {selectedPlanDetails.proof_request_id || latestWorkflow?.proof_request_id || 'Not issued'}
+                          Asked:{' '}
+                          {selectedPlanDetails.proof_request_id || latestWorkflow?.proof_request_id ? 'Yes' : 'Not yet'}
                         </Text>
                         <Text size="xs" c="dimmed">
-                          Response:{' '}
-                          {selectedPlanDetails.proof_response_id ||
-                            latestWorkflow?.proof_response_id ||
-                            'Not presented'}
+                          Confirmed:{' '}
+                          {selectedPlanDetails.proof_response_id || latestWorkflow?.proof_response_id ? 'Yes' : 'Not yet'}
                         </Text>
                         <Text size="xs" c="dimmed">
                           Consent:{' '}
                           {latestWorkflow?.consent_timestamp
                             ? dayjs(latestWorkflow.consent_timestamp).format('D MMM YYYY HH:mm')
-                            : 'Awaiting consent proof'}
+                            : 'Not given yet'}
                         </Text>
                         {latestWorkflow?.required_proof_type && !latestWorkflow?.proof_response_id && (
                           <Button
@@ -9322,23 +9344,23 @@ export default function FinancePage() {
                               })
                             }
                           >
-                            {lifecycleStage.key === 'proof_requested' ? 'Resume Wallet Proof' : 'Start Wallet Proof'}
+                            {lifecycleStage.key === 'proof_requested' ? 'Continue in the app' : 'Confirm in the app'}
                           </Button>
                         )}
                       </Stack>
                     ),
                   },
                   {
-                    title: 'CREDENTIAL CHAIN',
+                    title: 'RECORDS',
                     content: (
                       <Stack gap="xs">
                         <Group justify="space-between" align="center" wrap="nowrap">
                           <Box style={{ minWidth: 0 }}>
                             <Text size="sm" fw={600}>
-                              Invoice VC
+                              Invoice
                             </Text>
                             <Text size="xs" c="dimmed" truncate>
-                              {firstCollection?.id || 'Not attached'}
+                              {firstCollection?.invoiceRef || (firstCollection?.id ? 'Attached' : 'Not attached')}
                             </Text>
                           </Box>
                           {firstCollection?.id && (
@@ -9347,7 +9369,7 @@ export default function FinancePage() {
                               variant="subtle"
                               onClick={() =>
                                 openCredentialArtifact({
-                                  title: 'AR Invoice Credential',
+                                  title: 'Invoice',
                                   credentialId: String(firstCollection.id),
                                   credentialType: 'InvoiceVC',
                                   status: 'issued',
@@ -9356,7 +9378,7 @@ export default function FinancePage() {
                                   counterpart: selectedPlanDetails.payer_name || null,
                                   amount: Number(firstCollection.amount || selectedPlanDetails.total_amount || 0),
                                   currency: firstCollection.currency || selectedPlanDetails.currency || 'USD',
-                                  note: 'Instalment link and invoice evidence for this AR plan.',
+                                  note: 'The pay link and invoice for this payment plan.',
                                 })
                               }
                             >
@@ -9367,12 +9389,12 @@ export default function FinancePage() {
                         <Group justify="space-between" align="center" wrap="nowrap">
                           <Box style={{ minWidth: 0 }}>
                             <Text size="sm" fw={600}>
-                              Payment Proof
+                              Payment confirmation
                             </Text>
                             <Text size="xs" c="dimmed" truncate>
-                              {selectedPlanDetails.proof_response_id ||
-                                latestWorkflow?.proof_response_id ||
-                                'Awaiting wallet presentation'}
+                              {selectedPlanDetails.proof_response_id || latestWorkflow?.proof_response_id
+                                ? 'Received'
+                                : 'Not received yet'}
                             </Text>
                           </Box>
                           {(selectedPlanDetails.proof_response_id || latestWorkflow?.proof_response_id) && (
@@ -9381,7 +9403,7 @@ export default function FinancePage() {
                               variant="subtle"
                               onClick={() =>
                                 openCredentialArtifact({
-                                  title: 'Payment Proof Credential',
+                                  title: 'Payment confirmation',
                                   credentialId: String(
                                     selectedPlanDetails.proof_response_id || latestWorkflow?.proof_response_id,
                                   ),
@@ -9393,7 +9415,7 @@ export default function FinancePage() {
                                     selectedPlanDetails.debtor_org_name || selectedPlanDetails.payer_name || null,
                                   amount: Number(latestWorkflow?.amount || 0),
                                   currency: latestWorkflow?.currency || selectedPlanDetails.currency || 'USD',
-                                  note: 'Wallet proof that unlocks the next AR settlement step.',
+                                  note: 'The customer confirmed in the app, so the next payment step can go ahead.',
                                 })
                               }
                             >
@@ -9404,7 +9426,7 @@ export default function FinancePage() {
                         <Group justify="space-between" align="center" wrap="nowrap">
                           <Box style={{ minWidth: 0 }}>
                             <Text size="sm" fw={600}>
-                              Receipt VC
+                              Receipt
                             </Text>
                             <Text size="xs" c="dimmed" truncate>
                               {selectedPlanDetails.receipt_vc_id || 'Not issued yet'}
@@ -9438,10 +9460,10 @@ export default function FinancePage() {
                     ),
                   },
                   {
-                    title: 'TRUST & VERIFICATION',
+                    title: 'CHECKS',
                     content: (
                       <Stack gap="xs">
-                        <Text size="sm">Current verification posture for the debtor-side AR obligation.</Text>
+                        <Text size="sm">Where the checks on this customer payment stand.</Text>
                         <Group gap="xs" wrap="wrap">
                           <Badge
                             color={trustTone(selectedPlanDetails.trust_status || latestWorkflow?.trust_status)}
@@ -9459,88 +9481,68 @@ export default function FinancePage() {
                           </Badge>
                         </Group>
                         <Text size="xs" c="dimmed">
-                          Required action: {formatLedgerLabel(latestWorkflow?.required_action || 'none', 'None')}
+                          Next step: {formatLedgerLabel(latestWorkflow?.required_action || 'none', 'None')}
                         </Text>
                         <Text size="xs" c="dimmed">
-                          Required actor: {formatLedgerLabel(latestWorkflow?.required_actor_role || 'payer', 'Payer')}
-                        </Text>
-                        <Text size="xs" c="dimmed">
-                          Workflow transaction: {latestWorkflow?.id || 'Not attached yet'}
+                          Who does it: {formatLedgerLabel(latestWorkflow?.required_actor_role || 'payer', 'Payer')}
                         </Text>
                       </Stack>
                     ),
                   },
                   {
-                    title: 'LEDGER TRAIL',
+                    title: 'PAYMENT STEPS',
                     content: (
                       <DetailTimelineList
                         items={buildArWorkflowTimelineItems(workflowTransactions)}
-                        emptyText="No cross-org workflow transaction is attached to this plan yet."
+                        emptyText="No payment steps recorded for this plan yet."
                       />
                     ),
                   },
-                  ...(selectedPlanDetails.status === 'active'
-                    ? [
-                        {
-                          title: 'PLAN ACTIONS',
-                          content: (
-                            <Stack gap="xs">
-                              <Button
-                                color="orange"
-                                variant="light"
-                                fullWidth
-                                onClick={async () => {
-                                  const token = getPreferredToken() || getWalletToken()
-                                  if (!token) return
-                                  try {
-                                    await api.patch(
-                                      `/api/finance/ar/plans/${selectedPlanId}/dispute`,
-                                      {},
-                                      {
-                                        headers: { Authorization: `Bearer ${token}` },
-                                      },
-                                    )
-                                    feedback.warn('Plan marked as disputed. Counterparty will be notified.', { title: 'Dispute raised' })
-                                    setSelectedPlanId(null)
-                                    setSelectedPlanDetails(null)
-                                    void fetchLinks()
-                                  } catch (err: any) {
-                                    feedback.error(err.response?.data?.message ?? err.message, { title: 'Dispute failed' })
-                                  }
-                                }}
-                              >
-                                Raise Dispute
-                              </Button>
-                              <Button
-                                color="red"
-                                fullWidth
-                                onClick={async () => {
-                                  const token = getPreferredToken() || getWalletToken()
-                                  if (!token) return
-                                  try {
-                                    await api.patch(
-                                      `/api/finance/ar/plans/${selectedPlanId}/cancel`,
-                                      {},
-                                      {
-                                        headers: { Authorization: `Bearer ${token}` },
-                                      },
-                                    )
-                                    feedback.success('Instalment plan has been cancelled.', { title: 'Plan cancelled' })
-                                    setSelectedPlanId(null)
-                                    setSelectedPlanDetails(null)
-                                    void fetchLinks()
-                                  } catch (err: any) {
-                                    feedback.fromError(err, { title: 'Cancel failed' })
-                                  }
-                                }}
-                              >
-                                Cancel Plan
-                              </Button>
-                            </Stack>
-                          ),
-                        },
-                      ]
-                    : []),
+                  {
+                    title: 'PLAN ACTIONS',
+                    content: (
+                      <Stack gap="xs">
+                        {selectedPlanDetails.status === 'active' && (
+                          <Button
+                            color="orange"
+                            variant="light"
+                            fullWidth
+                            onClick={async () => {
+                              const token = getPreferredToken() || getWalletToken()
+                              if (!token) return
+                              try {
+                                await api.patch(
+                                  `/api/finance/ar/plans/${selectedPlanId}/dispute`,
+                                  {},
+                                  {
+                                    headers: { Authorization: `Bearer ${token}` },
+                                  },
+                                )
+                                feedback.warn('Plan marked as disputed. The customer will be told.', { title: 'Dispute raised' })
+                                setSelectedPlanId(null)
+                                setSelectedPlanDetails(null)
+                                void fetchLinks()
+                              } catch (err: any) {
+                                feedback.error(err.response?.data?.message ?? err.message, { title: 'Dispute failed' })
+                              }
+                            }}
+                          >
+                            Raise a dispute
+                          </Button>
+                        )}
+                        <RecordActions
+                          kind="collection"
+                          id={String(selectedPlanId)}
+                          canCancel={selectedPlanDetails.status === 'active'}
+                          onCancelled={() => {
+                            setSelectedPlanId(null)
+                            setSelectedPlanDetails(null)
+                            void fetchLinks()
+                          }}
+                        />
+                      </Stack>
+                    ),
+                  },
                 ]}
                 auditItems={installmentItems}
                 auditEmptyText="No instalment activity recorded yet"
@@ -9564,22 +9566,13 @@ export default function FinancePage() {
               <Badge color={trustTone(selectedCredentialArtifact.status)} variant="light">
                 {formatLedgerLabel(selectedCredentialArtifact.status)}
               </Badge>
-              <Badge color="indigo" variant="outline">
-                {selectedCredentialArtifact.credentialType}
-              </Badge>
             </Group>
-            <Paper p="sm" radius="md" withBorder>
-              <Text size="xs" c="dimmed" fw={600}>
-                CREDENTIAL ID
-              </Text>
-              <Code block>{selectedCredentialArtifact.credentialId}</Code>
-            </Paper>
             <Stack gap={4}>
               {selectedCredentialArtifact.counterpart && (
-                <Text size="sm">Counterparty: {selectedCredentialArtifact.counterpart}</Text>
+                <Text size="sm">With: {selectedCredentialArtifact.counterpart}</Text>
               )}
               {selectedCredentialArtifact.sourceRef && (
-                <Text size="sm">Source Ref: {selectedCredentialArtifact.sourceRef}</Text>
+                <Text size="sm">Reference: {selectedCredentialArtifact.sourceRef}</Text>
               )}
               {selectedCredentialArtifact.issuedAt && (
                 <Text size="sm">Issued: {dayjs(selectedCredentialArtifact.issuedAt).format('D MMM YYYY HH:mm')}</Text>

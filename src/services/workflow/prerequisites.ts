@@ -234,7 +234,8 @@ export function lookupRegistryPrerequisites(candidates: string[]): WorkflowPrere
  * `candidates` should include the template id, its workflow type, and known aliases.
  */
 export function getDeclaredPrerequisites(
-  template: Pick<WorkflowTemplateDefinition, 'id' | 'workflowType' | 'prerequisites' | 'experience'>,
+  template: Pick<WorkflowTemplateDefinition, 'id' | 'workflowType' | 'prerequisites' | 'experience'> &
+    Partial<Pick<WorkflowTemplateDefinition, 'steps'>>,
   candidates: string[] = [],
 ): WorkflowPrerequisite[] {
   const lookup = [template.id, template.workflowType, ...candidates].filter(Boolean)
@@ -242,15 +243,26 @@ export function getDeclaredPrerequisites(
     Array.isArray(template.prerequisites) && template.prerequisites.length > 0
       ? template.prerequisites
       : (lookupRegistryPrerequisites(lookup) ?? [])
-  const stages = [template.experience?.reviewAction, template.experience?.fulfilmentAction].filter(
-    (action): action is NonNullable<typeof action> => Boolean(action),
-  )
-  return [
-    ...declared,
-    ...stages
-      .filter((action) => !declared.some((item) => item.key === 'stage_actor' && item.stageAction === action))
-      .map((action) => stageActor(action, `Who handles ${action.replace(/_/g, ' ')}`)),
+  // Every step the workflow waits at needs a person: the two the shared request screens use, and
+  // each step the template declared for itself. That is what puts the step on "Who does what".
+  const stages = [
+    template.experience?.reviewAction,
+    template.experience?.fulfilmentAction,
+    ...(template.steps || [])
+      .filter((step) => step?.action === 'stage.await_actor')
+      .map((step) => String(step.config?.stageAction || '')),
   ]
+    .map((action) => normalize(action))
+    .filter(Boolean)
+  const seen = new Set<string>()
+  const derived = stages
+    .filter((action) => {
+      if (seen.has(action)) return false
+      seen.add(action)
+      return !declared.some((item) => item.key === 'stage_actor' && normalize(item.stageAction) === action)
+    })
+    .map((action) => stageActor(action, `Who handles ${action.replace(/_/g, ' ')}`))
+  return [...declared, ...derived]
 }
 
 function readPath(source: unknown, path: string): unknown {

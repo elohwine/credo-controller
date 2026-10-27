@@ -49,6 +49,11 @@ const logger = rootLogger.child({ module: 'WalletCredentialsController' })
 
 type WalletAuthContext = AuthContext | 'unknown'
 
+/** Who a card is from, the same before and after it is accepted. Cards with no organisation come from Credentis. */
+function offerIssuerName(claims: Record<string, any>, row: { org_name?: string | null }): string {
+  return String(claims.orgName || row.org_name || '').trim() || 'Credentis'
+}
+
 interface PendingOffer {
   id: string
   sourceId?: string
@@ -492,7 +497,7 @@ export class WalletCredentialsController extends Controller {
       out.push({
         id: row.id,
         sourceId: row.source_id || undefined,
-        issuerName: claims.orgName ? String(claims.orgName) : row.org_name || 'Organization',
+        issuerName: offerIssuerName(claims, row),
         credentialType: row.credential_type || 'VerifiableCredential',
         offerUri: row.offer_uri || '',
         createdAt: row.created_at || undefined,
@@ -634,8 +639,8 @@ export class WalletCredentialsController extends Controller {
 
   /**
    * Saves waiting card offers when the person turned that on. Uses the same path as a tap on
-   * "Accept", so custody, dedupe and the audit trail are identical. A failure leaves the card in
-   * the inbox for a manual decision and is not retried automatically.
+   * "Accept", so custody, dedupe and the audit trail are identical. A bad offer stays for a manual
+   * decision and is not retried. A network failure is tried again on the next inbox open.
    */
   private async autoSaveCards(request: ExRequest, walletTenantId: string): Promise<void> {
     let candidates: Array<{ id: string; offerUri: string }> = []
@@ -646,11 +651,19 @@ export class WalletCredentialsController extends Controller {
       return
     }
     for (const candidate of candidates) {
+      ;(request as any).__autoSaving = true
       try {
         await this.acceptOffer(request, { offerUri: candidate.offerUri })
       } catch (error: any) {
-        holderSettingsService.markAutoSaveFailed(candidate.id, String(error?.message || 'could not save'))
+        const message = String(error?.message || 'could not save')
+        if (classifyOfferFailure(message).unreachable) {
+          holderSettingsService.releaseAutoSaveClaim(candidate.id)
+        } else {
+          holderSettingsService.markAutoSaveFailed(candidate.id, message)
+        }
         request.logger?.info({ offerId: candidate.id, err: error?.message }, 'Card left for a manual decision')
+      } finally {
+        ;(request as any).__autoSaving = false
       }
     }
     // A failed save above must not change the status of this inbox read.
@@ -809,7 +822,7 @@ export class WalletCredentialsController extends Controller {
         offers.push({
           id: row.id,
           sourceId: row.source_id || undefined,
-          issuerName: claims.orgName ? String(claims.orgName) : row.org_name || 'Credentis Platform',
+          issuerName: offerIssuerName(claims, row),
           issuerTenantId: row.issuer_tenant_id || undefined,
           credentialType,
           offerUri: row.offer_uri,
@@ -1549,7 +1562,8 @@ export class WalletCredentialsController extends Controller {
 
       // Role cards, employee cards, and platform identity can be re-issued by the platform:
       // send a fresh offer and accept that one straight away (one retry only).
-      if (offerUnusable && !(request as any).__roleCardReissued) {
+      // A background save never sends a fresh offer: each inbox read would queue another one.
+      if (offerUnusable && !(request as any).__roleCardReissued && !(request as any).__autoSaving) {
         const assignment = await workflowVcOfferDispatcher.reissueJobAssignmentOffer(tenantId, rawOffer)
         if (assignment.outcome === 'not_current') {
           throw new StatusException(`This assignment record is no longer current: ${assignment.reason}.`, 409)

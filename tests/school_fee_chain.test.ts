@@ -8,9 +8,10 @@
  */
 
 import 'reflect-metadata'
-import { afterAll, beforeAll, describe, expect, test } from '@jest/globals'
+import { afterAll, beforeAll, describe, expect, jest, test } from '@jest/globals'
 
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
+import { notificationService } from '../src/services/NotificationService'
 import { WorkflowTemplateRepository } from '../src/persistence/WorkflowTemplateRepository'
 import { paymentLinkService } from '../src/services/PaymentLinkService'
 import { workflowService } from '../src/services/WorkflowService'
@@ -55,6 +56,10 @@ ActionRegistry.register('trust.update_score', async () => undefined)
 
 beforeAll(() => {
   databases = initTestDatabases('credo-school-fee-chain-')
+  // The parent's phone message is a provider call; the chain only needs to know it was accepted.
+  jest
+    .spyOn(notificationService, 'dispatchContactNotification')
+    .mockResolvedValue({ accepted: true, channels: [{ channel: 'sms', status: 'accepted' }] } as any)
 })
 
 afterAll(() => {

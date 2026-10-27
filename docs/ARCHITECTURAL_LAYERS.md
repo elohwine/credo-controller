@@ -235,6 +235,9 @@ Action 1 → Action 2 → [Pause for Task] → Action 3 → [Verification] → C
 - `external.ecocash_payment` — Initiate payment via provider
 - `request.wait_for_task` — Create task, pause workflow
 - `request.complete_task` — Resume workflow on task completion
+- `stage.await_actor` — Pause at a step any workflow names for itself: route the inbox card to the
+  person the organisation chose for that step and wait for their staff card
+  (`src/services/workflow/actions/StageGateActions.ts`, pause reason `await_stage:<step>`)
 - `trust.update_score` — Adjust business reputation
 - `consent.capture` / `consent.revoke` — User consent lifecycle
 - (Extensible via `ActionRegistry.register()`)

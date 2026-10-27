@@ -71,7 +71,7 @@ export function configuredCredentialCatalogue(
         (type === 'JobAssignmentVC' && template.workflowType === 'field_execution_fept'
           ? policy.vcOfferModes?.RequisitionVC
           : undefined)
-      if (mode === 'disabled' || (mode === 'optional' && !policy.sendOptionalOffers)) continue
+      if (mode === 'disabled' || (mode === 'optional' && policy.sendOptionalOffers === false)) continue
       let item = records.get(type)
       if (!item) {
         const definition = definitions.find(
@@ -126,5 +126,5 @@ export function sanitizeRecordSettings(
     if (!allowed.has(type) || !mode || !MODES.has(mode as CredentialOfferMode)) continue
     vcOfferModes[type] = mode as CredentialOfferMode
   }
-  return { vcOfferModes, sendOptionalOffers: input.sendOptionalOffers === true }
+  return { vcOfferModes, sendOptionalOffers: input.sendOptionalOffers !== false }
 }

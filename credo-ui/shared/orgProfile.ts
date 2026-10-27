@@ -1,6 +1,7 @@
 import {
   ORG_MODULE_CATALOGUE,
   suggestOrgSetup,
+  suggestedOrgModules,
   type OrgModule,
   type OrgOperatingModel,
   type OrgConfigurationAccess,
@@ -63,12 +64,38 @@ export function moduleSuggestionText(
   return suggestOrgSetup(kinds, operatingModel).find((item) => item.id === option.id)?.reason || option.detail
 }
 
+/**
+ * Work areas to tick when the questions open. Saved areas once the questions were answered
+ * (an empty list then means the owner unticked them); before that, the ones the answers suggest.
+ */
+export function startingModules(
+  saved: { modules: OrgModule[]; completedAt?: string } | null | undefined,
+  kinds: readonly string[],
+  operatingModel: OrgOperatingModel = 'internal',
+): OrgModule[] {
+  if (saved?.completedAt) return saved.modules
+  return suggestedOrgModules(kinds.length > 0 ? kinds : ['office'], operatingModel)
+}
+
 export const ORG_MODULE_OPTIONS: OrgModuleOption[] = ORG_MODULE_CATALOGUE.map(({ id, label, detail, opens }) => ({
   id,
   label,
   detail,
   opens,
 }))
+
+const OPENS_FOR_KIND: Record<OrgKind, string> = { office: '', field: 'Jobs', school: 'School fees', shop: 'Counter sales' }
+
+/** "What you can do now" after setup: purchase requests and supplier bills always, then each answer once. */
+export function openedWorkAreas(kinds: readonly OrgKind[], modules: readonly OrgModule[]): string[] {
+  const opens = [
+    'Purchase requests',
+    'Supplier bills',
+    ...modules.map((module) => ORG_MODULE_OPTIONS.find((option) => option.id === module)?.opens || ''),
+    ...kinds.map((kind) => OPENS_FOR_KIND[kind] || ''),
+  ]
+  return Array.from(new Set(opens.filter(Boolean)))
+}
 
 /** The plan the organisation is on, as the server reports it with the setup answers. */
 export type OrgPlanSummary = {
@@ -77,10 +104,12 @@ export type OrgPlanSummary = {
   note?: string
 }
 
+/** Under "How will you use the platform?": sign-in, cards and step checks cannot be switched off. */
+export const OPERATING_MODEL_NOTE = 'Whichever you pick, sign-in, staff cards and the checks on each step stay on.'
+
 /** One line under a module choice: whether it costs anything right now. */
 export function modulePlanNote(module: OrgModule, plan: OrgPlanSummary | null | undefined): string {
-  if (!ORG_MODULE_CATALOGUE.find((item) => item.id === module)?.paid)
-    return 'Included. Identity and required proofs are always retained.'
+  if (!ORG_MODULE_CATALOGUE.find((item) => item.id === module)?.paid) return 'Included.'
   if (!plan) return 'Part of the paid plan.'
   if (plan.id === 'premium') return 'Included in your plan.'
   if (plan.grantedModules.includes(module)) {
@@ -174,7 +203,7 @@ export function moneyInviteNote(presetId: string, roles: string[]): string | und
 export const PAYMENT_CHOICES: Array<{ id: PaymentChoice; label: string; detail: string }> = [
   { id: 'clicknpay', label: 'Click n Pay', detail: 'Card payments' },
   { id: 'ecocash', label: 'EcoCash', detail: 'Mobile money' },
-  { id: 'simulated', label: 'Practice payments', detail: 'No real money moves. Good for trying things out.' },
+  { id: 'simulated', label: 'Simulated pay', detail: 'Practice payment. No real money moves. Good for trying things out.' },
   { id: 'none', label: 'Not yet', detail: 'Choose later under Organisation → Payments' },
 ]
 

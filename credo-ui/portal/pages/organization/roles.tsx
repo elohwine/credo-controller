@@ -144,7 +144,7 @@ export default function OrganizationRolesPage() {
                 </Text>
               </Box>
               <Group gap="xs">
-                <Button variant="default" size="sm" component="a" href="/organization/setup">← Setup Center</Button>
+                <Button variant="default" size="sm" component="a" href="/organization/setup">← Setup</Button>
                 <Button leftSection={<IconPlus size={16} />} size="sm" onClick={() => setCreateOpen(true)} disabled={!orgTenantId}>Add Role</Button>
               </Group>
             </Group>

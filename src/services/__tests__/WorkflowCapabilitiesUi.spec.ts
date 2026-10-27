@@ -6,6 +6,9 @@ import * as mobileCopy from '../../../credo-ui/mobile/lib/uxCopy'
 import * as mobileSteps from '../../../credo-ui/mobile/lib/nextSteps'
 import * as portalSteps from '../../../credo-ui/portal/lib/nextSteps'
 import * as portalStages from '../../../credo-ui/portal/components/finance/financeStages'
+import * as mobileTrail from '../../../credo-ui/mobile/lib/jobAuditTrail'
+import * as portalTrail from '../../../credo-ui/portal/components/finance/jobAuditTrail'
+import { financeStatusWord } from '../../../credo-ui/shared/financeWords'
 
 describe('workflow centre classification', () => {
   const cases: Array<[Parameters<typeof portal.classifyBusinessCentre>[0], string, string[]]> = [
@@ -114,6 +117,45 @@ describe('school fee progress', () => {
         ['school', 'fee'],
       ),
     ).toHaveLength(1)
+  })
+
+  it('puts a school fee on the shared Progress list, history and Related work on both apps', () => {
+    const planned = {
+      ...waiting,
+      input: { ...waiting.input, payerName: 'Rudo Moyo', reference: 'FEE-T1' },
+      output: { clientBill: { ...waiting.output.clientBill, linkId: 'link-1', planId: 'plan-1' } },
+    }
+    for (const run of [waiting, paid, planned]) {
+      expect(mobileCopy.schoolFeeStages(run)).toEqual(portalStages.schoolFeeStages(run))
+      expect(mobileCopy.schoolFeeWhoDid(run)).toEqual(portalStages.schoolFeeWhoDid(run))
+      expect(mobileCopy.schoolFeeRelated(run)).toEqual(portalStages.schoolFeeRelated(run))
+      expect(mobileTrail.trailFromSchoolFee(run, mobileCopy.schoolFeeProgress(run))).toEqual(
+        portalTrail.trailFromSchoolFee(run, portalStages.schoolFeeProgress(run)),
+      )
+    }
+    expect(portalStages.schoolFeeStages(planned).find((stage) => stage.key === 'RECEIPT')?.stageAction).toBe('issue_receipt_vc')
+    expect(portalStages.schoolFeeWhoDid(planned)).toEqual({ PAID: 'Rudo Moyo (parent)' })
+    expect(portalStages.schoolFeeRelated(planned).map((item) => item.kind)).toEqual(['pay_link', 'payment_plan'])
+    expect(portalStages.schoolFeeRelated(waiting)).toEqual([])
+
+    const trail = portalTrail.trailFromSchoolFee(paid, portalStages.schoolFeeProgress(paid))
+    expect(trail.subject).toBe('fee')
+    expect(trail.steps.every((step) => step.status === 'done')).toBe(true)
+    expect(trail.records.map((record) => record.label)).toEqual(['School fee receipt'])
+    // A pending step is not credited to the parent before they pay.
+    const open = portalTrail.trailFromSchoolFee(planned, portalStages.schoolFeeProgress(planned))
+    expect(open.steps.find((step) => step.id === 'paid')?.by).toBeUndefined()
+  })
+
+  it('names what each history is about, so a bill never reads as a job', () => {
+    expect(portalTrail.trailFromSupplierBill({ invoice_ref: 'B-1' }).subject).toBe('bill')
+    expect(portalTrail.trailFromPaymentLink({ id: 'l-1', sector: 'education' }).subject).toBe('fee')
+    expect(portalTrail.trailFromPaymentLink({ id: 'l-2' }).subject).toBe('payment')
+    expect(portalTrail.trailFromRequest({ id: 'r-1', events: [] }).subject).toBe('request')
+    expect(mobileTrail.AUDIT_SUBJECT_WORDS).toEqual(portalTrail.AUDIT_SUBJECT_WORDS)
+    expect(financeStatusWord('OUTSTANDING')).toBe('Owed')
+    expect(financeStatusWord('partially_paid')).toBe('Part paid')
+    expect(financeStatusWord('JOB_CLOSED')).toBe('Job closed')
   })
 
   it('picks fee runs out of the run list on both apps', () => {

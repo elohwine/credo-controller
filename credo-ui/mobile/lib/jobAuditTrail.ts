@@ -177,10 +177,23 @@ export interface AuditStageChange {
   by?: string
 }
 
+/** What a history is about. The panel picks its words from this ("Supplier bill …", "People on this school fee"). */
+export type AuditSubject = 'job' | 'request' | 'bill' | 'payment' | 'fee'
+
+export const AUDIT_SUBJECT_WORDS: Record<AuditSubject, { noun: string; title: string }> = {
+  job: { noun: 'job', title: 'Job' },
+  request: { noun: 'request', title: 'Request' },
+  bill: { noun: 'supplier bill', title: 'Supplier bill' },
+  payment: { noun: 'payment', title: 'Payment' },
+  fee: { noun: 'school fee', title: 'School fee' },
+}
+
 export interface JobAuditTrail {
   reference: string
   title: string
   status: string
+  /** Left out for a field job. */
+  subject?: AuditSubject
   people: AuditPersonRow[]
   steps: AuditStep[]
   records: AuditRecord[]
@@ -1205,6 +1218,7 @@ export function trailFromRequest(request: any, people: AuditPerson[] = []): JobA
   })
   const reference = String(request?.ledger?.invoiceRef || request?.context?.projectRef || request?.id || 'Request')
   const trail = emptyTrail(reference, String(request?.title || 'Request'), String(request?.status || ''), steps)
+  trail.subject = 'request'
   trail.people = Array.from(peopleFromSteps(steps, people).values())
   return trail
 }
@@ -1226,12 +1240,15 @@ export function trailFromPaymentLink(link: any): JobAuditTrail {
       ),
     )
   }
-  return emptyTrail(
-    String(link.invoice_ref || link.invoiceRef || link.shortlink_code || link.id || 'Payment'),
-    String(link.description || 'Client payment'),
-    String(link.status || ''),
-    steps,
-  )
+  return {
+    ...emptyTrail(
+      String(link.invoice_ref || link.invoiceRef || link.shortlink_code || link.id || 'Payment'),
+      String(link.description || 'Client payment'),
+      String(link.status || ''),
+      steps,
+    ),
+    subject: String(link.sector || '').toLowerCase() === 'education' ? 'fee' : 'payment',
+  }
 }
 
 /** History of a supplier bill (money we owe). */
@@ -1260,10 +1277,58 @@ export function trailFromSupplierBill(bill: any): JobAuditTrail {
       ),
     )
   }
-  return emptyTrail(
-    String(bill.invoice_ref || bill.invoiceRef || bill.id || 'Bill'),
-    String(bill.description || bill.supplierName || 'Supplier bill'),
-    String(bill.status || ''),
-    steps,
-  )
+  return {
+    ...emptyTrail(
+      String(bill.invoice_ref || bill.invoiceRef || bill.id || 'Bill'),
+      String(bill.description || bill.supplierName || 'Supplier bill'),
+      String(bill.status || ''),
+      steps,
+    ),
+    subject: 'bill',
+  }
+}
+
+/**
+ * History of one school fee. The steps come from `schoolFeeProgress` (financeStages / uxCopy), so
+ * the Progress list and this history never disagree; the receipt record is added when it was kept.
+ */
+export function trailFromSchoolFee(
+  run: any,
+  progress: Array<{ key: string; label: string; status: 'done' | 'active' | 'pending'; at?: string; by?: string }>,
+): JobAuditTrail {
+  const input = run?.input || {}
+  const output = run?.output || {}
+  const bill = output.clientBill || {}
+  const steps: AuditStep[] = progress.map((item) => ({
+    id: item.key.toLowerCase(),
+    title: item.label,
+    status: item.status === 'active' ? 'active' : item.status,
+    at: item.at,
+    by: item.status === 'done' ? item.by : undefined,
+    details: [
+      item.key === 'FEE_SET' ? [input.feeType, input.term].filter(Boolean).join(' · ') : '',
+      item.key === 'LINK_SENT' && bill.notification?.to ? `Sent to ${bill.notification.to}` : '',
+      item.key === 'PAID' && bill.reference ? `Reference ${bill.reference}` : '',
+    ].filter(Boolean),
+    photos: [],
+  }))
+  const trail: JobAuditTrail = {
+    ...emptyTrail(
+      String(input.reference || run?.id || 'Fee'),
+      String(input.studentName || 'School fee'),
+      String(run?.status || ''),
+      steps,
+    ),
+    subject: 'fee',
+  }
+  const receipt = output.issuedCredentials?.SchoolFeeReceiptVC
+  if (receipt) {
+    trail.records.push({
+      type: 'SchoolFeeReceiptVC',
+      label: 'School fee receipt',
+      issuedAt: receipt.issuedAt,
+      to: String(input.payerName || '').trim() || undefined,
+    })
+  }
+  return trail
 }

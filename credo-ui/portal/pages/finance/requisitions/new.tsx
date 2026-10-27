@@ -1,16 +1,18 @@
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../../../components/Layout';
 import axios from 'axios';
 import { EnvContext } from '@/pages/_app';
 import { getPreferredTenantToken } from '@/utils/portalTenant';
-import { getOrgScopedToken } from '@/utils/organizationContext';
+import { getOrgScopedToken, readActiveOrganization } from '@/utils/organizationContext';
+import FormCard from '@/components/shared/FormCard';
+import { ContactPickerSelect, type PickerContact } from '@/components/finance/ContactPickerSelect';
 import { useRequireOrgContext } from '@/lib/portalContext';
 import {
     Container, Title, Text, Paper, Group, Stack, Button, NumberInput, Select, Textarea, TextInput, Divider
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconCheck, IconReceipt } from '@tabler/icons-react';
+import { IconCheck, IconReceipt, IconShoppingCart } from '@tabler/icons-react';
 
 export default function NewRequisitionPage() {
     // Org-only surface, like the requisition list and detail pages.
@@ -30,6 +32,31 @@ export default function NewRequisitionPage() {
         currency: 'USD',
         description: '',
     });
+    const [contacts, setContacts] = useState<PickerContact[]>([]);
+
+    // Saved contacts, so the supplier field can be picked instead of typed.
+    useEffect(() => {
+        const token = getOrgScopedToken() || getPreferredTenantToken();
+        if (!token) return;
+        void Promise.allSettled(
+            (['external', 'internal'] as const).map((contactScope) =>
+                axios.get(`${baseUrl}/api/contacts`, { headers: { Authorization: `Bearer ${token}` }, params: { contactScope } }).then((res) => {
+                    const rows = Array.isArray(res.data?.contacts) ? res.data.contacts : Array.isArray(res.data) ? res.data : [];
+                    return rows.map((c: any) => ({
+                        id: String(c.id),
+                        name: String(c.name || 'Unknown'),
+                        phone: c.phone || undefined,
+                        email: c.email || undefined,
+                        contactScope,
+                    })) as PickerContact[];
+                }),
+            ),
+        ).then((results) => {
+            const merged = results.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
+            setContacts(Array.from(new Map(merged.map((contact) => [contact.id, contact])).values()));
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [baseUrl]);
 
     const getToken = () =>
         typeof window !== 'undefined'
@@ -111,15 +138,14 @@ export default function NewRequisitionPage() {
     };
 
     return (
-        <Layout title="New requisition">
+        <Layout title="New purchase request">
             <Container size="sm" py="md">
-                <Group gap="sm" mb="lg">
-                    <IconReceipt size={28} />
-                    <Title order={3}>New requisition</Title>
-                </Group>
-
-                <Paper p="xl" radius="md" withBorder>
-                    <Stack gap="md">
+                <FormCard
+                    title="New purchase request"
+                    subtitle="Ask for something to be bought. It goes to the person who approves purchases."
+                    issuer={readActiveOrganization()?.name}
+                    icon={<IconShoppingCart size={24} />}
+                >
                         <Group grow>
                             <Select
                                 label="Department"
@@ -156,13 +182,23 @@ export default function NewRequisitionPage() {
                         </Group>
 
                         {form.payWith === 'supplier' && (
-                            <TextInput
-                                label="Supplier"
-                                placeholder="e.g. BuildMart"
-                                description="Who you are buying from. Leave empty if you do not know yet."
-                                value={form.vendor}
-                                onChange={(e) => setForm({ ...form, vendor: e.currentTarget.value })}
-                            />
+                            <>
+                                <ContactPickerSelect
+                                    contacts={contacts}
+                                    requirePhone={false}
+                                    label="Pick the supplier from contacts"
+                                    onPick={(picked) => {
+                                        if (picked) setForm((prev) => ({ ...prev, vendor: picked.name || prev.vendor }));
+                                    }}
+                                />
+                                <TextInput
+                                    label="Supplier"
+                                    placeholder="e.g. BuildMart"
+                                    description="Who you are buying from. Leave empty if you do not know yet."
+                                    value={form.vendor}
+                                    onChange={(e) => setForm({ ...form, vendor: e.currentTarget.value })}
+                                />
+                            </>
                         )}
 
                         <Group grow>
@@ -197,8 +233,7 @@ export default function NewRequisitionPage() {
                                 Send request
                             </Button>
                         </Group>
-                    </Stack>
-                </Paper>
+                </FormCard>
             </Container>
         </Layout>
     );

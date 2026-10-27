@@ -1,9 +1,11 @@
 import { feedback } from '@/lib/feedback';
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
-import { Alert, Badge, Button, Container, Group, Paper, Stack, Text, TextInput, Title } from '@mantine/core'
+import { Alert, Badge, Button, Container, Group, Modal, Paper, Stack, Text, TextInput, Title } from '@mantine/core'
+import { IconPlus, IconUsersGroup } from '@tabler/icons-react'
 
 import Layout from '@/components/Layout'
+import FormCard from '@/components/shared/FormCard'
 import { useRequireOrgContext } from '@/lib/portalContext'
 import { getOrgScopedToken, getPersonalToken, readActiveOrganization } from '@/utils/organizationContext'
 
@@ -25,6 +27,7 @@ export default function TrustedPartnersPage() {
   const [name, setName] = useState('')
   const [reference, setReference] = useState('')
   const [saving, setSaving] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
   const [trustingOwn, setTrustingOwn] = useState(false)
 
   const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
@@ -57,9 +60,9 @@ export default function TrustedPartnersPage() {
     if (orgTenantId) void load(orgTenantId)
   }, [orgTenantId])
 
-  const add = async () => {
+  const add = async (): Promise<boolean> => {
     const auth = token()
-    if (!auth || !orgTenantId || !reference.trim()) return
+    if (!auth || !orgTenantId || !reference.trim()) return false
     setSaving(true)
     try {
       const res = await axios.post<{ partners: TrustedPartner[] }>(
@@ -71,8 +74,10 @@ export default function TrustedPartnersPage() {
       setName('')
       setReference('')
       feedback.success('Documents from this partner can now be accepted.', { title: 'Partner added' })
+      return true
     } catch (err: any) {
       feedback.fromError(err, { title: 'Could not add partner' })
+      return false
     } finally {
       setSaving(false)
     }
@@ -139,9 +144,28 @@ export default function TrustedPartnersPage() {
             </Group>
           </Paper>
 
-          <Paper withBorder p="md">
-            <Stack gap="sm">
-              <Text fw={600}>Add a partner</Text>
+          <Modal opened={showAdd} onClose={() => setShowAdd(false)} withCloseButton={false} centered padding={0} radius="lg">
+            <FormCard
+              title="Add a partner"
+              subtitle="Documents and approvals from this partner will be accepted on your jobs."
+              issuer={readActiveOrganization()?.name}
+              icon={<IconUsersGroup size={24} />}
+              actions={
+                <>
+                  <Button variant="default" radius="xl" onClick={() => setShowAdd(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    radius="xl"
+                    onClick={() => void add().then((added) => added && setShowAdd(false))}
+                    loading={saving}
+                    disabled={!reference.trim()}
+                  >
+                    Add partner
+                  </Button>
+                </>
+              }
+            >
               <TextInput label="Name" placeholder="Partner organization" value={name} onChange={(e) => setName(e.currentTarget.value)} />
               <TextInput
                 label="Identifier they gave you"
@@ -150,16 +174,16 @@ export default function TrustedPartnersPage() {
                 onChange={(e) => setReference(e.currentTarget.value)}
                 required
               />
-              <Group justify="flex-end">
-                <Button onClick={() => void add()} loading={saving} disabled={!reference.trim()}>
-                  Add partner
-                </Button>
-              </Group>
-            </Stack>
-          </Paper>
+            </FormCard>
+          </Modal>
 
           <Stack gap="xs">
-            <Text fw={600}>Accepted partners</Text>
+            <Group justify="space-between" align="center">
+              <Text fw={600}>Accepted partners</Text>
+              <Button radius="xl" leftSection={<IconPlus size={18} />} onClick={() => setShowAdd(true)}>
+                Add a partner
+              </Button>
+            </Group>
             {loading && <Text size="sm" c="dimmed">Loading…</Text>}
             {!loading && active.length === 0 && (
               <Text size="sm" c="dimmed">None yet. Accept this organization, or add a partner, before a job that checks documents.</Text>

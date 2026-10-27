@@ -21,7 +21,7 @@ export interface WorkflowStepDefinition {
 export interface CredentialPolicy {
   outputVCs: string[]
   autoIssue: boolean
-  // Per VC type offer behavior. Optional VCs are not offered unless sendOptionalOffers=true.
+  // Per VC type offer behavior. Optional VCs are offered unless sendOptionalOffers=false.
   vcOfferModes?: Record<string, CredentialOfferMode>
   // Global gate for optional VC offers. Defaults to false.
   sendOptionalOffers?: boolean

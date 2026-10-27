@@ -57,3 +57,16 @@ export function requestExperienceForRow(
     events,
   })
 }
+
+/** Who did each request step, by stage key, named from the people on the request. */
+export function requestWhoDid(
+  row: Parameters<typeof requestExperienceForRow>[0],
+  people: Array<{ userId: string; displayName?: string }> = [],
+): Record<string, string> {
+  return Object.fromEntries(
+    requestExperienceForRow(row).stages.flatMap((stage) => {
+      const actor = people.find((person) => person.userId === stage.actorUserId)
+      return actor?.displayName ? [[stage.key, actor.displayName]] : []
+    }),
+  )
+}

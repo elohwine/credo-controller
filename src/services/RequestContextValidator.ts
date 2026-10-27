@@ -103,6 +103,7 @@ const CONTEXT_SCHEMAS = new Map<string, ReadonlySet<string>>([
       'paymentMethod',
       'itemType',
       'receivingRequired',
+      'department',
     ]),
   ],
   [

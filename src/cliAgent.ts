@@ -1,4 +1,6 @@
 /* eslint-disable no-console */
+// Registers native Askar before the ESM @credo-ts/askar build reads it (see src/index.ts).
+import '@openwallet-foundation/askar-nodejs'
 
 import type { DidCommAutoAcceptProof } from '@credo-ts/didcomm'
 

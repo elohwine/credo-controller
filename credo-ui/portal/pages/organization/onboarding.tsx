@@ -19,6 +19,9 @@ import {
   suggestedOrgModules,
   kindsFromRequestTypes,
   modulePlanNote,
+  OPERATING_MODEL_NOTE,
+  startingModules,
+  openedWorkAreas,
   persistOrgProfile,
   profileFromServer,
   profileToServer,
@@ -102,13 +105,6 @@ function isSingleStep(value: unknown): value is SingleStep {
   return value === 'kinds' || value === 'people' || value === 'teams' || value === 'money' || value === 'payments'
 }
 
-const OPEN_FOR_KIND: Record<OrgKind, string> = {
-  office: '',
-  field: 'Jobs',
-  school: 'School fees',
-  shop: 'Counter sales',
-}
-
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function OnboardingPage() {
@@ -126,7 +122,7 @@ export default function OnboardingPage() {
   /** True when the organization already chose people for its money steps. */
   const [hasMoneySetup, setHasMoneySetup] = useState(false)
   const [kinds, setKinds] = useState<OrgKind[]>(['office'])
-  const [modules, setModules] = useState<OrgModule[]>([])
+  const [modules, setModules] = useState<OrgModule[]>(() => startingModules(null, ['office']))
   const [operatingModel, setOperatingModel] = useState<OrgOperatingModel>('internal')
   const [presetId, setPresetId] = useState('owner_handles_money')
   const [paymentChoice, setPaymentChoice] = useState<PaymentChoice>('simulated')
@@ -167,7 +163,7 @@ export default function OnboardingPage() {
     const saved = readOrgProfile()
     if (saved) {
       if (saved.kinds.length > 0) setKinds(saved.kinds)
-      setModules(saved.modules)
+      setModules(startingModules(saved, saved.kinds, saved.operatingModel))
       setOperatingModel(saved.operatingModel || 'internal')
       if (saved.approvalPresetId) setPresetId(saved.approvalPresetId)
       setPaymentChoice(saved.paymentChoice)
@@ -193,7 +189,7 @@ export default function OnboardingPage() {
         setSavedProfile(server)
         persistOrgProfile(server)
         if (server.kinds.length > 0) setKinds(server.kinds)
-        setModules(server.modules)
+        setModules(startingModules(server, server.kinds, server.operatingModel))
         setOperatingModel(server.operatingModel || 'internal')
         if (server.approvalPresetId) setPresetId(server.approvalPresetId)
         setPaymentChoice(server.paymentChoice)
@@ -460,12 +456,7 @@ export default function OnboardingPage() {
   if (step === 'done') {
     const nextStep = thenSteps[0]
     // Same list as the phone app's done card (customer payments are hidden on this branch).
-    const open = [
-      'Purchase requests',
-      'Supplier bills',
-      ...kinds.map((kind) => OPEN_FOR_KIND[kind]).filter(Boolean),
-      ...modules.map((module) => ORG_MODULE_OPTIONS.find((option) => option.id === module)?.opens || '').filter(Boolean),
-    ]
+    const open = openedWorkAreas(kinds, modules)
     return (
       <Layout title="Saved">
         <Container size="sm" py={60}>
@@ -592,7 +583,7 @@ export default function OnboardingPage() {
                 {review.roles.map((role) => (role.status === 'new' ? `${role.name} (new)` : role.name)).join(', ')}
               </Text>
               <Text size="xs" c="dimmed" mt={4}>
-                Invite people into these roles under Organization → People.
+                Invite people into these roles under Organisation → Members.
               </Text>
             </Card>
 
@@ -614,7 +605,7 @@ export default function OnboardingPage() {
               </Text>
             </Card>
 
-            <Alert color="teal" variant="light" radius="md" title="No step waits on structure">
+            <Alert color="teal" variant="light" radius="md" title="Nothing has to be set up first">
               {review.askedOnFirstUse.length > 0 && <Text size="sm">{review.askedOnFirstUse.join(' ')}</Text>}
               <Text size="sm">
                 If nobody is chosen for a step, the usual role order is used, then the owner stands in.
@@ -685,7 +676,7 @@ export default function OnboardingPage() {
                 <Radio value="hybrid" label="Both" />
               </Stack>
             </Radio.Group>
-            <Text size="sm">Platform identity, wallets and required proofs are retained in every case.</Text>
+            <Text size="sm">{OPERATING_MODEL_NOTE}</Text>
             {operatingModel !== 'integration' && <Chip.Group multiple value={kinds} onChange={(value) => {
               const answers = value as OrgKind[]
               setKinds(answers)
@@ -757,7 +748,7 @@ export default function OnboardingPage() {
                 </Button>
               </Group>
               <Text size="xs" c="dimmed">
-                Unticked teams that already exist are kept. Rename or archive them later under Organization → Departments.
+                Unticked teams that already exist are kept. Rename or archive them later under Organisation → Departments.
               </Text>
             </Stack>
           )}

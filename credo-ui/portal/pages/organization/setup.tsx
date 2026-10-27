@@ -6,6 +6,7 @@ import Layout from '@/components/Layout'
 import { StepHelp } from '@/components/help/StepHelp'
 import RecordSettingsCard from '@/components/organization/RecordSettingsCard'
 import DeviceTrustSettingsCard from '@/components/organization/DeviceTrustSettingsCard'
+import { SectionTip } from '@/components/guides/SectionGuides'
 import {
   getOrgScopedToken,
   getPersonalToken,
@@ -25,9 +26,11 @@ import {
   type SetupStep,
 } from '@/utils/orgProfile'
 import {
+  Accordion,
   Alert,
   Anchor,
   Box,
+  Skeleton,
   Button,
   Card,
   Container,
@@ -425,8 +428,14 @@ export default function OrganizationSetupPage() {
             </Alert>
           ) : null}
 
-          {orgTenantId && <RecordSettingsCard orgTenantId={orgTenantId} canEdit={canEditRecords} />}
-          {orgTenantId && <DeviceTrustSettingsCard orgTenantId={orgTenantId} canEdit={canEditRecords} />}
+          <SectionTip tip="tip_org_settings" when={canEditRecords && Boolean(orgTenantId)} />
+
+          {orgTenantId && loading && !readiness && (
+            <Stack gap="sm" aria-label="Loading setup">
+              <Skeleton height={20} width="40%" radius="xl" />
+              <Skeleton height={160} radius="md" />
+            </Stack>
+          )}
 
           {/* ── Create Organization ───────────────────── */}
           {!orgTenantId && (
@@ -552,6 +561,23 @@ export default function OrganizationSetupPage() {
                 </Stack>
               )}
             </Stack>
+          )}
+
+          {orgTenantId && (
+            <Accordion variant="separated" radius="md" chevronPosition="right">
+              <Accordion.Item value="advanced">
+                <Accordion.Control>
+                  <Text fw={500} size="sm">Advanced settings</Text>
+                  <Text size="xs" c="dimmed">Which records each workflow issues, and which steps need the enrolled phone.</Text>
+                </Accordion.Control>
+                <Accordion.Panel>
+                  <Stack gap="md">
+                    <RecordSettingsCard orgTenantId={orgTenantId} canEdit={canEditRecords} />
+                    <DeviceTrustSettingsCard orgTenantId={orgTenantId} canEdit={canEditRecords} />
+                  </Stack>
+                </Accordion.Panel>
+              </Accordion.Item>
+            </Accordion>
           )}
         </Stack>
       </Container>

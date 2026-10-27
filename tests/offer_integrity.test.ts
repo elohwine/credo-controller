@@ -29,6 +29,13 @@ describe('offer resolution errors', () => {
     ).toBe(true)
   })
 
+  it('treats an issuer error at the token step as retryable', () => {
+    const failure = classifyOfferFailure(
+      "Unable to retrieve access token from 'x/token'. Received token error response with status 500",
+    )
+    expect(failure).toMatchObject({ unreachable: true, unusable: false })
+  })
+
   it('treats a 404 offer as gone and re-sendable', () => {
     const failure = classifyOfferFailure(
       "Fetching credential offer from 'x' resulted in an unsuccessful response with status '404'",

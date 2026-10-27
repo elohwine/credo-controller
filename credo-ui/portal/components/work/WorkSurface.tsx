@@ -284,7 +284,7 @@ export default function WorkSurface({ mode }: { mode: WorkSurfaceMode }) {
           </Box>
           <Group gap="xs">
             <Button variant="default" component={Link} href="/organization/setup">
-              Open Setup Center
+              Open setup
             </Button>
             <Button leftSection={<IconRefresh size={16} />} onClick={() => void loadSurface()} loading={loading}>
               Refresh

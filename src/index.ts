@@ -1,4 +1,7 @@
 import 'reflect-metadata'
+// Must load before anything imports @credo-ts/askar: that package is ESM and keeps the value of
+// `askar` it saw on first import, so registering later leaves key lookups undefined.
+import '@openwallet-foundation/askar-nodejs'
 
 import type { ServerConfig } from './utils/ServerConfig'
 import type { Agent } from '@credo-ts/core'

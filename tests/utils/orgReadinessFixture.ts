@@ -22,9 +22,11 @@ import { initTenantStore, upsertTenant } from '../../src/persistence/TenantRepos
 import { WorkflowTemplateRepository } from '../../src/persistence/WorkflowTemplateRepository'
 import { ShortlinkService } from '../../src/services/ShortlinkService'
 import {
+  CashCounterTemplate,
   EducationFeeTemplate,
   FieldExecutionProofTemplate,
   PaymentCollectionTemplate,
+  QuoteInvoiceReceiptTemplate,
 } from '../../src/services/workflow/templates'
 
 const workflowTemplateRepository = new WorkflowTemplateRepository()
@@ -282,6 +284,34 @@ export function configureSchoolFeeTemplate(
   const definition = toDefinition(
     EducationFeeTemplate,
     { orgTenantId, workflowType: 'education_fee_payment', sector: 'education' },
+    overrides,
+  )
+  workflowTemplateRepository.save(definition)
+  return workflowTemplateRepository.findById(definition.id) || definition
+}
+
+/** Persist the counter-sale template for an organization (what a shop-kind setup saves). */
+export function configureCashCounterTemplate(
+  orgTenantId: string,
+  overrides: Partial<WorkflowTemplateDefinition> = {},
+): WorkflowTemplateDefinition {
+  const definition = toDefinition(
+    CashCounterTemplate,
+    { orgTenantId, workflowType: 'cash_counter_payment', sector: 'cash' },
+    overrides,
+  )
+  workflowTemplateRepository.save(definition)
+  return workflowTemplateRepository.findById(definition.id) || definition
+}
+
+/** Persist the quote → invoice → receipt template for an organization. */
+export function configureQuoteTemplate(
+  orgTenantId: string,
+  overrides: Partial<WorkflowTemplateDefinition> = {},
+): WorkflowTemplateDefinition {
+  const definition = toDefinition(
+    QuoteInvoiceReceiptTemplate,
+    { orgTenantId, workflowType: 'ecommerce_delivery', sector: 'ecommerce' },
     overrides,
   )
   workflowTemplateRepository.save(definition)

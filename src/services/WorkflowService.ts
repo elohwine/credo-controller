@@ -39,6 +39,7 @@ import { FieldExecutionActions } from './workflow/actions/FieldExecutionActions'
 import { FinanceActions } from './workflow/actions/FinanceActions'
 import { RequestTaskActions } from './workflow/actions/RequestTaskActions'
 import { triggerFollowOnRequest } from './workflow/actions/RequestTriggerAction'
+import { StageGateActions } from './workflow/actions/StageGateActions'
 import { TrustActions } from './workflow/actions/TrustActions'
 import { createWorkflowStartAction } from './workflow/actions/WorkflowStartAction'
 import { ensureExecutableWorkflow } from './workflow/materialize'
@@ -51,6 +52,8 @@ ActionRegistry.register('external.fetch', ExternalActions.fetchExternal)
 ActionRegistry.register('external.ecocash_payment', ExternalActions.initiateEcoCashPayment)
 ActionRegistry.register('external.call_provider', ExternalActions.callProvider)
 ActionRegistry.register('external.send_notification', ExternalActions.sendNotification)
+ActionRegistry.register('notification.send', ExternalActions.sendNotification)
+ActionRegistry.register('external.cash_capture', ClientPaymentActions.captureCounterPayment)
 ActionRegistry.register('client.request_payment', ClientPaymentActions.requestPayment)
 ActionRegistry.register('client.record_payment', ClientPaymentActions.recordPayment)
 ActionRegistry.register('ar.create_plan', ArActions.createPlan)
@@ -70,6 +73,9 @@ ActionRegistry.register('consent.revoke', ConsentActions.revoke)
 ActionRegistry.register('request.wait_for_task', RequestTaskActions.waitForTask)
 ActionRegistry.register('request.complete_task', RequestTaskActions.completeTask)
 ActionRegistry.register('request.trigger', triggerFollowOnRequest)
+
+// The step any workflow waits at for a person: card to their inbox, staff card to continue.
+ActionRegistry.register('stage.await_actor', StageGateActions.awaitActor)
 
 // Field execution actions (FEPT)
 ActionRegistry.register('field.transition', FieldExecutionActions.transition)
@@ -124,6 +130,11 @@ export class WorkflowService {
     }
     if (!workflow) {
       throw new Error(`Workflow not found: ${workflowId}`)
+    }
+    const missingSteps = ActionRegistry.missing(workflow.actions)
+    if (missingSteps.length > 0) {
+      this.logger.warn({ workflowId: workflow.id, missingSteps }, 'Workflow has steps that are not built')
+      throw new StatusException(`"${workflow.name || workflow.id}" is not available yet. Some of its steps are not built.`, 409)
     }
     orgSetupProfileService.assertWorkflow(tenantId, workflow)
     workflowReadinessService.assertExecutable(tenantId, getWorkflowTypeForWorkflow(workflow))
@@ -288,6 +299,12 @@ export class WorkflowService {
     workflowRunRepository.updateRun(parent.id, { input: { ...parent.input, ...contact } })
     const input = { ...child.input, ...contact, ...(actedByUserId ? { actedByUserId } : {}) }
     workflowRunRepository.updateRun(child.id, { input, status: 'running', error: '' })
+    DatabaseManager.getDatabase()
+      .prepare(
+        `UPDATE workflow_handoff_links SET status = 'running', finished_at = NULL, result_json = NULL
+          WHERE child_kind = 'run' AND child_id = ? AND parent_run_id = ?`,
+      )
+      .run(child.id, parent.id)
     return this.executeRun(child.id, { ...stored, actions }, input, parent.tenantId, step, { ...child.output })
   }
 

@@ -24,7 +24,7 @@ import type {
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { organizationRegistryRepository } from '../persistence/OrganizationRegistryRepository'
 import { ensureDefaultDepartment } from './OrgStarterDepartments'
-import { ensureStarterRoles } from './OrgStarterRoles'
+import { ensureStarterRoles, starterRoleName } from './OrgStarterRoles'
 import { getTenantById } from '../persistence/TenantRepository'
 import { WorkflowTemplateRepository } from '../persistence/WorkflowTemplateRepository'
 import { rootLogger } from '../utils/pinoLogger'
@@ -421,6 +421,15 @@ export class WorkflowReadinessService {
         })
         if (!OrgWorkflowActorService.needsAssignment(resolved)) return base
         if (OrgWorkflowActorService.isMoneyStage(stageAction)) {
+          const waitingRole = orgWorkflowActorService.chosenRoleWithoutMember({
+            orgTenantId,
+            workflowType: String(template.workflowType || template.id || ''),
+            stageAction,
+          })
+          if (waitingRole) {
+            const name = starterRoleName(waitingRole).toLowerCase()
+            return notReady(`Invite ${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}. The owner stands in until then.`)
+          }
           return notReady(
             resolved.mode === 'unassigned'
               ? 'Nobody handles money yet. Choose who approves and releases money once; every request uses them.'

@@ -8,6 +8,9 @@
  *
  * `client.record_payment` is the step after the pause. It only lets the run continue once the
  * money is in; any other resume is rejected and the run stays waiting for the client.
+ *
+ * `external.cash_capture` is the counter-sale step: the money is already in the cashier's hand,
+ * so the bill is created and marked paid in one go on the same rail.
  */
 
 import type { WorkflowActionContext } from '../ActionRegistry'
@@ -23,6 +26,7 @@ import { receivablePlanService, type PaymentTerms } from '../../ReceivablePlanSe
 const logger = rootLogger.child({ module: 'ClientPaymentActions' })
 
 const TRANSACTION_TYPES = new Set(['sale', 'fee_assessment', 'collection_plan'])
+const COUNTER_METHODS = new Set(['cash', 'ecocash', 'pos'])
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
@@ -206,6 +210,82 @@ export class ClientPaymentActions {
       'Client payment message attempted',
     )
     throw new Error('WORKFLOW_PAUSE')
+  }
+
+  /**
+   * `external.cash_capture`: the cashier took the money at the counter. The sale goes on the same
+   * pay-link rail as every other bill (a link created and marked paid at once), so it shows in
+   * Money in with its receipt and its amount owed is settled. Running the step again finds the
+   * same link by its receipt number.
+   */
+  public static async captureCounterPayment(context: WorkflowActionContext, config: any = {}): Promise<void> {
+    if (context.state.payment?.receiptId) return
+    const input = context.input || {}
+    const method = text(input.paymentMethod).toLowerCase()
+    if (!COUNTER_METHODS.has(method)) throw new Error('Choose how the customer paid: cash, EcoCash or card.')
+    const amount = amountOwed(context)
+    if (amount <= 0) throw new Error('Enter the amount the customer paid.')
+    const runId = text(context.runId)
+    if (!runId) throw new Error('A counter sale needs a workflow run.')
+    const cashierRef = text(input.cashierRef)
+    if (config.requireCashierRef && !cashierRef) throw new Error('Enter the cashier reference.')
+    const currency = text(context.state.finance?.currency) || text(input.currency) || 'USD'
+    const buyerPhone = text(input.buyerPhone) || undefined
+    const receiptId = `RCPT-${runId.replace(/-/g, '').slice(0, 10).toUpperCase()}`
+    const what = itemsLine(input.items) || text(input.description)
+    const description = `Counter sale${what ? `: ${what}` : ''}`
+    const db = DatabaseManager.getDatabase()
+    const existing = db
+      .prepare(`SELECT id, shortlink_code AS code, shortlink_url AS url FROM payment_links WHERE merchant_id = ? AND invoice_ref = ?`)
+      .get(context.tenantId, receiptId) as { id: string; code?: string; url?: string } | undefined
+    const link =
+      existing ||
+      (() => {
+        const created = paymentLinkService.create({
+          merchantId: context.tenantId,
+          merchantName: getTenantById(context.tenantId)?.label || undefined,
+          description,
+          amount,
+          currency,
+          invoiceRef: receiptId,
+          payerPhone: buyerPhone,
+          ttlHours: 24,
+          metadata: {
+            workflowRunId: runId,
+            kind: 'invoice',
+            centre: 'counter_sales',
+            paymentMethod: method,
+            cashierRef: cashierRef || undefined,
+            items: input.items,
+          },
+        })
+        return { id: created.id, code: created.shortlinkCode, url: created.shortlinkUrl }
+      })()
+    const paidAt = new Date().toISOString()
+    await paymentLinkService.settlePaid(link.id, { reference: receiptId, payerPhone: buyerPhone, paidAt })
+    context.state.clientBill = {
+      status: 'paid',
+      kind: 'invoice',
+      linkId: link.id,
+      code: link.code,
+      url: link.url,
+      amount,
+      currency,
+      paidAt,
+      reference: receiptId,
+      paymentMethod: method,
+    }
+    context.state.payment = {
+      status: 'completed',
+      receiptId,
+      reference: receiptId,
+      method,
+      amount,
+      currency,
+      timestamp: paidAt,
+      linkId: link.id,
+    }
+    logger.info({ runId, linkId: link.id, method }, 'Counter sale recorded')
   }
 
   public static async recordPayment(context: WorkflowActionContext): Promise<void> {

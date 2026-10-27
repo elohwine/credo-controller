@@ -283,7 +283,7 @@ export class ExternalActions {
 
     // Resolve 'to' if it's a path
     let recipient = to
-    if ((to && to.startsWith('input.')) || to.startsWith('state.')) {
+    if (typeof to === 'string' && (to.startsWith('input.') || to.startsWith('state.'))) {
       const path = to.split('.')
       let value: any = context
       for (const p of path) {
