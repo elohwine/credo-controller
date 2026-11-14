@@ -696,6 +696,33 @@ export class WalletCredentialsController extends Controller {
   }
 
   /**
+   * Whether this sign-in is the wallet a WhatsApp (or other) inbox link was sent to.
+   * Does not return the card. Another saved sign-in on the same phone asks the same question.
+   */
+  @Get('/inbox-item/{itemId}')
+  @Security('jwt', [SCOPES.TENANT_AGENT])
+  @Security('jwt', ['wallet'])
+  public async inboxItemHolder(
+    @Request() request: ExRequest,
+    @Path() itemId: string,
+  ): Promise<{ mine: boolean; holder: 'personal' | 'none' }> {
+    if (!/^[A-Za-z0-9._:-]{1,200}$/.test(itemId)) return { mine: false, holder: 'none' }
+    const context = this.resolveWalletContext(request)
+    const walletTenantId = context.walletTenantId
+    if (!walletTenantId) {
+      this.setStatus(401)
+      throw new Error('Unauthorized')
+    }
+    const row = DatabaseManager.getDatabase()
+      .prepare('SELECT tenant_id AS tenantId FROM wallet_pending_offers WHERE id = ?')
+      .get(itemId) as { tenantId?: string } | undefined
+    if (!row?.tenantId) return { mine: false, holder: 'none' }
+    // Only the wallet the card was queued to. Another member of the same organisation is not that person.
+    if (row.tenantId === walletTenantId) return { mine: true, holder: 'personal' }
+    return { mine: false, holder: 'none' }
+  }
+
+  /**
    * Everything waiting in the holder's wallet inbox: credential offers (identity, receipts,
    * actor credentials …) and workflow task cards.
    */

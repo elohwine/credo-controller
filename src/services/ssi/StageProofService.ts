@@ -56,6 +56,7 @@ import {
 
 import { credentialLifecycleService } from './CredentialLifecycleService'
 import { claimNamesOf, holderActivityService } from './HolderActivityService'
+import { defaultVerifierOf, SITE_VERIFIER_PREFIX } from './siteVerifier'
 import { withTenantHolder } from './TenantHolder'
 import {
   assertProofRequestAllowed,
@@ -95,6 +96,7 @@ export {
   sharePurposeFromBinding,
   transactionDataSigners,
 } from './stageProofQuery'
+
 /** DCQL credential query id for cards issued before selective disclosure (whole card is shared). */
 export const DCQL_LEGACY_CARD_QUERY_ID = 'staff_card_legacy'
 
@@ -231,13 +233,27 @@ export class StageProofService {
     return { did, didUrl: getAuthDidUrl(did, result.didState.didDocument) }
   }
 
+  /**
+   * The verifier a request is made from. Without `site`, the organisation's own verifier (the one
+   * every workflow step uses). With `site`, a separate verifier whose `client_name` the wallet
+   * shows as "Who is asking"; its id starts with SITE_VERIFIER_PREFIX so the default never picks it.
+   */
   async getOrCreateVerifierForAgent(
     agent: AnyAgent,
     signerDidUrl?: string,
+    site?: { verifierId: string; clientName: string },
   ): Promise<{ verifierId: string; signerDidUrl: string }> {
     const verifierModule = verifierModuleOf(agent)
     const existingVerifiers = await verifierModule.getAllVerifiers?.()
-    const verifierId = existingVerifiers?.[0]?.verifierId
+    if (site) {
+      const named =
+        existingVerifiers?.find((verifier: any) => verifier.verifierId === site.verifierId)?.verifierId ||
+        (await verifierModule.createVerifier?.({ verifierId: site.verifierId, clientMetadata: { client_name: site.clientName } }))
+          ?.verifierId
+      if (!named) throw new StatusException('Unable to initialize a verifier for this site', 500)
+      return { verifierId: named, signerDidUrl: signerDidUrl || (await this.getOrCreateDidForAgent(agent)).didUrl }
+    }
+    const verifierId = defaultVerifierOf(existingVerifiers)?.verifierId
     if (verifierId) {
       return { verifierId, signerDidUrl: signerDidUrl || (await this.getOrCreateDidForAgent(agent)).didUrl }
     }
@@ -269,10 +285,16 @@ export class StageProofService {
     idPrefix: string
     descriptorName: string
     purpose: string
+    /** The flow this step belongs to, when the caller knows it (a request's decision stage). */
+    workflowType?: string
   }): Promise<StageProofRequest> {
     const signerIdentity = await this.getOrCreateDidForAgent(params.verifierAgent)
     const verifierRegistration = await this.getOrCreateVerifierForAgent(params.verifierAgent, signerIdentity.didUrl)
-    const acceptedVcTypes = resolveAcceptedProofVcTypes(params.orgTenantId, params.actionKey)
+    const acceptedVcTypes = resolveAcceptedProofVcTypes(
+      params.orgTenantId,
+      params.actionKey,
+      params.workflowType ? [params.workflowType] : [],
+    )
     const verifierModule = verifierModuleOf(params.verifierAgent)
     const baseOptions = {
       verifierId: verifierRegistration.verifierId,
@@ -295,7 +317,11 @@ export class StageProofService {
       )
     }
     const facts = this.shareFacts(params.reference, stageAction)
-    const purposeLine = sharePurposeFromBinding({ step: stageAction, job: facts.job, amount: facts.amount })
+    const purposeLine = sharePurposeFromBinding({
+      step: stageAction,
+      job: facts.job,
+      amount: facts.amount && facts.currency ? `${facts.currency} ${facts.amount}` : facts.amount,
+    })
     const dcqlQuery =
       proofMode === 'sd_bound'
         ? buildStageProofDcqlQuery({
@@ -336,7 +362,9 @@ export class StageProofService {
               credential_ids: [DCQL_STAFF_CARD_QUERY_ID],
               step: stageAction,
               ...(facts.job ? { job: facts.job } : {}),
+              ...(facts.request ? { request: facts.request } : {}),
               ...(facts.amount ? { amount: facts.amount } : {}),
+              ...(facts.currency ? { currency: facts.currency } : {}),
             },
           ],
         })
@@ -376,6 +404,7 @@ export class StageProofService {
       throw new Error('Verifier did not return a wallet authorization request')
     }
     const requestId = result.verificationSession?.id || randomUUID()
+    this.rememberBinding(requestId, { orgTenantId: params.orgTenantId, actionKey: params.actionKey, reference: params.reference }, facts)
     const presentationRequestUrl = requestUrl.includes('?')
       ? `${requestUrl}&verification_session_id=${encodeURIComponent(requestId)}`
       : `${requestUrl}?verification_session_id=${encodeURIComponent(requestId)}`
@@ -394,7 +423,12 @@ export class StageProofService {
    * is refused, and so is an unsigned answer to a request that asked for a signature. A request
    * that did not ask for one (identity-only steps) has nothing to check.
    */
-  private assertShareBinding(verificationResult: any, stageAction: string, workflowRunId?: string): void {
+  private assertShareBinding(
+    verificationResult: any,
+    stageAction: string,
+    workflowRunId?: string,
+    expectedReference?: string,
+  ): void {
     const missing = missingTransactionBindingError(verificationResult, 'workflow_stage')
     if (missing) throw new StatusException(missing, 403)
     const entries = Array.isArray(verificationResult?.transactionData) ? verificationResult.transactionData : []
@@ -408,6 +442,10 @@ export class StageProofService {
       if (step && step !== stageAction) {
         throw new StatusException('This share was for a different step.', 403)
       }
+      const signedRequest = String(decoded.request || '').trim()
+      if (signedRequest && expectedReference && signedRequest !== expectedReference) {
+        throw new StatusException('This share was for a different request.', 403)
+      }
       const job = String(decoded.job || '').trim()
       if (!job) continue
       const expected = [facts.job, workflowRunId].map((value) => String(value || '').trim()).filter(Boolean)
@@ -417,14 +455,101 @@ export class StageProofService {
     }
   }
 
-  /** Job reference and amount stored on the run this share belongs to. The payout names what the worker is paid. */
-  private shareFacts(reference: string, stageAction = ''): { job?: string; amount?: string } {
-    const run = workflowRunRepository.findRunById(String(reference || '').trim())
+  /**
+   * What the share is about: the job reference and amount on the run, or the request and its
+   * amount and currency. The payout names what the worker is paid.
+   */
+  private shareFacts(
+    reference: string,
+    stageAction = '',
+  ): { job?: string; amount?: string; request?: string; currency?: string } {
+    const id = String(reference || '').trim()
+    const run = workflowRunRepository.findRunById(id)
+    if (!run) {
+      const db = DatabaseManager.getDatabase()
+      const row = db
+        .prepare(`SELECT id, amount, currency FROM requests WHERE id = ?`)
+        .get(id) as { id: string; amount?: number | null; currency?: string | null } | undefined
+      if (row) {
+        return {
+          request: row.id,
+          amount: row.amount == null ? undefined : String(row.amount),
+          currency: row.currency ? String(row.currency) : undefined,
+        }
+      }
+      // Older purchases (requisitions) keep their amount on the "raised" ledger event, so the
+      // approve and release shares name the amount just like a request or a job payout does.
+      const created = db
+        .prepare(
+          `SELECT amount, currency, metadata FROM reconciliation_events
+           WHERE provider_ref = ? AND event_type = 'REQUISITION_CREATED'
+           ORDER BY occurred_at ASC LIMIT 1`,
+        )
+        .get(id) as { amount?: number | null; currency?: string | null; metadata?: string | null } | undefined
+      if (!created) return {}
+      let meta: Record<string, unknown> = {}
+      try {
+        meta = created.metadata ? (JSON.parse(created.metadata) as Record<string, unknown>) : {}
+      } catch {
+        meta = {}
+      }
+      const amount = created.amount ?? meta.amount
+      const currency = created.currency ?? meta.currency
+      return {
+        request: id,
+        amount: amount == null || amount === '' ? undefined : String(amount),
+        currency: currency ? String(currency) : undefined,
+      }
+    }
     const input = (run?.input && typeof run.input === 'object' ? run.input : {}) as Record<string, unknown>
     const job = String(input.reference || '').trim()
     const raw = stageAction === 'trigger_payout' ? (input.payoutAmount ?? input.amount) : input.amount
     const amount = raw == null || raw === '' ? '' : String(raw)
     return { job: job || undefined, amount: amount || undefined }
+  }
+
+  /** Remember what a share was started for, so finishing it can be checked against the record. */
+  private rememberBinding(
+    sessionId: string,
+    params: { orgTenantId?: string; actionKey: string; reference: string },
+    facts: { amount?: string; currency?: string },
+  ): void {
+    try {
+      DatabaseManager.getDatabase()
+        .prepare(
+          `INSERT OR REPLACE INTO stage_proof_bindings
+             (session_id, org_tenant_id, action_key, reference, amount, currency, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          sessionId,
+          params.orgTenantId || null,
+          params.actionKey,
+          params.reference,
+          facts.amount ?? null,
+          facts.currency ?? null,
+          new Date().toISOString(),
+        )
+    } catch (error: any) {
+      console.warn('[StageProofService] could not store share binding:', error?.message)
+    }
+  }
+
+  /**
+   * The share was started for this record, this step and this amount. A share started on one
+   * request cannot finish another, and a changed amount needs a new share.
+   */
+  private assertStoredBinding(sessionId: string, actionKey: string, reference: string, stageAction: string): void {
+    const binding = DatabaseManager.getDatabase()
+      .prepare(`SELECT action_key AS actionKey, reference, amount, currency FROM stage_proof_bindings WHERE session_id = ?`)
+      .get(sessionId) as { actionKey: string; reference: string; amount?: string | null; currency?: string | null } | undefined
+    if (!binding) return
+    if (binding.reference !== reference) throw new StatusException('This share was started for a different record.', 403)
+    if (binding.actionKey !== actionKey) throw new StatusException('This share was for a different step.', 403)
+    const now = this.shareFacts(reference, stageAction)
+    if ((binding.amount ?? undefined) !== now.amount || (binding.currency ?? undefined) !== now.currency) {
+      throw new StatusException('The amount changed after this share was started. Share your staff card again.', 409)
+    }
   }
 
   // ── 2. Holder side: answer from the wallet that runs on this server ─────────
@@ -1164,6 +1289,8 @@ export class StageProofService {
     submitted?: EmbeddedPresentationResult
     /** Job this step belongs to; the person it names for the step may share a card that does not list it. */
     workflowRunId?: string
+    /** The record being moved (platform request id). The share must have been started for it. */
+    reference?: string
   }): Promise<StageProofVerification> {
     const verifierModule = verifierModuleOf(params.verifierAgent)
     let verificationResult: any
@@ -1219,7 +1346,9 @@ export class StageProofService {
     }
 
     try {
-      this.assertShareBinding(verificationResult, stageAction, params.workflowRunId)
+      const reference = params.reference || params.workflowRunId
+      if (reference) this.assertStoredBinding(params.requestId, params.actionKey, reference, stageAction)
+      this.assertShareBinding(verificationResult, stageAction, params.workflowRunId, params.reference)
     } catch (error: any) {
       refuse(error?.message || 'This share was for a different step.', error?.status || 403)
     }

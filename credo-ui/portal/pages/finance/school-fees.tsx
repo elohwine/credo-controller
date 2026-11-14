@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import FormCard from '@/components/shared/FormCard'
+import { PhoneField } from '../../../shared/PhoneField'
 import { ContactPickerSelect, type PickerContact } from '@/components/finance/ContactPickerSelect'
 import axios from 'axios'
 import Layout from '@/components/Layout'
@@ -428,13 +429,13 @@ function CreateFeeModal({
         />
         <Group grow>
           <TextInput label="Name" placeholder="Rudo Moyo" value={form.payerName} onChange={(e) => set('payerName')(e.currentTarget.value)} />
-          <TextInput
+          <PhoneField
+            surface="portal"
             label="Phone"
-            placeholder="+263771234567"
             required
             description="The pay link goes to this number."
             value={form.payerPhone}
-            onChange={(e) => set('payerPhone')(e.currentTarget.value)}
+            onChange={(payerPhone) => set('payerPhone')(payerPhone)}
           />
         </Group>
         {err && (

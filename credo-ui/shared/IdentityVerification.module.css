@@ -1,0 +1,85 @@
+.choice,
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.choice legend,
+.panel h2 {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.hint,
+.status {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--mantine-color-dimmed, #5c6570);
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 0;
+  font-size: 16px;
+}
+
+.option input {
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+}
+
+.option small {
+  display: block;
+  color: var(--mantine-color-dimmed, #5c6570);
+  font-size: 13px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.field input {
+  min-height: 48px;
+  border-radius: 8px;
+  border: 1px solid var(--mantine-color-default-border, #ced4da);
+  padding: 0 12px;
+  font-size: 16px;
+  background: transparent;
+  color: inherit;
+}
+
+.button {
+  min-height: 48px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 20px;
+  font-size: 16px;
+  font-weight: 500;
+  background: var(--mantine-color-credentis-filled, #2188ca);
+  color: #fff;
+}
+
+.button.light {
+  background: var(--mantine-color-credentis-light, #e7f3fb);
+  color: var(--mantine-color-credentis-light-color, #18648f);
+}
+
+.button:disabled {
+  opacity: 0.5;
+}
+
+.error {
+  margin: 0;
+  color: var(--mantine-color-red-7, #c92a2a);
+  font-size: 14px;
+}

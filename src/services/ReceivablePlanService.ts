@@ -131,6 +131,9 @@ export class ReceivablePlanService {
 
     let firstLink: CreatedPaymentLink | undefined
     const obligationIds: string[] = []
+    // An instalment bills part of the total, so the full line items and VAT stay off it.
+    const { items: _items, tax: _tax, ...instalmentMetadata } = input.linkMetadata || {}
+    const linkMetadata = count === 1 ? input.linkMetadata || {} : instalmentMetadata
     for (let index = 0; index < count; index += 1) {
       const installmentNumber = index + 1
       const installmentId = `ARINST-${randomUUID().slice(0, 8).toUpperCase()}`
@@ -149,7 +152,7 @@ export class ReceivablePlanService {
         obligationSourceType: 'ar_installment',
         obligationSourceId: installmentId,
         metadata: {
-          ...(input.linkMetadata || {}),
+          ...linkMetadata,
           kind: 'invoice',
           arModule: true,
           collectionType: input.terms,

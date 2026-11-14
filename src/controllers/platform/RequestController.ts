@@ -12,6 +12,7 @@ import { Body, Get, Path, Post, Query, Request, Route, Security, Tags } from 'ts
 
 import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
+import { orgWorkflowActorCredentialService } from '../../services/OrgWorkflowActorCredentialService'
 import { platformRequestService, MODULE_OFF_MESSAGE } from '../../services/PlatformRequestService'
 import { stageActionForProofAction } from '../../services/ProofVcPolicyService'
 import { requestHandoffService } from '../../services/RequestHandoffService'
@@ -71,6 +72,17 @@ export class RequestController {
   @Get('/mine')
   public async mine(@Request() request: ExRequest, @Query() limit?: number) {
     return { items: platformRequestService.listMine(getSubject(request), limit ?? 50) }
+  }
+
+  /**
+   * One request the signed-in person may see from their own wallet: they raised it, or they
+   * belong to the organisation. Same steps and names as the organisation request screen.
+   */
+  @Get('/for-me/{requestId}')
+  public async forMe(@Request() request: ExRequest, @Path() requestId: string): Promise<any> {
+    const detail = platformRequestService.previewForHolder(requestId, getSubject(request))
+    if (!detail) throw new StatusException('Request not found', 404)
+    return detail
   }
 
   /** One of the person's own requests, with its history. */
@@ -199,6 +211,11 @@ export class RequestController {
       principal.subjectRef,
       body?.toStatus,
     )
+    // The person acting (an owner standing in too) gets their staff card if they do not hold it yet.
+    orgWorkflowActorCredentialService.ensureForOrganizationInBackground(principal.tenantId, {
+      userId: principal.subjectRef,
+      reason: 'staff_card_step',
+    })
     const proof = await stageProofService.createStageProofRequest({
       verifierAgent: (request as any).agent,
       orgTenantId: principal.tenantId,
@@ -207,6 +224,7 @@ export class RequestController {
       idPrefix: 'request-step',
       descriptorName: 'Your staff card',
       purpose: `Confirm you are the person this organisation chose for this step on "${step.title || 'this request'}".`,
+      workflowType: step.workflowType,
     })
     return { ...proof, requestRef: requestId, toStatus: body.toStatus }
   }
@@ -264,14 +282,26 @@ export class RequestController {
       principal.subjectRef,
       body.toStatus,
     )
-    const submitted = await stageProofService.presentFromEmbeddedWallet({
-      request,
-      walletId: body.walletId,
-      presentationRequestUrl: body.presentationRequestUrl,
-      orgTenantId: principal.tenantId,
-      stageAction: stageActionForProofAction(step.actionKey),
-      reference: requestId,
-    })
+    const submitted = await stageProofService
+      .presentFromEmbeddedWallet({
+        request,
+        walletId: body.walletId,
+        presentationRequestUrl: body.presentationRequestUrl,
+        orgTenantId: principal.tenantId,
+        stageAction: stageActionForProofAction(step.actionKey),
+        reference: requestId,
+      })
+      .catch(async (error: any) => {
+        if (!/does not hold a credential/.test(String(error?.message))) throw error
+        await orgWorkflowActorCredentialService.ensureForOrganization(principal.tenantId, {
+          userId: principal.subjectRef,
+          reason: 'staff_card_step',
+        })
+        throw new StatusException(
+          'Your staff card is in your Inbox. Accept it, then share it here to finish this step.',
+          409,
+        )
+      })
     return this.finishWithStaffCard(request, requestId, body, submitted)
   }
 
@@ -298,6 +328,7 @@ export class RequestController {
       orgTenantId: principal.tenantId,
       actionKey: step.actionKey,
       submitted,
+      reference: requestId,
     })
     const result = platformRequestService.transitionBySubject(
       requestId,
@@ -314,6 +345,7 @@ export class RequestController {
           verifiedAt: verified.verifiedAt,
         },
       },
+      { viaStaffCard: true },
     )
     if (idempotencyKey) IdempotencyGuard.record(db, idempotencyKey, principal.tenantId, action, result)
     IdempotencyGuard.record(db, naturalKey, principal.tenantId, action, result)

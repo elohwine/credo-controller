@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, Route, Tags, Query, Path, Security } from 'tsoa'
 
 import { DatabaseManager } from '../../persistence/DatabaseManager'
+import { ReconciliationService } from '../../services/ReconciliationService'
 import { rootLogger } from '../../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'PaymentController' })
@@ -249,7 +250,7 @@ export class ReceiptController extends Controller {
         return { verified: false, error: 'Transaction not found' }
       }
 
-      if (payment.state !== 'paid') {
+      if (payment.state !== 'paid' && payment.state !== 'delivered') {
         return {
           verified: false,
           error: `Payment is ${payment.state}, not confirmed`,
@@ -322,67 +323,23 @@ export class ReceiptController extends Controller {
   public async confirmDelivery(
     @Body() body: { transactionId: string; allowPending?: boolean },
   ): Promise<{ success: boolean; message: string; newState: string }> {
-    const db = DatabaseManager.getDatabase()
     const { transactionId, allowPending } = body
 
     try {
-      // Find payment record
-      const payment = db
-        .prepare(
-          `
-                SELECT * FROM ack_payments 
-                WHERE provider_ref = ? 
-                   OR payment_request_token = ?
-                   OR idempotency_key = ?
-            `,
-        )
-        .get(transactionId, transactionId, transactionId) as any
-
-      if (!payment) {
+      if (allowPending) {
+        logger.warn({ transactionId }, 'Confirming delivery while payment may still be pending')
+      }
+      const handed = new ReconciliationService().confirmHandover(transactionId, { allowPending })
+      if (!handed.found) {
         this.setStatus(404)
-        return { success: false, message: 'Transaction not found', newState: 'unknown' }
+        return { success: false, message: handed.message, newState: handed.state }
       }
-
-      if (payment.state !== 'paid' && payment.state !== 'delivered') {
-        if (allowPending && payment.state === 'pending' && payment.provider_ref) {
-          logger.warn(
-            { transactionId, paymentId: payment.id },
-            'Confirming delivery while payment is pending (allowPending=true)',
-          )
-        } else {
-          this.setStatus(400)
-          return {
-            success: false,
-            message: `Cannot confirm delivery. Payment state is '${payment.state}' (must be 'paid')`,
-            newState: payment.state,
-          }
-        }
+      if (!handed.ok) {
+        this.setStatus(400)
+        return { success: false, message: handed.message, newState: handed.state }
       }
-
-      if (payment.state === 'delivered') {
-        return {
-          success: true,
-          message: 'Delivery already confirmed',
-          newState: 'delivered',
-        }
-      }
-
-      // Update state to delivered
-      db.prepare(
-        `
-                UPDATE ack_payments 
-                SET state = 'delivered', updated_at = ? 
-                WHERE id = ?
-            `,
-      ).run(new Date().toISOString(), payment.id)
-
-      logger.info({ transactionId, paymentId: payment.id }, 'Delivery confirmed')
-
-      return {
-        success: true,
-        message: 'Delivery confirmed successfully',
-        newState: 'delivered',
-      }
+      logger.info({ transactionId }, 'Delivery confirmed')
+      return { success: true, message: handed.message, newState: handed.state }
     } catch (error: any) {
       logger.error({ error: error.message, transactionId }, 'Delivery confirmation failed')
       this.setStatus(500)

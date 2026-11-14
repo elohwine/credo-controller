@@ -39,6 +39,16 @@ public class SafeAreaInsetsStateTest {
     }
 
     @Test
+    public void keyboardHeightIsPublishedAndClearedWhenItCloses() {
+        MainActivity.SafeAreaInsetsState state = new MainActivity.SafeAreaInsetsState();
+        assertTrue(state.update(24, 0, 16, 0).contains("'--keyboard-inset-bottom':'0px'"));
+        String open = state.update(24, 0, 16, 0, 280);
+        assertNotNull(open);
+        assertTrue(open.contains("'--keyboard-inset-bottom':'280px'"));
+        assertTrue(state.update(24, 0, 16, 0, 0).contains("'--keyboard-inset-bottom':'0px'"));
+    }
+
+    @Test
     public void pageLoadReplayDoesNotRewriteUnchangedCssProperties() {
         MainActivity.SafeAreaInsetsState state = new MainActivity.SafeAreaInsetsState();
         String script = state.update(24, 0, 16, 0);

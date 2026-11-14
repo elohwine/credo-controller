@@ -12,6 +12,7 @@ import {
   IconBuildingBank, IconTruck, IconHeartbeat
 } from '@tabler/icons-react';
 import AppShellMobile from '@/components/layout/AppShellMobile';
+import { PhoneField } from '../../shared/PhoneField';
 import BottomSheet from '@/components/shared/BottomSheet';
 import ErrorAlert from '@/components/shared/ErrorAlert';
 import api, { safeArray } from '@/lib/api';
@@ -625,7 +626,7 @@ export default function ContactsPage() {
       >
         <Stack gap="md" pb="lg">
           <TextInput label="Name" required value={createForm.name} onChange={e => setCreateForm({ ...createForm, name: e.currentTarget.value })} />
-          <TextInput label="Phone" placeholder="+263..." value={createForm.phone} onChange={e => setCreateForm({ ...createForm, phone: e.currentTarget.value })} />
+          <PhoneField surface="phone" label="Phone" value={createForm.phone} onChange={(phone) => setCreateForm({ ...createForm, phone })} />
           <TextInput label="Email" value={createForm.email} onChange={e => setCreateForm({ ...createForm, email: e.currentTarget.value })} />
           <Select
             label="Who they are"

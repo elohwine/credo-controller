@@ -211,7 +211,7 @@ export class DeviceTrustService {
       row.key_usage !== 'login' ||
       row.auth_policy !== 'strong_or_device_credential'
     ) {
-      throw new StatusException('Use your account PIN, then enroll this device under Account security.', 403)
+      throw new StatusException('Sign in with your PIN, then turn on sign-in with this phone in Settings, Sign-in and security.', 403)
     }
     return { id: row.id, walletTenantId: row.wallet_tenant_id }
   }

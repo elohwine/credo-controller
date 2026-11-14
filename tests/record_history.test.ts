@@ -13,6 +13,7 @@ import { workflowRepository } from '../src/persistence/WorkflowRepository'
 import { workflowRunRepository } from '../src/persistence/WorkflowRunRepository'
 import { orgWorkflowActorCredentialService } from '../src/services/OrgWorkflowActorCredentialService'
 import { platformRequestService } from '../src/services/PlatformRequestService'
+import { notificationService } from '../src/services/NotificationService'
 import { ReconciliationService } from '../src/services/ReconciliationService'
 import { workflowAuditService } from '../src/services/WorkflowAuditService'
 
@@ -156,6 +157,35 @@ describe('record cancel', () => {
     expect(rows.map((row) => row.status)).toEqual(['paid', 'cancelled'])
   })
 
+  test('the requester withdraws their own request from their personal wallet; nobody else can there', async () => {
+    const org = seedOrganization({ name: 'Withdraw Ltd' })
+    const clerk = `user-${randomUUID()}`
+    const other = `user-${randomUUID()}`
+    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, role: 'member', userId: clerk })
+    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, role: 'member', userId: other })
+    const created = platformRequestService.create({
+      tenantId: org.orgTenantId,
+      subjectRef: clerk,
+      requestType: 'procurement.requisition',
+      title: 'Printer ink',
+      amount: 40,
+      currency: 'USD',
+      targetModule: 'finance',
+      items: [{ description: 'Ink', quantity: 1, unitPrice: 40 }],
+    }) as { id: string }
+    platformRequestService.submit(created.id, org.orgTenantId, clerk)
+    const controller = new RecordController()
+
+    const refused = (await controller.cancel('request', created.id, asUser(`personal-${other}`, other))) as any
+    expect(refused.error).toBe('Only the person who raised this request can withdraw it here.')
+    const first = await controller.cancel('request', created.id, asUser(`personal-${clerk}`, clerk), { reason: 'Bought it myself' })
+    const again = await controller.cancel('request', created.id, asUser(`personal-${clerk}`, clerk))
+    expect(first).toEqual({ kind: 'request', id: created.id, status: 'cancelled' })
+    expect(again).toEqual(first)
+    const row = DatabaseManager.getDatabase().prepare('SELECT status FROM requests WHERE id = ?').get(created.id) as { status: string }
+    expect(row.status).toBe('cancelled')
+  })
+
   test('a member who is not in finance cannot cancel a bill, and jobs are not cancelled here', async () => {
     const org = seedOrganization({ name: 'Roles Ltd' })
     const clerk = `user-${randomUUID()}`
@@ -193,5 +223,113 @@ describe('job history lookup', () => {
 
     const audit = workflowAuditService.readRun(run.id, org.orgTenantId)!
     expect(audit.rows.map((row) => row.event)).toEqual(expect.arrayContaining(['Job started', 'Payment released']))
+  })
+
+  test('a paid Money in request reconciles on its own trail, once, even for a shop', async () => {
+    const org = await seedOrganization({ name: `Paid Request ${randomUUID().slice(0, 6)}` })
+    const db = DatabaseManager.getDatabase()
+    const now = new Date().toISOString()
+    db.prepare(
+      `INSERT INTO workflow_templates (id, tenant_id, name, sector, workflow_type, created_at, updated_at)
+       VALUES (?, ?, 'Shop', 'ecommerce', 'ecommerce_delivery', ?, ?)`,
+    ).run(`tpl-${randomUUID()}`, org.orgTenantId, now, now)
+    const recon = new ReconciliationService()
+    const paid = { tenantId: org.orgTenantId, amount: 24, currency: 'USD', linkId: 'L-1', settled: true }
+
+    recon.recordPaidCheckout('SIM-REQ-1', { ...paid, kind: 'payment_request', deliveryRequired: false })
+    recon.recordPaidCheckout('SIM-REQ-1', { ...paid, kind: 'payment_request', deliveryRequired: false })
+    recon.recordPaidCheckout('SIM-CART-1', { ...paid, linkId: undefined, settled: false, kind: 'cart' })
+
+    const status = (ref: string) =>
+      (db.prepare('SELECT status FROM reconciliation_status WHERE provider_ref = ?').get(ref) as { status: string }).status
+    expect(status('SIM-REQ-1')).toBe('RECONCILED')
+    expect(
+      db.prepare(`SELECT COUNT(*) AS n FROM reconciliation_events WHERE provider_ref = 'SIM-REQ-1'`).get(),
+    ).toEqual({ n: 3 })
+    // A cart on a delivery workflow still waits for delivery, as before.
+    expect(status('SIM-CART-1')).toBe('RECEIPT_ISSUED')
+    // The website receipt and the phone delivery scan share one handover. It records delivery once.
+    recon.recordPaidCheckout('SIM-HANDOVER', { ...paid, kind: 'cart' })
+    expect(status('SIM-HANDOVER')).toBe('RECEIPT_ISSUED')
+    db.prepare(
+      `INSERT INTO ack_payments (id, tenant_id, provider_ref, amount, currency, state, idempotency_key, created_at, updated_at)
+       VALUES (?, ?, 'SIM-HANDOVER', 24, 'USD', 'paid', ?, ?, ?)`,
+    ).run(`pay-handover-${randomUUID()}`, org.orgTenantId, `idem-handover-${randomUUID()}`, now, now)
+    expect(recon.confirmHandover('SIM-HANDOVER').ok).toBe(true)
+    expect(recon.confirmHandover('SIM-HANDOVER').ok).toBe(true)
+    expect(status('SIM-HANDOVER')).toBe('RECONCILED')
+    expect(recon.checkoutTrail('SIM-HANDOVER')).toMatchObject({ status: 'RECONCILED', settledAt: expect.any(String), deliveredAt: expect.any(String) })
+    expect(
+      db.prepare(`SELECT COUNT(*) AS n FROM reconciliation_events WHERE provider_ref = 'SIM-HANDOVER' AND event_type = 'DELIVERY_VERIFIED'`).get(),
+    ).toEqual({ n: 1 })
+    expect((db.prepare(`SELECT state FROM ack_payments WHERE provider_ref = 'SIM-HANDOVER'`).get() as { state: string }).state).toBe(
+      'delivered',
+    )
+    // A payment recorded before the bill is matched gains the settlement later, once.
+    recon.recordPaidCheckout('SIM-LATE', { ...paid, linkId: undefined, settled: false, kind: 'cart', deliveryRequired: false })
+    recon.recordPaidCheckout('SIM-LATE', { ...paid, settled: true, kind: 'cart', deliveryRequired: false })
+    recon.recordPaidCheckout('SIM-LATE', { ...paid, settled: true, kind: 'cart', deliveryRequired: false })
+    expect(status('SIM-LATE')).toBe('RECONCILED')
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM reconciliation_events WHERE provider_ref = 'SIM-LATE'`).get()).toEqual({
+      n: 3,
+    })
+  })
+
+  test('a supplier payment reconciles on its own trail; without an advice it stops at Paid', async () => {
+    const org = await seedOrganization({ name: `Supplier Pay ${randomUUID().slice(0, 6)}` })
+    const db = DatabaseManager.getDatabase()
+    const recon = new ReconciliationService()
+    const base = { tenantId: org.orgTenantId, amount: 60, currency: 'USD', settled: true, deliveryRequired: false }
+
+    recon.recordPaidCheckout('APPAY-OK', { ...base, kind: 'supplier_payment', source: 'ap_payment', receiptId: 'VC-1' })
+    recon.recordPaidCheckout('APPAY-NOVC', {
+      ...base,
+      kind: 'supplier_payment',
+      source: 'ap_payment',
+      receiptIssued: false,
+    })
+
+    const status = (ref: string) =>
+      (db.prepare('SELECT status FROM reconciliation_status WHERE provider_ref = ?').get(ref) as { status: string }).status
+    expect(status('APPAY-OK')).toBe('RECONCILED')
+    expect(status('APPAY-NOVC')).toBe('PAID')
+    expect(
+      db.prepare(`SELECT source FROM reconciliation_events WHERE provider_ref = 'APPAY-OK' GROUP BY source`).all(),
+    ).toEqual([{ source: 'ap_payment' }])
+    // Replaying the same supplier payment records nothing new.
+    recon.recordPaidCheckout('APPAY-OK', { ...base, kind: 'supplier_payment', source: 'ap_payment', receiptId: 'VC-1' })
+    expect(
+      db.prepare(`SELECT COUNT(*) AS n FROM reconciliation_events WHERE provider_ref = 'APPAY-OK'`).get(),
+    ).toEqual({ n: 3 })
+  })
+
+  test('a shop receipt WhatsApp can be marked delivered once, without creating consent', async () => {
+    const org = await seedOrganization({ name: `Receipt Wa ${randomUUID().slice(0, 6)}` })
+    const db = DatabaseManager.getDatabase()
+    const messageId = `wamid-${randomUUID()}`
+    const input = {
+      tenantId: org.orgTenantId,
+      to: '0774183277',
+      eventType: 'payment_link',
+      messageId,
+      senderKey: 'platform',
+      phoneNumberId: '1232138763320433',
+    }
+    const prefsBefore = db.prepare(`SELECT COUNT(*) AS n FROM notification_preferences`).get()
+    notificationService.recordAcceptedWhatsApp(input)
+    notificationService.recordAcceptedWhatsApp(input)
+    expect(
+      db.prepare(`SELECT COUNT(*) AS n FROM notification_deliveries WHERE provider_message_id = ?`).get(messageId),
+    ).toEqual({ n: 1 })
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM notification_preferences`).get()).toEqual(prefsBefore)
+    notificationService.applyWhatsAppStatus('platform', input.phoneNumberId, {
+      id: messageId,
+      status: 'delivered',
+      timestamp: '1730000000',
+      recipient_id: '263774183277',
+    })
+    expect(
+      (db.prepare(`SELECT status FROM notification_deliveries WHERE provider_message_id = ?`).get(messageId) as { status: string }).status,
+    ).toBe('delivered')
   })
 })

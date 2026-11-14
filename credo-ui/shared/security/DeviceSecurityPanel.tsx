@@ -69,37 +69,37 @@ export function DeviceSecurityPanel({ load, remove, children }: {
     background: 'var(--mantine-color-default)', color: 'inherit', border: '1px solid var(--mantine-color-default-border)', font: 'inherit' }
   const stack: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 20, lineHeight: 1.5 }
   return <section style={stack}>
-    <h1 style={{ margin: 0, fontSize: 26 }}>Account security</h1>
-    <p style={{ margin: 0 }}>Enroll your own Android phone to sign in without your account PIN. Strong biometrics or the phone screen lock authorizes a hardware-protected key; your identity card and its holder wallet remain hosted by Credentis.</p>
-    <p style={{ margin: 0, fontSize: 14 }}>Keep your account PIN safe. Losing the phone does not make a copied card or someone else&apos;s biometrics a recovery method. iOS device enrollment is not supported yet.</p>
+    <h1 style={{ margin: 0, fontSize: 24, fontWeight: 400 }}>Sign-in and security</h1>
+    <p style={{ margin: 0 }}>Let your own Android phone sign you in with your fingerprint, face or screen lock instead of your PIN, and ask for your fingerprint before money moves. It works only on the phone where you turn it on.</p>
+    <p style={{ margin: 0, fontSize: 14 }}>Keep your PIN safe: it is how you get back in if you lose the phone. iPhone is not supported yet.</p>
     {error && <p role="alert" style={{ color: 'var(--mantine-color-red-text)' }}>{error}</p>}
     {children}
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-      <h2 style={{ fontSize: 20 }}>Your enrolled devices</h2><button type="button" style={button} disabled={busy} onClick={() => void refresh()}>{busy ? 'Loading…' : 'Refresh'}</button>
+      <h2 style={{ fontSize: 18, fontWeight: 500 }}>Your phones</h2><button type="button" style={button} disabled={busy} onClick={() => void refresh()}>{busy ? 'Loading…' : 'Refresh'}</button>
     </div>
-    {!busy && !devices.length && <p>No devices enrolled yet.</p>}
+    {!busy && !devices.length && <p>No phones added yet.</p>}
     {devices.map((device) => <article key={device.id} style={{ ...stack, gap: 10, padding: 16, border: '1px solid var(--mantine-color-default-border)', borderRadius: 12 }}>
-      <strong>{device.label || 'Android device'}</strong>
-      <span>{device.revokedAt ? 'Removed' : device.verifiedAt ? 'Server registration verified' : 'Legacy — enroll again'}</span>
+      <strong>{device.label || 'Android phone'}</strong>
+      <span>{device.revokedAt ? 'Removed' : device.verifiedAt ? 'Ready' : 'Turn it on again to keep using it'}</span>
       {!device.revokedAt && device.usage === 'login' && (
         <span style={{ fontSize: 14 }}>
           {device.localLoginKey === true
-            ? 'Sign-in key is present in this installation.'
+            ? 'Works on this phone.'
             : device.localLoginKey === false
-              ? 'No matching sign-in key in this installation. This may be another device or a registration from before reinstalling. Use your account PIN to enroll this installation; the server record alone cannot sign you in.'
-              : 'Usable only on the Android installation that holds its private key. Reinstalling or clearing storage can remove that key.'}
+              ? 'Not on this phone. It is another phone, or the app was reinstalled here. Turn it on again on this phone to use it.'
+              : 'Works only on the phone where it was turned on. Reinstalling the app or clearing its data removes it.'}
         </span>
       )}
-      <span style={{ fontSize: 14 }}>{device.usage === 'login' ? 'Account and website sign-in · screen lock or strong biometrics' : 'Money steps · strong biometrics only'}</span>
-      <span style={{ fontSize: 12 }}>Enrolled {new Date(device.createdAt).toLocaleDateString()}</span>
+      <span style={{ fontSize: 14 }}>{device.usage === 'login' ? 'Signs you in · fingerprint, face or screen lock' : 'Confirms money · fingerprint or face'}</span>
+      <span style={{ fontSize: 12 }}>Added {new Date(device.createdAt).toLocaleDateString()}</span>
       {!device.revokedAt && <button type="button" style={{ ...button, color: 'var(--mantine-color-red-text)' }} onClick={() => setSelected(device)}>Remove access</button>}
     </article>)}
-    <dialog ref={dialog} aria-labelledby="device-remove-title" style={{ color: 'var(--mantine-color-text)', background: 'var(--mantine-color-body)', border: '1px solid var(--mantine-color-default-border)', borderRadius: 12, padding: 24, width: 'min(440px, calc(100vw - 32px))' }}
+    <dialog ref={dialog} aria-labelledby="device-remove-title" style={{ color: 'var(--mantine-color-text)', background: 'var(--mantine-color-body)', border: '1px solid var(--mantine-color-default-border)', borderRadius: 28, padding: 24, width: 'min(440px, calc(100vw - 32px))' }}
       onCancel={(event) => { event.preventDefault(); if (!busy) setSelected(null) }} onKeyDown={trapDialogFocus}>
       <div style={stack}>
-        <h2 id="device-remove-title" style={{ margin: 0, fontSize: 22 }}>Remove this device?</h2>
-        <p style={{ margin: 0 }}>This revokes the selected key and cancels its pending sign-ins. All current account and organisation sessions will be signed out, including this browser. Other enrolled devices can sign in again.</p>
-        <button type="button" style={button} disabled={busy} onClick={() => setSelected(null)}>Keep device</button>
+        <h2 id="device-remove-title" style={{ margin: 0, fontSize: 22, fontWeight: 400 }}>Remove this phone?</h2>
+        <p style={{ margin: 0 }}>It can no longer sign you in or confirm money. You are signed out everywhere, including here. Other phones you added can still sign in.</p>
+        <button type="button" style={button} disabled={busy} onClick={() => setSelected(null)}>Keep it</button>
         <button type="button" style={{ ...button, color: 'var(--mantine-color-red-text)' }} disabled={busy} onClick={() => void revoke()}>{busy ? 'Removing…' : 'Remove and sign out'}</button>
       </div>
     </dialog>

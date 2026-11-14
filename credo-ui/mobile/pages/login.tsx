@@ -4,6 +4,7 @@ import { GUIDE_PATHS } from '../../shared/guides';
 import { guideClient } from '@/lib/guides';
 import { tick } from '@/lib/feedback';
 import { WalletOnboarding } from '../../shared/WalletOnboarding';
+import { PhoneField } from '../../shared/PhoneField';
 import { BrandMark } from '../../shared/BrandMark';
 import { useRouter } from 'next/router';
 import {
@@ -17,12 +18,13 @@ import {
   Divider,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
-import { IconPhone, IconLock, IconFingerprint } from '@tabler/icons-react';
+import { IconLock, IconFingerprint } from '@tabler/icons-react';
 import api from '@/lib/api';
 import { applyPersonalWalletContext, getPersonalWalletTenantId, syncOrgContextFromServer } from '@/lib/auth';
 import { authorizeDevice, deviceLoginWalletId, loginDevices, rememberPhoneWallet, supportsDeviceLogin } from '@/lib/deviceTrust';
 import { friendlyRequestError } from '@/lib/requestError';
 import ErrorAlert from '@/components/shared/ErrorAlert';
+import { RegistrySignupChoice } from '../../shared/IdentityVerification';
 
 interface LoginValues {
   identifier: string;
@@ -44,6 +46,7 @@ export default function LoginPage() {
   const [setupStep, setSetupStep] = useState(1);
   const [layoutHeight, setLayoutHeight] = useState<number>();
   const [canUsePhone, setCanUsePhone] = useState(false);
+  const [askRegistry, setAskRegistry] = useState(false);
   const [welcomeName, setWelcomeName] = useState<string | null>(null);
   const submitting = useRef(false);
 
@@ -182,6 +185,7 @@ export default function LoginPage() {
         username: values.username,
         phone: values.phone,
         pin: values.pin,
+        requestRegistryVerification: askRegistry,
       });
     } catch (err: any) {
       setError(friendlyRequestError(err, 'Could not create your account'));
@@ -211,7 +215,7 @@ export default function LoginPage() {
   const guiding = tab === 'register' && setupStep < 3;
 
   if (welcomeName !== null) {
-    return <WelcomeScreen name={welcomeName} onContinue={finishWelcome} onCardLanded={tick} />;
+    return <WelcomeScreen name={welcomeName} onContinue={finishWelcome} onCardLanded={tick} surface="phone" />;
   }
 
   return (
@@ -231,15 +235,15 @@ export default function LoginPage() {
             {tab === 'login' ? (
               <form onSubmit={loginForm.onSubmit(handleLogin)}>
                 <Stack gap="md">
-                  <TextInput
+                  <PhoneField
+                    surface="phone"
                     label="Phone or email"
-                    placeholder="e.g. 0771234567"
-                    leftSection={<IconPhone size={16} />}
+                    allowEmail
+                    placeholder="77 123 4567"
                     size="md"
-                    autoComplete="username"
-                    inputMode="text"
-                    enterKeyHint="next"
-                    {...loginForm.getInputProps('identifier')}
+                    value={loginForm.values.identifier}
+                    onChange={(identifier) => loginForm.setFieldValue('identifier', identifier)}
+                    error={loginForm.errors.identifier}
                   />
                   <PasswordInput
                     label="PIN"
@@ -282,14 +286,14 @@ export default function LoginPage() {
                     autoComplete="name"
                     {...registerForm.getInputProps('username')}
                   />
-                  <TextInput
+                  <PhoneField
+                    surface="phone"
                     label="Phone number"
-                    placeholder="e.g. 0771234567"
-                    leftSection={<IconPhone size={16} />}
                     size="md"
-                    inputMode="tel"
-                    autoComplete="tel"
-                    {...registerForm.getInputProps('phone')}
+                    required
+                    value={registerForm.values.phone}
+                    onChange={(phone) => registerForm.setFieldValue('phone', phone)}
+                    error={registerForm.errors.phone}
                   />
                   <PasswordInput
                     label="PIN"
@@ -311,6 +315,7 @@ export default function LoginPage() {
                     visibilityToggleButtonProps={{ 'aria-label': 'Show or hide confirmation PIN' }}
                     {...registerForm.getInputProps('confirmPin')}
                   />
+                  <RegistrySignupChoice value={askRegistry} onChange={setAskRegistry} />
                   <Button type="submit" size="lg" fullWidth loading={loading} mt="xs">
                     Create account
                   </Button>

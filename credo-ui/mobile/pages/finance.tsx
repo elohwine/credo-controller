@@ -1,7 +1,9 @@
 import { feedback } from '@/lib/feedback';
+import { PhoneField } from '../../shared/PhoneField';
 import { milestone } from '@/components/feedback/Milestone';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
+  Anchor,
   Stack,
   Title,
   Text,
@@ -62,7 +64,6 @@ import {
   IconChevronRight,
   IconTrash,
   IconExternalLink,
-  IconQrcode,
   IconShieldCheck,
   IconWallet,
   IconReceipt,
@@ -121,6 +122,7 @@ import {
   trailFromRequest,
   trailFromSchoolFee,
   trailFromSupplierBill,
+  peopleOnJob,
   whoDidStages,
   type JobAuditTrail,
   type JobSheetPhoto,
@@ -131,6 +133,7 @@ import { formatTxnTime } from '@/lib/inboxAttention'
 import { captureHashedPhoto } from '@/lib/evidenceHash'
 import { FIELD_CHECKER_STAGE, FIELD_WORKER_STAGE, jobContactOption, jobPeopleOptions, OUTSIDE_CONTACT_NEEDS_APP, parseJobContactSelection, stageActorOption } from '@/lib/jobPeople'
 import api, { safeArray } from '@/lib/api'
+import { appRoute } from '@/lib/appPath'
 import { friendlyRequestError } from '@/lib/requestError'
 import {
   beginTaskContext,
@@ -141,7 +144,6 @@ import {
   getActiveOrgLabel,
   getActiveOrgId,
   getContextMode,
-  getPersonalWalletTenantId,
   getPreferredToken,
   isEmployeeOrgRole,
   getOrgRoleClaim,
@@ -188,10 +190,14 @@ import {
   schoolFeeWhoDid,
   schoolFeeStatusWords,
   schoolFeeTitle,
+  jobPriceState,
   type JobActorStage,
   type SafetyHoldFixBy,
   type SchoolFeeRunLike,
 } from '@/lib/uxCopy'
+import JobPaymentPlanFields, { jobPaymentPlanBody } from '@/components/shared/JobPaymentPlanFields'
+import JobPriceSheet from '@/components/shared/JobPriceSheet'
+import { detailTabsFor, type DetailTabKey } from '../../shared/detailTabs'
 
 /* ── Types ── */
 
@@ -495,6 +501,14 @@ function getLinkRouteToken(link: PaymentLink): string | undefined {
 
 type FieldJobTab = 'details' | 'photos' | 'receipts' | 'documents' | 'history'
 
+const MOBILE_DETAIL_TAB_ICONS: Record<DetailTabKey, React.ReactNode> = {
+  details: <IconFileText size={14} />,
+  photos: <IconPhoto size={14} />,
+  receipts: <IconReceipt2 size={14} />,
+  documents: <IconFiles size={14} />,
+  history: <IconHistory size={14} />,
+}
+
 function JobEvidenceTabs({
   run,
   orgMembers,
@@ -506,7 +520,7 @@ function JobEvidenceTabs({
   details,
 }: {
   run: any
-  orgMembers: OrgMemberLite[]
+  orgMembers: Array<{ userId: string; role?: string; displayName?: string; phone?: string }>
   actors?: JobActorStage[]
   assigneeName?: string
   tab: FieldJobTab
@@ -601,21 +615,19 @@ function JobEvidenceTabs({
         variant="pills"
       >
         <Tabs.List mb="sm" style={{ flexWrap: 'nowrap', overflowX: 'auto' }}>
-          <Tabs.Tab value="details" leftSection={<IconFileText size={14} />}>
-            Details
-          </Tabs.Tab>
-          <Tabs.Tab value="photos" leftSection={<IconPhoto size={14} />}>
-            Photos ({sheets.photoCount})
-          </Tabs.Tab>
-          <Tabs.Tab value="receipts" leftSection={<IconReceipt2 size={14} />}>
-            Receipts ({sheets.receiptCount})
-          </Tabs.Tab>
-          <Tabs.Tab value="documents" leftSection={<IconFiles size={14} />}>
-            Records ({sheets.records.length})
-          </Tabs.Tab>
-          <Tabs.Tab value="history" leftSection={<IconHistory size={14} />}>
-            History
-          </Tabs.Tab>
+          {detailTabsFor({
+            capturesPhotos: true,
+            movesMoney: true,
+            issuesRecords: true,
+            photos: sheets.photoCount,
+            receipts: sheets.receiptCount,
+            documents: sheets.records.length,
+            documentsLabel: 'Records',
+          }).map((item) => (
+            <Tabs.Tab key={item.key} value={item.key} leftSection={MOBILE_DETAIL_TAB_ICONS[item.key]}>
+              {item.label}
+            </Tabs.Tab>
+          ))}
         </Tabs.List>
         <Tabs.Panel value="details">
           <Stack gap="md">
@@ -1146,6 +1158,7 @@ function fieldPauseLine(pauseReason: string, who: string): string | undefined {
     await_site_inspection: name === 'You' ? 'A site check now you are there' : `A site check from ${name}`,
     await_risk_assessment:
       name === 'You' ? 'Your safety check on site, before any work' : `A safety check from ${name}, before any work`,
+    await_assignment: 'An owner or admin to choose who does the job',
     await_worker_start: `${name} to start the job`,
     await_arrival:
       name === 'You'
@@ -1165,6 +1178,7 @@ function fieldPauseLine(pauseReason: string, who: string): string | undefined {
     await_completion_review: 'A review of the finished work',
     await_acknowledgement: 'Sign-off by the sign-off person',
     await_payout_release: 'Worker payout release by the money person',
+    await_job_price: 'An owner or admin to set the price and how the client pays',
   }
   return lines[pauseReason]
 }
@@ -1631,7 +1645,7 @@ export default function FinancePage() {
   const taskUrl = currentInboxTask ? new URL(window.location.href) : null
   const itemTaskActive = Boolean(taskUrl)
   const canLoadFinance = typeof window !== 'undefined' && getContextMode() === 'org' &&
-    (!currentInboxTask || isBoundTaskPath(currentInboxTask, `${window.location.pathname}${window.location.search}`))
+    (!currentInboxTask || isBoundTaskPath(currentInboxTask, `${appRoute(window.location.pathname)}${window.location.search}`))
   const fieldTaskRunId =
     taskUrl?.searchParams.get('tab') === 'field'
       ? normalizeRunId(taskUrl.searchParams.get('runId'))
@@ -1721,6 +1735,7 @@ export default function FinancePage() {
 
   // FEPT — completely separate from requisitions
   const [selectedFieldRun, setSelectedFieldRun] = useState<any | null>(null)
+  const [jobPriceOpen, setJobPriceOpen] = useState(false)
   /** Run id from a deep link that could not be opened, so the opening screen gives way to the list. */
   const [fieldDeepLinkFailed, setFieldDeepLinkFailed] = useState<string | null>(null)
   const [fieldJobTab, setFieldJobTab] = useState<FieldJobTab>('details')
@@ -1820,24 +1835,19 @@ export default function FinancePage() {
   const [showApprovalModal, setShowApprovalModal] = useState(false)
   // Fallback ways to share a proof stay folded so the dialog has one action.
   const [proofMoreOpen, setProofMoreOpen] = useState(false)
+  // Approve and Release funds on an older purchase open the same share screen as a job's
+  // sign-off and payout: the step title, what it is for (step · amount), the cards and the
+  // details they reveal, and the consent line. The server's purpose line rides along.
   const [approvalRequestId, setApprovalRequestId] = useState<string | null>(null)
   const [approvalRequestUrl, setApprovalRequestUrl] = useState<string | null>(null)
+  const [approvalPurposeLine, setApprovalPurposeLine] = useState('')
   const [creatingApprovalRequest, setCreatingApprovalRequest] = useState(false)
-  const [approving, setApproving] = useState(false)
-  // Release VP modal state
   const [showReleaseModal, setShowReleaseModal] = useState(false)
   const [releaseRequestId, setReleaseRequestId] = useState<string | null>(null)
   const [releaseRequestUrl, setReleaseRequestUrl] = useState<string | null>(null)
+  const [releasePurposeLine, setReleasePurposeLine] = useState('')
   const [creatingReleaseRequest, setCreatingReleaseRequest] = useState(false)
-  const [releasing, setReleasing] = useState(false)
-  // Acknowledge VP modal state
-  const [showAckModal, setShowAckModal] = useState(false)
-  const [ackRequestId, setAckRequestId] = useState<string | null>(null)
-  const [ackRequestUrl, setAckRequestUrl] = useState<string | null>(null)
-  const [creatingAckRequest, setCreatingAckRequest] = useState(false)
   const [acking, setAcking] = useState(false)
-  const [showReleaseConfirm, setShowReleaseConfirm] = useState(false)
-  const [showAckConfirm, setShowAckConfirm] = useState(false)
   const [requisitionForm, setRequisitionForm] = useState({
     department: 'Operations',
     payWith: 'supplier' as 'supplier' | 'cash',
@@ -2742,6 +2752,8 @@ export default function FinancePage() {
   const resolveRequisitionId = useCallback(
     async (targetId: string): Promise<string> => {
       if (/^REQ-/i.test(targetId)) return targetId
+      // Older purchases carry other prefixes (FR-…); a row already in the list is its own id.
+      if (requisitions.some((row) => row.id === targetId)) return targetId
 
       const preferredToken = getPreferredToken()
       try {
@@ -3853,17 +3865,7 @@ export default function FinancePage() {
         // Only a job that pays a worker or subcontractor has a payout step.
         ...(Number.isFinite(payoutAmount) && payoutAmount > 0 ? { payoutAmount } : {}),
         currency: fieldRunForm.currency,
-        paymentTerms: fieldRunForm.paymentTerms,
-        ...(fieldRunForm.paymentTerms !== 'one_time'
-          ? {
-              instalments: Math.max(2, parseInt(fieldRunForm.instalments, 10) || 2),
-              paymentCadence: fieldRunForm.paymentCadence,
-              firstDueDate: fieldRunForm.firstDueDate,
-              ...(Number(fieldRunForm.firstPaymentAmount) > 0
-                ? { firstPaymentAmount: Number(fieldRunForm.firstPaymentAmount) }
-                : {}),
-            }
-          : {}),
+        ...jobPaymentPlanBody(fieldRunForm),
         description: fieldRunForm.description,
         poNumber: fieldRunForm.poNumber.trim(),
         ...(fieldRunForm.problemType ? { problemType: fieldRunForm.problemType } : {}),
@@ -4424,64 +4426,12 @@ export default function FinancePage() {
       )
       setApprovalRequestId(data.requestId)
       setApprovalRequestUrl(data.presentationRequestUrl)
+      setApprovalPurposeLine(String(data.purposeLine || ''))
     } catch (err: any) {
       feedback.fromError(err, { title: 'Approval Setup Failed', fallback: 'Could not generate approval request.' })
       setShowApprovalModal(false)
     } finally {
       setCreatingApprovalRequest(false)
-    }
-  }
-
-  const handleApprove = async () => {
-    if (!selectedRequisitionId || !approvalRequestId || !approvalRequestUrl) {
-      feedback.error('Re-open the approval modal to generate a valid request.', { title: 'Approval Request Missing' })
-      return
-    }
-
-    const allowed = await enforceOrgActionPolicy({
-      actionType: 'workflow.approve_requisition',
-      amount: requestedAmount.amount,
-      evidenceProvided: Boolean(approvalRequestId && approvalRequestUrl),
-    })
-    if (!allowed) return
-
-    const reauthOk = await requireSensitiveOrgReauth('approve this requisition')
-    if (!reauthOk) {
-      feedback.warn('Approval was cancelled before submission.', { title: 'Re-authentication Cancelled' })
-      return
-    }
-
-    setApproving(true)
-    try {
-      const token = getPreferredToken()
-      if (!token) throw new Error('No active organization session.')
-      const personalWalletId = getPersonalWalletTenantId()
-      if (!personalWalletId) throw new Error('Personal wallet session is required for embedded approval.')
-
-      const res = await api.post(
-        `/api/finance/requisitions/${encodeURIComponent(selectedRequisitionId)}/approve/embedded-wallet`,
-        {
-          requestId: approvalRequestId,
-          presentationRequestUrl: approvalRequestUrl,
-          walletId: personalWalletId,
-        },
-        { headers: { Authorization: `Bearer ${token}` } },
-      )
-      // The embedded-wallet endpoint may return { error } with HTTP 200 when the internal
-      // approveRequisition call fails (e.g., wrong org role for the current stage).
-      if (res.data?.error) throw new Error(res.data.error)
-
-      feedback.success('This requisition is approved.', { title: 'Approved' })
-      setShowApprovalModal(false)
-      setApprovalRequestId(null)
-      setApprovalRequestUrl(null)
-      setSelectedRequisitionId(null)
-      setSelectedRequisition(null)
-      await fetchRequisitions()
-    } catch (err: any) {
-      notifyWalletStepFailed('Approval did not go through', err)
-    } finally {
-      setApproving(false)
     }
   }
 
@@ -4509,6 +4459,8 @@ export default function FinancePage() {
       request_uri: approvalRequestUrl,
       mode: 'requisition-approve',
       requisitionId: selectedRequisitionId,
+      ...(approvalRequestId ? { requestId: approvalRequestId } : {}),
+      ...(approvalPurposeLine ? { purpose: approvalPurposeLine } : {}),
     })
     const activeOrgId = getActiveOrgId()
     if (activeOrgId) {
@@ -4530,6 +4482,8 @@ export default function FinancePage() {
       requisitionId: selectedRequisitionId,
       amount: String(requestedAmount.amount),
       currency: requestedAmount.currency,
+      ...(releaseRequestId ? { requestId: releaseRequestId } : {}),
+      ...(releasePurposeLine ? { purpose: releasePurposeLine } : {}),
     })
     const activeOrgId = getActiveOrgId()
     if (activeOrgId) {
@@ -4537,87 +4491,6 @@ export default function FinancePage() {
     }
 
     void router.push(`/present?${params.toString()}`)
-  }
-
-  const handleOpenAckInApp = () => {
-    if (!selectedRequisitionId || !ackRequestUrl) {
-      feedback.error('Generate the acknowledge request before opening it in the mobile wallet.', { title: 'Ack Request Missing' })
-      return
-    }
-
-    const params = new URLSearchParams({
-      request_uri: ackRequestUrl,
-      mode: 'requisition-ack',
-      requisitionId: selectedRequisitionId,
-    })
-    const activeOrgId = getActiveOrgId()
-    if (activeOrgId) {
-      params.set('orgTenantId', activeOrgId)
-    }
-
-    void router.push(`/present?${params.toString()}`)
-  }
-
-  const handleScanPortalApproval = () => {
-    if (!selectedRequisitionId) {
-      feedback.error('Open a requisition before scanning a portal approval QR.', { title: 'Requisition Missing' })
-      return
-    }
-
-    const params = new URLSearchParams({
-      mode: 'approve-requisition',
-      requisitionId: selectedRequisitionId,
-    })
-    const activeOrgId = getActiveOrgId()
-    if (activeOrgId) {
-      params.set('orgTenantId', activeOrgId)
-    }
-
-    void router.push(`/scan?${params.toString()}`)
-  }
-
-  const handleScanPortalRelease = () => {
-    if (!selectedRequisitionId) {
-      feedback.error('Open a requisition before scanning a portal release QR.', { title: 'Requisition Missing' })
-      return
-    }
-
-    const params = new URLSearchParams({
-      mode: 'release-funds',
-      requisitionId: selectedRequisitionId,
-      amount: String(requestedAmount.amount),
-      currency: requestedAmount.currency,
-    })
-    const activeOrgId = getActiveOrgId()
-    if (activeOrgId) {
-      params.set('orgTenantId', activeOrgId)
-    }
-
-    void router.push(`/scan?${params.toString()}`)
-  }
-
-  const handleScanPortalAck = () => {
-    if (!selectedRequisitionId) {
-      feedback.error('Open a requisition before scanning a portal acknowledgment QR.', { title: 'Requisition Missing' })
-      return
-    }
-
-    const params = new URLSearchParams({
-      mode: 'acknowledge-requisition',
-      requisitionId: selectedRequisitionId,
-    })
-    const activeOrgId = getActiveOrgId()
-    if (activeOrgId) {
-      params.set('orgTenantId', activeOrgId)
-    }
-
-    void router.push(`/scan?${params.toString()}`)
-  }
-
-  const handleRequisitionDecision = async (action: 'approve' | 'reject') => {
-    // This function is deprecated - approval now uses VP-based flow
-    // Kept for backward compatibility
-    return
   }
 
   const handleOpenReleaseModal = async () => {
@@ -4641,6 +4514,7 @@ export default function FinancePage() {
       )
       setReleaseRequestId(data.requestId)
       setReleaseRequestUrl(data.presentationRequestUrl)
+      setReleasePurposeLine(String(data.purposeLine || ''))
     } catch (err: any) {
       feedback.fromError(err, { title: 'Release Setup Failed', fallback: 'Could not generate secure verification request.' })
       setShowReleaseModal(false)
@@ -4649,94 +4523,9 @@ export default function FinancePage() {
     }
   }
 
-  const handleRequisitionRelease = async () => {
-    if (!selectedRequisitionId || !releaseRequestId || !releaseRequestUrl) {
-      feedback.error('Re-open the release modal to generate a valid request.', { title: 'Release Request Missing' })
-      return
-    }
-
-    const reauthOk = await requireSensitiveOrgReauth('release funds for this requisition')
-    if (!reauthOk) {
-      feedback.warn('Release was cancelled before submission.', { title: 'Re-authentication Cancelled' })
-      return
-    }
-    const deviceAssertion = await confirmWithDevice({
-      purpose: 'release_funds',
-      transaction: { requisitionId: selectedRequisitionId, amount: requestedAmount.amount, currency: requestedAmount.currency },
-    }).catch((error: Error) => {
-      feedback.warn(error.message, { title: 'Confirmation needed' })
-      return null
-    })
-    if (deviceAssertion === null) return
-
-    setReleasing(true)
-    try {
-      const token = getPreferredToken()
-      if (!token) throw new Error('No active organization session.')
-      const personalWalletId = getPersonalWalletTenantId()
-      if (!personalWalletId) throw new Error('Personal wallet session is required for embedded release.')
-      const releaseRes = await api.post(
-        `/api/finance/requisitions/${encodeURIComponent(selectedRequisitionId)}/release/embedded-wallet`,
-        {
-          requestId: releaseRequestId,
-          presentationRequestUrl: releaseRequestUrl,
-          walletId: personalWalletId,
-          amount: requestedAmount.amount,
-          currency: requestedAmount.currency,
-          ...(deviceAssertion ? { deviceAssertion } : {}),
-        },
-        { headers: { Authorization: `Bearer ${token}` } },
-      )
-      if (releaseRes.data?.error) throw new Error(releaseRes.data.error)
-      feedback.success('The release is recorded for this requisition.', { title: 'Money released' })
-      setShowReleaseModal(false)
-      setReleaseRequestId(null)
-      setReleaseRequestUrl(null)
-      setSelectedRequisitionId(null)
-      setSelectedRequisition(null)
-      await fetchRequisitions()
-    } catch (err: any) {
-      notifyWalletStepFailed('Release did not go through', err)
-    } finally {
-      setReleasing(false)
-    }
-  }
-
-  const handleOpenAckModal = async () => {
+  // Confirming delivery moves no money, so it is a signed-in step: no wallet share.
+  const handleConfirmDelivery = async () => {
     if (!selectedRequisitionId) return
-    setShowAckModal(true)
-    setCreatingAckRequest(true)
-    setAckRequestId(null)
-    setAckRequestUrl(null)
-    const token = getPreferredToken()
-    if (!token) {
-      feedback.error('Switch to your organization profile to confirm delivery.', { title: 'Organization profile needed' })
-      setShowAckModal(false)
-      setCreatingAckRequest(false)
-      return
-    }
-    try {
-      const { data } = await api.post(
-        `/api/finance/requisitions/${encodeURIComponent(selectedRequisitionId)}/ack/request`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } },
-      )
-      setAckRequestId(data.requestId)
-      setAckRequestUrl(data.presentationRequestUrl)
-    } catch (err: any) {
-      feedback.fromError(err, { title: 'Ack Setup Failed', fallback: 'Could not generate secure verification request.' })
-      setShowAckModal(false)
-    } finally {
-      setCreatingAckRequest(false)
-    }
-  }
-
-  const handleRequisitionAcknowledge = async () => {
-    if (!selectedRequisitionId || !ackRequestId || !ackRequestUrl) {
-      feedback.error('Re-open the acknowledge modal to generate a valid request.', { title: 'Ack Request Missing' })
-      return
-    }
-
     const allowed = await enforceOrgActionPolicy({
       actionType: 'workflow.acknowledge_completion',
       evidenceProvided: true,
@@ -4752,24 +4541,19 @@ export default function FinancePage() {
     setAcking(true)
     try {
       const token = getPreferredToken()
-      if (!token) throw new Error('No active organization session.')
-      const personalWalletId = getPersonalWalletTenantId()
-      if (!personalWalletId) throw new Error('Personal wallet session is required for embedded acknowledge.')
+      if (!token) throw new Error('Switch to your organization profile to confirm delivery.')
       const ackRes = await api.post(
-        `/api/finance/requisitions/${encodeURIComponent(selectedRequisitionId)}/ack/embedded-wallet`,
+        `/api/finance/requisitions/${encodeURIComponent(selectedRequisitionId)}/ack`,
+        { notes: requisitionLifecycleNote.trim() || 'Goods/services received and confirmed.' },
         {
-          requestId: ackRequestId,
-          presentationRequestUrl: ackRequestUrl,
-          walletId: personalWalletId,
-          notes: requisitionLifecycleNote.trim() || 'Goods/services received and confirmed.',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'x-idempotency-key': `requisition-ack:${selectedRequisitionId}`,
+          },
         },
-        { headers: { Authorization: `Bearer ${token}` } },
       )
       if (ackRes.data?.error) throw new Error(ackRes.data.error)
       milestone.show({ kind: 'workflow_complete', title: 'Delivery confirmed', detail: 'This requisition is now closed.' })
-      setShowAckModal(false)
-      setAckRequestId(null)
-      setAckRequestUrl(null)
       setSelectedRequisitionId(null)
       setSelectedRequisition(null)
       await fetchRequisitions()
@@ -6714,13 +6498,13 @@ export default function FinancePage() {
         onClose={() => setShowRecordApPayment(false)}
         position="bottom"
         size="auto"
-        title="Record Supplier Payment"
+        title="Record a supplier payment"
         radius="lg"
         styles={{ content: { borderRadius: '16px 16px 0 0' } }}
       >
         <Stack gap="sm" p="md">
           <TextInput
-            label="Amount Paid"
+            label="Amount paid"
             placeholder="e.g. 100.00"
             type="number"
             value={apPaymentForm.amountPaid}
@@ -6728,10 +6512,10 @@ export default function FinancePage() {
             required
           />
           <Select
-            label="Payment Method"
+            label="Paid by"
             data={[
               { value: 'ecocash', label: 'EcoCash' },
-              { value: 'bank_transfer', label: 'Bank Transfer' },
+              { value: 'bank_transfer', label: 'Bank transfer' },
               { value: 'cash', label: 'Cash' },
               { value: 'cheque', label: 'Cheque' },
               { value: 'other', label: 'Other' },
@@ -6740,8 +6524,8 @@ export default function FinancePage() {
             onChange={(val) => setApPaymentForm({ ...apPaymentForm, paymentMethod: val || 'ecocash' })}
           />
           <TextInput
-            label="Reference Number"
-            placeholder="e.g. EcoCash txn id or Bank ref"
+            label="Payment reference"
+            placeholder="Bank or EcoCash reference"
             value={apPaymentForm.reference}
             onChange={(e) => setApPaymentForm({ ...apPaymentForm, reference: e.currentTarget.value })}
           />
@@ -6759,7 +6543,7 @@ export default function FinancePage() {
             loading={submittingApAction}
             onClick={async () => {
               if (!apPaymentForm.amountPaid || !selectedApSupplier?.id) {
-                feedback.warn('Amount Paid is required.', { title: 'Validation Alert' })
+                feedback.warn('Enter the amount paid.', { title: 'Amount needed' })
                 return
               }
 
@@ -6791,7 +6575,7 @@ export default function FinancePage() {
                     headers: { Authorization: `Bearer ${token}` },
                   },
                 )
-                feedback.success('The payment has been successfully recorded and Remittance VC offered config queued.', { title: 'Payment Recorded' })
+                feedback.success('Payment recorded and matched to the bill.', { title: 'Payment recorded' })
                 setShowRecordApPayment(false)
                 fetchApSuppliers()
                 fetchApWorkflowActions()
@@ -6803,7 +6587,7 @@ export default function FinancePage() {
               }
             }}
           >
-            Submit Payment & Issue VC
+            Record payment
           </Button>
         </Stack>
       </Drawer>
@@ -6854,11 +6638,11 @@ export default function FinancePage() {
           />
 
           <Group grow>
-            <TextInput
-              label="Payer Phone (optional)"
-              placeholder="e.g. +26377123456"
+            <PhoneField
+              surface="phone"
+              label="Payer phone (optional)"
               value={planForm.payerPhone}
-              onChange={(e) => setPlanForm({ ...planForm, payerPhone: e.currentTarget.value })}
+              onChange={(payerPhone) => setPlanForm({ ...planForm, payerPhone })}
             />
             <TextInput
               label="Payer Email (optional)"
@@ -7056,11 +6840,11 @@ export default function FinancePage() {
                 value={form.payerName}
                 onChange={(e) => setForm({ ...form, payerName: e.currentTarget.value })}
               />
-              <TextInput
-                label="Customer Phone (optional)"
-                placeholder="+263..."
+              <PhoneField
+                surface="phone"
+                label="Customer phone (optional)"
                 value={form.payerPhone}
-                onChange={(e) => setForm({ ...form, payerPhone: e.currentTarget.value })}
+                onChange={(payerPhone) => setForm({ ...form, payerPhone })}
               />
             </>
           )}
@@ -7266,13 +7050,13 @@ export default function FinancePage() {
               value={invoiceForm.parentName}
               onChange={(e) => setInvoiceForm({ ...invoiceForm, parentName: e.currentTarget.value })}
             />
-            <TextInput
+            <PhoneField
+              surface="phone"
               label="Parent phone"
               required
-              placeholder="0772 123 456"
               description="The pay link goes to this number."
               value={invoiceForm.parentPhone}
-              onChange={(e) => setInvoiceForm({ ...invoiceForm, parentPhone: e.currentTarget.value })}
+              onChange={(parentPhone) => setInvoiceForm({ ...invoiceForm, parentPhone })}
             />
           </Group>
 
@@ -7560,13 +7344,12 @@ export default function FinancePage() {
 
           <details>
           <summary style={{ minHeight: 48, cursor: 'pointer', paddingTop: 12 }}>Client contact (optional)</summary>
-          <TextInput
+          <PhoneField
+            surface="phone"
             label="Client mobile number"
             description="The client gets the bill, and any extra-work quote, as a text with a pay link. Leave empty if the client is billed another way."
-            placeholder="e.g. 0771234567"
-            type="tel"
             value={fieldRunForm.clientPhone}
-            onChange={(e) => setFieldRunForm({ ...fieldRunForm, clientPhone: e.currentTarget.value })}
+            onChange={(clientPhone) => setFieldRunForm({ ...fieldRunForm, clientPhone })}
           />
           </details>
 
@@ -7600,59 +7383,7 @@ export default function FinancePage() {
           <details>
           <summary style={{ minHeight: 48, cursor: 'pointer', paddingTop: 12 }}>Payment schedule & worker payout</summary>
           <Stack gap="md" mt="sm">
-          <Select
-            label="How will the client pay?"
-            description="The job can close after sign-off while later payments remain in Finance."
-            data={[
-              { value: 'one_time', label: 'One payment' },
-              { value: 'instalment', label: 'A fixed number of instalments' },
-              { value: 'recurring', label: 'Recurring payments' },
-            ]}
-            value={fieldRunForm.paymentTerms}
-            onChange={(value) => setFieldRunForm({ ...fieldRunForm, paymentTerms: value || 'one_time' })}
-          />
-          {fieldRunForm.paymentTerms !== 'one_time' && (
-            <Grid gutter="sm">
-              <Grid.Col span={4}>
-                <TextInput
-                  label="Payments"
-                  type="number"
-                  min={2}
-                  value={fieldRunForm.instalments}
-                  onChange={(e) => setFieldRunForm({ ...fieldRunForm, instalments: e.currentTarget.value })}
-                />
-              </Grid.Col>
-              <Grid.Col span={8}>
-                <Select
-                  label="How often"
-                  data={[
-                    { value: 'weekly', label: 'Weekly' },
-                    { value: 'monthly', label: 'Monthly' },
-                    { value: 'quarterly', label: 'Every three months' },
-                  ]}
-                  value={fieldRunForm.paymentCadence}
-                  onChange={(value) => setFieldRunForm({ ...fieldRunForm, paymentCadence: value || 'monthly' })}
-                />
-              </Grid.Col>
-              <Grid.Col span={12}>
-                <TextInput
-                  label="First payment due"
-                  type="date"
-                  value={fieldRunForm.firstDueDate}
-                  onChange={(e) => setFieldRunForm({ ...fieldRunForm, firstDueDate: e.currentTarget.value })}
-                />
-              </Grid.Col>
-              <Grid.Col span={12}>
-                <TextInput
-                  label="First payment amount (optional)"
-                  type="number"
-                  min={0}
-                  value={fieldRunForm.firstPaymentAmount}
-                  onChange={(e) => setFieldRunForm({ ...fieldRunForm, firstPaymentAmount: e.currentTarget.value })}
-                />
-              </Grid.Col>
-            </Grid>
-          )}
+          <JobPaymentPlanFields value={fieldRunForm} onChange={(plan) => setFieldRunForm({ ...fieldRunForm, ...plan })} />
 
           <TextInput
             label="Worker payout (optional)"
@@ -7977,7 +7708,6 @@ export default function FinancePage() {
         closeOnEscape={false}
         withCloseButton={false}
         title="Step saved"
-        zIndex={400}
         centered
       >
         <Stack align="center" gap="sm" role="status" aria-live="polite" aria-busy={fieldStepRefreshing}>
@@ -8107,8 +7837,11 @@ export default function FinancePage() {
             const canReview = isOrgAdmin || canSignOff || isChosenFor('review_completion')
             const canInspect = canDoFieldSteps || isOrgAdmin || isChosenFor('inspect_site')
             const canReassign = !isTerminal && String(run.status || '').toLowerCase() === 'paused' && isOrgAdmin
+            const priceState = jobPriceState({ ...run, input })
+            const canSetPrice = isOrgAdmin && priceState.canSet
+            const namedPeople = peopleOnJob(run, orgMembers)
             // A hold is only live while the checkpoint that raised it is still open (same rule as the audit trail).
-            const allHolds = buildJobAuditTrail(run, orgMembers).holds
+            const allHolds = buildJobAuditTrail(run, namedPeople).holds
             const activeHold = [...allHolds].reverse().find((hold) => holdIsLive(hold.status)) || null
             const safetyHoldCount = allHolds.filter((hold) => hold.checkpoint === 'risk_assessment').length
             const canResolveHold =
@@ -8124,7 +7857,7 @@ export default function FinancePage() {
                 ? Number(input.budget)
                 : 0
             const currency = String(input.currency || 'USD').trim() || 'USD'
-            const memberNames = Object.fromEntries(orgMembers.map((member) => [member.userId, personName(member)]))
+            const memberNames = Object.fromEntries(namedPeople.map((member) => [member.userId, personName(member)]))
             const actingAsOrg = getContextMode() === 'org'
             const assigneeLabel = memberNames[assigneeId] || ''
             const genericAssignee = !assigneeLabel || /^(organization owner|team member)$/i.test(assigneeLabel)
@@ -8392,6 +8125,21 @@ export default function FinancePage() {
                                 Sign off job
                               </Button>
                             )}
+                            {priceState.waiting && canSetPrice && (
+                              <Button
+                                radius="xl"
+                                style={{ minHeight: 48 }}
+                                leftSection={<IconCash size={24} />}
+                                onClick={() => setJobPriceOpen(true)}
+                              >
+                                {priceState.action}
+                              </Button>
+                            )}
+                            {priceState.waiting && !canSetPrice && (
+                              <Text size="xs" c="dimmed">
+                                An owner or admin sets the price, then the bill goes to the client.
+                              </Text>
+                            )}
                             {pauseReason === 'await_payout_release' && canReleasePayout && (
                               <Button
                                 color="yellow"
@@ -8451,7 +8199,7 @@ export default function FinancePage() {
                     content: (
                       <JobEvidenceTabs
                         run={run}
-                        orgMembers={orgMembers}
+                        orgMembers={namedPeople}
                         actors={fieldStageActors as JobActorStage[]}
                         assigneeName={genericAssignee ? undefined : assigneeLabel}
                         tab={fieldJobTab}
@@ -8469,6 +8217,35 @@ export default function FinancePage() {
                               </Text>
                               <Text size="sm">{input.clientName || 'N/A'}</Text>
                             </Box>
+                            {(input.customerMsisdn || input.clientPhone) && (
+                              <Box>
+                                <Text size="sm" c="dimmed">
+                                  Phone
+                                </Text>
+                                <Group gap="xs" wrap="nowrap">
+                                  <Text size="sm">{String(input.customerMsisdn || input.clientPhone)}</Text>
+                                  <Anchor size="sm" href={`tel:${String(input.customerMsisdn || input.clientPhone)}`}>Call</Anchor>
+                                  <Anchor
+                                    size="sm"
+                                    href={`https://wa.me/${String(input.customerMsisdn || input.clientPhone).replace(/\D/g, '')}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    WhatsApp
+                                  </Anchor>
+                                </Group>
+                              </Box>
+                            )}
+                            {input.bookedVia && (
+                              <Box>
+                                <Text size="sm" c="dimmed">
+                                  How it came in
+                                </Text>
+                                <Text size="sm">
+                                  {`Booked by the client ${input.bookedVia === 'whatsapp' ? 'on WhatsApp' : 'in the app'}${input.serviceName ? ` · ${input.serviceName}` : ''}`}
+                                </Text>
+                              </Box>
+                            )}
                             <Box>
                               <Text size="sm" c="dimmed">
                                 Location
@@ -8512,6 +8289,26 @@ export default function FinancePage() {
                                 <Text size="sm">{runRef}</Text>
                               </Box>
                             )}
+                            {priceState.canSet && (
+                              <Box>
+                                <Text size="sm" c="dimmed">
+                                  Price and payment
+                                </Text>
+                                <Text size="sm">{priceState.line}</Text>
+                                {canSetPrice && !priceState.waiting && (
+                                  <Button
+                                    mt="xs"
+                                    variant="light"
+                                    radius="xl"
+                                    style={{ minHeight: 48 }}
+                                    leftSection={<IconCash size={24} />}
+                                    onClick={() => setJobPriceOpen(true)}
+                                  >
+                                    {priceState.action}
+                                  </Button>
+                                )}
+                              </Box>
+                            )}
                             {(run.output?.ack || run.output?.payment?.status === 'triggered') && (
                               <Box>
                                 <Text size="sm" fw={600}>
@@ -8538,12 +8335,20 @@ export default function FinancePage() {
                             {canReassign && (
                               <Stack gap="sm">
                                 <Select
-                                  label="Move this job to someone else"
+                                  label={
+                                    pauseReason === 'await_assignment'
+                                      ? 'Choose who does this job'
+                                      : 'Move this job to someone else'
+                                  }
                                   value={fieldReassignAssigneeId}
                                   onChange={(val) => setFieldReassignAssigneeId(val || '')}
                                   data={reassignOptions}
                                   placeholder="Choose a team member"
-                                  description="The job card moves to them; the current step stays where it is."
+                                  description={
+                                    pauseReason === 'await_assignment'
+                                      ? 'A customer booked this job. The job card goes to the person you choose.'
+                                      : 'The job card moves to them; the current step stays where it is.'
+                                  }
                                 />
                                 <Button
                                   fullWidth
@@ -8553,7 +8358,7 @@ export default function FinancePage() {
                                   loading={feptActionLoading}
                                   onClick={() => handleReassignFieldTask(run.id, fieldReassignAssigneeId)}
                                 >
-                                  Move job
+                                  {pauseReason === 'await_assignment' ? 'Give them the job' : 'Move job'}
                                 </Button>
                               </Stack>
                             )}
@@ -8570,6 +8375,18 @@ export default function FinancePage() {
             )
           })()}
       </Drawer>
+      {selectedFieldRun && (
+        <JobPriceSheet
+          run={{ ...selectedFieldRun, input: selectedFieldRun.output?.workflowInput || selectedFieldRun.input || {} }}
+          opened={jobPriceOpen}
+          onClose={() => setJobPriceOpen(false)}
+          onSaved={async () => {
+            const fresh = await api.get(`/workflows/runs/${encodeURIComponent(selectedFieldRun.id)}`)
+            setSelectedFieldRun(fresh.data)
+            await fetchFieldRuns()
+          }}
+        />
+      )}
 
       <Drawer
         opened={Boolean(chainRequest || historyItem)}
@@ -8896,7 +8713,7 @@ export default function FinancePage() {
                             ['RELEASED', 'PAID', 'RECEIPT_ISSUED'].includes(currentStatus) && isReleaseRole()
                           const roleBlocked =
                             (nextStep.action === 'release' || nextStep.action === 'ack') && !isReleaseRole()
-                          const busy = creatingApprovalRequest || creatingReleaseRequest || creatingAckRequest
+                          const busy = creatingApprovalRequest || creatingReleaseRequest || acking
                           const run = () => {
                             if (nextStep.action === 'approval' && canApprove) {
                               void handleOpenApprovalModal()
@@ -8907,7 +8724,7 @@ export default function FinancePage() {
                               return
                             }
                             if (nextStep.action === 'ack' && canAck) {
-                              void handleOpenAckModal()
+                              void handleConfirmDelivery()
                             }
                           }
 
@@ -8977,7 +8794,6 @@ export default function FinancePage() {
           requestUrl,
           creatingRequest,
           onOpenInApp,
-          onScanPortal,
         }: {
           opened: boolean
           onClose: () => void
@@ -8986,7 +8802,6 @@ export default function FinancePage() {
           requestUrl: string | null
           creatingRequest: boolean
           onOpenInApp: () => void
-          onScanPortal?: () => void
         }) => (
           <Modal
             opened={opened}
@@ -9045,19 +8860,6 @@ export default function FinancePage() {
                           Scanning is not available for this link.
                         </Text>
                       )}
-                      {onScanPortal && (
-                        <Button
-                          variant="light"
-                          color="violet"
-                          size="sm"
-                          leftSection={<IconQrcode size={16} />}
-                          onClick={onScanPortal}
-                          disabled={creatingRequest}
-                          fullWidth
-                        >
-                          Scan a code from the portal
-                        </Button>
-                      )}
                       <Button
                         variant="subtle"
                         color="blue"
@@ -9102,7 +8904,6 @@ export default function FinancePage() {
               requestUrl={approvalRequestUrl}
               creatingRequest={creatingApprovalRequest}
               onOpenInApp={handleOpenApprovalInApp}
-              onScanPortal={handleScanPortalApproval}
             />
 
             <VPActionModal
@@ -9113,18 +8914,6 @@ export default function FinancePage() {
               requestUrl={releaseRequestUrl}
               creatingRequest={creatingReleaseRequest}
               onOpenInApp={handleOpenReleaseInApp}
-              onScanPortal={handleScanPortalRelease}
-            />
-
-            <VPActionModal
-              opened={showAckModal}
-              onClose={() => setShowAckModal(false)}
-              title="Confirm delivery"
-              description="Review what your wallet will share, then confirm you received the goods or services."
-              requestUrl={ackRequestUrl}
-              creatingRequest={creatingAckRequest}
-              onOpenInApp={handleOpenAckInApp}
-              onScanPortal={handleScanPortalAck}
             />
 
             <VPActionModal

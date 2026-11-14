@@ -10,11 +10,15 @@
 | `empty.json` | Inbox empty ("All caught up"), loops | Made for Credentis by `generate.py` |
 | `onboarding_receive.json` | Example receipt arriving in a wallet | Made for Credentis by `generate.py` |
 | `onboarding_share.json` | Reviewing details before approving a request | Made for Credentis by `generate.py` |
+| `security.json` | Sign-in or fingerprint for money turned on: a fingerprint draws on a phone, a scan passes, then a check | Made for Credentis by `generate.py` |
 
 The welcome, organisation and completion animations use the same white-card language as the
 wallet guide, so milestones look like the cards people actually hold.
 
 All files use the Credentis palette (blue `#2188ca`, green `#1fb87e`) and are under 25 KB.
+Movement eases with Material 3 expressive springs (spatial curves may overshoot; fades do not),
+and the soft backdrop is a translucent brand blue so it stays a tint in dark mode. Guide screens
+play an entrance once and then hold still.
 Compositions are 1080x1080 at 60 fps, with vector paths only: no embedded raster images,
 external fonts or CDN assets. SVG rendering stays sharp at high device-pixel ratios;
 the larger export artboard is not a substitute for detailed vector artwork.

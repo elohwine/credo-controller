@@ -6,15 +6,24 @@
 
 import 'reflect-metadata'
 import { generateKeyPairSync, sign as signRaw } from 'crypto'
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from '@jest/globals'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, jest, test } from '@jest/globals'
 
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
-import { deviceTrustService } from '../src/services/DeviceTrustService'
-import { requireDeviceTrust } from '../src/services/deviceAssertion'
-import { getOrCreateOrgProofVcPolicy, updateOrgProofVcPolicy } from '../src/services/ProofVcPolicyService'
 import { StatusException } from '../src/errors/StatusException'
 
 import { initTestDatabases, seedOrganization, type TestDatabases } from './utils/orgReadinessFixture'
+
+// Only the Android certificate-chain check is stubbed (no real phone in CI); the rest is real.
+let stubAttestation = true
+const realAttestation = await import('../src/services/AndroidKeyAttestation')
+jest.unstable_mockModule('../src/services/AndroidKeyAttestation', () => ({
+  ...realAttestation,
+  verifyAndroidKeyAttestation: async (input: Parameters<typeof realAttestation.verifyAndroidKeyAttestation>[0]) =>
+    stubAttestation ? undefined : realAttestation.verifyAndroidKeyAttestation(input),
+}))
+const { deviceTrustService } = await import('../src/services/DeviceTrustService')
+const { requireDeviceTrust } = await import('../src/services/deviceAssertion')
+const { getOrCreateOrgProofVcPolicy, updateOrgProofVcPolicy } = await import('../src/services/ProofVcPolicyService')
 
 let databases: TestDatabases
 const walletTenantId = 'wallet-device-trust'
@@ -56,6 +65,23 @@ beforeAll(() => {
 
 afterAll(() => databases.cleanup())
 
+afterEach(() => {
+  stubAttestation = true
+})
+
+/** Enroll a payment key. Only the Android certificate chain check is stubbed; everything else is real. */
+async function enrollPhone(keys: ReturnType<typeof keyPair>) {
+  const { nonce } = deviceTrustService.createEnrollmentChallenge(walletTenantId)
+  return deviceTrustService.enroll({
+    walletTenantId,
+    publicJwk: publicJwk(keys),
+    attestation,
+    platform: 'android',
+    enrollmentChallenge: nonce,
+    usage: 'payment',
+  })
+}
+
 beforeEach(() => {
   const db = DatabaseManager.getDatabase()
   db.prepare('DELETE FROM device_assertions').run()
@@ -92,16 +118,11 @@ describe('phone confirmation for money steps', () => {
     ).toThrow(StatusException)
   })
 
-  test('an enrolled phone signature is accepted once and refused on replay', () => {
+  test('an enrolled phone signature is accepted once and refused on replay', async () => {
     const org = seedOrganization()
     updateOrgProofVcPolicy(org.orgTenantId, { deviceTrust: { enabled: true, requiredActions: ['release_funds'] } })
     const keys = keyPair()
-    const device = deviceTrustService.enroll({
-      walletTenantId,
-      publicJwk: publicJwk(keys),
-      attestation,
-      platform: 'android',
-    })
+    const device = await enrollPhone(keys)
     const challenge = deviceTrustService.createChallenge(walletTenantId)
     const assertion = signedAssertion(keys, device.id, 'release_funds', challenge.nonce)
     expect(() =>
@@ -127,16 +148,11 @@ describe('phone confirmation for money steps', () => {
     ).toThrow(/could not be verified|already been used/)
   })
 
-  test('a revoked phone cannot release money', () => {
+  test('a revoked phone cannot release money', async () => {
     const org = seedOrganization()
     updateOrgProofVcPolicy(org.orgTenantId, { deviceTrust: { enabled: true, requiredActions: ['release_funds'] } })
     const keys = keyPair()
-    const device = deviceTrustService.enroll({
-      walletTenantId,
-      publicJwk: publicJwk(keys),
-      attestation,
-      platform: 'android',
-    })
+    const device = await enrollPhone(keys)
     deviceTrustService.revoke(walletTenantId, device.id)
     const challenge = deviceTrustService.createChallenge(walletTenantId)
     expect(() =>
@@ -151,15 +167,19 @@ describe('phone confirmation for money steps', () => {
     ).toThrow(/revoked/)
   })
 
-  test('a software key is not enrolled', () => {
+  test('a key without Android hardware attestation is not enrolled', async () => {
+    stubAttestation = false
     const keys = keyPair()
-    expect(() =>
+    const { nonce } = deviceTrustService.createEnrollmentChallenge(walletTenantId)
+    await expect(
       deviceTrustService.enroll({
         walletTenantId,
         publicJwk: publicJwk(keys),
         attestation: { ...attestation, hardwareBacked: false, securityLevel: 'Software' },
         platform: 'android',
+        enrollmentChallenge: nonce,
+        usage: 'payment',
       }),
-    ).toThrow(/hardware-backed/)
+    ).rejects.toThrow(/attestation certificates are required/)
   })
 })

@@ -24,6 +24,7 @@ import {
   type OrgOperatingModel,
   type OrgConfigurationAccess,
 } from '../config/orgModules'
+import { MEMBER_REQUEST_FLOWS } from '../config/requestFlows'
 import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 
@@ -295,6 +296,9 @@ export class OrgSetupProfileService {
       tpl_payroll_reporting: 'people_payroll',
     }
     if (extra[normalized.replace(/-/g, '_')]) return extra[normalized.replace(/-/g, '_')]
+    // Member requests and their flows answer from the request flow registry.
+    const flow = MEMBER_REQUEST_FLOWS.find((entry) => entry.requestType === normalized || entry.templateId === normalized)
+    if (flow) return flow.module ?? undefined
     const candidates = getWorkflowTypeCandidates(
       normalized.startsWith('tpl-') ? normalized : normalized.replace(/-/g, '_'),
     )

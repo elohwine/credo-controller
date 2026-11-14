@@ -3,15 +3,14 @@
 /**
  * SSI Auth Service - Self-Sovereign Identity Authentication
  *
- * TRUE SSI APPROACH - No PII stored in database!
+ * The account record keeps a keyed hash of the phone number and email, never the number itself,
+ * and the PIN as a slow per-account hash. The name, the number and the date of birth live in the
+ * person's own card. See ssi/contactHash.ts and ssi/pinHash.ts for why a plain SHA-256 is not
+ * enough, and docs/SSI_PRODUCTION_PROFILE.md for what else the platform does hold.
  *
- * Key Architecture:
- * 1. PII (Phone, Email, Name) is NEVER stored in the database - only SHA-256 hashes for lookup
- * 2. Actual PII lives ONLY in the user's wallet as PlatformIdentityVC
- * 3. Login options:
- *    a) Present VC → Verify signature → Issue session token (TRUE SSI)
- *    b) Hash-based lookup with PIN (Web2-friendly fallback)
- * 4. User controls their data - we're not a PII honeypot
+ * Login options:
+ *    a) Present the identity card → verify signature → issue a session
+ *    b) Phone or email plus PIN, looked up by the keyed hash
  *
  * Fastlane Flow:
  * - At checkout, phone entered → encrypted temp record with tenantId (auto-expires 24h)
@@ -19,7 +18,7 @@
  * - PlatformIdentityVC issued → temp record deleted
  */
 
-import type { SSIUserRecord, PlatformIdentityClaims } from '../config/credentials/PlatformIdentityVC'
+import type { SSIUserRecord, PlatformIdentityClaims, IdentityVerificationSource } from '../config/credentials/PlatformIdentityVC'
 
 import { Agent, W3cCredentialService, W3cJwtVerifiableCredential, W3cJwtVerifiablePresentation } from '@credo-ts/core'
 import crypto from 'crypto'
@@ -30,14 +29,41 @@ import { RestMultiTenantAgentModules } from '../cliAgent'
 import { PLATFORM_IDENTITY_VC_TYPE } from '../config/credentials/PlatformIdentityVC'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { getTenantById } from '../persistence/TenantRepository'
+import { deploymentSecret } from '../utils/deploymentSecret'
 import { rootLogger } from '../utils/pinoLogger'
 import { getIssuerApiKey } from '../utils/serviceApiKey'
 
 import { type DeviceAssertion, deviceTrustService } from './DeviceTrustService'
+import { billDocumentClaims, documentClaims } from './documentFacts'
 import { memberInviteService } from './MemberInviteService'
 import { personalSessionVersion, requireDeviceLoginApproval } from './PersonalSessionPolicy'
+import {
+  contactHash,
+  contactHashCandidates,
+  normalizeContactEmail,
+  phoneHashCandidates,
+} from './ssi/contactHash'
+import { hashPin, needsRehash, verifyPin } from './ssi/pinHash'
 
 const logger = rootLogger.child({ module: 'SSIAuthService' })
+
+/** The shape of the contact hashes written today; rows below this still hold an open digest. */
+const CONTACT_HASH_VERSION = 2
+
+/** Wrong PINs allowed against one account before it is locked, and for how long. */
+const PIN_ATTEMPT_LIMIT = 5
+const PIN_LOCK_MINUTES = 15
+
+/** Too many wrong PINs against one account. Carries how long the wait is, in minutes. */
+export class PinLockedError extends Error {
+  public constructor(public readonly minutes: number) {
+    super(
+      `Too many wrong PINs. For safety this account is locked for ${minutes} minute${minutes === 1 ? '' : 's'}. ` +
+        `Try again after that, or sign in on a device you have already used.`,
+    )
+    this.name = 'PinLockedError'
+  }
+}
 
 export type PlatformIdentityFailure =
   | 'identity_credential_missing'
@@ -101,18 +127,12 @@ export class SSIAuthService {
     phone: string,
     displayName: string,
   ): Promise<{ userId: string; tenantId: string; created: boolean }> {
-    const db = DatabaseManager.getDatabase()
-    const phoneHash = this.hashData(this.normalizePhone(phone))
-    const existing = db.prepare('SELECT id, tenant_id FROM ssi_users WHERE phone_hash = ?').get(phoneHash) as
-      | { id: string; tenant_id: string }
-      | undefined
+    const existing = this.findUserByContact(phone) as { id: string; tenant_id: string } | undefined
     if (existing?.id && existing.tenant_id) {
       return { userId: existing.id, tenantId: existing.tenant_id, created: false }
     }
     await this.register({ username: displayName.trim() || 'Team member', phone }, { quiet: true })
-    const created = db.prepare('SELECT id, tenant_id FROM ssi_users WHERE phone_hash = ?').get(phoneHash) as
-      | { id: string; tenant_id: string }
-      | undefined
+    const created = this.findUserByContact(phone) as { id: string; tenant_id: string } | undefined
     if (!created?.id || !created.tenant_id) {
       throw new Error('Could not open an account for that phone number')
     }
@@ -126,6 +146,8 @@ export class SSIAuthService {
       phone?: string
       email?: string
       claimExistingTenantId?: string
+      /** Opt in to a Central Registry confirmation. The plain identity card is still issued. */
+      requestRegistryVerification?: boolean
     },
     options?: { quiet?: boolean },
   ): Promise<{
@@ -167,10 +189,11 @@ export class SSIAuthService {
       )
     }
 
-    // Check duplication by hash
+    // Check duplication by hash. An account opened before the keyed hash still holds an open
+    // digest, so the check has to look for both or the same person would be signed up twice.
     let existingUser = null
     if (phoneHash) {
-      existingUser = db.prepare('SELECT * FROM ssi_users WHERE phone_hash = ?').get(phoneHash) as any
+      existingUser = this.findUserByContact(claims.phone) as any
       if (existingUser) {
         // If we have a guest tenant to claim, but user exists -> MIGRATE
         const guestId =
@@ -185,6 +208,7 @@ export class SSIAuthService {
 
           // Return successful "Registration" (effectively login + claim)
           const token = await this.generateSessionToken(existingUser.id, existingUser.tenant_id)
+          this.noteRegistryOptIn(existingUser.tenant_id, claims.requestRegistryVerification)
           return {
             tenantId: existingUser.tenant_id,
             walletId: existingUser.tenant_id,
@@ -197,7 +221,7 @@ export class SSIAuthService {
       }
     }
     if (emailHash) {
-      const existing = db.prepare('SELECT id FROM ssi_users WHERE email_hash = ?').get(emailHash) as any
+      const existing = this.findUserByContact(undefined, claims.email) as any
       if (existing) throw new Error('User already exists (email)')
     }
 
@@ -267,8 +291,8 @@ export class SSIAuthService {
     db.prepare(
       `
       INSERT INTO ssi_users (
-        id, tenant_id, did, phone_hash, email_hash, pin_hash, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        id, tenant_id, did, phone_hash, email_hash, pin_hash, contact_hash_version, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     ).run(
       userId,
@@ -276,7 +300,8 @@ export class SSIAuthService {
       userDid,
       phoneHash,
       emailHash,
-      pinHash, // Optional PIN hash for Web2 fallback
+      pinHash,
+      phoneHash || emailHash ? CONTACT_HASH_VERSION : null,
       new Date().toISOString(),
       new Date().toISOString(),
     )
@@ -313,6 +338,8 @@ export class SSIAuthService {
     if (claimedExisting && claims.phone) {
       await this.deletePhoneLink(tenantId!)
     }
+
+    this.noteRegistryOptIn(tenantId!, claims.requestRegistryVerification)
 
     // Generate Auth Token
     const token = await this.generateSessionToken(userId, tenantId!, userDid)
@@ -430,13 +457,20 @@ export class SSIAuthService {
   }
 
   public verifyEnrollmentPin(tenantId: string, pin: string): void {
-    const row = DatabaseManager.getDatabase()
-      .prepare('SELECT pin_hash FROM ssi_users WHERE tenant_id = ?')
-      .get(tenantId) as { pin_hash: string | null } | undefined
-    const expected = Buffer.from(row?.pin_hash || '', 'utf8')
-    const actual = Buffer.from(this.hashPin(pin), 'utf8')
-    if (!expected.length || actual.length !== expected.length || !crypto.timingSafeEqual(expected, actual)) {
+    const db = DatabaseManager.getDatabase()
+    const row = db.prepare('SELECT pin_hash FROM ssi_users WHERE tenant_id = ?').get(tenantId) as
+      | { pin_hash: string | null }
+      | undefined
+    if (!row?.pin_hash || !verifyPin(pin, row.pin_hash)) {
       throw new Error('Confirm your account PIN to enroll this device.')
+    }
+    // A correct PIN is the moment an older, reversible hash can be replaced.
+    if (needsRehash(row.pin_hash)) {
+      db.prepare('UPDATE ssi_users SET pin_hash = ?, updated_at = ? WHERE tenant_id = ?').run(
+        hashPin(pin),
+        new Date().toISOString(),
+        tenantId,
+      )
     }
   }
 
@@ -566,41 +600,45 @@ export class SSIAuthService {
   }): Promise<{ token: string; tenantId: string }> {
     const db = DatabaseManager.getDatabase()
 
-    // Normalize phone on login too!
-    const lookupHash = credentials.phone
-      ? this.hashData(this.normalizePhone(credentials.phone))
-      : credentials.email
-        ? this.hashData(credentials.email)
-        : null
+    if (!credentials.phone?.trim() && !credentials.email?.trim()) throw new Error('Phone or Email required')
 
-    if (!lookupHash) throw new Error('Phone or Email required')
-
-    const user = db
-      .prepare(
-        `
-      SELECT * FROM ssi_users 
-      WHERE phone_hash = ? OR email_hash = ?
-    `,
-      )
-      .get(lookupHash, lookupHash) as any
+    // Matches the keyed hash written today and the open digest an older account still holds.
+    const user = (
+      credentials.phone?.trim()
+        ? this.findUserByContact(credentials.phone)
+        : this.findUserByContact(undefined, credentials.email)
+    ) as any
 
     if (!user) throw new Error('Invalid credentials')
 
+    this.assertPinNotLocked(user)
+
     // An invited account has no PIN until the person opens their invite link and chooses one.
     // The organisation never sets that PIN, and nobody else can claim it by guessing first.
-    const inputPinHash = this.hashPin(credentials.pin)
     if (!user.pin_hash && memberInviteService.wasInvited(user.id)) {
       throw new InviteRequiredError()
     }
     if (!user.pin_hash) {
+      db.prepare(
+        'UPDATE ssi_users SET pin_hash = ?, pin_attempts = 0, pin_locked_until = NULL, updated_at = ? WHERE id = ?',
+      ).run(hashPin(credentials.pin), new Date().toISOString(), user.id)
+    } else if (!verifyPin(credentials.pin, user.pin_hash)) {
+      this.notePinFailure(user.id, Number(user.pin_attempts || 0))
+      throw new Error('Invalid credentials')
+    } else if (needsRehash(user.pin_hash)) {
       db.prepare('UPDATE ssi_users SET pin_hash = ?, updated_at = ? WHERE id = ?').run(
-        inputPinHash,
+        hashPin(credentials.pin),
         new Date().toISOString(),
         user.id,
       )
-    } else if (user.pin_hash !== inputPinHash) {
-      throw new Error('Invalid credentials')
     }
+
+    this.clearPinFailures(user.id)
+    this.upgradeContactHashes(
+      user.id,
+      credentials.phone ? this.normalizePhone(credentials.phone) : undefined,
+      credentials.email,
+    )
 
     // Update last login
     db.prepare('UPDATE ssi_users SET last_login_at = ? WHERE id = ?').run(new Date().toISOString(), user.id)
@@ -664,16 +702,18 @@ export class SSIAuthService {
       | undefined
     if (!user) throw new Error('This invite link has expired or was replaced by a newer one')
     const phone = this.normalizePhone(String(input.phone || ''))
-    if (!phone || user.phone_hash !== this.hashData(phone)) {
+    if (!phone || !this.contactMatches(user.phone_hash, phone)) {
       throw new Error('That is not the phone number this invite was sent to')
     }
     const now = new Date().toISOString()
     const claimed = db.transaction(() => {
       const set = db
         .prepare(
-          'UPDATE ssi_users SET pin_hash = ?, updated_at = ?, last_login_at = ? WHERE id = ? AND pin_hash IS NULL',
+          `UPDATE ssi_users
+              SET pin_hash = ?, phone_hash = ?, contact_hash_version = ?, updated_at = ?, last_login_at = ?
+            WHERE id = ? AND pin_hash IS NULL`,
         )
-        .run(this.hashPin(input.pin), now, now, user.id)
+        .run(hashPin(input.pin), contactHash(phone), CONTACT_HASH_VERSION, now, now, user.id)
       if (!set.changes) return false
       memberInviteService.markUsed(user.id)
       return true
@@ -753,11 +793,7 @@ export class SSIAuthService {
    * Find REGISTERED tenant by phone
    */
   async findRegisteredTenantByPhone(phone: string): Promise<string | undefined> {
-    const db = DatabaseManager.getDatabase()
-    const phoneHash = this.hashData(this.normalizePhone(phone))
-    const user = db.prepare('SELECT tenant_id FROM ssi_users WHERE phone_hash = ?').get(phoneHash) as {
-      tenant_id: string
-    }
+    const user = this.findUserByContact(phone) as { tenant_id: string } | undefined
 
     if (user) {
       logger.info({ tenantId: user.tenant_id }, 'Found Registered Tenant for phone number')
@@ -835,6 +871,17 @@ export class SSIAuthService {
     }
     await tenantAgent.endSession()
     return userDid
+  }
+
+  /** Records an opt-in. The identity card issued above is unchanged. */
+  private noteRegistryOptIn(walletTenantId: string, optedIn: boolean | undefined): void {
+    if (!optedIn) return
+    try {
+      const { identityVerificationRequestService } = require('./IdentityVerificationRequestService') as typeof import('./IdentityVerificationRequestService')
+      identityVerificationRequestService.requestRegistryVerification(walletTenantId)
+    } catch (error: any) {
+      logger.warn({ error: error?.message }, 'Could not record the registry verification request')
+    }
   }
 
   private async issuePlatformIdentityVC(tenantId: string, claims: PlatformIdentityClaims): Promise<string | undefined> {
@@ -931,6 +978,67 @@ export class SSIAuthService {
   }
 
   /**
+   * The same PlatformIdentityCredential, carrying a dateOfBirth and the over18 fact it
+   * derives — not a new credential type. Issued as `vc+sd-jwt` (see
+   * SELECTIVE_DISCLOSURE_VC_TYPES) so a verifier can be shown only "18 or over" while
+   * name, phone and the date of birth itself stay on the phone. The person's existing
+   * jwt_vc_json identity card is untouched and keeps working for sign-in.
+   *
+   * `source` records how dateOfBirth got here: 'self_attested' when the person entered it
+   * themselves, 'registry_confirmed' when the Central Registry supplied it. Nothing here
+   * invents a date of birth; the caller must have a real one.
+   */
+  public async reissuePlatformIdentityWithDateOfBirth(
+    walletTenantId: string,
+    dateOfBirth: string,
+    source: IdentityVerificationSource,
+    displayName?: string,
+    phone?: string,
+  ): Promise<string | undefined> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+      throw new Error('dateOfBirth must be an ISO date (YYYY-MM-DD)')
+    }
+    const over18: 'Yes' | 'No' = this.isAtLeast18(dateOfBirth) ? 'Yes' : 'No'
+    const offerUri = await this.createPlatformOfferUri({
+      credentialDefinitionId: PLATFORM_IDENTITY_VC_TYPE,
+      format: 'sd_jwt',
+      claims: {
+        displayName: displayName || 'Member',
+        ...(phone ? { phone } : {}),
+        registeredAt: new Date().toISOString(),
+        platformTenantId: walletTenantId,
+        platformName: process.env.PLATFORM_NAME || 'Credentis',
+        verificationLevel: source === 'registry_confirmed' ? 'kyc_verified' : 'phone_verified',
+        dateOfBirth,
+        over18,
+        identityVerification: source,
+        tenantId: walletTenantId,
+      },
+    })
+    if (!offerUri) return undefined
+    const { orgMembershipCredentialService } = await import('./OrgMembershipCredentialService')
+    orgMembershipCredentialService.queuePlatformIdentityOffer({
+      walletTenantId,
+      offerUri,
+      displayName,
+      variant: 'age_verification',
+    })
+    return offerUri
+  }
+
+  private isAtLeast18(dateOfBirthIso: string): boolean {
+    const dob = new Date(`${dateOfBirthIso}T00:00:00Z`)
+    if (Number.isNaN(dob.getTime())) throw new Error('dateOfBirth is not a valid date')
+    const now = new Date()
+    let age = now.getUTCFullYear() - dob.getUTCFullYear()
+    const beforeBirthdayThisYear =
+      now.getUTCMonth() < dob.getUTCMonth() ||
+      (now.getUTCMonth() === dob.getUTCMonth() && now.getUTCDate() < dob.getUTCDate())
+    if (beforeBirthdayThisYear) age -= 1
+    return age >= 18
+  }
+
+  /**
    * Retroactive Issuance:
    * Query ack_payments for past successful transactions matching this phone
    * and issue ReceiptVCs to the new tenant.
@@ -990,6 +1098,27 @@ export class SSIAuthService {
 
     for (const payment of payments) {
       try {
+        const merchantTenantId = this.merchantOfPayment(payment)
+        const receipt = {
+          transactionId: payment.provider_ref || payment.id,
+          paymentRef: payment.provider_ref || payment.id,
+          amount: String(payment.amount),
+          currency: payment.currency || 'USD',
+          payerPhone: payment.payer_phone,
+          subjectHash,
+          merchant: merchantTenantId,
+          cartId: payment.cart_id,
+          invoiceId: payment.invoice_id,
+          invoiceRef: payment.invoice_id,
+          invoiceHash: payment.invoice_hash, // Preserves audit chain if available
+          previousRecordHash: payment.invoice_hash,
+          paidAt: payment.updated_at || new Date().toISOString(),
+          timestamp: payment.updated_at || new Date().toISOString(),
+        }
+        const billLink = this.billLinkOfPayment(payment)
+        const receiptClaims = billLink
+          ? billDocumentClaims('ReceiptVC', billLink, receipt)
+          : documentClaims('ReceiptVC', receipt, merchantTenantId, { when: payment.updated_at || undefined })
         // Issue ReceiptVC
         // We issue directly to the new tenant (x-tenant-id header target)
         const response = await fetch(`${issuerApiUrl}/custom-oidc/issuer/credential-offers`, {
@@ -1005,19 +1134,7 @@ export class SSIAuthService {
                 credentialDefinitionId: 'ReceiptVC',
                 format: 'jwt_vc_json',
                 type: ['VerifiableCredential', 'ReceiptVC'],
-                claims: {
-                  transactionId: payment.provider_ref || payment.id,
-                  amount: String(payment.amount),
-                  currency: payment.currency || 'USD',
-                  payerPhone: payment.payer_phone,
-                  subjectHash,
-                  merchant: payment.tenant_id,
-                  cartId: payment.cart_id,
-                  invoiceId: payment.invoice_id,
-                  invoiceHash: payment.invoice_hash, // Preserves audit chain if available
-                  previousRecordHash: payment.invoice_hash,
-                  timestamp: payment.updated_at || new Date().toISOString(),
-                },
+                claims: receiptClaims,
               },
             ],
           }),
@@ -1068,6 +1185,32 @@ export class SSIAuthService {
     }
   }
 
+  private paymentMetadata(payment: any): Record<string, any> {
+    try {
+      const parsed = JSON.parse(String(payment?.metadata || '{}'))
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  /** The organisation that was paid. Pay-link payments keep it in metadata; their tenant column is the payer's wallet. */
+  private merchantOfPayment(payment: any): string | undefined {
+    const fromMetadata = this.paymentMetadata(payment).merchantTenantId
+    if (typeof fromMetadata === 'string' && fromMetadata.trim()) return fromMetadata.trim()
+    return payment?.tenant_id || undefined
+  }
+
+  private billLinkOfPayment(
+    payment: any,
+  ): { merchant_id: string; sector?: string; metadata?: string; created_at?: string } | undefined {
+    const linkId = this.paymentMetadata(payment).paymentLinkId
+    if (typeof linkId !== 'string' || !linkId) return undefined
+    return DatabaseManager.getDatabase()
+      .prepare('SELECT merchant_id, sector, metadata, created_at FROM payment_links WHERE id = ?')
+      .get(linkId) as { merchant_id: string; sector?: string; metadata?: string; created_at?: string } | undefined
+  }
+
   private async queueRetroReceiptOffer(input: {
     tenantId: string
     userId: string
@@ -1095,7 +1238,7 @@ export class SSIAuthService {
       ).run({
         id: crypto.randomUUID(),
         tenantId: input.tenantId,
-        issuerTenantId: input.payment.tenant_id || null,
+        issuerTenantId: this.merchantOfPayment(input.payment) || null,
         sourceId,
         offerUri: input.offerUri,
         title: `Payment receipt${reference ? ` · ${reference}` : ''}`,
@@ -1149,36 +1292,133 @@ export class SSIAuthService {
     return clean
   }
 
+  /**
+   * The value written to `phone_hash` / `email_hash`: a keyed hash, so the number cannot be
+   * recovered by hashing every possible number. See `ssi/contactHash.ts` for why that matters.
+   */
   private hashData(data: string): string {
-    return crypto.createHash('sha256').update(data.trim().toLowerCase()).digest('hex')
+    return contactHash(data.trim().toLowerCase())
+  }
+
+  /** The row for a phone number or email address, matching the keyed hash or an older digest. */
+  private findUserByContact(phone?: string, email?: string): any | undefined {
+    const candidates = contactHashCandidates(phone, email)
+    if (candidates.length === 0) return undefined
+    const db = DatabaseManager.getDatabase()
+    const placeholders = candidates.map(() => '?').join(', ')
+    return db
+      .prepare(
+        `SELECT * FROM ssi_users
+          WHERE phone_hash IN (${placeholders}) OR email_hash IN (${placeholders})
+          LIMIT 1`,
+      )
+      .get(...candidates, ...candidates)
+  }
+
+  /** Whether a stored hash belongs to this phone number, old shape or new. */
+  private contactMatches(storedHash: string | null | undefined, phone: string): boolean {
+    if (!storedHash) return false
+    return phoneHashCandidates(phone).includes(storedHash)
+  }
+
+  /**
+   * Rewrites an account's contact hashes to the keyed form. Called on a successful sign-in, the
+   * one moment the person's own number is in hand, so the open digests disappear as people return.
+   */
+  private upgradeContactHashes(userId: string, phone?: string, email?: string): void {
+    try {
+      const db = DatabaseManager.getDatabase()
+      const row = db
+        .prepare('SELECT phone_hash, email_hash, contact_hash_version FROM ssi_users WHERE id = ?')
+        .get(userId) as { phone_hash?: string; email_hash?: string; contact_hash_version?: number } | undefined
+      if (!row || row.contact_hash_version === CONTACT_HASH_VERSION) return
+
+      const phoneHash = phone?.trim() ? contactHash(this.normalizePhone(phone)) : row.phone_hash
+      const emailHash = email?.trim() ? contactHash(normalizeContactEmail(email)) : row.email_hash
+      // Only mark the row done once every stored contact hash has been rewritten. Signing in with
+      // a phone leaves an old email digest in place, and the report should keep counting it.
+      const phoneSettled = !row.phone_hash || Boolean(phone?.trim())
+      const emailSettled = !row.email_hash || Boolean(email?.trim())
+      db.prepare(
+        'UPDATE ssi_users SET phone_hash = ?, email_hash = ?, contact_hash_version = ?, updated_at = ? WHERE id = ?',
+      ).run(
+        phoneHash ?? null,
+        emailHash ?? null,
+        phoneSettled && emailSettled ? CONTACT_HASH_VERSION : null,
+        new Date().toISOString(),
+        userId,
+      )
+    } catch (error) {
+      // A failed rewrite must never block a sign-in; the row stays on the old digest and the
+      // data-protection report keeps counting it.
+      logger.warn({ userId, error: (error as Error).message }, 'Could not rewrite contact hashes to the keyed form')
+    }
+  }
+
+  /**
+   * How long an account is locked after repeated wrong PINs. A four-to-six digit PIN with no limit
+   * is guessable by anyone who can reach the endpoint; the global rate limit counted every caller
+   * together rather than attempts against one account.
+   */
+  private assertPinNotLocked(user: { id: string; pin_locked_until?: string | null }): void {
+    if (!user.pin_locked_until) return
+    const until = new Date(user.pin_locked_until)
+    if (Number.isNaN(until.getTime()) || until.getTime() <= Date.now()) return
+    const minutes = Math.max(1, Math.ceil((until.getTime() - Date.now()) / 60000))
+    throw new PinLockedError(minutes)
+  }
+
+  /** Counts a wrong PIN and locks the account once the allowance is used up. */
+  private notePinFailure(userId: string, attempts: number): void {
+    const db = DatabaseManager.getDatabase()
+    const next = attempts + 1
+    const lockedUntil =
+      next >= PIN_ATTEMPT_LIMIT ? new Date(Date.now() + PIN_LOCK_MINUTES * 60000).toISOString() : null
+    db.prepare('UPDATE ssi_users SET pin_attempts = ?, pin_locked_until = ? WHERE id = ?').run(
+      next >= PIN_ATTEMPT_LIMIT ? 0 : next,
+      lockedUntil,
+      userId,
+    )
+  }
+
+  /** Clears the attempt count after a correct PIN. */
+  private clearPinFailures(userId: string): void {
+    DatabaseManager.getDatabase()
+      .prepare('UPDATE ssi_users SET pin_attempts = 0, pin_locked_until = NULL WHERE id = ?')
+      .run(userId)
   }
 
   private hashPin(pin: string): string {
-    // PIN with salt for extra security
-    const salt = process.env.PIN_SALT || 'credo-pin-salt-v1'
-    return crypto
-      .createHash('sha256')
-      .update(salt + pin)
-      .digest('hex')
+    return hashPin(pin)
   }
 
   private encryptPII(data: string): string {
-    const key = process.env.PII_ENCRYPTION_KEY || 'default-dev-key-32-chars-long!!'
     const iv = crypto.randomBytes(16)
-    const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(key.padEnd(32).slice(0, 32)), iv)
+    const cipher = crypto.createCipheriv('aes-256-cbc', this.piiKey(), iv)
     let encrypted = cipher.update(data, 'utf8', 'hex')
     encrypted += cipher.final('hex')
     return iv.toString('hex') + ':' + encrypted
   }
 
   private decryptPII(encryptedData: string): string {
-    const key = process.env.PII_ENCRYPTION_KEY || 'default-dev-key-32-chars-long!!'
     const [ivHex, encrypted] = encryptedData.split(':')
     const iv = Buffer.from(ivHex, 'hex')
-    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(key.padEnd(32).slice(0, 32)), iv)
+    const decipher = crypto.createDecipheriv('aes-256-cbc', this.piiKey(), iv)
     let decrypted = decipher.update(encrypted, 'hex', 'utf8')
     decrypted += decipher.final('utf8')
     return decrypted
+  }
+
+  /**
+   * The AES key for the short-lived guest phone link. The configured secret is stretched to 32
+   * bytes with SHA-256 rather than padded with spaces, which is what the old code did: padding
+   * threw away the end of a long secret and filled a short one with a known byte.
+   */
+  private piiKey(): Buffer {
+    return crypto
+      .createHash('sha256')
+      .update(deploymentSecret('PII_ENCRYPTION_KEY', 'credo-development-pii-key'))
+      .digest()
   }
 
   /**

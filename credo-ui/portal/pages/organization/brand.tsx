@@ -3,6 +3,7 @@ import { Alert, Container, Stack, Text, Title } from '@mantine/core'
 
 import Layout from '@/components/Layout'
 import BrandEditor from '@/components/organization/BrandEditor'
+import WhereYouWork from '@/components/organization/WhereYouWork'
 import { useRequireOrgContext } from '@/lib/portalContext'
 import { getOrgScopedToken, getPersonalToken, readActiveOrganization } from '@/utils/organizationContext'
 
@@ -24,11 +25,14 @@ export default function OrganizationBrandPage() {
           <div>
             <Title order={2}>Brand and documents</Title>
             <Text c="dimmed" size="sm">
-              Your logo, colour and details on quotes, invoices, receipts, the checkout page, your shop and the records you issue.
+              Your logo, colour, company details and VAT on quotes, invoices, receipts, the checkout page, your shop and the records you issue.
             </Text>
           </div>
           {!orgTenantId ? null : canEdit ? (
-            <BrandEditor orgTenantId={orgTenantId} getToken={async () => getOrgScopedToken() || getPersonalToken() || ''} />
+            <>
+              <BrandEditor orgTenantId={orgTenantId} getToken={async () => getOrgScopedToken() || getPersonalToken() || ''} />
+              <WhereYouWork orgTenantId={orgTenantId} getToken={async () => getOrgScopedToken() || getPersonalToken() || ''} />
+            </>
           ) : (
             <Alert color="gray" variant="light">Only owners and admins can change the brand.</Alert>
           )}

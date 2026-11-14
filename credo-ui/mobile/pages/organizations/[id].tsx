@@ -8,7 +8,9 @@ import {
 import { useRouter } from 'next/router';
 import { notifications } from '@mantine/notifications';
 import AppShellMobile from '@/components/layout/AppShellMobile';
-import { applyOrgContext, clearTaskContext, getPersonalWalletToken, getUserName, getWalletToken, isAuthenticated, mayOpenOrgContext } from '@/lib/auth';
+import OfferOptIn from '@/components/org/OfferOptIn';
+import { applyOrgContext, clearTaskContext, getPersonalWalletToken, getUserName, getUserPhone, getWalletToken, isAuthenticated, mayOpenOrgContext } from '@/lib/auth';
+import { PhoneField } from '../../../shared/PhoneField';
 import { refreshMemberships } from '../../../shared/organizationMemberships';
 import { captureOrganizationSwitchContext } from '../../../shared/taskContext';
 import { fetchOrgBrand } from '@/lib/documentDownload';
@@ -70,6 +72,8 @@ interface OrganizationProfile {
   memberSince?: string;
   workAreas?: string[];
   sellsGoods?: boolean;
+  reach?: { serviceAreas?: string[]; hours?: string; fulfilment?: string[] };
+  reviews?: { average: number | null; count: number; recent?: Array<{ rating: number; comment?: string; at: string }> };
 }
 
 interface TrustBadge {
@@ -77,6 +81,12 @@ interface TrustBadge {
   label: string;
   issuedAt: string;
   revoked: boolean;
+}
+
+const FIELD_JOB_TEMPLATES = new Set(['tpl-fept-field-execution', 'field_execution_fept']);
+
+function isFieldJobService(service: Service | null): boolean {
+  return Boolean(service && FIELD_JOB_TEMPLATES.has(String(service.workflowTemplateId || '')));
 }
 
 interface StorefrontApiResponse {
@@ -94,6 +104,8 @@ interface StorefrontApiResponse {
   services: Service[];
   catalogItems?: CatalogItem[];
   paymentRails: string[];
+  reach?: { serviceAreas?: string[]; hours?: string; fulfilment?: string[] };
+  reviews?: { average: number | null; count: number; recent?: Array<{ rating: number; comment?: string; at: string }> };
   memberSince?: string;
   workAreas?: string[];
   sellsGoods?: boolean;
@@ -204,9 +216,12 @@ function ServiceCard({ service, onRequest }: { service: Service; onRequest: () =
 
 export default function OrganizationDetailPage() {
   const router = useRouter();
-  const { id } = router.query;
+  const id = typeof router.query.id === 'string' ? router.query.id : '';
   const source = typeof router.query.source === 'string' ? router.query.source : 'discover';
   const [profile, setProfile] = useState<OrganizationProfile | null>(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewing, setReviewing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [ownerPreview, setOwnerPreview] = useState(false);
@@ -215,10 +230,15 @@ export default function OrganizationDetailPage() {
   const [askKind, setAskKind] = useState<AskKind>('quote');
   const [askText, setAskText] = useState('');
   const [askName, setAskName] = useState('');
+  const [askPhone, setAskPhone] = useState('');
+  const [askLocation, setAskLocation] = useState('');
+  const [askDate, setAskDate] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const askFromHome = typeof router.query.ask === 'string' ? router.query.ask : '';
   const [brand, setBrand] = useState<DocumentBrand | undefined>(undefined);
+  // "Book a job" creates a field job at the organisation, so it asks where, when and a phone for the bill.
+  const bookingJob = isFieldJobService(selectedService);
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -303,6 +323,8 @@ export default function OrganizationDetailPage() {
             address: storefront.contactLinks?.address || undefined,
           },
           memberSince: storefront.memberSince,
+          reach: storefront.reach,
+          reviews: storefront.reviews,
           workAreas: Array.isArray(storefront.workAreas) ? storefront.workAreas : [],
           sellsGoods: typeof storefront.sellsGoods === 'boolean' ? storefront.sellsGoods : undefined,
           services: Array.isArray(storefront.services) ? storefront.services : [],
@@ -344,6 +366,9 @@ export default function OrganizationDetailPage() {
     setAskKind(service ? (service.requestType || 'service') : kind);
     setAskText('');
     setAskName(getUserName() || '');
+    setAskPhone(getUserPhone() || '');
+    setAskLocation('');
+    setAskDate('');
     setRequestModalOpen(true);
   };
 
@@ -370,6 +395,14 @@ export default function OrganizationDetailPage() {
       notifications.show({ title: 'Say what you need', message: 'A sentence or two is enough.', color: 'orange' });
       return;
     }
+    if (bookingJob && !askLocation.trim()) {
+      notifications.show({ title: 'Say where the job is', message: 'An address or landmark is enough.', color: 'orange' });
+      return;
+    }
+    if (bookingJob && askPhone.replace(/\D/g, '').length < 7) {
+      notifications.show({ title: 'Add your phone number', message: 'Updates and the bill go to it, in the app and on WhatsApp.', color: 'orange' });
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -384,16 +417,24 @@ export default function OrganizationDetailPage() {
             title: selectedService ? selectedService.name : kindWords.label,
             description: askText.trim(),
             serviceId: selectedService?.id,
-            serviceName: selectedService?.name,
-            workflowTemplateId: selectedService?.workflowTemplateId,
+            ...(askPhone.replace(/\D/g, '').length >= 7 ? { customerMsisdn: askPhone.trim() } : {}),
+            ...(bookingJob
+              ? {
+                  location: askLocation.trim(),
+                  ...(askDate ? { scheduledDate: askDate } : {}),
+                  bookedVia: 'app',
+                }
+              : {}),
           },
         },
         { headers: { Authorization: `Bearer ${token}` } },
       );
 
       notifications.show({
-        title: 'Sent',
-        message: `${profile.org.displayName} has your request. Their answer arrives in your inbox.`,
+        title: bookingJob ? 'Job booked' : 'Sent',
+        message: bookingJob
+          ? `${profile.org.displayName} has your job and will choose who comes. Updates come to your inbox and WhatsApp.`
+          : `${profile.org.displayName} has your request. Their answer arrives in your inbox.`,
         color: 'green',
         icon: <IconCheck />,
       });
@@ -636,6 +677,71 @@ export default function OrganizationDetailPage() {
             </Paper>
           )}
 
+          {(profile.reach?.serviceAreas?.length || profile.reach?.hours || profile.reach?.fulfilment?.length) ? (
+            <Paper p="md" radius="md" withBorder>
+              <Text size="sm" fw={600} mb="xs">Where they work</Text>
+              <Stack gap={4}>
+                {profile.reach?.serviceAreas?.length ? <Text size="sm">{profile.reach.serviceAreas.join(', ')}</Text> : null}
+                {profile.reach?.hours ? <Text size="sm">{profile.reach.hours}</Text> : null}
+                {profile.reach?.fulfilment?.length ? (
+                  <Text size="sm">
+                    {profile.reach.fulfilment.map((item) => (
+                      item === 'call_out' ? 'Comes to you' : item === 'delivery' ? 'Delivers' : item === 'collection' ? 'You collect' : item
+                    )).join(' · ')}
+                  </Text>
+                ) : null}
+              </Stack>
+            </Paper>
+          ) : null}
+
+          <Paper p="md" radius="md" withBorder>
+            <Stack gap="sm">
+              <Text size="sm" fw={600}>
+                {profile.reviews?.count
+                  ? `${profile.reviews.average} from ${profile.reviews.count} ${profile.reviews.count === 1 ? 'customer' : 'customers'}`
+                  : 'No ratings yet'}
+              </Text>
+              {(profile.reviews?.recent || []).map((review, index) => (
+                <Text key={`${review.at}-${index}`} size="sm">{review.rating}/5{review.comment ? ` · ${review.comment}` : ''}</Text>
+              ))}
+              <Text size="xs" c="dimmed">You can rate them after you have paid them or they have accepted your request.</Text>
+              <Group gap="xs">
+                {[1, 2, 3, 4, 5].map((score) => (
+                  <Button key={score} h={48} variant={reviewRating === score ? 'filled' : 'light'} onClick={() => setReviewRating(score)}>{score}</Button>
+                ))}
+              </Group>
+              <Textarea placeholder="What should the next customer know?" value={reviewComment} onChange={(event) => setReviewComment(event.currentTarget.value)} />
+              <Button h={48} radius="xl" loading={reviewing} onClick={async () => {
+                const token = getPersonalWalletToken() || getWalletToken();
+                if (!token) {
+                  notifications.show({ position: 'bottom-center', title: 'Sign in first', message: 'Sign in to rate this business.', color: 'red' });
+                  return;
+                }
+                setReviewing(true);
+                try {
+                  await api.post(`/api/discovery/organizations/${encodeURIComponent(id)}/reviews`, {
+                    rating: reviewRating,
+                    comment: reviewComment.trim() || undefined,
+                  }, { headers: { Authorization: `Bearer ${token}` } });
+                  notifications.show({ position: 'bottom-center', title: 'Saved', message: 'Your rating is on their profile.', color: 'green' });
+                  const fresh = await api.get(`/api/discovery/organizations/${encodeURIComponent(id)}/reviews`);
+                  setProfile((current) => current ? { ...current, reviews: fresh.data } : current);
+                } catch (error: any) {
+                  notifications.show({
+                    position: 'bottom-center',
+                    title: 'Not saved',
+                    message: error?.response?.data?.message || error?.message || 'Try again.',
+                    color: 'red',
+                  });
+                } finally {
+                  setReviewing(false);
+                }
+              }}>Save rating</Button>
+            </Stack>
+          </Paper>
+
+          <OfferOptIn orgId={id} />
+
           {/* Contact Info */}
           <Paper p="md" radius="md" withBorder>
             <Text size="sm" fw={600} mb="xs">
@@ -819,12 +925,39 @@ export default function OrganizationDetailPage() {
           )}
 
           <Textarea
-            label="What you need"
-            placeholder="A sentence or two: what, how many, by when."
+            label={bookingJob ? 'What needs doing' : 'What you need'}
+            placeholder={bookingJob ? 'For example: kitchen tap leaking, needs a new washer.' : 'A sentence or two: what, how many, by when.'}
             minRows={3}
             value={askText}
             onChange={(e) => setAskText(e.currentTarget.value)}
             required
+          />
+          {bookingJob && (
+            <>
+              <TextInput
+                label="Where the job is"
+                placeholder="Address or landmark"
+                value={askLocation}
+                onChange={(e) => setAskLocation(e.currentTarget.value)}
+                required
+              />
+              <TextInput
+                label="When it suits you"
+                type="date"
+                value={askDate}
+                onChange={(e) => setAskDate(e.currentTarget.value)}
+              />
+            </>
+          )}
+          <PhoneField
+            surface="phone"
+            label="Your phone number"
+            description={bookingJob
+              ? 'Job updates and the bill come to this number, in the app and on WhatsApp.'
+              : 'Their answer, any bill and the receipt can also come to this number on WhatsApp.'}
+            value={askPhone}
+            onChange={setAskPhone}
+            required={bookingJob}
           />
           <TextInput
             label="Your name, as they should see it"
@@ -833,12 +966,14 @@ export default function OrganizationDetailPage() {
           />
 
           <Text size="xs" c="dimmed">
-            {org.displayName} sees your name and what you wrote, nothing else. Their answer arrives in your inbox.
+            {bookingJob
+              ? `${org.displayName} sees your name, phone, where and what you wrote. They choose who comes; you follow the job in My requests.`
+              : `${org.displayName} sees your name, phone and what you wrote, nothing else. Their answer arrives in your inbox.`}
           </Text>
 
           <Group justify="flex-end">
             <Button variant="subtle" onClick={() => setRequestModalOpen(false)}>Cancel</Button>
-            <Button onClick={submitRequest} loading={submitting}>Send</Button>
+            <Button onClick={submitRequest} loading={submitting}>{bookingJob ? 'Book job' : 'Send'}</Button>
           </Group>
         </Stack>
       </Modal>

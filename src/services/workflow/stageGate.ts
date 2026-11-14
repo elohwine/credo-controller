@@ -19,6 +19,8 @@ export interface StageGateState {
   requireProof: boolean
   reference?: string
   waitingSince?: string
+  /** A request decision step: it is decided on the request, which then moves the run on. */
+  requestId?: string
 }
 
 function normalize(value: unknown): string {
@@ -52,5 +54,32 @@ export function stageGateOf(state: Record<string, unknown> | undefined): StageGa
     requireProof: recorded.requireProof !== false,
     reference: recorded.reference ? String(recorded.reference) : undefined,
     waitingSince: recorded.waitingSince ? String(recorded.waitingSince) : undefined,
+    requestId: recorded.requestId ? String(recorded.requestId) : undefined,
   }
+}
+
+/**
+ * When a step applies. A template can add a step only for bigger amounts, for example a second
+ * approval from finance at 500 and above. No condition: the step always applies.
+ */
+export interface StageCondition {
+  amountAtLeast?: number
+  amountAbove?: number
+  amountBelow?: number
+}
+
+export function stageApplies(when: unknown, facts: { amount?: number | null }): boolean {
+  if (!when || typeof when !== 'object') return true
+  const condition = when as StageCondition
+  const amount = typeof facts.amount === 'number' && Number.isFinite(facts.amount) ? facts.amount : undefined
+  const bound = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : undefined)
+  const atLeast = bound(condition.amountAtLeast)
+  const above = bound(condition.amountAbove)
+  const below = bound(condition.amountBelow)
+  if (atLeast === undefined && above === undefined && below === undefined) return true
+  if (amount === undefined) return false
+  if (atLeast !== undefined && amount < atLeast) return false
+  if (above !== undefined && amount <= above) return false
+  if (below !== undefined && amount >= below) return false
+  return true
 }

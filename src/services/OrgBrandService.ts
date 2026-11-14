@@ -20,6 +20,10 @@ export interface OrgBrandProfile {
   registrationNumber?: string
   taxNumber?: string
   vatNumber?: string
+  /** Standard VAT rate in percent. Unset means the organisation charges no VAT. */
+  vatRate?: number
+  /** True (the default) when prices already include VAT; false when VAT is added on top. */
+  pricesIncludeVat?: boolean
   bankDetails?: string
   mobileMoney?: string
   quoteTerms?: string
@@ -82,6 +86,70 @@ function cleanDays(value: unknown, max: number): number | undefined {
   return days >= 0 && days <= max ? days : undefined
 }
 
+function cleanRate(value: unknown): number | undefined {
+  if (value === '' || value === null || value === undefined) return undefined
+  const n = typeof value === 'string' ? Number(value.replace('%', '').trim()) : value
+  if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0 || n > 100) return undefined
+  return Math.round(n * 100) / 100
+}
+
+function cleanFlag(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value
+  if (value === 'true') return true
+  if (value === 'false') return false
+  return undefined
+}
+
+/** The VAT an organisation charges, or undefined when it charges none. */
+export interface OrgVat {
+  rate: number
+  included: boolean
+}
+
+export function vatOf(brand: Pick<OrgBrandProfile, 'vatRate' | 'pricesIncludeVat'>): OrgVat | undefined {
+  const rate = Number(brand.vatRate)
+  if (!Number.isFinite(rate) || rate <= 0) return undefined
+  return { rate, included: brand.pricesIncludeVat !== false }
+}
+
+const money = (n: number) => Math.round(n * 100) / 100
+
+/** Split a gross amount into net and VAT, or add VAT to a net amount. Amounts are rounded to cents. */
+export function vatBreakdown(
+  amount: number,
+  vat: OrgVat,
+): { subtotal: number; taxAmount: number; total: number; taxRate: number; taxIncluded: boolean } {
+  if (vat.included) {
+    const taxAmount = money(amount - amount / (1 + vat.rate / 100))
+    return { subtotal: money(amount - taxAmount), taxAmount, total: money(amount), taxRate: vat.rate, taxIncluded: true }
+  }
+  const taxAmount = money(amount * (vat.rate / 100))
+  return { subtotal: money(amount), taxAmount, total: money(amount + taxAmount), taxRate: vat.rate, taxIncluded: false }
+}
+
+/**
+ * The issuing organisation's facts written into a signed quote, invoice or receipt, so the record
+ * still names its issuer (and its tax numbers) wherever it is shown or checked.
+ */
+export function issuerClaimsOf(brand: OrgBrandView): Record<string, string | number> {
+  const claims: Record<string, string | number | undefined> = {
+    issuerTenantId: brand.orgTenantId,
+    issuerName: brand.displayName,
+    issuerAddress: brand.address,
+    issuerPhone: brand.phone,
+    issuerEmail: brand.email,
+    issuerWebsite: brand.website,
+    issuerRegistrationNumber: brand.registrationNumber,
+    issuerTaxNumber: brand.taxNumber,
+    issuerVatNumber: brand.vatNumber,
+    brandVersion: brand.version,
+  }
+  return Object.fromEntries(Object.entries(claims).filter(([, v]) => v !== undefined && v !== '')) as Record<
+    string,
+    string | number
+  >
+}
+
 export function normalizeBrandColor(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const raw = value.trim().replace(/^#/, '')
@@ -124,6 +192,10 @@ export function sanitizeBrandInput(input: OrgBrandInput | Record<string, unknown
   if (quoteDays !== undefined) out.quoteValidityDays = quoteDays
   const dueDays = cleanDays(source.invoiceDueDays, 365)
   if (dueDays !== undefined) out.invoiceDueDays = dueDays
+  const vatRate = cleanRate(source.vatRate)
+  if (vatRate !== undefined) out.vatRate = vatRate
+  const included = cleanFlag(source.pricesIncludeVat)
+  if (included !== undefined) out.pricesIncludeVat = included
   if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) delete out.email
   return out
 }

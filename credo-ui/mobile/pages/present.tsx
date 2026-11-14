@@ -15,6 +15,7 @@ import {
     getOrgToken,
     getTaskPass,
     getActiveOrgId,
+    getActiveOrgLabel,
     getWalletToken,
     getPersonalWalletTenantId,
     getPersonalWalletToken,
@@ -110,7 +111,6 @@ function normalizePresentationMode(mode?: string): string | undefined {
     if (!mode) return mode;
     if (mode === 'approve-requisition') return 'requisition-approve';
     if (mode === 'release-funds') return 'requisition-release';
-    if (mode === 'acknowledge-requisition') return 'requisition-ack';
     return mode;
 }
 
@@ -122,7 +122,6 @@ function normalizePresentationMode(mode?: string): string | undefined {
 const FINISHING_MODES = new Set<string | undefined>([
     'requisition-approve',
     'requisition-release',
-    'requisition-ack',
     'field-signoff',
     'field-payout',
     'ap-workflow-transition',
@@ -152,7 +151,9 @@ function consentLabelForMode(mode?: string, stage?: string): string {
     }
 
     if (mode === 'request-staff-card') {
-        return 'I agree to share my staff card for this purchase step'
+        return stage === 'approved'
+            ? 'I agree to share my staff card to approve this request'
+            : 'I agree to share my staff card to finish this request'
     }
 
     if (mode === 'ap-workflow-transition') {
@@ -169,10 +170,6 @@ function consentLabelForMode(mode?: string, stage?: string): string {
 
     if (normalizedMode === 'requisition-release') {
         return 'I agree to share the selected details to release the money'
-    }
-
-    if (normalizedMode === 'requisition-ack') {
-        return 'I agree to share the selected details to confirm delivery'
     }
 
     return normalizedMode === 'requisition-approve'
@@ -269,13 +266,18 @@ function issuerLabel(issuer: unknown): string {
     return 'Your organization';
 }
 
+/** The identity card is issued by the platform itself, not by an organisation. */
+const isPlatformIdentity = (type: unknown) =>
+    (Array.isArray(type) ? type : [type]).some((value) => String(value || '').includes('PlatformIdentity'));
+
 function parseCredentialSummary(match: any): { type: unknown; issuer: string } {
-    if (match?.type) return { type: match.type, issuer: 'Your organization' };
+    if (match?.type) return { type: match.type, issuer: isPlatformIdentity(match.type) ? 'Credentis' : 'Your organization' };
     const document = credentialDocument(match);
     if (!document) return { type: 'Record', issuer: 'Your organization' };
+    const type = document.type || document.vct || 'Record';
     return {
-        type: document.type || 'Record',
-        issuer: issuerLabel(document.issuer || document.issuerDid),
+        type,
+        issuer: isPlatformIdentity(type) ? 'Credentis' : issuerLabel(document.issuer || document.issuerDid),
     };
 }
 
@@ -425,13 +427,27 @@ function resolveCredentialId(match: any): string | undefined {
 }
 
 /** The organisation asking for the details: named in the link, else the verifier's web address. */
-function requesterName(orgName: string | undefined, requestUrl: string): string {
+function requesterName(orgName: string | undefined, requestUrl: string, orgTenantId?: string): string {
     if (orgName && orgName.trim()) return orgName.trim();
+    if (orgTenantId && orgTenantId === getActiveOrgId()) {
+        const active = getActiveOrgLabel();
+        if (active && active.trim()) return active.trim();
+    }
     try {
         const params = new URL(requestUrl.replace(/^(openid4vp|openid-vc|openid):\/\//, 'https://x/')).searchParams;
-        const target = params.get('client_id') || params.get('response_uri') || params.get('request_uri') || '';
-        const host = target.startsWith('http') ? new URL(target).hostname : '';
-        return host.replace(/^www\./, '');
+        // OpenID4VP 1.0 client ids carry a scheme prefix ("redirect_uri:https://…").
+        const target = [params.get('client_id'), params.get('response_uri'), params.get('request_uri')]
+            .map((value) => String(value || '').replace(/^(redirect_uri|x509_san_dns|x509_hash|decentralized_identifier|verifier_attestation|origin):/, ''))
+            .find((value) => value.startsWith('http')) || '';
+        const host = (target ? new URL(target).hostname : '').replace(/^www\./, '');
+        // The name is the asker's own claim; the host it answers to stays beside it.
+        let claimedName = '';
+        try {
+            claimedName = String(JSON.parse(params.get('client_metadata') || '{}')?.client_name || '').trim();
+        } catch {
+            claimedName = '';
+        }
+        return claimedName ? (host ? `${claimedName} · ${host}` : claimedName) : host;
     } catch {
         return '';
     }
@@ -508,7 +524,6 @@ export default function PresentPage() {
             const shouldSwitchOrgContext =
                 mode === 'requisition-approve'
                 || mode === 'requisition-release'
-                || mode === 'requisition-ack'
                 || mode === 'field-signoff'
                 || mode === 'field-payout'
                 || mode === 'workflow-step'
@@ -673,7 +688,6 @@ export default function PresentPage() {
             const isOrgProofMode =
                 mode === 'requisition-approve'
                 || mode === 'requisition-release'
-                || mode === 'requisition-ack'
                 || mode === 'field-signoff'
                 || mode === 'field-payout'
                 || mode === 'workflow-step'
@@ -773,7 +787,12 @@ export default function PresentPage() {
 
                 const amountRaw = queryValue(router.query.amount);
                 const parsedAmount = amountRaw !== undefined ? Number(amountRaw) : undefined;
-                const releasePayload: Record<string, unknown> = {};
+                const releasePayload: Record<string, unknown> = {
+                    requestId,
+                    vpToken,
+                    idToken,
+                    presentationSubmission,
+                };
 
                 if (typeof parsedAmount === 'number' && Number.isFinite(parsedAmount)) {
                     releasePayload.amount = parsedAmount;
@@ -809,34 +828,6 @@ export default function PresentPage() {
                     const releaseStatus = String(releaseRes.data?.status || '').toUpperCase();
                     if (releaseStatus !== 'RELEASED') {
                         await confirmRequisitionStatus(requisitionId, 'RELEASED', orgToken);
-                    }
-                });
-            }
-
-            if (mode === 'requisition-ack' && requisitionId) {
-                const orgToken = getOrgToken();
-                if (!orgToken) {
-                    throw new Error('Organization session is required to finalize requisition acknowledgment.');
-                }
-
-                const notes = queryValue(router.query.notes) || 'Goods/services received and confirmed.';
-                const idempotencyKey = `mobile-ack:${requisitionId}:${requestId}:${walletId}`;
-                await finishStep(async () => {
-                    const ackRes = await api.post(
-                        `/api/finance/requisitions/${encodeURIComponent(requisitionId)}/ack`,
-                        {
-                            notes,
-                        },
-                        {
-                            headers: {
-                                Authorization: `Bearer ${orgToken}`,
-                                'x-idempotency-key': idempotencyKey,
-                            },
-                        },
-                    );
-
-                    if (ackRes.data?.error) {
-                        throw new Error(ackRes.data.error);
                     }
                 });
             }
@@ -950,6 +941,11 @@ export default function PresentPage() {
             // The step is done, so nothing is left to resume for it, whatever the workflow.
             if (finishRef) removeRunningProofResume(finishRef);
 
+            const demoReturn = queryValue(router.query.returnTo);
+            if (demoReturn && demoReturn.startsWith('/demo/')) {
+                setTimeout(() => router.push(demoReturn), 4000);
+            }
+
             const returnTo = endTaskContext();
             if (returnTo) {
                 void router.replace(returnTo);
@@ -977,7 +973,7 @@ export default function PresentPage() {
             } else if (mode === 'workflow-step') {
                 // Back to the inbox: the person came from a card and may have more waiting.
                 setTimeout(() => router.push('/inbox'), 1500);
-            } else if ((mode === 'requisition-release' || mode === 'requisition-ack') && requisitionId) {
+            } else if (mode === 'requisition-release' && requisitionId) {
                 setTimeout(() => {
                     const params = new URLSearchParams({
                         tab: 'requisitions',
@@ -1006,7 +1002,7 @@ export default function PresentPage() {
                 }, 2000);
             } else if (mode === 'request-staff-card') {
                 setTimeout(() => {
-                    router.push('/inbox');
+                    router.push(platformRequestId ? `/requests?request=${encodeURIComponent(platformRequestId)}` : '/inbox');
                 }, 1500);
             } else if (mode === 'ap-workflow-transition') {
                 setTimeout(() => {
@@ -1163,6 +1159,22 @@ export default function PresentPage() {
                                 );
                             }
 
+                            if (mode === 'request-staff-card') {
+                                const approving = queryValue(router.query.toStatus) === 'approved';
+                                const requestTitle = queryValue(router.query.title);
+                                return (
+                                    <>
+                                        <Title order={3}>{approving ? 'Approve this request' : 'Finish this request'}</Title>
+                                        {requestTitle && <Text fw={500} size="sm">{requestTitle}</Text>}
+                                        <Text c="dimmed" size="sm">
+                                            {approving
+                                                ? 'Review the details below, then share them to confirm you are the person chosen to decide this request.'
+                                                : 'Review the details below, then share them to confirm you are the person chosen to finish this request.'}
+                                        </Text>
+                                    </>
+                                );
+                            }
+
                             if (mode === 'field-signoff') {
                                 return (
                                     <>
@@ -1186,6 +1198,15 @@ export default function PresentPage() {
                                     <>
                                         <Title order={3}>Approve this request</Title>
                                         <Text c="dimmed" size="sm">Review the details below, then share them to confirm you are the person chosen to approve.</Text>
+                                    </>
+                                );
+                            }
+
+                            if (mode === 'requisition-release' && requisitionId) {
+                                return (
+                                    <>
+                                        <Title order={3}>Release funds</Title>
+                                        <Text c="dimmed" size="sm">Review the details below, then share them to confirm you are the person chosen to release the money. Your card signs the amount.</Text>
                                     </>
                                 );
                             }
@@ -1257,15 +1278,20 @@ export default function PresentPage() {
                                         None of the cards in this wallet can be used here. A withdrawn card, an expired card, or a card for a different step is not offered.
                                     </Alert>
                                     {(router.query.mode as string | undefined) === 'requisition-approve' && (
-                                        <Button
-                                            fullWidth
-                                            size="md"
-                                            color="indigo"
-                                            loading={embeddedFallbackLoading}
-                                            onClick={handleEmbeddedFallbackApproval}
-                                        >
-                                            Use Embedded Fallback Approval
-                                        </Button>
+                                        <>
+                                            <Text size="sm" c="dimmed">
+                                                If your organisation lets this step go through on your sign-in alone, you can approve without a card. The server refuses this when the card is required for this amount.
+                                            </Text>
+                                            <Button
+                                                fullWidth
+                                                size="md"
+                                                color="indigo"
+                                                loading={embeddedFallbackLoading}
+                                                onClick={handleEmbeddedFallbackApproval}
+                                            >
+                                                Approve without a card
+                                            </Button>
+                                        </>
                                     )}
                                 </Stack>
                             ) : (
@@ -1282,7 +1308,7 @@ export default function PresentPage() {
                                         return line ? <Text fw={600}>{line}</Text> : null;
                                     })()}
                                     {(() => {
-                                        const asker = requesterName(queryValue(router.query.orgName), presentationRequestUrl);
+                                        const asker = requesterName(queryValue(router.query.orgName), presentationRequestUrl, queryValue(router.query.orgTenantId));
                                         if (!asker) return null;
                                         return (
                                             <Paper withBorder radius="md" p="sm">
@@ -1384,7 +1410,7 @@ export default function PresentPage() {
                                         mt="sm"
                                         checked={consentChecked}
                                         onChange={(event) => setConsentChecked(event.currentTarget.checked)}
-                                        label={consentLabelForMode(currentMode, queryValue(router.query.stage))}
+                                        label={consentLabelForMode(currentMode, queryValue(router.query.stage) || queryValue(router.query.toStatus))}
                                     />
                                     <Button
                                         fullWidth
@@ -1456,8 +1482,11 @@ export default function PresentPage() {
                             <Text ta="center" size="sm" c="dimmed">
                                 The selected details were shared. You can return to the page that requested them.
                             </Text>
-                            <Button fullWidth variant="light" color="green" mt="xl" radius="md" onClick={() => router.push('/proofs')}>
-                                Return to Wallet
+                            <Button fullWidth variant="light" color="green" mt="xl" radius="md" onClick={() => {
+                                const demoReturn = queryValue(router.query.returnTo);
+                                router.push(demoReturn && demoReturn.startsWith('/demo/') ? demoReturn : '/proofs');
+                            }}>
+                                {queryValue(router.query.returnTo)?.startsWith('/demo/') ? 'Back to the site' : 'Return to Wallet'}
                             </Button>
                         </Paper>
                     )}

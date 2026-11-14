@@ -44,10 +44,12 @@ import {
 
 // Starter roles are filled from the setup answers when readiness is read, so they never block.
 const ROLES: string[] = []
-const AP = ['authorities', 'stage_actor:record_payment']
-const REQUISITION = ['authorities', 'departments', 'stage_actor:approve_requisition', 'stage_actor:release_funds']
+// Departments and approval limits are recommended, not blocking (every org gets a General team);
+// the money-stage actors stay the real gate.
+const AP = ['stage_actor:record_payment']
+const REQUISITION = ['stage_actor:approve_requisition', 'stage_actor:release_funds']
 const FEPT: string[] = []
-const HR = ['authorities', 'departments']
+const HR: string[] = []
 const PAYSLIP: string[] = []
 const COLLECT = ['payment_provider']
 const COMMERCE = ['payment_provider']

@@ -58,6 +58,22 @@ export function requestExperienceForRow(
   })
 }
 
+/**
+ * Who each step names. Someone who already acted wins. Otherwise the person who asked,
+ * the person set to decide, and the person set to finish it.
+ */
+export function requestStageNames(
+  row: Parameters<typeof requestWhoDid>[0],
+  people: Array<{ userId: string; displayName?: string }> = [],
+  parties?: { requesterName?: string; reviewName?: string; fulfilmentName?: string },
+): Record<string, string> {
+  const who = requestWhoDid(row, people)
+  if (parties?.requesterName && !who.submitted && !who.draft) who.submitted = parties.requesterName
+  if (parties?.reviewName && !who.in_review) who.in_review = parties.reviewName
+  if (parties?.fulfilmentName && !who.in_fulfilment) who.in_fulfilment = parties.fulfilmentName
+  return who
+}
+
 /** Who did each request step, by stage key, named from the people on the request. */
 export function requestWhoDid(
   row: Parameters<typeof requestExperienceForRow>[0],

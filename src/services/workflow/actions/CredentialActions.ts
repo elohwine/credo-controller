@@ -21,6 +21,7 @@ import type { WorkflowActionContext } from '../ActionRegistry'
 
 import { DatabaseManager } from '../../../persistence/DatabaseManager'
 import { rootLogger } from '../../../utils/pinoLogger'
+import { DOCUMENT_CREDENTIAL_TYPES, documentClaims, financeClaims, isTaxExempt } from '../../documentFacts'
 
 const logger = rootLogger.child({ module: 'CredentialActions' })
 
@@ -140,6 +141,7 @@ export class CredentialActions {
       (config.recipientStage || config.stageAction) === 'assign_field_worker'
         ? 'JobAssignmentVC'
         : config.type || 'GenericIDCredential'
+    if (DOCUMENT_CREDENTIAL_TYPES.has(credentialType)) Object.assign(claims, financeClaims(context.state.finance, claims))
     const tenantId: string = context.tenantId || 'default'
     const workflowType = String(context.workflowType || '')
     if (workflowType && !credentialOfferAllowed(tenantId, workflowType, credentialType)) {
@@ -217,7 +219,7 @@ export class CredentialActions {
 
     const result = await credentialIssuanceService.createOffer({
       credentialType,
-      claims,
+      claims: documentClaims(credentialType, claims, tenantId, { exempt: isTaxExempt({ workflowType }) }),
       tenantId,
     })
 

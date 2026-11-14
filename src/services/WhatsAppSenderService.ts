@@ -267,6 +267,35 @@ export class WhatsAppSenderService {
       throw new DispatchError('Invalid callback signature', 'permanent')
     return binding.sender_key
   }
+
+  /**
+   * A reply in the chat the person just opened by messaging us.
+   * Not an alert: it does not check or create alert consent, and it is not a template.
+   * Nothing is sent unless WhatsApp delivery is turned on and this sender has a token.
+   */
+  public async sendSessionReply(senderKey: string, to: string, body: string): Promise<'sent' | 'held'> {
+    if (process.env.WHATSAPP_DELIVERY_ENABLED !== 'true') return 'held'
+    const binding = DatabaseManager.getDatabase()
+      .prepare('SELECT phone_number_id FROM whatsapp_sender_bindings WHERE sender_key = ? LIMIT 1')
+      .get(senderKey) as { phone_number_id: string } | undefined
+    const prefix = senderKey === 'platform' ? '' : tenantWhatsAppSecretPrefix(senderKey.startsWith('tenant:') ? senderKey.slice(7) : senderKey)
+    const token = process.env[prefix ? `${prefix}_TOKEN` : 'WABA_TOKEN']
+    if (!binding?.phone_number_id || !token) return 'held'
+    const recipient = normalizeNotificationPhone(to)
+    const { data } = await axios.post(
+      whatsAppGraphUrl(`${binding.phone_number_id}/messages`),
+      {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: recipient,
+        type: 'text',
+        text: { preview_url: false, body: body.slice(0, 1000) },
+      },
+      { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 },
+    )
+    if (!data?.messages?.[0]?.id) throw new DispatchError('Provider accepted outcome unknown', 'uncertain')
+    return 'sent'
+  }
 }
 
 export const whatsAppSenderService = new WhatsAppSenderService()

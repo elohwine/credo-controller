@@ -39,6 +39,8 @@ import {
   IconWallet,
 } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
+import { ACTOR_MAIN_ROLE_HINT, actorMainRoleLabel } from '../../../shared/actorMainPeople'
+import { roleLabel } from '../../../shared/orgPeople'
 
 // ─── Types (mirror OrganizationService.WorkflowActorsView) ───────────────────
 
@@ -47,6 +49,7 @@ type ActorMode =
   | 'configured_wallet'
   | 'configured_role'
   | 'shared_finance'
+  | 'main_person'
   | 'policy_fallback'
   | 'role_fallback'
   | 'owner_fallback'
@@ -122,7 +125,18 @@ type Policy = {
   useBuiltInRoleFallbacks: boolean
   ownerFallbackEnabled: boolean
   signGroups?: Record<string, 'one' | 'both'>
+  mainPeople?: Partial<Record<'approver' | 'finance' | 'hr' | 'operations', FallbackEntry | null>>
   updatedAt?: string
+}
+
+type MainPersonView = {
+  role: 'approver' | 'finance' | 'hr' | 'operations'
+  label: string
+  description: string
+  required: boolean
+  entry?: FallbackEntry
+  actor: ResolvedActor
+  needsAssignment: boolean
 }
 
 type ActorPreset = {
@@ -137,6 +151,7 @@ type ActorsView = {
   workflows: WorkflowView[]
   members: Member[]
   roles: string[]
+  mainPeople?: MainPersonView[]
   policy: Policy
   presets?: ActorPreset[]
   canEdit: boolean
@@ -218,6 +233,21 @@ function defaultToValue(def?: StageDefault): string | null {
   return null
 }
 
+function entryToValue(entry?: FallbackEntry): string | null {
+  if (!entry) return null
+  if (entry.type === 'user') return `${USER_PREFIX}${entry.value}`
+  if (entry.type === 'role') return `${ROLE_PREFIX}${entry.value}`
+  return null
+}
+
+function valueToEntry(value?: string | null): FallbackEntry | null {
+  const next = String(value || '')
+  if (!next) return null
+  if (next.startsWith(USER_PREFIX)) return { type: 'user', value: next.slice(USER_PREFIX.length) }
+  if (next.startsWith(ROLE_PREFIX)) return { type: 'role', value: next.slice(ROLE_PREFIX.length) }
+  return null
+}
+
 // ─── Fallback chain editor ───────────────────────────────────────────────────
 
 function ChainEditor({
@@ -245,11 +275,11 @@ function ChainEditor({
         group: 'People',
         items: members.map((m) => ({
           value: `${USER_PREFIX}${m.userId}`,
-          label: `${personName(members, m.userId, meUserId)} · ${humanize(m.role)}${m.walletTenantId ? '' : ' (no wallet)'}`,
+          label: `${personName(members, m.userId, meUserId)} · ${roleLabel(m.role)}${m.walletTenantId ? '' : ' (no wallet)'}`,
           disabled: !m.walletTenantId,
         })),
       },
-      { group: 'Roles', items: roles.map((r) => ({ value: `${ROLE_PREFIX}${r}`, label: humanize(r) })) },
+      { group: 'Roles', items: roles.map((r) => ({ value: `${ROLE_PREFIX}${r}`, label: roleLabel(r) })) },
     ],
     [members, roles, meUserId],
   )
@@ -542,6 +572,11 @@ export default function OrganizationActorsPage() {
     }
   }
 
+  const saveMainPerson = async (role: MainPersonView['role'], value: string | null) => {
+    const entry = valueToEntry(value)
+    await savePolicy({ mainPeople: { [role]: entry } as Policy['mainPeople'] })
+  }
+
   const applyPreset = async (presetId: string) => {
     const token = getToken()
     if (!token || !orgTenantId) return
@@ -617,11 +652,11 @@ export default function OrganizationActorsPage() {
         group: 'People',
         items: members.map((m) => ({
           value: `${USER_PREFIX}${m.userId}`,
-          label: `${personName(members, m.userId, meUserId)} · ${humanize(m.role)}${m.walletTenantId ? '' : ' (no wallet)'}`,
+          label: `${personName(members, m.userId, meUserId)} · ${roleLabel(m.role)}${m.walletTenantId ? '' : ' (no wallet)'}`,
           disabled: !m.walletTenantId,
         })),
       },
-      { group: 'Roles', items: roles.map((r) => ({ value: `${ROLE_PREFIX}${r}`, label: humanize(r) })) },
+      { group: 'Roles', items: roles.map((r) => ({ value: `${ROLE_PREFIX}${r}`, label: roleLabel(r) })) },
     ],
     [members, roles, meUserId],
   )
@@ -741,6 +776,46 @@ export default function OrganizationActorsPage() {
               {orgName ? `${orgName}. ` : ''}Who handles each step.
             </Text>
           </Box>
+
+          {view && (
+            <Card withBorder radius="md" p="lg">
+              <Stack gap="sm">
+                <Group justify="space-between" align="center">
+                  <Box>
+                    <Text fw={600}>Main people</Text>
+                    <Text size="xs" c="dimmed">
+                      Set these once. Every request/workflow step of that kind uses them unless a step names someone else.
+                    </Text>
+                  </Box>
+                  {savingPolicy && <Loader size="xs" />}
+                </Group>
+                {(view.mainPeople || []).map((person) => {
+                  const who = person.actor.userId || person.actor.walletTenantId
+                  return (
+                    <Box key={person.role}>
+                      <Text size="sm" fw={500}>
+                        {actorMainRoleLabel(person.role)}
+                      </Text>
+                      <Text size="xs" c="dimmed" mb={4}>
+                        {ACTOR_MAIN_ROLE_HINT[person.role]}
+                        {who ? ` · ${personName(members, who, meUserId)}` : ' · You, for now'}
+                      </Text>
+                      <Select
+                        size="sm"
+                        placeholder="Person or role"
+                        data={pickerOptions}
+                        value={entryToValue(person.entry)}
+                        clearable
+                        searchable
+                        disabled={!canEdit || savingPolicy}
+                        onChange={(next) => void saveMainPerson(person.role, next)}
+                      />
+                    </Box>
+                  )
+                })}
+              </Stack>
+            </Card>
+          )}
 
           {view && (
             <Stack gap={8}>

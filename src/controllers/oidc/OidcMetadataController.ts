@@ -6,6 +6,8 @@ import { Controller, Get, Route, Tags, Path, Request } from 'tsoa'
 
 import { getTenantById } from '../../persistence/TenantRepository'
 import { orgBrandService } from '../../services/OrgBrandService'
+import { DOCUMENT_RECORD_NAMES } from '../../services/documentFacts'
+import { RECORD_LABELS } from '../../services/workflow/recordSettings'
 
 /**
  * Public OIDC metadata endpoints for issuer/verifier discovery
@@ -172,7 +174,7 @@ export class OidcMetadataController extends Controller {
           },
           display: [
             {
-              name: def.name,
+              name: DOCUMENT_RECORD_NAMES[def.name] || RECORD_LABELS[def.name] || def.name,
               locale: 'en-US',
               ...(brandDisplay?.logo ? { logo: brandDisplay.logo } : {}),
               ...(brandDisplay?.background_color ? { background_color: brandDisplay.background_color } : {}),

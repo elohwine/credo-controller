@@ -1,7 +1,7 @@
 import type { Request as ExRequest } from 'express'
 
 import { Agent } from '@credo-ts/core'
-import { randomUUID } from 'crypto'
+import { createHash, randomBytes, randomUUID } from 'crypto'
 import { Controller, Post, Get, Route, Tags, Path, Request } from 'tsoa'
 import { container } from 'tsyringe'
 
@@ -28,9 +28,15 @@ export interface VerificationLog {
   vcId: string
   vcType?: string
   verificationResult: string
-  verifierInfo?: any
   createdAt: string
 }
+
+/**
+ * Salt for the caller hash in the check log. Per process by default, so the hashes cannot be
+ * compared with any other system or carried across a restart; set VERIFIER_LOG_SALT to keep them
+ * comparable between restarts when counting repeat callers matters.
+ */
+const VERIFIER_LOG_SALT = process.env.VERIFIER_LOG_SALT || randomBytes(16).toString('hex')
 
 @Route('api/verify')
 @Tags('VC Verification')
@@ -97,7 +103,6 @@ export class VCVerifierController extends Controller {
       vcId: row.vc_id,
       vcType: row.vc_type,
       verificationResult: row.verification_result,
-      verifierInfo: JSON.parse(row.verifier_info || '{}'),
       createdAt: row.created_at,
     }))
   }
@@ -145,12 +150,19 @@ export class VCVerifierController extends Controller {
     }
   }
 
+  /**
+   * A check is counted, not traced. This endpoint needs no sign-in, so the caller's address and
+   * browser are personal data we have no reason to keep: the row keeps a salted hash of the
+   * address, which is enough to spot one caller hammering the endpoint, and nothing else.
+   */
   private logVerification(vcId: string, result: VerificationResult, request: ExRequest): void {
     const db = DatabaseManager.getDatabase()
 
+    const address = String(request.ip || request.headers['x-forwarded-for'] || '')
     const verifierInfo = {
-      ip: request.ip || request.headers['x-forwarded-for'],
-      userAgent: request.headers['user-agent'],
+      callerHash: address
+        ? createHash('sha256').update(`${VERIFIER_LOG_SALT}:${address}`).digest('hex').slice(0, 16)
+        : undefined,
       timestamp: new Date().toISOString(),
     }
 

@@ -9,6 +9,7 @@ import { container } from 'tsyringe'
 import { SCOPES } from '../../enums'
 import { StatusException } from '../../errors'
 import { inventoryService } from '../../services/InventoryService'
+import { documentClaims } from '../../services/documentFacts'
 import { getIssuerApiKey } from '../../utils/serviceApiKey'
 import {
   orgWorkflowActorService,
@@ -134,14 +135,18 @@ export class FinanceController extends Controller {
               credentialDefinitionId: 'InvoiceVC',
               format: 'jwt_vc_json',
               type: ['VerifiableCredential', 'InvoiceVC'],
-              claims: {
-                invoiceId,
-                cartRef: body.cartRef,
-                amount: body.amount,
-                currency: body.currency,
-                dueDate: body.dueDate || new Date(Date.now() + 86400000).toISOString(),
-                timestamp: new Date().toISOString(),
-              },
+              claims: documentClaims(
+                'InvoiceVC',
+                {
+                  invoiceId,
+                  cartRef: body.cartRef,
+                  amount: body.amount,
+                  currency: body.currency,
+                  dueDate: body.dueDate || new Date(Date.now() + 86400000).toISOString(),
+                  timestamp: new Date().toISOString(),
+                },
+                (request as any).user?.tenantId,
+              ),
             },
           ],
         }),
@@ -280,17 +285,22 @@ export class FinanceController extends Controller {
               credentialDefinitionId: 'ReceiptVC',
               format: 'jwt_vc_json',
               type: ['VerifiableCredential', 'ReceiptVC'],
-              claims: {
-                receiptId,
-                invoiceRef: body.invoiceRef,
-                amount: body.amount,
-                currency: body.currency,
-                payerPhone: body.payerPhone,
-                subjectHash,
-                transactionId: body.transactionId,
-                timestamp: new Date().toISOString(),
-                inventoryAllocations: inventoryAllocations.length > 0 ? inventoryAllocations : undefined,
-              },
+              claims: documentClaims(
+                'ReceiptVC',
+                {
+                  receiptId,
+                  invoiceRef: body.invoiceRef,
+                  amount: body.amount,
+                  currency: body.currency,
+                  payerPhone: body.payerPhone,
+                  subjectHash,
+                  transactionId: body.transactionId,
+                  paymentRef: body.transactionId,
+                  timestamp: new Date().toISOString(),
+                  inventoryAllocations: inventoryAllocations.length > 0 ? inventoryAllocations : undefined,
+                },
+                tenantId,
+              ),
             },
           ],
         }),

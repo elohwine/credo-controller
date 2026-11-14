@@ -66,6 +66,7 @@ type CatalogItem = {
   currency: string;
   category?: string;
   images: string[];
+  stockLeft?: number;
 };
 
 type StorefrontSummary = {
@@ -333,11 +334,15 @@ function ProductCard({ item, dark }: { item: CatalogItem; dark: boolean }) {
           <Badge size="lg" variant="light" color="blue">
             {item.currency} {Number(item.price || 0).toFixed(2)}
           </Badge>
-          {item.category && (
+          {item.stockLeft === 0 ? (
+            <Badge variant="light" color="gray">Sold out</Badge>
+          ) : item.stockLeft !== undefined ? (
+            <Text size="xs" c="dimmed" fw={600}>{item.stockLeft} left</Text>
+          ) : item.category ? (
             <Text size="xs" c="dimmed" fw={600}>
               {item.category}
             </Text>
-          )}
+          ) : null}
         </Group>
       </Stack>
     </Paper>
@@ -1023,10 +1028,12 @@ export default function ShopPage() {
               <Button
                 onClick={submitProductFlow}
                 loading={submitting}
+                disabled={selectedProduct.stockLeft === 0}
                 rightSection={<IconChevronRight size={16} />}
                 radius="xl"
+                h={48}
               >
-                Buy Now
+                {selectedProduct.stockLeft === 0 ? 'Sold out' : 'Buy Now'}
               </Button>
             </Stack>
           ) : null}

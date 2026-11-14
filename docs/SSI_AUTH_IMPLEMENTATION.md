@@ -16,7 +16,7 @@ key signature.
 
 Payment-device enrollment does not enable account sign-in. If a server-side device
 is listed but this app has no corresponding local login key, sign in with the
-account PIN and enroll for sign-in under **Account security**. The app reports this
+account PIN and turn on sign-in with this phone under **Settings, Sign-in and security**. The app reports this
 condition rather than silently hiding the button.
 
 ### Organisation and installation recovery
@@ -314,12 +314,16 @@ interface PlatformIdentityClaims {
   platformTenantId: string // Wallet/tenant ID on platform
   platformName: string // "Credentis"
   verificationLevel: 'unverified' | 'phone_verified' | 'email_verified' | 'kyc_verified'
+  dateOfBirth?: string // YYYY-MM-DD, only after the person enters it or the registry confirms it
+  over18?: 'Yes' | 'No' // derived from dateOfBirth; its own disclosure on the selective copy
+  identityVerification?: 'self_attested' | 'registry_confirmed'
 }
 ```
 
 **Credential Type:** `PlatformIdentityCredential`  
-**Format:** `jwt_vc_json`  
-**Issuer:** Platform root DID
+**Format:** `jwt_vc_json` for sign-in. A second copy is `vc+sd-jwt` only when a date of birth is added, so a site can be shown “18 or over” alone.  
+**Issuer:** Platform root DID  
+**Central Registry:** optional. Sign-up and Settings can record a request. The registry is not called. A real confirmation later reissues this same card.
 
 ---
 
@@ -349,7 +353,7 @@ interface PlatformIdentityClaims {
 
 | File                                 | Purpose             |
 | ------------------------------------ | ------------------- |
-| `migrations/019_ssi_auth_tables.sql` | SSI tables (no PII) |
+| `migrations/019_ssi_auth_tables.sql` | SSI account table: keyed hashes, not the phone or email |
 
 ---
 
@@ -357,8 +361,9 @@ interface PlatformIdentityClaims {
 
 | Variable             | Purpose                              | Default                 |
 | -------------------- | ------------------------------------ | ----------------------- |
-| `PII_ENCRYPTION_KEY` | AES-256-CBC key for temp phone links | dev key (32 chars)      |
-| `PIN_SALT`           | Salt for PIN hashing                 | `credo-pin-salt-v1`     |
+| `PII_ENCRYPTION_KEY` | AES-256-CBC key for temp phone links | development value; required in production |
+| `PIN_SALT`           | Only for PINs stored before the slow hash | `credo-pin-salt-v1` |
+| `CONTACT_HASH_PEPPER` | Key for the phone and email lookup hash | development value; required in production |
 | `PLATFORM_NAME`      | Name in PlatformIdentityVC           | `Credentis`             |
 | `ISSUER_API_URL`     | URL for VC issuance                  | `http://localhost:3000` |
 | `ISSUER_API_KEY`     | API key for issuance endpoint        | `test-api-key-12345`    |
@@ -503,7 +508,7 @@ curl -X POST http://localhost:3000/api/wallet/auth/register \
 
 | Feature                            | Status      |
 | ---------------------------------- | ----------- |
-| SSIAuthService with no PII storage | ✅ Complete |
+| SSIAuthService with no PII storage | Superseded 2026-11-04. The account row keeps a keyed hash of the phone and a slow PIN hash. Contacts, bills and notification numbers stay in the clear because a message cannot be sent without them. See `docs/SSI_PRODUCTION_PROFILE.md`. |
 | PlatformIdentityVC issuance        | ✅ Complete |
 | PIN-based login (Web2 fallback)    | ✅ Complete |
 | VC presentation login              | ✅ Complete |

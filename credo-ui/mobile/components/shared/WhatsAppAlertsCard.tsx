@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { Badge, Button, Group, Paper, Stack, Switch, Text, TextInput } from '@mantine/core'
+import { Badge, Button, Group, Paper, Stack, Switch, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import api from '@/lib/api'
 import { getPersonalWalletTenantId, getPersonalWalletToken, getPreferredToken, getUserPhone } from '@/lib/auth'
+import { PhoneField } from '../../../shared/PhoneField'
 
 const EVENTS = [
   { id: 'task', label: 'A workflow step is waiting for me' },
@@ -132,13 +133,12 @@ export default function WhatsAppAlertsCard({
           </Paper>
         )}
 
-        <TextInput
+        <PhoneField
+          surface="phone"
           label="My WhatsApp number"
           description="The number you signed up with"
-          inputMode="tel"
-          placeholder="263771234567"
           value={phone}
-          onChange={(event) => setPhone(event.currentTarget.value)}
+          onChange={setPhone}
         />
         {EVENTS.map((event) => (
           <Switch

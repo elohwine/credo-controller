@@ -232,6 +232,20 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
         finish('Your manager has your expense claim.', '/my-requests');
         return;
       }
+      if (active.id === 'hr.salary_advance') {
+        const amount = Number(form.amount);
+        const months = Number(form.repaymentMonths || 1);
+        if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter how much you need.');
+        await raise(active, {
+          title: `Salary advance · ${form.currency || 'USD'} ${amount}`,
+          description: form.reason?.trim() || undefined,
+          amount,
+          currency: form.currency || 'USD',
+          context: { repaymentMonths: months },
+        });
+        finish('Your request for an advance has been sent.', '/my-requests');
+        return;
+      }
       if (active.id === 'finance.payout_request') {
         const job = active.payoutJob;
         if (!job) throw new Error('This job is no longer waiting for a payout.');
@@ -300,6 +314,28 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
             value={receipt}
             onChange={setReceipt}
           />
+        </Stack>
+      );
+    }
+    if (active.id === 'hr.salary_advance') {
+      return (
+        <Stack gap="sm">
+          {to && <Text size="sm" c="dimmed">{to}. Once approved, the advance is paid to you and comes off your pay.</Text>}
+          <Group grow>
+            <NumberInput label="How much" min={0} decimalScale={2} value={form.amount ? Number(form.amount) : ''} onChange={(value) => setForm({ ...form, amount: String(value ?? '') })} required />
+            <Select label="Currency" data={['USD', 'ZWG', 'ZAR']} value={form.currency || 'USD'} onChange={(value) => setForm({ ...form, currency: value || 'USD' })} />
+          </Group>
+          <Select
+            label="Pay it back over"
+            data={[
+              { value: '1', label: 'My next pay' },
+              { value: '2', label: '2 months' },
+              { value: '3', label: '3 months' },
+            ]}
+            value={form.repaymentMonths || '1'}
+            onChange={(value) => setForm({ ...form, repaymentMonths: value || '1' })}
+          />
+          <Textarea label="Reason (optional)" minRows={2} value={form.reason || ''} onChange={(e) => setForm({ ...form, reason: e.currentTarget.value })} />
         </Stack>
       );
     }

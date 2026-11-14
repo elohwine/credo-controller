@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { WalletOnboarding } from '../../../shared/WalletOnboarding';
+import { PhoneField } from '../../../shared/PhoneField';
 import onboardingStyles from '../../../shared/WalletOnboarding.module.css';
 import { EnvContext } from '@/pages/_app';
 import { clearStoredOrganizationContext } from '@/utils/organizationContext';
@@ -26,7 +27,8 @@ import {
     Loader,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconUserPlus, IconAlertCircle, IconCheck, IconReceipt, IconPhone, IconMail } from '@tabler/icons-react';
+import { IconUserPlus, IconAlertCircle, IconCheck, IconReceipt, IconMail } from '@tabler/icons-react';
+import { RegistrySignupChoice } from '../../../shared/IdentityVerification';
 
 export default function RegisterPage() {
     const router = useRouter();
@@ -49,6 +51,7 @@ export default function RegisterPage() {
         password: '',
         confirmPassword: '',
     });
+    const [askRegistry, setAskRegistry] = useState(false);
 
     const holderBackend = env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000';
 
@@ -120,6 +123,7 @@ export default function RegisterPage() {
                 phone: form.phone || undefined,
                 pin: form.password, // PIN for Web2 fallback login
                 claimExistingTenantId: localStorage.getItem('credoTenantId') || undefined, // Claim checkout VCs
+                requestRegistryVerification: askRegistry,
             });
 
             const sessionToken = response.data.token as string | undefined;
@@ -229,14 +233,11 @@ export default function RegisterPage() {
                                 />
 
                                 <Text size="xs" c="dimmed">Add a phone number or email.</Text>
-                                <TextInput
+                                <PhoneField
+                                    surface="portal"
                                     label="Phone number"
-                                    placeholder="e.g. 0771234567"
-                                    type="tel"
-                                    autoComplete="tel"
-                                    leftSection={<IconPhone size={16} />}
                                     value={form.phone}
-                                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                                    onChange={(phone) => setForm({ ...form, phone })}
                                 />
 
                                 <TextInput
@@ -272,6 +273,8 @@ export default function RegisterPage() {
                                     value={form.confirmPassword}
                                     onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
                                 />
+
+                                <RegistrySignupChoice value={askRegistry} onChange={setAskRegistry} />
 
                                 <Button 
                                     type="submit" 

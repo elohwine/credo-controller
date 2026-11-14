@@ -39,4 +39,15 @@ describe('WhatsApp inbox landing', () => {
     expect((await request(app).get('/wa/other.png')).status).toBe(404)
     expect((await request(app).get('/wa/..%2Fpackage.json')).status).toBe(404)
   })
+
+  it('lets the Meta webhook verify handshake reach the route registered after it', async () => {
+    const app = express()
+    registerWhatsAppInboxLanding(app)
+    app.get('/wa/webhook', (req, res) => {
+      res.type('text/plain').send(String(req.query['hub.challenge']))
+    })
+    const verify = await request(app).get('/wa/webhook?hub.mode=subscribe&hub.verify_token=t&hub.challenge=abc')
+    expect(verify.status).toBe(200)
+    expect(verify.text).toBe('abc')
+  })
 })

@@ -138,11 +138,7 @@ export function isBoundTaskPath(task: InboxTaskContext, value: string): boolean 
       original.searchParams.get('linkId')
     return code !== null && path === `/pay/${encodeURIComponent(code)}`
   }
-  if (
-    path === '/present' ||
-    walletProof ||
-    (path === '/scan' && next.searchParams.get('mode') === 'approve-requisition')
-  ) {
+  if (path === '/present' || walletProof) {
     if (path === '/present' && !next.searchParams.get('request_uri')) return false
     const nextRunId = next.searchParams.get('runId') || next.searchParams.get('workflowRunId')
     const businessKeys = ['requisitionId', 'transactionId', 'planId', 'paymentCode']

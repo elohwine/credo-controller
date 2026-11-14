@@ -2,13 +2,13 @@ import React, { useState, useContext, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
+import { PhoneField } from '../../../shared/PhoneField';
 import { EnvContext } from '@/pages/_app';
 import axios from 'axios';
 import {
     Container,
     Paper,
     Title,
-    TextInput,
     PasswordInput,
     Button,
     Text,
@@ -213,13 +213,14 @@ export default function LoginPage() {
                                     </Alert>
                                 )}
 
-                                <TextInput
+                                <PhoneField
+                                    surface="portal"
                                     label="Phone or email"
-                                    placeholder="0774 123 456 or john@example.com"
-                                    autoComplete="username"
+                                    allowEmail
+                                    placeholder="77 123 4567"
                                     required
                                     value={form.identifier}
-                                    onChange={(e) => setForm({ ...form, identifier: e.target.value })}
+                                    onChange={(identifier) => setForm({ ...form, identifier })}
                                 />
 
                                 <PasswordInput

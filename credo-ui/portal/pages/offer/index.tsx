@@ -30,7 +30,7 @@ export default function OfferPage() {
     setLocalOffer(false)
     if (!rowId) {
       setError(
-        'Choose a current offer from Credential operations. Legacy selections do not create offers automatically.',
+        'Choose a current offer from Manage records. Legacy selections do not create offers automatically.',
       )
       setLoading(false)
       return

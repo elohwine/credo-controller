@@ -52,6 +52,8 @@ import { cardLife, readArchivedCardIds, setCardArchived } from '@/lib/cardLife';
 import { formatTxnTime, openInboxOffers } from '@/lib/inboxAttention';
 import { CLAIM_LABELS, HIDDEN_CLAIMS, credentialClaimRows, plainStep } from '@/lib/recordCheck';
 import RecordCheckPanel from '@/components/records/RecordCheckPanel';
+import BrandedDocumentView from '@/components/documents/BrandedDocumentView';
+import { DOCUMENT_TITLES, documentFromClaims, documentKindOf } from '@/lib/brandedDocument';
 import { clearStoredOrganizationContext, getOrgScopedToken, readActiveOrganization } from '@/utils/organizationContext';
 import { sharePurposeLine } from '@/components/finance/financeStages';
 import {
@@ -64,6 +66,8 @@ interface WalletCredential {
     issuerDid: string;
     /** The organisation behind the issuer key, when the card's claims do not name it. */
     issuerName?: string;
+    /** The issuing organisation, so a quote, invoice or receipt is drawn in its brand. */
+    issuerOrgTenantId?: string;
     addedOn: string;
     /** The issuer withdrew this card (role changed, left the organisation, or a newer card replaced it). */
     withdrawn?: boolean;
@@ -78,6 +82,39 @@ interface WalletCredential {
         expirationDate?: string;
         type?: string[];
     };
+}
+
+/** A quote, invoice or receipt record drawn as the document, in the issuing organisation's brand. Same as the phone's records screen. */
+function RecordDocument({ credential }: { credential: WalletCredential }) {
+    const [open, setOpen] = useState(false);
+    const subject = credential.parsedDocument?.credentialSubject || {};
+    const types = credential.parsedDocument?.type || [credential.type];
+    const kind = documentKindOf(types, subject);
+    if (!kind) return null;
+    const title = DOCUMENT_TITLES[kind].toLowerCase();
+    return (
+        <>
+            <Divider />
+            <Button variant={open ? 'subtle' : 'light'} onClick={() => setOpen((value) => !value)}>
+                {open ? `Hide ${title}` : `View ${title}`}
+            </Button>
+            {open && (
+                <BrandedDocumentView
+                    orgTenantId={credential.issuerOrgTenantId}
+                    fallbackName={credential.issuerName}
+                    model={documentFromClaims({
+                        kind,
+                        claims: subject,
+                        issuedAt: credential.parsedDocument?.issuanceDate || credential.addedOn,
+                        credentialId: credential.issuedId || credential.id,
+                        issuerDid: credential.issuerDid,
+                        withdrawn: Boolean(credential.withdrawn),
+                        signed: true,
+                    })}
+                />
+            )}
+        </>
+    );
 }
 
 const CREDENTIAL_ICONS: Record<string, React.ReactNode> = {
@@ -212,11 +249,16 @@ function issuerLabel(issuer: unknown): string {
     return 'Your organization';
 }
 
+/** The identity card is issued by the platform itself, not by an organisation. */
+const isPlatformIdentity = (type: unknown) =>
+    (Array.isArray(type) ? type : [type]).some((value) => String(value || '').includes('PlatformIdentity'));
+
 function parseCredentialSummary(match: any): { type: unknown; issuer: string } {
-    if (match?.type) return { type: match.type, issuer: 'Your organization' };
+    if (match?.type) return { type: match.type, issuer: isPlatformIdentity(match.type) ? 'Credentis' : 'Your organization' };
     const document = credentialDocument(match);
     if (!document) return { type: 'Record', issuer: 'Your organization' };
-    return { type: document.type || 'Record', issuer: issuerLabel(document.issuer || document.issuerDid) };
+    const type = document.type || document.vct || 'Record';
+    return { type, issuer: isPlatformIdentity(type) ? 'Credentis' : issuerLabel(document.issuer || document.issuerDid) };
 }
 
 function resolveCredentialId(match: any): string | undefined {
@@ -232,6 +274,19 @@ function prettyClaimValue(key: string, value: string): string {
     if (key === 'stageActions') {
         return value.split(',').map((step) => plainStep(step)).filter(Boolean).join(', ');
     }
+    if (key === 'permissions') {
+        return value
+            .split(',')
+            .map((permission) => {
+                const [noun, verb] = permission.trim().split('.');
+                if (!verb) return permission.trim().replace(/[_.-]+/g, ' ');
+                const thing = noun.replace(/[_.-]+/g, ' ').toLowerCase();
+                return `${verb.replace(/[_.-]+/g, ' ').toLowerCase()} ${thing.endsWith('s') ? thing : `${thing}s`}`;
+            })
+            .filter(Boolean)
+            .join(', ');
+    }
+    if (key === 'orgAccess') return value === 'manage' ? 'Runs the organisation' : value.replace(/[_.-]+/g, ' ');
     if ((key === 'role' || key === 'memberRole') && value.includes('_')) return value.replace(/_/g, ' ');
     if (key === 'issuedAt' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
         const when = new Date(value);
@@ -245,7 +300,22 @@ function prettyClaimValue(key: string, value: string): string {
  * record will reveal; `withheld` are the details that stay with the person (a selective-disclosure
  * card). A whole card (older record, or a request that cannot name claims) has nothing withheld.
  */
-function splitShareClaims(match: any): { shared: Array<{ label: string; value: string }>; withheld: Array<{ label: string; value: string }> } {
+function splitShareClaims(match: any): { shared: Array<{ label: string; value: string }>; withheld: Array<{ label: string; value: string }>; basisLine?: string; wholeCard: boolean } {
+    const serverRows = (rows: unknown): Array<{ label: string; value: string }> | null =>
+        Array.isArray(rows)
+            ? rows
+                .filter((row: any) => row && typeof row.label === 'string' && typeof row.value === 'string' && row.value.trim())
+                .map((row: any) => ({ label: row.label, value: row.value }))
+            : null;
+    const sharedRows = serverRows(match?.sharedRows);
+    if (sharedRows) {
+        return {
+            shared: sharedRows,
+            withheld: serverRows(match?.withheldRows) || [],
+            basisLine: typeof match?.basisLine === 'string' && match.basisLine.trim() ? match.basisLine : undefined,
+            wholeCard: match?.basis === 'whole_card' || match?.selective === false,
+        };
+    }
     const toRows = (source: unknown, held = false): Array<{ label: string; value: string }> => {
         const entries: Array<[string, unknown]> = source && typeof source === 'object' && !Array.isArray(source)
             ? Object.entries(source as Record<string, unknown>)
@@ -260,6 +330,10 @@ function splitShareClaims(match: any): { shared: Array<{ label: string; value: s
                 ? 'Other steps on your card'
                 : key === 'stageActions' && !value.includes(',')
                 ? 'This step'
+                : key === 'permissions'
+                ? 'Allowed to'
+                : key === 'orgAccess'
+                ? 'Access'
                 : CLAIM_LABELS[key] || key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (char) => char.toUpperCase());
             const stamp = `${label}:${value}`;
             if (seen.has(stamp)) continue;
@@ -268,7 +342,9 @@ function splitShareClaims(match: any): { shared: Array<{ label: string; value: s
         }
         return rows;
     };
-    return { shared: toRows(match?.claims), withheld: toRows(match?.withheld, true) };
+    const shared = toRows(match?.claims);
+    const withheld = toRows(match?.withheld, true);
+    return { shared, withheld, wholeCard: match?.selective === false || withheld.length === 0 };
 }
 
 function CredentialCard({ credential, onView, detail = false }: { credential: WalletCredential; onView?: () => void; detail?: boolean }) {
@@ -804,7 +880,7 @@ export default function WalletPage() {
             } else if (requisitionId && requisitionAction === 'release') {
                 const amountRaw = queryValue(router.query.amount) || fallbackQuery.amount;
                 const currency = queryValue(router.query.currency) || fallbackQuery.currency;
-                const releasePayload: Record<string, unknown> = {};
+                const releasePayload: Record<string, unknown> = { requestId, vpToken, idToken, presentationSubmission };
                 const parsedAmount = amountRaw !== undefined ? Number(amountRaw) : undefined;
                 if (typeof parsedAmount === 'number' && Number.isFinite(parsedAmount)) releasePayload.amount = parsedAmount;
                 if (currency) releasePayload.currency = currency;
@@ -814,14 +890,6 @@ export default function WalletPage() {
                     { headers: { Authorization: `Bearer ${orgToken}`, 'x-idempotency-key': `wallet-release:${requisitionId}:${requestId}` } },
                 );
                 if (released.data?.error) throw new Error(String(released.data.error));
-            } else if (requisitionId && requisitionAction === 'ack') {
-                const notes = queryValue(router.query.notes) || fallbackQuery.notes || 'Goods or services received.';
-                const acked = await axios.post(
-                    `${holderBackend}/api/finance/requisitions/${encodeURIComponent(requisitionId)}/ack`,
-                    { notes },
-                    { headers: { Authorization: `Bearer ${orgToken}`, 'x-idempotency-key': `wallet-ack:${requisitionId}:${requestId}` } },
-                );
-                if (acked.data?.error) throw new Error(String(acked.data.error));
             } else if (requisitionId) {
                 await axios.post(
                     `${holderBackend}/api/finance/requisitions/${encodeURIComponent(requisitionId)}/approve`,
@@ -947,7 +1015,7 @@ export default function WalletPage() {
                                 {approvalMatches.map((match, index) => {
                                     const cred = parseCredentialSummary(match);
                                     const credentialId = resolveCredentialId(match);
-                                    const { shared, withheld } = splitShareClaims(match);
+                                    const { shared, withheld, basisLine, wholeCard } = splitShareClaims(match);
                                     const checked = !!credentialId && selectedApprovalCredentialIds.includes(credentialId);
 
                                     return (
@@ -967,6 +1035,10 @@ export default function WalletPage() {
                                                 <Box style={{ flex: 1 }}>
                                                     <Text fw={600}>{formatCredentialType(String(cred.type || 'Credential'))}</Text>
                                                     <Text size="xs" c="dimmed">Issuer: {cred.issuer}</Text>
+                                                    {basisLine ? <Text size="xs" mt={6}>{basisLine}</Text> : null}
+                                                    {wholeCard && shared.length > 0 ? (
+                                                        <Text size="xs" c="dimmed" mt={6}>Whole card is shared</Text>
+                                                    ) : null}
                                                     <Text size="xs" fw={700} mt={8}>Shared</Text>
                                                     <Stack gap={2} mt={2}>
                                                         {shared.length > 0 ? shared.map((claim) => (
@@ -988,8 +1060,8 @@ export default function WalletPage() {
                                                                 ))}
                                                             </Stack>
                                                         </>
-                                                    ) : shared.length > 0 ? (
-                                                        <Text size="xs" c="dimmed" mt={6}>The whole record is shared.</Text>
+                                                    ) : shared.length > 0 && wholeCard && !basisLine ? (
+                                                        <Text size="xs" c="dimmed" mt={6}>This card cannot share part of itself, so every detail above is sent.</Text>
                                                     ) : null}
                                                 </Box>
                                             </Group>
@@ -1011,9 +1083,7 @@ export default function WalletPage() {
                                             ? 'This checks that you are the person chosen to finish this purchase or payment.'
                                         : requisitionAction === 'release'
                                             ? 'This checks that you are the person chosen to release the money.'
-                                            : requisitionAction === 'ack'
-                                                ? 'This checks that you received the goods or services.'
-                                                : 'This checks that you are the person chosen to approve this request.'}
+                                            : 'This checks that you are the person chosen to approve this request.'}
                                 </Text>
                             </Paper>
 
@@ -1262,6 +1332,8 @@ export default function WalletPage() {
                                     )}
                                 </Stack>
                             </ScrollArea.Autosize>
+
+                            <RecordDocument credential={selectedCredential} />
 
                             <Divider />
 

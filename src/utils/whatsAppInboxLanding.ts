@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from 'express'
+import type { Express, NextFunction, Request, Response } from 'express'
 
 import path from 'path'
 
@@ -92,9 +92,10 @@ export function registerWhatsAppInboxLanding(app: Express): void {
     res.json(androidAssetLinks())
   })
   // Header banners for the WhatsApp templates; Meta fetches them by URL on every send.
-  app.get('/wa/:file', (req: Request, res: Response) => {
+  // Non-banner paths fall through so GET /wa/webhook (Meta's verify handshake) reaches the TSOA route.
+  app.get('/wa/:file', (req: Request, res: Response, next: NextFunction) => {
     if (!/^(task|vc_offer|proof_request|payment_link|remittance|invite)\.png$/.test(req.params.file)) {
-      res.status(404).end()
+      next()
       return
     }
     res.setHeader('Cache-Control', 'public, max-age=86400')

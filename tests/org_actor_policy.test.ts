@@ -10,7 +10,11 @@
 import 'reflect-metadata'
 import { afterAll, beforeAll, describe, expect, test } from '@jest/globals'
 
-import { orgWorkflowActorService, requisitionApprovalSignMode } from '../src/services/OrgWorkflowActorService'
+import {
+  mainPeopleForAnswers,
+  orgWorkflowActorService,
+  requisitionApprovalSignMode,
+} from '../src/services/OrgWorkflowActorService'
 import { workflowReadinessService } from '../src/services/WorkflowReadinessService'
 
 import {
@@ -212,7 +216,8 @@ describe('OrgWorkflowActorService — fallback policy', () => {
       workflowType: 'field_execution_fept',
       stageAction: 'trigger_payout',
     })
-    expect(inherited.mode).toBe('shared_finance')
+    expect(inherited.mode).toBe('main_person')
+    expect(inherited.mainRole).toBe('finance')
     expect(inherited.userId).toBe(payoutOrg.ownerUserId)
     expect(inherited.userId).not.toBe(workerUserId)
 
@@ -230,5 +235,78 @@ describe('OrgWorkflowActorService — fallback policy', () => {
     })
     expect(named.mode).toBe('configured_user')
     expect(named.userId).toBe(workerUserId)
+  })
+
+  test('finance main person covers money stages across request families', () => {
+    const financeOrg = seedOrganization({ name: 'Finance main person Ltd' })
+    const financeUserId = `finance-${Date.now()}`
+    addMember({ orgTenantId: financeOrg.orgTenantId, organizationId: financeOrg.organizationId, userId: financeUserId, role: 'finance_manager' })
+    orgWorkflowActorService.savePolicy(financeOrg.orgTenantId, {
+      mainPeople: { finance: { type: 'user', value: financeUserId } },
+    })
+
+    const stages: Array<{ workflowType: string; stageAction: string }> = [
+      { workflowType: 'internal_requisitions', stageAction: 'finance_approve_requisition' },
+      { workflowType: 'field_execution_fept', stageAction: 'trigger_payout' },
+      { workflowType: 'accounts_receivable', stageAction: 'record_payment' },
+      { workflowType: 'accounts_payable', stageAction: 'acknowledge_remittance' },
+    ]
+    for (const stage of stages) {
+      const actor = orgWorkflowActorService.resolveActor({ orgTenantId: financeOrg.orgTenantId, ...stage })
+      expect(actor.mode).toBe('main_person')
+      expect(actor.mainRole).toBe('finance')
+      expect(actor.userId).toBe(financeUserId)
+    }
+  })
+
+  test('staff request aliases resolve through the hr_requests setup', () => {
+    const requestOrg = seedOrganization({ name: 'Request aliases Ltd' })
+    const approverUserId = `approver-${Date.now()}`
+    addMember({ orgTenantId: requestOrg.orgTenantId, organizationId: requestOrg.organizationId, userId: approverUserId, role: 'manager' })
+
+    orgWorkflowActorService.upsertDefault({
+      orgTenantId: requestOrg.orgTenantId,
+      workflowType: 'hr_requests',
+      stageAction: 'approve_request',
+      defaultUserId: approverUserId,
+      enabled: true,
+    })
+
+    const generalActor = orgWorkflowActorService.resolveActor({
+      orgTenantId: requestOrg.orgTenantId,
+      workflowType: 'general',
+      stageAction: 'approve_request',
+    })
+    expect(generalActor.mode).toBe('configured_user')
+    expect(generalActor.userId).toBe(approverUserId)
+
+    orgWorkflowActorService.upsertDefault({
+      orgTenantId: requestOrg.orgTenantId,
+      workflowType: 'tpl-request-expense',
+      stageAction: 'approve_request',
+      defaultUserId: approverUserId,
+      enabled: true,
+    })
+    const familyActor = orgWorkflowActorService.resolveActor({
+      orgTenantId: requestOrg.orgTenantId,
+      workflowType: 'hr_requests',
+      stageAction: 'approve_request',
+    })
+    expect(familyActor.mode).toBe('configured_user')
+    expect(familyActor.userId).toBe(approverUserId)
+  })
+
+  test('main people come from the setup answers for the chosen use case', () => {
+    expect(mainPeopleForAnswers({ kinds: ['office'], modules: ['purchases'] })).toEqual({
+      approver: 'owner',
+      finance: 'owner',
+    })
+    expect(
+      mainPeopleForAnswers({ kinds: ['field'], modules: ['people_payroll'], approvalPresetId: 'finance_team' }),
+    ).toEqual({ approver: 'manager', finance: 'finance_manager', hr: 'manager', operations: 'supervisor' })
+    // The director signs once; the finance officer handles the money day to day.
+    expect(mainPeopleForAnswers({ kinds: [], modules: ['field_jobs'], approvalPresetId: 'director_signs_once' })).toEqual(
+      { approver: 'director', finance: 'finance_manager', operations: 'supervisor' },
+    )
   })
 })

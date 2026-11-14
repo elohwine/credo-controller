@@ -5,6 +5,22 @@ import { rootLogger } from '../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'OutboxService' })
 
+/**
+ * Written so the audit trail keeps them. The inbox card, when there is one, is already
+ * routed by WorkflowStageInboxService. These topics must not fail as unknown.
+ */
+const RECORDED_TOPICS = [
+  'field.stage.changed',
+  'field.checkpoint.completed',
+  'field.checkpoint.held',
+  'field.checkpoint.hold_resolved',
+  'field.evidence.captured',
+  'field.task.assigned',
+  'wallet.vc.accepted',
+  'workflow.handoff.started',
+  'workflow.handoff.finished',
+]
+
 interface EnqueueOutboxInput {
   topic: string
   aggregateKey?: string
@@ -110,6 +126,7 @@ export class OutboxService {
 
     this.processing = true
     try {
+      this.releaseRecordedFailures()
       const db = DatabaseManager.getDatabase()
       const now = Date.now()
       const token = crypto.randomUUID()
@@ -169,6 +186,8 @@ export class OutboxService {
           } else if (row.topic === 'wallet.android.popup') {
             const { notifyAndroidPopup } = await import('./AndroidPushService')
             await notifyAndroidPopup(JSON.parse(row.payload || '{}'))
+          } else if (RECORDED_TOPICS.includes(row.topic)) {
+            logger.info({ topic: row.topic, outboxId: row.id }, 'Recorded outbox event')
           } else {
             throw new DispatchError('Unknown outbox topic', 'permanent')
           }
@@ -211,6 +230,20 @@ export class OutboxService {
     } finally {
       this.processing = false
     }
+  }
+
+  /** Rows that failed only because the topic had no dispatcher become pending again. */
+  private releaseRecordedFailures(): void {
+    const placeholders = RECORDED_TOPICS.map(() => '?').join(', ')
+    DatabaseManager.getDatabase()
+      .prepare(
+        `UPDATE integration_outbox
+            SET status = 'pending', error_message = NULL, available_at = ?, lease_until = NULL
+          WHERE status = 'failed'
+            AND topic IN (${placeholders})
+            AND error_message LIKE 'Unknown outbox topic%'`,
+      )
+      .run(Date.now(), ...RECORDED_TOPICS)
   }
 
   private async processWorkflowVcIssue(outboxId: string, payload: Record<string, any>): Promise<void> {

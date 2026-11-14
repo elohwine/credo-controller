@@ -350,7 +350,40 @@ function sourceDocumentWords(input: Record<string, any>): string {
   return input.jobIntakeId ? 'No client source documents attached' : ''
 }
 
+/** Directory names plus the names the job response already carries. A real name wins over "Team member". */
+export function peopleOnJob(run: any, directory: AuditPerson[] = []): AuditPerson[] {
+  const attached = Array.isArray(run?.people) ? run.people : []
+  const byId = new Map<string, AuditPerson>()
+  const realName = (person: AuditPerson) => {
+    const name = String(person.displayName || '').trim()
+    return name && !/^(organization owner|team member)$/i.test(name) ? name : ''
+  }
+  for (const raw of [...attached, ...directory]) {
+    const userId = String(raw?.userId || '').trim()
+    if (!userId) continue
+    const next: AuditPerson = {
+      userId,
+      role: raw.role ? String(raw.role) : undefined,
+      displayName: raw.displayName ? String(raw.displayName) : undefined,
+      phone: raw.phone ? String(raw.phone) : undefined,
+    }
+    const prev = byId.get(userId)
+    if (!prev) {
+      byId.set(userId, next)
+      continue
+    }
+    byId.set(userId, {
+      userId,
+      role: prev.role || next.role,
+      phone: prev.phone || next.phone,
+      displayName: realName(prev) || realName(next) || prev.displayName || next.displayName,
+    })
+  }
+  return [...byId.values()]
+}
+
 export function buildJobAuditTrail(run: any, people: AuditPerson[] = []): JobAuditTrail {
+  people = peopleOnJob(run, people)
   const state = (run?.output && typeof run.output === 'object' ? run.output : {}) as Record<string, any>
   const input = (state.workflowInput || run?.input || {}) as Record<string, any>
   const stage = String(state.workflowStage || state.stage || '').toUpperCase()
@@ -468,7 +501,7 @@ export function buildJobAuditTrail(run: any, people: AuditPerson[] = []): JobAud
     id: 'assigned',
     title: 'Assigned',
     status: assignment.assignedAt || reached('ASSIGNED') ? 'done' : 'pending',
-    byUserId: assignment.dispatcherId || stageBy('ASSIGNED'),
+    byUserId: assigneeId || assignment.dispatcherId || stageBy('ASSIGNED'),
     at: assignment.assignedAt || stageAt('ASSIGNED'),
     details: [
       assigneeId ? `Field worker: ${nameOf(assigneeId, people)?.name || 'a team member'}` : 'No worker yet',
@@ -656,20 +689,27 @@ export function buildJobAuditTrail(run: any, people: AuditPerson[] = []): JobAud
   const invoiceAmount = moneyWords(input.amount, input.currency)
   if (collection || signedOff) {
     const collectionStatus = String(collection?.status || '')
+    const noCharge = state.jobPrice?.noCharge === true
     push({
       id: 'client_invoice',
       title: 'Client invoice',
       status:
         collectionStatus === 'started' || collectionStatus === 'completed'
           ? 'done'
-          : collection
-            ? 'skipped'
-            : 'pending',
+          : collectionStatus === 'awaiting_price' || pauseReason === 'await_job_price'
+            ? 'active'
+            : collection
+              ? 'skipped'
+              : 'pending',
       at: collection?.startedAt || collection?.at,
       ref: shortRef(collection?.childRunId || collection?.runId),
       details: [
         collectionStatus === 'started' || collectionStatus === 'completed'
           ? `Invoice sent to the client${invoiceAmount ? ` for ${invoiceAmount}` : ''}`
+          : collectionStatus === 'awaiting_price' || pauseReason === 'await_job_price'
+            ? 'Waiting for the office to set the price and how the client pays'
+          : noCharge
+            ? 'No charge for this job'
           : collectionStatus === 'not_needed'
             ? 'No client to invoice on this job'
             : collectionStatus === 'blocked'
@@ -793,6 +833,7 @@ export function buildJobAuditTrail(run: any, people: AuditPerson[] = []): JobAud
 
 /** Progress-timeline stage key → the audit step that records who did (or is chosen for) it. */
 const AUDIT_STEP_FOR_STAGE: Record<string, string> = {
+  ASSIGNED: 'assigned',
   IN_PROGRESS: 'started',
   ARRIVAL: 'arrival',
   SITE_INSPECTION: 'site_inspection',
@@ -1015,6 +1056,7 @@ const SHEET_PHASE_LABEL: Record<string, string> = {
 
 const SHEET_STEP_WORDS: Record<string, string> = {
   assign_field_worker: 'Who does the job',
+  set_job_price: 'Price for the client',
   inspect_site: 'Site check',
   review_completion: 'Work review',
   acknowledge_execution: 'Sign-off',
@@ -1159,6 +1201,9 @@ export function trailFromRequest(request: any, people: AuditPerson[] = []): JobA
     if (type === 'request.created') title = 'Raised'
     else if (type === 'request.handoff') title = 'Next step started'
     else if (type === 'request.record_issued') title = 'Record sent'
+    else if (type === 'request.stage_approved')
+      title = payload.step && payload.of ? `Approved: step ${payload.step} of ${payload.of}` : 'Step approved'
+    else if (type === 'request.flow_started') title = 'Approval steps set'
     else if (to === 'submitted') title = 'Submitted'
     else if (to === 'in_review') title = 'In review'
     else if (to === 'approved') title = 'Approved'
@@ -1167,6 +1212,12 @@ export function trailFromRequest(request: any, people: AuditPerson[] = []): JobA
       title = payload.invoiceRef ? 'Marked delivered' : payload.receiptRef ? 'Marked paid' : 'Finished'
     else if (to === 'cancelled') title = 'Cancelled'
     const details: string[] = []
+    if (type === 'request.stage_approved') {
+      if (payload.stageTitle) details.push(String(payload.stageTitle))
+      if (payload.nextStageTitle) details.push(`Next: ${payload.nextStageTitle}`)
+    }
+    if (type === 'request.flow_started' && Array.isArray(payload.stages) && payload.stages.length)
+      details.push(payload.stages.map((stage: any, i: number) => `${i + 1}. ${String(stage)}`).join('  '))
     if (payload.recordLabel) details.push(String(payload.recordLabel))
     if (payload.invoiceRef) details.push(`Supplier bill ${payload.invoiceRef}`)
     if (payload.receiptRef) details.push(`Receipt ${payload.receiptRef}`)
@@ -1189,6 +1240,25 @@ export function trailFromRequest(request: any, people: AuditPerson[] = []): JobA
   const trail = emptyTrail(reference, String(request?.title || 'Request'), String(request?.status || ''), steps)
   trail.subject = 'request'
   trail.people = Array.from(peopleFromSteps(steps, people).values())
+  trail.records = events.flatMap((event: any) => {
+    if (String(event.event_type || event.eventType || '') !== 'request.record_issued') return []
+    let payload: Record<string, any> = {}
+    if (event?.payload && typeof event.payload === 'object') payload = event.payload
+    else if (typeof event?.payload_json === 'string') {
+      try {
+        payload = JSON.parse(event.payload_json)
+      } catch {
+        payload = {}
+      }
+    }
+    const type = String(payload.credentialType || 'Record')
+    return [{
+      type,
+      label: RECORD_WORDS[type] || type.replace(/VC$/, '').replace(/([a-z])([A-Z])/g, '$1 $2'),
+      issuedAt: event.created_at || event.createdAt ? String(event.created_at || event.createdAt) : undefined,
+      to: request?.parties?.requesterName ? String(request.parties.requesterName) : 'The person who asked',
+    }]
+  })
   return trail
 }
 

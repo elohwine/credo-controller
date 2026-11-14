@@ -45,6 +45,12 @@ Graph calls use `v26.0` by default; override with `WHATSAPP_GRAPH_VERSION`
    submits the UTILITY template `credentis_inbox_update` (en_US, `{{1}}` notice,
    `{{2}}` inbox URL). Re-run with `--check` until it reports `APPROVED`. If Meta
    recategorises it as MARKETING it will be refused at dispatch; edit and resubmit.
+   The branded templates (`credentis_team_added`, `credentis_task_update`,
+   `credentis_record_ready`, `credentis_check_request`, `credentis_bill_ready`,
+   `credentis_payment_sent`, language `en`, category UTILITY) are registered with
+   `node scripts/whatsapp-templates.js --submit` and are already APPROVED on the
+   platform WABA. Sends use a branded template only when Meta's copy still matches
+   the code; otherwise they use `credentis_inbox_update`.
 4. **Webhook** — App dashboard → WhatsApp → Configuration: callback
    `https://credentis.fly.dev/wa/webhook`, verify token = `WHATSAPP_VERIFY_TOKEN`,
    subscribe the `messages` field.
@@ -64,6 +70,24 @@ serves `/inbox` as a small landing page with an *Open in Credentis* button
 `/.well-known/assetlinks.json` (from `ANDROID_APP_PACKAGE` +
 `ANDROID_APP_CERT_SHA256`) so the Android app can claim `https://credentis.fly.dev/inbox`
 as a verified App Link once installed.
+
+### Meta MCP OAuth (local development)
+
+Meta MCP authentication is separate from the Cloud API delivery credentials.
+Use the public Meta App ID, never an App Secret or access token, as the OAuth
+client ID. Native Copilot uses `mcpServers.whatsapp_business_tools.oauthClientId`
+in `.mcp.json`; VS Code uses `servers.whatsapp_business_tools.oauth.clientId`
+in `.vscode/mcp.json`. Setting `WHATSAPP_APP_ID` in `.env` or Fly does not
+configure either editor's OAuth client.
+
+After changing the client ID, remove the old MCP authentication through VS
+Code's MCP authentication controls and restart/re-authenticate the server.
+For developer-provided Meta clients, register the exact redirect URI shown by
+the client (`https://vscode.dev/redirect` for this VS Code flow). Meta may still
+reject unsupported clients; a saved client ID is not evidence of authenticated
+access. Verify that tools load and a read-only business-list call succeeds.
+Fly secrets staged with `--stage` only take effect at the next deployment or
+machine update.
 
 ### Select and validate a sender
 
@@ -127,16 +151,28 @@ Rotate/revoke at the provider and update the corresponding environment secret;
 reload workers before restoring delivery. Revalidate after changing phone/WABA.
 
 All business sends use **sender-specific APPROVED UTILITY templates**, including
-inside the customer-service window (no free-form fallback). The template BODY
-must accept two text parameters: a minimal inbox-update notice and the HTTPS
-wallet `/inbox` URL. Do not add other required components/placeholders. Template
-approval is checked against the selected WABA at dispatch, not trusted from an
-administrator's JSON. Messages exclude credential offers, proof URLs, financial
-details and authentication tokens. Inbox authentication and existing actor
-checks still control action. Where a task's persisted source resolves to a
-request in that organization, `/inbox?request={id}` uses the existing
-request-specific inbox selection. Other source families safely open `/inbox`;
-not every domain item has an existing item-specific link contract yet.
+inside the customer-service window (no free-form fallback). The generic template
+BODY accepts two text parameters: a notice and an HTTPS URL. Do not add other
+required components/placeholders. Template approval is checked against the
+selected WABA at dispatch, not trusted from an administrator's JSON. Messages
+exclude credential offers, proof URLs and authentication tokens (a contact
+wallet-link invitation's one-time claim token is never sent on WhatsApp, only
+by SMS). Inbox authentication and existing actor checks still control action.
+Where a task's persisted source resolves to a request in that organization,
+`/inbox?request={id}` uses the existing request-specific inbox selection. Other
+internal source families safely open `/inbox`; not every domain item has an
+existing item-specific link contract yet.
+
+A bill (`payment_link`) or a supplier remittance (`remittance`) goes to someone
+outside the organisation, often on a phone signed into a different Credentis
+account than the one the bill matched, or none at all — so these two always
+carry the amount/issuer in the message text and lead straight to the bill's own
+public `/pay/{code}` or acknowledgement page, never `/inbox?item=...`, whether or
+not a matching wallet inbox card exists. `NotificationService.sendWhatsAppIntent`
+reads the `body`/`actionUrl` kept on the queued notification for this; every
+caller of `dispatchContactNotification`/`dispatchRemittanceNotification` (field
+job bills, school fee instalments, AR collections, collection plans, remittance
+advice) gets this for free.
 
 ### Record consent and preferences
 
@@ -211,7 +247,39 @@ Recipient/task state remains authoritative throughout.
 Preferences/delivery rows contain recipient phone numbers: restrict DB access,
 back them up with the persistence database, and apply your retention policy.
 Never expose payloads or raw Axios errors from administrative status views.
-Broadcast marketing/campaigns and approval-by-WhatsApp are deliberately absent.
+Approval-by-WhatsApp is deliberately absent. An offer a business saves
+(`POST /api/organizations/{id}/broadcasts`) is a count of people who asked for
+offers (`marketing_opt_ins`). It is not an alert preference, it is not sent on
+the inbox template, and nobody is messaged: a marketing template is not turned
+on. One offer can be saved per business per day. Under Offers the business sees
+how many of the people who asked for offers sent it a request in the 7 days
+after the latest offer (`GET /api/organizations/{id}/broadcasts/latest`); only
+counts, no names.
+
+A person who messages the business number can be answered in that chat
+(`WhatsAppInquiryService`). A whole sentence is read (`readRequest`): "I need 20
+bags of cement delivered to Borrowdale tomorrow, I can pay with EcoCash" becomes
+the trade, quantity, place, delivery, day and payment method. The reply and `/find`
+start with "Looking for: cement · 20 bags · Borrowdale · Delivers · tomorrow ·
+EcoCash" so the person can see what was understood. Each business is then described
+as three facts: what it says it does, whether a credential still in force checks
+that, and that it is taking work now. A business's own record of its services,
+payment and delivery is named ("Their record covers: …"). A registrar's credential
+is named "Checked: …". An expired registration credential removes it. A saved
+offer is included in the reply. Nobody is messaged by saving it. Place, payment and delivery
+rule businesses out; quantity and day are shown, not matched. A product the shop sells is matched the same way as a service name, so "cement" finds a shop that sells cement. A business whose
+registration credential has been revoked is no longer listed. The reply names businesses that fit and links to
+`/find`, where each business has an "Ask for a quote" button that opens it in
+the phone app (`MOBILE_APP_URL`). A message of `status` (or `my requests`,
+`track`) is answered with the sender's own latest three requests instead: the
+business, and waiting / accepted (with the price) / declined / done. They are
+found through the phone on the person's account; a number with no account gets
+"No requests found". It is a reply to the message they just sent: it does not record alert
+consent, it does not use an alert template, and a later alert still needs an
+opt-in. `STOP` opts out of alerts and, after that has succeeded, of offers.
+It is not treated as a search. Nothing is sent unless
+`WHATSAPP_DELIVERY_ENABLED=true` and the sender has a token. The same WhatsApp
+message id is answered once.
 
 Focused verification:
 

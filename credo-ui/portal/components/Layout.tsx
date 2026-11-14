@@ -19,15 +19,13 @@ import {
 import { useMediaQuery } from '@mantine/hooks';
 import {
     IconMoon,
-    IconLogin2,
     IconSun,
     IconHome,
     IconCertificate,
     IconBuilding,
     IconShieldCheck,
-    IconUserShield,
     IconSettings,
-    IconUsersGroup,
+    IconHelpCircle,
     IconChecklist,
     IconInbox,
     IconReceipt,
@@ -35,8 +33,6 @@ import {
     IconCoin,
     IconWallet,
     IconCreditCard,
-    IconBrandWhatsapp,
-    IconPalette,
     IconUsers,
     IconSchool,
     IconSearch,
@@ -51,6 +47,7 @@ import { getWorkflowCapabilityFlags } from '@/lib/workflowCapabilities';
 import { openInboxOffers } from '@/lib/inboxAttention';
 import { RECORDS_TARGET_ATTR } from '../../shared/cardMotion';
 import { UnreadCount } from '../../shared/UnreadCount';
+import { isRequestFlowRun } from '../../shared/requestDecision';
 
 const LayoutNestingContext = React.createContext(false);
 
@@ -122,7 +119,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
             const receiptRows = pendingReceipts.filter((row: any) => String(row?.sourceType || '').toLowerCase() === 'payment');
             const requestRows = Array.isArray(inbound) ? inbound : [];
             const runRows = Array.isArray(runs) ? runs : [];
-            const openJobs = runRows.filter((run) => !['completed', 'cancelled', 'reconciled'].includes(String(run?.status || '').toLowerCase())).length;
+            const openJobs = runRows.filter((run) => !isRequestFlowRun(run) && !['completed', 'cancelled', 'reconciled'].includes(String(run?.status || '').toLowerCase())).length;
             setCounts({ inbox: offerRows.length + receiptRows.length, requests: requestRows.length, jobs: openJobs });
             setWorkflowTypes(Array.isArray(workflows?.workflowTypes) ? workflows.workflowTypes : []);
         };
@@ -206,7 +203,6 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                     href: isOrg && canManageOrg ? '/wallet?holder=organization' : '/wallet',
                     icon: <IconWallet size={18} />,
                 },
-                { label: 'Settings', href: '/settings', icon: <IconSettings size={18} /> },
             ],
         },
     ];
@@ -217,20 +213,19 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
             items: [
                 { label: 'Members', href: '/organization/people', icon: <IconUsers size={18} /> },
                 { label: 'Workflows', href: '/workflows', icon: <IconChecklist size={18} /> },
-                { label: 'Record settings', href: '/organization/setup#records', icon: <IconCertificate size={18} /> },
-                { label: 'Setup', href: '/organization/setup', icon: <IconBuilding size={18} /> },
-                { label: 'Who does what', href: '/organization/actors', icon: <IconUserShield size={18} /> },
-                { label: 'What happens next', href: '/organization/handoffs', icon: <IconChecklist size={18} /> },
-                { label: 'Credential operations', href: '/organization/credential-operations', icon: <IconCertificate size={18} /> },
-                { label: 'Departments', href: '/organization/departments', icon: <IconBuilding size={18} /> },
-                { label: 'Payments', href: '/organization/integrations', icon: <IconCreditCard size={18} /> },
-                { label: 'WhatsApp alerts', href: '/organization/whatsapp', icon: <IconBrandWhatsapp size={18} /> },
-                { label: 'Brand and documents', href: '/organization/brand', icon: <IconPalette size={18} /> },
-                { label: 'Connected systems', href: '/organization/sign-in-partners', icon: <IconLogin2 size={18} /> },
-                { label: 'Stand-ins', href: '/organization/delegations', icon: <IconUsersGroup size={18} /> },
             ],
         });
     }
+
+    // Android navigation order: settings after every other destination, then Help & Feedback last.
+    groups.push({
+        label: 'Settings',
+        items: [
+            ...(isOrg && canManageOrg ? [{ label: 'Organisation setup', href: '/organization/setup', icon: <IconBuilding size={18} /> }] : []),
+            { label: 'Settings', href: '/settings', icon: <IconSettings size={18} /> },
+            { label: 'Help & Feedback', href: '/help', icon: <IconHelpCircle size={18} /> },
+        ],
+    });
 
     const isActive = (href: string) => {
         const [pathWithQuery] = href.split('#');

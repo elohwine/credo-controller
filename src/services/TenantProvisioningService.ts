@@ -8,6 +8,7 @@ import { issuerMetadataCache } from '../utils/issuerMetadataCache'
 import { buildIssuerMetadata, buildVerifierMetadata } from '../utils/openidMetadata'
 
 import { registerDefaultModelsForTenant } from './modelRegistry'
+import { defaultVerifierOf } from './ssi/siteVerifier'
 
 export interface TenantProvisioningParams {
   agent: Agent<any>
@@ -139,7 +140,7 @@ export async function provisionTenantResources({
       const existingVerifiers =
         (await (tenantAgent as any).openid4vc?.verifier?.getAllVerifiers?.()) ??
         (tenantAgent.modules as any).openId4VcVerifier.getAllVerifiers()
-      if (!existingVerifiers || existingVerifiers.length === 0) {
+      if (!defaultVerifierOf(existingVerifiers)) {
         await (tenantAgent as any).openid4vc?.verifier?.createVerifier?.({})
       }
 

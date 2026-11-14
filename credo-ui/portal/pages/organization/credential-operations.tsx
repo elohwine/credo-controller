@@ -314,7 +314,7 @@ export default function CredentialOperationsPage() {
   ])
 
   return (
-    <Layout title="Credential operations">
+    <Layout title="Manage records">
       <Stack gap="xl" maw={1080} mx="auto" py="lg">
         <Box ta="center">
           <Title order={1} c="#0A3D5C">

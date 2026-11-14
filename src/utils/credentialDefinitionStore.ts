@@ -276,9 +276,18 @@ export const credentialDefinitionStore = new CredentialDefinitionStore()
  * Each claim is its own disclosure, so a share for one step reveals only the details the
  * request names (organisation, role, status, steps) and keeps the rest on the phone.
  * The staff card (EmployeeCredential) and the role card (OrgWorkflowActorCredential) are
- * the two cards people present at job and request steps.
+ * the cards people present at job and request steps. PlatformIdentityCredential gets the
+ * same treatment so the identity card can disclose just "18 or over" (derived from
+ * dateOfBirth) without the name, phone or date of birth leaving the phone; this issuer
+ * configuration is additive — registration still issues the plain jwt_vc_json card used
+ * for sign-in, and this sd-jwt variant is only requested when a dateOfBirth claim exists
+ * (see SSIAuthService.reissuePlatformIdentityWithDateOfBirth).
  */
-export const SELECTIVE_DISCLOSURE_VC_TYPES = ['EmployeeCredential', 'OrgWorkflowActorCredential'] as const
+export const SELECTIVE_DISCLOSURE_VC_TYPES = [
+  'EmployeeCredential',
+  'OrgWorkflowActorCredential',
+  'PlatformIdentityCredential',
+] as const
 
 export const SD_JWT_CONFIG_SUFFIX = '_vc+sd-jwt'
 export const JWT_VC_JSON_CONFIG_SUFFIX = '_jwt_vc_json'

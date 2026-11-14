@@ -41,7 +41,7 @@ Portal → **Connected systems**.
 
 3. Copy the client ID and secret. The secret is shown once; **New secret** replaces it.
 
-Record types also appear in **Credential operations**, so staff can send one by hand.
+Record types also appear in **Manage records**, so staff can send one by hand.
 
 API equivalents (organisation token, owner/admin):
 
@@ -156,13 +156,16 @@ API: `POST /api/organizations/connected-systems/record-types/{credentialType}/im
 ## How it fits
 
 - Clients are the existing `partner_clients` rows with `policy.operations`
-  (`sign_in`, `send_records`) and `policy.recipientScope`. Clients created earlier keep `sign_in`.
+  (`sign_in`, `send_records`, `discover`) and `policy.recipientScope`. Clients created earlier keep `sign_in`.
   Only sign-in clients are registered with Hydra, and send-only clients cannot use
-  `/api/partner/v1/verifications`.
+  `/api/partner/v1/verifications`. A client with `discover` can call
+  `POST /api/partner/v1/discovery/search` and gets the same public match as Discover,
+  without a phone, an email or a tenant id. Sign-in is not required for that search,
+  and a sign-in client does not receive `discover` unless it was registered with it.
 - Record types live in `org_record_types` (migration 126). Each version has its own JSON schema,
   scoped to the organisation, and is registered with the organisation's issuer.
 - A send is a row in `integration_record_requests` (unique per organisation, client and key) that
-  goes through the same direct-offer path as Credential operations: a `wallet_pending_offers` row
+  goes through the same direct-offer path as Manage records: a `wallet_pending_offers` row
   (`source_type = connected_system_record`) and a `wallet.vc.offered` outbox event. Status is
   read from that wallet offer.
 - Records are signed by the organisation's own DID, not the platform's. The offer goes through the
@@ -170,7 +173,41 @@ API: `POST /api/organizations/connected-systems/record-types/{credentialType}/im
   inside the organisation's wallet. If that wallet cannot sign (no issuer, or the type's
   `issuerDid` is not in it), the send falls back to the platform issuer and logs a warning.
   The offer metadata records which one signed it: `signedBy: 'organisation' | 'platform'`.
-  Credential operations direct sends use the same path.
+  Manage records direct sends use the same path.
 - Every type change and send is audited (`org_record_type_*`, `connected_record_sent`).
 
 Tests: `tests/connected_systems.test.ts`.
+
+## Accounts packages (2026-11-10)
+
+Zoho Books and ZIMRA fiscalisation are capabilities of this platform. They are not a post from the neighbouring fiscalisation app, and that app is not called.
+
+- **Zoho Books** is connected by an owner or admin under Connected systems → Books and tax receipts. The server holds `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` and `ZOHO_REDIRECT_URI` (the redirect is `POST` start, then Zoho returns to `GET /api/organizations/books-fiscal/zoho/callback`). The client in `src/integrations/fiscal/zoho.ts` is this platform's copy of the same Books calls: issued invoices and credit notes, contacts for the phone, drafts and voids refused.
+- **Fiscalisation** is a device on the organisation (`org_fiscal_devices`). A simulator device signs and accepts a receipt locally. A test or production device registers with ZIMRA FDMS and submits there (`src/integrations/fiscal/fdms`). Opening and closing the fiscal day, and fiscalising one imported document, happen on `POST /api/organizations/books-fiscal/...`.
+- After a receipt is accepted, Credentis offers a **Customer bill** card (`CustomerBillRecord`) when the invoice has a phone and that record type exists, with `documentNumber`, `issuedOn`, `currency`, `total`, `fiscalReceipt` and `checkLink`. A missing phone or a missing record type does not undo the fiscal receipt.
+- A file upload and `POST /api/partner/v1/records` still work for any other package. QuickBooks Online and Sage Pastel Partner are not connected yet. Pastel Partner still has no public REST API.
+
+The card is a copy the customer can hold. The fiscal receipt is a separate record. Neither one writes the lines back into the books.
+
+## Accounts packages (2026-11-05)
+
+The send path above is ready for an organisation that already keeps its books elsewhere. Credentis does not log into that package and wait for another app to post a summary. The organisation connects the package here, or uploads a file. The person accepts the card into their wallet. The books stay the system of record.
+
+What works today, with no new connector:
+
+- A file export. Portal → Connected systems → the record type → Upload a file. CSV or JSON, preview, then send. Re-uploading the same document number does not send a second card.
+- A direct call. `POST /api/partner/v1/records` with HTTP Basic, an `Idempotency-Key` equal to the document id in the books, `recipient.phone`, and `externalReference` set to the document number.
+- The customer must already have a Credentis wallet on that phone. Otherwise the call returns 422. A members-only system can only send to staff.
+- At most 20 fields, so the card carries the summary (number, date, currency, total, and the fiscal receipt number once there is one). The lines stay in the books.
+- The record type's name must not contain the words invoice, receipt, payment, tax or fiscal. Those words are reserved so an organisation-defined card is not mistaken for one the platform issued itself (`OrgRecordTypeService`). Call the type "Customer bill". The document number still goes in a field.
+
+What is not built, and should not be copied into this repository yet:
+
+| Package | How an organisation connects | First step here |
+| --- | --- | --- |
+| Zoho Books | Connected in this platform. OAuth, then list and import issued invoices and credit notes (`src/integrations/fiscal/zoho.ts`). | Live. Connected systems → Books and tax receipts. |
+| QuickBooks Online | Cloud. OAuth, webhooks for a new invoice or credit memo, or a CSV export. Intuit does not let you point a webhook at an arbitrary URL without an app, so a bridge (the same shape as the Zoho one) is required. | Second. Same summary card. Do not start it before Zoho, and do not assume a Zimbabwe company is on QuickBooks. |
+| Sage 50cloud Pastel Partner | The desktop product used in South Africa and Zimbabwe. No public REST API. Sage's own community answer is the Pastel Partner SDK, a Windows library licensed per version ([SDK download](https://root.pastel.co.za/Software-Development-Kit-SDK/Download.asp), [community thread](https://communityhub.sage.com/za/sage-50-pastel/f/general-discussion/217577/sage-50-cloud-pastel-partner-rest-api)). | A CSV export through Upload a file. A live link means a program sitting next to the company file. That is a later project. |
+| Sage Business Cloud Accounting | A different Sage product, with a REST API for sales invoices. Not the same as Pastel Partner. | Same shape as Zoho, only if a customer is actually on it. |
+
+The card is a copy the customer can hold and that "Check a record" can confirm. Fiscal submission is this platform's fiscal device, not a call to another app.

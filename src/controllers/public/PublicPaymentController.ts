@@ -16,8 +16,11 @@ import type { Request as ExRequest } from 'express'
 import { SCOPES } from '../../enums'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { getTenantById } from '../../persistence/TenantRepository'
+import { inventoryService } from '../../services/InventoryService'
 import { orgBrandService } from '../../services/OrgBrandService'
+import { billDocumentClaims } from '../../services/documentFacts'
 import { paymentLinkService } from '../../services/PaymentLinkService'
+import { reconciliationService } from '../../services/ReconciliationService'
 import { ShortlinkService } from '../../services/ShortlinkService'
 import { ExternalActions } from '../../services/workflow/actions/ExternalActions'
 import { orgSetupProvisioningService } from '../../services/OrgSetupProvisioningService'
@@ -63,8 +66,19 @@ interface PublicPaymentDetails {
   availableMethodDetails?: PublicPaymentMethod[]
   providerRef?: string
   paidAt?: string
+  createdAt?: string
+  /** The sale's own trail: receipt, match and handover. Absent when this payment has none. */
+  reconciliation?: {
+    status: string
+    receiptIssuedAt?: string
+    settledAt?: string
+    deliveredAt?: string
+    reconciledAt?: string
+  }
   branding?: MerchantBranding
   kind?: 'quote' | 'invoice'
+  /** Line items, payer, VAT and issuer details for the quote, invoice or receipt shown on the page. */
+  documentFacts?: Record<string, unknown>
 }
 
 interface RefreshedPaymentLinkResponse {
@@ -119,6 +133,19 @@ interface PaymentLinkRow {
   provider_ref?: string | null
   payer_phone?: string | null
   metadata?: string | null
+  created_at?: string | null
+}
+
+/** Lines, payer, VAT and issuer for the pay page's quote, invoice and receipt (the same facts the signed records carry). */
+function payPageDocumentFacts(row: PaymentLinkRow): Record<string, unknown> {
+  try {
+    return billDocumentClaims(linkKind(row) === 'quote' ? 'QuoteVC' : 'InvoiceVC', row, {
+      amount: row.amount,
+      currency: row.currency,
+    })
+  } catch {
+    return {}
+  }
 }
 
 /** 'quote' links can be declined; 'invoice' links bill work already done. Merchant links have no kind. */
@@ -231,7 +258,7 @@ export class PublicPaymentController extends Controller {
     const merchantName = row.merchant_name || 'Organization'
     const invoiceRef = row.invoice_ref || `INV-${String(row.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`
     const quoteRef = `QTE-${String(row.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`
-    const quoteClaims = {
+    const quoteClaims = billDocumentClaims('QuoteVC', row, {
       quoteId: quoteRef,
       cartId: row.id,
       merchantName,
@@ -241,18 +268,20 @@ export class PublicPaymentController extends Controller {
       buyerPhone: payerPhone,
       validUntil: row.expiry || new Date(Date.now() + 7 * 86400000).toISOString(),
       timestamp: new Date().toISOString(),
-    }
+    })
 
-    const invoiceClaims = {
+    const invoiceClaims = billDocumentClaims('InvoiceVC', row, {
       invoiceId: invoiceRef,
       cartRef: row.id,
+      merchantName,
       amount: row.amount,
       currency: row.currency,
       description: row.description,
+      payerPhone,
       paymentUrl: row.shortlink_url,
       dueDate: row.expiry || new Date(Date.now() + 7 * 86400000).toISOString(),
       timestamp: new Date().toISOString(),
-    }
+    })
 
     const [quoteResponse, invoiceResponse] = await Promise.all([
       linkKind(row) === 'invoice'
@@ -492,6 +521,11 @@ export class PublicPaymentController extends Controller {
         this.setStatus(404)
         throw new Error('Catalog item not found for this storefront')
       }
+      const short = inventoryService.shortOfStock(item.id, quantity)
+      if (short) {
+        this.setStatus(409)
+        throw new Error(short)
+      }
 
       amount = Number(item.price || 0) * quantity
       currency = String(item.currency || 'USD').toUpperCase()
@@ -618,7 +652,7 @@ export class PublicPaymentController extends Controller {
       .prepare(
         `SELECT provider_ref, payer_phone, updated_at
              FROM ack_payments
-             WHERE state = 'paid'
+             WHERE state IN ('paid', 'delivered')
                AND idempotency_key LIKE ?
              ORDER BY updated_at DESC
              LIMIT 1`,
@@ -647,15 +681,18 @@ export class PublicPaymentController extends Controller {
           description: row.description,
           amount: row.amount,
           currency: row.currency,
-          merchantName: row.merchant_name || undefined,
+          merchantName: row.merchant_name || this.registeredName(row.merchant_id),
           status: 'paid',
           invoiceRef: row.invoice_ref || undefined,
           sector: row.sector || 'general',
           availableMethods: [],
           providerRef: row.provider_ref || undefined,
           paidAt: row.paid_at || undefined,
+          createdAt: row.created_at || undefined,
           branding: this.merchantBranding(row.merchant_id),
           kind: linkKind(row),
+          documentFacts: payPageDocumentFacts(row),
+          reconciliation: reconciliationService.checkoutTrail(row.provider_ref),
         },
       }
     }
@@ -689,7 +726,7 @@ export class PublicPaymentController extends Controller {
         description: row.description,
         amount: row.amount,
         currency: row.currency,
-        merchantName: row.merchant_name || undefined,
+        merchantName: row.merchant_name || this.registeredName(row.merchant_id),
         status: row.status,
         invoiceRef: row.invoice_ref || undefined,
         sector: row.sector || 'general',
@@ -699,8 +736,18 @@ export class PublicPaymentController extends Controller {
         paidAt: row.paid_at || undefined,
         branding,
         kind: linkKind(row),
+        documentFacts: payPageDocumentFacts(row),
       },
     }
+  }
+
+  /** Links made from Money in carry no merchant name; the payer still sees who is asking. */
+  private registeredName(merchantId?: string | null): string | undefined {
+    if (!merchantId) return undefined
+    const row = DatabaseManager.getDatabase()
+      .prepare(`SELECT display_name FROM organization_registry WHERE tenant_id = ? LIMIT 1`)
+      .get(merchantId) as { display_name?: string } | undefined
+    return row?.display_name || undefined
   }
 
   /** The organisation's saved brand, falling back to the older per-template branding policy. */

@@ -6,6 +6,7 @@ import api from '@/lib/api';
 import { applyPersonalWalletContext } from '@/lib/auth';
 import { rememberPhoneWallet } from '@/lib/deviceTrust';
 import { roleLabel } from '../../../shared/orgPeople';
+import { PhoneField } from '../../../shared/PhoneField';
 
 interface InviteSummary {
   orgName: string;
@@ -27,7 +28,7 @@ export default function JoinPage() {
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
-  const [whatsappAlerts, setWhatsappAlerts] = useState(true);
+  const [whatsappAlerts, setWhatsappAlerts] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const submitting = useRef(false);
@@ -102,13 +103,12 @@ export default function JoinPage() {
               </Text>
             </Stack>
             <TextInput label="Your name" description="This is how your team sees you." value={name} onChange={(e) => setName(e.target.value)} required />
-            <TextInput
+            <PhoneField
+              surface="phone"
               label="Your phone number"
               description={invite.phoneHint ? `The number this invite was sent to (ends ${invite.phoneHint.replace(/\D/g, '')})` : 'The number this invite was sent to'}
-              placeholder="+263..."
-              inputMode="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={setPhone}
               required
             />
             <PasswordInput label="Choose a PIN" inputMode="numeric" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value)} error={pinError} required />

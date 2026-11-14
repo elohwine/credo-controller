@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { LottiePlayer } from '@/components/feedback/LottiePlayer'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
@@ -13,7 +13,10 @@ import {
   PAYMENT_CHOICES,
   SETUP_BOOTSTRAP_PATH,
   SETUP_PROFILE_PATH,
+  SETUP_QUESTION_HELP,
   bootstrapRequest,
+  mainPeopleLine,
+  staffCardLimitFor,
   cleanDepartmentNames,
   suggestedDepartmentsFor,
   suggestedOrgModules,
@@ -23,6 +26,10 @@ import {
   startingModules,
   openedWorkAreas,
   persistOrgProfile,
+  clearOrgSetupDraft,
+  readOrgSetupDraft,
+  saveOrgSetupDraft,
+  type OrgSetupDraft,
   profileFromServer,
   profileToServer,
   readOrgProfile,
@@ -36,6 +43,7 @@ import {
 import { reveal } from '../../../shared/reveal'
 import {
   Alert,
+  Accordion,
   Box,
   Button,
   Card,
@@ -44,7 +52,9 @@ import {
   Group,
   Progress,
   Radio,
+  NumberInput,
   Stack,
+  Switch,
   Text,
   TextInput,
   ThemeIcon,
@@ -95,7 +105,7 @@ const QUESTION_COUNT = 5
 const STEP_QUESTION: Record<SingleStep, QuestionNumber> = { kinds: 1, people: 2, teams: 3, money: 4, payments: 5 }
 const STEP_LABEL: Record<SingleStep, string> = {
   kinds: 'What you do',
-  people: 'Staff leave and payroll',
+  people: 'Work areas',
   teams: 'Teams',
   money: 'Who handles money',
   payments: 'Payments',
@@ -132,11 +142,53 @@ export default function OnboardingPage() {
   const [pickedTeams, setPickedTeams] = useState<string[] | null>(null)
   const [newTeam, setNewTeam] = useState('')
   const [review, setReview] = useState<OrgSetupPlan | null>(null)
+  /** Staff card limit picked on the review screen. undefined: not touched yet (keep current or suggest). */
+  const [cardLimit, setCardLimit] = useState<number | null | undefined>(undefined)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
 
   const [brandConfigured, setBrandConfigured] = useState<boolean | undefined>(undefined)
+  /** Set when unconfirmed answers from an earlier visit were restored. */
+  const [resumedDraft, setResumedDraft] = useState<OrgSetupDraft | null>(null)
+  /** True once the owner has answered or moved through the full guide; answers then autosave on this device. */
+  const [drafting, setDrafting] = useState(false)
+  /** A restored draft wins over answers that load later from the server. */
+  const draftRestored = useRef(false)
+  const discarding = useRef(false)
+
+  const restoreDraft = (draft: OrgSetupDraft) => {
+    draftRestored.current = true
+    if (draft.kinds.length > 0) setKinds(draft.kinds)
+    setModules(draft.modules)
+    if (draft.operatingModel) setOperatingModel(draft.operatingModel)
+    if (draft.presetId) setPresetId(draft.presetId)
+    setPaymentChoice(draft.paymentChoice)
+    setPickedTeams(draft.teams)
+    setQuestion(draft.question)
+    setResumedDraft(draft)
+    setDrafting(true)
+    setStep('questions')
+  }
+
+  /** Throw away the restored answers and begin again from the owner's saved (or suggested) answers. */
+  const startAgain = () => {
+    discarding.current = true
+    if (orgTenantId) clearOrgSetupDraft(orgTenantId)
+    window.location.assign('/organization/onboarding')
+  }
+
+  useEffect(() => {
+    if (!orgTenantId || single) return
+    const draft = readOrgSetupDraft(orgTenantId)
+    if (draft) restoreDraft(draft)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgTenantId, single])
+
+  useEffect(() => {
+    if (!drafting || discarding.current || single || !orgTenantId || step !== 'questions') return
+    saveOrgSetupDraft(orgTenantId, { question, kinds, modules, operatingModel, presetId, paymentChoice, teams: pickedTeams })
+  }, [drafting, single, orgTenantId, step, question, kinds, modules, operatingModel, presetId, paymentChoice, pickedTeams])
 
   useEffect(() => {
     if (!orgTenantId) return
@@ -161,7 +213,7 @@ export default function OnboardingPage() {
       setOrgTenantId(activeOrg.orgTenantId)
     }
     const saved = readOrgProfile()
-    if (saved) {
+    if (saved && !draftRestored.current) {
       if (saved.kinds.length > 0) setKinds(saved.kinds)
       setModules(startingModules(saved, saved.kinds, saved.operatingModel))
       setOperatingModel(saved.operatingModel || 'internal')
@@ -188,6 +240,7 @@ export default function OnboardingPage() {
         if (!server) return
         setSavedProfile(server)
         persistOrgProfile(server)
+        if (draftRestored.current) return
         if (server.kinds.length > 0) setKinds(server.kinds)
         setModules(startingModules(server, server.kinds, server.operatingModel))
         setOperatingModel(server.operatingModel || 'internal')
@@ -229,9 +282,9 @@ export default function OnboardingPage() {
         )
         if (alreadySet) {
           setHasMoneySetup(true)
-          setPresetId((current) => (readOrgProfile()?.approvalPresetId ? current : KEEP_CURRENT))
+          if (!draftRestored.current) setPresetId((current) => (readOrgProfile()?.approvalPresetId ? current : KEEP_CURRENT))
         }
-        if (!readOrgProfile()?.kinds?.length) {
+        if (!draftRestored.current && !readOrgProfile()?.kinds?.length) {
           const derived = kindsFromRequestTypes(workflows.map((workflow) => workflow.workflowType))
           if (derived.length > 0) setKinds(derived)
         }
@@ -300,7 +353,12 @@ export default function OnboardingPage() {
     if (!orgTenantId) throw new Error('No organisation context. Please return to setup and try again.')
     const auth = authHeaders()
     if (!auth) throw new Error('Organisation session missing. Switch to the organisation and try again.')
-    const body = bootstrapRequest(currentProfile(), { departments: selectedTeams, moneyPresetId: presetId, dryRun })
+    const body = bootstrapRequest(currentProfile(), {
+      departments: selectedTeams,
+      moneyPresetId: presetId,
+      dryRun,
+      ...(dryRun ? {} : { cardRequiredAbove: staffCardLimitFor(review, cardLimit) }),
+    })
     return (await axios.post(orgUrl(SETUP_BOOTSTRAP_PATH), body, auth)).data as OrgSetupPlan & { profile?: unknown }
   }
 
@@ -330,6 +388,8 @@ export default function OnboardingPage() {
       }
       setExistingTeams(result.departments.map((item) => item.name))
       setPickedTeams(null)
+      setDrafting(false)
+      clearOrgSetupDraft(orgTenantId)
       setStep('done')
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Could not save your answers')
@@ -414,7 +474,7 @@ export default function OnboardingPage() {
                 {orgName ? `${orgName} is ready` : 'Your organisation is ready'}
               </Title>
               <Text c="dimmed" size="sm">
-                A few short questions, then you can start.
+                Tell us what you do. We will suggest the rest, and you choose what to keep.
               </Text>
             </Box>
 
@@ -434,7 +494,7 @@ export default function OnboardingPage() {
             </Card>
 
             <Text size="sm" c="dimmed" ta="center" maw={440}>
-              {QUESTION_COUNT} questions, about a minute. You see everything before it is saved.
+              {QUESTION_COUNT} short questions, then a review. Team invites, branding and advanced settings can wait.
             </Text>
 
             <Group gap="md">
@@ -587,6 +647,19 @@ export default function OnboardingPage() {
               </Text>
             </Card>
 
+            {(review.mainPeople?.length ?? 0) > 0 && (
+              <Card withBorder radius="md" p="md">
+                <Text fw={600} size="sm" mb={6}>
+                  Who does what
+                </Text>
+                <Text size="sm">{mainPeopleLine(review)}</Text>
+                <Text size="xs" c="dimmed" mt={4}>
+                  Every step of that kind, in every request and workflow, goes here. Until someone holds the role, you
+                  stand in. Change it under Organisation → Who does what.
+                </Text>
+              </Card>
+            )}
+
             <Card withBorder radius="md" p="md">
               <Text fw={600} size="sm" mb={6}>
                 Money
@@ -604,6 +677,32 @@ export default function OnboardingPage() {
                 Payments: {review.payment.name || 'Not yet'}
               </Text>
             </Card>
+
+            {review.staffCard && (() => {
+              const limit = staffCardLimitFor(review, cardLimit)
+              return (
+                <Card withBorder radius="md" p="md">
+                  <Switch
+                    checked={limit !== null && limit !== undefined}
+                    onChange={(event) =>
+                      setCardLimit(event.currentTarget.checked ? review.staffCard!.suggested : null)
+                    }
+                    label="Ask for the staff card on large amounts"
+                    description="Approving a purchase, payment, expense claim or salary advance above this amount needs the approver's staff card from their wallet. Everyone who approves is sent their card now."
+                  />
+                  {limit !== null && limit !== undefined && (
+                    <NumberInput
+                      mt="sm"
+                      label="Above this amount"
+                      min={0}
+                      value={limit}
+                      onChange={(value) => setCardLimit(typeof value === 'number' ? value : Number(value) || 0)}
+                      maw={220}
+                    />
+                  )}
+                </Card>
+              )
+            })()}
 
             <Alert color="teal" variant="light" radius="md" title="Nothing has to be set up first">
               {review.askedOnFirstUse.length > 0 && <Text size="sm">{review.askedOnFirstUse.join(' ')}</Text>}
@@ -643,7 +742,13 @@ export default function OnboardingPage() {
   return (
     <Layout title="About your organization">
       <Container size="sm" py={60}>
-        <Stack key={`question-${question}`} className={reveal.stagger} gap="xl">
+        <Stack
+          key={`question-${question}`}
+          className={reveal.stagger}
+          gap="xl"
+          onChangeCapture={() => setDrafting(true)}
+          onClickCapture={() => setDrafting(true)}
+        >
           <Box>
             <Progress value={(question / QUESTION_COUNT) * 100} size="sm" radius="xl" mb={8} aria-label="Progress" />
             <Text size="sm" c="dimmed" mb={6}>
@@ -651,11 +756,18 @@ export default function OnboardingPage() {
             </Text>
             <Title order={2}>{questionTitle}</Title>
             {question === 1 && (
-              <Text c="dimmed" size="sm" mt={4}>
-                Pick everything that applies.
-              </Text>
+              <Text c="dimmed" size="sm" mt={4}>{SETUP_QUESTION_HELP[1]}</Text>
             )}
           </Box>
+
+          {resumedDraft && !single && question === resumedDraft.question && (
+            <Alert color="blue" radius="md" title="Picked up where you left off">
+              <Text size="sm">Your earlier answers were kept on this device.</Text>
+              <Button variant="subtle" size="compact-sm" px={0} mt={4} onClick={startAgain}>
+                Start again
+              </Button>
+            </Alert>
+          )}
 
           {error && (
             <Alert icon={<IconAlertCircle size={16} />} color="red" radius="md">
@@ -665,7 +777,16 @@ export default function OnboardingPage() {
 
           {question === 1 && (
             <Stack>
-            <Radio.Group label="How will you use the platform?" value={operatingModel} onChange={(value) => {
+            <Accordion variant="separated" radius="md">
+              <Accordion.Item value="systems">
+                <Accordion.Control>
+                  <Text size="sm" fw={500}>Using existing business software?</Text>
+                  <Text size="xs" c="dimmed">
+                    {operatingModel === 'internal' ? 'Work is handled here. Only change this if you need to connect another system.' : operatingModel === 'integration' ? 'Selected: connect an existing business system.' : 'Selected: handle work here and connect another system.'}
+                  </Text>
+                </Accordion.Control>
+                <Accordion.Panel>
+            <Radio.Group label="Where will you handle your work?" value={operatingModel} onChange={(value) => {
               const model = value as OrgOperatingModel
               setOperatingModel(model)
               if (model === 'integration') setModules([])
@@ -676,7 +797,10 @@ export default function OnboardingPage() {
                 <Radio value="hybrid" label="Both" />
               </Stack>
             </Radio.Group>
-            <Text size="sm">{OPERATING_MODEL_NOTE}</Text>
+            <Text size="xs" c="dimmed" mt="sm">{OPERATING_MODEL_NOTE}</Text>
+                </Accordion.Panel>
+              </Accordion.Item>
+            </Accordion>
             {operatingModel !== 'integration' && <Chip.Group multiple value={kinds} onChange={(value) => {
               const answers = value as OrgKind[]
               setKinds(answers)
@@ -685,7 +809,13 @@ export default function OnboardingPage() {
               <Stack gap="sm">
                 {ORG_KIND_OPTIONS.map((option) => (
                   <Box key={option.id}>
-                    <Chip value={option.id} size="md" radius="md" variant="outline">
+                    <Chip
+                      value={option.id}
+                      size="md"
+                      radius="md"
+                      variant="outline"
+                      styles={{ root: { maxWidth: '100%' }, label: { maxWidth: '100%', whiteSpace: 'normal', height: 'auto', minHeight: 44 } }}
+                    >
                       {option.label}
                     </Chip>
                     <Text size="xs" c="dimmed" mt={4} ml={4}>{option.detail}</Text>
@@ -697,6 +827,8 @@ export default function OnboardingPage() {
           )}
 
           {question === 2 && (
+            <Stack gap="sm">
+            <Text size="sm" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas are needed for a connected system.' : SETUP_QUESTION_HELP[2]}</Text>
             <Chip.Group multiple value={modules} onChange={(value) => setModules(value as OrgModule[])}>
               <Stack gap="sm">
                 {ORG_MODULE_OPTIONS.filter((option) => suggestedOrgModules(kinds, operatingModel).includes(option.id) || (operatingModel !== 'integration' && option.id === 'people_payroll')).map((option) => (
@@ -711,12 +843,13 @@ export default function OnboardingPage() {
                 <Text size="xs" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas are needed. Your organisation keeps its SSI identity. After setup, connect your own software under Connected systems to sign people in or send your records to their wallets.' : 'Suggested from your activity answers. Untick anything handled elsewhere; staff tools are optional.'}</Text>
               </Stack>
             </Chip.Group>
+            </Stack>
           )}
 
           {question === 3 && (
             <Stack gap="sm">
               <Text size="sm" c="dimmed">
-                Teams sort requests and people. Nothing waits on them: anything without a team goes to General.
+                {SETUP_QUESTION_HELP[3]} Anything without a team goes to General.
               </Text>
               <Chip.Group multiple value={selectedTeams} onChange={(value) => setPickedTeams(value as string[])}>
                 <Group gap="xs">
@@ -754,6 +887,12 @@ export default function OnboardingPage() {
           )}
 
           {question === 4 && (
+            <Text size="sm" c="dimmed">
+              {SETUP_QUESTION_HELP[4]}
+            </Text>
+          )}
+
+          {question === 4 && (
             <Radio.Group value={presetId} onChange={setPresetId}>
               <Stack gap="xs">
                 {hasMoneySetup && (
@@ -780,7 +919,7 @@ export default function OnboardingPage() {
                         <Stack gap={2} style={{ flex: 1 }}>
                           <Text size="sm" fw={600}>{choice?.title || preset.title}</Text>
                           <Text size="xs" c="dimmed">{choice?.detail || preset.detail}</Text>
-                          {choice && (
+                          {choice && selected && (
                             <>
                               <Text size="xs">Confirms: {choice.confirms}</Text>
                               <Text size="xs">Releases the money: {choice.releases}</Text>
@@ -799,6 +938,8 @@ export default function OnboardingPage() {
           )}
 
           {question === 5 && (
+            <Stack gap="sm">
+            <Text size="sm" c="dimmed">{SETUP_QUESTION_HELP[5]}</Text>
             <Radio.Group value={paymentChoice} onChange={(value) => setPaymentChoice(value as PaymentChoice)}>
               <Stack gap="xs">
                 {PAYMENT_CHOICES.map((choice) => (
@@ -817,6 +958,7 @@ export default function OnboardingPage() {
                 ))}
               </Stack>
             </Radio.Group>
+            </Stack>
           )}
 
           {single ? (
@@ -865,6 +1007,11 @@ export default function OnboardingPage() {
               I'll answer later
             </Button>
           )}
+          <Text size="xs" c="dimmed">
+            {single
+              ? 'Nothing changes until you save. Leaving now discards this change.'
+              : 'Nothing changes for your organisation until you confirm the review. Your answers are kept on this device, so you can leave and resume from Setup.'}
+          </Text>
         </Stack>
       </Container>
     </Layout>

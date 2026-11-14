@@ -7,6 +7,7 @@ import { formatCredentialType } from '@/lib/format';
 import { OfferReplacementNote, fieldJobStatusLabel, stepRequiredLabel, toFeptStageLabel } from '@/lib/uxCopy';
 import { inboxAttention, inboxWhenLabel, type InboxAttention } from '@/lib/inboxAttention';
 import { UnreadCount } from '../../../shared/UnreadCount';
+import type { AcceptPriceNeed } from '../../../shared/acceptPrice';
 
 dayjs.extend(relativeTime);
 
@@ -56,6 +57,8 @@ export interface InboxItemData {
     fromJob?: boolean;
     issuedAt?: string;
     sentAt?: string;
+    /** Lines, VAT and issuer details from the bill, drawn on the document. */
+    facts?: Record<string, unknown>;
   };
   amount?: number;
   currency?: string;
@@ -72,6 +75,8 @@ export interface InboxItemData {
   /** For delegated approval notifications in personal inbox. */
   workflowRequestId?: string;
   workflowRequestType?: string;
+  /** A bill or quote someone asked for: the price is set when it is accepted. */
+  acceptPrice?: AcceptPriceNeed;
   requisitionId?: string;
   transactionId?: string;
   /** For organization requests (purchases, quotes) the person approves or declines from the phone. */
@@ -96,9 +101,10 @@ export interface InboxItemData {
     canAct: boolean;
     canApprove: boolean;
     canReject: boolean;
-    blockedReason?: 'own_request' | 'own_request_no_other_approver' | 'not_stage_actor' | 'no_authority';
+    blockedReason?: 'own_request' | 'own_request_no_other_approver' | 'not_stage_actor' | 'no_authority' | 'approved_earlier_step';
     isRequester?: boolean;
     staffCard?: boolean;
+    cardRequired?: boolean;
   };
   requiredAction?: string;
   /** The step key stored on the card (sign-off, payment release, approval…); shown as "Your step". */

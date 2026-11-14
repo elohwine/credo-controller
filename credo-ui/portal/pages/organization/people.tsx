@@ -1,4 +1,5 @@
 import { feedback } from '@/lib/feedback';
+import { PhoneField } from '../../../shared/PhoneField';
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 import Layout from '@/components/Layout'
@@ -28,7 +29,7 @@ import { notifications } from '@mantine/notifications'
 
 import { useRequireOrgContext } from '@/lib/portalContext'
 import { personLabel, roleLabel } from '@/lib/orgPeople'
-import { TEAM_ROLE_FALLBACK, teamRolesFromCatalog } from '@/utils/orgProfile'
+import { TEAM_ROLE_FALLBACK, defaultInviteRole, teamRolesFromCatalog } from '@/utils/orgProfile'
 import {
   CARD_STATE_COLOR,
   CARD_STATE_LABEL,
@@ -121,7 +122,7 @@ export default function OrganizationPeoplePage() {
 
   useEffect(() => {
     if (!roleChoices.some((choice) => choice.value === inviteRole)) {
-      setInviteRole(roleChoices[0]?.value || 'member')
+      setInviteRole(defaultInviteRole(roleChoices))
     }
   }, [roleChoices, inviteRole])
 
@@ -525,12 +526,12 @@ export default function OrganizationPeoplePage() {
 
       <Modal opened={inviteOpen} onClose={() => setInviteOpen(false)} title="Invite a member" centered>
         <Stack gap="md">
-          <TextInput
+          <PhoneField
+            surface="portal"
             label="Phone number"
             description="We send them a one-time link. They confirm their name and choose their own PIN. Nobody else knows it."
-            placeholder="0774 123 456"
             value={invitePhone}
-            onChange={(e) => setInvitePhone(e.currentTarget.value)}
+            onChange={setInvitePhone}
             required
           />
           <TextInput

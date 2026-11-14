@@ -1,11 +1,11 @@
 import { feedback } from '@/lib/feedback';
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { LottiePlayer } from '@/components/feedback/LottiePlayer';
 import { GuidedSteps } from '@/components/feedback/GuidedSteps';
 import {
   Stack, Title, Text, Box, Divider, Button, Group, Checkbox, TextInput, Alert, Loader, Center,
   Paper, Badge, Collapse, Stepper, SimpleGrid, ThemeIcon, Card, ColorInput, ScrollArea, Select, MultiSelect,
-  SegmentedControl, Modal, Radio, Chip, Progress, UnstyledButton,
+  SegmentedControl, Modal, Radio, Chip, Progress, UnstyledButton, Switch, NumberInput, Accordion,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -18,14 +18,21 @@ import {
 import { useRouter } from 'next/router';
 import { StepHelp } from '@/components/help/StepHelp';
 import AppShellMobile from '@/components/layout/AppShellMobile';
-import { SectionTip } from '@/components/guides/SectionGuides';
+import { PhoneField } from '../../../shared/PhoneField';
 import { reveal } from '../../../shared/reveal';
+import { OrgSetupOverview } from '../../../shared/OrgSetupOverview';
+import { ORG_SETTINGS_GROUPS, orgSettingSummary, orgSettingsStatus, visibleOrgSettings, type OrgSettingsGroup, type OrgSettingsSection } from '../../../shared/orgSettings';
+import { SettingsList } from '../../../shared/Guides';
+import { SETUP_QUESTION_HELP, clearOrgSetupDraft, readOrgSetupDraft, saveOrgSetupDraft, type OrgSetupDraft } from '../../../shared/orgProfile';
+import { ACTOR_MAIN_ROLE_HINT, actorMainRoleLabel } from '../../../shared/actorMainPeople';
 import BottomSheet from '@/components/shared/BottomSheet';
 import FormCard from '@/components/shared/FormCard';
 import ErrorAlert from '@/components/shared/ErrorAlert';
 import HandoffSettingsCard from '@/components/shared/HandoffSettingsCard';
+import RequestFlowSettingsCard from '@/components/shared/RequestFlowSettingsCard';
 import RecordSettingsCard from '@/components/shared/RecordSettingsCard';
 import DeviceTrustSettingsCard from '@/components/shared/DeviceTrustSettingsCard';
+import StaffCardStepsCard from '@/components/shared/StaffCardStepsCard';
 import WhatsAppAlertsCard from '@/components/shared/WhatsAppAlertsCard';
 import PublicOfferingsCard from '@/components/org/PublicOfferingsCard';
 import OrgPermissionsSettings from '@/components/shared/OrgPermissionsSettings';
@@ -38,8 +45,8 @@ import {
   cardCanResend, cardPurpose, cardResendHint, memberAccessBadge, myOnboardingSteps, readyCount, sendCardsPath, staffCardChangeRule,
   type MemberCardKind, type MemberOnboarding, type StaffCardChangeRule,
 } from '@/lib/orgOnboarding';
-import { MONEY_CHOICES, OPERATING_MODEL_NOTE, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, TEAM_ROLE_FALLBACK, kindsFromRequestTypes, markOrgSetupLater, modulePlanNote, orgSetupLater, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, openedWorkAreas, setupChecklist, startingModules, teamRolesFromCatalog, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
-import { SETUP_BOOTSTRAP_PATH, bootstrapRequest, cleanDepartmentNames, suggestedDepartmentsFor, suggestedOrgModules, type OrgOperatingModel, type OrgSetupPlan } from '@/lib/orgProfile';
+import { MONEY_CHOICES, OPERATING_MODEL_NOTE, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, TEAM_ROLE_FALLBACK, kindsFromRequestTypes, markOrgSetupLater, modulePlanNote, orgSetupLater, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, openedWorkAreas, setupChecklist, startingModules, teamRolesFromCatalog, defaultInviteRole, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
+import { SETUP_BOOTSTRAP_PATH, bootstrapRequest, cleanDepartmentNames, mainPeopleLine, staffCardLimitFor, suggestedDepartmentsFor, suggestedOrgModules, type OrgOperatingModel, type OrgSetupPlan } from '@/lib/orgProfile';
 
 // ── Org list types ──
 
@@ -163,20 +170,44 @@ interface StageApprovalAccess {
   delegationId?: string;
 }
 
+/** Stages that confirm or release money. Mirrors the website onboarding "already chosen" check. */
+const MONEY_STAGE_ACTIONS = new Set([
+  'approve_requisition',
+  'finance_approve_requisition',
+  'release_funds',
+  'trigger_payout',
+  'record_payment',
+  'issue_receipt_vc',
+  'present_payment_proof',
+  'acknowledge_remittance',
+]);
+
 interface WorkflowActorsView {
   orgTenantId: string;
   workflows: Array<{ templateId?: string; workflowType: string; name?: string; stages: WorkflowActorStageView[] }>;
   members: OrgMemberActor[];
   roles: string[];
+  mainPeople?: MainPersonView[];
   policy: {
     useBuiltInRoleFallbacks: boolean;
     ownerFallbackEnabled: boolean;
     defaultChain: ActorFallbackEntry[];
     stageChains: Record<string, ActorFallbackEntry[]>;
     signGroups?: Record<string, 'one' | 'both'>;
+    mainPeople?: Partial<Record<'approver' | 'finance' | 'hr' | 'operations', ActorFallbackEntry | null>>;
   };
   presets?: Array<{ id: string; title: string; detail: string; signMode: 'one' | 'both' }>;
   canEdit: boolean;
+}
+
+interface MainPersonView {
+  role: 'approver' | 'finance' | 'hr' | 'operations';
+  label: string;
+  description: string;
+  required: boolean;
+  entry?: ActorFallbackEntry;
+  actor: { userId?: string; walletTenantId?: string; role: string; mode: string };
+  needsAssignment: boolean;
 }
 
 const ACTOR_USER_PREFIX = 'user:';
@@ -186,6 +217,21 @@ function actorSelectValue(def?: WorkflowActorDefault): string | null {
   if (!def || !def.enabled) return null;
   if (def.defaultUserId) return `${ACTOR_USER_PREFIX}${def.defaultUserId}`;
   if (def.defaultRole) return `${ACTOR_ROLE_PREFIX}${def.defaultRole}`;
+  return null;
+}
+
+function actorEntryValue(entry?: ActorFallbackEntry): string | null {
+  if (!entry) return null;
+  if (entry.type === 'user') return `${ACTOR_USER_PREFIX}${entry.value}`;
+  if (entry.type === 'role') return `${ACTOR_ROLE_PREFIX}${entry.value}`;
+  return null;
+}
+
+function actorEntryFromValue(value?: string | null): ActorFallbackEntry | null {
+  const next = String(value || '');
+  if (!next) return null;
+  if (next.startsWith(ACTOR_USER_PREFIX)) return { type: 'user', value: next.slice(ACTOR_USER_PREFIX.length) };
+  if (next.startsWith(ACTOR_ROLE_PREFIX)) return { type: 'role', value: next.slice(ACTOR_ROLE_PREFIX.length) };
   return null;
 }
 
@@ -273,7 +319,7 @@ interface OrganizationReadiness {
 type ReadinessFixTarget = 'members' | 'actors' | 'payments' | 'partners' | 'profile' | 'store' | 'departments' | 'roles' | 'authorities';
 
 /** One settings area per screen. `null` is the organisation home. */
-type OrgSection = 'brand' | 'team' | 'actors' | 'payments' | 'departments' | 'handoffs' | 'records' | 'store' | 'roles' | 'authorities' | 'alerts';
+type OrgSection = OrgSettingsSection;
 
 const SECTION_FOR_FIX: Record<ReadinessFixTarget, OrgSection> = {
   members: 'team',
@@ -288,25 +334,15 @@ const SECTION_FOR_FIX: Record<ReadinessFixTarget, OrgSection> = {
 };
 
 function sectionLabels(): Array<{ id: OrgSection; label: string }> {
-  return [
-    { id: 'team', label: 'Team' },
-    { id: 'roles', label: 'Roles' },
-    { id: 'authorities', label: 'Approval authorities' },
-    { id: 'actors', label: 'Who does what' },
-    { id: 'payments', label: 'Payments' },
-    { id: 'departments', label: 'Departments' },
-    { id: 'handoffs', label: 'What happens next' },
-    { id: 'records', label: 'Record settings' },
-    { id: 'alerts', label: 'WhatsApp alerts' },
-    { id: 'brand', label: 'Brand and documents' },
-    { id: 'store', label: 'Public profile' },
-  ];
+  return ORG_SETTINGS_GROUPS.flatMap((group) => group.items.flatMap((item) =>
+    item.mobileSection ? [{ id: item.mobileSection, label: item.label }] : [],
+  ));
 }
 
 type OrgQuestion = 1 | 2 | 3 | 4 | 5;
 const ORG_QUESTION_COUNT = 5;
 const QUESTION_FOR_STEP: Partial<Record<SetupStepId, OrgQuestion>> = { kinds: 1, people: 2, money: 4, payments: 5 };
-const STEP_SAVED_LABEL: Record<OrgQuestion, string> = { 1: 'What you do', 2: 'Staff leave and payroll', 3: 'Teams', 4: 'Who handles money', 5: 'Payments' };
+const STEP_SAVED_LABEL: Record<OrgQuestion, string> = { 1: 'What you do', 2: 'Work areas', 3: 'Teams', 4: 'Who handles money', 5: 'Payments' };
 /** Which card on this page fixes a checklist item. */
 function readinessFixTarget(item: ReadinessItem): ReadinessFixTarget | null {
   const key = String(item.key || '').toLowerCase();
@@ -435,7 +471,7 @@ export default function OrgSettingsPage() {
       const fromSetup = teamRolesFromCatalog(safeArray(res.data));
       const next = fromSetup.length > 0 ? fromSetup : TEAM_ROLE_FALLBACK;
       setTeamRoleChoices(next);
-      setInviteRole((current) => (next.some((choice) => choice.value === current) ? current : next[0]?.value || 'member'));
+      setInviteRole((current) => (current !== 'auditor' && next.some((choice) => choice.value === current) ? current : defaultInviteRole(next)));
     } catch {
       setTeamRoleChoices(TEAM_ROLE_FALLBACK);
     }
@@ -530,6 +566,10 @@ export default function OrgSettingsPage() {
   };
 
   const [actorsView, setActorsView] = useState<WorkflowActorsView | null>(null);
+  /** True when the organisation already chose people for its money steps. Mirrors the website onboarding check. */
+  const hasMoneySetup = (actorsView?.workflows || []).some((workflow) =>
+    (workflow.stages || []).some((stage) => stage.default && MONEY_STAGE_ACTIONS.has(stage.stageAction)),
+  );
   const [savingActorPolicy, setSavingActorPolicy] = useState(false);
   const [offeringCredentials, setOfferingCredentials] = useState(false);
   const [chainPicker, setChainPicker] = useState<string | null>(null);
@@ -548,6 +588,8 @@ export default function OrgSettingsPage() {
   const [newTeam, setNewTeam] = useState('');
   /** Preview of everything the answers will set up, shown before saving. */
   const [orgReview, setOrgReview] = useState<OrgSetupPlan | null>(null);
+  /** Staff card limit picked on the review screen. undefined: not touched yet (keep current or suggest). */
+  const [orgCardLimit, setOrgCardLimit] = useState<number | null | undefined>(undefined);
   useEffect(() => {
     if (orgQuestion !== ORG_QUESTION_COUNT) setOrgReview(null);
   }, [orgQuestion]);
@@ -559,6 +601,12 @@ export default function OrgSettingsPage() {
     const wanted = typeof router.query.section === 'string' ? router.query.section : '';
     if (wanted && sectionLabels().some((item) => item.id === wanted)) setSection(wanted as OrgSection);
   }, [router.query.section]);
+  useEffect(() => {
+    if (router.query.create !== '1') return;
+    setShowCreate(true);
+    const { create: _create, ...rest } = router.query;
+    void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+  }, [router.query.create]);
   /** True when one question was opened from the checklist, not the first-run flow. */
   const [orgSingle, setOrgSingle] = useState(false);
   /** Checklist questions still to do after this one. */
@@ -566,6 +614,15 @@ export default function OrgSettingsPage() {
   /** Small "done" screen after saving: which question, or 'all' after the first run. */
   const [orgDone, setOrgDone] = useState<null | OrgQuestion | 'all'>(null);
   const [brandConfigured, setBrandConfigured] = useState<boolean | undefined>(undefined);
+  /** True once the owner has answered or moved through the full guide; answers then autosave on this device. */
+  const [drafting, setDrafting] = useState(false);
+  /** Set when unconfirmed answers from an earlier visit were restored. */
+  const [resumedDraft, setResumedDraft] = useState<OrgSetupDraft | null>(null);
+  /** Question the saved, unconfirmed answers reached; drives "Resume setup" on the overview. */
+  const [draftQuestion, setDraftQuestion] = useState<number | null>(null);
+  /** A restored draft wins over answers that load later from the server. */
+  const draftRestored = useRef(false);
+  const discardingDraft = useRef(false);
   const [activating, setActivating] = useState(false);
   const [activeWorkflowTypes, setActiveWorkflowTypes] = useState<string[]>([]);
   const [readiness, setReadiness] = useState<OrganizationReadiness | null>(null);
@@ -714,6 +771,12 @@ export default function OrgSettingsPage() {
     }
   };
 
+  // Nobody is chosen yet: default to a real arrangement, not "keep what is set now".
+  useEffect(() => {
+    if (!actorsView || draftRestored.current) return;
+    if (!hasMoneySetup && orgQuestionPreset === 'keep_current') setOrgQuestionPreset('owner_handles_money');
+  }, [actorsView, hasMoneySetup]);
+
   useEffect(() => {
     if (!activeId) return;
     void loadStoreBasics(activeId);
@@ -856,6 +919,7 @@ export default function OrgSettingsPage() {
     defaultChain?: ActorFallbackEntry[];
     stageChains?: Record<string, ActorFallbackEntry[]>;
     signGroups?: Record<string, 'one' | 'both'>;
+    mainPeople?: Partial<Record<'approver' | 'finance' | 'hr' | 'operations', ActorFallbackEntry | null>>;
   }) => {
     const token = getPreferredToken();
     if (!token || !activeId) return;
@@ -870,6 +934,11 @@ export default function OrgSettingsPage() {
     } finally {
       setSavingActorPolicy(false);
     }
+  };
+
+  const saveActorMainPerson = async (role: MainPersonView['role'], selected: string | null) => {
+    const entry = actorEntryFromValue(selected);
+    await saveActorPolicy({ mainPeople: { [role]: entry } });
   };
 
   const loadDepartments = async (orgId: string) => {
@@ -991,7 +1060,7 @@ export default function OrgSettingsPage() {
           disabled: !member.walletTenantId,
         })),
       },
-      { group: 'Roles', items: actorsView.roles.map((role) => ({ value: `${ACTOR_ROLE_PREFIX}${role}`, label: humanizeKey(role) })) },
+      { group: 'Roles', items: actorsView.roles.map((role) => ({ value: `${ACTOR_ROLE_PREFIX}${role}`, label: ROLE_LABELS[role] || humanizeKey(role) })) },
     ];
   }, [actorsView]);
 
@@ -1016,6 +1085,29 @@ export default function OrgSettingsPage() {
     }),
     [serverProfile, readiness, memberList, brandConfigured],
   );
+  const settingsStatus = {
+    ...orgSettingsStatus({
+      profile: serverProfile || readOrgProfile(),
+      memberCount: memberList.length,
+      departmentCount: departments.length,
+      brandConfigured,
+    }),
+    ...(paymentMethods.some((method) => method.selected) ? { payments: paymentMethods.find((method) => method.selected)?.name } : {}),
+  };
+  const visibleSettings = visibleOrgSettings(canManageOrgSetup, (item) => Boolean(item.mobileSection || item.mobileHref));
+  const advancedSettings = visibleSettings.find((group) => group.id === 'advanced');
+  const settingsRows = (group: OrgSettingsGroup) => ({
+    title: group.label,
+    rows: group.items.map((item) => ({
+      key: item.id,
+      title: item.label,
+      summary: orgSettingSummary(item, settingsStatus),
+      onSelect: () => {
+        if (item.mobileSection) setSection(item.mobileSection);
+        else if (item.mobileHref) void router.push(item.mobileHref);
+      },
+    })),
+  });
   const moneyActorGapTitles = useMemo(() => {
     const titles = new Set<string>();
     for (const wf of actorsView?.workflows ?? []) {
@@ -1137,6 +1229,7 @@ export default function OrgSettingsPage() {
 
 
   useEffect(() => {
+    if (draftRestored.current) return;
     if (serverProfile && serverProfile.kinds.length > 0) {
       setOrgKinds(serverProfile.kinds);
       setOrgModules(startingModules(serverProfile, serverProfile.kinds, serverProfile.operatingModel));
@@ -1162,7 +1255,7 @@ export default function OrgSettingsPage() {
         const server = profileFromServer(res.data);
         setServerProfile(server);
         if (server) {
-          setOperatingModel(server.operatingModel || 'internal');
+          if (!draftRestored.current) setOperatingModel(server.operatingModel || 'internal');
           persistOrgProfile(server);
           if (server.completedAt) setOrgQuestion(0);
         }
@@ -1178,12 +1271,32 @@ export default function OrgSettingsPage() {
   useEffect(() => {
     if (!canManageOrgSetup || !activeId) return;
     // A cached profile alone does not mean answered: the server returns one for new organisations too.
+    const draft = readOrgSetupDraft(activeId);
     if (readOrgProfile()?.completedAt || orgSetupLater(activeId)) {
       setOrgQuestion(0);
+      setDraftQuestion(draft?.question ?? null);
+      return;
+    }
+    if (draft) {
+      restoreOrgDraft(draft);
       return;
     }
     setOrgQuestion((current) => (current === 0 ? 1 : current));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canManageOrgSetup, activeId]);
+
+  useEffect(() => {
+    if (!drafting || discardingDraft.current || orgSingle || orgQuestion === 0 || !activeId) return;
+    saveOrgSetupDraft(activeId, {
+      question: orgQuestion,
+      kinds: orgKinds,
+      modules: orgModules,
+      operatingModel,
+      presetId: orgQuestionPreset,
+      paymentChoice: orgQuestionPay,
+      teams: pickedTeams,
+    });
+  }, [drafting, orgSingle, orgQuestion, activeId, orgKinds, orgModules, operatingModel, orgQuestionPreset, orgQuestionPay, pickedTeams]);
 
   const existingTeams = cleanDepartmentNames(departments.map((dept) => dept.name));
   const suggestedTeams = suggestedDepartmentsFor({
@@ -1232,7 +1345,7 @@ export default function OrgSettingsPage() {
           if (server) persistOrgProfile(server);
         }
         setPickedTeams(null);
-        await Promise.all([loadDepartments(activeId), loadActiveWorkflowTypes(activeId), loadReadiness(activeId)]);
+        await Promise.all([loadDepartments(activeId), loadActiveWorkflowTypes(activeId), loadReadiness(activeId), loadTeamRoles(activeId)]);
       }
       return res.data;
     } catch (err: any) {
@@ -1244,7 +1357,12 @@ export default function OrgSettingsPage() {
   };
 
   const fullBootstrapBody = (dryRun: boolean) =>
-    bootstrapRequest(currentOrgProfile(), { departments: selectedTeams, moneyPresetId: orgQuestionPreset || 'keep_current', dryRun });
+    bootstrapRequest(currentOrgProfile(), {
+      departments: selectedTeams,
+      moneyPresetId: orgQuestionPreset || 'keep_current',
+      dryRun,
+      ...(dryRun ? {} : { cardRequiredAbove: staffCardLimitFor(orgReview, orgCardLimit) }),
+    });
 
   const reviewOrgQuestions = async () => {
     const plan = await sendOrgBootstrap(fullBootstrapBody(true));
@@ -1254,6 +1372,10 @@ export default function OrgSettingsPage() {
   const finishOrgQuestions = async () => {
     const result = await sendOrgBootstrap(fullBootstrapBody(false));
     if (!result) return;
+    if (activeId) clearOrgSetupDraft(activeId);
+    setDrafting(false);
+    setResumedDraft(null);
+    setDraftQuestion(null);
     setOrgReview(null);
     setOrgQuestion(0);
     setOrgDone('all');
@@ -1290,6 +1412,17 @@ export default function OrgSettingsPage() {
 
   const openChecklistStep = (id: SetupStepId, rest: SetupStepId[]) => {
     setOrgDone(null);
+    if (id === 'kinds' && !setupSteps.find((step) => step.id === id)?.done) {
+      const draft = activeId ? readOrgSetupDraft(activeId) : null;
+      if (draft) {
+        restoreOrgDraft(draft);
+        return;
+      }
+      setOrgSingle(false);
+      setOrgThen([]);
+      setOrgQuestion(1);
+      return;
+    }
     if (id === 'team' || id === 'brand') {
       setSection(id);
       return;
@@ -1299,6 +1432,40 @@ export default function OrgSettingsPage() {
     setOrgSingle(true);
     setOrgThen(rest.map((step) => QUESTION_FOR_STEP[step]).filter((value): value is OrgQuestion => Boolean(value)));
     setOrgQuestion(question);
+  };
+
+  function restoreOrgDraft(draft: OrgSetupDraft) {
+    draftRestored.current = true;
+    if (draft.kinds.length > 0) setOrgKinds(draft.kinds);
+    setOrgModules(draft.modules);
+    if (draft.operatingModel) setOperatingModel(draft.operatingModel);
+    if (draft.presetId) setOrgQuestionPreset(draft.presetId);
+    setOrgQuestionPay(draft.paymentChoice);
+    setPickedTeams(draft.teams);
+    setOrgDone(null);
+    setOrgSingle(false);
+    setOrgThen([]);
+    setOrgQuestion(draft.question);
+    setResumedDraft(draft);
+    setDrafting(true);
+  }
+
+  /** Throw away unconfirmed answers and begin again from the saved (or suggested) answers. */
+  const startOrgQuestionsAgain = () => {
+    discardingDraft.current = true;
+    if (activeId) clearOrgSetupDraft(activeId);
+    window.location.reload();
+  };
+
+  const leaveOrgQuestions = () => {
+    if (activeId) {
+      markOrgSetupLater(activeId);
+      setDraftQuestion(readOrgSetupDraft(activeId)?.question ?? null);
+    }
+    setOrgQuestion(0);
+    setOrgReview(null);
+    setOrgSingle(false);
+    setOrgThen([]);
   };
 
   /** The org-scoped token, switching into the organisation first when only a wallet session exists. */
@@ -1467,13 +1634,13 @@ export default function OrgSettingsPage() {
             points={[
               'These answers decide which work this organisation runs.',
               'Jobs, purchases and school fees follow from what you do.',
-              'Who handles money is asked here. Other steps are asked the first time they are used.',
+              'Who handles money here also sets your default approver and finance person.',
+              'Other steps are asked the first time they are used.',
               'You can change an answer later.',
             ]}
           />
         </Group>
 
-        <SectionTip tip="tip_org_settings" when={canManageOrgSetup && Boolean(activeId) && section === null} />
         <Divider />
         {error && <ErrorAlert message={error} />}
         {activeId && serverProfile?.access?.drainingWork?.length ? (
@@ -1642,6 +1809,13 @@ export default function OrgSettingsPage() {
                     <Text size="sm">{orgReview.roles.map((role) => (role.status === 'new' ? `${role.name} (new)` : role.name)).join(', ')}</Text>
                     <Text size="xs" c="dimmed">Invite people into these roles under Organisation → Members.</Text>
                   </Stack>
+                  {(orgReview.mainPeople?.length ?? 0) > 0 && (
+                    <Stack gap={2}>
+                      <Text size="xs" fw={600}>Who does what</Text>
+                      <Text size="sm">{mainPeopleLine(orgReview)}</Text>
+                      <Text size="xs" c="dimmed">Every step of that kind goes here. Until someone holds the role, you stand in.</Text>
+                    </Stack>
+                  )}
                   <Stack gap={2}>
                     <Text size="xs" fw={600}>Money</Text>
                     {orgReview.money.keepCurrent ? (
@@ -1655,6 +1829,29 @@ export default function OrgSettingsPage() {
                     )}
                     <Text size="sm">Payments: {orgReview.payment.name || 'Not yet'}</Text>
                   </Stack>
+                  {orgReview.staffCard && (() => {
+                    const limit = staffCardLimitFor(orgReview, orgCardLimit);
+                    const on = limit !== null && limit !== undefined;
+                    return (
+                      <Stack gap={6}>
+                        <Switch
+                          size="md"
+                          checked={on}
+                          onChange={(event) => setOrgCardLimit(event.currentTarget.checked ? orgReview.staffCard!.suggested : null)}
+                          label="Ask for the staff card on large amounts"
+                          description="Approving a purchase, payment, expense claim or salary advance above this amount needs the approver's staff card from their wallet. Everyone who approves is sent their card now."
+                        />
+                        {on && (
+                          <NumberInput
+                            label="Above this amount"
+                            min={0}
+                            value={limit}
+                            onChange={(value) => setOrgCardLimit(typeof value === 'number' ? value : Number(value) || 0)}
+                          />
+                        )}
+                      </Stack>
+                    );
+                  })()}
                   <Alert color="teal" variant="light" radius="md" p="xs" title="Nothing has to be set up first">
                     <Text size="xs">
                       {orgReview.askedOnFirstUse.join(' ')} If nobody is chosen for a step, the usual role order is used, then the owner stands in.
@@ -1673,8 +1870,22 @@ export default function OrgSettingsPage() {
             )}
             {section === null && canManageOrgSetup && orgQuestion > 0 && !orgReview && (
               <Paper p="md" radius="md" withBorder>
-                <Stack key={`question-${orgQuestion}`} className={reveal.stagger} gap="sm">
+                <Stack
+                  key={`question-${orgQuestion}`}
+                  className={reveal.stagger}
+                  gap="sm"
+                  onChangeCapture={() => { if (!orgSingle) setDrafting(true); }}
+                  onClickCapture={() => { if (!orgSingle) setDrafting(true); }}
+                >
                   <GuidedSteps current={orgQuestion} total={ORG_QUESTION_COUNT} label="Question" />
+                  {resumedDraft && !orgSingle && orgQuestion === resumedDraft.question && (
+                    <Alert color="blue" radius="md" title="Picked up where you left off">
+                      <Text size="sm">Your earlier answers were kept on this device.</Text>
+                      <Button variant="subtle" size="compact-sm" px={0} mt={4} onClick={startOrgQuestionsAgain}>
+                        Start again
+                      </Button>
+                    </Alert>
+                  )}
                   <Text fw={700}>
                     {orgQuestion === 1
                       ? `What does ${activeLabel || 'your organisation'} do?`
@@ -1688,7 +1899,17 @@ export default function OrgSettingsPage() {
                   </Text>
                   {orgQuestion === 1 && (
                     <Stack>
-                    <Radio.Group label="How will you use the platform?" value={operatingModel} onChange={(value) => {
+                    <Text size="sm" c="dimmed">{SETUP_QUESTION_HELP[1]}</Text>
+                    <Accordion variant="separated" radius="md">
+                      <Accordion.Item value="systems">
+                        <Accordion.Control>
+                          <Text size="sm" fw={500}>Using existing business software?</Text>
+                          <Text size="xs" c="dimmed">
+                            {operatingModel === 'internal' ? 'Work is handled here. Only change this if you need to connect another system.' : operatingModel === 'integration' ? 'Selected: connect an existing business system.' : 'Selected: handle work here and connect another system.'}
+                          </Text>
+                        </Accordion.Control>
+                        <Accordion.Panel>
+                    <Radio.Group label="Where will you handle your work?" value={operatingModel} onChange={(value) => {
                       const model = value as OrgOperatingModel;
                       setOperatingModel(model);
                       if (model === 'integration') setOrgModules([]);
@@ -1699,7 +1920,10 @@ export default function OrgSettingsPage() {
                         <Radio value="hybrid" label="Both" />
                       </Stack>
                     </Radio.Group>
-                    <Text size="xs">{OPERATING_MODEL_NOTE}</Text>
+                    <Text size="xs" c="dimmed" mt="sm">{OPERATING_MODEL_NOTE}</Text>
+                        </Accordion.Panel>
+                      </Accordion.Item>
+                    </Accordion>
                     {operatingModel !== 'integration' && <Chip.Group multiple value={orgKinds} onChange={(value) => {
                       const answers = value as OrgKind[];
                       setOrgKinds(answers);
@@ -1719,6 +1943,8 @@ export default function OrgSettingsPage() {
                     </Stack>
                   )}
                   {orgQuestion === 2 && (
+                    <Stack gap="sm">
+                    <Text size="sm" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas are needed for a connected system.' : SETUP_QUESTION_HELP[2]}</Text>
                     <Chip.Group multiple value={orgModules} onChange={(value) => setOrgModules(value as OrgModule[])}>
                       <Stack gap={6}>
                         {ORG_MODULE_OPTIONS.filter((option) => suggestedOrgModules(orgKinds, operatingModel).includes(option.id) || (operatingModel !== 'integration' && option.id === 'people_payroll')).map((option) => (
@@ -1733,11 +1959,12 @@ export default function OrgSettingsPage() {
                         <Text size="xs" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas needed. SSI remains available; external-client APIs are a later delivery.' : 'Suggested from your activity answers. Untick anything handled elsewhere; staff tools are optional.'}</Text>
                       </Stack>
                     </Chip.Group>
+                    </Stack>
                   )}
                   {orgQuestion === 3 && (
                     <Stack gap={6}>
                       <Text size="xs" c="dimmed">
-                        Teams sort requests and people. Nothing waits on them: anything without a team goes to General.
+                        {SETUP_QUESTION_HELP[3]} Anything without a team goes to General.
                       </Text>
                       <Chip.Group multiple value={selectedTeams} onChange={(value) => setPickedTeams(value as string[])}>
                         <Group gap={6}>
@@ -1774,40 +2001,45 @@ export default function OrgSettingsPage() {
                   )}
                   {orgQuestion === 4 && (
                     <Stack gap={6}>
-                      <Paper
-                        withBorder
-                        radius="md"
-                        p="sm"
-                        onClick={() => setOrgQuestionPreset('keep_current')}
-                        style={{ cursor: 'pointer', borderColor: orgQuestionPreset === 'keep_current' ? 'var(--mantine-color-teal-6)' : undefined }}
-                      >
-                        <Group wrap="nowrap" align="flex-start" gap="sm">
-                          <Stack gap={2} style={{ flex: 1 }}>
-                            <Text size="sm" fw={600}>Keep what is set now</Text>
-                            <Text size="xs" c="dimmed">Leave the people already chosen under Who does what.</Text>
-                          </Stack>
-                          {orgQuestionPreset === 'keep_current' && (
-                            <ThemeIcon color="teal" variant="light" radius="xl" size="sm"><IconCheck size={12} /></ThemeIcon>
-                          )}
-                        </Group>
-                      </Paper>
+                      <Text size="sm" c="dimmed">{SETUP_QUESTION_HELP[4]}</Text>
+                      <Radio.Group label="Money approval arrangement" value={orgQuestionPreset} onChange={setOrgQuestionPreset}>
+                      <Stack gap={6}>
+                      {hasMoneySetup && (
+                        <Radio.Card
+                          value="keep_current"
+                          withBorder
+                          radius="md"
+                          p="sm"
+                        >
+                          <Group wrap="nowrap" align="flex-start" gap="sm">
+                            <Radio.Indicator mt={2} />
+                            <Stack gap={2} style={{ flex: 1 }}>
+                              <Text size="sm" fw={600}>Keep what is set now</Text>
+                              <Text size="xs" c="dimmed">Leave the people already chosen under Who does what.</Text>
+                            </Stack>
+                            {orgQuestionPreset === 'keep_current' && (
+                              <ThemeIcon color="teal" variant="light" radius="xl" size="sm"><IconCheck size={12} /></ThemeIcon>
+                            )}
+                          </Group>
+                        </Radio.Card>
+                      )}
                       {(actorsView?.presets?.length ? actorsView.presets : MONEY_CHOICES).map((preset) => {
                         const choice = MONEY_CHOICES.find((item) => item.id === preset.id);
                         const selected = orgQuestionPreset === preset.id;
                         return (
-                          <Paper
+                          <Radio.Card
                             key={preset.id}
+                            value={preset.id}
                             withBorder
                             radius="md"
                             p="sm"
-                            onClick={() => setOrgQuestionPreset(preset.id)}
-                            style={{ cursor: 'pointer', borderColor: selected ? 'var(--mantine-color-teal-6)' : undefined }}
                           >
                             <Group wrap="nowrap" align="flex-start" gap="sm">
+                              <Radio.Indicator mt={2} />
                               <Stack gap={2} style={{ flex: 1 }}>
                                 <Text size="sm" fw={600}>{choice?.title || preset.title}</Text>
                                 <Text size="xs" c="dimmed">{choice?.detail || preset.detail}</Text>
-                                {choice && (
+                                {choice && selected && (
                                   <>
                                     <Text size="xs">Confirms: {choice.confirms}</Text>
                                     <Text size="xs">Releases the money: {choice.releases}</Text>
@@ -1818,25 +2050,30 @@ export default function OrgSettingsPage() {
                                 <ThemeIcon color="teal" variant="light" radius="xl" size="sm"><IconCheck size={12} /></ThemeIcon>
                               )}
                             </Group>
-                          </Paper>
+                          </Radio.Card>
                         );
                       })}
+                      </Stack>
+                      </Radio.Group>
                     </Stack>
                   )}
                   {orgQuestion === 5 && (
                     <Stack gap={6}>
+                      <Text size="sm" c="dimmed">{SETUP_QUESTION_HELP[5]}</Text>
+                      <Radio.Group label="Payment method" value={orgQuestionPay} onChange={(value) => setOrgQuestionPay(value as PaymentChoice)}>
+                      <Stack gap={6}>
                       {PAYMENT_CHOICES.map((choice) => {
                         const selected = orgQuestionPay === choice.id;
                         return (
-                          <Paper
+                          <Radio.Card
                             key={choice.id}
+                            value={choice.id}
                             withBorder
                             radius="md"
                             p="sm"
-                            onClick={() => setOrgQuestionPay(choice.id)}
-                            style={{ cursor: 'pointer', borderColor: selected ? 'var(--mantine-color-teal-6)' : undefined }}
                           >
                             <Group wrap="nowrap" align="flex-start" gap="sm">
+                              <Radio.Indicator mt={2} />
                               <Stack gap={2} style={{ flex: 1 }}>
                                 <Text size="sm" fw={600}>{choice.label}</Text>
                                 <Text size="xs" c="dimmed">{choice.detail}</Text>
@@ -1845,9 +2082,11 @@ export default function OrgSettingsPage() {
                                 <ThemeIcon color="teal" variant="light" radius="xl" size="sm"><IconCheck size={12} /></ThemeIcon>
                               )}
                             </Group>
-                          </Paper>
+                          </Radio.Card>
                         );
                       })}
+                      </Stack>
+                      </Radio.Group>
                     </Stack>
                   )}
                   {orgSingle ? (
@@ -1867,9 +2106,7 @@ export default function OrgSettingsPage() {
                       color="gray"
                       onClick={() => {
                         if (orgQuestion === 1) {
-                          persistOrgProfile({ kinds: orgKinds, modules: orgModules, approvalPresetId: '', approvalTitle: '', paymentChoice: 'none', completedAt: '' });
-                          if (activeId) markOrgSetupLater(activeId);
-                          setOrgQuestion(0);
+                          leaveOrgQuestions();
                           return;
                         }
                         setOrgQuestion((current) => (current - 1) as OrgQuestion);
@@ -1888,6 +2125,16 @@ export default function OrgSettingsPage() {
                     )}
                   </Group>
                   )}
+                  {!orgSingle && orgQuestion > 1 && (
+                    <Button size="xs" variant="subtle" color="gray" onClick={leaveOrgQuestions}>
+                      I'll answer later
+                    </Button>
+                  )}
+                  <Text size="xs" c="dimmed">
+                    {orgSingle
+                      ? 'Nothing changes until you save. Leaving now discards this change.'
+                      : 'Nothing changes for your organisation until you confirm the review. Your answers are kept on this device, so you can leave and resume here.'}
+                  </Text>
                 </Stack>
               </Paper>
             )}
@@ -1917,49 +2164,40 @@ export default function OrgSettingsPage() {
             )}
 
             {section === null && orgQuestion === 0 && orgDone === null && (
-            <Paper p="md" radius="md" withBorder>
-              <Stack gap="xs">
-                <Text fw={700}>Setup</Text>
+            <Stack gap="sm">
                 {readinessLoading ? (
                   <Center py="xs"><Loader size="sm" /></Center>
                 ) : readiness ? (
                   <>
-                    {(() => {
-                      const doneCount = setupSteps.filter((step) => step.done).length;
-                      const firstOpen = setupSteps.find((step) => !step.done);
-                      return (
-                        <Stack className={reveal.stagger} gap={8}>
-                          <Text size="sm" c={firstOpen ? 'dimmed' : 'teal'}>
-                            {firstOpen ? `${doneCount} of ${setupSteps.length} done` : 'You are set. Everything is in place.'}
+                    <OrgSetupOverview
+                      steps={setupSteps}
+                      canEdit={canManageOrgSetup}
+                      onOpen={(step) => openChecklistStep(step.id, setupSteps.filter((other) => !other.done && other.id !== step.id).map((other) => other.id))}
+                      onExplore={() => { void router.push('/requests'); }}
+                      resume={draftQuestion ? {
+                        question: draftQuestion,
+                        total: ORG_QUESTION_COUNT,
+                        onResume: () => {
+                          const draft = activeId ? readOrgSetupDraft(activeId) : null;
+                          if (draft) restoreOrgDraft(draft);
+                          else setDraftQuestion(null);
+                        },
+                        onDiscard: () => {
+                          if (activeId) clearOrgSetupDraft(activeId);
+                          setDraftQuestion(null);
+                        },
+                      } : null}
+                    />
+                    <Accordion variant="separated" radius="md">
+                      <Accordion.Item value="availability">
+                        <Accordion.Control>
+                          <Text fw={500} size="sm">Request availability</Text>
+                          <Text size="xs" c="dimmed">
+                            {(readiness.workflows ?? []).filter((workflow) => workflow.ready).length} of {readiness.workflows?.length ?? 0} request types ready. See what needs attention.
                           </Text>
-                          <Progress value={(doneCount / setupSteps.length) * 100} size="sm" radius="xl" aria-label="Setup progress" />
-                          {setupSteps.map((step) => {
-                            const isNext = firstOpen?.id === step.id;
-                            const rest = setupSteps.filter((other) => !other.done && other.id !== step.id).map((other) => other.id);
-                            return (
-                              <Group key={step.id} justify="space-between" wrap="nowrap">
-                                <Group gap="xs" wrap="nowrap">
-                                  <ThemeIcon radius="xl" size="sm" color={step.done ? 'teal' : 'gray'} variant={step.done ? 'filled' : 'light'}>
-                                    {step.done ? <IconCheck size={12} /> : null}
-                                  </ThemeIcon>
-                                  <Box>
-                                    <Text size="sm" fw={isNext ? 600 : 400} c={step.done ? 'dimmed' : undefined}>{step.label}</Text>
-                                    {step.note && <Text size="xs" c="dimmed">{step.note}</Text>}
-                                  </Box>
-                                </Group>
-                                {canManageOrgSetup && (
-                                  <Button size="compact-xs" variant={isNext ? 'filled' : 'subtle'} onClick={() => openChecklistStep(step.id, rest)}>
-                                    {isNext ? 'Start' : step.done ? 'Change' : 'Open'}
-                                  </Button>
-                                )}
-                              </Group>
-                            );
-                          })}
-                          <Divider my={4} />
-                          <Text size="xs" fw={600}>Kinds of requests</Text>
-                        </Stack>
-                      );
-                    })()}
+                        </Accordion.Control>
+                        <Accordion.Panel>
+                          <Stack gap="sm">
                     {(readiness.workflows ?? []).map((workflow) => {
                       const gaps = readiness.items.filter(
                         (item) =>
@@ -1997,28 +2235,46 @@ export default function OrgSettingsPage() {
                           </Group>
                         );
                       })}
+                          </Stack>
+                        </Accordion.Panel>
+                      </Accordion.Item>
+                    </Accordion>
                   </>
                 ) : (
                   <Text size="xs" c="dimmed">Choose an organisation first.</Text>
                 )}
-              </Stack>
-            </Paper>
+            </Stack>
             )}
 
             {section === null && orgQuestion === 0 && orgDone === null && (
-              <Paper p="md" radius="md" withBorder>
-                <Stack gap={4}>
-                  <Text fw={700}>Settings</Text>
-                  {sectionLabels().filter((item) => canManageOrgSetup || !['payments', 'departments', 'records', 'roles', 'authorities', 'store', 'brand'].includes(item.id)).map((item) => (
-                    <UnstyledButton key={item.id} onClick={() => setSection(item.id)} py="sm" style={{ minHeight: 48 }}>
-                    <Group justify="space-between" wrap="nowrap">
-                      <Text size="sm">{item.label}</Text>
-                      <IconArrowRight size={14} />
-                    </Group>
-                    </UnstyledButton>
-                  ))}
-                </Stack>
-              </Paper>
+              <Stack gap="sm">
+                <Box>
+                  <Text fw={700}>Organisation settings</Text>
+                  <Text size="xs" c="dimmed">Change only what you need. These settings are always available here.</Text>
+                </Box>
+                <SettingsList groups={visibleSettings.filter((group) => group.id !== 'advanced').map(settingsRows)} />
+                {advancedSettings && (
+                  <Accordion variant="separated" radius="md">
+                    <Accordion.Item value="advanced">
+                      <Accordion.Control>
+                        <Text size="sm" fw={500}>{advancedSettings.label}</Text>
+                        <Text size="xs" c="dimmed">{advancedSettings.detail}</Text>
+                      </Accordion.Control>
+                      <Accordion.Panel>
+                        <SettingsList groups={[{ ...settingsRows(advancedSettings), showTitle: false }]} />
+                      </Accordion.Panel>
+                    </Accordion.Item>
+                  </Accordion>
+                )}
+                <SettingsList
+                  groups={[
+                    {
+                      title: 'Support',
+                      rows: [{ key: 'help', title: 'Help & Feedback', summary: 'Common questions and how to reach us', onSelect: () => void router.push('/help/?from=org-settings') }],
+                    },
+                  ]}
+                />
+              </Stack>
             )}
 
             {section !== null && (
@@ -2155,6 +2411,42 @@ export default function OrgSettingsPage() {
             <Paper id="org-card-actors" p="md" radius="md" withBorder>
               <Stack gap="sm">
                 <Text fw={700}>Who does what</Text>
+                {actorsView && (
+                  <Card withBorder radius="md" p="sm">
+                    <Stack gap={6}>
+                      <Group justify="space-between" align="center">
+                        <Text size="sm" fw={600}>Main people</Text>
+                        {savingActorPolicy && <Loader size="xs" />}
+                      </Group>
+                      <Text size="xs" c="dimmed">
+                        Set once; all matching steps use this person or role unless you override a step.
+                      </Text>
+                      {(actorsView.mainPeople || []).map((person) => {
+                        const who = person.actor.userId || person.actor.walletTenantId;
+                        return (
+                          <Box key={person.role}>
+                            <Text size="xs" fw={600}>{actorMainRoleLabel(person.role)}</Text>
+                            <Text size="xs" c="dimmed">
+                              {ACTOR_MAIN_ROLE_HINT[person.role]}
+                              {who ? ` · ${personName(actorsView.members.find((member) => member.userId === who), who)}` : ' · You, for now'}
+                            </Text>
+                            <Select
+                              mt={4}
+                              size="xs"
+                              placeholder="Person or role"
+                              data={actorPickerOptions}
+                              value={actorEntryValue(person.entry)}
+                              clearable
+                              searchable
+                              onChange={(next) => void saveActorMainPerson(person.role, next)}
+                              disabled={!actorsView.canEdit || savingActorPolicy}
+                            />
+                          </Box>
+                        );
+                      })}
+                    </Stack>
+                  </Card>
+                )}
                 {actorsView && (
                   <Stack gap={6}>
                     <Progress value={((actorTabIndex + 1) / actorTabs.length) * 100} size="sm" radius="xl" aria-label="Progress" />
@@ -2372,10 +2664,16 @@ export default function OrgSettingsPage() {
 
             )}
 
-            {section === 'handoffs' && <HandoffSettingsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />}
+            {section === 'handoffs' && (
+              <Stack gap="md">
+                <RequestFlowSettingsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />
+                <HandoffSettingsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />
+              </Stack>
+            )}
 
             {section === 'records' && activeId && <RecordSettingsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />}
 
+            {section === 'records' && <StaffCardStepsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />}
             {section === 'records' && <DeviceTrustSettingsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />}
             {section === 'alerts' && <WhatsAppAlertsCard orgTenantId={activeId} canEdit={canManageOrgSetup} />}
             {section === 'brand' && activeId && (canManageOrgSetup ? (
@@ -2406,7 +2704,7 @@ export default function OrgSettingsPage() {
                   <Paper p="sm" radius="sm" withBorder>
                     <Stack gap="xs">
                       <TextInput label="Their name" description="They confirm or correct it when they open their invite." placeholder="e.g. Rudo Moyo" value={inviteName} onChange={(e) => setInviteName(e.target.value)} size="xs" required />
-                      <TextInput label="Phone number" description="They get a one-time link on this number to choose their own PIN." placeholder="+263..." value={invitePhone} onChange={(e) => setInvitePhone(e.target.value)} size="xs" required />
+                      <PhoneField surface="phone" label="Phone number" description="They get a one-time link on this number to choose their own PIN." value={invitePhone} onChange={setInvitePhone} required />
                       <Checkbox size="xs" checked={inviteWhatsApp} onChange={(e) => setInviteWhatsApp(e.currentTarget.checked)} label="They agreed to get the invite on WhatsApp" description="Otherwise we send a text message." />
                       <Select label="Role" description="These follow the answers from setup." size="xs" value={inviteRole} onChange={setInviteRole} data={teamRoleChoices} />
                       <Group justify="flex-end">

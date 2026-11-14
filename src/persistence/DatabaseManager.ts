@@ -187,6 +187,32 @@ export class DatabaseManager {
       { version: 138, file: '138_stage_co_actors.sql', name: 'stage_co_actors' },
       { version: 139, file: '139_verified_device_enrollment.sql', name: 'verified_device_enrollment' },
       { version: 140, file: '140_wallet_guides_and_holder_settings.sql', name: 'wallet_guides_and_holder_settings' },
+      { version: 141, file: '141_step_assurance_and_share_bindings.sql', name: 'step_assurance_and_share_bindings' },
+      { version: 142, file: '142_inbox_notice_uri_unique.sql', name: 'inbox_notice_uri_unique' },
+      { version: 143, file: '143_age_gate_checks.sql', name: 'age_gate_checks' },
+      { version: 144, file: '144_registry_identity_requests.sql', name: 'registry_identity_requests' },
+      {
+        version: 145,
+        file: '145_issued_register_without_personal_claims.sql',
+        name: 'issued_register_without_personal_claims',
+      },
+      { version: 146, file: '146_check_log_without_caller_details.sql', name: 'check_log_without_caller_details' },
+      {
+        version: 147,
+        file: '147_keyed_contact_hashes_and_pin_lockout.sql',
+        name: 'keyed_contact_hashes_and_pin_lockout',
+      },
+      { version: 148, file: '148_books_and_fiscal.sql', name: 'books_and_fiscal' },
+      {
+        version: 149,
+        file: '149_provider_reviews_and_whatsapp_inquiries.sql',
+        name: 'provider_reviews_and_whatsapp_inquiries',
+      },
+      {
+        version: 150,
+        file: '150_job_deposits_and_marketing.sql',
+        name: 'job_deposits_and_marketing',
+      },
     ]
 
     for (const migration of migrationFiles) {
@@ -237,6 +263,7 @@ export class DatabaseManager {
     const repairs: Record<string, Array<[string, string]>> = {
       service_catalog: [['workflow_template_id', 'TEXT']],
       organization_registry: [['payment_rails', "TEXT DEFAULT '[]'"]],
+      carts: [['refund_reason', 'TEXT']],
     }
     for (const [table, columns] of Object.entries(repairs)) {
       const existing = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>

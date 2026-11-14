@@ -15,7 +15,7 @@ import type { WorkflowActionContext } from '../ActionRegistry'
 import { isStageAction } from '../../../config/requestExperience'
 import { rootLogger } from '../../../utils/pinoLogger'
 import { routeWorkflowStageInbox } from '../../WorkflowStageInboxService'
-import { stageGateReason, type StageGateState } from '../stageGate'
+import { stageApplies, stageGateReason, type StageGateState } from '../stageGate'
 
 const logger = rootLogger.child({ module: 'StageGateActions' })
 
@@ -48,9 +48,16 @@ export class StageGateActions {
     const requireProof = config.requireProof !== false
     const amount = typeof context.input?.amount === 'number' ? context.input.amount : undefined
 
+    // A step for bigger amounts only (a second approval from finance) is passed over below it.
+    if (!stageApplies(config.when, { amount })) return
+
+    // A request decision step: the request itself puts its card in the right inbox and records
+    // the decision, then moves the run on. Writing a second card here would ask twice.
+    const requestOwnsCard = Boolean(config.requestDecision && context.input?.requestId)
+
     // The card is how the person finds the step. A card that cannot be written must not lose the
     // step: the run still waits, and the organisation sees it on the workflow.
-    try {
+    if (!requestOwnsCard) try {
       const { routed } = routeWorkflowStageInbox({
         orgTenantId: context.tenantId,
         requestType: String(config.requestType || workflowType),
@@ -90,6 +97,7 @@ export class StageGateActions {
       requireProof,
       reference,
       waitingSince: new Date().toISOString(),
+      ...(requestOwnsCard && { requestId: String(context.input.requestId) }),
     }
     context.state.pauseReason = stageGateReason(stageAction)
     context.state.stageGate = gate

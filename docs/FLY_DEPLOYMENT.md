@@ -31,6 +31,12 @@ in the portal source; deploying Fly's `/app` does not publish the separate porta
 WhatsApp header assets retain their filenames and now render at 1600×836.
 Build and verify the upgrade certificate with `bash ./build-and-sign-apk.sh`.
 
+2026-10-27 — Android 1.0.46 (47), signed with the same upgrade certificate, is in `credo-ui/mobile/dist/credentis-1.0.46-47.apk`. It adds the country-code dropdown with national flags on every phone field, and slower side entrances on the sign-up guide. The same phone screens are on Fly at `/app`. This deploy does not publish the separate portal.
+
+2026-10-30 — Android 1.0.49 (50), signed with the same upgrade certificate, is in `credo-ui/mobile/dist/credentis-1.0.49-50.apk`. It points at `https://credentis.fly.dev`. The same phone screens are on Fly at `/app`, including the inbox request path: a short step summary, a switch you confirm, then the decision inside the organisation. This deploy does not publish the separate portal.
+
+2026-11-01 — Android 1.0.50 (51), signed with the same upgrade certificate, is in `credo-ui/mobile/dist/credentis-1.0.50-51.apk`. It points at `https://credentis.fly.dev`. The same phone screens are on Fly at `/app`. This release names the people on a job, waits to mark a job's payment reconciled until the client invoice is paid, and uses plain words on Network, Manage records, and the money question. This deploy does not publish the separate portal.
+
 The login screen centers its content on a full-height surface, without a browser-style card.
 Its initial height stays stable across keyboard-only resizes so closing the keyboard cannot
 move Sign in under a tap. Width/orientation changes update the layout; short screens scroll.
@@ -46,7 +52,7 @@ After a static build, run `npx cap sync android` and confirm SplashScreen is in 
 ### Trusted-device sign-in
 
 - First sign in with your existing account PIN and accept the PlatformIdentityVC.
-  Open **Settings > Account security** in the Android app and confirm your current PIN to enroll.
+  Open **Settings > Sign-in and security** in the Android app and confirm your current PIN to turn on sign-in with this phone.
 - If registration already created the account before a response failed, sign in with that PIN.
   Retrying registration returns HTTP 409 with sign-in guidance, not a server-error response.
 - Existing Android releases send a local key `alias` during enrollment. The API accepts that

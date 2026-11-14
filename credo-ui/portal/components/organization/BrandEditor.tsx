@@ -123,7 +123,10 @@ export default function BrandEditor({ orgTenantId, getToken, onSaved }: Props) {
     }
   };
 
-  const sample = useMemo(() => sampleBrandDocument(previewKind), [previewKind]);
+  const sample = useMemo(
+    () => sampleBrandDocument(previewKind, draft || undefined),
+    [previewKind, draft?.vatRate, draft?.pricesIncludeVat], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const previewBrand = useMemo(() => (draft ? { ...draft, configured: true } : undefined), [draft]);
   const dirty = useMemo(
     () => Boolean(brand && draft && JSON.stringify(brandSavePayload(brand)) !== JSON.stringify(brandSavePayload(draft))),
@@ -152,7 +155,7 @@ export default function BrandEditor({ orgTenantId, getToken, onSaved }: Props) {
     <Stack gap="md">
       {!brand.configured && (
         <Alert color="blue" variant="light">
-          Your quotes, invoices, receipts, checkout page and shop use this. Add a logo and the details customers need to pay you.
+          Your quotes, invoices, receipts, checkout page and shop use this, including VAT when you set a rate. Add a logo and the details customers need to pay you.
         </Alert>
       )}
 
@@ -219,6 +222,30 @@ export default function BrandEditor({ orgTenantId, getToken, onSaved }: Props) {
                   onChange={(event) => set(field.key, event.currentTarget.value)}
                 />
               ),
+            )}
+            {group.title === 'Registration and tax' && (
+              <Stack gap="xs">
+                <NumberInput
+                  label="VAT rate (%)"
+                  description="Leave empty if you do not charge VAT. School fees never show VAT."
+                  min={0}
+                  max={100}
+                  decimalScale={2}
+                  value={draft.vatRate ?? ''}
+                  onChange={(value) => set('vatRate', typeof value === 'number' && value > 0 ? value : undefined)}
+                />
+                {typeof draft.vatRate === 'number' && draft.vatRate > 0 && (
+                  <SegmentedControl
+                    fullWidth
+                    value={draft.pricesIncludeVat === false ? 'added' : 'included'}
+                    onChange={(value) => set('pricesIncludeVat', value !== 'added')}
+                    data={[
+                      { value: 'included', label: 'Prices include VAT' },
+                      { value: 'added', label: 'Add VAT to prices' },
+                    ]}
+                  />
+                )}
+              </Stack>
             )}
             {group.title === 'Wording on documents' && (
               <Group grow>

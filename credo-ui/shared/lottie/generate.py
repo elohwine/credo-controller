@@ -21,7 +21,9 @@ def hexc(h, a=1):
 
 BLUE, GREEN, WHITE = hexc('#2188ca'), hexc('#1fb87e'), hexc('#ffffff')
 LIGHT_BLUE, GOLD = hexc('#d0e6f3'), hexc('#f5b83d')
-EASE_OUT = {'i': {'x': [0.2], 'y': [1]}, 'o': {'x': [0.3], 'y': [0]}}
+NAVY = hexc('#123E66')
+# Material 3 emphasized decelerate, cubic-bezier(0.05, 0.7, 0.1, 1): things arrive fast and settle softly.
+EASE_OUT = {'i': {'x': [0.1], 'y': [1]}, 'o': {'x': [0.05], 'y': [0.7]}}
 
 
 def static(v):
@@ -63,8 +65,8 @@ def path(points, closed=False):
     return {'ty': 'sh', 'd': 1, 'ks': static({'i': z, 'o': z, 'v': points, 'c': closed})}
 
 
-def fill(c):
-    return {'ty': 'fl', 'c': static(c), 'o': static(100), 'r': 1}
+def fill(c, opacity=100):
+    return {'ty': 'fl', 'c': static(c), 'o': static(opacity), 'r': 1}
 
 
 def stroke(c, w):
@@ -83,7 +85,8 @@ def layer(ind, name, shapes, op, p=(100, 100), s=None, o=None):
 
 
 def pop(t0, t1):
-    return anim((t0, [0, 0, 100]), (t1, [104, 104, 100]), (t1 + 8, [100, 100, 100]))
+    """Scale in on a damped spring (M3 expressive fast spatial): overshoot, dip, settle."""
+    return anim((t0, [0, 0, 100]), (t1, [108, 108, 100]), (t1 + 6, [97, 97, 100]), (t1 + 11, [100, 100, 100]))
 
 
 def check_layers(op, t0=0, color=GREEN, size=120, start_ind=1):
@@ -103,9 +106,11 @@ def doc(name, op, layers):
     # Lottie shape groups are front-to-back; details must precede their opaque backing.
     for item in layers:
         item['shapes'].reverse()
+    # Translucent brand blue, not a pale solid, so the backdrop reads as a soft tint in light and dark mode.
     layers += [
-        layer(900, 'ambient-blue', [group([ellipse(144), fill(hexc('#EDF6FC'))])], op, p=(100, 96)),
-        layer(901, 'ground-shadow', [group([ellipse(92), fill(hexc('#DCEAF3'))])], op,
+        layer(900, 'ambient-blue', [group([ellipse(144), fill(BLUE, 9)])], op, p=(100, 96),
+              o=anim((0, 0), (20, 100)), s=anim((0, [88, 88, 100]), (30, [100, 100, 100]))),
+        layer(901, 'ground-shadow', [group([ellipse(92), fill(BLUE, 14)])], op,
               p=(100, 178), s=static([100, 10, 100])),
     ]
     scale = EXPORT_SIZE / W
@@ -373,8 +378,39 @@ def onboarding_share():
     ])
 
 
+def security():
+    """Phone security turned on: a fingerprint draws itself on the phone, a scan passes, then a check."""
+    op = 110
+    phone = [
+        group([rect(88, 150, 18), fill(NAVY)]),
+        group([rect(76, 136, 12), fill(WHITE)]),
+        group([rect(22, 4, 2), fill(hexc('#2B5C86'))], p=(0, -70)),
+    ]
+    phone_layer = layer(30, 'phone', phone, op, p=(100, 100),
+                        o=anim((0, 0), (10, 100)), s=anim((0, [90, 90, 100]), (18, [100, 100, 100])))
+    ridges = []
+    # Concentric, open ridges, each drawn on a little after the one inside it.
+    for n, (d, end, offset) in enumerate(((12, 78, 200), (24, 72, 215), (36, 70, 222), (48, 66, 230), (60, 60, 238))):
+        t = 14 + n * 5
+        ridges.append(group([
+            ellipse(d),
+            {'ty': 'tm', 's': static(0), 'e': anim((t, 0), (t + 22, end)), 'o': static(offset), 'm': 1},
+            stroke(BLUE, 3.6),
+        ]))
+    print_layer = layer(20, 'fingerprint', ridges, op, p=(100, 96))
+    scan = layer(15, 'scan', [group([rect(58, 3, 1.5), fill(GREEN)])], op,
+                 o=anim((40, 0), (44, 90), (60, 90), (66, 0)))
+    scan['ks']['p'] = anim((40, [100, 64, 0]), (64, [100, 128, 0]))
+    lock = [
+        group([rect(22, 18, 4), fill(GREEN)], p=(0, 4)),
+        group([path([[-6, -4], [-6, -10], [6, -10], [6, -4]]), stroke(GREEN, 3)], p=(0, 0)),
+    ]
+    lock_layer = layer(16, 'lock', lock, op, p=(100, 150), o=anim((62, 0), (70, 100)), s=pop(62, 72))
+    return doc('security', op, placed_check(op, 66, 40, (146, 146)) + [lock_layer, scan, print_layer, phone_layer])
+
+
 if __name__ == '__main__':
-    for fn in (success, payment, celebration, welcome, completion, empty, onboarding_receive, onboarding_share):
+    for fn in (success, payment, celebration, welcome, completion, empty, onboarding_receive, onboarding_share, security):
         data = fn()
         with open(os.path.join(OUT, f'{fn.__name__}.json'), 'w') as f:
             json.dump(data, f, separators=(',', ':'))

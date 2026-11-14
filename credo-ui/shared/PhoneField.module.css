@@ -1,0 +1,85 @@
+.field { position: relative; display: grid; gap: 6px; min-width: 0; }
+.label { font-size: 14px; font-weight: 500; }
+.row { display: flex; align-items: stretch; gap: 8px; min-width: 0; }
+.input {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px;
+  background: var(--mantine-color-body);
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+}
+.input:focus-visible { outline: 3px solid var(--mantine-color-credentis-6); outline-offset: 2px; }
+.input[aria-invalid='true'] { border-color: var(--mantine-color-red-6); }
+.help { margin: 0; color: var(--mantine-color-dimmed); font-size: 12px; }
+.error { margin: 0; color: var(--mantine-color-red-6); font-size: 12px; }
+.codeWrap { position: relative; flex-shrink: 0; }
+.code {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 48px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px;
+  background: var(--mantine-color-body);
+  color: light-dark(var(--mantine-color-credentis-8), var(--mantine-color-credentis-2));
+  font: inherit;
+  font-weight: 650;
+  font-size: 14px;
+  cursor: pointer;
+}
+.code:focus-visible { outline: 3px solid var(--mantine-color-credentis-6); outline-offset: 2px; }
+.flag {
+  display: block;
+  width: 24px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px var(--mantine-color-default-border);
+}
+.chevron { font-size: 10px; opacity: 0.7; }
+.list {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 240px;
+  max-height: 240px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  overflow: auto;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px;
+  background: var(--mantine-color-body);
+  box-shadow: 0 8px 20px #123e5924;
+}
+.option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.option[data-selected='true'] { background: var(--mantine-color-credentis-light); }
+.field[data-surface='portal'] .option:hover { background: var(--mantine-color-credentis-light); }
+.optionName { flex: 1; min-width: 0; font-weight: 500; }
+.optionDial { color: light-dark(var(--mantine-color-credentis-7), var(--mantine-color-credentis-3)); font-weight: 650; }
+@media (prefers-reduced-motion: reduce) {
+  .code, .option { transition: none; }
+}

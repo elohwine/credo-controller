@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Box, Stack, Text, Title, Group, Button, Badge, Paper, ThemeIcon, TextInput, Tabs, Card, Skeleton, SimpleGrid, Divider, Avatar, Select, Modal, Switch, NumberInput, Alert
 } from '@mantine/core';
@@ -8,12 +8,40 @@ import {
 } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
 import AppShellMobile from '@/components/layout/AppShellMobile';
+import OfferOptIn from '@/components/org/OfferOptIn';
+import { PhoneField } from '../../shared/PhoneField';
 import { SectionTip } from '@/components/guides/SectionGuides';
 import { getActiveOrgId, getActiveOrgLabel, getContextMode, getPersonalWalletToken, getPreferredToken, getWalletToken, isAuthenticated } from '@/lib/auth';
 import api, { safeArray } from '@/lib/api';
 import { TEAM_ROLE_FALLBACK, teamRolesFromCatalog } from '@/lib/orgProfile';
 import { contactAppStatus, contactInviteUrl } from '@/lib/contactAvailability';
 import { readMemberships, refreshMemberships } from '../../shared/organizationMemberships';
+import { roleLabel } from '../../shared/orgPeople';
+
+interface MatchHit {
+  orgId: string;
+  name: string;
+  description?: string;
+  reasons: string[];
+  unsure: string[];
+  standing?: { configured: string; verified: string; live: string };
+  offer?: string;
+  reviewAverage: number | null;
+  reviewCount: number;
+}
+
+const PAYMENT_CHOICES = [
+  { value: 'ecocash', label: 'EcoCash' },
+  { value: 'innbucks', label: 'InnBucks' },
+  { value: 'bank', label: 'Bank transfer' },
+  { value: 'card', label: 'Card' },
+  { value: 'cash', label: 'Cash' },
+];
+const FULFILMENT_CHOICES = [
+  { value: 'call_out', label: 'We come to you' },
+  { value: 'delivery', label: 'We deliver' },
+  { value: 'collection', label: 'You collect' },
+];
 
 interface Organization {
   id: string;
@@ -25,6 +53,7 @@ interface Organization {
   verificationStatus: string;
   availableServices: number;
   goodsCount?: number;
+  memberCount?: number;
   role?: string;
 }
 
@@ -98,6 +127,11 @@ function OrganizationCard({ org, onClick, onAddContact }: { org: Organization; o
             {(org.goodsCount ?? 0) > 0 && (
               <Text size="xs" c="dimmed">
                 {org.goodsCount} {org.goodsCount === 1 ? 'product' : 'products'}
+              </Text>
+            )}
+            {typeof org.memberCount === 'number' && (
+              <Text size="xs" c="dimmed">
+                {org.memberCount} {org.memberCount === 1 ? 'member' : 'members'}
               </Text>
             )}
             {org.trustScore > 0 && (
@@ -182,6 +216,14 @@ export default function OrganizationsPage() {
   const [teamRoleChoices, setTeamRoleChoices] = useState(TEAM_ROLE_FALLBACK);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [need, setNeed] = useState('');
+  const [area, setArea] = useState('');
+  const [payment, setPayment] = useState<string | null>(null);
+  const [fulfilment, setFulfilment] = useState<string | null>(null);
+  const [matches, setMatches] = useState<MatchHit[] | null>(null);
+  const [matching, setMatching] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const askKey = useRef('');
   const [loading, setLoading] = useState(true);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [membershipNotice, setMembershipNotice] = useState<string | null>(null);
@@ -245,11 +287,12 @@ export default function OrganizationsPage() {
       .map((m) => ({
         id: m.orgTenantId || m.id || '',
         name: m.name || 'Unknown Organization',
-        description: m.domain ? `Domain: ${m.domain}` : (m.issuerDid ? `Issuer: ${m.issuerDid}` : undefined),
+        description: m.domain || `You: ${roleLabel(m.role)}`,
         category: 'supplier',
         trustScore: 0,
         verificationStatus: 'verified',
-        availableServices: typeof m.memberCount === 'number' ? m.memberCount : 0,
+        availableServices: 0,
+        memberCount: typeof m.memberCount === 'number' ? m.memberCount : undefined,
         role: m.role,
       }));
 
@@ -440,6 +483,76 @@ export default function OrganizationsPage() {
     }
   };
 
+  const findProviders = async () => {
+    if (need.trim().length < 2) {
+      notifications.show({ position: 'bottom-center', title: 'Say what you need', message: 'A few words is enough.', color: 'orange' });
+      return;
+    }
+    setMatching(true);
+    try {
+      const response = await api.post('/api/discovery/match', {
+        need: need.trim(),
+        area: area.trim() || undefined,
+        payment: payment || undefined,
+        fulfilment: fulfilment || undefined,
+      });
+      setMatches(Array.isArray(response.data) ? response.data : []);
+      askKey.current = '';
+    } catch (error: any) {
+      notifications.show({
+        position: 'bottom-center',
+        title: 'Could not look',
+        message: error?.response?.data?.message || error?.message || 'Try again.',
+        color: 'red',
+      });
+    } finally {
+      setMatching(false);
+    }
+  };
+
+  const askMatches = async () => {
+    const token = getPersonalWalletToken() || getWalletToken();
+    if (!token) {
+      notifications.show({ position: 'bottom-center', title: 'Sign in first', message: 'Sign in to ask these businesses.', color: 'red' });
+      return;
+    }
+    if (!askKey.current) askKey.current = `ask-${Date.now()}`;
+    setAsking(true);
+    try {
+      const response = await api.post(
+        '/workflow-requests/ask',
+        {
+          need: need.trim(),
+          area: area.trim() || undefined,
+          payment: payment || undefined,
+          fulfilment: fulfilment || undefined,
+          limit: 3,
+        },
+        { headers: { Authorization: `Bearer ${token}`, 'x-idempotency-key': askKey.current } },
+      );
+      const asked = Array.isArray(response.data?.asked) ? response.data.asked : [];
+      const note = response.data?.note;
+      notifications.show({
+        position: 'bottom-center',
+        title: asked.length ? 'Asked' : 'Nobody was asked',
+        message: asked.length
+          ? `Asked ${asked.map((row: { name: string }) => row.name).join(', ')} for a quote.`
+          : note || 'No business could take this.',
+        color: asked.length ? 'green' : 'orange',
+      });
+      if (asked.length) askKey.current = '';
+    } catch (error: any) {
+      notifications.show({
+        position: 'bottom-center',
+        title: 'Not sent',
+        message: error?.response?.data?.message || error?.message || 'Try again.',
+        color: 'red',
+      });
+    } finally {
+      setAsking(false);
+    }
+  };
+
   const viewOrganization = (org: Organization) => {
     const source = activeTab === 'my-orgs' ? 'my-orgs' : 'discover';
     // "Ask for a quote / bill / service" from Home carries through to the organisation page.
@@ -610,10 +723,11 @@ export default function OrganizationsPage() {
                 </Button>
                 <Button
                   variant="default"
+                  h={48}
                   leftSection={<IconSettingsAutomation size={18} />}
-                  onClick={() => router.push('/settings/org')}
+                  onClick={() => router.push('/settings/org/?create=1')}
                 >
-                  Manual Onboarding
+                  Start an organisation
                 </Button>
               </SimpleGrid>
             </Stack>
@@ -622,6 +736,56 @@ export default function OrganizationsPage() {
           {/* Discover Services Tab */}
           <Tabs.Panel value="discover" pt="md">
             <Stack gap="md">
+              <Paper p="md" radius="md" withBorder>
+                <Stack gap="sm">
+                  <Box>
+                    <Text fw={600}>What do you need?</Text>
+                    <Text size="xs" c="dimmed">We find businesses that fit, then you can ask the best three for a quote.</Text>
+                  </Box>
+                  <TextInput label="Need" placeholder="A plumber for a leaking geyser" value={need} onChange={(e) => setNeed(e.target.value)} />
+                  <TextInput label="Place" placeholder="Borrowdale" value={area} onChange={(e) => setArea(e.target.value)} />
+                  <Select label="Pay with" placeholder="Any" clearable data={PAYMENT_CHOICES} value={payment} onChange={setPayment} />
+                  <Select label="How" placeholder="Any" clearable data={FULFILMENT_CHOICES} value={fulfilment} onChange={setFulfilment} />
+                  <Button h={48} radius="xl" loading={matching} onClick={() => void findProviders()}>Find businesses</Button>
+                </Stack>
+              </Paper>
+              {matches && (
+                <Stack gap="sm">
+                  {matches.length === 0 ? (
+                    <Text size="sm" c="dimmed">No business matched. Try fewer details, or search the directory below.</Text>
+                  ) : (
+                    <>
+                      <Button h={48} radius="xl" variant="light" loading={asking} onClick={() => void askMatches()}>
+                        Ask the best three for a quote
+                      </Button>
+                      {matches.map((match) => (
+                        <Stack key={match.orgId} gap="xs">
+                        <Paper p="md" radius="md" withBorder onClick={() => viewOrganization({ id: match.orgId, name: match.name, category: 'other', trustScore: 0, verificationStatus: 'unverified', availableServices: 0 })} style={{ cursor: 'pointer' }}>
+                          <Text fw={600}>{match.name}</Text>
+                          <Text size="xs" c="dimmed">
+                            {match.reviewCount
+                              ? `${match.reviewAverage} from ${match.reviewCount} ${match.reviewCount === 1 ? 'customer' : 'customers'}`
+                              : 'No ratings yet. Open them to rate.'}
+                          </Text>
+                          {match.description ? <Text size="sm" c="dimmed">{match.description}</Text> : null}
+                          {match.standing ? (
+                            <Text size="sm">{match.standing.configured} {match.standing.verified} {match.standing.live}</Text>
+                          ) : null}
+                          {match.offer ? <Text size="sm">Offer: {match.offer}</Text> : null}
+                          {match.reasons.map((reason) => (
+                            <Text key={reason} size="sm">{reason}</Text>
+                          ))}
+                          {match.unsure.map((gap) => (
+                            <Text key={gap} size="xs" c="dimmed">{gap}</Text>
+                          ))}
+                        </Paper>
+                        <OfferOptIn orgId={match.orgId} />
+                        </Stack>
+                      ))}
+                    </>
+                  )}
+                </Stack>
+              )}
               {/* Search Bar */}
               <TextInput
                 placeholder="Search organizations or services..."
@@ -704,21 +868,22 @@ export default function OrganizationsPage() {
                 </Stack>
               )}
 
-              <Paper p="sm" radius="md" withBorder>
-                <Group justify="space-between" wrap="nowrap">
-                  <Box style={{ flex: 1, minWidth: 0 }}>
-                    <Text size="sm" fw={600}>Organization not listed?</Text>
-                    <Text size="xs" c="dimmed">Use the manual onboarding flow to create and configure your org directly.</Text>
+              <Paper p="md" radius="md" withBorder>
+                <Stack gap="sm">
+                  <Box>
+                    <Text size="sm" fw={500}>Running your own business?</Text>
+                    <Text size="sm" c="dimmed">Start an organisation for it. Give it a name, then answer a few short questions.</Text>
                   </Box>
                   <Button
-                    size="xs"
+                    h={48}
+                    radius="xl"
                     variant="light"
-                    leftSection={<IconSettingsAutomation size={14} />}
-                    onClick={() => router.push('/settings/org')}
+                    leftSection={<IconSettingsAutomation size={20} />}
+                    onClick={() => router.push('/settings/org/?create=1')}
                   >
-                    Manual
+                    Start an organisation
                   </Button>
-                </Group>
+                </Stack>
               </Paper>
             </Stack>
           </Tabs.Panel>
@@ -859,11 +1024,11 @@ export default function OrganizationsPage() {
               value={contactForm.name}
               onChange={(event) => setContactForm((prev) => ({ ...prev, name: event.currentTarget.value }))}
             />
-            <TextInput
+            <PhoneField
+              surface="phone"
               label="Phone"
-              placeholder="+263..."
               value={contactForm.phone}
-              onChange={(event) => setContactForm((prev) => ({ ...prev, phone: event.currentTarget.value }))}
+              onChange={(phone) => setContactForm((prev) => ({ ...prev, phone }))}
             />
             <TextInput
               label="Email"

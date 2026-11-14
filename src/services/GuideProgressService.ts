@@ -1,4 +1,5 @@
 import { DatabaseManager } from '../persistence/DatabaseManager'
+import { ROLE_FALLBACK_BY_STAGE_ACTION } from './OrgWorkflowActorService'
 
 /** Guides the apps know about. Unknown keys are refused so the table cannot grow without bound. */
 export const GUIDE_KEYS = [
@@ -176,6 +177,10 @@ export interface GettingStartedOrg {
 export interface GettingStartedStatus {
   identityCard: boolean
   deviceSignIn: boolean
+  /** This person has a phone key that asks for fingerprint or face before a money step. */
+  moneyConfirm: boolean
+  /** This person releases, pays out or records money in an organisation they belong to. */
+  handlesMoney: boolean
   organisation: boolean
   cardSaving: boolean
   /** An organisation sent this person a staff card they have not accepted yet. */
@@ -183,6 +188,15 @@ export interface GettingStartedStatus {
   /** An organisation this person owns or runs whose setup questions are not answered yet. */
   setupToFinish?: GettingStartedOrg | null
 }
+
+/** Roles that reach the money steps a phone can confirm with fingerprint or face (see DeviceTrustSettingsCard). */
+const MONEY_STEP_ROLES = Array.from(
+  new Set([
+    'owner',
+    'admin',
+    ...['release_funds', 'trigger_payout', 'record_payment'].flatMap((action) => ROLE_FALLBACK_BY_STAGE_ACTION[action] || []),
+  ]),
+)
 
 /** Real account state behind the getting-started checklist, so the app and portal agree. */
 export class GettingStartedService {
@@ -204,8 +218,19 @@ export class GettingStartedService {
     return {
       identityCard: identityAccepted,
       deviceSignIn: exists(
-        'SELECT 1 FROM device_keys WHERE wallet_tenant_id = ? AND revoked_at IS NULL LIMIT 1',
+        `SELECT 1 FROM device_keys WHERE wallet_tenant_id = ? AND revoked_at IS NULL AND key_usage = 'login' LIMIT 1`,
         ownerTenantId,
+      ),
+      moneyConfirm: exists(
+        `SELECT 1 FROM device_keys WHERE wallet_tenant_id = ? AND revoked_at IS NULL AND key_usage = 'payment' LIMIT 1`,
+        ownerTenantId,
+      ),
+      handlesMoney: exists(
+        `SELECT 1 FROM org_memberships om JOIN ssi_users u ON u.id = om.user_id
+         WHERE u.tenant_id = ? AND om.status = 'active'
+           AND om.role IN (${MONEY_STEP_ROLES.map(() => '?').join(', ')}) LIMIT 1`,
+        ownerTenantId,
+        ...MONEY_STEP_ROLES,
       ),
       organisation: exists(
         `SELECT 1 FROM org_memberships om JOIN ssi_users u ON u.id = om.user_id

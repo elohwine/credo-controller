@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   ActionIcon,
   Alert,
@@ -15,27 +15,36 @@ import {
   Tabs,
   Text,
   TextInput,
+  Textarea,
   Timeline,
   Title,
   Box,
   UnstyledButton,
 } from '@mantine/core'
-import { IconArrowRight, IconChevronDown, IconChevronRight, IconRefresh, IconSearch } from '@tabler/icons-react'
+import { IconArrowRight, IconCheck, IconChevronDown, IconChevronRight, IconFileText, IconHistory, IconId, IconRefresh, IconSearch, IconX } from '@tabler/icons-react'
 import { useMediaQuery } from '@mantine/hooks'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/router'
 import AppShellMobile from '@/components/layout/AppShellMobile'
+import JobDepositPanel from '@/components/requests/JobDepositPanel'
 import JobAuditTrailPanel from '@/components/shared/JobAuditTrailPanel'
 import RecordActions from '@/components/shared/RecordActions'
-import { StageActorTimeline } from '@/components/shared/StageActorTimeline'
+import { StageActorTimeline, StageNowCard } from '@/components/shared/StageActorTimeline'
 import api from '@/lib/api'
 import { getOrgRoleClaim, getOrgToken } from '@/lib/auth'
 import { friendlyRequestError } from '@/lib/requestError'
 import { useSessionStore } from '@/lib/state/session'
 import { trailFromRequest } from '@/lib/jobAuditTrail'
 import { requestKindLabel, requestStatusWords } from '@/lib/requestCatalog'
-import { assertRequestDetail, requestExperienceForRow } from '../../shared/requestExperience'
+import { assertRequestDetail, requestExperienceForRow, requestStageNames } from '../../shared/requestExperience'
+import { actorsForWorkflow, type WorkflowActorReport } from '@/lib/uxCopy'
 import type { AuditPerson } from '@/lib/jobAuditTrail'
+import { detailTabsFor } from '../../shared/detailTabs'
+import { requestDecisionBlockText, STAFF_CARD_APPROVE_LABEL, type RequestDecisionView } from '../../shared/requestDecision'
+import { decidePlatformRequest, staffCardApprovalRoute } from '@/lib/platformRequestDecision'
+import { feedback } from '@/lib/feedback'
+import { milestone } from '@/components/feedback/Milestone'
+import { useUiStore } from '@/lib/state/ui'
 
 interface RequestRow {
   id: string
@@ -59,6 +68,9 @@ interface RequestRow {
   payload?: Record<string, unknown>
   events?: unknown[]
   people?: AuditPerson[]
+  decision?: RequestDecisionView & { version?: string }
+  nextStep?: { label?: string }
+  parties?: { requesterName?: string; reviewName?: string; fulfilmentName?: string }
 }
 
 interface PagePosition {
@@ -85,6 +97,18 @@ export default function OrganisationRequests() {
   // Scope selection as well as data: a drawer from another organisation never survives a switch.
   const [selectionScope, setSelectionScope] = useState(scope)
   const activeSelection = selectionScope === scope ? selected : null
+  const queryClient = useQueryClient()
+  const unblockScreen = useUiStore((state) => state.unblock)
+  const [declineReason, setDeclineReason] = useState('')
+  const [deciding, setDeciding] = useState<'approve' | 'reject' | 'card' | null>(null)
+  // Opened from an inbox card after the switch: show that request with its steps and decision.
+  const linkedRequestId = typeof router.query.request === 'string' ? router.query.request : ''
+  useEffect(() => {
+    if (!linkedRequestId || !orgId) return
+    setSelectionScope(scope)
+    setSelected({ id: linkedRequestId, source: 'platform', status: '' })
+  }, [linkedRequestId, orgId, scope])
+  useEffect(() => setDeclineReason(''), [activeSelection?.id])
   const canReadInbound = ['owner', 'admin', 'manager', 'approver'].includes(getOrgRoleClaim() || '')
   const list = useInfiniteQuery({
     queryKey: [scope, 'org-requests', canReadInbound],
@@ -145,6 +169,62 @@ export default function OrganisationRequests() {
       return response.data
     },
   })
+  useEffect(() => {
+    if (!detail.isPending || !activeSelection) unblockScreen('open-request')
+  }, [detail.isPending, activeSelection, unblockScreen])
+
+  const closeDetail = () => {
+    setSelected(null)
+    if (linkedRequestId) void router.replace('/requests', undefined, { shallow: true })
+  }
+
+  const decide = async (action: 'approve' | 'reject') => {
+    if (!activeSelection) return
+    const orgToken = getOrgToken()
+    if (!orgToken) {
+      feedback.warn('Open the organisation again, then try again.', { title: 'Organisation needed' })
+      return
+    }
+    setDeciding(action)
+    try {
+      await decidePlatformRequest({ requestId: activeSelection.id, action, reason: declineReason, orgToken })
+      if (action === 'approve') milestone.show({ kind: 'request_approved', title: 'Approved', detail: detail.data?.title || undefined })
+      else feedback.info('The request was declined.', { title: 'Declined' })
+      setDeclineReason('')
+      // The steps redraw with this decision; the inbox card closes on its next refresh.
+      await Promise.all([detail.refetch(), list.refetch()])
+      void queryClient.invalidateQueries({ predicate: (query) => query.queryKey.includes('inbox') })
+    } catch (error) {
+      feedback.fromError(error, { title: action === 'approve' ? 'Could not approve' : 'Could not decline' })
+    } finally {
+      setDeciding(null)
+    }
+  }
+
+  const approveWithStaffCard = async () => {
+    if (!activeSelection) return
+    const orgToken = getOrgToken()
+    if (!orgToken) {
+      feedback.warn('Open the organisation again, then try again.', { title: 'Organisation needed' })
+      return
+    }
+    setDeciding('card')
+    try {
+      const route = await staffCardApprovalRoute({
+        requestId: activeSelection.id,
+        orgToken,
+        orgTenantId: orgId || undefined,
+        title: detail.data?.title,
+        description: detail.data?.description,
+      })
+      await router.push(route)
+    } catch (error) {
+      feedback.fromError(error, { title: 'Could not open the approval' })
+    } finally {
+      setDeciding(null)
+    }
+  }
+
   const allRows = useMemo(
     () =>
       Array.from(
@@ -176,7 +256,27 @@ export default function OrganisationRequests() {
   const assignees = Array.from(
     new Set(allRows.map((row) => row.assigneeRole).filter((value): value is string => !!value)),
   )
+  const actors = useQuery({
+    queryKey: [scope, 'workflow-actors', orgId],
+    enabled: Boolean(orgId),
+    queryFn: async () => {
+      const token = getOrgToken()
+      if (!token) return { workflows: [] as WorkflowActorReport[], members: [] as Array<{ userId: string; displayName?: string }> }
+      const response = await api.get<{ workflows?: WorkflowActorReport[]; members?: Array<{ userId: string; displayName?: string }> }>(
+        `/api/organizations/${encodeURIComponent(orgId || '')}/workflows/actors`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      return { workflows: response.data.workflows || [], members: response.data.members || [] }
+    },
+  })
   const progress = detail.data ? requestExperienceForRow(detail.data) : null
+  const people = detail.data?.people?.length ? detail.data.people : actors.data?.members || []
+  const who = detail.data
+    ? requestStageNames(detail.data, people, {
+        ...(detail.data.parties || {}),
+        reviewName: detail.data.parties?.reviewName || detail.data.decision?.actorLabel,
+      })
+    : {}
   const trail =
     detail.data && activeSelection?.source === 'platform' ? trailFromRequest(detail.data, detail.data.people) : null
   const contactTimeline = detail.data
@@ -217,9 +317,9 @@ export default function OrganisationRequests() {
         <Button
           variant="light"
           rightSection={<IconArrowRight size={16} />}
-          onClick={() => router.push('/inbox?filter=requests')}
+          onClick={() => router.push('/inbox')}
         >
-          Review in Inbox
+          Inbox
         </Button>
         {!canReadInbound && (
           <Alert>
@@ -293,6 +393,11 @@ export default function OrganisationRequests() {
                   </Text>
                   <IconChevronRight size={18} style={{ flexShrink: 0 }} />
                 </Group>
+                <Text size="xs" c="dimmed" lineClamp={1}>
+                  {row.decision?.actorLabel
+                    ? `${['rejected', 'cancelled', 'completed', 'fulfilled'].includes(String(row.status)) ? 'Decided by' : 'With'} ${row.decision.actorLabel}`
+                    : requestKindLabel(row.request_type || row.requestType)}
+                </Text>
                 <Group>
                   <Badge color={requestStatusWords(row.status).color}>{requestStatusWords(row.status).label}</Badge>
                   <Text size="xs" c="dimmed">
@@ -355,7 +460,7 @@ export default function OrganisationRequests() {
         )}
         <Drawer
           opened={Boolean(activeSelection)}
-          onClose={() => setSelected(null)}
+          onClose={closeDetail}
           position="bottom"
           size="85%"
           title="Request details"
@@ -372,17 +477,145 @@ export default function OrganisationRequests() {
                   {detail.data.title || requestKindLabel(detail.data.request_type || detail.data.requestType)}
                 </Text>
                 <Badge>{requestStatusWords(detail.data.status).label}</Badge>
-                {detail.data.description && <Text size="sm">{detail.data.description}</Text>}
                 {detail.data.rejectionReason && <Alert color="red">{detail.data.rejectionReason}</Alert>}
-                <Tabs key={`${activeSelection?.source}:${activeSelection?.id}`} defaultValue="progress">
-                  <Tabs.List grow>
-                    <Tabs.Tab value="progress">Progress</Tabs.Tab>
-                    <Tabs.Tab value="history">History & audit</Tabs.Tab>
+                {activeSelection && activeSelection.source !== 'platform' && getOrgToken() ? (
+                  <JobDepositPanel requestId={activeSelection.id} token={getOrgToken()!} audience="business" />
+                ) : null}
+                {/* Same order as a job: the step waiting now, who acts and their buttons, then the tabs. */}
+                <StageNowCard
+                  stages={progress?.stages || []}
+                  actors={progress ? actorsForWorkflow(actors.data?.workflows, [progress.workflowType, String(detail.data?.request_type || detail.data?.requestType || '')]) : undefined}
+                  people={people}
+                  whoDid={who}
+                  actorsLoading={actors.isLoading}
+                  idleText="Nothing to do on this request right now."
+                >
+                  {activeSelection?.source === 'platform' && (() => {
+                    const decision = detail.data.decision
+                    const waiting = ['submitted', 'in_review'].includes(String(detail.data.status))
+                    if (!waiting || !decision) return null
+                    if (!decision.canApprove && !decision.canReject) {
+                      return <Alert color="blue" variant="light">{requestDecisionBlockText(decision)}</Alert>
+                    }
+                    return (
+                      <Stack gap="xs">
+                        {decision.stageLabel && <Text size="sm" fw={500}>{decision.stageLabel}</Text>}
+                        {decision.canApprove && !decision.cardRequired && (
+                          <Button
+                            fullWidth
+                            size="lg"
+                            radius="xl"
+                            color="teal"
+                            leftSection={<IconCheck size={20} />}
+                            loading={deciding === 'approve'}
+                            disabled={Boolean(deciding)}
+                            onClick={() => void decide('approve')}
+                          >
+                            Approve
+                          </Button>
+                        )}
+                        {decision.canApprove && decision.staffCard && (
+                          <Button
+                            fullWidth
+                            size="lg"
+                            radius="xl"
+                            variant={decision.cardRequired ? 'filled' : 'outline'}
+                            leftSection={<IconId size={20} />}
+                            loading={deciding === 'card'}
+                            disabled={Boolean(deciding)}
+                            onClick={() => void approveWithStaffCard()}
+                          >
+                            {STAFF_CARD_APPROVE_LABEL}
+                          </Button>
+                        )}
+                        {decision.canReject && (
+                          <>
+                            <Textarea
+                              label="Reason for declining"
+                              placeholder="Say why, so the person who asked knows what to change"
+                              minRows={2}
+                              autosize
+                              value={declineReason}
+                              onChange={(event) => setDeclineReason(event.currentTarget.value)}
+                            />
+                            <Button
+                              fullWidth
+                              size="lg"
+                              radius="xl"
+                              color="red"
+                              variant="light"
+                              leftSection={<IconX size={20} />}
+                              loading={deciding === 'reject'}
+                              disabled={Boolean(deciding) || !declineReason.trim()}
+                              onClick={() => void decide('reject')}
+                            >
+                              Decline
+                            </Button>
+                          </>
+                        )}
+                      </Stack>
+                    )
+                  })()}
+                  {detail.data.nextStep?.label && (
+                    <Button
+                      variant="light"
+                      radius="xl"
+                      onClick={() =>
+                        router.push(`/inbox?filter=requests&request=${encodeURIComponent(activeSelection!.id)}`)
+                      }
+                    >
+                      {detail.data.nextStep.label} in Inbox
+                    </Button>
+                  )}
+                  {activeSelection?.source === 'platform' && (
+                    <RecordActions
+                      kind="request"
+                      id={activeSelection.id}
+                      canCancel={['draft', 'submitted', 'in_review'].includes(String(detail.data.status || ''))}
+                      onCancelled={() => {
+                        setSelected(null)
+                        void list.refetch()
+                      }}
+                    />
+                  )}
+                </StageNowCard>
+                <Tabs key={`${activeSelection?.source}:${activeSelection?.id}`} defaultValue="details">
+                  <Tabs.List mb="sm" style={{ flexWrap: 'nowrap', overflowX: 'auto' }}>
+                    {detailTabsFor({ panels: ['details', 'history'] }).map((item) => (
+                      <Tabs.Tab key={item.key} value={item.key} leftSection={item.key === 'history' ? <IconHistory size={14} /> : <IconFileText size={14} />}>
+                        {item.label}
+                      </Tabs.Tab>
+                    ))}
                   </Tabs.List>
-                  <Tabs.Panel value="progress" pt="md">
-                    {progress && <StageActorTimeline stages={progress.stages} title="Request progress" />}
+                  <Tabs.Panel value="details" pt="xs">
+                    <Stack gap="sm">
+                      {detail.data?.parties?.requesterName && (
+                        <Text size="sm">Asked by {detail.data.parties.requesterName}</Text>
+                      )}
+                      {detail.data.description && <Text size="sm">{detail.data.description}</Text>}
+                      {progress && (
+                        <Paper withBorder radius="md" p="sm">
+                          <StageActorTimeline
+                            stages={progress.stages}
+                            actors={actorsForWorkflow(actors.data?.workflows, [progress.workflowType, String(detail.data?.request_type || detail.data?.requestType || '')])}
+                            people={people}
+                            whoDid={who}
+                            actorsLoading={actors.isLoading}
+                            title="Request progress"
+                            help={{
+                              title: 'Request progress',
+                              points: [
+                                'These are the steps of this request, the same kind of list a job uses.',
+                                'A short request may only be asked, then decided. A longer one continues to fulfilment.',
+                                'The person named for a step gets it in their inbox.',
+                              ],
+                            }}
+                          />
+                        </Paper>
+                      )}
+                    </Stack>
                   </Tabs.Panel>
-                  <Tabs.Panel value="history" pt="md">
+                  <Tabs.Panel value="history" pt="xs">
                     {trail && <JobAuditTrailPanel trail={trail} compact embedded />}
                     {activeSelection?.source === 'contact' && (
                       <Paper withBorder p="sm">
@@ -405,26 +638,6 @@ export default function OrganisationRequests() {
                     )}
                   </Tabs.Panel>
                 </Tabs>
-                {activeSelection?.source === 'platform' && (
-                  <RecordActions
-                    kind="request"
-                    id={activeSelection.id}
-                    canCancel={['draft', 'submitted', 'in_review'].includes(String(detail.data.status || ''))}
-                    onCancelled={() => {
-                      setSelected(null)
-                      void list.refetch()
-                    }}
-                  />
-                )}
-                {['submitted', 'pending', 'in_review', 'approved', 'in_fulfilment'].includes(detail.data.status) && (
-                  <Button
-                    onClick={() =>
-                      router.push(`/inbox?filter=requests&request=${encodeURIComponent(activeSelection!.id)}`)
-                    }
-                  >
-                    Review in Inbox
-                  </Button>
-                )}
               </>
             )}
           </Stack>

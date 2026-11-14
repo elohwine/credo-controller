@@ -17,6 +17,8 @@
 import type { WorkflowActionContext } from '../ActionRegistry'
 
 import { rootLogger } from '../../../utils/pinoLogger'
+import { orgBrandService, vatOf, type OrgVat } from '../../OrgBrandService'
+import { isTaxExempt } from '../../documentFacts'
 
 const logger = rootLogger.child({ module: 'FinanceActions' })
 
@@ -27,15 +29,27 @@ export class FinanceActions {
    * Config:
    * - taxRate: number (percentage)
    * - taxInclusive: boolean
+   * - taxExempt: boolean (never charge VAT, whatever the organisation set)
    * - discount: number (fixed amount) or string (percentage "10%")
+   *
+   * A rate on the request wins, then a non-zero rate in the step config, then the organisation's
+   * VAT from its brand settings (with its "prices include VAT" choice). School fees are exempt.
+   * With no line items the request amount is the single line, so a job billed by amount gets VAT too.
    */
   static async calculateInvoice(context: WorkflowActionContext, config: any = {}) {
     const items = context.input.items || []
-    const taxRate = config.taxRate || context.input.taxRate || 0
-    const taxInclusive = config.taxInclusive ?? context.input.taxInclusive ?? false
+    const requestedRate = Number(context.input.taxRate) || Number(config.taxRate) || 0
+    const orgVat =
+      requestedRate > 0 || config.taxExempt || isTaxExempt({ workflowType: context.workflowType })
+        ? undefined
+        : FinanceActions.organisationVat(context.tenantId)
+    const taxRate = requestedRate || orgVat?.rate || 0
+    const taxInclusive = orgVat
+      ? orgVat.included
+      : (config.taxInclusive ?? context.input.taxInclusive ?? false)
     const discountConfig = config.discount || context.input.discount || 0
 
-    logger.info({ itemsCount: items.length, taxRate, taxInclusive }, 'Calculating invoice')
+    logger.info({ itemsCount: items.length, taxRate, taxInclusive, orgVat: Boolean(orgVat) }, 'Calculating invoice')
 
     let subtotal = 0
     const lineItems = items.map((item: any) => {
@@ -43,6 +57,8 @@ export class FinanceActions {
       subtotal += lineTotal
       return { ...item, lineTotal }
     })
+    const amountOnly = Number(context.input.amount)
+    if (!lineItems.length && orgVat && Number.isFinite(amountOnly) && amountOnly > 0) subtotal = amountOnly
 
     // Calculate Discount
     let discountAmount = 0
@@ -81,10 +97,21 @@ export class FinanceActions {
       subtotal,
       discountAmount,
       taxAmount,
+      taxRate,
+      taxIncluded: Boolean(taxInclusive),
       grandTotal,
       currency: context.input.currency || 'USD',
     }
 
     logger.info({ subtotal, discountAmount, taxAmount, grandTotal }, 'Invoice calculation complete')
+  }
+
+  private static organisationVat(tenantId?: string): OrgVat | undefined {
+    if (!tenantId || tenantId === 'default') return undefined
+    try {
+      return vatOf(orgBrandService.current(tenantId))
+    } catch {
+      return undefined
+    }
   }
 }

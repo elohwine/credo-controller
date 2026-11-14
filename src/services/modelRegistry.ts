@@ -75,7 +75,14 @@ export async function seedPlatformCredentialDefinitions(rootIssuerDid: string): 
           registeredAt: { type: 'string', format: 'date-time' },
           platformTenantId: { type: 'string', description: 'Linked tenant ID on platform' },
           platformName: { type: 'string', description: 'Platform issuer name' },
-          verificationLevel: { type: 'string', enum: ['unverified', 'phone_verified', 'kyc_verified'] },
+          verificationLevel: { type: 'string', enum: ['unverified', 'phone_verified', 'email_verified', 'kyc_verified'] },
+          dateOfBirth: { type: 'string', format: 'date', description: 'Self-attested or registry-confirmed; absent until then' },
+          over18: { type: 'string', enum: ['Yes', 'No'], description: 'Derived from dateOfBirth; its own SD-JWT disclosure' },
+          identityVerification: {
+            type: 'string',
+            enum: ['self_attested', 'registry_confirmed'],
+            description: 'How dateOfBirth got onto this card',
+          },
         },
       },
     },
@@ -735,6 +742,7 @@ export const WORKFLOW_RECORD_SCHEMAS: Record<string, Record<string, any>> = {
   ExecutionAckVC: openRecordSchema('ExecutionAckVC'),
   QuoteVC: openRecordSchema('QuoteVC'),
   PaymentReceiptVC: openRecordSchema('PaymentReceiptVC'),
+  RemittanceAdviceVC: openRecordSchema('RemittanceAdviceVC'),
   DeliveryProofVC: openRecordSchema('DeliveryProofVC'),
   PayslipVC: openRecordSchema('PayslipVC'),
 }

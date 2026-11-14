@@ -66,6 +66,61 @@ what crossed that boundary, such as an authority card, externally shared invoice
 receipt or payment receipt. The credential is evidence for that event; it is not the payable,
 receivable, authorization decision or general ledger.
 
+### Which steps ask for a wallet share (2026-10-30)
+
+A share screen (the card, the claims it reveals, "I agree") is shown only where one of three things
+is true. Everything else is a signed-in step decided by the server (`AuthorizationService`,
+`stepAssuranceFor`), with no share screen.
+
+1. **There is no session yet.** The share *is* the sign-in: wallet login, phone sign-in, partner
+   sign-in, the optional "Enter with a staff card" org entry, a contact check. The server turns the
+   verified share into a session; it never uses the presentation itself as the permission for later
+   calls (OpenID4VP issue 695).
+2. **Someone else must check later who acted.** Job sign-off, a supplier's payment proof, the
+   remittance advice, resolving a dispute. The share is evidence that crosses an organisation's
+   boundary (see the paragraph above).
+3. **Money leaves.** Paying a worker for a job and releasing funds for a purchase. The card signs the
+   amount and the job (`transaction_data`, OpenID4VP 1.0 §8.4), the same "what you see is what you
+   sign" link PSD2 RTS Art. 5 asks of a payment confirmation.
+
+Approving a purchase, payment, expense claim or salary advance offers the card and requires it only above the organisation's
+amount (`cardRequiredAbove`): step-up for higher-impact actions (NIST SP 800-63-4) and a
+low-value exemption in the spirit of PSD2 RTS Art. 16. Asking for a share where nothing is
+checked is consent theatre: it trains people to tap "I agree" without reading (consent and
+warning fatigue), so a share the server does not verify is either verified or removed.
+
+| Step | What it needs | Key |
+|---|---|---|
+| Wallet login, phone sign-in, partner sign-in, contact check | Share, verified, becomes a session | `wallet_login`, `partner_sign_in`, `contact_check` |
+| Enter an organisation | Session; staff card optional | `organization_entry` |
+| Job sign-off | Share, always | `field_ack` |
+| Pay a worker for a job | Share, always, signs amount and job | `field_payout` |
+| Job checkpoints, evidence, inspection | Session | — |
+| A custom workflow step set to "needs proof" | Share (the template author's choice; `requireProof` defaults to true) | step's own key |
+| Approve a purchase or payment | Session; card offered; card required above the org's amount or when set to "always" | `requisition_approval` |
+| Approve an expense claim or salary advance | Same as a purchase approval (money is committed); checked against the step itself | `stage:approve_request` (assurance from `requisition_approval`) |
+| Any request approval the organisation marked "needs the staff card" (Settings → Who approves requests) | Share, always | the step's key; the usual approver of a purchase or payment keeps `requisition_approval` |
+| Finance as a later approval (from an amount up) | "Needs the staff card" is switched on when finance is added; the organisation can turn it off | `stage:finance_approve_requisition` |
+| Release funds for a purchase | Share, always, verified before money moves | `requisition_release` |
+| Confirm a purchase was delivered / mark a purchase order delivered | Session | `requisition_ack` |
+| Mark a payment request paid | Session | `payment_record` |
+| Supplier bill: payment proof, record payment, remittance, resolve a dispute | Share, always | `ap_workflow_proof` |
+| Supplier bill: issue the receipt | Session (the receipt itself is the record that crosses over) | — |
+| Leave and general requests | Session, unless the organisation marked the approval "needs the staff card" | — |
+
+Every request step reads one rule (`PlatformRequestService.cardRuleFor`): the transition guard, the
+decision the apps show (`staffCard`, `cardRequired`) and the share the wallet answers. The share
+screen is the job sign-off one on both apps: the step, the request and its amount (signed as
+`transaction_data`, with the currency), who is asking, what the card reveals and keeps back, and
+"I agree". A marked request step asks for that flow's staff card (the person Who does what names,
+including the organisation's main approver), not the platform identity card.
+
+Sources: OpenID for Verifiable Presentations 1.0 §8.4 (transaction data); EUDI ARF OIA_05–07 and
+RPA_10a (show the relying party and the attributes, ask approval, allow selective disclosure,
+approve all or none); W3C VC Data Model 2.0 privacy considerations and the VC implementation guide
+on data minimisation; NIST SP 800-63-4 (assurance proportional to impact); PSD2 RTS Arts. 5 and 16;
+"Don't Annoy Me With Privacy Decisions" (IEEE Access, 2023) on consent fatigue.
+
 ## Holder/user centricity
 
 The primary user experience is the user's action queue:
@@ -145,6 +200,93 @@ Client-supplied `organizationId`, `tenantId`, `personId` or similar identifiers 
 The platform should use standards-native metadata and protocol endpoints so that a credential can move between issuer, holder and verifier implementations without requiring Credentis-specific wallet APIs.
 
 Business modules must depend on an SSI abstraction such as `CredentialReference`, `VerificationResult`, `PresentationRequest` and `AuthorityDecision`, rather than on a particular JWT/JSON-LD/SD-JWT representation.
+
+## Personal data, custody and recovery (2026-11-04)
+
+This is the answer to the question a regulator asks: what personal data the platform holds, where a person's wallet actually lives, and what happens when a phone is lost. It describes the code as it is. It is not a claim that the platform stores nothing.
+
+### What "user-centric" means here, and what it does not
+
+The person holds the claims that are about them — name, phone number, date of birth — inside their own card, and they choose what to show. A public check of a record answers about the record (the job, the amount, the organisation, whether it is still valid). It does not answer about the person.
+
+The keys that sign those cards are not on the phone. They are in one server-side wallet store (Askar), one profile per person, opened with a single `WALLET_KEY`. The phone holds a separate device key in the Android keystore, used to sign in with fingerprint or face and to confirm a payment. It does not hold the card-signing key. This is a custodial wallet: the platform can open the person's wallet because the platform holds the key. That is a real choice, and it is the opposite of the European Digital Identity Wallet rule that the person has sole control of their keys and that those keys are not extractable (EUDI Architecture and Reference Framework 2.4, wallet provider responsibility and the Wallet Secure Cryptographic Device; https://eu-digital-identity-wallet.github.io/eudi-doc-architecture-and-reference-framework/2.4.0/architecture-and-reference-framework-main/).
+
+### What is stored, and in what form
+
+Looked up by a keyed hash, never the value itself (`ssi_users`):
+
+- Phone number and email address: HMAC-SHA256 under `CONTACT_HASH_PEPPER` (`src/services/ssi/contactHash.ts`). A plain SHA-256 of a Zimbabwean mobile number is not a pseudonym. The number is `2637` plus seven digits, so hashing every possible number recovers the real one in under a second. A keyed hash has no such shortcut. Accounts opened before this change still hold the old open digest until the person next signs in, which is the moment the number is in hand and the row is rewritten. `contact_hash_version` marks which rows are done (migration 147).
+- PIN: a slow per-account hash (scrypt, its own salt) in `pin_hash` (`src/services/ssi/pinHash.ts`). The older form was one SHA-256 over a salt shared by every account, which a stolen database reverses for every PIN at once. An old PIN still signs in, and is replaced with the slow hash on that sign-in. Five wrong PINs against one account lock it for 15 minutes. There is no forgotten-PIN reset. Changing a PIN needs a device the person has already enrolled.
+
+Kept because a message, a bill or a team list cannot be sent without it. These are plaintext, on purpose, and they are the personal data the platform does process:
+
+- `org_contacts` — the name and phone number an organisation saved for its own team or a client.
+- `payment_links.payer_phone`, `ack_payments.payer_phone`, `ar_payment_plans` payer name, phone and email — who a bill was sent to, so a receipt can be matched and sent again.
+- `notification_preferences.phone` and `notification_deliveries.recipient` — the number a person asked to be reached on.
+- `member_invites.proposed_name` — the name the organisation suggested, which the person confirms or replaces.
+- `audit_logs.ip_address` and `user_agent` — the organisation's own security log. An IP address is personal data. It is not on a public page. There is no retention limit on these rows yet. The application log (`src/utils/pinoLogger.ts`) drops a name, phone, email, PIN or date of birth when a service passes one under those field names. The historical log file on disk was not re-read for this review.
+
+Not kept:
+
+- The issued-card register (`issued_credentials.credential_data`) used to hold the whole card, including name, phone, date of birth, photos and notes, and `GET /api/verify/{id}` (no sign-in) handed those claims to anyone who had the reference. From migration 145 the register keeps the card's type, dates and standing, plus a SHA-256 digest of the document as issued, and drops the person's own claims. The public answer is an allow-list (`src/services/ssi/publicRecordClaims.ts`): a claim is shown only when it names the work, the money or the organisation. A claim the allow-list does not recognise is withheld.
+- The public check log (`vc_verifications`) used to store the caller's IP address and browser, and its history page returned them. It now stores a short salted hash of the address (migration 146). The history page no longer returns it.
+- `ssi_users` does not hold a name, a date of birth or a national id.
+
+A guest checkout keeps the phone encrypted for 24 hours (`temp_phone_links`, AES-256-CBC under `PII_ENCRYPTION_KEY`) so the person can claim that session when they sign up. Expired rows are skipped on read. Nothing deletes them on a schedule, so an expired encrypted phone can sit until the next cleanup.
+
+In production the server refuses to start if `CONTACT_HASH_PEPPER`, `PIN_SALT`, `PII_ENCRYPTION_KEY`, `JWT_SECRET` or `WALLET_KEY` is missing. A default written in the source is a published value, and this repository's env files were committed once (`docs/SECRETS_ROTATION.md`). Local development still runs on the documented development values and says so in the log.
+
+### Backup and a lost phone
+
+There is no recovery phrase, no seed export, and no encrypted backup file the person can download. `scripts/backup.sh` copies the operational database and the wallet store into a tar and keeps the last seven. The wallet file is still protected by `WALLET_KEY`. The database file is not encrypted, so a backup is a copy of the contacts, the bills and the keyed hashes. The config file in that tar has its secrets removed; the database does not. The phone screen that talks about "Backup & Recovery" (`SyncDialog`) calls `/api/ssi/auth/sync`, and that endpoint does not exist. The component is not used by any screen.
+
+Recovery works because the wallet is on the server. A person who loses the phone signs in on another phone with the same number and PIN, then enrols that phone (`device_keys`, confirmed with the PIN) and can revoke the lost one. Cards, receipts and staff cards are still there, because they were never only on the device. The lost phone's existing session stays valid until it expires or the PIN is changed, which is the one action that ends other sessions.
+
+What the phone does keep locally is a cache: the session token, the person's name and number, and a copy of card claims for offline use (`credoOffline.v1`). In the browser that cache is plain. On the Android app it is encrypted with a key that is stored beside it, and Android backup is set to exclude the app's data. Clearing the phone does not delete the account.
+
+Deleting an account is not self-service. The privacy notice tells the person to write to the operator. An administrator can delete a tenant, which removes that wallet profile and does not by itself remove the account row, the contacts, the bills or the register.
+
+This is the custodial end of the range other systems use:
+
+- The EUDI Wallet's migration object records which cards the person held and who issued them, and must not contain the attribute values or the private keys. A lost phone is recovered by revoking the old wallet and having each issuer issue the cards again (CIR 2024/2979 discussion of export, requirements Mig_01 to Mig_05; https://eudi.dev/2.0.0/discussion-topics/n-export-and-data-portability/). Technical specification TS10 describes the same file as password-protected, with device-bound cards re-issued rather than copied (https://github.com/eu-digital-identity-wallet/eudi-doc-standards-and-technical-specifications/blob/main/docs/technical-specifications/ts10-data-portability-and-download-(export).md).
+- Microsoft Entra Verified ID keeps the credential in the person's Authenticator app. Backup is an export protected by an 11-word passphrase, or the issuer issues the credential again (https://aka.ms/VerifiedIDFAQ, "Can a user back up a Microsoft Entra Verified ID credential?").
+- Hyperledger Indy's own privacy note is that keys and personal data stay at the edge, and the ledger holds schemas, credential definitions and revocation state, not the credential (https://www.lfdecentralizedtrust.org/blog/2018/09/12/privacy-by-design-in-hyperledger-indy).
+- walt.id's mobile wallet keeps credentials in an encrypted database on the phone and signing keys in the Android keystore or the iOS keychain (https://docs.walt.id/community-stack/mobile-wallet/security). Recovery is a secret handed to a recovery provider; on iOS a Secure Enclave key cannot be restored onto another phone, so the choice is a non-exportable key or a recoverable software key (https://docs.walt.id/community-stack/mobile-wallet/backup-and-recovery). ISO/IEC 18013-5, the mobile driving licence, is one of the formats that wallet presents in person, with only the requested claims leaving the device (https://docs.walt.id/wallet).
+- Dock's Cloud Wallet is a backup held by the issuer's operator, encrypted with a key from the person's biometric, and Dock's description says the server cannot read the unlocked wallet (https://www.dock.io/post/introducing-credential-recovery-ensuring-seamless-access-to-your-digital-credentials-anywhere). That claim depends on the biometric provider and was not re-tested here.
+- Trinsic moved the other way: from a wallet that lived only on the device to a custodial wallet in their cloud, so a product can keep working when the phone is gone (https://trinsic-docs-pr-tm-docs-migration.netlify.app/learn/migrate/). That is the same shape Credentis has now.
+
+Credentis today is closer to a bank's card vault than to those three: the operator can restore the wallet because the operator holds it. Moving to the EUDI shape — keys on the device, recovery by re-issuance, a migration file with no attribute values — is a product change, not a configuration change. Until that change, the honest description is custodial, and the controls that matter are the single wallet key, who can read the database, and the PIN lock.
+
+### A shared ledger, if one is added
+
+A future Hyperledger Fabric (or Fabric X) network is a shared log between organisations. It is not a second copy of the database. The rule, which matches both Indy and the European Data Protection Board's Guidelines 02/2025 on blockchain (paragraphs 50–52 and 102–104; https://www.edpb.europa.eu/system/files/2026-07/edpb_guidelines_202502_blockchain_v2_en.pdf):
+
+- On the ledger: a credential's reference, its type, its status (valid, withdrawn), and a hash of the document as issued. Nothing that names a person.
+- Never on the ledger: a name, a phone number, an email address, a date of birth, a national id, a photograph, a note, a plaintext credential, or a hash of any of those that was computed without a secret key. The Board's point is that a hash or an encrypted copy written on a chain is still personal data, and a chain that cannot be edited cannot honour a request to delete it. Technical impossibility is not a defence. So the personal data stays off the chain, where it can be deleted, and the chain keeps only what is still true after that deletion: "this reference was issued, and it has been withdrawn."
+- The same register the platform already keeps (`issued_credentials`, redacted, with `credential_digest`) is the off-chain record. The ledger would publish the digest and the status, not a new copy of the card.
+
+### A public transaction explorer does not fit (2026-11-05)
+
+Bitcoin and Ethereum explorers (Blockchain.com, Etherscan and the rest) list every transfer: the two addresses, the amount, the time, and the links from one transfer to the next. That page exists because those networks can only agree on the next block if every participant can see every transfer. An address is a pseudonym, not anonymity. Grouping addresses that spent together routinely ties them back to one holder (Möser and Narayanan, "Resurrecting Address Clustering in Bitcoin", 2021, https://arxiv.org/abs/2107.05749). The European Data Protection Board treats a public key, a wallet address and the other traces on a chain as personal data when they can identify someone with extra information (Guidelines 02/2025 consultation report, the note added at paragraph 30; https://www.edpb.europa.eu/system/files/2026-07/edpbreport_publicconsultaton_guidelines_blockchain_202502_en.pdf).
+
+Credentis payments are not that. A school fee, a wage and a job bill are between named people. A page that listed them, even with the names taken off, would still show the organisation, the amount and the time, which is often enough to tell who it was. Publishing that list would also fight the minimisation rule already in force (section 7 of the Cyber and Data Protection Act): the platform does not need the world to see every payment in order to move the money.
+
+What already covers the honest part of the idea:
+
+| Who is asking | What they can open | What they cannot do |
+| --- | --- | --- |
+| Anyone who already has a record reference | "Check a record" (`GET /api/verify/{id}`, the same panel on both apps). Standing, type, issuer, and the allow-listed work, money and organisation fields. | Search by person, phone or organisation. There is no list of recent records. |
+| Anyone who was sent a pay link | The bill at `GET /api/public/pay/{code}`, including the payer's name on that bill, because the link is the bill. | Browse other people's bills. The code is the permission. |
+| A signed-in owner or auditor | `GET /api/audit/logs` for their own organisation. | Read another organisation's log. |
+| The person | "Your activity": what they shared, with whom, and when. | See someone else's activity. |
+
+A shared-ledger explorer, if Fabric is added, may look up one reference and show its type, status, digest and time. It may not offer "latest transactions", a search by name, or a search by organisation. The check page above is that explorer. A second one would only repeat it, or it would start listing people.
+
+### The duties this has to meet
+
+Zimbabwe's Cyber and Data Protection Act [Chapter 12:07] (Act No. 5 of 2021) makes POTRAZ the Data Protection Authority. The text POTRAZ publishes (https://www.potraz.gov.zw/wp-content/uploads/2022/02/Data-Protection-Act-5-of-2021.pdf) requires, among other things: data that is adequate, relevant and not excessive, and not kept identifiable for longer than necessary (section 7); consent for non-sensitive data, with listed exceptions (section 10); a higher bar for sensitive data and written consent for biometric, genetic and health data (sections 11 and 12); security measures matched to the data and the risk (section 18); notice to the Authority within 24 hours of a breach (section 19); notice to the Authority before automated processing (section 20); and no transfer out of Zimbabwe unless the destination protects the data adequately or a listed condition applies (section 28). The 2024 licensing regulations (SI 155 of 2024, https://www.potraz.gov.zw/wp-content/uploads/2025/02/sI-155-of-2024-Cyber-and-Data-Protection-Normal_240913_1250178.pdf) add a licence for controllers who decide what is collected and process it commercially, a data protection officer for a licensed controller, and, for a breach likely to harm people, notice to those people within 72 hours (regulation 17). POTRAZ's own breach note repeats the 24-hour notice and the DP3 form (https://potraz.zw/wp-content/uploads/2026/03/Data-Breach-Notification-an-handling-final.pdf).
+
+Two consequences for this platform, stated as engineering facts rather than legal advice. First, the plaintext list above is the processing that has to be notified: contacts, bills, and the numbers people asked to be reached on. The keyed hashes are still personal data for as long as the pepper exists, because the pepper makes them reversible to someone who holds both; they stop being linkable to a person only if the pepper is destroyed. Second, a ledger that cannot be edited must not be where any of that data is written.
 
 ## Implementation consequence
 

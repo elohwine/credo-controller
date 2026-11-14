@@ -59,7 +59,7 @@ describe('phone sign-in account selection', () => {
   test('does not treat a payment enrollment as a login enrollment', () => {
     storage.delete('credentisLoginDevicesV1')
     storage.set('credentisDeviceKeyId', 'payment-device')
-    expect(() => deviceTrust.deviceLoginWalletId()).toThrow('Payment enrollment alone')
+    expect(() => deviceTrust.deviceLoginWalletId()).toThrow('Fingerprint for money alone')
     expect(deviceTrust.supportsDeviceLogin()).toBe(true)
   })
 
@@ -67,7 +67,7 @@ describe('phone sign-in account selection', () => {
     expect(deviceTrust.hasLocalLoginKey('device-a')).toBe(true)
     keys.clear()
     expect(deviceTrust.hasLocalLoginKey('device-a')).toBe(false)
-    expect(() => deviceTrust.deviceLoginWalletId()).toThrow('No sign-in key')
+    expect(() => deviceTrust.deviceLoginWalletId()).toThrow('Sign-in with this phone is not on yet')
   })
 
   test('server records on other devices do not imply a local key', () => {

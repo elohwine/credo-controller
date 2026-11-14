@@ -71,7 +71,7 @@ export function deviceLoginWalletId(): string {
   if (devices.length > 1) {
     throw new Error('Sign in with your account PIN once to choose which enrolled account to use on this phone.')
   }
-  throw new Error('No sign-in key was found for this app. Sign in with your account PIN, then enroll under Account security. Payment enrollment alone does not enable phone sign-in.')
+  throw new Error('Sign-in with this phone is not on yet. Sign in with your PIN, then turn it on in Settings, Sign-in and security. Fingerprint for money alone does not sign you in.')
 }
 
 export function supportsDeviceLogin(): boolean {
@@ -140,7 +140,7 @@ export async function prepareDeviceAuthorization(input: DeviceAuthorizationInput
   const walletId = input.walletId || rememberedWalletId()
   const native = bridge()
   const device = loginDevices().find((item) => item.walletId === walletId && native?.hasKey?.(item.alias))
-  if (!device) throw new Error('Use your account PIN, then enroll this phone under Account security.')
+  if (!device) throw new Error('Sign in with your PIN, then turn on sign-in with this phone in Settings, Sign-in and security.')
   const challenge = await api.post('/api/wallet/auth/device-login/start', {
     deviceKeyId: device.deviceKeyId, purpose: input.purpose,
     authorizationRequest: input.authorizationRequest, newPin: input.newPin,

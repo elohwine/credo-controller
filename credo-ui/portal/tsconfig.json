@@ -16,7 +16,9 @@
     "incremental": true,
     "paths": {
       "react": ["./node_modules/@types/react/index.d.ts"],
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "country-flag-icons/react/3x2": ["./node_modules/country-flag-icons/react/3x2/index.js"],
+      "libphonenumber-js/min/metadata": ["./node_modules/libphonenumber-js/metadata.min.json.js"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],

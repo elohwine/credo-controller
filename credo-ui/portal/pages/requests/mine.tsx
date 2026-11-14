@@ -6,13 +6,16 @@ import {
 import { IconBuilding, IconChevronRight, IconFileText, IconRefresh } from '@tabler/icons-react'
 import Link from 'next/link'
 import Layout from '@/components/Layout'
+import JobDepositPanel from '@/components/requests/JobDepositPanel'
 import JobAuditTrailPanel from '@/components/workflows/JobAuditTrailPanel'
 import { StageActorTimeline } from '@/components/finance/StageActorTimeline'
-import { assertRequestDetail, requestExperienceForRow, requestWhoDid, type RequestExperience } from '../../../shared/requestExperience'
+import { assertRequestDetail, requestExperienceForRow, requestStageNames, type RequestExperience } from '../../../shared/requestExperience'
 import { trailFromRequest } from '@/components/finance/jobAuditTrail'
 import { getPersonalToken } from '@/utils/organizationContext'
 import { formatTxnTime } from '@/lib/inboxAttention'
 import { requestKindLabel, requestKindLine, requestListBucket, requestStatusWords } from '@/lib/requestCatalog'
+import { acceptedPriceLine } from '../../../shared/acceptPrice'
+import { bookedJobStageWords, bookedJobWords, readBookedJob, type BookedJobProgress } from '../../../shared/bookedJob'
 
 const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
 
@@ -32,6 +35,8 @@ interface MyRequestRow {
   createdAt: string
   declineReason?: string
   experience?: RequestExperience
+  /** Set when the request booked a job at the organisation. */
+  job?: BookedJobProgress
 }
 
 function toOrgRow(request: any): MyRequestRow {
@@ -60,17 +65,31 @@ function toBusinessRow(request: any): MyRequestRow {
     source: 'business',
     kind: String(request.requestType || ''),
     title,
-    line: requestKindLabel(request.requestType),
+    line: [String(payload.serviceName || requestKindLabel(request.requestType)), acceptedPriceLine(payload)].filter(Boolean).join(' · '),
     orgName: String(request.targetOrgName || request.contactName || 'Organisation'),
     orgTenantId: request.targetOrgTenantId ? String(request.targetOrgTenantId) : undefined,
     status: String(request.status || 'pending'),
     createdAt: String(request.createdAt || new Date().toISOString()),
     declineReason: request.rejectionReason ? String(request.rejectionReason) : undefined,
+    experience: request.experience,
+    job: readBookedJob(request.job),
   }
 }
 
+function rowStatus(row: MyRequestRow): { label: string; color: string } {
+  return row.job ? bookedJobWords(row.job, row.orgName) : requestStatusWords(row.status)
+}
+
+function rowBucket(row: MyRequestRow): 'waiting' | 'done' | 'closed' {
+  if (row.job) {
+    const words = bookedJobWords(row.job, row.orgName)
+    return !words.done ? 'waiting' : words.label === 'Cancelled' ? 'closed' : 'done'
+  }
+  return requestListBucket(row.kind, row.status)
+}
+
 function RequestCard({ row, onClick }: { row: MyRequestRow; onClick: () => void }) {
-  const status = requestStatusWords(row.status)
+  const status = rowStatus(row)
   return (
     <Paper component="button" type="button" p="md" radius="md" withBorder onClick={onClick} style={{ cursor: 'pointer', width: '100%', textAlign: 'left' }}>
       <Group wrap="nowrap">
@@ -164,11 +183,14 @@ export default function MyRequestsPage() {
 
   const trail = useMemo(() => (detail && selected?.source === 'org' ? trailFromRequest(detail, Array.isArray(detail.people) ? detail.people : []) : null), [detail, selected?.source])
   const progress = selected ? requestExperienceForRow(detail || selected) : null
-  const whoDid = selected ? requestWhoDid(detail || selected, Array.isArray(detail?.people) ? detail.people : []) : {}
+  const whoDid = selected
+    ? requestStageNames(detail || selected, Array.isArray(detail?.people) ? detail.people : [], detail?.parties)
+    : {}
 
-  const open = rows.filter((row) => requestListBucket(row.kind, row.status) === 'waiting')
-  const done = rows.filter((row) => requestListBucket(row.kind, row.status) === 'done')
-  const other = rows.filter((row) => requestListBucket(row.kind, row.status) === 'closed')
+  const open = rows.filter((row) => rowBucket(row) === 'waiting')
+  const done = rows.filter((row) => rowBucket(row) === 'done')
+  const other = rows.filter((row) => rowBucket(row) === 'closed')
+  const selectedJob = selected?.source === 'business' ? readBookedJob(detail?.job) || selected.job : undefined
 
   const section = (label: string, list: MyRequestRow[], divider: boolean) =>
     list.length > 0 && (
@@ -239,12 +261,15 @@ export default function MyRequestsPage() {
         {selected && (
           <Stack gap="md">
             <Group gap="xs">
-              <Badge variant="light" color={requestStatusWords(selected.status).color}>{requestStatusWords(selected.status).label}</Badge>
+              <Badge variant="light" color={rowStatus({ ...selected, job: selectedJob }).color}>{rowStatus({ ...selected, job: selectedJob }).label}</Badge>
               <Text size="sm" c="dimmed">{selected.orgName}</Text>
             </Group>
             {selected.line && <Text size="sm">{selected.line}</Text>}
             {selected.declineReason && <Text size="sm" c="red">Declined: {selected.declineReason}</Text>}
             {detail?.description && <Text size="sm">{detail.description}</Text>}
+            {selected.source === 'business' && getPersonalToken() ? (
+              <JobDepositPanel requestId={selected.id} token={getPersonalToken()!} audience="customer" />
+            ) : null}
             {detailLoading && <Group justify="center"><Loader size="sm" /></Group>}
             {detailError && <Alert color="red">{detailError}</Alert>}
             {!detailLoading && !detailError && progress && (
@@ -256,7 +281,22 @@ export default function MyRequestsPage() {
                 ] }} />
             )}
             {selected.source === 'org' && trail && <JobAuditTrailPanel trail={trail} compact embedded />}
-            {selected.source === 'business' && (
+            {selectedJob && (
+              <Paper withBorder radius="md" p="sm">
+                <Stack gap={6}>
+                  <Text fw={600} size="sm">Your job</Text>
+                  <Text size="sm">{bookedJobWords(selectedJob, selected.orgName).line}</Text>
+                  {selectedJob.history.length > 0 && <Divider />}
+                  {selectedJob.history.map((entry, index) => (
+                    <Group key={`${entry.stage}:${index}`} justify="space-between" wrap="nowrap">
+                      <Text size="xs">{bookedJobStageWords(entry.stage)}</Text>
+                      <Text size="xs" c="dimmed">{entry.at ? formatTxnTime(entry.at) : ''}</Text>
+                    </Group>
+                  ))}
+                </Stack>
+              </Paper>
+            )}
+            {selected.source === 'business' && !selectedJob && (
               <Text size="sm" c="dimmed">
                 {requestListBucket(selected.kind, selected.status) === 'waiting'
                   ? 'The organisation has it. Their answer arrives in your inbox.'

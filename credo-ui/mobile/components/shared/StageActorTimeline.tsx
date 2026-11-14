@@ -18,6 +18,65 @@ import {
   type JobStageView,
 } from '@/lib/uxCopy'
 
+/** Phone twin of the website StageNowCard: the waiting step, who acts, and their buttons. */
+export function StageNowCard({
+  stages,
+  actors,
+  people,
+  assigneeName,
+  hasAssignee,
+  whoDid,
+  actorsLoading = false,
+  idleText = 'Nothing is waiting on anyone right now.',
+  children,
+}: {
+  stages: JobStageView[]
+  actors?: JobActorStage[]
+  people?: JobStagePerson[]
+  assigneeName?: string
+  hasAssignee?: boolean
+  whoDid?: Record<string, string>
+  /** "Who does what" is still loading: leave the line out rather than say nobody is chosen. */
+  actorsLoading?: boolean
+  idleText?: string
+  children?: React.ReactNode
+}) {
+  const stage = stages.find((item) => item.status === 'held') || stages.find((item) => item.status === 'active')
+  const allDone = stages.length > 0 && stages.every((item) => item.status === 'done' || item.status === 'skipped')
+  const actor = stage ? actorForStage(actors, stage.stageAction) : undefined
+  const actual = stage ? whoDid?.[stage.key] : undefined
+  const who = stage
+    ? actual || (stage.stageAction && !actorsLoading ? actorDisplay(actor, { people, stageAction: stage.stageAction, assigneeName, hasAssignee }) : undefined)
+    : undefined
+  const needsSomeone = Boolean(stage) && !actual && Boolean(stage?.stageAction) && actorNeedsAssignment(actor)
+  const index = stage ? stages.indexOf(stage) + 1 : 0
+
+  return (
+    <Paper withBorder radius="md" p="sm" data-testid="stage-now-card" style={{ borderColor: stage?.status === 'held' ? 'var(--mantine-color-orange-4)' : undefined }}>
+      <Stack gap={6}>
+        <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+          {stage ? `Now · step ${index} of ${stages.length}` : allDone ? 'All steps done' : 'Now'}
+        </Text>
+        {stage ? (
+          <>
+            <Text fw={700}>{stage.label}</Text>
+            {stage.note && <Text size="sm" c={stage.status === 'held' ? 'orange' : 'dimmed'}>{stage.note}</Text>}
+            {who && (
+              <Group gap={6} wrap="nowrap">
+                <IconUser size={14} />
+                <Text size="sm" c={needsSomeone ? 'orange' : undefined}>Who: {who}</Text>
+              </Group>
+            )}
+          </>
+        ) : (
+          <Text size="sm" c="dimmed">{allDone ? 'Every step on this is finished.' : idleText}</Text>
+        )}
+        {children}
+      </Stack>
+    </Paper>
+  )
+}
+
 /** Phone twin of the website Progress list. */
 export function StageActorTimeline({
   stages,
@@ -26,12 +85,15 @@ export function StageActorTimeline({
   assigneeName,
   hasAssignee,
   whoDid,
+  actorsLoading = false,
   media,
   links,
   title = 'Progress',
   help,
 }: {
   stages: JobStageView[]
+  /** "Who does what" is still loading: leave the line out rather than say nobody is chosen. */
+  actorsLoading?: boolean
   /** Header above the steps. Pass a count ("Progress (2 of 5 steps done)") when the page has one. */
   title?: string
   help?: { title: string; points: string[] }
@@ -67,7 +129,7 @@ export function StageActorTimeline({
           const label = stage.status === 'done' ? 'Done' : stage.status === 'skipped' ? 'Skipped' : stage.status === 'held' ? 'Needs attention' : stage.status === 'active' ? 'In progress' : 'Not yet'
           const actor = actorForStage(actors, stage.stageAction)
           const actual = whoDid?.[stage.key]
-          const who = actual || (stage.stageAction
+          const who = actual || (stage.stageAction && !actorsLoading
             ? actorDisplay(actor, { people, stageAction: stage.stageAction, assigneeName, hasAssignee })
             : undefined)
           const needsSomeone =

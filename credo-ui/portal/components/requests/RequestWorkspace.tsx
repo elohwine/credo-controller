@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { feedback } from '@/lib/feedback'
+import JobDepositPanel from '@/components/requests/JobDepositPanel'
 import { milestone } from '@/components/feedback/Milestone'
 import { LottiePlayer } from '@/components/feedback/LottiePlayer'
 import axios from 'axios'
@@ -33,7 +34,7 @@ import {
   Title,
   UnstyledButton,
 } from '@mantine/core'
-import { IconActivity, IconAlertCircle, IconArrowRight, IconCash, IconChevronRight, IconInbox, IconListDetails, IconReceipt, IconRefresh, IconShieldCheck, IconId, IconUserHeart, IconUsers } from '@tabler/icons-react'
+import { IconActivity, IconAlertCircle, IconArrowRight, IconCash, IconChevronRight, IconFileText, IconHistory, IconInbox, IconListDetails, IconReceipt, IconReceipt2, IconRefresh, IconShieldCheck, IconId, IconUserHeart, IconUsers } from '@tabler/icons-react'
 import {
   getOrgScopedToken,
   getPersonalToken,
@@ -44,13 +45,15 @@ import {
 } from '@/utils/organizationContext'
 import { beginPortalTask, endPortalTask, getPortalTask, openOrgSwitcher, readPortalContext } from '@/lib/portalContext'
 import { captureOrganizationSwitchContext } from '../../../shared/taskContext'
+import { PRICE_CURRENCIES, acceptPriceBody, acceptPriceNeed, type AcceptPriceNeed } from '../../../shared/acceptPrice'
 import { announceInboxChanged } from '../../../shared/guides'
 import { UnreadCount } from '../../../shared/UnreadCount'
+import { detailTabsFor, requestMovesMoney } from '../../../shared/detailTabs'
 import { CARD_TARGET_ATTR, celebrateSaved } from '../../../shared/cardMotion'
 import { familyLinks, requestEventLinks } from '../../../shared/relatedWork'
 import { assertRequestDetail, requestExperienceForRow, requestIdFromStageCard, type RequestExperience } from '../../../shared/requestExperience'
 import { requestFamily } from '../../../../src/config/requestExperience'
-import { STAFF_CARD_APPROVE_LABEL, type RequestDecisionView } from '../../../shared/requestDecision'
+import { requestDecisionBlockText, STAFF_CARD_APPROVE_LABEL, type RequestDecisionView } from '../../../shared/requestDecision'
 import StageProofModal from '@/components/workflows/StageProofModal'
 import RecordActions from '@/components/shared/RecordActions'
 import { readOrgProfile } from '@/utils/orgProfile'
@@ -79,8 +82,9 @@ import BottomSheet from '@/components/shared/BottomSheet'
 import { FamilyStrip, RelatedWorkLinks, useRelatedWorkNavigation } from '@/components/workflows/JobHandoffsPanel'
 import JobAuditTrailPanel from '@/components/workflows/JobAuditTrailPanel'
 import RequestSheet from '@/components/requests/RequestSheet'
-import { DetailStatusCard, type DetailTimelineItem, WorkflowDetailBody, type WorkflowDetailSection } from '@/components/finance/WorkflowDetailBody'
-import { StageActorTimeline } from '@/components/finance/StageActorTimeline'
+import { DetailStatusCard, DetailTimelineList, type DetailTimelineItem, WorkflowDetailBody, type WorkflowDetailSection } from '@/components/finance/WorkflowDetailBody'
+import { StageActorTimeline, StageNowCard } from '@/components/finance/StageActorTimeline'
+import { requestStageNames } from '../../../shared/requestExperience'
 import {
   actorsForWorkflow,
   requisitionStages,
@@ -127,10 +131,15 @@ interface RequestRow {
   submitted_at?: string
   submittedAt?: string
   context_json?: string
+  org_tenant_id?: string
+  orgTenantId?: string
   __source?: 'platform' | 'workflow_request'
+  /** Opened from an inbox card. Kept when the detail payload replaces the card context. */
+  inboxCard?: boolean
   workflowRequestId?: string
   workflowRequestContext?: 'personal' | 'org'
   decision?: RequestDecisionView
+  parties?: { requesterName?: string; reviewName?: string; fulfilmentName?: string }
   /** Mirrors PlatformRequestService.RequestNextStep: what an approved request still needs. */
   nextStep?: {
     toStatus: 'completed'
@@ -642,6 +651,7 @@ function mapPurchaseStageCardToRow(card: StageCardApiRow): RequestRow | null {
     createdAt: cardActivityAt(card),
     updatedAt: cardActivityAt(card),
     context_json: JSON.stringify({ ownerOrgTenantId, workflowType: claims.workflowType, source: 'workflow_stage_card' }),
+    inboxCard: true,
     family: partOf
       ? {
           partOfLine: partOf,
@@ -726,8 +736,12 @@ function mapWorkflowRequestToRow(item: WorkflowRequestApiRow, workflowRequestCon
 
   const requestType = item.requestType || 'workflow_request'
   const workflowType = item.workflowType || 'workflow'
+  const payloadTitle = String((payload as any).title || '').trim()
+  const payloadDescription = String((payload as any).description || '').trim()
 
-  const title = requisitionId
+  const title = payloadTitle
+    ? payloadTitle
+    : requisitionId
     ? `Requisition approval ${requisitionId}`
     : workflowRunId
       ? `Field execution ${workflowRunId}`
@@ -737,7 +751,7 @@ function mapWorkflowRequestToRow(item: WorkflowRequestApiRow, workflowRequestCon
 
   const description = workflowStage || requiredAction
     ? `Waiting on ${String(workflowStage || requiredAction).replace(/_/g, ' ')}`
-    : 'Waiting for a decision'
+    : payloadDescription || 'Waiting for a decision'
 
   return {
     id: `wr:${workflowRequestContext}:${item.id}`,
@@ -760,6 +774,11 @@ function mapWorkflowRequestToRow(item: WorkflowRequestApiRow, workflowRequestCon
       workflowRunId,
       offerUri,
       source: 'workflow_request',
+      offeringKey: (payload as any).offeringKey || null,
+      totalAmount: (payload as any).totalAmount ?? null,
+      currency: (payload as any).currency || null,
+      priceNote: (payload as any).priceNote || null,
+      description: (payload as any).description || null,
     }),
     __source: 'workflow_request',
     workflowRequestId: item.id,
@@ -825,6 +844,16 @@ function isDecidablePlatformRequest(row: RequestRow): boolean {
   const status = String(normalizeStatus(row.status))
   if (!['submitted', 'in_review'].includes(status)) return false
   return !normalizeRequestType(row).toLowerCase().includes('ecommerce')
+}
+
+/**
+ * A request card in the inbox. Its steps, history and decision live in the organisation's
+ * Requests screen, so the inbox shows the step and asks to switch first, the same as a job card.
+ */
+function isInboxRequestCard(row: RequestRow | null): boolean {
+  if (!row || row.__source !== 'platform') return false
+  if (String(row.id || '').startsWith('rq:')) return false
+  return (row.inboxCard || isStageCardRow(row)) && !row.nextStep
 }
 
 function isActionableStatus(status?: string) {
@@ -949,6 +978,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
   const [orgProfile, setOrgProfile] = useState<ReturnType<typeof readOrgProfile>>(null)
   const [activeWorkflowTemplateId, setActiveWorkflowTemplateId] = useState<string | null>(null)
   const [actorReports, setActorReports] = useState<WorkflowActorReport[]>([])
+  const [actorsLoading, setActorsLoading] = useState(true)
   const [orgMembers, setOrgMembers] = useState<StagePerson[]>([])
   const [items, setItems] = useState<RequestRow[]>([])
   const [selectedRequest, setSelectedRequest] = useState<RequestRow | null>(null)
@@ -1451,7 +1481,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
   /** Organization that owns a row: from the request itself, else the session's organization for org-sourced rows. */
   const ownerOrgFor = (row: RequestRow): string => {
     const context = parseRequestContext(row) as Record<string, unknown>
-    const fromRow = String(context.ownerOrgTenantId || '').trim()
+    const fromRow = String(context.ownerOrgTenantId || row.org_tenant_id || row.orgTenantId || '').trim()
     if (fromRow) return fromRow
     return row.workflowRequestContext === 'org' ? orgTenantId : ''
   }
@@ -1494,6 +1524,24 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
       orgName: organizationNameFor(owner) || (owner === orgTenantId && orgName ? orgName : owner),
       href,
       purpose: purposeFor(routing),
+    })
+  }
+
+  /** Open a request card in its organisation's Requests screen; ask to switch first when needed. */
+  const openRequestInOwnerOrg = (row: RequestRow) => {
+    const href = `/requests?request=${encodeURIComponent(row.id)}`
+    const owner = ownerOrgFor(row)
+    if (!owner || isActingAsOrganization(owner)) {
+      if (owner && mode === 'inbox') beginPortalTask(owner, href)
+      setSelectedRequest(null)
+      void router.push(href)
+      return
+    }
+    setOrgSwitchPrompt({
+      orgTenantId: owner,
+      orgName: organizationNameFor(owner) || (owner === orgTenantId && orgName ? orgName : owner),
+      href,
+      purpose: 'request',
     })
   }
 
@@ -1768,7 +1816,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
     const token = orgToken || getPersonalToken()
     if (!token) return
     const path = orgToken ? `/api/platform/requests/${encodeURIComponent(selectedRequest.id)}`
-      : `/api/platform/requests/mine/${encodeURIComponent(selectedRequest.id)}`
+      : `/api/platform/requests/for-me/${encodeURIComponent(selectedRequest.id)}`
     const assertCurrent = captureOrganizationSwitchContext(localStorage)
     let cancelled = false
     setDetailLoading(true)
@@ -1776,7 +1824,20 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
       .then((res) => {
         if (cancelled || !assertCurrent.isCurrent()) return
         assertRequestDetail(res.data, selectedRequest.id)
-        setSelectedRequest({ ...selectedRequest, ...(res.data as RequestRow), __source: 'platform' })
+        const incoming = res.data as RequestRow
+        const cardContext = parseRequestContext(selectedRequest)
+        const detailContext = parseRequestContext(incoming)
+        setSelectedRequest({
+          ...selectedRequest,
+          ...incoming,
+          __source: 'platform',
+          inboxCard: selectedRequest.inboxCard,
+          context_json: JSON.stringify({
+            ...detailContext,
+            ...cardContext,
+            ownerOrgTenantId: cardContext.ownerOrgTenantId || detailContext.ownerOrgTenantId || incoming.org_tenant_id || incoming.orgTenantId,
+          }),
+        })
       })
       .catch((error) => {
         if (!cancelled && assertCurrent.isCurrent()) {
@@ -1865,7 +1926,44 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
     }
   }
 
-  const callWorkflowRequestDecision = async (workflowRequestId: string, action: 'approve' | 'reject') => {
+  const [pricing, setPricing] = useState<
+    { workflowRequestId: string; need: AcceptPriceNeed; amount: number | string; currency: string; note: string } | null
+  >(null)
+  const [pricingBusy, setPricingBusy] = useState(false)
+
+  const approveWorkflowRequest = (row: RequestRow, workflowRequestId: string) => {
+    const need = acceptPriceNeed(parseRequestContext(row))
+    if (need) {
+      setPricing({ workflowRequestId, need, amount: need.amount ?? '', currency: need.currency, note: need.note })
+      return
+    }
+    void callWorkflowRequestDecision(workflowRequestId, 'approve')
+    setSelectedRequest(null)
+  }
+
+  const confirmPricedApproval = async () => {
+    if (!pricing) return
+    let extra: Record<string, unknown>
+    try {
+      extra = acceptPriceBody(pricing)
+    } catch (err: any) {
+      feedback.error(err?.message || 'Enter the price.', { title: 'Price needed' })
+      return
+    }
+    setPricingBusy(true)
+    const ok = await callWorkflowRequestDecision(pricing.workflowRequestId, 'approve', extra)
+    setPricingBusy(false)
+    if (ok) {
+      setPricing(null)
+      setSelectedRequest(null)
+    }
+  }
+
+  const callWorkflowRequestDecision = async (
+    workflowRequestId: string,
+    action: 'approve' | 'reject',
+    extra: Record<string, unknown> = {},
+  ): Promise<boolean> => {
     const row = items.find((entry) => entry.workflowRequestId === workflowRequestId)
     const workflowContext = row?.workflowRequestContext || 'org'
     const token = workflowContext === 'personal' ? getPersonalToken() : getOrgScopedToken()
@@ -1876,7 +1974,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
           ? 'Personal wallet token is required for delegated inbox actions. Sign in to wallet first.'
           : 'Organization token is required for org inbox actions. Switch to the organization context first.',
       )
-      return
+      return false
     }
 
     try {
@@ -1886,15 +1984,17 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
         : `${baseUrl}/${action}`
       const body = action === 'reject'
         ? { reason: 'Rejected from portal inbox' }
-        : { executeWorkflow: true }
+        : { executeWorkflow: true, ...extra }
 
       await axios.put(url, body, { headers: { Authorization: `Bearer ${token}` } })
 
       if (action === 'approve') milestone.show({ kind: 'request_approved', title: 'Approved' })
       else feedback.info('The request was declined.', { title: 'Declined' })
       await loadRequests(null, false)
+      return true
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || `Failed to ${action} workflow request`)
+      return false
     }
   }
 
@@ -1962,6 +2062,24 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
       selectedRequest.__source === 'workflow_request' ? 'Came in through the inbox' : 'Raised for this organisation',
     ]
     : []
+  const selectedWhoDid: Record<string, string> | undefined = selectedRequest
+    ? {
+              ...requestStageNames(
+                selectedRequest,
+                selectedRequest.people || orgMembers,
+                {
+                  ...(selectedRequest.parties || {}),
+                  reviewName: selectedRequest.parties?.reviewName || selectedRequest.decision?.actorLabel,
+                },
+              ),
+              ...Object.fromEntries(selectedProgress.stages.flatMap((stage) => {
+                const actorUserId = 'actorUserId' in stage ? stage.actorUserId : undefined
+                if (typeof actorUserId !== 'string') return []
+                const member = (selectedRequest.people || orgMembers).find((person) => person.userId === actorUserId)
+                return member?.displayName ? [[stage.key, member.displayName]] : []
+              })),
+            }
+    : undefined
   const selectedReplaces = selectedRequest ? offerReplacement(selectedContext) : undefined
   const selectedDetailSections: WorkflowDetailSection[] = selectedRequest
     ? [
@@ -1984,12 +2102,8 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
             title={`Progress (${selectedSsiIssuedCount} of ${selectedProgress.stages.length} steps done)`}
             stages={selectedProgress.stages}
             actors={actorsForWorkflow(actorReports, selectedProgress.hints)}
-            whoDid={Object.fromEntries(selectedProgress.stages.flatMap((stage) => {
-              const actorUserId = 'actorUserId' in stage ? stage.actorUserId : undefined
-              if (typeof actorUserId !== 'string') return []
-              const member = (selectedRequest.people || orgMembers).find((person) => person.userId === actorUserId)
-              return member?.displayName ? [[stage.key, member.displayName]] : []
-            }))}
+            actorsLoading={actorsLoading}
+            whoDid={selectedWhoDid}
             people={selectedRequest.people || orgMembers}
           />
         ),
@@ -1999,6 +2113,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
   const loadWorkflowActors = async (orgId: string) => {
     const token = getOrgScopedToken() || getPersonalToken()
     if (!token) return
+    setActorsLoading(true)
     try {
       const res = await axios.get(`${backendUrl}/api/organizations/${encodeURIComponent(orgId)}/workflows/actors`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -2008,6 +2123,8 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
     } catch {
       setActorReports([])
       setOrgMembers([])
+    } finally {
+      setActorsLoading(false)
     }
   }
 
@@ -2017,6 +2134,8 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
     if (orgTenantId) {
       void loadOrganizationWorkflows()
       void loadWorkflowActors(orgTenantId)
+    } else {
+      setActorsLoading(false)
     }
     void loadRequests(null, false)
   }, [orgTenantId])
@@ -2076,9 +2195,17 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
       )}
       {isDecidablePlatformRequest(row) && (
         <>
-          <Button size="xs" onClick={() => { void decidePlatformRequest(row, 'approve'); closeDetails?.() }}>Approve</Button>
+          {!row.decision?.cardRequired && (
+            <Button size="xs" onClick={() => { void decidePlatformRequest(row, 'approve'); closeDetails?.() }}>Approve</Button>
+          )}
           {row.decision?.staffCard && row.decision?.canApprove !== false && (
-            <Button size="xs" variant="outline" leftSection={<IconId size={14} />} onClick={() => { void approveWithStaffCard(row); closeDetails?.() }}>
+            <Button
+              size="xs"
+              variant={row.decision?.cardRequired ? 'filled' : 'outline'}
+              leftSection={<IconId size={14} />}
+              title={row.decision?.cardRequired ? 'This step needs your staff card' : undefined}
+              onClick={() => { void approveWithStaffCard(row); closeDetails?.() }}
+            >
               {STAFF_CARD_APPROVE_LABEL}
             </Button>
           )}
@@ -2185,7 +2312,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
           <Group justify="space-between" align="center" wrap="wrap">
             <Text size="sm">
               {mode === 'inbox'
-                ? 'Showing your personal activity. Switch into an organization to see its inbox and act on its requests.'
+                ? 'Steps waiting for you from every organisation you belong to. Open one to see it; you are asked before switching to that organisation to decide it.'
                 : 'Organizational requests are only available in an organization context. Switch into one, or onboard a new organization.'}
             </Text>
             <Group gap="xs">
@@ -2603,120 +2730,187 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
               <Badge color={statusColor(normalizeStatus(selectedRequest.status))}>{statusLabel(normalizeStatus(selectedRequest.status))}</Badge>
               <Badge variant="outline">{selectedRequest.priority || 'normal'}</Badge>
             </Group>
-            <WorkflowDetailBody
-              statusCard={(
-                <DetailStatusCard
-                  status={prettifyValue(String(normalizeStatus(selectedRequest.status)))}
-                  amount={selectedRequest.amount}
-                  currency={selectedRequest.currency}
-                  lines={selectedStatusLines.map((text) => ({ text }))}
-                />
+            {getOrgScopedToken() && (selectedRequest.workflowRequestId || selectedLegacyWorkflowRequestId) ? (
+              <JobDepositPanel
+                requestId={selectedRequest.workflowRequestId || selectedLegacyWorkflowRequestId}
+                token={getOrgScopedToken()!}
+                audience="business"
+              />
+            ) : null}
+
+            {mode === 'inbox' && isInboxRequestCard(selectedRequest) ? (() => {
+              const stages = selectedProgress.stages.filter((stage) => stage.status !== 'skipped')
+              const index = stages.findIndex((stage) => stage.status === 'active')
+              const current = index >= 0 ? stages[index] : undefined
+              const owner = ownerOrgFor(selectedRequest)
+              const forOrg = (owner && organizationNameFor(owner)) || (owner === orgTenantId ? orgName : '')
+              const decision = selectedRequest.decision
+              const blocked = decision && !decision.canApprove && !decision.canReject
+              return (
+                <Stack gap="sm">
+                  <Paper withBorder radius="md" p="sm">
+                    <Stack gap={4}>
+                      {current && (
+                        <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                          This step · {index + 1} of {stages.length}
+                        </Text>
+                      )}
+                      {current && <Text fw={500}>{current.label}</Text>}
+                      {current && selectedWhoDid?.[current.key] && <Text size="sm">Who: {selectedWhoDid[current.key]}</Text>}
+                      {selectedRequest.parties?.requesterName && <Text size="sm">Asked by {selectedRequest.parties.requesterName}</Text>}
+                      {selectedRequest.description && <Text size="sm" c="dimmed" lineClamp={3}>{selectedRequest.description}</Text>}
+                      {forOrg && <Text size="xs" c="dimmed">You act for {forOrg} on this request.</Text>}
+                      <Text size="xs" c="dimmed">
+                        {current
+                          ? 'Open the request to see every step, what is done and who each step waits on.'
+                          : 'Open the request to see every step and its history.'}
+                      </Text>
+                    </Stack>
+                  </Paper>
+                  {blocked && <Alert color="blue" variant="light">{requestDecisionBlockText(decision)}</Alert>}
+                  <Button leftSection={<IconFileText size={16} />} onClick={() => openRequestInOwnerOrg(selectedRequest)}>
+                    {isDecidablePlatformRequest(selectedRequest) && !blocked ? 'Review and decide' : 'Open request'}
+                  </Button>
+                </Stack>
+              )
+            })() : (<>
+            {/* Same order as a job: the step waiting now, who acts and their buttons, then the tabs. */}
+            <StageNowCard
+              stages={selectedProgress.stages}
+              actors={actorsForWorkflow(actorReports, selectedProgress.hints)}
+              actorsLoading={actorsLoading}
+              people={selectedRequest.people || orgMembers}
+              whoDid={selectedWhoDid}
+              idleText="Nothing to do on this request right now."
+            >
+              {selectedIsLegacyWorkflowItem && !isStageCardRow(selectedRequest) && (
+                <Group grow>
+                  <Button
+                    onClick={() => {
+                      if (!selectedLegacyWorkflowRequestId) return
+                      approveWorkflowRequest(selectedRequest, selectedLegacyWorkflowRequestId)
+                    }}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    variant="light"
+                    color="red"
+                    onClick={() => {
+                      if (!selectedLegacyWorkflowRequestId) return
+                      void callWorkflowRequestDecision(selectedLegacyWorkflowRequestId, 'reject')
+                      setSelectedRequest(null)
+                    }}
+                  >
+                    Reject
+                  </Button>
+                </Group>
               )}
-              sections={selectedDetailSections}
-              auditItems={selectedTimelineItems}
-              auditEmptyText="No audit timeline yet."
-              showHistory={!Array.isArray(selectedRequest.events)}
-            />
-            {detailLoading && <Text size="sm" c="dimmed">Loading recorded history...</Text>}
-            {detailError && <Alert color="orange">{detailError}</Alert>}
-            {Array.isArray(selectedRequest.events) && (
-              <JobAuditTrailPanel trail={trailFromRequest(selectedRequest, selectedRequest.people || orgMembers)} compact embedded />
-            )}
-
-            {familyChain(selectedRequest.family).length > 0 && (
-              <Paper p="md" radius="md" withBorder>
-                <FamilyStrip
-                  chain={familyChain(selectedRequest.family)}
-                  holdLine={selectedRequest.family?.holdLine}
-                  onOpen={(member) => {
-                    openRelatedWork(member, familyLinks(selectedRequest.family, selectedRequest.id))
-                  }}
-                />
-              </Paper>
-            )}
-
-            {(selectedIsLegacyWorkflowItem || selectedIsRequisitionLike || selectedIsFieldLike || selectedIsPaymentLike) && (
-              <Stack gap="xs">
-                {familyChain(selectedRequest.family).length === 0 && <Paper p="md" radius="md" withBorder>
-                  <Group justify="space-between" align="center">
-                    <Text size="xs" c="dimmed" fw={600}>WORKFLOW ROUTING</Text>
-                    <Badge variant="light" color={selectedRequest?.workflowRequestContext === 'personal' ? 'blue' : 'teal'}>
-                      {selectedRequest?.workflowRequestContext === 'personal' ? 'Delegated approval' : 'Org inbound approval'}
-                    </Badge>
-                  </Group>
-                  <Text size="sm" mt={8}>
-                    Action required: {getRoutingActionLabel(selectedRouting)}.
-                  </Text>
-                </Paper>}
-
-                {familyChain(selectedRequest.family).length === 0 && (selectedWorkflowType || selectedWorkflowStage || selectedRequiredAction) && (
-                  <Paper p="md" radius="md" withBorder>
-                    <Text size="xs" c="dimmed" fw={600} mb={8}>FLOW MARKERS</Text>
-                    <Group gap="xs" wrap="wrap">
-                      {selectedWorkflowType && <Badge variant="outline">{selectedWorkflowType}</Badge>}
-                      {selectedWorkflowStage && <Badge variant="outline">{selectedWorkflowStage.replace(/_/g, ' ')}</Badge>}
-                      {selectedRequiredAction && <Badge variant="outline">{selectedRequiredAction.replace(/_/g, ' ')}</Badge>}
-                    </Group>
-                  </Paper>
-                )}
-
-                {selectedRouting.mode === 'requisition' && selectedRequisitionId ? (
-                  <Paper p="md" radius="md" withBorder>
-                    <Text size="xs" c="dimmed" fw={600}>REQUISITION FLOW</Text>
-                    <Text size="sm" mt={8}>
-                      Requisition lifecycle details are shown in this panel. Use the action controls above (approval/lifecycle) for the next step.
-                    </Text>
-                  </Paper>
-                ) : selectedRouting.mode === 'field' && selectedWorkflowRunId ? (
-                  <Button onClick={() => openInOwnerOrg(selectedRequest, selectedRouting)}>
+              {(selectedIsLegacyWorkflowItem || selectedIsRequisitionLike || selectedIsFieldLike || selectedIsPaymentLike) && workflowStepOf(selectedRequest) && (
+                <Button
+                  variant="default"
+                  leftSection={<IconId size={16} />}
+                  onClick={() => void approveWithStaffCard(selectedRequest)}
+                >
+                  {STAFF_CARD_APPROVE_LABEL}
+                </Button>
+              )}
+              {!selectedIsLegacyWorkflowItem && (
+                <Group gap="xs" wrap="wrap">
+                  {platformRequestActions(selectedRequest, () => setSelectedRequest(null))}
+                </Group>
+              )}
+              {(selectedIsLegacyWorkflowItem || selectedIsRequisitionLike || selectedIsFieldLike || selectedIsPaymentLike) && (
+                selectedRouting.mode === 'field' && selectedWorkflowRunId ? (
+                  <Button variant="light" onClick={() => openInOwnerOrg(selectedRequest, selectedRouting)}>
                     Open job
                   </Button>
                 ) : selectedRouting.mode === 'ap' && selectedTransactionId ? (
-                  <Button onClick={() => openInOwnerOrg(selectedRequest, selectedRouting)}>
+                  <Button variant="light" onClick={() => openInOwnerOrg(selectedRequest, selectedRouting)}>
                     Open payment
                   </Button>
                 ) : selectedRouting.mode === 'ar' && selectedTransactionId ? (
-                  <Button onClick={() => openInOwnerOrg(selectedRequest, selectedRouting)}>
+                  <Button variant="light" onClick={() => openInOwnerOrg(selectedRequest, selectedRouting)}>
                     Open collection
                   </Button>
-                ) : null}
+                ) : null
+              )}
+            </StageNowCard>
 
-                {workflowStepOf(selectedRequest) && (
-                  <Button
-                    variant="default"
-                    leftSection={<IconId size={16} />}
-                    onClick={() => void approveWithStaffCard(selectedRequest)}
+            {detailLoading && <Text size="sm" c="dimmed">Loading recorded history...</Text>}
+            {detailError && <Alert color="orange">{detailError}</Alert>}
+
+            <Tabs key={selectedRequest.id} defaultValue="details">
+              <Tabs.List mb="md">
+                {detailTabsFor({
+                  movesMoney: requestMovesMoney(normalizeRequestType(selectedRequest), selectedRequest.amount),
+                  receipts: selectedRequest.receipt ? 1 : 0,
+                  panels: ['details', 'receipts', 'history'],
+                }).map((item) => (
+                  <Tabs.Tab
+                    key={item.key}
+                    value={item.key}
+                    leftSection={item.key === 'receipts' ? <IconReceipt2 size={16} /> : item.key === 'history' ? <IconHistory size={16} /> : <IconFileText size={16} />}
                   >
-                    {STAFF_CARD_APPROVE_LABEL}
-                  </Button>
-                )}
+                    {item.label}
+                  </Tabs.Tab>
+                ))}
+              </Tabs.List>
 
-                {selectedIsLegacyWorkflowItem && !isStageCardRow(selectedRequest) ? (
-                  <Group grow>
-                    <Button
-                      onClick={() => {
-                        if (!selectedLegacyWorkflowRequestId) return
-                        void callWorkflowRequestDecision(selectedLegacyWorkflowRequestId, 'approve')
-                        setSelectedRequest(null)
-                      }}
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      variant="light"
-                      color="red"
-                      onClick={() => {
-                        if (!selectedLegacyWorkflowRequestId) return
-                        void callWorkflowRequestDecision(selectedLegacyWorkflowRequestId, 'reject')
-                        setSelectedRequest(null)
-                      }}
-                    >
-                      Reject
-                    </Button>
-                  </Group>
-                ) : null}
+              <Tabs.Panel value="details">
+                <Stack gap="md">
+                  <WorkflowDetailBody
+                    statusCard={(
+                      <DetailStatusCard
+                        status={prettifyValue(String(normalizeStatus(selectedRequest.status)))}
+                        amount={selectedRequest.amount}
+                        currency={selectedRequest.currency}
+                        lines={selectedStatusLines.map((text) => ({ text }))}
+                      />
+                    )}
+                    sections={selectedDetailSections}
+                    auditItems={selectedTimelineItems}
+                    auditEmptyText="No audit timeline yet."
+                    showHistory={false}
+                  />
 
-                {selectedRequest.receipt && (
+                  {familyChain(selectedRequest.family).length > 0 && (
+                    <Paper p="md" radius="md" withBorder>
+                      <FamilyStrip
+                        chain={familyChain(selectedRequest.family)}
+                        holdLine={selectedRequest.family?.holdLine}
+                        onOpen={(member) => {
+                          openRelatedWork(member, familyLinks(selectedRequest.family, selectedRequest.id))
+                        }}
+                      />
+                    </Paper>
+                  )}
+
+                  {(selectedIsLegacyWorkflowItem || selectedIsRequisitionLike || selectedIsFieldLike || selectedIsPaymentLike) && familyChain(selectedRequest.family).length === 0 && (
+                    <Paper p="md" radius="md" withBorder>
+                      <Group justify="space-between" align="center">
+                        <Text size="xs" c="dimmed" fw={600}>WORKFLOW ROUTING</Text>
+                        <Badge variant="light" color={selectedRequest?.workflowRequestContext === 'personal' ? 'blue' : 'teal'}>
+                          {selectedRequest?.workflowRequestContext === 'personal' ? 'Delegated approval' : 'Org inbound approval'}
+                        </Badge>
+                      </Group>
+                      <Text size="sm" mt={8}>
+                        Action required: {getRoutingActionLabel(selectedRouting)}.
+                      </Text>
+                      {(selectedWorkflowType || selectedWorkflowStage || selectedRequiredAction) && (
+                        <Group gap="xs" wrap="wrap" mt={8}>
+                          {selectedWorkflowType && <Badge variant="outline">{selectedWorkflowType}</Badge>}
+                          {selectedWorkflowStage && <Badge variant="outline">{selectedWorkflowStage.replace(/_/g, ' ')}</Badge>}
+                          {selectedRequiredAction && <Badge variant="outline">{selectedRequiredAction.replace(/_/g, ' ')}</Badge>}
+                        </Group>
+                      )}
+                    </Paper>
+                  )}
+                </Stack>
+              </Tabs.Panel>
+
+              <Tabs.Panel value="receipts">
+                {selectedRequest.receipt ? (
                   <Paper p="md" radius="md" withBorder>
                     <Text size="xs" c="dimmed" fw={600} mb={8}>RECEIPT</Text>
                     <Group gap="sm" wrap="nowrap" align="center">
@@ -2735,21 +2929,59 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
                       </Stack>
                     </Group>
                   </Paper>
+                ) : (
+                  <Text size="sm" c="dimmed">No receipt recorded on this request yet.</Text>
                 )}
+              </Tabs.Panel>
 
-              </Stack>
-            )}
-            {!selectedIsLegacyWorkflowItem && (
-              <Group grow>
-                {platformRequestActions(selectedRequest, () => setSelectedRequest(null))}
-                {!selectedRequest.nextStep && !['draft', 'submitted', 'in_review'].includes(String(normalizeStatus(selectedRequest.status))) && (
-                  <Text size="sm" c="dimmed">Nothing to do on this request right now.</Text>
+              <Tabs.Panel value="history">
+                {Array.isArray(selectedRequest.events) ? (
+                  <JobAuditTrailPanel trail={trailFromRequest(selectedRequest, selectedRequest.people || orgMembers)} compact embedded />
+                ) : (
+                  <DetailTimelineList items={selectedTimelineItems} emptyText="No audit timeline yet." loading={detailLoading} />
                 )}
-              </Group>
-            )}
+              </Tabs.Panel>
+            </Tabs>
+            </>)}
           </Stack>
         )}
       </BottomSheet>
+
+      <Modal opened={Boolean(pricing)} onClose={() => setPricing(null)} title={pricing?.need.title || 'Price'} centered>
+        {pricing && (
+          <Stack gap="sm">
+            <Text size="sm" c="dimmed">{pricing.need.hint}</Text>
+            <Group grow>
+              <NumberInput
+                label="Amount"
+                min={0}
+                decimalScale={2}
+                value={pricing.amount}
+                onChange={(value) => setPricing({ ...pricing, amount: value ?? '' })}
+                required
+                data-autofocus
+              />
+              <Select
+                label="Currency"
+                data={PRICE_CURRENCIES}
+                value={pricing.currency}
+                onChange={(value) => setPricing({ ...pricing, currency: value || 'USD' })}
+              />
+            </Group>
+            <TextInput
+              label={pricing.need.document === 'quote' ? 'What the quote covers' : 'What the bill is for'}
+              value={pricing.note}
+              onChange={(event) => setPricing({ ...pricing, note: event.currentTarget.value })}
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setPricing(null)}>Cancel</Button>
+              <Button loading={pricingBusy} onClick={() => void confirmPricedApproval()}>
+                Accept and send {pricing.need.document}
+              </Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
 
       <Modal opened={Boolean(finishing)} onClose={() => setFinishing(null)} title={finishing?.nextStep?.label || 'Finish'} centered>
         {finishing?.nextStep && (

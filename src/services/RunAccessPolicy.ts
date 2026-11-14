@@ -197,6 +197,7 @@ export function assertRunResume(user: { id?: string; tenantId?: string } | undef
   // like a job sign-off; a plain confirmation stays with the person named for the step.
   const gate = stageGateOf(state)
   if (gate) {
+    if (gate.requestId) throw new StatusException('This step is decided on its request. Open the request to decide it.', 409)
     if (gate.requireProof) throw new StatusException('Complete this step through its wallet proof.', 403)
     if (
       orgWorkflowActorService.mayAct({

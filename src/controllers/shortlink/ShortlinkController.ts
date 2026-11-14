@@ -2,6 +2,7 @@
 import { Body, Controller, Get, Path, Post, Route, Tags, Query, Produces, Response } from 'tsoa'
 
 import { DatabaseManager } from '../../persistence/DatabaseManager'
+import { ReconciliationService } from '../../services/ReconciliationService'
 import { ShortlinkService } from '../../services/ShortlinkService'
 
 interface CreateShortlinkRequest {
@@ -174,16 +175,16 @@ export class VerificationPageController extends Controller {
       return { success: false, message: 'Link expired or invalid' }
     }
 
-    // Mark shortlink as used
     ShortlinkService.markUsed(code)
-
-    // TODO: Emit escrow.release signal when escrow module is wired
-    // For now, just log and return success
-    console.log(`[DELIVERY CONFIRMED] Code: ${code}, Transaction: ${result.targetId}`)
+    const handed = new ReconciliationService().confirmHandover(result.targetId)
+    if (handed.found && !handed.ok) {
+      this.setStatus(400)
+      return { success: false, message: handed.message }
+    }
 
     return {
       success: true,
-      message: 'Delivery confirmed! Escrow release signal sent.',
+      message: handed.found ? 'Delivery confirmed' : 'Delivery confirmed! Escrow release signal sent.',
     }
   }
 

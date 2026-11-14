@@ -200,7 +200,7 @@ export default function CredentialOperationsPage() {
     <AppShellMobile>
       <Stack p="md" gap="md">
         <Group justify="space-between" align="center">
-          <Title order={3}>Credential operations</Title>
+          <Title order={3}>Manage records</Title>
           <Button size="xs" variant="light" leftSection={<IconRefresh size={15} />} onClick={() => void load()} loading={loading}>
             Refresh
           </Button>

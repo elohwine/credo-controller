@@ -12,6 +12,7 @@ import {
 } from '@tabler/icons-react'
 import { useRouter } from 'next/router'
 import { getPersonalToken } from '@/utils/organizationContext'
+import { PhoneField } from '../../../shared/PhoneField'
 import {
   EXPENSE_CATEGORIES, LEAVE_TYPES, REQUEST_GROUP_WORDS, requestGroupsIn, requestKindsFor, resendStatusWords,
   type RequestContext, type RequestKind, type RequestKindIcon, type RequestOptions, type RequestRouteKey,
@@ -58,6 +59,23 @@ interface PublicOrgSummary {
   availableServices?: number
 }
 
+/** One public service on a business page (same shape the phone's org page reads). */
+interface PublicService {
+  id: string
+  name: string
+  description?: string
+  workflowTemplateId?: string
+  requestType?: 'quote' | 'invoice' | 'service'
+  feeAmount?: number
+  feeCurrency?: string
+}
+
+const FIELD_JOB_TEMPLATES = new Set(['tpl-fept-field-execution', 'field_execution_fept'])
+
+function isFieldJobService(service: PublicService | null | undefined): boolean {
+  return Boolean(service && FIELD_JOB_TEMPLATES.has(String(service.workflowTemplateId || '')))
+}
+
 interface RequestSheetProps {
   opened: boolean
   onClose: () => void
@@ -95,6 +113,10 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
   const [businesses, setBusinesses] = useState<PublicOrgSummary[]>([])
   const [businessLoading, setBusinessLoading] = useState(false)
   const [business, setBusiness] = useState<PublicOrgSummary | null>(null)
+  const [services, setServices] = useState<PublicService[]>([])
+  const [servicesLoading, setServicesLoading] = useState(false)
+  const [service, setService] = useState<PublicService | null>(null)
+  const bookingJob = isFieldJobService(service)
 
   const walletToken = () => getPersonalToken()
 
@@ -104,6 +126,8 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
     setAskOrgFor(null)
     setForm({})
     setBusiness(null)
+    setService(null)
+    setServices([])
     setBusinessQuery('')
     const token = walletToken()
     if (!token) {
@@ -167,11 +191,27 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
     }
   }
 
+  const pickBusiness = async (org: PublicOrgSummary | null) => {
+    setBusiness(org)
+    setService(null)
+    setServices([])
+    if (!org) return
+    setServicesLoading(true)
+    try {
+      const res = await axios.get(`${backendUrl}/api/discovery/organizations/${encodeURIComponent(org.id)}/storefront`)
+      setServices(Array.isArray(res.data?.services) ? res.data.services : [])
+    } catch {
+      setServices([])
+    } finally {
+      setServicesLoading(false)
+    }
+  }
+
   const openRow = async (kind: RequestKind) => {
     if (kind.disabledLine) return
     if (kind.routeKey === 'discover') {
       setForm({})
-      setBusiness(null)
+      void pickBusiness(null)
       setActive(kind)
       void searchBusinesses('')
       return
@@ -242,17 +282,40 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
     const token = walletToken()
     if (!token) throw new Error('Sign in again to send this.')
     if (!form.text?.trim()) throw new Error('Say what you need in a sentence or two.')
-    const kind = active.id.replace('business.', '') // quote | invoice | service
+    const phone = (form.phone || '').trim()
+    const hasPhone = phone.replace(/\D/g, '').length >= 7
+    if (bookingJob && !form.location?.trim()) throw new Error('Say where the job is. An address or landmark is enough.')
+    if (bookingJob && !hasPhone) throw new Error('Add your phone number. Updates and the bill go to it, in the app and on WhatsApp.')
+    const askKind = active.id.replace('business.', '') // quote | invoice | service
+    const kind = service ? (service.requestType || 'service') : askKind
     await axios.post(
       `${backendUrl}/workflow-requests`,
       {
         targetOrgTenantId: business.tenantId || business.id,
         requesterName: form.name?.trim() || undefined,
         requestType: kind,
-        payload: { title: `${active.label} · ${business.name}`, description: form.text.trim() },
+        payload: {
+          title: service ? service.name : `${active.label} · ${business.name}`,
+          description: form.text.trim(),
+          ...(service ? { serviceId: service.id } : {}),
+          ...(hasPhone ? { customerMsisdn: phone } : {}),
+          ...(bookingJob
+            ? {
+                location: form.location!.trim(),
+                ...(form.date ? { scheduledDate: form.date } : {}),
+                bookedVia: 'app',
+              }
+            : {}),
+        },
       },
       { headers: { Authorization: `Bearer ${token}` } },
     )
+    if (bookingJob) {
+      feedback.success(`${business.name} has your job and will choose who comes. Updates come to your inbox and WhatsApp.`, { title: 'Job booked' })
+      onClose()
+      void router.push(ROUTES.my_requests)
+      return
+    }
     finish(`${business.name} has your request. Their answer arrives in your inbox.`, ROUTES.my_requests)
   }
 
@@ -289,6 +352,20 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
           context: { categoryCode: form.category || 'other', receiptRef: form.receiptRef?.trim() || undefined, merchantRef: form.merchant?.trim() || undefined },
         })
         finish('Your manager has your expense claim.', ROUTES.my_requests)
+        return
+      }
+      if (active.id === 'hr.salary_advance') {
+        const amount = Number(form.amount)
+        const months = Number(form.repaymentMonths || 1)
+        if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter how much you need.')
+        await raise(active, {
+          title: `Salary advance · ${form.currency || 'USD'} ${amount}`,
+          description: form.reason?.trim() || undefined,
+          amount,
+          currency: form.currency || 'USD',
+          context: { repaymentMonths: months },
+        })
+        finish('Your request for an advance has been sent.', ROUTES.my_requests)
         return
       }
       if (active.id === 'finance.payout_request') {
@@ -340,7 +417,7 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
           )}
           <Stack gap={6}>
             {businesses.map((org) => (
-              <UnstyledButton key={org.id} onClick={() => setBusiness(org)}>
+              <UnstyledButton key={org.id} onClick={() => void pickBusiness(org)}>
                 <Group wrap="nowrap" gap="sm" p="xs" style={{ borderRadius: 12, border: '1px solid var(--mantine-color-default-border)' }}>
                   <ThemeIcon size={38} radius="md" variant="light" color="indigo"><IconBriefcase size={20} /></ThemeIcon>
                   <Box style={{ flex: 1, minWidth: 0 }}>
@@ -357,18 +434,54 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
         <>
           <Group justify="space-between">
             <Text size="sm" c="dimmed">To {business.name}</Text>
-            <Button size="compact-xs" variant="subtle" onClick={() => setBusiness(null)}>Change</Button>
+            <Button size="compact-xs" variant="subtle" onClick={() => void pickBusiness(null)}>Change</Button>
           </Group>
+          {servicesLoading ? (
+            <Group gap="xs"><Loader size="xs" /><Text size="xs" c="dimmed">Loading what they offer…</Text></Group>
+          ) : services.length > 0 && (
+            <Select
+              label="What you want from them"
+              placeholder="Something else (describe it below)"
+              clearable
+              data={services.map((entry) => ({
+                value: entry.id,
+                label: isFieldJobService(entry) ? `${entry.name} · book a job` : entry.name,
+              }))}
+              value={service?.id || null}
+              onChange={(value) => setService(services.find((entry) => entry.id === value) || null)}
+              description={service?.description}
+            />
+          )}
           <Textarea
-            label="What you need"
-            placeholder="A sentence or two: what, how many, by when."
+            label={bookingJob ? 'What needs doing' : 'What you need'}
+            placeholder={bookingJob ? 'For example: kitchen tap leaking, needs a new washer.' : 'A sentence or two: what, how many, by when.'}
             minRows={3}
             value={form.text || ''}
             onChange={(e) => setForm({ ...form, text: e.currentTarget.value })}
             required
           />
+          {bookingJob && (
+            <>
+              <TextInput label="Where the job is" placeholder="Address or landmark" value={form.location || ''} onChange={(e) => setForm({ ...form, location: e.currentTarget.value })} required />
+              <TextInput label="When it suits you" type="date" value={form.date || ''} onChange={(e) => setForm({ ...form, date: e.currentTarget.value })} />
+            </>
+          )}
+          <PhoneField
+            surface="portal"
+            label="Your phone number"
+            description={bookingJob
+              ? 'Job updates and the bill come to this number, in the app and on WhatsApp.'
+              : 'Their answer, any bill and the receipt can also come to this number on WhatsApp.'}
+            value={form.phone || ''}
+            onChange={(phone) => setForm((prev) => ({ ...prev, phone }))}
+            required={bookingJob}
+          />
           <TextInput label="Your name, as they should see it" value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.currentTarget.value })} />
-          <Text size="xs" c="dimmed">{business.name} sees your name and what you wrote, nothing else. Their answer arrives in your inbox.</Text>
+          <Text size="xs" c="dimmed">
+            {bookingJob
+              ? `${business.name} sees your name, phone, where and what you wrote. They choose who comes; you follow the job in My requests.`
+              : `${business.name} sees your name, phone and what you wrote, nothing else. Their answer arrives in your inbox.`}
+          </Text>
         </>
       )}
     </Stack>
@@ -406,6 +519,28 @@ export default function RequestSheet({ opened, onClose, context, initialKindId }
           <Select label="Category" data={EXPENSE_CATEGORIES} value={form.category || null} onChange={(value) => setForm({ ...form, category: value || '' })} />
           <TextInput label="Where you paid (optional)" value={form.merchant || ''} onChange={(e) => setForm({ ...form, merchant: e.currentTarget.value })} />
           <TextInput label="Receipt number (optional)" value={form.receiptRef || ''} onChange={(e) => setForm({ ...form, receiptRef: e.currentTarget.value })} />
+        </Stack>
+      )
+    }
+    if (active.id === 'hr.salary_advance') {
+      return (
+        <Stack gap="sm">
+          {to && <Text size="sm" c="dimmed">{to}. Once approved, the advance is paid to you and comes off your pay.</Text>}
+          <Group grow>
+            <NumberInput label="How much" min={0} decimalScale={2} value={form.amount ? Number(form.amount) : ''} onChange={(value) => setForm({ ...form, amount: String(value ?? '') })} required />
+            <Select label="Currency" data={['USD', 'ZWG', 'ZAR']} value={form.currency || 'USD'} onChange={(value) => setForm({ ...form, currency: value || 'USD' })} />
+          </Group>
+          <Select
+            label="Pay it back over"
+            data={[
+              { value: '1', label: 'My next pay' },
+              { value: '2', label: '2 months' },
+              { value: '3', label: '3 months' },
+            ]}
+            value={form.repaymentMonths || '1'}
+            onChange={(value) => setForm({ ...form, repaymentMonths: value || '1' })}
+          />
+          <Textarea label="Reason (optional)" minRows={2} value={form.reason || ''} onChange={(e) => setForm({ ...form, reason: e.currentTarget.value })} />
         </Stack>
       )
     }

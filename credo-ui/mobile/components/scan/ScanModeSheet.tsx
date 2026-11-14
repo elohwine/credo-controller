@@ -12,10 +12,7 @@ export type ScanMode =
   | 'save-credential'
   | 'verify-presentation'
   | 'capture-evidence'
-  | 'verify-delivery'
-  | 'approve-requisition'
-  | 'release-funds'
-  | 'acknowledge-requisition';
+  | 'verify-delivery';
 
 interface ScanModeSheetProps {
   opened: boolean;
@@ -47,14 +44,6 @@ const MODES: Array<{
       color: '#16a34a',
       label: 'Verify Presentation',
       description: 'Scan a presented credential QR to verify its authenticity and approve or reject',
-      orgOnly: true,
-    },
-    {
-      id: 'approve-requisition',
-      icon: IconShieldCheck,
-      color: '#4f46e5',
-      label: 'Scan To Approve',
-      description: 'Scan the QR shown on the portal to prove authority and approve a requisition',
       orgOnly: true,
     },
     {

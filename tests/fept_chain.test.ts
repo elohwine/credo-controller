@@ -572,7 +572,7 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
     expect(state.ack?.receiverId).toBe('customer-1')
     expect(state.payment?.status).toBe('triggered')
     expect(state.receipt?.status).toBe('issued')
-    expect(state.reconciliation?.status).toBe('reconciled')
+    expect(state.reconciliation?.status).toBe('awaiting_payment')
     expect(state.workflowStage).toBe('RECONCILED')
     expect(state.notified).toBe(true)
 
@@ -622,6 +622,8 @@ describe('FEPT chain — org setup → evidence → acknowledgement → follow-o
     const paidState = runState(handoff.runId)
     expect(paidState.clientBill.status).toBe('paid')
     expect(paidState.payment).toMatchObject({ status: 'completed', reference: 'ECO-TEST-1', amount: 250 })
+    // The job stayed open for the invoice. The client's payment is what settles it.
+    expect(runState(runId).reconciliation?.status).toBe('reconciled')
 
     // The client bill shows under the job's related work, without holding the job.
     const billLink = workflowHandoffService.links(runId).find((link) => link.childId === handoff.runId)
@@ -794,6 +796,156 @@ describe('FEPT chain — follow-on workflow is skipped when the org has no payme
     expect(runState(runId).payment?.amount).toBe(25)
     expect(runState(runId).startedWorkflows?.['tpl-payment-collection']?.status).toBe('not_needed')
     expect(childRuns(runId)).toHaveLength(0)
+  })
+})
+
+describe('FEPT chain — a booked job is priced by the office, then billed', () => {
+  let org: SeededOrganization
+  let workflowId: string
+  const quick = {
+    requireSiteInspection: false,
+    requireRiskAssessment: 'false',
+    requireArrivalProof: false,
+    requireCompletionReview: false,
+    requireCustomerSignoff: false,
+  }
+
+  beforeAll(() => {
+    org = seedOrganization({ name: 'Booked Works Co' })
+    addRole(org.organizationId, 'Field Worker')
+    addRole(org.organizationId, 'Finance Manager')
+    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, userId: `worker-p-${Date.now()}`, role: 'field_worker' })
+    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, role: 'finance_manager' })
+    addPaymentService(org.orgTenantId, 'EcoCash')
+    const fept = configureFeptTemplate(org.orgTenantId, { paymentModes: ['ecocash'] })
+    configurePaymentCollectionTemplate(org.orgTenantId)
+    workflowId = ensureExecutableWorkflow(org.orgTenantId, fept.id)!.id
+  })
+
+  async function bookAndFinishWork(reference: string, extra: Record<string, unknown> = {}) {
+    const start = await workflowService.executeWorkflow(
+      workflowId,
+      { reference, amount: 0, currency: 'USD', clientName: 'Tony', customerMsisdn: '263770183277', bookedVia: 'app', ...quick, ...extra },
+      org.orgTenantId,
+    )
+    const runId = start.runId
+    await workflowService.resumeWorkflow(runId, {})
+    await workflowService.resumeWorkflow(runId, { evidenceHash: 'b1', phase: 'before', photoUri: 'b.jpg', gps: '-17.8,31.0' })
+    await workflowService.resumeWorkflow(runId, { phase: 'receipt', noReceipt: true })
+    await workflowService.resumeWorkflow(runId, { evidenceHash: 'a1', phase: 'after', photoUri: 'a.jpg', gps: '-17.8,31.0' })
+    return runId
+  }
+
+  async function settleBill(runId: string) {
+    const childId = runState(runId).startedWorkflows?.['tpl-payment-collection']?.runId
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const bill = runState(childId).clientBill
+    await paymentLinkService.settlePaid(bill.linkId, { reference: `ECO-${runId.slice(0, 6)}` })
+    return { childId, bill }
+  }
+
+  test('without a price the job waits for it instead of closing as settled, then bills the client', async () => {
+    const reference = 'BK-PRICE-1'
+    const runId = await bookAndFinishWork(reference)
+
+    expect(runStatus(runId).status).toBe('paused')
+    expect(runState(runId).pauseReason).toBe('await_job_price')
+    expect(reconciliationEvents(reference)).not.toContain('SETTLEMENT_CONFIRMED')
+    expect(reconciliationEvents(reference)).not.toContain('JOB_CLOSED')
+    const priceCards = DatabaseManager.getDatabase()
+      .prepare(`SELECT metadata FROM wallet_pending_offers WHERE source_id = ? AND resolved_at IS NULL`)
+      .all(`${runId}:price`) as Array<{ metadata: string }>
+    expect(priceCards.length).toBeGreaterThan(0)
+    expect(JSON.parse(priceCards[0].metadata).pauseReason).toBe('await_job_price')
+    await expect(workflowService.resumeWorkflow(runId, {})).rejects.toThrow(/Set the price/)
+    await expect(workflowService.setJobBilling(runId, { amount: 0 })).rejects.toThrow(/Enter the price/)
+
+    const priced = await workflowService.setJobBilling(runId, { amount: 120, paymentTerms: 'one_time' }, org.ownerUserId)
+    expect(priced.billing).toBe('billed')
+    expect(runStatus(runId).status).toBe('completed')
+    expect(runState(runId).reconciliation?.status).toBe('awaiting_payment')
+    expect(
+      DatabaseManager.getDatabase()
+        .prepare(`SELECT COUNT(*) AS n FROM wallet_pending_offers WHERE source_id = ? AND resolved_at IS NULL`)
+        .get(`${runId}:price`),
+    ).toEqual({ n: 0 })
+
+    const { bill } = await settleBill(runId)
+    expect(bill).toMatchObject({ kind: 'invoice', amount: 120 })
+    await expect(workflowService.setJobBilling(runId, { amount: 150 })).rejects.toThrow(/already with the client/)
+    expect(runState(runId).reconciliation?.status).toBe('reconciled')
+    const events = reconciliationEvents(reference)
+    expect(events.indexOf('INVOICE_ISSUED')).toBeLessThan(events.indexOf('PAYMENT_SUCCESS'))
+    expect(events).toContain('SETTLEMENT_CONFIRMED')
+
+    const { workflowAuditService } = await import('../src/services/WorkflowAuditService')
+    const audit = workflowAuditService.readRun(runId, org.orgTenantId)!.rows.map((row) => row.event)
+    expect(audit).toEqual(expect.arrayContaining(['Price set: USD 120.00, one payment', 'Client billed', 'Client paid', 'Payment reconciled']))
+  })
+
+  test('a price set before the work is finished bills at sign-off without waiting', async () => {
+    const reference = 'BK-PRICE-2'
+    const start = await workflowService.executeWorkflow(
+      workflowId,
+      { reference, amount: 0, clientName: 'Tony', customerMsisdn: '263770183277', bookedVia: 'app', ...quick },
+      org.orgTenantId,
+    )
+    const saved = await workflowService.setJobBilling(start.runId, {
+      amount: 300,
+      paymentTerms: 'instalment',
+      instalments: 3,
+      paymentCadence: 'monthly',
+    })
+    expect(saved.billing).toBe('saved')
+    await workflowService.resumeWorkflow(start.runId, {})
+    await workflowService.resumeWorkflow(start.runId, { evidenceHash: 'b1', phase: 'before', photoUri: 'b.jpg', gps: '-17.8,31.0' })
+    await workflowService.resumeWorkflow(start.runId, { phase: 'receipt', noReceipt: true })
+    await workflowService.resumeWorkflow(start.runId, { evidenceHash: 'a1', phase: 'after', photoUri: 'a.jpg', gps: '-17.8,31.0' })
+    expect(runStatus(start.runId).status).toBe('completed')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const childId = runState(start.runId).startedWorkflows?.['tpl-payment-collection']?.runId
+    expect(runState(childId).clientBill).toMatchObject({ amount: 100, paymentTerms: 'instalment', instalments: 3 })
+  })
+
+  test('"no charge" lets a waiting job finish without a bill', async () => {
+    const runId = await bookAndFinishWork('BK-PRICE-3')
+    const result = await workflowService.setJobBilling(runId, { noCharge: true })
+    expect(result.billing).toBe('no_charge')
+    expect(runStatus(runId).status).toBe('completed')
+    expect(childRuns(runId)).toHaveLength(0)
+    expect(reconciliationEvents('BK-PRICE-3')).toContain('JOB_CLOSED')
+  })
+
+  test('a job that already closed without a bill is billed now and is no longer settled', async () => {
+    const reference = 'BK-PRICE-4'
+    // Booked before this change: closed at sign-off with no amount and no bill.
+    const runId = await bookAndFinishWork(reference, { bookedVia: undefined })
+    expect(runStatus(runId).status).toBe('completed')
+    expect(runState(runId).startedWorkflows?.['tpl-payment-collection']?.status).toBe('not_needed')
+    expect(runState(runId).reconciliation?.status).toBe('reconciled')
+
+    const result = await workflowService.setJobBilling(runId, { amount: 60 })
+    expect(result.billing).toBe('billed')
+    expect(runState(runId).reconciliation?.status).toBe('awaiting_payment')
+    expect(childRuns(runId)).toHaveLength(1)
+    const { bill } = await settleBill(runId)
+    expect(bill.amount).toBe(60)
+    expect(runState(runId).reconciliation?.status).toBe('reconciled')
+    expect(reconciliationEvents(reference)).toEqual(expect.arrayContaining(['INVOICE_ISSUED', 'PAYMENT_SUCCESS']))
+  })
+
+  test('an office job with its own price never waits for one', async () => {
+    const start = await workflowService.executeWorkflow(
+      workflowId,
+      { reference: 'PO-PRICED', amount: 80, clientName: 'Acme', customerMsisdn: '263771234567', ...quick },
+      org.orgTenantId,
+    )
+    await workflowService.resumeWorkflow(start.runId, {})
+    await workflowService.resumeWorkflow(start.runId, { evidenceHash: 'b1', phase: 'before', photoUri: 'b.jpg', gps: '-17.8,31.0' })
+    await workflowService.resumeWorkflow(start.runId, { phase: 'receipt', noReceipt: true })
+    await workflowService.resumeWorkflow(start.runId, { evidenceHash: 'a1', phase: 'after', photoUri: 'a.jpg', gps: '-17.8,31.0' })
+    expect(runStatus(start.runId).status).toBe('completed')
+    expect(runState(start.runId).startedWorkflows?.['tpl-payment-collection']?.runId).toBeTruthy()
   })
 })
 

@@ -25,6 +25,7 @@ import { workflowRepository } from '../../persistence/WorkflowRepository'
 import { workflowRunRepository } from '../../persistence/WorkflowRunRepository'
 import { rootLogger } from '../../utils/pinoLogger'
 import { OrgWorkflowActorService } from '../OrgWorkflowActorService'
+import { documentClaims, isTaxExempt } from '../documentFacts'
 import { credentialLifecycleService } from '../ssi/CredentialLifecycleService'
 
 import { credentialOfferAllowed } from './actions/CredentialActions'
@@ -162,6 +163,18 @@ function withOrgName(orgTenantId: string, claims: Record<string, any>): Record<s
     .prepare('SELECT name FROM organizations WHERE tenant_id = ? LIMIT 1')
     .get(orgTenantId) as { name?: string } | undefined
   return orgRow?.name ? { ...claims, orgName: orgRow.name } : claims
+}
+
+/** The claims a workflow record is issued with: the organisation's name, and on quotes, invoices and receipts its details and VAT. */
+function recordClaims(
+  orgTenantId: string,
+  credentialType: string,
+  claims: Record<string, any>,
+  workflowType?: string,
+): Record<string, any> {
+  return documentClaims(credentialType, withOrgName(orgTenantId, claims), orgTenantId, {
+    exempt: isTaxExempt({ workflowType }),
+  })
 }
 
 export class WorkflowVcOfferDispatcher {
@@ -555,7 +568,7 @@ export class WorkflowVcOfferDispatcher {
    */
   public async dispatch(params: DispatchVcOfferParams): Promise<DispatchVcOfferResult> {
     const { orgTenantId, workflowType, stageAction, credentialType, contextRef, subjectDid, walletTenantId } = params
-    const claims = withOrgName(orgTenantId, params.claims)
+    const claims = recordClaims(orgTenantId, credentialType, params.claims, workflowType)
 
     // ── 1. Resolve actor ──────────────────────────────────────────────────────
     const resolvedActor =
@@ -744,7 +757,7 @@ export class WorkflowVcOfferDispatcher {
       return { offerId: JSON.parse(existing.metadata || '{}').offerId, walletOfferId: existing.id, alreadySent: true }
 
     const { credentialIssuanceService } = await import('../CredentialIssuanceService')
-    const claims = withOrgName(params.orgTenantId, params.claims)
+    const claims = recordClaims(params.orgTenantId, params.credentialType, params.claims)
     const offerResult = await credentialIssuanceService.createOffer({
       credentialType: params.credentialType,
       claims,

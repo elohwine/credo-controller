@@ -17,6 +17,8 @@ import { useRouter } from 'next/router';
 import axios from 'axios';
 import { ensurePortalTenant } from '@/utils/portalTenant';
 import { IconWallet, IconReceipt, IconBrandWhatsapp } from '@tabler/icons-react';
+import { PhoneField } from '../../../shared/PhoneField';
+import { feedback } from '@/lib/feedback';
 
 // Reusing types locally for speed
 interface CatalogItem {
@@ -29,6 +31,7 @@ interface CatalogItem {
     currency: string;
     category?: string;
     images: string[];
+    stockLeft?: number;
 }
 
 interface CartItem {
@@ -40,6 +43,7 @@ interface CartItem {
 
 interface Cart {
     id: string;
+    merchantId?: string;
     total: number;
     currency: string;
     items: CartItem[];
@@ -61,6 +65,9 @@ export default function ShopPage() {
     const [receiptUrl, setReceiptUrl] = useState('');
     const [savingReceipt, setSavingReceipt] = useState(false);
     const [receiptSaved, setReceiptSaved] = useState(false);
+    const [refunded, setRefunded] = useState(false);
+    const [refunding, setRefunding] = useState(false);
+    const [refundNote, setRefundNote] = useState('');
 
     const env = useContext(EnvContext);
     const router = useRouter();
@@ -113,12 +120,20 @@ export default function ShopPage() {
                 setCart(data);
 
                 // Auto-navigate to correct step based on cart status
-                if (data.status === 'paid') {
+                if (data.status === 'refunded') {
+                    setRefunded(true);
+                    setCheckoutStep('receipt');
+                    setIsCartOpen(true);
+                } else if (data.status === 'paid') {
+                    setRefunded(false);
                     setCheckoutStep('receipt');
                     if (data.receiptOfferUrl) {
                         setReceiptUrl(data.receiptOfferUrl);
                     }
                     setIsCartOpen(true);
+                } else if (data.status === 'cancelled') {
+                    localStorage.removeItem('credo_cart_id');
+                    setCart(null);
                 } else if (data.status === 'invoiced') {
                     // Cart was already checked out, skip to invoice step
                     // Note: invoiceOfferUrl might not be stored, user may need to re-checkout
@@ -158,6 +173,10 @@ export default function ShopPage() {
                 setCart(newCart);
                 localStorage.setItem('credo_cart_id', newCart.id);
                 setIsCartOpen(true);
+            } else if (cart.merchantId && cart.merchantId !== item.merchantId) {
+                // One basket pays one business.
+                feedback.error('Your basket is for another business. Pay for it or empty it before adding from this one.');
+                setIsCartOpen(true);
             } else {
                 // Add item to existing cart
                 const res = await fetch(`${backendUrl}/api/wa/cart/${cart.id}/items`, {
@@ -169,14 +188,31 @@ export default function ShopPage() {
                     })
                 });
                 const updatedCart = await res.json();
+                if (!res.ok) throw new Error(updatedCart?.message || 'Not added. Try again.');
                 setCart(updatedCart);
                 setIsCartOpen(true);
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Failed to add to cart:', error);
-            alert('Failed to add item to cart');
+            feedback.error(error?.message || 'Not added. Try again.');
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const emptyBasket = async () => {
+        if (!cart) return;
+        try {
+            const res = await fetch(`${backendUrl}/api/wa/cart/${cart.id}/cancel`, { method: 'POST' });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data?.message || 'Not emptied. Try again.');
+            }
+            localStorage.removeItem('credo_cart_id');
+            setCart(null);
+            feedback.success('Basket emptied.');
+        } catch (error: any) {
+            feedback.error(error?.message || 'Not emptied. Try again.');
         }
     };
 
@@ -371,6 +407,7 @@ export default function ShopPage() {
                                                 )}
                                                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
                                                 <button
+                                                    disabled={item.stockLeft === 0}
                                                     onClick={() => addToCart(item)}
                                                     className="absolute bottom-3 right-3 bg-white p-2 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 transition-all duration-300"
                                                 >
@@ -384,12 +421,16 @@ export default function ShopPage() {
                                                     <span className="font-bold text-lg" style={{ color: BRAND.curious }}>
                                                         {formatCurrency(item.price, item.currency)}
                                                     </span>
-                                                    <button
-                                                        onClick={() => addToCart(item)}
-                                                        className="text-sm font-medium text-blue-600 hover:text-blue-800"
-                                                    >
-                                                        Add
-                                                    </button>
+                                                    {item.stockLeft === 0 ? (
+                                                        <span className="text-sm font-medium text-gray-500">Sold out</span>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => addToCart(item)}
+                                                            className="text-sm font-medium text-blue-600 hover:text-blue-800"
+                                                        >
+                                                            {item.stockLeft !== undefined ? `Add · ${item.stockLeft} left` : 'Add'}
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -445,6 +486,16 @@ export default function ShopPage() {
                                         >
                                             Checkout
                                         </Button>
+                                        <Button
+                                            fullWidth
+                                            variant="subtle"
+                                            color="gray"
+                                            mt="xs"
+                                            leftSection={<TrashIcon className="h-4 w-4" />}
+                                            onClick={emptyBasket}
+                                        >
+                                            Empty basket
+                                        </Button>
                                     </div>
                                 </div>
                             )}
@@ -456,12 +507,11 @@ export default function ShopPage() {
                             <h3 className="text-xl font-bold mb-4">Contact Details</h3>
                             <p className="text-gray-500 mb-6 text-sm">Please enter your phone number for payment notifications.</p>
 
-                            <TextInput
-                                label="Phone Number (with country code)"
-                                placeholder="26377xxxxxxx"
+                            <PhoneField
+                                surface="portal"
+                                label="Phone number"
                                 value={buyerPhone}
-                                onChange={(e) => setBuyerPhone(e.target.value)}
-                                className="mb-6"
+                                onChange={setBuyerPhone}
                                 size="md"
                             />
 
@@ -554,7 +604,10 @@ export default function ShopPage() {
                             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
                                 <CheckCircleIcon className="w-12 h-12 text-green-600" />
                             </div>
-                            <h3 className="text-2xl font-bold mb-2">Payment Successful!</h3>
+                            <h3 className="text-2xl font-bold mb-2">{refunded ? 'Refund recorded' : 'Payment Successful!'}</h3>
+                            {refunded ? (
+                                <p className="text-gray-600 mb-6">The business pays you back. Credentis does not move the money.</p>
+                            ) : null}
 
                             {/* CAET TEMS RESTORED */}
                             {cart && (
@@ -623,6 +676,37 @@ export default function ShopPage() {
                                 </>
                             )}
 
+                            {!refunded && cart?.status === 'paid' ? (
+                                <Button
+                                    fullWidth
+                                    variant="light"
+                                    color="gray"
+                                    mb="md"
+                                    loading={refunding}
+                                    onClick={async () => {
+                                        setRefunding(true);
+                                        setRefundNote('');
+                                        try {
+                                            const res = await fetch(`${backendUrl}/api/wa/cart/${cart.id}/refund`, {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ reason: 'Customer asked' }),
+                                            });
+                                            const data = await res.json().catch(() => ({}));
+                                            if (!res.ok) throw new Error(data.message || 'This basket could not be refunded.');
+                                            setRefunded(true);
+                                            setCart({ ...cart, status: 'refunded' });
+                                        } catch (error: any) {
+                                            setRefundNote(error?.message || 'This basket could not be refunded.');
+                                        } finally {
+                                            setRefunding(false);
+                                        }
+                                    }}
+                                >
+                                    Record a refund
+                                </Button>
+                            ) : null}
+                            {refundNote ? <p className="text-sm text-red-600 mb-4">{refundNote}</p> : null}
                             <Button
                                 fullWidth
                                 size="lg"

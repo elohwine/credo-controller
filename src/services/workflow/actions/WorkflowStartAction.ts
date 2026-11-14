@@ -34,6 +34,7 @@ import { rootLogger } from '../../../utils/pinoLogger'
 import { platformRequestService } from '../../PlatformRequestService'
 import { workflowReadinessService } from '../../WorkflowReadinessService'
 import { collectHandoffFacts, handoffConditionLabel, handoffConditionMet, type HandoffConditionId } from '../HandoffConditions'
+import { AWAIT_JOB_PRICE, CLIENT_BILL_KEY, needsJobPrice, notifyJobNeedsPrice } from '../jobPrice'
 import { ensureExecutableWorkflow } from '../materialize'
 
 const logger = rootLogger.child({ module: 'WorkflowStartAction' })
@@ -82,6 +83,14 @@ export function createWorkflowStartAction(getExecutor: () => Executor) {
     if (config.when) {
       const facts = collectHandoffFacts({ amount: context.input?.amount, context: { ...(context.input || {}), ...(context.state || {}) } })
       if (!handoffConditionMet(config.when as HandoffConditionId, facts)) {
+        // A booked job's bill waits for its price; it is not "not needed".
+        if (key === CLIENT_BILL_KEY && needsJobPrice(context.input)) {
+          context.state.startedWorkflows[key] = { workflow: workflowRef, status: 'awaiting_price' }
+          context.state.pauseReason = AWAIT_JOB_PRICE
+          context.state.pauseRequestedAt = new Date().toISOString()
+          notifyJobNeedsPrice(context)
+          throw new Error('WORKFLOW_PAUSE')
+        }
         context.state.startedWorkflows[key] = { workflow: workflowRef, status: 'not_needed', reason: handoffConditionLabel(config.when) }
         return
       }

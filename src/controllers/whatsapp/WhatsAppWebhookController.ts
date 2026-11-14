@@ -3,8 +3,11 @@ import type { Request as ExRequest } from 'express'
 import { Controller, Post, Get, Route, Tags, Body, Request, Query } from 'tsoa'
 
 import { StatusException } from '../../errors'
+import { marketingService } from '../../services/MarketingService'
 import { notificationService } from '../../services/NotificationService'
+import { whatsAppInquiryService } from '../../services/WhatsAppInquiryService'
 import { whatsAppSenderService } from '../../services/WhatsAppSenderService'
+import { rootLogger } from '../../utils/pinoLogger'
 import { STOP_BUTTON_TEXT } from '../../services/whatsAppTemplates'
 
 export interface WhatsAppWebhookPayload {
@@ -41,6 +44,8 @@ export interface WhatsAppWebhookPayload {
     }>
   }>
 }
+
+const logger = rootLogger.child({ module: 'WhatsAppWebhook' })
 
 @Route('wa')
 @Tags('WhatsApp')
@@ -97,6 +102,25 @@ export class WhatsAppWebhookController extends Controller {
           (message.button?.payload === 'STOP_ALERTS' || message.button?.text === STOP_BUTTON_TEXT)
         if (typedStop || tappedStop) {
           notificationService.applyWhatsAppOptOut(senderKey, message.from, message.id)
+          // Offers are a different list. This runs only after alert opt-out has succeeded,
+          // and a missing offers table must not undo that opt-out.
+          try {
+            marketingService.optOutPhone(message.from)
+          } catch {
+            logger.warn({ messageId: message.id }, 'Offer opt-out was not saved')
+          }
+        } else if (message.type === 'text' && message.text?.body && message.id) {
+          // A reply to this message only. Alert consent is not created here.
+          try {
+            await whatsAppInquiryService.handle({
+              senderKey,
+              messageId: message.id,
+              from: message.from,
+              text: message.text.body,
+            })
+          } catch {
+            logger.warn({ messageId: message.id }, 'WhatsApp inquiry was not answered')
+          }
         }
       }
     }

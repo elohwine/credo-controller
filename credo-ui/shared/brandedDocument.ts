@@ -18,6 +18,10 @@ export interface DocumentBrand {
   registrationNumber?: string
   taxNumber?: string
   vatNumber?: string
+  /** Standard VAT rate in percent; unset when the organisation charges no VAT. */
+  vatRate?: number
+  /** True (the default) when prices include VAT; false when VAT is added on top. */
+  pricesIncludeVat?: boolean
   bankDetails?: string
   mobileMoney?: string
   quoteTerms?: string
@@ -51,6 +55,10 @@ export interface DocumentModel {
   subtotal?: number
   discount?: number
   tax?: number
+  /** VAT rate in percent, when the document shows VAT. */
+  taxRate?: number
+  /** True when the VAT is inside the total rather than added to it. */
+  taxIncluded?: boolean
   total: number
   currency: string
   paymentRef?: string
@@ -58,12 +66,50 @@ export interface DocumentModel {
   /** What this document refers to: the invoice a receipt settles, the job an invoice bills. */
   reference?: { label: string; value: string }
   verification?: { credentialId?: string; issuerDid?: string; verifyUrl?: string; signed: boolean }
+  /** The issuer's details written into the signed record. They win over the brand fetched later. */
+  issuer?: Partial<DocumentBrand>
 }
 
 export const DOCUMENT_TITLES: Record<DocumentKind, string> = {
   quote: 'Quotation',
-  invoice: 'Tax invoice',
+  invoice: 'Invoice',
   receipt: 'Receipt',
+}
+
+/** "Tax invoice" only for a VAT-registered issuer or a bill that shows VAT; otherwise "Invoice". */
+export function documentTitle(model: Pick<DocumentModel, 'kind' | 'tax'>, brand?: Pick<DocumentBrand, 'vatNumber'>): string {
+  if (model.kind === 'invoice' && (brand?.vatNumber || (model.tax ?? 0) > 0)) return 'Tax invoice'
+  return DOCUMENT_TITLES[model.kind]
+}
+
+const ISSUER_CLAIMS: Array<[string, keyof DocumentBrand]> = [
+  ['issuerName', 'displayName'],
+  ['issuerAddress', 'address'],
+  ['issuerPhone', 'phone'],
+  ['issuerEmail', 'email'],
+  ['issuerWebsite', 'website'],
+  ['issuerRegistrationNumber', 'registrationNumber'],
+  ['issuerTaxNumber', 'taxNumber'],
+  ['issuerVatNumber', 'vatNumber'],
+]
+
+/** The issuer details a signed quote, invoice or receipt carries about itself. */
+export function issuerFromClaims(claims: Record<string, any>): Partial<DocumentBrand> | undefined {
+  const out: Record<string, string> = {}
+  for (const [claim, key] of ISSUER_CLAIMS) {
+    const value = claims?.[claim]
+    if (typeof value === 'string' && value.trim()) out[key] = value.trim()
+  }
+  return Object.keys(out).length ? (out as Partial<DocumentBrand>) : undefined
+}
+
+/**
+ * The brand a document is drawn with: the organisation's brand of that day (logo, colour, terms),
+ * with the name, address and tax numbers written into the record itself on top.
+ */
+export function documentBrand(model: DocumentModel, brand: DocumentBrand | undefined, fallbackName?: string): DocumentBrand {
+  const base: DocumentBrand = brand || { displayName: fallbackName || 'Organisation' }
+  return model.issuer ? { ...base, ...model.issuer } : base
 }
 
 export const FALLBACK_BRAND_COLOR = '#0F766E'
@@ -179,7 +225,9 @@ export function documentFromClaims(source: DocumentSource): DocumentModel {
   const description = text(pick(c, ['description', 'purpose', 'feeType', 'title', 'serviceName', 'itemName']))
   if (!lines.length && total) {
     const parts = [description, text(c.studentName), text(c.term)].filter(Boolean)
-    lines.push({ description: parts.join(' · ') || DOCUMENT_TITLES[kind], amount: total })
+    const net = toAmount(c.subtotal)
+    const vatOnTop = toAmount(c.taxAmount) && !(c.taxIncluded === true || c.taxIncluded === 'true') && net
+    lines.push({ description: parts.join(' · ') || DOCUMENT_TITLES[kind], amount: vatOnTop ? net! : total })
   }
   const issuedAt = isoOrUndefined(pick(c, ['issuedAt', 'issueDate', 'timestamp', 'createdAt'])) || source.issuedAt
   const number = text(
@@ -241,6 +289,8 @@ export function documentFromClaims(source: DocumentSource): DocumentModel {
     subtotal: toAmount(c.subtotal),
     discount: toAmount(pick(c, ['discountAmount', 'discount'])),
     tax: toAmount(pick(c, ['taxAmount', 'tax', 'vat'])),
+    taxRate: toAmount(c.taxRate),
+    taxIncluded: c.taxIncluded === true || c.taxIncluded === 'true',
     total,
     currency: text(c.currency) || 'USD',
     paymentRef: text(pick(c, ['paymentRef', 'transactionId', 'providerRef'])),
@@ -252,7 +302,57 @@ export function documentFromClaims(source: DocumentSource): DocumentModel {
       verifyUrl: text(pick(c, ['verifyUrl', 'verificationUrl'])),
       signed: source.signed !== false,
     },
+    issuer: issuerFromClaims(c),
   }
+}
+
+/** What the pay page knows about a bill (`GET /api/public/pay/{code}`). */
+export interface PayPageBill {
+  description: string
+  amount: number
+  currency: string
+  invoiceRef?: string
+  providerRef?: string
+  paidAt?: string
+  documentFacts?: Record<string, unknown>
+}
+
+/** The bill or receipt on the pay page. Not signed: the signed records go to the payer's wallet. */
+export function payPageDocument(bill: PayPageBill, kind: DocumentKind, providerRef?: string): DocumentModel {
+  const reference = bill.invoiceRef
+  const paymentRef = kind === 'receipt' ? providerRef || bill.providerRef : undefined
+  return documentFromClaims({
+    kind,
+    signed: false,
+    issuedAt: kind === 'receipt' ? bill.paidAt : undefined,
+    claims: {
+      ...(bill.documentFacts || {}),
+      invoiceId: kind === 'invoice' ? reference : undefined,
+      quoteId: kind === 'quote' ? reference : undefined,
+      invoiceRef: kind === 'receipt' ? reference : undefined,
+      receiptId: paymentRef,
+      paymentRef,
+      paidAt: kind === 'receipt' ? bill.paidAt : undefined,
+      amount: bill.amount,
+      currency: bill.currency,
+      description: bill.description,
+    },
+  })
+}
+
+/** The rows above the total: subtotal and discount, or the amount before VAT and the VAT. */
+export function documentTotalRows(model: DocumentModel): Array<[string, number]> {
+  const rows: Array<[string, number | undefined]> = []
+  if (model.tax && model.tax > 0) {
+    if (model.discount) rows.push(['Discount', -model.discount])
+    rows.push(['Amount before VAT', model.subtotal])
+    const rate = model.taxRate ? ` ${model.taxRate}%` : ''
+    rows.push([`VAT${rate}${model.taxIncluded ? ' (included)' : ''}`, model.tax])
+  } else if (model.subtotal !== undefined) {
+    rows.push(['Subtotal', model.subtotal])
+    if (model.discount) rows.push(['Discount', -model.discount])
+  }
+  return rows.filter((row): row is [string, number] => row[1] !== undefined && row[1] !== 0)
 }
 
 // ---------- formatting ----------
@@ -305,7 +405,7 @@ export function documentStatusLabel(status?: DocumentStatus): string | undefined
 }
 
 export function documentFileName(model: DocumentModel, brand: DocumentBrand, extension = 'pdf'): string {
-  const base = [brand.displayName, DOCUMENT_TITLES[model.kind], model.number].filter(Boolean).join('-')
+  const base = [brand.displayName, documentTitle(model, brand), model.number].filter(Boolean).join('-')
   return `${base.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'document'}.${extension}`
 }
 
@@ -375,7 +475,7 @@ function paymentRows(model: DocumentModel, brand: DocumentBrand): Array<[string,
 export function renderDocumentHtml(model: DocumentModel, brand: DocumentBrand): string {
   const color = safeBrandColor(brand.primaryColor)
   const logo = safeImageUrl(brand.logoUrl)
-  const title = DOCUMENT_TITLES[model.kind]
+  const title = documentTitle(model, brand)
   const status = documentStatusLabel(model.status)
   const showQty = model.lines.some((line) => line.quantity !== undefined || line.unitPrice !== undefined)
   const closing = documentClosingText(model, brand)
@@ -392,14 +492,8 @@ export function renderDocumentHtml(model: DocumentModel, brand: DocumentBrand): 
     )
     .join('')
 
-  const totals: Array<[string, number | undefined]> = [
-    ['Subtotal', model.subtotal],
-    ['Discount', model.discount ? -model.discount : undefined],
-    ['Tax', model.tax],
-  ]
-  const totalRows = totals
-    .filter(([, value]) => value !== undefined && value !== 0 && model.subtotal !== undefined)
-    .map(([label, value]) => `<tr><td>${label}</td><td class="num">${escapeHtml(formatMoney(value, model.currency))}</td></tr>`)
+  const totalRows = documentTotalRows(model)
+    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td class="num">${escapeHtml(formatMoney(value, model.currency))}</td></tr>`)
     .join('')
 
   return `<!doctype html>
@@ -573,7 +667,7 @@ export function renderDocumentPdf(doc: PdfDoc, model: DocumentModel, brand: Docu
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
   doc.setTextColor(r, g, b)
-  doc.text(DOCUMENT_TITLES[model.kind].toUpperCase(), right, y + 3, { align: 'right' })
+  doc.text(documentTitle(model, brand).toUpperCase(), right, y + 3, { align: 'right' })
   const status = documentStatusLabel(model.status)
   if (status) {
     doc.setFontSize(9)
@@ -652,20 +746,12 @@ export function renderDocumentPdf(doc: PdfDoc, model: DocumentModel, brand: Docu
   y += 4
   ensureSpace(30)
   const totalLabelX = right - 70
-  if (model.subtotal !== undefined) {
-    const extras: Array<[string, number | undefined]> = [
-      ['Subtotal', model.subtotal],
-      ['Discount', model.discount ? -model.discount : undefined],
-      ['Tax', model.tax],
-    ]
-    for (const [label, value] of extras) {
-      if (value === undefined || value === 0) continue
-      grey()
-      doc.text(label, totalLabelX, y + 4)
-      ink()
-      doc.text(formatMoney(value, model.currency), amountX, y + 4, { align: 'right' })
-      y += 5.5
-    }
+  for (const [label, value] of documentTotalRows(model)) {
+    grey()
+    doc.text(label, totalLabelX, y + 4)
+    ink()
+    doc.text(formatMoney(value, model.currency), amountX, y + 4, { align: 'right' })
+    y += 5.5
   }
   doc.setDrawColor(r, g, b)
   doc.setLineWidth(0.6)

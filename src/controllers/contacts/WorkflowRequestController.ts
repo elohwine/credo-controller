@@ -13,6 +13,9 @@ import type { Request as ExRequest } from 'express'
 import { Controller, Post, Get, Put, Route, Tags, Body, Path, Query, Request, Security } from 'tsoa'
 
 import { AuthContext } from '../../enums'
+import { ORG_MODULES, type OrgModule } from '../../config/orgModules'
+import { ORG_OFFERINGS } from '../../config/orgOfferings'
+import { projectRequestExperience, type RequestExperience } from '../../config/requestExperience'
 import { StatusException } from '../../errors/StatusException'
 import { contactRepository } from '../../persistence/ContactRepository'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
@@ -25,6 +28,9 @@ import {
 } from '../../persistence/WorkflowRequestRepository'
 import { clampDoneDays } from '../../services/InboxPreferenceService'
 import { OrgWorkflowActorService } from '../../services/OrgWorkflowActorService'
+import { jobDepositService, type JobDepositView } from '../../services/JobDepositService'
+import { orgOfferingsService } from '../../services/OrgOfferingsService'
+import { orgSetupProfileService } from '../../services/OrgSetupProfileService'
 import { notifyStageDelegates, resolveStageRoute } from '../../services/WorkflowStageInboxService'
 import { outboxService } from '../../services/OutboxService'
 import { ReconciliationService } from '../../services/ReconciliationService'
@@ -35,6 +41,76 @@ import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 import { rootLogger } from '../../utils/pinoLogger'
 
 const logger = rootLogger.child({ module: 'WorkflowRequestController' })
+
+/** The field job every "Book a job" service runs. */
+const FIELD_JOB_WORKFLOW = 'field_execution_fept'
+const FIELD_JOB_TEMPLATES = new Set(['tpl-fept-field-execution', FIELD_JOB_WORKFLOW])
+
+/** A service the organisation shows the public, as read from its own catalog. */
+interface PublicOfferingService {
+  id: string
+  name: string
+  workflowTemplateId?: string
+  feeAmount?: number
+  feeCurrency?: string
+  offeringKey?: string
+  /** Work area from organisation setup that must be on for this service to take requests. */
+  module?: OrgModule
+}
+
+type BookableJobService = PublicOfferingService
+
+/** A booked job's progress, as the person who booked it sees it. */
+interface BookedJobProgress {
+  runId: string
+  status: string
+  stage?: string
+  pauseReason?: string
+  /** Someone at the organisation is on the job. */
+  assigned: boolean
+  history: Array<{ stage: string; at?: string }>
+  createdAt?: string
+}
+
+interface DepositDispute {
+  /** What was not done. */
+  reason?: string
+}
+
+interface AskProvidersBody {
+  /** What is needed, in the customer's words. */
+  need: string
+  /** Suburb or city. */
+  area?: string
+  /** How they want to pay, such as ecocash. */
+  payment?: string
+  /** call_out, delivery or collection. */
+  fulfilment?: string
+  /** Anything else the businesses should know. */
+  details?: string
+  requesterName?: string
+  /** How many to ask. Defaults to 3 and is never more than 5. */
+  limit?: number
+}
+
+interface AskedProvider {
+  requestId: string
+  tenantId: string
+  name: string
+  reasons: string[]
+}
+
+interface SkippedProvider {
+  name: string
+  reason: string
+}
+
+interface AskProvidersResult {
+  asked: AskedProvider[]
+  skipped: SkippedProvider[]
+  /** Set when nobody was asked. */
+  note?: string
+}
 
 interface CreateRequestBody {
   /** The organisation's record of this person. Omit it when writing to an organisation for the first time. */
@@ -50,10 +126,19 @@ interface CreateRequestBody {
   assignToUserId?: string
 }
 
+interface AcceptPrice {
+  amount: number
+  currency?: string
+  /** What the price covers, shown on the bill or quote. */
+  note?: string
+}
+
 interface ApproveRequestBody {
   approverId?: string
   approverRole?: string
   executeWorkflow?: boolean // if true, immediately trigger workflow execution
+  /** Required when accepting a request for a bill or a quote: the organisation sets the price. */
+  price?: AcceptPrice
 }
 
 interface RejectRequestBody {
@@ -84,6 +169,10 @@ interface WorkflowRequestResponse {
   approvedAt?: string
   rejectedAt?: string
   fulfilledAt?: string
+  /** The job a booking created, when it is one. */
+  job?: BookedJobProgress
+  /** The request's stages with when each happened, for the timeline both apps show. */
+  experience?: RequestExperience
 }
 
 interface ContactCapabilityResponse {
@@ -387,6 +476,179 @@ export class WorkflowRequestController extends Controller {
     }
   }
 
+  /**
+   * The public service the person asked for, read from the organisation's catalog, not the client.
+   * It must still be shown and its work area must still be on in organisation setup.
+   */
+  private findPublicOffering(
+    orgTenantId: string | undefined,
+    payload: Record<string, unknown> | undefined,
+  ): PublicOfferingService | undefined {
+    const serviceId = typeof payload?.serviceId === 'string' ? payload.serviceId.trim() : ''
+    if (!orgTenantId || !serviceId) return undefined
+    const row = this.db
+      .prepare(
+        `SELECT s.id, s.name, s.workflow_template_id AS workflowTemplateId,
+                s.fee_amount AS feeAmount, s.fee_currency AS feeCurrency, s.metadata AS metadata
+         FROM service_catalog s
+         JOIN organization_registry r ON r.id = s.org_id
+         WHERE s.id = ? AND r.tenant_id = ? AND s.is_active = 1
+         LIMIT 1`,
+      )
+      .get(serviceId, orgTenantId) as (Omit<PublicOfferingService, 'module'> & { metadata?: string }) | undefined
+    if (!row) {
+      throw new StatusException('This service is no longer offered. Open the organisation again to see what they offer.', 404)
+    }
+    let metadata: Record<string, unknown> = {}
+    try {
+      metadata = row.metadata ? JSON.parse(row.metadata) : {}
+    } catch {
+      metadata = {}
+    }
+    const offeringKey = typeof metadata.offeringKey === 'string' ? metadata.offeringKey : undefined
+    const declared = offeringKey ? ORG_OFFERINGS.find((offering) => offering.key === offeringKey) : undefined
+    const rawModule = declared ? declared.module : metadata.module
+    const module = ORG_MODULES.includes(rawModule as OrgModule) ? (rawModule as OrgModule) : undefined
+    if (module) {
+      try {
+        orgSetupProfileService.assertModule(orgTenantId, module)
+      } catch {
+        throw new StatusException(`They are not taking "${row.name}" requests right now.`, 403)
+      }
+    }
+    const { metadata: _metadata, ...service } = row
+    return { ...service, offeringKey, module }
+  }
+
+  /** The organisation's own "Book a job" service, when the person booked one. */
+  private isBookableJobService(service: PublicOfferingService | undefined): service is BookableJobService {
+    return Boolean(service && FIELD_JOB_TEMPLATES.has(String(service.workflowTemplateId || '')))
+  }
+
+  /** The phone the person gave for updates and bills, in one shape, or undefined when none or invalid. */
+  private requesterPhone(payload: Record<string, unknown> | undefined): string | undefined {
+    const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+    let phone = (text(payload?.customerMsisdn) || text(payload?.clientPhone) || text(payload?.phone)).replace(
+      /[\s().-]/g,
+      '',
+    )
+    // A local number (0771 234 567) is read the way WhatsApp sending reads it.
+    if (/^0\d{9}$/.test(phone)) phone = `+263${phone.slice(1)}`
+    return /^\+?[1-9]\d{6,14}$/.test(phone) ? phone : undefined
+  }
+
+  /** Keep the phone on the organisation's record of this person, so bills and WhatsApp reach them. */
+  private rememberContactPhone(contact: { id: string; orgTenantId: string; phone?: string }, phone?: string): void {
+    if (!phone || contact.phone) return
+    const current = contactRepository.getById(contact.id, contact.orgTenantId)
+    if (!current || current.phone) return
+    contactRepository.upsert({
+      id: current.id,
+      orgTenantId: current.orgTenantId,
+      contactScope: current.contactScope,
+      name: current.name,
+      phone,
+      email: current.email,
+      did: current.did,
+      notes: current.notes,
+      walletTenantId: current.walletTenantId,
+      linkedAt: current.linkedAt,
+    })
+  }
+
+  /** What the job needs from the booking: where, when, who, and the phone for updates and the bill. */
+  private bookingJobFields(
+    service: BookableJobService,
+    body: CreateRequestBody,
+    contactName: string,
+  ): Record<string, unknown> {
+    const payload = (body.payload || {}) as Record<string, unknown>
+    const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+    const phone = this.requesterPhone(payload)
+    if (!phone) {
+      throw new StatusException('Add the phone number they can reach you on. Updates and the bill go to it.', 400)
+    }
+    const location = text(payload.location)
+    if (!location) throw new StatusException('Say where the job is.', 400)
+    const fee = Number(service.feeAmount)
+    return {
+      reference: text(payload.reference) || `BK-${Date.now().toString(36).toUpperCase()}`,
+      description: text(payload.description) || text(payload.title) || service.name,
+      ...(text(payload.problemType) ? { problemType: text(payload.problemType) } : {}),
+      location,
+      ...(text(payload.scheduledDate) ? { scheduledDate: text(payload.scheduledDate) } : {}),
+      clientName: text(body.requesterName) || text(payload.clientName) || contactName,
+      customerMsisdn: phone,
+      amount: Number.isFinite(fee) && fee > 0 ? fee : 0,
+      currency: service.feeCurrency || 'USD',
+      serviceId: service.id,
+      serviceName: service.name,
+      workflowTemplateId: service.workflowTemplateId,
+      awaitAssignment: true,
+      bookedVia: text(payload.bookedVia) || 'app',
+    }
+  }
+
+  /**
+   * Start the field job for a booking. It shows in Operations → Jobs with nobody on it, and the
+   * owners and admins get a card to choose who does it. When the organisation cannot run jobs
+   * yet, the booking stays a request for them to pick up.
+   */
+  private async startBookedJob(request: WorkflowRequest): Promise<WorkflowRequest | undefined> {
+    try {
+      const result = await workflowService.executeWorkflow(
+        FIELD_JOB_WORKFLOW,
+        this.buildExecutionInputForWorkflowRequest(request),
+        request.targetOrgTenantId,
+        { triggerType: 'manual', triggerRef: `workflow-request:${request.id}` },
+      )
+      workflowRequestRepository.updateStatus(request.id, 'approved', {
+        approverRole: 'booking',
+        workflowId: result.runId,
+      })
+      logger.info(
+        { requestId: request.id, runId: result.runId, orgTenantId: request.targetOrgTenantId },
+        'Booked job created',
+      )
+      return workflowRequestRepository.findById(request.id)
+    } catch (error: any) {
+      logger.warn(
+        { requestId: request.id, orgTenantId: request.targetOrgTenantId, error: error?.message },
+        'Booked job could not start yet; the booking waits for the organisation',
+      )
+      return undefined
+    }
+  }
+
+  /** Where the booked job is, for the person who booked it. Worker names and ids are not shown. */
+  private jobProgress(request: WorkflowRequest): WorkflowRequestResponse['job'] {
+    if (!request.workflowId) return undefined
+    const run = this.db
+      .prepare(`SELECT id, status, output, created_at AS createdAt FROM workflow_runs WHERE id = ? AND tenant_id = ?`)
+      .get(request.workflowId, request.targetOrgTenantId) as
+      | { id: string; status: string; output?: string; createdAt?: string }
+      | undefined
+    if (!run) return undefined
+    let state: Record<string, any> = {}
+    try {
+      state = run.output ? JSON.parse(run.output) : {}
+    } catch {
+      state = {}
+    }
+    const history = Array.isArray(state.stageHistory) ? state.stageHistory : []
+    return {
+      runId: run.id,
+      status: run.status,
+      stage: typeof state.workflowStage === 'string' ? state.workflowStage : undefined,
+      pauseReason: typeof state.pauseReason === 'string' ? state.pauseReason : undefined,
+      assigned: Boolean(state.assignment?.assigneeId),
+      history: history
+        .filter((entry: any) => entry && typeof entry.stage === 'string')
+        .map((entry: any) => ({ stage: String(entry.stage), at: entry.at ? String(entry.at) : undefined })),
+      createdAt: run.createdAt,
+    }
+  }
+
   private buildExecutionInputForWorkflowRequest(request: WorkflowRequest): Record<string, unknown> {
     const payload = request.payload && typeof request.payload === 'object' ? request.payload : {}
     const executionInput: Record<string, unknown> = {
@@ -395,6 +657,8 @@ export class WorkflowRequestController extends Controller {
       workflowRequestId: (payload as any).workflowRequestId || request.id,
       actingOrgTenantId: (payload as any).actingOrgTenantId || request.targetOrgTenantId,
     }
+    // A booked job waits for an owner or admin to choose the worker in Jobs.
+    if ((payload as any).awaitAssignment === true) return executionInput
 
     const stageAction = this.resolveStageActionForExecution(request)
     if (stageAction && !(payload as any).stageAction) {
@@ -635,11 +899,76 @@ export class WorkflowRequestController extends Controller {
   }
 
   /**
+   * A bill or a quote someone asked for has no price until the organisation sets it. Accepting
+   * one needs the price; it is kept on the request and shaped into what the offering's flow
+   * expects (a one-off bill, or one quoted line), so the bill or quote goes out with it.
+   */
+  private withAcceptPrice(request: WorkflowRequest, price: AcceptPrice | undefined): WorkflowRequest {
+    const payload = (request.payload && typeof request.payload === 'object' ? request.payload : {}) as Record<
+      string,
+      any
+    >
+    const offering = ORG_OFFERINGS.find((entry) => entry.key === payload.offeringKey)
+    if (!offering?.priceOnAccept) return request
+
+    const given = Number(price?.amount)
+    const existing = Number(payload.totalAmount)
+    const amount = Number.isFinite(given) && given > 0 ? given : Number.isFinite(existing) && existing > 0 ? existing : 0
+    if (!amount) {
+      throw new StatusException(
+        `Add the price before you accept. It goes on the ${offering.requestType === 'quote' ? 'quote' : 'bill'} they get.`,
+        400,
+        'price_required',
+      )
+    }
+    const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+    const currency = (text(price?.currency) || text(payload.currency) || 'USD').toUpperCase()
+    const note = text(price?.note) || text(payload.priceNote)
+    const description = note || text(payload.description) || text(payload.title) || offering.name
+    const phone = text(payload.customerMsisdn) || undefined
+    const name = text(payload.requesterName) || text(payload.clientName) || undefined
+    const templateId = text(payload.workflowTemplateId)
+
+    const priced: Record<string, any> = {
+      ...payload,
+      totalAmount: amount,
+      amount,
+      currency,
+      ...(note ? { priceNote: note } : {}),
+      pricedAt: payload.pricedAt || new Date().toISOString(),
+      // The offering's own flow sends the bill or quote to the customer; no second one is raised.
+      ...(templateId ? { billedByFlow: true } : {}),
+    }
+    if (templateId === 'tpl-ar-collections') {
+      Object.assign(priced, {
+        collectionType: payload.collectionType || 'one_time',
+        description,
+        ...(phone ? { payerPhone: phone } : {}),
+        ...(name ? { payerName: name } : {}),
+      })
+    }
+    if (templateId === 'tpl-quote-invoice-receipt') {
+      Object.assign(priced, {
+        items: [{ description, qty: 1, unitPrice: amount }],
+        ...(phone ? { buyerPhone: phone } : {}),
+      })
+    }
+    workflowRequestRepository.updatePayload(request.id, priced)
+    return {
+      ...request,
+      payload: priced,
+      // The flow comes from the organisation's own catalog entry, never from the client.
+      workflowType: request.workflowType || templateId || undefined,
+    }
+  }
+
+  /**
    * Approval does not end the chain. A requisition continues into procurement
    * (purchase order), a quote into an invoice, and so on, using the handoff catalog.
    */
   private continueIntoNextRequest(request: WorkflowRequest, actedByUserId?: string): void {
     const payload = request.payload && typeof request.payload === 'object' ? request.payload : {}
+    if ((payload as Record<string, unknown>).billedByFlow === true) return
     void import('../../services/RequestHandoffService')
       .then(({ requestHandoffService }) => {
         requestHandoffService.continueFromWorkflowRequest({
@@ -750,15 +1079,30 @@ export class WorkflowRequestController extends Controller {
     }
 
     const capabilities = workflowRequestRepository.listCapabilitiesByContact(contact.id)
+    const offering = this.findPublicOffering(contact.orgTenantId, body.payload)
+    const bookedService = this.isBookableJobService(offering) ? offering : undefined
     const routing = this.resolveCapabilityRouting(body.requestType, body.workflowType, capabilities)
-    const resolvedWorkflowType = routing.workflowType || body.workflowType
+    const resolvedWorkflowType = bookedService ? FIELD_JOB_WORKFLOW : routing.workflowType || body.workflowType
 
     if (resolvedWorkflowType) {
       this.assertWorkflowOperationalForOrg(targetOrgTenantId, resolvedWorkflowType, 'creating workflow requests')
     }
 
+    const phone = this.requesterPhone(body.payload)
     const effectivePayload = {
       ...(body.payload || {}),
+      ...(phone ? { customerMsisdn: phone } : {}),
+      // What the organisation offers is read from its catalog, never trusted from the client.
+      ...(offering
+        ? {
+            serviceId: offering.id,
+            serviceName: offering.name,
+            workflowTemplateId: offering.workflowTemplateId,
+            offeringKey: offering.offeringKey,
+            workArea: offering.module,
+          }
+        : {}),
+      ...(bookedService ? this.bookingJobFields(bookedService, body, contact.name) : {}),
       routing: {
         ...(body.payload?.routing || {}),
         capabilityIds: routing.capabilityIds,
@@ -783,6 +1127,14 @@ export class WorkflowRequestController extends Controller {
       status: 'pending',
       expiresAt,
     })
+    this.rememberContactPhone(contact, phone)
+
+    // Booking a job creates the job itself, in Operations → Jobs, like any other job.
+    // Nobody is put on it: the owners and admins get a card and choose who does it there.
+    if (bookedService) {
+      const booked = await this.startBookedJob(request)
+      if (booked) return this.toResponse(booked, contact.name)
+    }
 
     const assignment = this.resolveConfiguredAssignee(
       targetOrgTenantId,
@@ -823,6 +1175,142 @@ export class WorkflowRequestController extends Controller {
 
     const created = workflowRequestRepository.findById(request.id)!
     return this.toResponse(created, contact.name)
+  }
+
+  /**
+   * Ask the best matching businesses for a quote.
+   * Each one gets the same quote request a person would send from Discover.
+   * A business that cannot be asked is skipped; the others still get the request.
+   */
+  @Post('ask')
+  @Security('jwt', ['wallet'])
+  public async askProviders(@Body() body: AskProvidersBody, @Request() req: ExRequest): Promise<AskProvidersResult> {
+    const requesterTenantId = this.requireTenantId(req)
+    const replay = IdempotencyGuard.guard(this.db, req, requesterTenantId, 'discovery.ask')
+    if (replay.duplicate) {
+      this.setStatus(200)
+      return replay.response as AskProvidersResult
+    }
+
+    const need = String(body?.need || '').trim()
+    if (need.length < 2) {
+      this.setStatus(400)
+      throw new StatusException('Say what you need. A few words is enough.', 400)
+    }
+    const limit = Math.min(Math.max(Number(body?.limit) || 3, 1), 5)
+    const matches = orgOfferingsService.match({
+      need,
+      area: body?.area,
+      payment: body?.payment,
+      fulfilment: body?.fulfilment,
+      limit,
+    })
+    if (matches.length === 0) {
+      const empty: AskProvidersResult = {
+        asked: [],
+        skipped: [],
+        note: 'No business matched what you asked for.',
+      }
+      if (replay.key) IdempotencyGuard.record(this.db, replay.key, requesterTenantId, 'discovery.ask', empty)
+      return empty
+    }
+
+    const lines = [
+      need,
+      body?.details?.trim(),
+      body?.area?.trim() ? `Place: ${body.area.trim()}` : '',
+      body?.payment?.trim() ? `Pay with: ${body.payment.trim()}` : '',
+    ].filter(Boolean)
+    const asked: AskedProvider[] = []
+    const skipped: SkippedProvider[] = []
+    for (const match of matches) {
+      try {
+        const created = await this.createRequest(
+          {
+            targetOrgTenantId: match.tenantId,
+            requesterName: body?.requesterName,
+            requestType: 'quote',
+            payload: {
+              title: match.serviceName || 'Ask for a quote',
+              description: lines.join('\n'),
+              ...(match.quoteServiceId ? { serviceId: match.quoteServiceId } : {}),
+              source: 'provider_match',
+              place: body?.area?.trim() || undefined,
+              // Why this business was asked, kept with the request as the record of the match.
+              matchReasons: match.reasons,
+              ...(match.unsure.length ? { matchGaps: match.unsure } : {}),
+            },
+          },
+          req,
+        )
+        asked.push({
+          requestId: created.id,
+          tenantId: match.tenantId,
+          name: match.name,
+          reasons: match.reasons,
+        })
+      } catch (error: unknown) {
+        const reason = error instanceof Error ? error.message : 'Could not send this request.'
+        skipped.push({ name: match.name, reason })
+      }
+    }
+    this.setStatus(200)
+    const result: AskProvidersResult = {
+      asked,
+      skipped,
+      ...(asked.length === 0 ? { note: 'None of the matching businesses could be asked.' } : {}),
+    }
+    if (replay.key) IdempotencyGuard.record(this.db, replay.key, requesterTenantId, 'discovery.ask', result)
+    return result
+  }
+
+  /**
+   * The deposit on a quote from Discover. Paying it pays the business.
+   * Credentis does not hold the money. Other requests have nothing here.
+   */
+  @Get('{id}/deposit')
+  @Security('jwt')
+  public async getDeposit(@Path() id: string, @Request() req: ExRequest): Promise<JobDepositView> {
+    return jobDepositService.view(id, this.requireTenantId(req), this.actorUserId(req))
+  }
+
+  /** Create the payment link for that deposit. The same link is returned if it already exists. */
+  @Post('{id}/deposit')
+  @Security('jwt')
+  public async openDeposit(@Path() id: string, @Request() req: ExRequest): Promise<JobDepositView> {
+    return jobDepositService.open(id, this.requireTenantId(req))
+  }
+
+  /** The customer says the work was not done. The business cannot mark the job done until this is settled. */
+  @Post('{id}/deposit/dispute')
+  @Security('jwt')
+  public async disputeDeposit(
+    @Path() id: string,
+    @Body() body: DepositDispute,
+    @Request() req: ExRequest,
+  ): Promise<JobDepositView> {
+    return jobDepositService.dispute(id, this.requireTenantId(req), body?.reason)
+  }
+
+  /** The customer withdraws that. The payment stays with the business. */
+  @Post('{id}/deposit/settle')
+  @Security('jwt')
+  public async settleDeposit(@Path() id: string, @Request() req: ExRequest): Promise<JobDepositView> {
+    return jobDepositService.settle(id, this.requireTenantId(req))
+  }
+
+  /** The business marks the job done. Refused while the customer says the work was not done. */
+  @Post('{id}/deposit/acknowledge')
+  @Security('jwt')
+  public async acknowledgeDeposit(@Path() id: string, @Request() req: ExRequest): Promise<JobDepositView> {
+    const userId = this.actorUserId(req)
+    if (!userId) throw new StatusException('Sign in as this business to mark the job done.', 401)
+    return jobDepositService.acknowledge(id, userId)
+  }
+
+  private actorUserId(req: ExRequest): string | undefined {
+    const ctx = req as ExRequest & { userId?: string; user?: { id?: string } }
+    return ctx.user?.id || ctx.userId
   }
 
   /**
@@ -1077,13 +1565,14 @@ export class WorkflowRequestController extends Controller {
     }
 
     let workflowId: string | undefined
+    const accepted = this.withAcceptPrice(request, body.price)
 
     // If executeWorkflow=true, trigger workflow execution
-    if (body.executeWorkflow && request.workflowType) {
+    if (body.executeWorkflow && accepted.workflowType) {
       try {
-        this.assertWorkflowOperationalForOrg(targetOrgTenantId, request.workflowType, 'executing workflow requests')
-        const executionInput = this.buildExecutionInputForWorkflowRequest(request)
-        const result = await workflowService.executeWorkflow(request.workflowType, executionInput, targetOrgTenantId, {
+        this.assertWorkflowOperationalForOrg(targetOrgTenantId, accepted.workflowType, 'executing workflow requests')
+        const executionInput = this.buildExecutionInputForWorkflowRequest(accepted)
+        const result = await workflowService.executeWorkflow(accepted.workflowType, executionInput, targetOrgTenantId, {
           triggerType: 'manual',
           triggerRef: request.id,
         })
@@ -1123,7 +1612,7 @@ export class WorkflowRequestController extends Controller {
       'Workflow request approved',
     )
 
-    this.continueIntoNextRequest(request, userId)
+    this.continueIntoNextRequest(accepted, userId)
     return response
   }
 
@@ -1193,15 +1682,16 @@ export class WorkflowRequestController extends Controller {
     }
 
     let workflowId: string | undefined
-    if (body.executeWorkflow && request.workflowType) {
+    const accepted = this.withAcceptPrice(request, body.price)
+    if (body.executeWorkflow && accepted.workflowType) {
       this.assertWorkflowOperationalForOrg(
         request.targetOrgTenantId,
-        request.workflowType,
+        accepted.workflowType,
         'executing workflow requests',
       )
-      const executionInput = this.buildExecutionInputForWorkflowRequest(request)
+      const executionInput = this.buildExecutionInputForWorkflowRequest(accepted)
       const result = await workflowService.executeWorkflow(
-        request.workflowType,
+        accepted.workflowType,
         executionInput,
         request.targetOrgTenantId,
         { triggerType: 'manual', triggerRef: request.id },
@@ -1235,7 +1725,7 @@ export class WorkflowRequestController extends Controller {
       return mapped
     })()
 
-    this.continueIntoNextRequest(request, actor.userId)
+    this.continueIntoNextRequest(accepted, actor.userId)
     return response
   }
 
@@ -1432,6 +1922,35 @@ export class WorkflowRequestController extends Controller {
       fulfilledAt: request.fulfilledAt?.toISOString(),
       createdAt: request.createdAt.toISOString(),
       updatedAt: request.updatedAt.toISOString(),
+      job: this.jobProgress(request),
+      experience: this.requestExperience(request),
+    }
+  }
+
+  /** Stages of a request to another organisation, dated from the request's own record. */
+  private requestExperience(request: WorkflowRequest): RequestExperience | undefined {
+    const payload = (request.payload || {}) as Record<string, unknown>
+    const at = (value?: Date) => value?.toISOString()
+    const status = String(request.status)
+    const events = [
+      { to_status: 'submitted', created_at: at(request.createdAt) },
+      ...(request.approvedAt ? [{ to_status: 'approved', created_at: at(request.approvedAt) }] : []),
+      ...(request.rejectedAt ? [{ to_status: 'rejected', created_at: at(request.rejectedAt) }] : []),
+      ...(request.fulfilledAt ? [{ to_status: 'completed', created_at: at(request.fulfilledAt) }] : []),
+      ...(['cancelled', 'expired'].includes(status) ? [{ to_status: status, created_at: at(request.updatedAt) }] : []),
+    ]
+    const template = typeof payload.workflowTemplateId === 'string' ? payload.workflowTemplateId : ''
+    try {
+      return projectRequestExperience({
+        id: request.id,
+        // The service asked for (school fees, a bill, a job) names the family better than "invoice".
+        requestType: template || request.requestType,
+        workflowType: request.workflowType,
+        status: status === 'pending' ? 'submitted' : status === 'fulfilled' ? 'completed' : status,
+        events,
+      })
+    } catch {
+      return undefined
     }
   }
 

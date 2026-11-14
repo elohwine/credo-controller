@@ -27,6 +27,12 @@ async function run() {
   // Credo's enum is LogLevel.Info; the old lowercase LogLevel.info was undefined and logged everything at trace.
   const logger = new TsLogger(LogLevel[process.env.CREDO_LOG_LEVEL || 'Info'] ?? LogLevel.Info)
   const walletId = process.env.WALLET_ID || 'shared-controller-agent'
+  // This key encrypts every person's wallet. A value written in this file is a published value.
+  if (!process.env.WALLET_KEY && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'WALLET_KEY is not set. It encrypts every wallet and has no safe default. See docs/SECRETS_ROTATION.md.',
+    )
+  }
   const walletKey = process.env.WALLET_KEY || 'shared-controller-key'
   // Askar store location. docker-compose.full.yml sets ASKAR_STORAGE_PATH=/home/credo/.afj and bind-mounts
   // ./data/askar-issuer there. Honouring the same variable locally (ASKAR_STORAGE_PATH=./data/askar-issuer)

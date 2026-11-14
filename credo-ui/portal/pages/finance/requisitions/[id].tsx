@@ -45,13 +45,9 @@ export default function RequisitionDetailPage() {
     const [releaseRequestId, setReleaseRequestId] = useState<string | null>(null);
     const [releaseRequestUrl, setReleaseRequestUrl] = useState<string | null>(null);
     const [creatingReleaseRequest, setCreatingReleaseRequest] = useState(false);
-    // Ack VP modal
-    const [showAckVP, setShowAckVP] = useState(false);
-    const [ackRequestId, setAckRequestId] = useState<string | null>(null);
-    const [ackRequestUrl, setAckRequestUrl] = useState<string | null>(null);
     // Error from the last wallet confirmation, shown inside the open modal.
     const [stepError, setStepError] = useState<string | null>(null);
-    const [creatingAckRequest, setCreatingAckRequest] = useState(false);
+    const [acking, setAcking] = useState(false);
     const [requisitionLifecycleNote, setRequisitionLifecycleNote] = useState('Goods/services received and confirmed.');
     const [actorReports, setActorReports] = useState<WorkflowActorReport[]>([]);
 
@@ -132,20 +128,22 @@ export default function RequisitionDetailPage() {
         }
     };
 
-    const handleOpenAckModal = async () => {
-        setShowAckVP(true);
-        setCreatingAckRequest(true);
-        setAckRequestId(null);
-        setAckRequestUrl(null);
+    // Confirming delivery moves no money, so it is a signed-in step: no wallet share.
+    const handleConfirmDelivery = async () => {
+        setAcking(true);
         try {
-            const { data } = await axios.post(`${baseUrl}/api/finance/requisitions/${id}/ack/request`, {}, auth());
-            setAckRequestId(data.requestId);
-            setAckRequestUrl(data.presentationRequestUrl);
+            const { data } = await axios.post(
+                `${baseUrl}/api/finance/requisitions/${id}/ack`,
+                { notes: requisitionLifecycleNote.trim() || 'Goods/services received and confirmed.' },
+                { headers: { ...auth().headers, 'x-idempotency-key': `requisition-ack:${id}` } },
+            );
+            if (data?.error) throw new Error(String(data.error));
+            notifications.show({ title: 'Delivery confirmed', message: 'This requisition is now closed.', color: 'teal' });
+            await fetchRequisition();
         } catch (e: any) {
-            notifications.show({ title: 'Could not start delivery confirmation', message: e?.response?.data?.error || e?.message || 'We could not prepare this step.', color: 'red' });
-            setShowAckVP(false);
+            notifications.show({ title: 'Confirmation did not go through', message: e?.response?.data?.error || e?.message || 'We could not record this step.', color: 'red' });
         } finally {
-            setCreatingAckRequest(false);
+            setAcking(false);
         }
     };
 
@@ -213,11 +211,11 @@ export default function RequisitionDetailPage() {
     // One next step at a time (same rule as the phone app).
     const nextStep = requisitionNextStep(summary.status, signMode);
     const nextStepBlocked = nextStep.action === 'release' && !isIssuer;
-    const nextStepBusy = creatingApprovalRequest || creatingReleaseRequest || creatingAckRequest;
+    const nextStepBusy = creatingApprovalRequest || creatingReleaseRequest || acking;
     const runNextStep = () => {
         if (nextStep.action === 'approval' && canApprove) { void handleOpenApprovalModal(); return; }
         if (nextStep.action === 'release' && canRelease) { void handleOpenReleaseModal(); return; }
-        if (nextStep.action === 'ack' && canAck) { void handleOpenAckModal(); }
+        if (nextStep.action === 'ack' && canAck) { void handleConfirmDelivery(); }
     };
 
     const requisitionAuditItems: DetailTimelineItem[] = (Array.isArray(events) ? events : []).map((ev: any) => ({
@@ -341,22 +339,6 @@ export default function RequisitionDetailPage() {
                     currency: resolvedCurrency || 'USD',
                 }}
                 creating={creatingReleaseRequest}
-                error={stepError}
-            />
-
-            <StageProofModal
-                opened={showAckVP}
-                onClose={() => { setShowAckVP(false); setStepError(null); }}
-                title="Confirm delivery"
-                description="Review what your wallet will share, then confirm the goods or services were received."
-                requestUrl={ackRequestUrl}
-                requestId={ackRequestId}
-                review={{
-                    requisitionId: String(id || ''),
-                    requisitionAction: 'ack',
-                    notes: requisitionLifecycleNote.trim() || 'Goods or services received.',
-                }}
-                creating={creatingAckRequest}
                 error={stepError}
             />
 

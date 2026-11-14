@@ -30,7 +30,7 @@ const Bulb = () => (
 export function GuideTip({ tip, onDismiss, role }: { tip: TipKey; onDismiss: () => void; role?: string | null }) {
   const copy = tipCopyFor(tip, role)
   return (
-    <aside className={`${styles.root} ${styles.tip} ${reveal.rise}`} role="note" aria-label="Tip">
+    <aside className={`${styles.root} ${styles.tip}`} role="note" aria-label="Tip">
       <span className={styles.tipIcon}><Bulb /></span>
       <div className={styles.tipText}>
         <h3>{copy.title}</h3>
@@ -166,9 +166,10 @@ export function GettingStartedChecklist({
   )
 }
 
-const PointIcon = ({ kind }: { kind: 'inbox' | 'shield' | 'work' }) => (
+const PointIcon = ({ kind }: { kind: 'inbox' | 'shield' | 'work' | 'fingerprint' }) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
     {kind === 'inbox' && <><path d="M4 13l2.5-7h11L20 13v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" /><path d="M4 13h4.5l1 2h5l1-2H20" /></>}
+    {kind === 'fingerprint' && <><path d="M18.9 7a8 8 0 0 1 1.1 5v1a6 6 0 0 0 .8 3" /><path d="M8 11a4 4 0 0 1 8 0v1a10 10 0 0 0 2 6" /><path d="M12 11v2a14 14 0 0 0 2.5 8" /><path d="M8 15a18 18 0 0 0 1.8 6" /><path d="M4.9 19a22 22 0 0 1-.9-7v-1a8 8 0 0 1 12-6.95" /></>}
     {kind === 'shield' && <><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" /><path d="M9 12l2 2 4-4" /></>}
     {kind === 'work' && <><rect x="3.5" y="7.5" width="17" height="12" rx="2" /><path d="M9 7.5V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1.5M3.5 12.5h17" /></>}
   </svg>
@@ -221,6 +222,7 @@ export function WelcomeScreen({
   continueLabel = 'Go to Inbox',
   flyToInbox = true,
   onCardLanded,
+  surface = 'web',
 }: {
   name?: string | null
   /** Replaces the identity card picture. */
@@ -231,13 +233,16 @@ export function WelcomeScreen({
   flyToInbox?: boolean
   /** Runs when the card's check appears, e.g. a light vibration on the phone. */
   onCardLanded?: () => void
+  /** Where the person is: the phone offers fingerprint sign-in here, the website points to the phone. */
+  surface?: 'phone' | 'web'
 }) {
   const heading = useRef<HTMLHeadingElement>(null)
   const card = useRef<HTMLDivElement>(null)
   useEffect(() => {
     heading.current?.focus({ preventScroll: true })
     if (!onCardLanded || prefersReducedMotion()) return
-    const timer = window.setTimeout(onCardLanded, 1050)
+    // When the seal stamps (Guides.module.css .cardSeal: 1100ms delay, then a fast spring).
+    const timer = window.setTimeout(onCardLanded, 1250)
     return () => window.clearTimeout(timer)
   }, [onCardLanded])
   const first = name?.trim().split(/\s+/)[0]
@@ -270,8 +275,16 @@ export function WelcomeScreen({
             <span><PointIcon kind="work" /></span>
             <span><strong>An organisation is optional</strong><span>Keep cards here, find a business to ask for a service, or start an organisation later.</span></span>
           </li>
+          <li className={styles.stage} style={{ ['--i' as string]: 7 }}>
+            <span><PointIcon kind="fingerprint" /></span>
+            {surface === 'phone' ? (
+              <span><strong>Lock it to this phone</strong><span>The checklist helps you turn on fingerprint sign-in, so only you can open your account here.</span></span>
+            ) : (
+              <span><strong>Sign in with your phone</strong><span>Turn on fingerprint sign-in in the Credentis phone app, then scan the code on this website instead of typing your PIN.</span></span>
+            )}
+          </li>
         </ul>
-        <button type="button" className={`${styles.primary} ${styles.stage}`} style={{ ['--i' as string]: 7 }} onClick={proceed}>{continueLabel}</button>
+        <button type="button" className={`${styles.primary} ${styles.stage}`} style={{ ['--i' as string]: 8 }} onClick={proceed}>{continueLabel}</button>
       </div>
     </div>
   )
@@ -348,7 +361,7 @@ export function CardSavingPanel({ client }: { client: GuideClient }) {
 
 export interface SettingsRow {
   key: string
-  icon: ReactNode
+  icon?: ReactNode
   title: string
   summary?: string
   onSelect: () => void
@@ -358,6 +371,8 @@ export interface SettingsRow {
 
 export interface SettingsGroup {
   title: string
+  /** false when a surrounding heading already names the group. */
+  showTitle?: boolean
   rows: SettingsRow[]
 }
 
@@ -373,12 +388,12 @@ export function SettingsList({ groups }: { groups: SettingsGroup[] }) {
     <div className={`${styles.root} ${styles.settings}`}>
       {groups.filter((group) => group.rows.length).map((group) => (
         <section key={group.title} aria-label={group.title}>
-          <h2 className={styles.groupTitle}>{group.title}</h2>
+          {group.showTitle === false ? null : <h2 className={styles.groupTitle}>{group.title}</h2>}
           <ul className={styles.group}>
             {group.rows.map((row) => (
               <li key={row.key}>
                 <button type="button" className={styles.setting} onClick={row.onSelect}>
-                  <span className={styles.settingIcon} aria-hidden="true">{row.icon}</span>
+                  {row.icon ? <span className={styles.settingIcon} aria-hidden="true">{row.icon}</span> : null}
                   <span className={styles.settingText}>
                     <strong>{row.title}</strong>
                     {row.summary ? <span>{row.summary}</span> : null}

@@ -4,7 +4,7 @@
  * Laid out like Meta's sample utility templates: a branded image header for the alert type, a body
  * that names the organisation and the exact item (title plus one detail line), a footer, a tap-to-open
  * button whose link ends in the inbox item (or invite code) and a one-tap opt-out. The generic
- * `credentis_inbox_update` template remains the fallback while these await Meta approval.
+ * `credentis_inbox_update` template remains the fallback when a branded template is not approved.
  *
  * Kept free of imports so `scripts/whatsapp-templates.js` can submit the same definitions to Meta.
  */

@@ -4,6 +4,7 @@ import {
   DCQL_STAFF_CARD_QUERY_ID,
   buildStageProofDcqlQuery,
   perItemListsOf,
+  purposeLineFromResolvedRequest,
   sharePurposeFromBinding,
   shareReviewRows,
   splitSdJwtShare,
@@ -168,9 +169,44 @@ describe('share screen rows', () => {
     // The organisation is already shared; its name is not listed as kept back.
     expect(rows.withheld).toEqual([
       { label: 'Role', value: 'site manager' },
-      { label: 'Other steps on your card', value: 'Release worker payout' },
+      { label: 'Other steps on your card', value: 'Release worker payouts' },
     ])
     expect(rows.basis).toBe('step_on_card')
+  })
+
+  test('the steps kept back on a card read once each, and card bookkeeping reads in words', () => {
+    const rows = shareReviewRows({
+      disclosed: { orgTenantId: 'org-1', employmentStatus: 'active', stageActions: ['release_funds'] },
+      withheld: {
+        stageActions: ['approve_requisition', 'finance_approve_requisition', 'approve_request', 'issue_receipt_vc'],
+        permissions: ['request.review', 'request.approve'],
+        orgAccess: 'manage',
+        issuedAt: '2026-10-30T21:21:47.610Z',
+        source: 'membership',
+        platformName: 'IdenEx Credentis',
+      },
+      selective: true,
+      orgName: 'Demo Org',
+    })
+    expect(rows.shared).toContainEqual({ label: 'This step', value: 'Release the money' })
+    expect(rows.withheld).toEqual([
+      {
+        label: 'Other steps on your card',
+        value: 'Approve purchases, Approve purchases for finance, Approve requests, Issue receipts',
+      },
+      { label: 'Allowed to', value: 'review requests, approve requests' },
+      { label: 'Access', value: 'Runs the organisation' },
+      { label: 'Issued', value: '30 Oct 2026' },
+    ])
+  })
+
+  test('the wallet share line carries the currency the request signs', () => {
+    const transaction = Buffer.from(
+      JSON.stringify({ type: 'stage_action', step: 'release_funds', amount: '180', currency: 'USD' }),
+    ).toString('base64url')
+    expect(
+      purposeLineFromResolvedRequest({ authorizationRequestPayload: { transaction_data: [transaction] } }),
+    ).toBe('Release the money · USD 180')
   })
 
   test('the person named on the job is told so, never shown their id', () => {

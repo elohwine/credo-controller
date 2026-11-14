@@ -147,5 +147,52 @@ export function clientBillingStages(run?: any, link?: any) {
       at: link?.paidAt || bill?.paidAt,
       note: paid ? 'Payment recorded' : recorded ? 'Outstanding' : 'Not invoiced',
     },
+    // A job's bill is matched on the job itself; only a standalone payment carries its own trail.
+    ...(link?.reconciliation
+      ? [
+          {
+            key: 'RECEIPT',
+            label: 'Receipt issued',
+            proof: 'Record',
+            status: link.reconciliation.receiptIssuedAt ? ('done' as const) : ('pending' as const),
+            at: link.reconciliation.receiptIssuedAt,
+            note: link.reconciliation.receiptIssuedAt ? 'Receipt ready in the client’s inbox' : 'Waiting for payment',
+          },
+          {
+            key: 'MATCHED',
+            label: 'Matched to the bill',
+            proof: 'Record',
+            status:
+              link.reconciliation.settledAt || link.reconciliation.reconciledAt
+                ? ('done' as const)
+                : paid
+                  ? ('held' as const)
+                  : ('pending' as const),
+            at: link.reconciliation.settledAt || link.reconciliation.reconciledAt,
+            note:
+              link.reconciliation.settledAt || link.reconciliation.reconciledAt
+                ? 'Matched automatically. Nothing to check.'
+                : paid
+                  ? 'Paid but not matched yet'
+                  : 'Waiting for payment',
+          },
+          // A sale with nothing to deliver is already reconciled and has no handover step.
+          // A shop that still owes a handover stays at receipt issued until delivery is confirmed.
+          ...(link.reconciliation.deliveredAt ||
+          link.reconciliation.status === 'RECEIPT_ISSUED' ||
+          link.reconciliation.status === 'DELIVERED'
+            ? [
+                {
+                  key: 'HANDOVER',
+                  label: 'Handed over',
+                  proof: 'Record',
+                  status: link.reconciliation.deliveredAt ? ('done' as const) : ('held' as const),
+                  at: link.reconciliation.deliveredAt,
+                  note: link.reconciliation.deliveredAt ? 'Delivery confirmed' : 'Waiting for handover',
+                },
+              ]
+            : []),
+        ]
+      : []),
   ].map((stage) => ({ ...stage, vcType: 'BillingRecord' }))
 }

@@ -18,7 +18,7 @@ import type { RestMultiTenantAgentModules } from '../../cliAgent'
 import type { Agent } from '@credo-ts/core'
 import type { Request as ExRequest } from 'express'
 
-import { Controller, Post, Get, Delete, Route, Tags, Body, Path, Query, Request, Security } from 'tsoa'
+import { Controller, Post, Put, Get, Delete, Route, Tags, Body, Path, Query, Request, Security } from 'tsoa'
 
 import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
@@ -31,7 +31,12 @@ import {
   type WorkflowAuditFormat,
   type WorkflowAuditResult,
 } from '../../services/WorkflowAuditService'
-import { workflowService, ExecuteWorkflowOptions, WorkflowExecutionResult } from '../../services/WorkflowService'
+import {
+  workflowService,
+  ExecuteWorkflowOptions,
+  WorkflowExecutionResult,
+  type JobBillingTerms,
+} from '../../services/WorkflowService'
 import { stageProofService, type EmbeddedPresentationResult } from '../../services/ssi/StageProofService'
 import { ActionRegistry } from '../../services/workflow/ActionRegistry'
 import { stageGateOf, stageGateReason } from '../../services/workflow/stageGate'
@@ -297,6 +302,41 @@ export class WorkflowController extends Controller {
   }
 
   /**
+   * Set or change a field job's price and how the client pays. Booked jobs arrive without a price;
+   * this works at any stage until the bill is with the client. Owners and admins only.
+   */
+  @Put('runs/{runId}/billing')
+  @Security('jwt', ['tenant'])
+  public async setJobBilling(
+    @Path() runId: string,
+    @Body() body: JobBillingTerms,
+    @Request() request: ExRequest,
+  ): Promise<{ runId: string; status: string; billing: 'saved' | 'billed' | 'no_charge'; output?: any; error?: string }> {
+    try {
+      const user = (request as any).user || {}
+      const run = workflowRunRepository.findRunById(runId)
+      if (!run || !canAccessRun(user, run)) throw new StatusException('Run not found', 404)
+      const membership = DatabaseManager.getDatabase()
+        .prepare(`SELECT role FROM org_memberships WHERE org_tenant_id = ? AND user_id = ? AND status = 'active' LIMIT 1`)
+        .get(run.tenantId, String(user.id || '')) as { role?: string } | undefined
+      if (user.tenantId !== run.tenantId || !['owner', 'admin'].includes(String(membership?.role || '').toLowerCase())) {
+        throw new StatusException('Only an organisation owner or admin can set the price.', 403)
+      }
+      const db = DatabaseManager.getDatabase()
+      const action = `set-job-billing:${runId}`
+      if (!IdempotencyGuard.extractKey(request)) throw new StatusException('Missing x-idempotency-key header', 400)
+      const replay = IdempotencyGuard.guard(db, request, run.tenantId, action)
+      if (replay.duplicate) return replay.response
+      const result = await workflowService.setJobBilling(runId, body || {}, String(user.id || '') || undefined)
+      if (replay.key) IdempotencyGuard.record(db, replay.key, run.tenantId, action, result)
+      return result
+    } catch (error: any) {
+      this.setStatus(this.statusOf(error))
+      return { runId, status: 'failed', billing: 'saved', error: error.message }
+    }
+  }
+
+  /**
    * What this step asks for. A job's sign-off and payout keep their own settings; any other step
    * is read from the run itself, so a workflow that named its own step is gated the same way.
    */
@@ -311,6 +351,9 @@ export class WorkflowController extends Controller {
         `This job is not waiting at a step called '${String(stage)}'. Open it again to see the step it is waiting for.`,
         400,
       )
+    }
+    if (gate.requestId) {
+      throw new StatusException('This step is decided on its request. Open the request to decide it.', 409)
     }
     const words = gate.stageAction.replace(/_/g, ' ')
     return {

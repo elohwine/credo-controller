@@ -6,7 +6,7 @@
 #   2. Bump versionCode (+1) and versionName (patch) in android/app/build.gradle.
 #   3. next build (static export to out/) with NEXT_PUBLIC_API_URL baked in.
 #   4. npx cap sync android
-#   5. ./gradlew assembleRelease (signing config already points at android.keystore).
+#   5. ./gradlew assembleRelease (signing from android/keystore.properties or CREDENTIS_* env).
 #   6. Print the APK path.
 #
 # Usage:
@@ -81,6 +81,8 @@ if [[ -x "$LOCAL_GRADLE_HOME/wrapper/dists/gradle-8.11.1-all/2qik7nd48slq1ooc249
 else
   log "Local Gradle 8.11.1 not found; the wrapper will download it"
 fi
+[[ -f android/keystore.properties || -n "${CREDENTIS_KEYSTORE_FILE:-}" ]] ||
+  die "Release signing not configured: create android/keystore.properties (storeFile, storePassword, keyAlias, keyPassword) or set CREDENTIS_KEYSTORE_FILE/CREDENTIS_KEYSTORE_PASSWORD/CREDENTIS_KEY_ALIAS/CREDENTIS_KEY_PASSWORD"
 log "gradlew assembleRelease"
 pushd android >/dev/null
 chmod +x ./gradlew

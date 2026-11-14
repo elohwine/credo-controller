@@ -11,7 +11,7 @@ export interface OrgBrandView extends DocumentBrand {
 
 export type BrandTextField = Exclude<
   keyof DocumentBrand,
-  'logoUrl' | 'configured' | 'quoteValidityDays' | 'invoiceDueDays' | 'primaryColor'
+  'logoUrl' | 'configured' | 'quoteValidityDays' | 'invoiceDueDays' | 'primaryColor' | 'vatRate' | 'pricesIncludeVat'
 >
 
 export interface BrandFieldDef {
@@ -74,13 +74,36 @@ export function brandSavePayload(draft: BrandDraft): Record<string, unknown> {
   }
   if (typeof draft.quoteValidityDays === 'number') payload.quoteValidityDays = draft.quoteValidityDays
   if (typeof draft.invoiceDueDays === 'number') payload.invoiceDueDays = draft.invoiceDueDays
+  if (typeof draft.vatRate === 'number' && draft.vatRate > 0) {
+    payload.vatRate = draft.vatRate
+    payload.pricesIncludeVat = draft.pricesIncludeVat !== false
+  }
   return payload
 }
 
+/** How VAT works out on an amount, for the preview: read out of a price that includes it, or added on top. */
+export function sampleVat(
+  amount: number,
+  brand?: Pick<DocumentBrand, 'vatRate' | 'pricesIncludeVat'>,
+): Pick<DocumentModel, 'subtotal' | 'tax' | 'taxRate' | 'taxIncluded' | 'total'> | undefined {
+  const rate = Number(brand?.vatRate)
+  if (!Number.isFinite(rate) || rate <= 0) return undefined
+  const included = brand?.pricesIncludeVat !== false
+  const round = (n: number) => Math.round(n * 100) / 100
+  const tax = included ? round(amount - amount / (1 + rate / 100)) : round(amount * (rate / 100))
+  return included
+    ? { subtotal: round(amount - tax), tax, taxRate: rate, taxIncluded: true, total: amount }
+    : { subtotal: amount, tax, taxRate: rate, taxIncluded: false, total: round(amount + tax) }
+}
+
 /** A made-up document so the owner can see the brand before any real bill goes out. */
-export function sampleBrandDocument(kind: DocumentKind = 'invoice'): DocumentModel {
+export function sampleBrandDocument(
+  kind: DocumentKind = 'invoice',
+  brand?: Pick<DocumentBrand, 'vatRate' | 'pricesIncludeVat'>,
+): DocumentModel {
   const issuedAt = new Date().toISOString()
   const add = (days: number) => new Date(Date.now() + days * 86400000).toISOString()
+  const vat = sampleVat(50, brand)
   return {
     kind,
     number: kind === 'quote' ? 'Q-0001' : kind === 'receipt' ? 'R-0001' : 'INV-0001',
@@ -98,6 +121,7 @@ export function sampleBrandDocument(kind: DocumentKind = 'invoice'): DocumentMod
     ],
     subtotal: 50,
     total: 50,
+    ...(vat || {}),
     paymentRef: kind === 'receipt' ? 'MP240101.1234.A00001' : undefined,
     paymentMethod: kind === 'receipt' ? 'EcoCash' : undefined,
   }

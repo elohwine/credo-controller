@@ -18,6 +18,7 @@ import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { getTenantById } from '../../persistence/TenantRepository'
 import { orgSetupProfileService } from '../../services/OrgSetupProfileService'
 import { paymentLinkService, type PaymentLinkDelivery } from '../../services/PaymentLinkService'
+import { reconciliationService } from '../../services/ReconciliationService'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 import { rootLogger } from '../../utils/pinoLogger'
 
@@ -48,7 +49,17 @@ export interface PaymentLink {
   obligationStatus?: string
   balanceDue?: number
   settledAmount?: number
+  /** The payment's own reconciliation trail; absent for a job's bill, which is on the job's trail. */
+  reconciliation?: PaymentLinkReconciliation
   createdAt: string
+}
+
+export interface PaymentLinkReconciliation {
+  status: string
+  receiptIssuedAt?: string
+  settledAt?: string
+  deliveredAt?: string
+  reconciledAt?: string
 }
 
 interface CreatePaymentLinkBody {
@@ -202,7 +213,7 @@ export class PaymentLinkController extends Controller {
     const rows = db.prepare(query).all(...params) as any[]
 
     return {
-      links: rows.map(this.rowToLink),
+      links: rows.map((row) => this.rowToLink(row)),
     }
   }
 
@@ -304,8 +315,13 @@ export class PaymentLinkController extends Controller {
       obligationStatus: row.obligation_status,
       balanceDue: row.obligation_balance_due,
       settledAmount: row.settled_amount,
+      reconciliation: metadata.workflowRunId ? undefined : this.reconciliationOf(row.provider_ref),
       createdAt: row.created_at,
     }
+  }
+
+  private reconciliationOf(providerRef?: string | null): PaymentLinkReconciliation | undefined {
+    return reconciliationService.checkoutTrail(providerRef)
   }
 
   /** Save the client's name and mobile on a bill without sending it; the screen then offers to send. */

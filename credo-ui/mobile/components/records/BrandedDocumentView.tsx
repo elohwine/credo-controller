@@ -3,7 +3,7 @@ import { Button, Group, Loader, Stack, Text } from '@mantine/core';
 import { IconDownload, IconPrinter } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 
-import { DOCUMENT_TITLES, renderDocumentHtml, type DocumentBrand, type DocumentModel } from '@/lib/brandedDocument';
+import { DOCUMENT_TITLES, documentBrand, renderDocumentHtml, type DocumentBrand, type DocumentModel } from '@/lib/brandedDocument';
 import { downloadDocumentPdf, fetchOrgBrand } from '@/lib/documentDownload';
 import { isCapacitorNativeRuntime } from '@/lib/baseUrl';
 
@@ -42,10 +42,7 @@ export default function BrandedDocumentView({ model, orgTenantId, fallbackName, 
     };
   }, [givenBrand, orgTenantId, model.issuedAt]);
 
-  const effective: DocumentBrand = useMemo(
-    () => brand || { displayName: fallbackName || 'Organisation' },
-    [brand, fallbackName],
-  );
+  const effective: DocumentBrand = useMemo(() => documentBrand(model, brand, fallbackName), [model, brand, fallbackName]);
   const html = useMemo(() => renderDocumentHtml(model, effective), [model, effective]);
   const canPrint = typeof window !== 'undefined' && !isCapacitorNativeRuntime();
 

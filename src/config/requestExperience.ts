@@ -71,7 +71,7 @@ interface RequestFamilyDeclaration {
 export const REQUEST_FAMILIES: RequestFamilyDeclaration[] = [
   {
     workflowType: 'hr_requests',
-    aliases: ['hr.leave', 'hr_requests', 'hr-requests', 'approve_request'],
+    aliases: ['hr.leave', 'hr.salary_advance', 'hr_requests', 'hr-requests', 'approve_request'],
     experience: { version: 1, family: 'people', reviewAction: 'approve_request', decisionOnly: true },
   },
   {

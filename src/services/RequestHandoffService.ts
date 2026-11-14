@@ -103,6 +103,15 @@ export const DEFAULT_REQUEST_HANDOFFS: RequestHandoffRule[] = [
     targetModule: 'finance',
     copyItems: false,
   },
+  // Payroll: an approved salary advance is paid out like any other payment
+  {
+    fromType: 'hr.salary_advance',
+    onStatus: 'approved',
+    toType: 'finance.payment_request',
+    title: 'Advance payment',
+    targetModule: 'finance',
+    copyItems: false,
+  },
   // Commercial: accepted quote becomes an invoice, approved invoice becomes a payment
   {
     fromType: 'quote',

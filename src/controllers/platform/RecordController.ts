@@ -97,8 +97,9 @@ export class RecordController extends Controller {
   ): Promise<{ kind: string; id: string; status: string } | { error: string }> {
     try {
       const recordKind = this.kindOf(kind)
-      const caller = this.caller(request)
       const db = DatabaseManager.getDatabase()
+      if (recordKind === 'request' && !this.isOrgToken(request)) return this.cancelOwnRequest(id, request, body)
+      const caller = this.caller(request)
       const action = `record-cancel:${recordKind}:${id}`
       const idempotency = IdempotencyGuard.guard(db, request, caller.tenantId, action)
       if (idempotency.duplicate) return idempotency.response
@@ -134,6 +135,31 @@ export class RecordController extends Controller {
       this.setStatus(error instanceof StatusException ? error.status : error?.status || 500)
       return { error: error.message }
     }
+  }
+
+  private isOrgToken(request: ExRequest): boolean {
+    const tenantId = String((request as any).user?.tenantId || '')
+    return Boolean(tenantId) && getTenantById(tenantId)?.tenantType === 'ORG'
+  }
+
+  /** The requester withdraws their own request from their personal wallet ("My requests"). */
+  private cancelOwnRequest(id: string, request: ExRequest, body?: { reason?: string }) {
+    const user = (request as any).user || {}
+    const subjectRef = String(user.sub || user.id || '')
+    if (!subjectRef) throw new StatusException('Sign in again to withdraw this request.', 401)
+    const db = DatabaseManager.getDatabase()
+    const action = `record-cancel:request:${id}`
+    const idempotency = IdempotencyGuard.guard(db, request, subjectRef, action)
+    if (idempotency.duplicate) return idempotency.response
+    const naturalKey = `natural:record-cancel:${subjectRef}:request:${id}`
+    const replay = IdempotencyGuard.checkAndReturn(db, naturalKey, subjectRef, action)
+    if (replay) return replay.response
+    const reason = String(body?.reason || '').trim().slice(0, 500)
+    platformRequestService.cancelMine(id, subjectRef, reason ? { reason } : {})
+    const result = { kind: 'request', id, status: 'cancelled' }
+    if (idempotency.key) IdempotencyGuard.record(db, idempotency.key, subjectRef, action, result)
+    IdempotencyGuard.record(db, naturalKey, subjectRef, action, result)
+    return result
   }
 
   private kindOf(kind: string): RecordKind {

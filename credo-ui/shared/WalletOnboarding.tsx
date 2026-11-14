@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import styles from './WalletOnboarding.module.css'
-import { reveal } from './reveal'
 
 /** A sample journey only: no credential is issued and no information is sent. */
 export function WalletOnboarding({
@@ -32,7 +31,7 @@ export function WalletOnboarding({
         </div>
         <button type="button" className={styles.skipButton} onClick={onSkip}>Skip intro</button>
       </div>
-      <div className={styles.scene} data-step={step} data-complete={complete}>
+      <div key={step} className={styles.scene} data-step={step} data-complete={complete}>
         <svg className={styles.scenery} viewBox="0 0 360 320" fill="none" aria-hidden="true">
           <ellipse cx="180" cy="158" rx="150" ry="126" fill="currentColor" opacity=".05" />
           <ellipse cx="180" cy="292" rx="104" ry="10" fill="currentColor" opacity=".07" />
@@ -59,7 +58,7 @@ export function WalletOnboarding({
             <span className={styles.sample}>DEMO</span>
           </div>
           {/* The card stays put and turns; only what is written on it changes, line by line. */}
-          <div key={step} className={reveal.stagger} style={{ display: 'contents' }}>
+          <div key={step} className={styles.lines} style={{ display: 'contents' }}>
           {receiving ? (
             <>
               <div className={styles.person}>
@@ -99,12 +98,12 @@ export function WalletOnboarding({
           {receiving ? (complete ? 'Sample card accepted' : 'Try accepting the card') : (complete ? 'Choices noted' : 'See the choices')}
         </button>
       </div>
-      <div key={step} className={`${styles.introduction} ${reveal.stagger}`} style={{ ['--reveal-delay' as string]: '160ms' }}>
+      <div key={step} className={styles.introduction}>
         <h2 ref={heading} tabIndex={-1} className={styles.heading}>{receiving ? 'Your identity card' : 'Then you choose'}</h2>
         <p className={styles.description}>
           {receiving
             ? 'Credentis sends an identity card to Inbox. You read it and accept it. Nothing is saved until you do.'
-            : 'Keep cards here, find a business to ask for a service, or start an organisation later. You can skip this and decide after you sign in.'}
+            : 'Keep cards here, find a business to ask for a service, or start an organisation later. On the next screen you can also ask the Central Registry to confirm your date of birth, or skip that and keep the identity card as it is.'}
         </p>
       </div>
       <p className={styles.explanation} role="status">

@@ -5,6 +5,7 @@ import { Controller, Post, Route, Tags, Body, SuccessResponse, Security, Request
 
 import { ssiTrustService } from '../../services/SsiTrustService'
 import { credoPresentationVerificationService } from '../../services/ssi/CredoPresentationVerificationService'
+import { defaultVerifierOf } from '../../services/ssi/siteVerifier'
 
 /**
  * OpenID4VP protocol controller.
@@ -35,7 +36,7 @@ export class OidcVerifierController extends Controller {
       throw new Error('Authenticated tenant and subject are required')
     }
 
-    let verifierId: string
+    let verifierId: string | undefined
     let signerDidUrl: string | undefined
 
     if (body.verifierRef) {
@@ -44,7 +45,7 @@ export class OidcVerifierController extends Controller {
       signerDidUrl = registration.signerDidUrlRef
     } else {
       const verifiers = await agent.openid4vc.verifier.getAllVerifiers()
-      verifierId = verifiers[0]?.verifierId
+      verifierId = defaultVerifierOf(verifiers)?.verifierId
       signerDidUrl = body.verifierDid
     }
 

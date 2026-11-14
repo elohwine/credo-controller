@@ -25,6 +25,10 @@ body {
   --app-safe-right: max(var(--safe-area-inset-right), env(safe-area-inset-right, 0px));
   --app-safe-bottom: max(var(--safe-area-inset-bottom), env(safe-area-inset-bottom, 0px));
   --app-safe-left: max(var(--safe-area-inset-left), env(safe-area-inset-left, 0px));
+  /* On-screen keyboard height: native bridge on Android, visualViewport in a browser (lib/keyboardInset.ts). */
+  --keyboard-inset-bottom: 0px;
+  --vv-keyboard-inset: 0px;
+  --app-keyboard: max(var(--keyboard-inset-bottom), var(--vv-keyboard-inset));
 }
 
 * {
@@ -192,7 +196,21 @@ body,
    control and action clear of Android/iOS system bars as well. */
 .mantine-Modal-content,
 .mantine-Drawer-content {
-  max-height: calc(100dvh - var(--app-safe-top) - var(--app-safe-bottom));
+  max-height: calc(100dvh - var(--app-safe-top) - max(var(--app-safe-bottom), var(--app-keyboard)));
+}
+
+/* Sheets and dialogs sit on top of the keyboard, so the field being typed in stays visible. */
+.mantine-Modal-inner,
+.mantine-Drawer-inner {
+  bottom: var(--app-keyboard);
+  transition: bottom 250ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mantine-Modal-inner,
+  .mantine-Drawer-inner {
+    transition: none;
+  }
 }
 
 /* Material bottom sheets are as tall as their content. Mantine maps
@@ -232,6 +250,23 @@ a:active,
 .mantine-Combobox-option,
 .app-tabs-tab {
   min-height: 48px;
+}
+
+/* The security feature a guide step opened: a tonal ring that settles, so the eye finds it. */
+.security-highlight {
+  outline: 2px solid var(--mantine-color-credentis-filled);
+  outline-offset: 2px;
+  animation: security-highlight-settle 1200ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes security-highlight-settle {
+  0% { outline-color: transparent; transform: scale(0.98); }
+  40% { outline-color: var(--mantine-color-credentis-filled); transform: scale(1); }
+  100% { outline-color: var(--mantine-color-credentis-light-color); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .security-highlight { animation: none; }
 }
 
 .sheet-handle {

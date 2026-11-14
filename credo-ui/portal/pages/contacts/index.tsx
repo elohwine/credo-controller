@@ -1,4 +1,5 @@
 import { feedback } from '@/lib/feedback';
+import { PhoneField } from '../../../shared/PhoneField';
 import { useState, useEffect, useContext, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../../components/Layout';
@@ -782,11 +783,11 @@ export default function ContactsPage() {
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
-          <TextInput
-            label="Phone (E.164)"
-            placeholder="+263777123456"
+          <PhoneField
+            surface="portal"
+            label="Phone"
             value={form.phone}
-            onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            onChange={(phone) => setForm({ ...form, phone })}
           />
           <TextInput
             label="Email"

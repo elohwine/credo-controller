@@ -12,6 +12,13 @@ import {
 } from './DeviceTrustService'
 
 import { orgWorkflowActorService } from './OrgWorkflowActorService'
+import {
+  type StepAssuranceMode,
+  type StepAssurancePolicy,
+  defaultStepAssurance,
+  parseStepAssurance,
+  resolveStepAssurance,
+} from './stepAssurance'
 import { TEMPLATE_PREREQUISITES } from './workflow/prerequisites'
 
 /** The proof steps the platform ships with; each one maps to a stage action below. */
@@ -41,6 +48,7 @@ export interface OrgProofVcPolicy {
   defaultAcceptedVcTypes: string[]
   actionOverrides: Record<string, string[]>
   deviceTrust: DeviceTrustPolicy
+  stepAssurance: StepAssurancePolicy
   createdAt?: string
   updatedAt?: string
 }
@@ -49,6 +57,7 @@ export interface OrgProofVcPolicyUpdate {
   defaultAcceptedVcTypes?: string[]
   actionOverrides?: Record<string, string[]>
   deviceTrust?: DeviceTrustPolicy
+  stepAssurance?: StepAssurancePolicy
 }
 
 const DEFAULT_POLICY_TYPES = [PLATFORM_IDENTITY_VC_TYPE]
@@ -227,11 +236,20 @@ function configuredWorkflowTypesForStage(orgTenantId: string, stageAction: strin
   }
 }
 
-export function hasResolvedStageActor(orgTenantId: string, actionKey: ProofVcActionKey): boolean {
+/**
+ * `flowWorkflowTypes` names the flow the step belongs to when the caller knows it (a request's
+ * decision stage carries its own flow); built-in steps find theirs from the templates.
+ */
+export function hasResolvedStageActor(
+  orgTenantId: string,
+  actionKey: ProofVcActionKey,
+  flowWorkflowTypes: string[] = [],
+): boolean {
   const stageAction = stageActionForProofAction(actionKey)
   if (!stageAction) return false
 
   const workflowTypes = new Set<string>([
+    ...flowWorkflowTypes.map(normalizeStage).filter(Boolean),
     ...resolveActionWorkflowCandidates(actionKey),
     ...configuredWorkflowTypesForStage(orgTenantId, stageAction),
   ])
@@ -246,11 +264,10 @@ export function hasResolvedStageActor(orgTenantId: string, actionKey: ProofVcAct
       ) {
         return true
       }
-      // Built-in role / owner fallbacks still name a real member of the organization. That member
-      // must be able to confirm the step with their org evidence credential, otherwise the stage
-      // dead-ends on a "no matching credential" error until someone edits Who does what. Readiness
-      // keeps flagging the fallback as a setup item; scope is checked when the proof is verified.
-      if (['role_fallback', 'owner_fallback'].includes(resolved.mode) && resolved.walletTenantId) {
+      // Who does what, a built-in role, or the owner standing in: a real member with a wallet.
+      // That member confirms the step with their staff card. A stand-in with no wallet keeps the
+      // identity card, because there is no staff card to ask for.
+      if (['main_person', 'role_fallback', 'owner_fallback'].includes(resolved.mode) && resolved.walletTenantId) {
         return true
       }
     } catch {
@@ -342,6 +359,7 @@ function readStoredPolicy(row: {
   default_vc_types: string
   action_overrides: string
   device_trust?: string | null
+  step_assurance?: string | null
   created_at?: string
   updated_at?: string
 }): OrgProofVcPolicy {
@@ -350,6 +368,7 @@ function readStoredPolicy(row: {
     defaultAcceptedVcTypes: withPlatformFallback(uniqueVcTypes(parseJsonArray(row.default_vc_types))),
     actionOverrides: parseActionOverrides(parseJsonObject(row.action_overrides)),
     deviceTrust: parseDeviceTrust(parseJsonObject(row.device_trust)),
+    stepAssurance: parseStepAssurance(parseJsonObject(row.step_assurance)),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -360,7 +379,7 @@ export function getOrCreateOrgProofVcPolicy(orgTenantId: string): OrgProofVcPoli
   const row = db
     .prepare(
       `
-    SELECT org_tenant_id, default_vc_types, action_overrides, device_trust, created_at, updated_at
+    SELECT org_tenant_id, default_vc_types, action_overrides, device_trust, step_assurance, created_at, updated_at
     FROM org_proof_vc_policies
     WHERE org_tenant_id = ?
     LIMIT 1
@@ -372,6 +391,7 @@ export function getOrCreateOrgProofVcPolicy(orgTenantId: string): OrgProofVcPoli
         default_vc_types: string
         action_overrides: string
         device_trust?: string | null
+        step_assurance?: string | null
         created_at?: string
         updated_at?: string
       }
@@ -395,6 +415,7 @@ export function getOrCreateOrgProofVcPolicy(orgTenantId: string): OrgProofVcPoli
       defaultAcceptedVcTypes: defaultTypes,
       actionOverrides,
       deviceTrust,
+      stepAssurance: defaultStepAssurance(),
       createdAt: now,
       updatedAt: now,
     }
@@ -415,18 +436,21 @@ export function updateOrgProofVcPolicy(orgTenantId: string, updates: OrgProofVcP
   const actionOverrides =
     updates.actionOverrides !== undefined ? parseActionOverrides(updates.actionOverrides) : current.actionOverrides
   const deviceTrust = updates.deviceTrust !== undefined ? parseDeviceTrust(updates.deviceTrust) : current.deviceTrust
+  const stepAssurance =
+    updates.stepAssurance !== undefined ? parseStepAssurance(updates.stepAssurance) : current.stepAssurance
 
   const now = new Date().toISOString()
   db.prepare(
     `
     UPDATE org_proof_vc_policies
-    SET default_vc_types = ?, action_overrides = ?, device_trust = ?, updated_at = ?
+    SET default_vc_types = ?, action_overrides = ?, device_trust = ?, step_assurance = ?, updated_at = ?
     WHERE org_tenant_id = ?
   `,
   ).run(
     JSON.stringify(defaultAcceptedVcTypes),
     JSON.stringify(actionOverrides),
     JSON.stringify(deviceTrust),
+    JSON.stringify(stepAssurance),
     now,
     orgTenantId,
   )
@@ -436,9 +460,20 @@ export function updateOrgProofVcPolicy(orgTenantId: string, updates: OrgProofVcP
     defaultAcceptedVcTypes,
     actionOverrides,
     deviceTrust,
+    stepAssurance,
     createdAt: current.createdAt,
     updatedAt: now,
   }
+}
+
+/** Whether this step, for this amount, needs a staff-card share, offers one, or neither. */
+export function stepAssuranceFor(
+  orgTenantId: string | undefined,
+  actionKey: ProofVcActionKey | undefined,
+  amount?: number | null,
+): StepAssuranceMode {
+  const policy = orgTenantId ? getOrCreateOrgProofVcPolicy(orgTenantId).stepAssurance : defaultStepAssurance()
+  return resolveStepAssurance(policy, actionKey, amount).mode
 }
 
 export function stageRequiresDeviceTrust(orgTenantId: string | undefined, stageAction: string): boolean {
@@ -447,7 +482,11 @@ export function stageRequiresDeviceTrust(orgTenantId: string | undefined, stageA
 }
 
 
-export function resolveAcceptedProofVcTypes(orgTenantId: string | undefined, actionKey: ProofVcActionKey): string[] {
+export function resolveAcceptedProofVcTypes(
+  orgTenantId: string | undefined,
+  actionKey: ProofVcActionKey,
+  flowWorkflowTypes: string[] = [],
+): string[] {
   if (!orgTenantId) {
     return withPlatformFallback(DEFAULT_POLICY_TYPES)
   }
@@ -459,7 +498,7 @@ export function resolveAcceptedProofVcTypes(orgTenantId: string | undefined, act
 
   const merged = new Set<string>([...fromDefault, ...fromTemplatePolicy, ...fromAction].filter(Boolean))
 
-  if (hasResolvedStageActor(orgTenantId, actionKey) || orgHasActiveDelegation(orgTenantId)) {
+  if (hasResolvedStageActor(orgTenantId, actionKey, flowWorkflowTypes) || orgHasActiveDelegation(orgTenantId)) {
     // The org chose who acts, or delegated that access: accept the evidence credentials offered
     // for that role. Scope is checked when the presentation is verified.
     merged.add(ORG_WORKFLOW_ACTOR_VC_TYPE)

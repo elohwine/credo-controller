@@ -9,7 +9,7 @@
 
 import type { Database } from 'better-sqlite3'
 
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID } from 'crypto'
 
 import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
@@ -18,6 +18,7 @@ import { workflowRunRepository } from '../persistence/WorkflowRunRepository'
 import { rootLogger } from '../utils/pinoLogger'
 
 import { businessTransactionService } from './BusinessTransactionService'
+import { billDocumentClaims } from './documentFacts'
 import { notificationService, type ContactNotificationResult } from './NotificationService'
 import { outboxService } from './OutboxService'
 import { ShortlinkService } from './ShortlinkService'
@@ -300,7 +301,7 @@ export class PaymentLinkService {
 
   /** Insert the link row and its short link. Callers that need a transaction pass their db and wrap the call. */
   public create(input: NewPaymentLink, db: Database = DatabaseManager.getDatabase()): CreatedPaymentLink {
-    const id = uuidv4()
+    const id = randomUUID()
     const ttlHours = input.ttlHours ?? 336
     const currency = input.currency || 'USD'
     const sector = input.sector || 'general'
@@ -430,6 +431,42 @@ export class PaymentLinkService {
     if (run?.status !== 'paused' || state.pauseReason !== AWAIT_CLIENT_PAYMENT || state.clientBill?.linkId !== linkId)
       return undefined
     return { link, run }
+  }
+
+  /**
+   * A paid shop basket has no payment link of its own. Record one, already paid, so it shows
+   * in Money in and matches the bill. Safe to call twice for the same basket.
+   */
+  public async recordPaidCart(input: {
+    merchantId: string
+    merchantName?: string
+    cartId: string
+    amount: number
+    currency?: string
+    payerPhone?: string
+    providerRef?: string
+    description: string
+  }): Promise<string | undefined> {
+    if (!input.merchantId || !input.cartId || !(input.amount > 0)) return undefined
+    const existing = DatabaseManager.getDatabase()
+      .prepare(`SELECT id, status FROM payment_links WHERE merchant_id = ? AND invoice_ref = ? LIMIT 1`)
+      .get(input.merchantId, input.cartId) as { id: string; status: string } | undefined
+    const linkId =
+      existing?.id ||
+      this.create({
+        merchantId: input.merchantId,
+        merchantName: input.merchantName,
+        description: input.description,
+        amount: input.amount,
+        currency: input.currency,
+        invoiceRef: input.cartId,
+        payerPhone: input.payerPhone,
+        metadata: { cartId: input.cartId, kind: 'shop' },
+      }).id
+    if (!existing || existing.status !== 'paid') {
+      await this.settlePaid(linkId, { reference: input.providerRef, payerPhone: input.payerPhone })
+    }
+    return linkId
   }
 
   /** Money is in: mark the link paid and let the waiting run continue. Safe to call twice. */
@@ -569,7 +606,7 @@ export class PaymentLinkService {
           ? 'School fees'
           : 'Invoice'
     const amount = Number(link.amount || 0)
-    const claims = {
+    const claims = billDocumentClaims(metadata.kind === 'quote' ? 'QuoteVC' : 'InvoiceVC', link, {
       paymentLinkId: link.id,
       shortlinkCode: link.shortlink_code,
       shortlinkUrl: link.shortlink_url,
@@ -592,7 +629,7 @@ export class PaymentLinkService {
         ? new Date().toISOString()
         : (typeof metadata.notification?.at === 'string' ? metadata.notification.at : null),
       metadata: { type: typeLabel },
-    }
+    })
     const title = `${typeLabel}${link.invoice_ref ? ` ${link.invoice_ref}` : ''}`
     const body = `${link.currency} ${amount.toFixed(2)} · ${link.description}`
     const now = new Date().toISOString()
@@ -627,7 +664,7 @@ export class PaymentLinkService {
         id,
       )
     } else {
-      id = `plk-${uuidv4()}`
+      id = `plk-${randomUUID()}`
       db.prepare(
         `INSERT INTO wallet_pending_offers (
            id, tenant_id, issuer_tenant_id, contact_id, source_type, source_id, credential_type, offer_uri,

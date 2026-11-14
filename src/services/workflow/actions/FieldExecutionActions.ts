@@ -64,6 +64,9 @@ function extraEvidenceAttachments(raw: unknown): Array<Record<string, unknown>> 
   })
 }
 
+/** A booked job waiting for an owner or admin to choose who does it. */
+export const AWAIT_ASSIGNMENT = 'await_assignment'
+
 function positiveAmount(value: unknown): boolean {
   const amount = Number(value)
   return Number.isFinite(amount) && amount > 0
@@ -182,7 +185,11 @@ async function applyJobPhoneActors(context: WorkflowActionContext): Promise<void
   if (looksLikePhone(input.receiverId)) {
     named.push({ phone: String(input.receiverId), step: 'acknowledge_execution' })
   }
-  const clientPhone = looksLikePhone(input.customerMsisdn) ? String(input.customerMsisdn) : ''
+  // A booking customer's phone is for updates and the bill; it never puts anyone on the job.
+  const clientPhone =
+    looksLikePhone(input.customerMsisdn) && !flagEnabled(input, 'awaitAssignment', false)
+      ? String(input.customerMsisdn)
+      : ''
   if (named.length === 0 && !clientPhone) return
 
   let org: any
@@ -284,6 +291,20 @@ function providerRefOf(input: Record<string, any> | undefined, runId: string | u
 
 function getProviderRef(context: WorkflowActionContext): string {
   return providerRefOf(context.input, context.runId)
+}
+
+/** A field job's client invoice is still unpaid. No invoice, a quote, or a paid bill is not open. */
+function clientInvoiceOpen(context: WorkflowActionContext): boolean {
+  const handoff = context.state.startedWorkflows?.['tpl-payment-collection']
+  const childId = handoff?.runId ? String(handoff.runId) : ''
+  if (!childId) return false
+  const child = workflowRunRepository.findRunById(childId)
+  if (!child || child.tenantId !== context.tenantId) return true
+  const bill = child.output?.clientBill
+  if (bill?.kind === 'quote') return false
+  if (bill?.status === 'paid' || bill?.status === 'cancelled' || bill?.status === 'declined') return false
+  if (child.status === 'completed' || child.status === 'cancelled') return false
+  return true
 }
 
 function jobRefOf(input: Record<string, any> | undefined, runId: string): string {
@@ -423,6 +444,15 @@ export class FieldExecutionActions {
     let assigneeWalletTenantId =
       context.input?.assigneeWalletTenantId || resolveValue(context, config.assigneeWalletTenantId)
 
+    // A job a customer booked is never given to anyone automatically. It waits in Jobs until an
+    // owner or admin chooses who does it, with the same "Move job" control used for any job.
+    if (!assigneeId && flagEnabled(context.input, 'awaitAssignment', false)) {
+      context.state.pauseReason = AWAIT_ASSIGNMENT
+      context.state.pauseRequestedAt = new Date().toISOString()
+      FieldExecutionActions.notifyJobNeedsAssignee(context)
+      throw new Error('WORKFLOW_PAUSE')
+    }
+
     // "owner" and a blank selection mean "use the person the org configured".
     // Owner fallback is a setup gap, not an assignment.
     if (!assigneeId) {
@@ -479,8 +509,8 @@ export class FieldExecutionActions {
 
     await FieldExecutionActions.transition(context, { to: 'ASSIGNED' })
 
-    // Deliver a task notification into the assignee's personal wallet inbox.
-    // The outbox relay resolves the assignee phone ? tenant ? wallet_pending_offers.
+    // Durable record of the assignment. The worker's inbox card is routed just below;
+    // this topic is not a second card.
     outboxService.enqueue({
       topic: 'field.task.assigned',
       aggregateKey: context.tenantId,
@@ -544,6 +574,14 @@ export class FieldExecutionActions {
       ) {
         return
       }
+    }
+    // A booked job waits here until an owner or admin picks the worker with "Move job".
+    if (config?.reason === AWAIT_ASSIGNMENT) {
+      if (explicitAssignee(context.input?.assigneeId)) return
+      context.state.pauseReason = AWAIT_ASSIGNMENT
+      context.state.pauseRequestedAt = new Date().toISOString()
+      FieldExecutionActions.notifyJobNeedsAssignee(context)
+      throw new Error('WORKFLOW_PAUSE')
     }
     if (config?.reason) {
       context.state.pauseReason = config.reason
@@ -1634,7 +1672,10 @@ export class FieldExecutionActions {
     const providerRef = getProviderRef(context)
     const currentStage = String(context.state.workflowStage || '').toUpperCase()
 
-    if (context.state.reconciliation?.status === 'reconciled') {
+    if (
+      context.state.reconciliation?.status === 'reconciled' ||
+      context.state.reconciliation?.status === 'awaiting_payment'
+    ) {
       if (!hasReachedForwardStage(currentStage, 'RECONCILED')) {
         await FieldExecutionActions.transition(context, { to: 'RECONCILED' })
       }
@@ -1643,25 +1684,31 @@ export class FieldExecutionActions {
     }
 
     const mode = config.mode || context.input?.reconciliationMode || 'automatic'
+    const invoiceOpen = clientInvoiceOpen(context)
+    const closedAt = new Date().toISOString()
 
     context.state.reconciliation = {
-      status: 'reconciled',
+      status: invoiceOpen ? 'awaiting_payment' : 'reconciled',
       mode,
-      reconciledAt: new Date().toISOString(),
+      reconciledAt: closedAt,
     }
     // The job is closed: the worker's "open job" card has nothing left to do.
     if (context.runId) FieldExecutionActions.closeStageCards(context.runId)
 
-    new ReconciliationService().recordEvent(providerRef, 'SETTLEMENT_CONFIRMED', 'workflow', {
-      tenantId: context.tenantId,
-      amount: context.input?.amount,
-      currency: context.input?.currency,
-      evidenceHash: context.state.evidence?.evidenceHash,
-    })
+    // An open client invoice is not settled until the client pays. Jobs with no invoice
+    // (or one already paid) keep today's settlement at close.
+    if (!invoiceOpen) {
+      new ReconciliationService().recordEvent(providerRef, 'SETTLEMENT_CONFIRMED', 'workflow', {
+        tenantId: context.tenantId,
+        amount: context.input?.amount,
+        currency: context.input?.currency,
+        evidenceHash: context.state.evidence?.evidenceHash,
+      })
+    }
 
     new ReconciliationService().recordEvent(providerRef, 'JOB_CLOSED', 'workflow', {
       tenantId: context.tenantId,
-      closedAt: context.state.reconciliation.reconciledAt,
+      closedAt,
     })
 
     await FieldExecutionActions.transition(context, { to: 'RECONCILED' })
@@ -1671,6 +1718,129 @@ export class FieldExecutionActions {
    * Move a waiting job to another available worker without advancing the checkpoint.
    * The previous worker's inbox card is closed and the new worker receives the job.
    */
+  /**
+   * A booked job is waiting for someone to be chosen. Every owner and admin gets a job card;
+   * it opens the job in Operations → Jobs, where "Move job" picks the worker.
+   * The cards go through the wallet inbox, so WhatsApp follows the person's notification choices.
+   */
+  private static notifyJobNeedsAssignee(context: WorkflowActionContext): void {
+    if (!context.runId || !context.tenantId) return
+    const input = context.input || {}
+    const ref = input.reference || input.poNumber || context.runId
+    const who = String(input.clientName || '').trim() || 'A customer'
+    const where = String(input.location || '').trim()
+    const when = String(input.scheduledDate || '').trim()
+    const body = [
+      `${who} booked this job${where ? ` at ${where}` : ''}${when ? ` for ${when}` : ''}.`,
+      'Open it and choose who does it.',
+    ].join(' ')
+    const admins = orgWorkflowActorService
+      .listOrgMembers(context.tenantId)
+      .filter((member) => ['owner', 'admin'].includes(String(member.role || '').toLowerCase()) && member.walletTenantId)
+    for (const admin of admins) {
+      try {
+        routeWorkflowStageInbox({
+          orgTenantId: context.tenantId,
+          requestType: 'field.site_access',
+          workflowType: 'field_execution_fept',
+          stageAction: 'assign_field_worker',
+          sourceId: context.runId,
+          assigneeUserId: admin.userId,
+          title: `New job ${ref}: choose who does it`,
+          body,
+          amount: typeof input.amount === 'number' && input.amount > 0 ? input.amount : undefined,
+          extraMetadata: {
+            workflowRunId: context.runId,
+            workflowStage: context.state.workflowStage || 'REQUEST_CREATED',
+            pauseReason: AWAIT_ASSIGNMENT,
+            description: input.description || '',
+            location: where,
+            scheduledDate: when,
+            clientName: input.clientName || '',
+            workflowRequestId: input.workflowRequestId || undefined,
+          },
+        })
+      } catch (error: any) {
+        logger.warn({ runId: context.runId, userId: admin.userId, error: error?.message }, 'Booked job card not sent')
+      }
+    }
+    if (admins.length === 0) {
+      logger.warn({ runId: context.runId, orgTenantId: context.tenantId }, 'Booked job has no owner or admin to tell')
+    }
+  }
+
+  /** True when the run is a booked job still waiting for its first worker. */
+  public static isAwaitingAssignment(runId: string): boolean {
+    const run = workflowRunRepository.findRunById(runId)
+    return Boolean(run && run.status === 'paused' && (run.output as any)?.pauseReason === AWAIT_ASSIGNMENT)
+  }
+
+  /**
+   * First assignment of a booked job. Checks the person, writes them onto the job and returns
+   * the step to run again, so the normal assign step sends their job card and assignment record.
+   */
+  public static prepareFirstAssignment(
+    runId: string,
+    assigneeUserId: string,
+    actedByUserId?: string,
+  ): { assigneeId: string; assignStep: number; input: Record<string, any>; state: Record<string, any> } {
+    const run = workflowRunRepository.findRunById(runId)
+    if (!run) throw new Error(`Run not found: ${runId}`)
+    const state = (run.output && typeof run.output === 'object' ? { ...run.output } : {}) as Record<string, any>
+    if (run.status !== 'paused' || state.pauseReason !== AWAIT_ASSIGNMENT) {
+      throw new Error('This job already has someone on it. Use Move job to hand it over.')
+    }
+    const nextAssignee = explicitAssignee(assigneeUserId)
+    if (!nextAssignee) throw new Error('Choose an available organization member.')
+
+    const member = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT m.user_id AS userId, u.tenant_id AS walletTenantId
+         FROM org_memberships m
+         LEFT JOIN ssi_users u ON u.id = m.user_id
+         WHERE m.org_tenant_id = ? AND m.user_id = ? AND m.status = 'active'
+         LIMIT 1`,
+      )
+      .get(run.tenantId, nextAssignee) as { userId?: string; walletTenantId?: string } | undefined
+    if (!member?.userId || !member.walletTenantId) {
+      throw new Error('That person is not an active member with a wallet in this organization')
+    }
+
+    const actions = Array.isArray(run.actionsSnapshot) ? run.actionsSnapshot : []
+    const assignStep = actions.findIndex((action: any) => action?.action === 'field.assign')
+    if (assignStep < 0) throw new Error('This job has no assignment step')
+
+    const now = new Date().toISOString()
+    delete state.pauseReason
+    delete state.pauseRequestedAt
+    state.reassignments = [
+      ...(Array.isArray(state.reassignments) ? state.reassignments : []),
+      { from: undefined, to: member.userId, by: actedByUserId, at: now, stage: state.workflowStage },
+    ]
+    const input = {
+      ...(run.input || {}),
+      assigneeId: member.userId,
+      assigneeUserId: member.userId,
+      assigneeWalletTenantId: member.walletTenantId,
+      ...(actedByUserId ? { actedByUserId, dispatcherId: actedByUserId } : {}),
+    }
+
+    const db = DatabaseManager.getDatabase()
+    // Claim the job before running on, so a second admin choosing at the same time is refused.
+    const claimed = db
+      .prepare(`UPDATE workflow_runs SET status = 'running', input = ?, output = ? WHERE id = ? AND status = 'paused'`)
+      .run(JSON.stringify(input), JSON.stringify(state), runId)
+    if ((claimed.changes || 0) === 0) throw new Error('Someone else is choosing who does this job. Refresh and check.')
+
+    // The "choose who does it" cards are done for every owner and admin.
+    db.prepare(
+      `UPDATE wallet_pending_offers SET resolved_at = ?
+       WHERE source_type = 'workflow_stage_action' AND (source_id = ? OR source_id LIKE ?) AND resolved_at IS NULL`,
+    ).run(now, runId, `${runId}:delegation:%`)
+
+    return { assigneeId: member.userId, assignStep, input, state }
+  }
+
   public static reassignRun(
     runId: string,
     assigneeUserId: string,
@@ -1764,7 +1934,7 @@ export class FieldExecutionActions {
       )
       .run(now, runId, runId, `${runId}:safety-resume:%`)
 
-    // Give the new worker the assignment card too (the outbox relay writes it to their wallet inbox).
+    // Durable record of the move. The new worker's inbox card is routed just below.
     outboxService.enqueue({
       topic: 'field.task.assigned',
       aggregateKey: run.tenantId,

@@ -143,7 +143,12 @@ export class WorkflowAuditService {
         return {
           id: row.id,
           occurredAt: row.occurred_at,
-          event: EVENT_LABELS[row.event_type] || String(row.event_type).replace(/_/g, ' ').toLowerCase(),
+          event:
+            row.event_type === 'PAYMENT_SUCCESS' && metadata.kind === 'client_invoice'
+              ? 'Client paid'
+              : row.event_type === 'INVOICE_ISSUED' && metadata.kind === 'client_invoice'
+                ? 'Client billed'
+                : EVENT_LABELS[row.event_type] || String(row.event_type).replace(/_/g, ' ').toLowerCase(),
           status: /HOLD_RAISED|FAILED/.test(row.event_type) ? 'attention' : 'completed',
           person: metadata.displayName || metadata.actorName,
           stage: metadata.stage || metadata.phase,
@@ -153,6 +158,7 @@ export class WorkflowAuditService {
         }
       })
       .filter(Boolean) as WorkflowAuditRow[]
+    durableEvents.push(...priceRows(run.id, tenantId, parsed(run.output)))
 
     // Recorded events are the audit. Saved workflow steps fill in only when a workflow has
     // not recorded any events, so a field job is not listed twice.
@@ -203,6 +209,32 @@ export class WorkflowAuditService {
     if (!rows) return undefined
     return finishAudit(id, rows, options)
   }
+}
+
+/** Each time the office set or changed a field job's price ("Set price and payment"). */
+function priceRows(runId: string, tenantId: string, output: Record<string, any>): WorkflowAuditRow[] {
+  const history = Array.isArray(output.jobPrice?.history) ? output.jobPrice.history : []
+  if (history.length === 0) return []
+  const names = new Map<string, string>()
+  try {
+    for (const member of orgWorkflowActorService.listOrgMembers(tenantId)) {
+      if (member.userId && member.displayName) names.set(member.userId, member.displayName)
+    }
+  } catch {
+    /* a name is optional */
+  }
+  const terms: Record<string, string> = { one_time: 'one payment', instalment: 'instalments', recurring: 'recurring payments' }
+  return history.map((entry: any, index: number) => ({
+    id: `${runId}:price:${index}`,
+    occurredAt: String(entry.at || ''),
+    event: entry.noCharge
+      ? 'No charge for this job'
+      : `Price set: ${entry.currency || 'USD'} ${Number(entry.amount || 0).toFixed(2)}, ${terms[entry.paymentTerms] || 'one payment'}`,
+    status: 'completed',
+    person: entry.by ? names.get(String(entry.by)) : undefined,
+    source: 'event' as const,
+    evidence: [],
+  }))
 }
 
 function finishAudit(recordId: string, rows: WorkflowAuditRow[], options: AuditFilterOptions): WorkflowAuditResult {
@@ -381,6 +413,42 @@ function supplierBillRows(invoiceId: string, tenantId: string): WorkflowAuditRow
         event: 'Supplier confirmed the payment arrived',
         status: 'completed',
         source: 'record',
+        evidence: [],
+      })
+    }
+  }
+  // The payment's own trail (remittance advice issued, matched to the bill, reconciled), written
+  // by AccountsPayableController under the payment id as its provider reference.
+  for (const payment of payments) {
+    const trail = db
+      .prepare(
+        `SELECT id, event_type, occurred_at FROM reconciliation_events
+          WHERE provider_ref = ? AND event_type IN ('RECEIPT_ISSUED', 'SETTLEMENT_CONFIRMED')
+          ORDER BY occurred_at ASC`,
+      )
+      .all(payment.id) as any[]
+    for (const event of trail) {
+      rows.push({
+        id: event.id,
+        occurredAt: String(event.occurred_at),
+        event: event.event_type === 'RECEIPT_ISSUED' ? 'Remittance advice issued' : 'Matched to the bill',
+        status: 'completed',
+        source: 'event',
+        evidence: [],
+      })
+    }
+    const reconciled = db
+      .prepare(
+        `SELECT status, updated_at FROM reconciliation_status WHERE provider_ref = ? AND status = 'RECONCILED'`,
+      )
+      .get(payment.id) as { updated_at?: string } | undefined
+    if (reconciled) {
+      rows.push({
+        id: `${payment.id}:reconciled`,
+        occurredAt: String(reconciled.updated_at ?? payment.paid_at),
+        event: 'Reconciled automatically',
+        status: 'completed',
+        source: 'event',
         evidence: [],
       })
     }

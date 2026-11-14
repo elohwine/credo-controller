@@ -1,5 +1,7 @@
 import crypto from 'crypto'
 
+import { emailHashCandidates, phoneHashCandidates } from '../services/ssi/contactHash'
+
 import { DatabaseManager } from './DatabaseManager'
 
 export interface OrgContact {
@@ -59,21 +61,6 @@ function toContact(row: ContactRow): OrgContact {
   }
 }
 
-function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, '')
-  if (digits.startsWith('0') && digits.length === 10) return `263${digits.slice(1)}`
-  return digits
-}
-
-function sha256(value: string): string {
-  return crypto.createHash('sha256').update(value).digest('hex')
-}
-
-function phoneHashes(phone: string): string[] {
-  const normalized = normalizePhone(phone)
-  return [sha256(normalized), sha256(normalized.toLowerCase()), sha256(phone.trim().toLowerCase())]
-}
-
 function knownHashes(column: 'phone_hash' | 'email_hash', hashes: string[]): Set<string> {
   const found = new Set<string>()
   if (hashes.length === 0) return found
@@ -99,14 +86,16 @@ export function annotateAppStatus(contacts: OrgContact[]): OrgContact[] {
   const phoneCandidates = new Set<string>()
   const emailCandidates = new Set<string>()
   for (const contact of contacts) {
-    if (contact.phone) phoneHashes(contact.phone).forEach((hash) => phoneCandidates.add(hash))
-    if (contact.email?.trim()) emailCandidates.add(sha256(contact.email.trim().toLowerCase()))
+    if (contact.phone) phoneHashCandidates(contact.phone).forEach((hash) => phoneCandidates.add(hash))
+    if (contact.email?.trim()) emailHashCandidates(contact.email).forEach((hash) => emailCandidates.add(hash))
   }
   const knownPhones = knownHashes('phone_hash', [...phoneCandidates])
   const knownEmails = knownHashes('email_hash', [...emailCandidates])
   return contacts.map((contact) => {
-    const onPhone = Boolean(contact.phone && phoneHashes(contact.phone).some((hash) => knownPhones.has(hash)))
-    const onEmail = Boolean(contact.email?.trim() && knownEmails.has(sha256(contact.email.trim().toLowerCase())))
+    const onPhone = Boolean(contact.phone && phoneHashCandidates(contact.phone).some((hash) => knownPhones.has(hash)))
+    const onEmail = Boolean(
+      contact.email?.trim() && emailHashCandidates(contact.email).some((hash) => knownEmails.has(hash)),
+    )
     const alreadyLinked = Boolean(contact.walletTenantId)
     const appStatus =
       onPhone || onEmail || alreadyLinked ? 'in_app' : contact.phone || contact.email ? 'invite' : 'no_phone'

@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, test } from '@jest/globals'
 import { DiscoveryController } from '../src/controllers/discovery/DiscoveryController'
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
 import { organizationRegistryRepository } from '../src/persistence/OrganizationRegistryRepository'
-import { orgOfferingsService } from '../src/services/OrgOfferingsService'
+import { catalogPrice, orgOfferingsService } from '../src/services/OrgOfferingsService'
 
 import { addMember, initTestDatabases, seedOrganization, type TestDatabases } from './utils/orgReadinessFixture'
 
@@ -197,5 +197,28 @@ describe('organisation public offerings', () => {
     expect(() => orgOfferingsService.update(org.ownerUserId, org.orgTenantId, { removeServiceId: quote.id })).toThrow(
       /hidden, not removed/,
     )
+  })
+
+  test('a WhatsApp catalog import adds a product once and refreshes it by name or code', () => {
+    expect(catalogPrice('12.50 USD')).toEqual({ price: 12.5, currency: 'USD' })
+    expect(catalogPrice('nope')).toBeUndefined()
+
+    const shop = seedListedOrg(['shop'])
+    const first = orgOfferingsService.applyCatalogProducts(shop.orgTenantId, [
+      { title: 'Cement', price: 12, currency: 'usd', stock: 4 },
+      { title: 'Paint', price: 8, sku: 'PAINT-1' },
+    ])
+    expect(first).toEqual({ imported: 2, updated: 0 })
+
+    const second = orgOfferingsService.applyCatalogProducts(shop.orgTenantId, [
+      { title: 'Cement', price: 13, currency: 'USD', sku: 'CEM-1' },
+      { title: 'Paint', price: 9, sku: 'PAINT-1' },
+    ])
+    expect(second).toEqual({ imported: 0, updated: 2 })
+    const goods = orgOfferingsService.goods(shop.orgTenantId).map((item) => [item.title, item.price])
+    expect(goods.sort()).toEqual([
+      ['Cement', 13],
+      ['Paint', 9],
+    ])
   })
 })

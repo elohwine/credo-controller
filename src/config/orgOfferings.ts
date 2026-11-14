@@ -28,6 +28,8 @@ export interface OrgOfferingDefinition {
   requirements: string[]
   /** Shown to the public until the owner turns it off. */
   defaultOn: boolean
+  /** The organisation sets the price when it accepts; the bill or quote is built from it. */
+  priceOnAccept?: boolean
 }
 
 export const ORG_OFFERINGS: OrgOfferingDefinition[] = [
@@ -41,6 +43,7 @@ export const ORG_OFFERINGS: OrgOfferingDefinition[] = [
     vcTypes: [],
     requirements: ['What you need, how many and by when'],
     defaultOn: true,
+    priceOnAccept: true,
   },
   {
     key: 'book_job',
@@ -65,6 +68,7 @@ export const ORG_OFFERINGS: OrgOfferingDefinition[] = [
     vcTypes: ['ReceiptVC'],
     requirements: ['What the bill is for'],
     defaultOn: true,
+    priceOnAccept: true,
   },
   {
     key: 'school_fees',
@@ -89,6 +93,7 @@ export const ORG_OFFERINGS: OrgOfferingDefinition[] = [
     vcTypes: ['QuoteVC', 'InvoiceVC', 'PaymentReceiptVC'],
     requirements: ['Items and quantities'],
     defaultOn: false,
+    priceOnAccept: true,
   },
   {
     key: 'become_supplier',

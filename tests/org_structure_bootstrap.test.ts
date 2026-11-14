@@ -14,6 +14,7 @@ import { suggestedDepartmentsFor } from '../src/config/orgStructure'
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
 import { applyOrgSetupBootstrap, type OrgSetupBootstrapRequest } from '../src/services/OrgSetupBootstrap'
 import { orgSetupProfileService } from '../src/services/OrgSetupProfileService'
+import { getOrCreateOrgProofVcPolicy } from '../src/services/ProofVcPolicyService'
 import { ensureDefaultDepartment, ensureDepartments, planDepartments } from '../src/services/OrgStarterDepartments'
 import { orgWorkflowActorService } from '../src/services/OrgWorkflowActorService'
 import { workflowReadinessService } from '../src/services/WorkflowReadinessService'
@@ -145,6 +146,12 @@ describe('Setup bootstrap', () => {
     expect(plan.workAreas.map((area) => area.id)).toEqual(['purchases', 'payables', 'field_jobs'])
     expect(plan.payment).toEqual({ method: 'simulated', name: 'Simulated pay' })
     expect(plan.askedOnFirstUse).toHaveLength(1)
+    // Main people follow the same answers: field work → Supervisor runs operations; no payroll → no HR.
+    expect(plan.mainPeople.map((item) => [item.role, item.assignee, item.status])).toEqual([
+      ['approver', 'Manager', 'new'],
+      ['finance', 'Finance officer', 'new'],
+      ['operations', 'Supervisor', 'new'],
+    ])
 
     // Nothing written.
     expect(orgSetupProfileService.get(org.orgTenantId).access.mode).toBe('unconfigured')
@@ -184,6 +191,46 @@ describe('Setup bootstrap', () => {
     })
     expect(again.departments.every((item) => item.status === 'existing')).toBe(true)
     expect(again.roles.every((role) => role.status === 'existing')).toBe(true)
+
+    expect(orgWorkflowActorService.getPolicy(org.orgTenantId).mainPeople).toEqual({
+      approver: { type: 'role', value: 'manager' },
+      finance: { type: 'role', value: 'finance_manager' },
+      operations: { type: 'role', value: 'supervisor' },
+    })
+    // Operations steps in any flow go to the supervisor once one joins; until then the owner stands in.
+    const supervisorUserId = `supervisor-${org.orgTenantId}`
+    addMember({ ...org, userId: supervisorUserId, role: 'supervisor' })
+    expect(
+      orgWorkflowActorService.resolveActor({
+        orgTenantId: org.orgTenantId,
+        workflowType: 'field_job',
+        stageAction: 'review_completion',
+      }),
+    ).toMatchObject({ mode: 'main_person', mainRole: 'operations', userId: supervisorUserId })
+  })
+
+  test('main people fit the use case and never replace someone already chosen', async () => {
+    const org = seedOrganization({ name: 'Payroll Shop Ltd', setup: 'new' })
+    const ownerPick = { type: 'user' as const, value: `owner-${org.orgTenantId}` }
+    orgWorkflowActorService.savePolicy(org.orgTenantId, { mainPeople: { finance: ownerPick } })
+
+    const result = await bootstrap(org, {
+      operatingModel: 'internal' as const,
+      expectedRevision: orgSetupProfileService.get(org.orgTenantId).access.revision,
+      kinds: ['shop'],
+      modules: ['purchases', 'people_payroll'],
+      moneyPresetId: 'director_signs_once',
+    })
+    expect(result.mainPeople.map((item) => [item.role, item.status])).toEqual([
+      ['approver', 'new'],
+      ['finance', 'kept'],
+      ['hr', 'new'],
+    ])
+    expect(orgWorkflowActorService.getPolicy(org.orgTenantId).mainPeople).toEqual({
+      approver: { type: 'role', value: 'director' },
+      finance: ownerPick,
+      hr: { type: 'role', value: 'manager' },
+    })
   })
 
   test('keep_current leaves Who does what alone and unknown choices are refused before writing', async () => {
@@ -211,5 +258,43 @@ describe('Setup bootstrap', () => {
     expect(result.money.keepCurrent).toBe(true)
     expect(result.profile?.approvalPresetId).toBeUndefined()
     expect(activeDepartments(org.organizationId)).toEqual(['General'])
+  })
+
+  test('the staff card answer sets the large-amount limit, and is left alone when not asked', async () => {
+    const org = seedOrganization({ name: 'Staff Card Ltd', setup: 'new' })
+    const limit = () => getOrCreateOrgProofVcPolicy(org.orgTenantId).stepAssurance.cardRequiredAbove
+    expect(limit()).toBeNull()
+
+    const preview = await bootstrap(org, { ...answers(orgSetupProfileService.get(org.orgTenantId).access.revision), dryRun: true })
+    expect(preview.staffCard).toEqual({ cardRequiredAbove: null, suggested: 100, keepCurrent: true })
+
+    let offered = 0
+    const run = (input: OrgSetupBootstrapRequest) =>
+      applyOrgSetupBootstrap(org.orgTenantId, org.organizationId, input, {
+        saveProfile: async (saved) => orgSetupProfileService.save(org.orgTenantId, saved),
+        afterMoneyPeopleChanged: () => {
+          offered += 1
+        },
+      })
+
+    await run({ ...answers(orgSetupProfileService.get(org.orgTenantId).access.revision), dryRun: true, cardRequiredAbove: 250 })
+    expect(limit()).toBeNull()
+
+    const offersBefore = offered
+    const applied = await run({ ...answers(orgSetupProfileService.get(org.orgTenantId).access.revision), cardRequiredAbove: 250 })
+    expect(applied.staffCard).toMatchObject({ cardRequiredAbove: 250, keepCurrent: false })
+    expect(limit()).toBe(250)
+    // Turning it on sends cards out (on top of the money-people sweep).
+    expect(offered).toBeGreaterThan(offersBefore)
+
+    await run({ ...answers(orgSetupProfileService.get(org.orgTenantId).access.revision) })
+    expect(limit()).toBe(250)
+
+    await expect(
+      run({ ...answers(orgSetupProfileService.get(org.orgTenantId).access.revision), cardRequiredAbove: -5 }),
+    ).rejects.toMatchObject({ status: 400 })
+
+    await run({ ...answers(orgSetupProfileService.get(org.orgTenantId).access.revision), cardRequiredAbove: null })
+    expect(limit()).toBeNull()
   })
 })

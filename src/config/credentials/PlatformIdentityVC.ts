@@ -16,6 +16,14 @@
  * - displayName: User's chosen display name
  * - registeredAt: ISO timestamp of registration
  * - platformTenantId: The tenant/wallet ID on this platform
+ * - dateOfBirth: Optional. Set once the person self-attests it or the Central Registry
+ *   confirms it (`identityVerification` records which). Never invented by the platform.
+ * - over18: Optional, derived from dateOfBirth at issuance ('Yes' | 'No'). Issued as its own
+ *   SD-JWT disclosure (see SELECTIVE_DISCLOSURE_VC_TYPES) so a verifier can be shown only this
+ *   fact while dateOfBirth, phone and name stay on the phone.
+ * - identityVerification: How dateOfBirth got onto this card: 'self_attested' (the person
+ *   entered it) or 'registry_confirmed' (the Central Registry confirmed it). Absent when the
+ *   card carries no dateOfBirth.
  *
  * Verification:
  * - Issuer = Platform DID (trusted)
@@ -37,9 +45,14 @@ export const PLATFORM_IDENTITY_VC_CONTEXT = {
       platformTenantId: 'https://credentis.io/credentials/v1#platformTenantId',
       platformName: 'https://schema.org/name',
       verificationLevel: 'https://credentis.io/credentials/v1#verificationLevel',
+      dateOfBirth: 'https://schema.org/birthDate',
+      over18: 'https://credentis.io/credentials/v1#over18',
+      identityVerification: 'https://credentis.io/credentials/v1#identityVerification',
     },
   ],
 }
+
+export type IdentityVerificationSource = 'self_attested' | 'registry_confirmed'
 
 export interface PlatformIdentityClaims {
   phone?: string // E.164 format
@@ -49,6 +62,12 @@ export interface PlatformIdentityClaims {
   platformTenantId: string // Wallet/tenant ID on platform
   platformName: string // "Credentis" or platform name
   verificationLevel: 'unverified' | 'phone_verified' | 'email_verified' | 'kyc_verified'
+  /** ISO date (YYYY-MM-DD). Present only once self-attested or registry-confirmed. */
+  dateOfBirth?: string
+  /** Derived from dateOfBirth at issuance; its own disclosure in the SD-JWT variant of this card. */
+  over18?: 'Yes' | 'No'
+  /** How dateOfBirth got here. Absent when dateOfBirth is absent. */
+  identityVerification?: IdentityVerificationSource
 }
 
 export const PLATFORM_IDENTITY_CREDENTIAL_DEFINITION = {

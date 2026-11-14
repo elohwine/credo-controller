@@ -394,6 +394,8 @@ export interface RouteStageInboxParams {
   assigneeUserId?: string
   /** Extra metadata for the card (for example the workflow run the card belongs to). */
   extraMetadata?: Record<string, unknown>
+  /** A later approval of the request (step 2 of 2): the requester still never decides it. */
+  decisionStage?: boolean
 }
 
 /**
@@ -485,7 +487,7 @@ export function routeWorkflowStageInbox(params: RouteStageInboxParams): {
   // Nobody decides their own request. Its decision card goes to the others who may act and,
   // when nobody else is named, to the other owners and admins. A requester who is the only
   // possible approver keeps the card, where it explains that someone else has to decide.
-  const reviewStep = route.stageAction === resolvedRoute.stageAction
+  const reviewStep = Boolean(params.decisionStage) || route.stageAction === resolvedRoute.stageAction
   const requesterUserId = reviewStep && request ? String(request.requesterUserId || '') : ''
   if (requesterUserId && recipients.some((recipient) => recipient.userId === requesterUserId)) {
     let others = recipients.filter((recipient) => recipient.userId !== requesterUserId)

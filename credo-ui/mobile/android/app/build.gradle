@@ -7,8 +7,8 @@ android {
         applicationId "com.credentis.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 46
-        versionName "1.0.45"
+        versionCode 52
+        versionName "1.0.51"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -57,10 +57,19 @@ try {
 android {
     signingConfigs {
         release {
-            storeFile file("/home/eloh/PROJECTS/credo-controller-backup/credo-ui/mobile/android.keystore")
-            storePassword "credentis123"
-            keyAlias "android"
-            keyPassword "credentis123"
+            def keystoreProps = new Properties()
+            def keystorePropsFile = rootProject.file('keystore.properties')
+            if (keystorePropsFile.exists()) {
+                keystorePropsFile.withInputStream { keystoreProps.load(it) }
+            }
+            def signingValue = { String key, String envKey -> keystoreProps.getProperty(key) ?: System.getenv(envKey) }
+            def releaseStoreFile = signingValue('storeFile', 'CREDENTIS_KEYSTORE_FILE')
+            if (releaseStoreFile) {
+                storeFile file(releaseStoreFile)
+                storePassword signingValue('storePassword', 'CREDENTIS_KEYSTORE_PASSWORD')
+                keyAlias signingValue('keyAlias', 'CREDENTIS_KEY_ALIAS')
+                keyPassword signingValue('keyPassword', 'CREDENTIS_KEY_PASSWORD')
+            }
         }
     }
     buildTypes {

@@ -236,6 +236,7 @@ const TYPE_LABELS: Record<string, string> = {
   'finance.purchase_order': 'Purchase order',
   'finance.payment_request': 'Payment',
   'finance.expense_claim': 'Expense claim',
+  'hr.salary_advance': 'Salary advance',
   quote: 'Quote',
   invoice: 'Invoice',
   'field.site_access': 'Site access',

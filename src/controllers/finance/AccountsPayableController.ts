@@ -9,11 +9,13 @@ import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { getTenantById } from '../../persistence/TenantRepository'
 import { emitApInvoiceStateEventOutbox, emitApPaymentEventOutbox } from '../../services/AccountsPayableLedgerService'
 import { businessTransactionService } from '../../services/BusinessTransactionService'
+import { documentClaims } from '../../services/documentFacts'
 import { notificationService } from '../../services/NotificationService'
 import { orgSetupProfileService } from '../../services/OrgSetupProfileService'
 import { orgWorkflowActorService } from '../../services/OrgWorkflowActorService'
 import { outboxService } from '../../services/OutboxService'
 import { buildVcTypeArrayFilter, resolveAcceptedProofVcTypes } from '../../services/ProofVcPolicyService'
+import { ReconciliationService } from '../../services/ReconciliationService'
 import { requestHandoffService } from '../../services/RequestHandoffService'
 import { resolveMoneyStepInboxCards, upsertMoneyStepInboxCard } from '../../services/WorkflowStageInboxService'
 import { requireDeviceTrust } from '../../services/deviceAssertion'
@@ -28,6 +30,7 @@ import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 import { resolveConfiguredBaseUrl } from '../../utils/baseUrl'
 import { rootLogger } from '../../utils/pinoLogger'
 import { readReceiptProof } from '../../utils/receiptProof'
+import { defaultVerifierOf } from '../../services/ssi/siteVerifier'
 import { getIssuerApiKey } from '../../utils/serviceApiKey'
 
 const logger = rootLogger.child({ module: 'AccountsPayableController' })
@@ -373,16 +376,16 @@ export class AccountsPayableController extends Controller {
   }
 
   private async ensureNativeVerifierRecord(tenantAgent: any): Promise<string | undefined> {
-    const existing = await (tenantAgent.modules as any).openId4VcVerifier.getAllVerifiers()
-    if (Array.isArray(existing) && existing.length > 0) {
-      const verifierId = String(existing[0]?.verifierId || existing[0]?.id || '').trim()
+    const existing = defaultVerifierOf(await (tenantAgent.modules as any).openId4VcVerifier.getAllVerifiers()) as any
+    if (existing) {
+      const verifierId = String(existing.verifierId || existing.id || '').trim()
       return verifierId || undefined
     }
 
     await (tenantAgent.modules as any).openId4VcVerifier.createVerifier({})
-    const created = await (tenantAgent.modules as any).openId4VcVerifier.getAllVerifiers()
-    if (Array.isArray(created) && created.length > 0) {
-      const verifierId = String(created[0]?.verifierId || created[0]?.id || '').trim()
+    const created = defaultVerifierOf(await (tenantAgent.modules as any).openId4VcVerifier.getAllVerifiers()) as any
+    if (created) {
+      const verifierId = String(created.verifierId || created.id || '').trim()
       return verifierId || undefined
     }
 
@@ -1200,7 +1203,7 @@ export class AccountsPayableController extends Controller {
           nextTrustStatus = 'verified'
           nextRequiredAction = 'issue_receipt_vc'
           resolveAssignmentForOrg(String(tx.collector_tenant_id), 'issue_receipt_vc')
-          nextRequiredProofType = 'ReceiptVC'
+          nextRequiredProofType = null
           break
         case 'issue_receipt_vc':
           nextStatus = 'completed'
@@ -1225,7 +1228,7 @@ export class AccountsPayableController extends Controller {
           nextTrustStatus = 'verified'
           nextRequiredAction = 'issue_receipt_vc'
           resolveAssignmentForOrg(String(tx.collector_tenant_id), 'issue_receipt_vc')
-          nextRequiredProofType = 'ReceiptVC'
+          nextRequiredProofType = null
           break
         default:
           this.setStatus(400)
@@ -1794,6 +1797,13 @@ export class AccountsPayableController extends Controller {
       let remittanceVcId: string | null = null
       try {
         const apiKey = getIssuerApiKey()
+        // An organisation that was provisioned before this record existed has no RemittanceAdviceVC
+        // model, and the issuer refuses the offer. Register it first, as a workflow record does.
+        const buyerIssuerDid = getTenantById(buyerTenantId)?.issuerDid
+        if (buyerIssuerDid) {
+          const { ensureRecordModels } = await import('../../services/modelRegistry')
+          await ensureRecordModels(buyerTenantId, buyerIssuerDid, ['RemittanceAdviceVC'])
+        }
         const vcResponse = await fetch(`${baseUrl}/custom-oidc/issuer/credential-offers`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
@@ -1803,7 +1813,7 @@ export class AccountsPayableController extends Controller {
                 credentialDefinitionId: 'RemittanceAdviceVC',
                 format: 'jwt_vc_json',
                 type: ['VerifiableCredential', 'RemittanceAdviceVC'],
-                claims: {
+                claims: documentClaims('RemittanceAdviceVC', {
                   paymentId,
                   invoiceRef: invoice.invoice_ref,
                   buyerName,
@@ -1821,7 +1831,7 @@ export class AccountsPayableController extends Controller {
                     proofCredentialId: paymentProof.record.id,
                     proofCredentialType: paymentProof.record.type,
                   }),
-                },
+                }, buyerTenantId),
               },
             ],
           }),
@@ -1891,12 +1901,35 @@ export class AccountsPayableController extends Controller {
               })
             }
           }
+        } else {
+          logger.warn(
+            { paymentId, status: vcResponse.status },
+            'RemittanceAdviceVC offer refused by issuer — payment still recorded',
+          )
         }
       } catch (vcErr) {
         logger.warn(
           { paymentId, err: this.getErrorMessage(vcErr) },
           'RemittanceAdviceVC issuance failed — payment still recorded',
         )
+      }
+
+      // Money out trail: payment out, remittance advice issued, and matched to the bill. The
+      // supplier payment has no delivery step, so it reconciles once all three are on record.
+      try {
+        new ReconciliationService().recordPaidCheckout(paymentId, {
+          tenantId: buyerTenantId,
+          amount: amountPaid,
+          currency,
+          receiptId: remittanceVcId ?? undefined,
+          receiptIssued: Boolean(remittanceVcId),
+          settled: Boolean(settlementAllocationId),
+          deliveryRequired: false,
+          kind: 'supplier_payment',
+          source: 'ap_payment',
+        })
+      } catch (reconErr) {
+        logger.warn({ paymentId, err: this.getErrorMessage(reconErr) }, 'Supplier payment trail not recorded')
       }
 
       // Step 5: WhatsApp / Email notification to supplier (always fires regardless of wallet)
@@ -2221,7 +2254,7 @@ export class AccountsPayableController extends Controller {
                         required_action = 'issue_receipt_vc',
                         required_actor_tenant_id = ?,
                         required_actor_role = ?,
-                        required_proof_type = 'ReceiptVC',
+                        required_proof_type = NULL,
                         consent_timestamp = COALESCE(consent_timestamp, ?),
                         last_action_at = ?,
                         updated_at = ?
@@ -2249,7 +2282,7 @@ export class AccountsPayableController extends Controller {
           actorRole: assignment.role,
           orgTenantId: collectorTenantId,
           requiredAction: 'issue_receipt_vc',
-          requiredProofType: 'ReceiptVC',
+          requiredProofType: null,
         })
       }
 

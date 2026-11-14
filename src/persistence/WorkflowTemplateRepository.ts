@@ -118,6 +118,10 @@ function isLegacyFept(steps: WorkflowTemplateDefinition['steps']): boolean {
   const collectionIndex = steps.findIndex((step) => step.action === 'workflow.start')
   if (collectionIndex > pauseIndex('await_payout_release')) return true
 
+  // Booked jobs wait for an owner or admin to choose the worker before the assign step.
+  const awaitAssignmentIndex = pauseIndex('await_assignment')
+  if (awaitAssignmentIndex === -1 || awaitAssignmentIndex > assignIndex) return true
+
   // A site check writes a record into the organisation wallet. Templates saved before that
   // step are upgraded so new jobs follow the current record settings.
   return !steps.some(

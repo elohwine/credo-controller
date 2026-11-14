@@ -273,13 +273,16 @@ describe('shared item-scoped routing contract', () => {
     expect(isInitialTaskPath(proof)).toBe(false)
   })
 
-  test('requisition proof and scanner use the business ID, not the proof session ID', () => {
+  test('requisition proof uses the business ID, not the proof session ID', () => {
     const requisition = { ...task, target: '/finance?tab=requisitions&requisitionId=req-a&requestId=legacy-a' }
     expect(isBoundTaskPath(requisition, '/present?request_uri=proof&requisitionId=req-a&requestId=session-a')).toBe(
       true,
     )
-    expect(isBoundTaskPath(requisition, '/scan?mode=approve-requisition&requisitionId=req-a')).toBe(true)
-    expect(isBoundTaskPath(requisition, '/scan?mode=approve-requisition&requisitionId=req-b')).toBe(false)
+    expect(isBoundTaskPath(requisition, '/present?request_uri=proof&requisitionId=req-b&requestId=session-a')).toBe(
+      false,
+    )
+    // Approve and Release funds open the share screen from the purchase; there is no portal-scan route.
+    expect(isBoundTaskPath(requisition, '/scan?mode=approve-requisition&requisitionId=req-a')).toBe(false)
     expect(isBoundTaskPath(requisition, '/finance/requisitions/req-a')).toBe(true)
     expect(isBoundTaskPath(requisition, '/finance/requisitions/req-b')).toBe(false)
   })

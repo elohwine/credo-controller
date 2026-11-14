@@ -21,7 +21,10 @@ import { workflowRunRepository } from '../../../persistence/WorkflowRunRepositor
 import { rootLogger } from '../../../utils/pinoLogger'
 import { notificationService, type ContactNotificationResult } from '../../NotificationService'
 import { AWAIT_CLIENT_PAYMENT, paymentLinkService } from '../../PaymentLinkService'
+import { ReconciliationService } from '../../ReconciliationService'
 import { receivablePlanService, type PaymentTerms } from '../../ReceivablePlanService'
+import { jobEventReference } from '../../WorkflowAuditService'
+import { taxFromFinance } from '../../documentFacts'
 
 const logger = rootLogger.child({ module: 'ClientPaymentActions' })
 
@@ -37,6 +40,14 @@ function amountOwed(context: WorkflowActionContext): number {
   if (Number.isFinite(total) && total > 0) return total
   const amount = Number(context.input?.amount)
   return Number.isFinite(amount) && amount > 0 ? amount : 0
+}
+
+/** The priced lines and the VAT from the price step, kept on the bill for its documents. */
+function documentMetadata(context: WorkflowActionContext): Record<string, unknown> {
+  const priced = context.state.finance?.lineItems
+  const items = Array.isArray(priced) && priced.length ? priced : context.input?.items
+  const tax = taxFromFinance(context.state.finance)
+  return { ...(items ? { items } : {}), ...(tax ? { tax } : {}) }
 }
 
 function itemsLine(items: unknown): string {
@@ -132,7 +143,7 @@ export class ClientPaymentActions {
                       feeType: text(input.feeType) || undefined,
                     },
                   }
-                : {}),
+                : { linkMetadata: documentMetadata(context) }),
             })
           : undefined
       const link =
@@ -146,7 +157,14 @@ export class ClientPaymentActions {
           invoiceRef: invoiceRef || undefined,
           payerPhone: phone,
           ttlHours: kind === 'quote' ? 168 : 336,
-          metadata: { workflowRunId: context.runId, kind, reference, payerName, items: input.items },
+          metadata: {
+            workflowRunId: context.runId,
+            kind,
+            reference,
+            payerName,
+            items: input.items,
+            ...(isFee ? {} : documentMetadata(context)),
+          },
         })
 
       context.state.clientBill = {
@@ -171,6 +189,7 @@ export class ClientPaymentActions {
       }
       return link
     })()
+    noteClientBillOnJob(context, { kind, amount: link.amount, currency, reference: invoiceRef || reference, terms })
     let inboxItemId: string | undefined
     try {
       inboxItemId = paymentLinkService.offerToPayerInbox(link.id)
@@ -257,6 +276,7 @@ export class ClientPaymentActions {
             paymentMethod: method,
             cashierRef: cashierRef || undefined,
             items: input.items,
+            ...documentMetadata(context),
           },
         })
         return { id: created.id, code: created.shortlinkCode, url: created.shortlinkUrl }
@@ -304,5 +324,77 @@ export class ClientPaymentActions {
       timestamp: paid.paidAt,
     }
     delete context.state.pauseReason
+    noteClientPaymentOnJob(context, bill, paid)
   }
+}
+
+/**
+ * A field job's invoice payment belongs on that job's reconciliation trail.
+ * Settlement is recorded here only when close left the job waiting for this invoice.
+ * School fees, counter sales and quotes have no field-job parent, so they are unchanged.
+ */
+function fieldJobOf(context: WorkflowActionContext) {
+  const parentRunId = text(context.input?.parentRunId)
+  if (!parentRunId) return undefined
+  const parent = workflowRunRepository.findRunById(parentRunId)
+  if (!parent || parent.tenantId !== context.tenantId) return undefined
+  const output = (parent.output && typeof parent.output === 'object' ? parent.output : {}) as Record<string, any>
+  if (!output.workflowStage && !output.assignment) return undefined
+  const providerRef = jobEventReference(parent.input, parent.id)
+  return providerRef ? { parent, output, providerRef } : undefined
+}
+
+/** The invoice that went to the client, on the field job's reconciliation trail. */
+function noteClientBillOnJob(
+  context: WorkflowActionContext,
+  bill: { kind: string; amount: number; currency: string; reference?: string; terms: string },
+): void {
+  if (bill.kind === 'quote') return
+  const job = fieldJobOf(context)
+  if (!job) return
+  new ReconciliationService().recordEvent(job.providerRef, 'INVOICE_ISSUED', 'payment_link', {
+    tenantId: job.parent.tenantId,
+    amount: bill.amount,
+    currency: bill.currency,
+    reference: bill.reference,
+    paymentTerms: bill.terms,
+    kind: 'client_invoice',
+  })
+}
+
+function noteClientPaymentOnJob(
+  context: WorkflowActionContext,
+  bill: { kind?: string; amount?: number; currency?: string },
+  paid: { reference?: string; paidAt?: string },
+): void {
+  if (bill.kind === 'quote') return
+  const job = fieldJobOf(context)
+  if (!job) return
+  const { parent, output, providerRef } = job
+  const recon = new ReconciliationService()
+  recon.recordEvent(providerRef, 'PAYMENT_SUCCESS', 'payment_link', {
+    tenantId: parent.tenantId,
+    amount: bill.amount,
+    currency: bill.currency,
+    reference: paid.reference,
+    kind: 'client_invoice',
+  })
+  if (output.reconciliation?.status !== 'awaiting_payment') return
+  recon.recordEvent(providerRef, 'SETTLEMENT_CONFIRMED', 'payment_link', {
+    tenantId: parent.tenantId,
+    amount: bill.amount,
+    currency: bill.currency,
+    reference: paid.reference,
+    kind: 'client_invoice',
+  })
+  workflowRunRepository.updateRun(parent.id, {
+    output: {
+      ...output,
+      reconciliation: {
+        ...(output.reconciliation || {}),
+        status: 'reconciled',
+        settledAt: paid.paidAt || new Date().toISOString(),
+      },
+    },
+  })
 }

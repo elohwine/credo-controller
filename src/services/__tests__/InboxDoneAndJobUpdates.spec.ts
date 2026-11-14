@@ -80,6 +80,27 @@ describe('inbox Done window and job-finished updates', () => {
     expect(rows[0].title).toBe('Job FR-1 was cancelled')
   })
 
+  it('still posts the finished-job card when the person already has a blank notice', () => {
+    db.exec(`
+      CREATE UNIQUE INDEX ux_wallet_pending_offer_unresolved_uri
+        ON wallet_pending_offers (tenant_id, offer_uri)
+        WHERE resolved_at IS NULL
+    `)
+    db.prepare(
+      `INSERT INTO wallet_pending_offers (id, tenant_id, issuer_tenant_id, source_type, source_id, offer_uri)
+       VALUES ('blank', 'wallet-1', 'org-a', 'credential_offer', 'older-notice', '')`,
+    ).run()
+    expect(() => db.prepare(`UPDATE workflow_runs SET status = 'completed' WHERE id = 'run-1'`).run()).toThrow(
+      /UNIQUE constraint failed/,
+    )
+
+    db.exec(readFileSync('migrations/142_inbox_notice_uri_unique.sql', 'utf8'))
+    db.prepare(`UPDATE workflow_runs SET status = 'completed' WHERE id = 'run-1'`).run()
+    const rows = updates()
+    expect(rows.map((r) => r.tenant_id)).toEqual(['wallet-1', 'wallet-2'])
+    expect(rows.filter((r) => r.tenant_id === 'wallet-1')).toHaveLength(1)
+  })
+
   it('ignores non-final stage moves', () => {
     db.prepare(`UPDATE workflow_runs SET output = json_object('workflowStage', 'RECONCILED') WHERE id = 'run-1'`).run()
     expect(updates()).toHaveLength(0)

@@ -253,6 +253,25 @@ describe('truthful portal/mobile progress, history and tables', () => {
       clientBillingStages(undefined, { ...link, notification: { accepted: true } }).map((stage) => stage.status),
     ).toEqual(['done', 'done', 'pending'])
     expect(clientBillingStages(undefined, { ...link, status: 'paid' })[2].status).toBe('done')
+    const matched = clientBillingStages(undefined, {
+      ...link,
+      status: 'paid',
+      reconciliation: { settledAt: '2026-11-14T09:13:00Z' },
+    })
+    expect(matched.find((stage) => stage.key === 'MATCHED')).toMatchObject({
+      status: 'done',
+      note: 'Matched automatically. Nothing to check.',
+    })
+    expect(matched.find((stage) => stage.key === 'HANDOVER')).toBeUndefined()
+    const handed = clientBillingStages(undefined, {
+      ...link,
+      status: 'paid',
+      reconciliation: { status: 'RECONCILED', settledAt: '2026-11-14T09:13:00Z', deliveredAt: '2026-11-14T09:22:00Z' },
+    })
+    expect(handed.find((stage) => stage.key === 'HANDOVER')).toMatchObject({
+      status: 'done',
+      note: 'Delivery confirmed',
+    })
   })
   test('job detail sheets do not turn skipped materials into a receipt or org records into personal records', () => {
     const sheets = jobSheetEvidence(output)

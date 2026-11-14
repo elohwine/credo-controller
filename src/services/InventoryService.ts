@@ -675,6 +675,79 @@ export class InventoryService {
     return rows.map(this.mapProjection)
   }
 
+  /**
+   * How many of each product are left, for products whose stock is tracked here.
+   * A product with no stock record is absent from the map: its listing is all we know.
+   */
+  stockLeft(catalogItemIds: string[]): Map<string, number> {
+    const left = new Map<string, number>()
+    const ids = Array.from(new Set(catalogItemIds.filter(Boolean)))
+    if (!ids.length) return left
+    try {
+      const rows = DatabaseManager.getDatabase()
+        .prepare(
+          `SELECT catalog_item_id, SUM(quantity_available) AS available FROM inventory_projections
+            WHERE catalog_item_id IN (${ids.map(() => '?').join(',')}) GROUP BY catalog_item_id`,
+        )
+        .all(...ids) as Array<{ catalog_item_id: string; available: number }>
+      for (const row of rows) left.set(row.catalog_item_id, Math.max(0, Number(row.available || 0)))
+    } catch {
+      // No stock tables: nothing is tracked.
+    }
+    return left
+  }
+
+  /**
+   * First stock figure for a product that is not tracked yet.
+   * A product that already has a stock record is left as it is.
+   */
+  /** A place stock can sit. The projection row points at a real location, which the database requires. */
+  private shopLocation(tenantId: string): string {
+    const db = DatabaseManager.getDatabase()
+    const existing = db
+      .prepare(`SELECT id FROM inventory_locations WHERE tenant_id = ? AND status = 'active' ORDER BY created_at ASC LIMIT 1`)
+      .get(tenantId) as { id: string } | undefined
+    if (existing?.id) return existing.id
+    const id = `LOC-${randomUUID().substring(0, 8)}`
+    const now = new Date().toISOString()
+    db.prepare(
+      `INSERT INTO inventory_locations (id, tenant_id, name, type, address, did, status, created_at, updated_at)
+       VALUES (?, ?, 'Shop', 'shop', NULL, NULL, 'active', ?, ?)`,
+    ).run(id, tenantId, now, now)
+    return id
+  }
+
+  setOpeningStock(tenantId: string, catalogItemId: string, quantity: number): void {
+    if (!catalogItemId || !Number.isFinite(quantity) || quantity < 0) return
+    if (this.stockLeft([catalogItemId]).has(catalogItemId)) return
+    const now = new Date().toISOString()
+    let locationId = 'shop'
+    try {
+      locationId = this.shopLocation(tenantId)
+    } catch {
+      locationId = 'shop'
+    }
+    try {
+      DatabaseManager.getDatabase()
+        .prepare(
+          `INSERT INTO inventory_projections
+             (id, tenant_id, catalog_item_id, location_id, quantity_on_hand, quantity_reserved, quantity_available,
+              total_cost, avg_unit_cost, last_event_hash, last_event_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 0, ?, 0, 0, '', ?, ?)`,
+        )
+        .run(`PROJ-${randomUUID().substring(0, 8)}`, tenantId, catalogItemId, locationId, quantity, quantity, now, now)
+    } catch {
+      // No stock tables yet: the product stays untracked.
+    }
+  }
+
+  /** Plain words when a tracked product cannot cover the quantity; undefined when it can or is not tracked. */
+  shortOfStock(catalogItemId: string, quantity: number): string | undefined {
+    const left = this.stockLeft([catalogItemId]).get(catalogItemId)
+    if (left === undefined || left >= quantity) return undefined
+    return left <= 0 ? 'This product is sold out.' : `Only ${left} left. Lower the quantity.`
+  }
+
   async getLot(lotId: string): Promise<InventoryLot | undefined> {
     const db = DatabaseManager.getDatabase()
     const row = db.prepare('SELECT * FROM inventory_lots WHERE id = ?').get(lotId) as any

@@ -19,11 +19,13 @@ export interface MemberInviteRow {
 const hashCode = (code: string) => crypto.createHash('sha256').update(code.trim()).digest('hex')
 
 /** Where the invited person confirms their name and chooses a PIN. Public page in the wallet app. */
-export function memberInviteLink(code: string): string | undefined {
+export function memberInviteLink(code: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
   try {
-    const base = new URL(process.env.WALLET_PUBLIC_URL || '')
+    const base = new URL(env.WALLET_PUBLIC_URL || env.MOBILE_APP_URL || '')
     if (!/^https?:$/.test(base.protocol)) return undefined
-    const link = new URL('/login/join', base.origin)
+    // Keep a path such as /app. A bare origin still lands on /login/join.
+    const prefix = base.pathname.replace(/\/+$/, '')
+    const link = new URL(`${prefix}/login/join`, base.origin)
     link.searchParams.set('code', code)
     return link.toString()
   } catch {

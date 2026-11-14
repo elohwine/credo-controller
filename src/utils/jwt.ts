@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken'
 import { container } from 'tsyringe'
 
 import { assertPersonalSessionActive, personalSessionVersion } from '../services/PersonalSessionPolicy'
+import { deploymentSecret } from './deploymentSecret'
 
 /**
  * Retrieves the JWT secret, prioritizing the JWT_SECRET environment variable.
@@ -12,8 +13,10 @@ import { assertPersonalSessionActive, personalSessionVersion } from '../services
  */
 export async function getJwtSecret(): Promise<string> {
   // Always prioritize environment variable for consistency across Docker/Prod
-  if (process.env.JWT_SECRET) {
-    return process.env.JWT_SECRET
+  const fromEnv = process.env.JWT_SECRET?.trim()
+  if (fromEnv) return fromEnv
+  if (process.env.NODE_ENV === 'production') {
+    return deploymentSecret('JWT_SECRET', 'unused')
   }
 
   try {

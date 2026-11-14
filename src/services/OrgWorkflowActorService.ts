@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 
+import { type KnownRequestStageAction } from '../config/requestExperience'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 
 type Db = ReturnType<typeof DatabaseManager.getDatabase>
@@ -41,6 +42,8 @@ export interface ResolveOrgWorkflowActorInput {
  *  - configured_user / configured_wallet / configured_role: a stage default saved for this workflow+stage
  *  - shared_finance: a money step in another workflow (payout, supplier payment, receipt) with no
  *    setting of its own, covered by the purchase-request money setup (SHARED_FINANCE_STAGES)
+ *  - main_person: the organisation's main person for the step's kind of work (approver, finance,
+ *    HR, operations), set once in Who does what
  *  - policy_fallback: the organization's own fallback chain (per stage or org-wide) matched
  *  - role_fallback: the platform's built-in role order for the stage matched
  *  - owner_fallback: nothing matched, routed to owner/admin (surfaced as a setup item)
@@ -51,6 +54,7 @@ export type OrgWorkflowActorMode =
   | 'configured_wallet'
   | 'configured_role'
   | 'shared_finance'
+  | 'main_person'
   | 'policy_fallback'
   | 'role_fallback'
   | 'owner_fallback'
@@ -65,6 +69,8 @@ export interface ResolvedOrgWorkflowActor {
   via?: ActorFallbackEntry
   /** Other people the organisation named for this stage; each may act on it too. */
   coActorUserIds?: string[]
+  /** For `main_person`: which of the organisation's main people covered the step. */
+  mainRole?: ActorMainRole
 }
 
 /** One step of an organization-defined fallback chain. */
@@ -96,7 +102,70 @@ export interface OrgWorkflowActorPolicy {
    * Missing keys mean `both`, which is how requests already work.
    */
   signGroups: Record<string, StageSignMode>
+  /**
+   * The organisation's main people, one per kind of work. Every step of that kind, in every
+   * workflow and request, goes to this person or role unless the step names someone itself.
+   */
+  mainPeople: Partial<Record<ActorMainRole, ActorFallbackEntry>>
   updatedAt?: string
+}
+
+/** The kinds of work every step belongs to. Set once; every workflow and request follows them. */
+export type ActorMainRole = 'approver' | 'finance' | 'hr' | 'operations'
+export const ACTOR_MAIN_ROLES: ActorMainRole[] = ['approver', 'finance', 'hr', 'operations']
+
+/**
+ * Who a step belongs to. `per_job` steps go to the worker picked for the job and `requester`
+ * steps to the person who asked, so neither needs a main person.
+ */
+export type StageWorkKind = ActorMainRole | 'per_job' | 'requester'
+
+/**
+ * Every step the platform ships, by kind of work. Typed against the shipped steps so a new
+ * step does not compile until it is given a kind; nothing falls through to the owner unseen.
+ */
+export const STAGE_WORK_KIND: Record<KnownRequestStageAction, StageWorkKind> = {
+  approve_request: 'approver',
+  approve_requisition: 'approver',
+  mark_disputed: 'approver',
+  resolve_dispute: 'approver',
+  // Finance is finance whatever the request: approving money, releasing it, paying out,
+  // recording a payment, confirming money arrived, and the receipt.
+  finance_approve_requisition: 'finance',
+  release_funds: 'finance',
+  trigger_payout: 'finance',
+  record_payment: 'finance',
+  present_payment_proof: 'finance',
+  acknowledge_remittance: 'finance',
+  issue_receipt_vc: 'finance',
+  approve_onboarding: 'hr',
+  issue_payslip: 'hr',
+  dispatch_job: 'operations',
+  review_completion: 'operations',
+  resolve_safety_hold: 'operations',
+  assign_field_worker: 'per_job',
+  inspect_site: 'per_job',
+  assess_risk: 'per_job',
+  confirm_arrival: 'per_job',
+  start_job: 'per_job',
+  capture_evidence: 'per_job',
+  acknowledge_execution: 'requester',
+}
+
+const MONEY_WORDS = /(pay|fund|money|receipt|invoice|remit|refund|cash|settle|bill|salary|disburse)/
+
+/** The kind of work of any step; a step a template declared for itself is read from its name. */
+export function stageWorkKind(stageAction: string): StageWorkKind {
+  const stage = normalize(stageAction)
+  const known = (STAGE_WORK_KIND as Record<string, StageWorkKind>)[stage]
+  if (known) return known
+  return MONEY_WORDS.test(stage) ? 'finance' : 'approver'
+}
+
+/** The main person kind a step falls to, or undefined for job and requester steps. */
+export function mainRoleForStage(stageAction: string): ActorMainRole | undefined {
+  const kind = stageWorkKind(stageAction)
+  return (ACTOR_MAIN_ROLES as string[]).includes(kind) ? (kind as ActorMainRole) : undefined
 }
 
 /** One confirmation, or each person confirms separately. */
@@ -105,7 +174,12 @@ export type StageSignMode = 'one' | 'both'
 /** Manager approval and finance approval on a purchase request. */
 export const REQUISITION_APPROVAL_SIGN_GROUP = 'requisition_approval'
 
-export type OrgWorkflowActorPolicyPatch = Partial<Omit<OrgWorkflowActorPolicy, 'orgTenantId' | 'updatedAt'>>
+export type OrgWorkflowActorPolicyPatch = Partial<
+  Omit<OrgWorkflowActorPolicy, 'orgTenantId' | 'updatedAt' | 'mainPeople'>
+> & {
+  /** A main person per kind of work; null clears one. */
+  mainPeople?: Partial<Record<ActorMainRole, ActorFallbackEntry | null>>
+}
 
 export const DEFAULT_ACTOR_POLICY: Omit<OrgWorkflowActorPolicy, 'orgTenantId'> = {
   stageChains: {},
@@ -113,6 +187,7 @@ export const DEFAULT_ACTOR_POLICY: Omit<OrgWorkflowActorPolicy, 'orgTenantId'> =
   useBuiltInRoleFallbacks: true,
   ownerFallbackEnabled: true,
   signGroups: {},
+  mainPeople: {},
 }
 
 export interface ActorPreset {
@@ -171,6 +246,54 @@ export const ACTOR_PRESETS: ActorPreset[] = [
     },
   },
 ]
+
+export const ACTOR_MAIN_ROLE_LABEL: Record<ActorMainRole, string> = {
+  approver: 'Approver',
+  finance: 'Finance',
+  hr: 'HR',
+  operations: 'Operations',
+}
+
+/** The setup answers the main people are derived from (same answers as the starter roles). */
+export interface MainPeopleAnswers {
+  kinds: readonly string[]
+  modules: readonly string[]
+  approvalPresetId?: string
+}
+
+/** Which kinds of work this organisation has, from its answers. Approver and finance always. */
+export function mainRolesForAnswers(answers: Pick<MainPeopleAnswers, 'kinds' | 'modules'>): ActorMainRole[] {
+  const kinds = new Set(answers.kinds.map(normalize))
+  const modules = new Set(answers.modules.map(normalize))
+  return ACTOR_MAIN_ROLES.filter(
+    (role) =>
+      role === 'approver' ||
+      role === 'finance' ||
+      (role === 'hr' && modules.has('people_payroll')) ||
+      (role === 'operations' && (modules.has('field_jobs') || kinds.has('field'))),
+  )
+}
+
+/**
+ * The membership role for each main person, from the setup answers:
+ * approver and finance from the money choice (the person who handles money day to day, not the
+ * one who signs once), HR → Manager (added for people & payroll), operations → Supervisor
+ * (added when the organisation sends people out). Nobody holding the role yet → the owner stands in.
+ */
+export function mainPeopleForAnswers(answers: MainPeopleAnswers): Partial<Record<ActorMainRole, string>> {
+  const preset =
+    ACTOR_PRESETS.find((item) => item.id === normalize(answers.approvalPresetId)) || ACTOR_PRESETS[0]
+  const out: Partial<Record<ActorMainRole, string>> = {}
+  for (const role of mainRolesForAnswers(answers)) {
+    if (role === 'approver') out.approver = preset.roles.approve_requisition
+    else if (role === 'finance') {
+      out.finance =
+        preset.signMode === 'both' ? preset.roles.finance_approve_requisition : preset.roles.release_funds
+    } else if (role === 'hr') out.hr = 'manager'
+    else if (role === 'operations') out.operations = 'supervisor'
+  }
+  return out
+}
 
 export function requisitionApprovalSignMode(
   policy: Pick<OrgWorkflowActorPolicy, 'signGroups'> | undefined,
@@ -286,6 +409,7 @@ export const WORKFLOW_ACTOR_ALIASES: string[][] = [
     'tpl-requisition-approval',
     'procurement.requisition',
     'requisition',
+    'tpl-request-purchase',
   ],
   ['field_execution_fept', 'field_execution', 'field_service', 'tpl-fept-field-execution'],
   ['accounts_payable', 'ap_payables', 'ap_trust_workflow', 'tpl-ap-payables'],
@@ -300,7 +424,21 @@ export const WORKFLOW_ACTOR_ALIASES: string[][] = [
   ['education_fee_payment', 'school_fee_payment', 'school_fees', 'tpl-education-fee'],
   ['cash_counter_payment', 'cash_payment', 'tpl-cash-counter'],
   // Member requests (leave, expense claims) share the people set up for employee onboarding.
-  ['hr_requests', 'employee_onboarding', 'tpl-employee-onboarding', 'hr.leave', 'finance.expense_claim'],
+  // An org's own request flows and general requests use the same staff-request people.
+  [
+    'hr_requests',
+    'employee_onboarding',
+    'tpl-employee-onboarding',
+    'hr.leave',
+    'finance.expense_claim',
+    'hr.salary_advance',
+    'tpl-request-leave',
+    'tpl-request-expense',
+    'tpl-request-salary-advance',
+    'tpl-request-general',
+    'general',
+    'platform.general',
+  ],
 ]
 
 /** All workflow-type keys whose actor defaults apply to `workflowType` (itself first). */
@@ -471,6 +609,29 @@ function sanitizeSignGroups(input: unknown): Record<string, StageSignMode> {
   return out
 }
 
+function sanitizeMainPeople(input: unknown): Partial<Record<ActorMainRole, ActorFallbackEntry | null>> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {}
+  const out: Partial<Record<ActorMainRole, ActorFallbackEntry | null>> = {}
+  for (const role of ACTOR_MAIN_ROLES) {
+    if (!Object.prototype.hasOwnProperty.call(input, role)) continue
+    const raw = (input as Record<string, unknown>)[role]
+    // null clears the main person.
+    out[role] = raw ? sanitizeChain([raw]).find((entry) => entry.type !== 'wallet') || null : null
+  }
+  return out
+}
+
+function presentMainPeople(
+  input: Partial<Record<ActorMainRole, ActorFallbackEntry | null>>,
+): Partial<Record<ActorMainRole, ActorFallbackEntry>> {
+  const out: Partial<Record<ActorMainRole, ActorFallbackEntry>> = {}
+  for (const role of ACTOR_MAIN_ROLES) {
+    const entry = input[role]
+    if (entry) out[role] = entry
+  }
+  return out
+}
+
 function sanitizeChain(input: unknown): ActorFallbackEntry[] {
   if (!Array.isArray(input)) return []
   const out: ActorFallbackEntry[] = []
@@ -519,6 +680,7 @@ function parsePolicy(
         ? parsed.ownerFallbackEnabled
         : DEFAULT_ACTOR_POLICY.ownerFallbackEnabled,
     signGroups: sanitizeSignGroups(parsed.signGroups),
+    mainPeople: presentMainPeople(sanitizeMainPeople(parsed.mainPeople)),
     updatedAt: row?.updated_at ? String(row.updated_at) : undefined,
   }
 }
@@ -560,6 +722,7 @@ export class OrgWorkflowActorService {
       ownerFallbackEnabled:
         typeof patch.ownerFallbackEnabled === 'boolean' ? patch.ownerFallbackEnabled : current.ownerFallbackEnabled,
       signGroups: { ...current.signGroups, ...sanitizeSignGroups(patch.signGroups) },
+      mainPeople: presentMainPeople({ ...current.mainPeople, ...sanitizeMainPeople(patch.mainPeople) }),
     }
     if (patch.stageChains && typeof patch.stageChains === 'object') {
       for (const [stage, chain] of Object.entries(patch.stageChains)) {
@@ -594,7 +757,17 @@ export class OrgWorkflowActorService {
     if (!preset) {
       throw new Error('Unknown setup')
     }
-    this.savePolicy(orgTenantId, { signGroups: { [preset.signGroup]: preset.signMode } })
+    const policy = this.getPolicy(orgTenantId)
+    // The money choice is explicit, so it replaces approver/finance roles; a named person stays.
+    const nextMainPeople = this.unsetMainPeople(
+      policy,
+      mainPeopleForAnswers({ kinds: [], modules: [], approvalPresetId: preset.id }),
+      { replaceRoles: true },
+    )
+    this.savePolicy(orgTenantId, {
+      signGroups: { [preset.signGroup]: preset.signMode },
+      ...(Object.keys(nextMainPeople).length > 0 ? { mainPeople: nextMainPeople } : {}),
+    })
     for (const [stageAction, role] of Object.entries(preset.roles)) {
       this.upsertDefault({
         orgTenantId,
@@ -604,6 +777,37 @@ export class OrgWorkflowActorService {
       })
     }
     return preset
+  }
+
+  /**
+   * Give each kind of work these setup answers call for its main person, as a role. Only fills
+   * kinds nobody was chosen for, so a person the owner picked is never replaced.
+   */
+  public fillMainPeopleFromAnswers(
+    orgTenantId: string,
+    answers: MainPeopleAnswers,
+  ): Partial<Record<ActorMainRole, ActorFallbackEntry>> {
+    const policy = this.getPolicy(orgTenantId)
+    const next = this.unsetMainPeople(policy, mainPeopleForAnswers(answers))
+    if (Object.keys(next).length > 0) this.savePolicy(orgTenantId, { mainPeople: next })
+    return next
+  }
+
+  private unsetMainPeople(
+    policy: OrgWorkflowActorPolicy,
+    roles: Partial<Record<ActorMainRole, string>>,
+    options: { replaceRoles?: boolean } = {},
+  ): Partial<Record<ActorMainRole, ActorFallbackEntry>> {
+    const out: Partial<Record<ActorMainRole, ActorFallbackEntry>> = {}
+    for (const role of ACTOR_MAIN_ROLES) {
+      const value = roles[role]
+      const current = policy.mainPeople[role]
+      const replaceable = !current || (options.replaceRoles && current.type === 'role')
+      if (value && replaceable && !(current?.type === 'role' && current.value === value)) {
+        out[role] = { type: 'role', value }
+      }
+    }
+    return out
   }
 
   /**
@@ -852,6 +1056,13 @@ export class OrgWorkflowActorService {
       configured?.mode === 'configured_role' && OrgWorkflowActorService.borrowedMoneyStep(workflowType, stageAction)
     if (configured && !unnamedRole) return configured
 
+    // The organisation's main person for this kind of work covers every workflow and request.
+    const policy = this.getPolicy(orgTenantId)
+    const mainRole = mainRoleForStage(stageAction)
+    const mainEntry = mainRole ? policy.mainPeople[mainRole] : undefined
+    const byMain = mainEntry ? resolveChain(this.db, orgTenantId, [mainEntry]) : undefined
+    if (byMain && mainRole) return { ...byMain, mode: 'main_person', mainRole }
+
     // Money steps borrow the purchase-request setup unless this workflow set its own person.
     const sharedStage = SHARED_FINANCE_STAGES[stageAction]
     if (sharedStage && !workflowActorTypeCandidates(workflowType).includes(SHARED_FINANCE_WORKFLOW_TYPE)) {
@@ -860,7 +1071,6 @@ export class OrgWorkflowActorService {
     }
 
     // Organization-defined fallback chains: per stage first, then org-wide.
-    const policy = this.getPolicy(orgTenantId)
     const stageChain = policy.stageChains[stageAction] || []
     const byPolicy = resolveChain(this.db, orgTenantId, [...stageChain, ...policy.defaultChain])
     if (byPolicy) {
@@ -993,7 +1203,10 @@ export class OrgWorkflowActorService {
       return true
     }
     // A backup-list role entry, or a role default borrowed from the purchase-request money setup.
-    return (resolved.mode === 'policy_fallback' || resolved.mode === 'shared_finance') && resolved.via?.type === 'role'
+    return (
+      (resolved.mode === 'policy_fallback' || resolved.mode === 'shared_finance' || resolved.mode === 'main_person') &&
+      resolved.via?.type === 'role'
+    )
   }
 
   /** The explicit setting for a stage (person, wallet or role), or undefined when none is saved. */
@@ -1124,6 +1337,8 @@ export function describeActorMode(mode: OrgWorkflowActorMode | string): string {
       return 'Chosen role'
     case 'shared_finance':
       return 'Same as purchase requests'
+    case 'main_person':
+      return 'Main person for this kind of work'
     case 'policy_fallback':
       return 'From your backup list'
     case 'role_fallback':

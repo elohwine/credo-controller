@@ -162,7 +162,7 @@ export class ExternalActions {
     const { apiKey, sandboxMode = true, simulatedMode = false, callbackUrl } = config
     const { customerMsisdn, amount, currency = 'USD', reason, sourceReference } = context.input
 
-    const shouldSimulate = simulatedMode || sandboxMode || process.env.ECOCASH_SIMULATED_PAYMENTS === 'true'
+    const shouldSimulate = simulatedMode || process.env.ECOCASH_SIMULATED_PAYMENTS === 'true'
 
     if (!apiKey && shouldSimulate) {
       const simulatedReference = sourceReference || `SIM-${Date.now()}`
@@ -195,11 +195,12 @@ export class ExternalActions {
 
     // Use provided callback URL or construct from environment
     const webhookUrl =
-      callbackUrl || process.env.NGROK_URL
+      callbackUrl ||
+      (process.env.NGROK_URL
         ? `${process.env.NGROK_URL}/webhooks/ecocash`
         : process.env.PUBLIC_BASE_URL
           ? `${process.env.PUBLIC_BASE_URL}/webhooks/ecocash`
-          : 'http://localhost:3000/webhooks/ecocash'
+          : 'http://localhost:3000/webhooks/ecocash')
 
     const endpoint = sandboxMode
       ? 'https://developers.ecocash.co.zw/api/ecocash_pay/api/v2/payment/instant/c2b/sandbox'

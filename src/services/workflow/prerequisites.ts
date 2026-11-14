@@ -114,7 +114,7 @@ const HR_PREREQUISITES: WorkflowPrerequisite[] = [
 
 /** Leave and expense claims raised from Home (People & payroll module). One approver. */
 const HR_REQUEST_PREREQUISITES: WorkflowPrerequisite[] = [
-  stageActor('approve_request', 'Who approves leave and expense claims'),
+  stageActor('approve_request', 'Who approves staff requests'),
 ]
 
 const PAYSLIP_PREREQUISITES: WorkflowPrerequisite[] = [
@@ -196,6 +196,7 @@ export const TEMPLATE_PREREQUISITES: Record<string, WorkflowPrerequisite[]> = {
   'tpl-employee-onboarding': HR_PREREQUISITES,
   hr_requests: HR_REQUEST_PREREQUISITES,
   'hr.leave': HR_REQUEST_PREREQUISITES,
+  'hr.salary_advance': HR_REQUEST_PREREQUISITES,
   'hr.onboarding': HR_PREREQUISITES,
   'hr.offboarding': HR_PREREQUISITES,
   'hr.delegation_request': HR_PREREQUISITES,

@@ -19,6 +19,64 @@ import { RelatedWorkLinks } from '@/components/workflows/JobHandoffsPanel'
 import type { RelatedWorkLink } from '../../../shared/relatedWork'
 
 /**
+ * The step that is waiting now and who acts on it, with that person's buttons underneath.
+ * Sits on top of a details view so the action comes before the tabs (same "who" as the timeline).
+ */
+export function StageNowCard({
+  stages,
+  actors,
+  people,
+  assigneeName,
+  whoDid,
+  actorsLoading = false,
+  idleText = 'Nothing is waiting on anyone right now.',
+  children,
+}: {
+  stages: FinanceStageView[]
+  actors?: WorkflowActorStage[]
+  people?: StagePerson[]
+  assigneeName?: string
+  whoDid?: Record<string, string>
+  /** "Who does what" is still loading: leave the line out rather than say nobody is chosen. */
+  actorsLoading?: boolean
+  idleText?: string
+  children?: React.ReactNode
+}) {
+  const stage = stages.find((item) => item.status === 'held') || stages.find((item) => item.status === 'active')
+  const allDone = stages.length > 0 && stages.every((item) => item.status === 'done' || item.status === 'skipped')
+  const actor = stage ? actorForStage(actors, stage.stageAction) : undefined
+  const actual = stage ? whoDid?.[stage.key] : undefined
+  const who = stage ? actual || (stage.stageAction && !actorsLoading ? actorDisplay(actor, { people, stageAction: stage.stageAction, assigneeName }) : undefined) : undefined
+  const needsSomeone = Boolean(stage) && !actual && Boolean(stage?.stageAction) && actorNeedsAssignment(actor)
+  const index = stage ? stages.indexOf(stage) + 1 : 0
+
+  return (
+    <Paper withBorder radius="md" p="md" data-testid="stage-now-card" style={{ borderColor: stage?.status === 'held' ? 'var(--mantine-color-orange-4)' : undefined }}>
+      <Stack gap={6}>
+        <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+          {stage ? `Now · step ${index} of ${stages.length}` : allDone ? 'All steps done' : 'Now'}
+        </Text>
+        {stage ? (
+          <>
+            <Text fw={700}>{stage.label}</Text>
+            {stage.note && <Text size="sm" c={stage.status === 'held' ? 'orange' : 'dimmed'}>{stage.note}</Text>}
+            {who && (
+              <Group gap={6} wrap="nowrap">
+                <IconUser size={14} />
+                <Text size="sm" c={needsSomeone ? 'orange' : undefined}>Who: {who}</Text>
+              </Group>
+            )}
+          </>
+        ) : (
+          <Text size="sm" c="dimmed">{allDone ? 'Every step on this is finished.' : idleText}</Text>
+        )}
+        {children}
+      </Stack>
+    </Paper>
+  )
+}
+
+/**
  * Step timeline in customer words: what the step is, whether it is done, how it is confirmed,
  * and who does it (by name). Internal credential and protocol names never appear here.
  */
@@ -28,12 +86,15 @@ export function StageActorTimeline({
   people,
   assigneeName,
   whoDid,
+  actorsLoading = false,
   media,
   links,
   title = 'Progress',
   help,
 }: {
   stages: FinanceStageView[]
+  /** "Who does what" is still loading: leave the line out rather than say nobody is chosen. */
+  actorsLoading?: boolean
   /** Header above the steps. Pass a count ("Progress (2 of 5 steps done)") when the page has one. */
   title?: string
   help?: { title: string; points: string[] }
@@ -78,7 +139,7 @@ export function StageActorTimeline({
           const label = stage.status === 'done' ? 'Done' : stage.status === 'skipped' ? 'Skipped' : stage.status === 'held' ? 'Needs attention' : isActive ? 'In progress' : 'Not yet'
           const how = proofWords(stage.proof)
           const actual = whoDid?.[stage.key]
-          const who = actual || (stage.stageAction ? actorDisplay(actor, { people, stageAction: stage.stageAction, assigneeName }) : undefined)
+          const who = actual || (stage.stageAction && !actorsLoading ? actorDisplay(actor, { people, stageAction: stage.stageAction, assigneeName }) : undefined)
           const needsSomeone = !actual && Boolean(stage.stageAction) && actorNeedsAssignment(actor) && !who?.includes('(assigned field worker)')
           const items = media?.[stage.key] || []
           return (

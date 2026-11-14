@@ -44,6 +44,7 @@ import { describeHolderActivity, type HolderActivityEntry } from '@/lib/holderAc
 import { jobHeading } from '@/components/finance/jobAuditTrail'
 import RequestSheet from '@/components/requests/RequestSheet'
 import RecordCheckPanel from '@/components/records/RecordCheckPanel'
+import { isRequestFlowRun } from '../../shared/requestDecision'
 import {
     REQUEST_GROUP_WORDS,
     requestGroupsIn,
@@ -353,7 +354,7 @@ export default function DashboardPage() {
                             axios.get(`${backendUrl}/workflows/runs`, { headers, params: { limit: 8 } }),
                         ])
                         memberCount = Array.isArray(members.data) ? members.data.length : 0
-                        const runRows = Array.isArray(runs.data) ? runs.data : []
+                        const runRows = (Array.isArray(runs.data) ? runs.data : []).filter((run: any) => !isRequestFlowRun(run))
                         openJobs = runRows.filter((run: any) => !['completed', 'cancelled', 'reconciled'].includes(String(run?.status || '').toLowerCase())).length
                         setActivity(runRows.slice(0, 5).map((run: any) => {
                             const input = run.output?.workflowInput || run.input || {}
@@ -554,10 +555,12 @@ export default function DashboardPage() {
                                 <Box>
                                     <Title order={3}>Ask for something</Title>
                                     <Text size="sm" c="dimmed">
-                                        {orgName ? 'What this organisation can start from here.' : 'Time off, an expense, a payout, a record sent again, or a quote from a business.'}
+                                        {orgName
+                                            ? 'A purchase, a job, or a bill this organisation can run. Not a request to another supplier. Only what was turned on in setup is listed.'
+                                            : 'Time off, an expense, a payout, a record sent again, or a quote from a business.'}
                                     </Text>
                                 </Box>
-                                <Anchor component={Link} href="/requests/mine" size="sm">My requests</Anchor>
+                                <Anchor component={Link} href={orgName ? '/requests' : '/requests/mine'} size="sm">{orgName ? 'Requests' : 'My requests'}</Anchor>
                             </Group>
                             <Stack gap="md">
                                 {catalogueGroups.map((group) => (

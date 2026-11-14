@@ -10,7 +10,7 @@ export const RELEASABLE_IDENTITY_CLAIMS = ['displayName', 'verificationLevel', '
 export type ReleasableIdentityClaim = (typeof RELEASABLE_IDENTITY_CLAIMS)[number]
 
 /** What a connected system may do. Fixed when the client is registered. */
-export const PARTNER_CLIENT_OPERATIONS = ['sign_in', 'send_records'] as const
+export const PARTNER_CLIENT_OPERATIONS = ['sign_in', 'send_records', 'discover'] as const
 export type PartnerClientOperation = (typeof PARTNER_CLIENT_OPERATIONS)[number]
 
 export interface PartnerClientPolicy {

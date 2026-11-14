@@ -6,8 +6,11 @@ import { Controller, Post, Route, Tags, Body, Request, Security, Header } from '
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { getTenantById } from '../../persistence/TenantRepository'
 import { paymentLinkService } from '../../services/PaymentLinkService'
+import { notificationService } from '../../services/NotificationService'
+import { ReconciliationService } from '../../services/ReconciliationService'
 import { ShortlinkService } from '../../services/ShortlinkService'
 import { triggerService } from '../../services/TriggerService'
+import { billDocumentClaims, documentClaims } from '../../services/documentFacts'
 import { workflowService } from '../../services/WorkflowService'
 import { rootLogger } from '../../utils/pinoLogger'
 
@@ -109,7 +112,10 @@ export class EcoCashWebhookController extends Controller {
         )
         .get(payload.sourceReference, payload.sourceReference) as any
 
-      if (existingPayment && existingPayment.state === 'paid') {
+      const hasReceipt =
+        existingPayment?.state === 'paid' &&
+        Boolean(db.prepare('SELECT 1 FROM ack_payment_receipts WHERE payment_id = ? LIMIT 1').get(existingPayment.id))
+      if (hasReceipt) {
         logger.info({ sourceReference: payload.sourceReference }, 'Payment already processed (idempotency check)')
         return {
           status: 'acknowledged',
@@ -188,6 +194,41 @@ export class EcoCashWebhookController extends Controller {
 
           const payerPhone = payload.customerMsisdn || existingPayment?.payer_phone
           const subjectHash = hashMsisdn(payerPhone)
+          const paidAt = new Date().toISOString()
+          const baseReceipt = {
+            receiptId: `RCPT-${String(payload.transactionId)
+              .replace(/[^A-Za-z0-9]/g, '')
+              .slice(0, 16)
+              .toUpperCase()}`,
+            transactionId: payload.transactionId,
+            paymentRef: payload.transactionId,
+            amount: String(payload.amount || existingPayment?.amount || '0'),
+            currency: payload.currency || existingPayment?.currency || 'USD',
+            payerPhone,
+            subjectHash,
+            merchant: merchantTenantId,
+            merchantName,
+            merchantDid: merchant?.issuerDid || undefined,
+            cartId: cartId,
+            invoiceId: invoiceId,
+            invoiceRef: invoiceId,
+            invoiceHash: invoiceHash,
+            previousRecordHash: previousRecordHash,
+            paymentMethod: 'EcoCash',
+            paidAt,
+            timestamp: paidAt,
+          }
+          const billLink =
+            typeof metadata.paymentLinkId === 'string'
+              ? (db
+                  .prepare('SELECT merchant_id, sector, metadata, created_at FROM payment_links WHERE id = ?')
+                  .get(metadata.paymentLinkId) as
+                  | { merchant_id: string; sector?: string; metadata?: string; created_at?: string }
+                  | undefined)
+              : undefined
+          const receiptClaims = billLink
+            ? billDocumentClaims('ReceiptVC', billLink, baseReceipt)
+            : documentClaims('ReceiptVC', baseReceipt, merchantTenantId)
 
           const receiptResponse = await axios.post(
             `${issuerApiUrl}/custom-oidc/issuer/credential-offers`,
@@ -198,21 +239,7 @@ export class EcoCashWebhookController extends Controller {
                   credentialDefinitionId: 'ReceiptVC',
                   format: 'jwt_vc_json',
                   type: ['VerifiableCredential', 'ReceiptVC'],
-                  claims: {
-                    transactionId: payload.transactionId,
-                    amount: String(payload.amount || existingPayment?.amount || '0'),
-                    currency: payload.currency || existingPayment?.currency || 'USD',
-                    payerPhone,
-                    subjectHash,
-                    merchant: merchantTenantId,
-                    merchantName,
-                    merchantDid: merchant?.issuerDid || undefined,
-                    cartId: cartId,
-                    invoiceId: invoiceId,
-                    invoiceHash: invoiceHash,
-                    previousRecordHash: previousRecordHash,
-                    timestamp: new Date().toISOString(),
-                  },
+                  claims: receiptClaims,
                 },
               ],
             },
@@ -247,69 +274,33 @@ export class EcoCashWebhookController extends Controller {
           )
           logger.info({ transactionId: payload.transactionId }, 'Generated receipt verification link')
 
-          // Update or create payment record
-          if (existingPayment) {
-            // Update existing payment record
+          // Paid state and receipt are written together so a failed write can be retried safely.
+          const issuedAt = new Date().toISOString()
+          db.transaction(() => {
             db.prepare(
               `
-                            UPDATE ack_payments 
+                            UPDATE ack_payments
                             SET state = 'paid', provider_ref = ?, updated_at = ?
                             WHERE id = ?
                         `,
-            ).run(payload.transactionId, new Date().toISOString(), existingPayment.id)
-          } else {
-            // Create new payment record for idempotency tracking
-            const newPaymentId = `pay-${Date.now()}`
-            db.prepare(
-              `
-                            INSERT INTO ack_payments (
-                                id, tenant_id, cart_id, provider_ref, 
-                                amount, currency, state, idempotency_key, 
-                                created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        `,
-            ).run(
-              newPaymentId,
-              'default',
-              cartId || null,
-              payload.transactionId,
-              payload.amount || 0,
-              payload.currency || 'USD',
-              'paid',
-              payload.sourceReference,
-              new Date().toISOString(),
-              new Date().toISOString(),
-            )
-
-            // Store receipt
+            ).run(payload.transactionId, issuedAt, existingPayment.id)
             db.prepare(
               `
                             INSERT INTO ack_payment_receipts (id, payment_id, credential_offer_url, credential_type, issued_at)
                             VALUES (?, ?, ?, ?, ?)
                         `,
-            ).run(`rcp-${Date.now()}`, newPaymentId, receiptOfferUrl, 'PaymentReceipt', new Date().toISOString())
-          }
+            ).run(`rcp-${Date.now()}`, existingPayment.id, receiptOfferUrl, 'PaymentReceipt', issuedAt)
+          })()
 
-          // If we have an existing payment, also store the receipt
-          if (existingPayment) {
-            // Store receipt in ack_payment_receipts
-            db.prepare(
-              `
-                            INSERT INTO ack_payment_receipts (id, payment_id, credential_offer_url, credential_type, issued_at)
-                            VALUES (?, ?, ?, ?, ?)
-                        `,
-            ).run(`rcp-${Date.now()}`, existingPayment.id, receiptOfferUrl, 'PaymentReceipt', new Date().toISOString())
-
-            const paymentLinkId = paymentMetadata(existingPayment.metadata).paymentLinkId
-            if (typeof paymentLinkId === 'string') {
-              try {
-                await paymentLinkService.settlePaid(paymentLinkId, {
-                  reference: payload.transactionId,
-                  payerPhone: existingPayment.payer_phone,
-                })
-              } catch (settleErr: any) {
-                logger.warn({ paymentLinkId, error: settleErr?.message }, 'Paid link did not continue its job')
-              }
+          const paymentLinkId = paymentMetadata(existingPayment.metadata).paymentLinkId
+          if (typeof paymentLinkId === 'string') {
+            try {
+              await paymentLinkService.settlePaid(paymentLinkId, {
+                reference: payload.transactionId,
+                payerPhone: existingPayment.payer_phone,
+              })
+            } catch (settleErr: any) {
+              logger.warn({ paymentLinkId, error: settleErr?.message }, 'Paid link did not continue its job')
             }
           }
 
@@ -326,6 +317,87 @@ export class EcoCashWebhookController extends Controller {
               logger.info({ cartId }, 'Cart status updated to paid')
             } catch (e) {
               logger.warn({ error: e instanceof Error ? e.message : String(e) }, 'Failed to update cart status')
+            }
+          }
+
+          if (payload.transactionId) {
+            const linkMeta = billLink ? paymentMetadata(billLink.metadata) : {}
+            // A job's bill is on the job's own trail (ClientPaymentActions); only standalone payments land here.
+            if (!linkMeta.workflowRunId) {
+              const originalLinkId = typeof metadata.paymentLinkId === 'string' ? metadata.paymentLinkId : undefined
+              let linkId = originalLinkId
+              if (!linkId && cartId && merchantTenantId) {
+                let basket: any[] = []
+                try {
+                  basket = JSON.parse(cart?.items || '[]')
+                } catch {
+                  basket = []
+                }
+                const description = Array.isArray(basket)
+                  ? basket
+                      .map((item) => {
+                        const title = item && typeof item.title === 'string' ? item.title : 'Item'
+                        const qty = Number(item?.quantity || item?.qty || 1)
+                        return `${qty} x ${title}`
+                      })
+                      .filter(Boolean)
+                      .join(', ')
+                  : ''
+                linkId = await paymentLinkService
+                  .recordPaidCart({
+                    merchantId: merchantTenantId,
+                    cartId,
+                    amount: Number(payload.amount || existingPayment?.amount || cart?.total || 0),
+                    currency: payload.currency || existingPayment?.currency || cart?.currency || 'USD',
+                    payerPhone,
+                    providerRef: String(payload.transactionId),
+                    description: description || 'Shop purchase',
+                  })
+                  .catch((err: any) => {
+                    logger.warn({ error: err?.message, cartId }, 'Paid basket not added to Money in')
+                    return undefined
+                  })
+              }
+              const settled = linkId
+                ? Boolean(
+                    db
+                      .prepare(
+                        `SELECT 1 FROM settlement_allocations WHERE settlement_type = 'payment_link' AND settlement_id = ? AND status = 'applied' LIMIT 1`,
+                      )
+                      .get(linkId),
+                  )
+                : false
+              new ReconciliationService().recordPaidCheckout(String(payload.transactionId), {
+                tenantId: merchantTenantId,
+                amount: Number(payload.amount || existingPayment?.amount || 0),
+                currency: payload.currency || existingPayment?.currency || 'USD',
+                linkId,
+                cartId,
+                receiptId: baseReceipt.receiptId,
+                settled,
+                kind: linkMeta.arModule ? 'payment_request' : linkId ? 'pay_link' : 'cart',
+                ...(linkMeta.arModule ? { deliveryRequired: false } : {}),
+              })
+              // A basket already sends its own receipt below. This alert is only for a pay link
+              // that existed before the basket was written, and only if the payer opted in.
+              if (originalLinkId && payerPhone) {
+                const linkRow = db.prepare('SELECT description FROM payment_links WHERE id = ?').get(linkId) as
+                  | { description?: string }
+                  | undefined
+                const paid = Number(payload.amount || existingPayment?.amount || 0).toFixed(2)
+                const currency = payload.currency || existingPayment?.currency || 'USD'
+                const forWhat = linkRow?.description ? ` for ${linkRow.description}` : ''
+                notificationService
+                  .sendWhatsAppText({
+                    to: payerPhone,
+                    body: `Receipt: ${merchantName} received your payment of ${currency} ${paid}${forWhat}. Reference ${payload.transactionId}.`,
+                    actionUrl: verificationUrl,
+                    tenantId: merchantTenantId,
+                    eventType: 'payment_link',
+                    dedupeKey: `receipt:${payload.transactionId}`,
+                  })
+                  .catch((err: any) => logger.warn({ error: err?.message, linkId }, 'Receipt WhatsApp not queued'))
+              }
             }
           }
 

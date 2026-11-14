@@ -23,7 +23,6 @@ import {
   IconArrowRight,
   IconCheck,
   IconCreditCard,
-  IconDeviceMobile,
   IconExternalLink,
   IconFlask,
   IconMoneybag,
@@ -37,8 +36,11 @@ import { feedback } from '@/lib/feedback';
 import api from '@/lib/api';
 import { getPersonalWalletTenantId, getPersonalWalletToken } from '@/lib/auth';
 import { clientPayCopy } from '@/lib/uxCopy';
+import { StageActorTimeline } from '@/components/shared/StageActorTimeline';
+import { clientBillingStages, CLIENT_BILLING_HELP } from '../../../shared/fieldJobOutcomes';
+import { PhoneField } from '../../../shared/PhoneField';
 import BrandedDocumentView from '@/components/records/BrandedDocumentView';
-import { documentFromClaims, safeBrandColor } from '@/lib/brandedDocument';
+import { payPageDocument, safeBrandColor } from '@/lib/brandedDocument';
 
 interface PaymentDetails {
   linkId: string;
@@ -50,6 +52,14 @@ interface PaymentDetails {
   kind?: 'quote' | 'invoice';
   providerRef?: string;
   paidAt?: string;
+  createdAt?: string;
+  reconciliation?: {
+    status: string;
+    receiptIssuedAt?: string;
+    settledAt?: string;
+    deliveredAt?: string;
+    reconciledAt?: string;
+  };
   invoiceRef?: string;
   availableMethods: string[];
   availableMethodDetails?: Array<{
@@ -66,27 +76,8 @@ interface PaymentDetails {
     displayName?: string;
     orgTenantId?: string;
   };
-}
-
-/** The bill or receipt as a document in the organisation's brand. Not signed: the signed receipt goes to the wallet. */
-function paymentDocument(payment: PaymentDetails, kind: 'quote' | 'invoice' | 'receipt', providerRef?: string) {
-  const reference = payment.invoiceRef;
-  return documentFromClaims({
-    kind,
-    signed: false,
-    issuedAt: kind === 'receipt' ? payment.paidAt : undefined,
-    claims: {
-      invoiceId: kind === 'invoice' ? reference : undefined,
-      quoteId: kind === 'quote' ? reference : undefined,
-      invoiceRef: kind === 'receipt' ? reference : undefined,
-      receiptId: kind === 'receipt' ? providerRef || payment.providerRef : undefined,
-      paymentRef: kind === 'receipt' ? providerRef || payment.providerRef : undefined,
-      paidAt: kind === 'receipt' ? payment.paidAt : undefined,
-      amount: payment.amount,
-      currency: payment.currency,
-      description: payment.description,
-    },
-  });
+  /** Lines, payer, VAT and issuer details: the same facts the signed records carry. */
+  documentFacts?: Record<string, unknown>;
 }
 
 function PaymentDocumentToggle({ payment, kind, providerRef }: { payment: PaymentDetails; kind: 'quote' | 'invoice' | 'receipt'; providerRef?: string }) {
@@ -102,7 +93,7 @@ function PaymentDocumentToggle({ payment, kind, providerRef }: { payment: Paymen
           orgTenantId={payment.branding?.orgTenantId}
           fallbackName={payment.branding?.displayName || payment.merchantName}
           height={480}
-          model={paymentDocument(payment, kind, providerRef)}
+          model={payPageDocument(payment, kind, providerRef)}
         />
       )}
     </Stack>
@@ -452,12 +443,30 @@ export default function MobilePayPage() {
           <Alert color="green" icon={<IconCheck size={16} />} title={copy.paidTitle}>
             {copy.paidBody}
           </Alert>
+          <Paper withBorder p="sm" radius="md">
+            <Text size="sm" c="dimmed">{payment.branding?.displayName || payment.merchantName || 'Business'}</Text>
+            <Text fw={700} size="xl">{formatAmount(payment.amount, payment.currency)}</Text>
+            <Text fw={600}>{payment.description}</Text>
+          </Paper>
           {payment.providerRef && (
             <Paper withBorder p="sm" radius="md">
               <Text size="xs" c="dimmed">{copy.referenceLabel}</Text>
               <Text fw={600}>{payment.providerRef}</Text>
             </Paper>
           )}
+          {payment.reconciliation ? (
+            <StageActorTimeline
+              stages={clientBillingStages(undefined, {
+                status: 'paid',
+                obligationId: payment.linkId,
+                createdAt: payment.createdAt,
+                paidAt: payment.paidAt,
+                reconciliation: payment.reconciliation,
+              })}
+              title="Billing stages"
+              help={CLIENT_BILLING_HELP}
+            />
+          ) : null}
           <Group grow>
             <Button variant="light" onClick={() => router.push('/inbox?filter=receipts')}>{copy.openRecordsLabel}</Button>
             {resumeOrgTenantId ? (
@@ -573,14 +582,13 @@ export default function MobilePayPage() {
           </Stack>
         </Card>
 
-        <TextInput
+        <PhoneField
+          surface="phone"
           label={copy.phoneLabel}
           description={copy.phoneHelp}
           required
-          placeholder="e.g. 0771234567 or +263771234567"
           value={phone}
-          onChange={(e) => setPhone(e.currentTarget.value)}
-          leftSection={<IconDeviceMobile size={16} />}
+          onChange={setPhone}
         />
 
         <Switch

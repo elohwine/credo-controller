@@ -194,7 +194,7 @@ export const QuoteInvoiceReceiptTemplate: WorkflowTemplate = {
   steps: [
     {
       action: 'finance.calculate_invoice',
-      config: { taxRate: 15, taxInclusive: false },
+      config: { taxRate: 0, taxInclusive: false },
       description: 'Calculate totals with tax and discounts',
     },
     {
@@ -210,7 +210,7 @@ export const QuoteInvoiceReceiptTemplate: WorkflowTemplate = {
     },
   ],
   configurable: [
-    { field: 'taxRate', label: 'Tax Rate %', type: 'number', default: 15 },
+    { field: 'taxRate', label: 'Tax Rate %', type: 'number', default: 0 },
     { field: 'quoteValidDays', label: 'Quote Valid (days)', type: 'number', default: 7 },
     {
       field: 'paymentProvider',
@@ -699,7 +699,7 @@ export const EducationFeeTemplate: WorkflowTemplate = {
   steps: [
     {
       action: 'finance.calculate_invoice',
-      config: { taxRate: 0, taxInclusive: true },
+      config: { taxRate: 0, taxInclusive: true, taxExempt: true },
       description: 'Set the fee for the student and term',
     },
     {
@@ -781,7 +781,7 @@ export const CashCounterTemplate: WorkflowTemplate = {
   steps: [
     {
       action: 'finance.calculate_invoice',
-      config: { taxRate: 15, taxInclusive: true },
+      config: { taxRate: 0, taxInclusive: true },
       description: 'Generate point-of-sale invoice',
     },
     {
@@ -903,6 +903,11 @@ export const FieldExecutionProofTemplate: WorkflowTemplate = {
       action: 'field.transition',
       config: { to: 'REQUEST_CREATED' },
       description: 'Move workflow to request created state',
+    },
+    {
+      action: 'field.pause',
+      config: { reason: 'await_assignment', requireFlag: 'awaitAssignment', requiredByDefault: false },
+      description: 'Wait for an owner or admin to choose who does the job (booked jobs only)',
     },
     {
       action: 'field.assign',
@@ -1407,6 +1412,118 @@ export const AccountsReceivableTemplate: WorkflowTemplate = {
 }
 
 // =============================================================================
+// REQUEST FLOWS — a request is the trigger; its decision steps are the approvals
+// =============================================================================
+
+/**
+ * One flow per kind of member request (see `config/requestFlows.ts`). The request record keeps
+ * the person-facing detail and timeline; the run is the same request seen as a workflow. Each
+ * `stage.await_actor` step marked `requestDecision` is an approval, in order. The built-in flows
+ * have one approval, the request family's review step; an organisation that needs another (for
+ * example finance from an amount up) saves its own copy with a second step and a `when`.
+ */
+function requestFlowTemplate(input: {
+  id: string
+  name: string
+  description: string
+  category: WorkflowTemplate['category']
+  requestType: string
+  workflowType: string
+  stageAction: string
+  title: string
+}): WorkflowTemplate {
+  return {
+    id: input.id,
+    name: input.name,
+    description: input.description,
+    category: input.category,
+    industry: ['all'],
+    triggerTypes: ['manual'],
+    inputSchema: {
+      type: 'object',
+      properties: {
+        requestId: { type: 'string', title: 'Request' },
+        amount: { type: 'number', title: 'Amount' },
+        currency: { type: 'string', title: 'Currency' },
+      },
+      required: ['requestId'],
+    },
+    outputVCs: [],
+    steps: [
+      {
+        action: 'stage.await_actor',
+        description: input.title,
+        config: {
+          stageAction: input.stageAction,
+          workflowType: input.workflowType,
+          requestType: input.requestType,
+          requestDecision: true,
+          title: input.title,
+        },
+      },
+    ],
+    configurable: [],
+  }
+}
+
+export const LeaveRequestFlowTemplate = requestFlowTemplate({
+  id: 'tpl-request-leave',
+  name: 'Leave request',
+  description: 'A member asks for leave; the people approver decides and the member keeps the approval.',
+  category: 'hr',
+  requestType: 'hr.leave',
+  workflowType: 'hr_requests',
+  stageAction: 'approve_request',
+  title: 'Decide the leave request',
+})
+
+export const ExpenseRequestFlowTemplate = requestFlowTemplate({
+  id: 'tpl-request-expense',
+  name: 'Expense claim',
+  description: 'A member claims money back with a receipt; the approver decides, then it is paid back.',
+  category: 'hr',
+  requestType: 'finance.expense_claim',
+  workflowType: 'hr_requests',
+  stageAction: 'approve_request',
+  title: 'Decide the expense claim',
+})
+
+export const SalaryAdvanceRequestFlowTemplate = requestFlowTemplate({
+  id: 'tpl-request-salary-advance',
+  name: 'Salary advance',
+  description: 'A member asks for part of their pay early; the approver decides, then finance pays it out.',
+  category: 'hr',
+  requestType: 'hr.salary_advance',
+  workflowType: 'hr_requests',
+  stageAction: 'approve_request',
+  title: 'Decide the salary advance',
+})
+
+export const PurchaseRequestFlowTemplate = requestFlowTemplate({
+  id: 'tpl-request-purchase',
+  name: 'Item or purchase request',
+  description: 'A member asks for an item; the approver decides before money is released or an order is placed.',
+  category: 'finance',
+  requestType: 'procurement.requisition',
+  workflowType: 'internal_requisitions',
+  stageAction: 'approve_requisition',
+  title: 'Decide the purchase request',
+})
+
+export const GeneralRequestFlowTemplate = requestFlowTemplate({
+  id: 'tpl-request-general',
+  name: 'General request',
+  description: 'Anything else a member asks the organisation for; one person decides.',
+  category: 'hr',
+  requestType: 'platform.general',
+  workflowType: 'general',
+  stageAction: 'approve_request',
+  title: 'Decide the request',
+})
+
+export const REQUEST_FLOW_TEMPLATE_PREFIX = 'tpl-request-'
+
+// =============================================================================
 // TEMPLATE REGISTRY
 // =============================================================================
 
@@ -1436,6 +1553,12 @@ export const workflowTemplates: WorkflowTemplate[] = [
   CashCounterTemplate,
   // Field execution / FEPT
   FieldExecutionProofTemplate,
+  // Requests: the request is the trigger, the steps are its approvals
+  LeaveRequestFlowTemplate,
+  ExpenseRequestFlowTemplate,
+  SalaryAdvanceRequestFlowTemplate,
+  PurchaseRequestFlowTemplate,
+  GeneralRequestFlowTemplate,
 ]
 
 // Attach organizational prerequisites from the registry so every in-memory

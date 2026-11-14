@@ -735,25 +735,37 @@ export class OrgMembershipCredentialService {
     return { queued: true, walletTenantId }
   }
 
-  /** Queue the platform identity offer so registration shows up in the holder inbox. */
+  /**
+   * Queue the platform identity offer so registration shows up in the holder inbox.
+   * `variant: 'age_verification'` queues the same PlatformIdentityCredential type as a
+   * second, separately-accepted card (the sd-jwt one carrying dateOfBirth/over18) without
+   * colliding with the sign-in card's offer.
+   */
   public queuePlatformIdentityOffer(params: {
     walletTenantId: string
     offerUri: string
     displayName?: string
+    variant?: 'age_verification'
   }): MembershipOfferOutcome {
     if (!params.walletTenantId || !params.offerUri) return 'skipped'
-    const fingerprint = fingerprintOf([params.walletTenantId, PLATFORM_IDENTITY_VC_TYPE])
+    const sourceId = params.variant ? `${params.walletTenantId}:${params.variant}` : params.walletTenantId
+    const fingerprint = fingerprintOf([sourceId, PLATFORM_IDENTITY_VC_TYPE])
+    const title = params.variant === 'age_verification' ? 'Age verification' : 'Platform identity'
+    const body =
+      params.variant === 'age_verification'
+        ? 'Accept this card to share "18 or over" with a site, without sending your name, phone or date of birth.'
+        : params.displayName
+          ? `${params.displayName}, accept your identity card. You use it to sign in and to prove who you are.`
+          : 'Accept your identity card. You use it to sign in and to prove who you are.'
     return queueOffer({
       walletTenantId: params.walletTenantId,
       issuerTenantId: params.walletTenantId,
       sourceType: PLATFORM_IDENTITY_OFFER_SOURCE_TYPE,
-      sourceId: params.walletTenantId,
+      sourceId,
       credentialType: PLATFORM_IDENTITY_VC_TYPE,
       offerUri: toCredentialOfferDeeplink(params.offerUri),
-      title: 'Platform identity',
-      body: params.displayName
-        ? `${params.displayName}, accept your platform identity credential to sign in and act on workflow stages.`
-        : 'Accept your platform identity credential to sign in and act on workflow stages.',
+      title,
+      body,
       metadata: { platformName: process.env.PLATFORM_NAME || 'IdenEx Credentis', displayName: params.displayName },
       fingerprint,
     })

@@ -178,7 +178,12 @@ api.interceptors.request.use((config) => {
       typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : getPreferredToken()
     const contextMode = getContextMode()
     const requestUrl = String(config.url || '')
-    const skipContextGuard = isPublicAuthRoute(requestUrl) && !token
+    // A WhatsApp link is opened in whichever sign-in is already on screen. The inbox asks
+    // each other saved sign-in whether the card is theirs. That call carries the other
+    // person's token on purpose, so the usual "this token is not the one on screen" check
+    // must not refuse it. The server still answers only yes or no.
+    const skipContextGuard =
+      requestUrl.includes('/api/wallet/credentials/inbox-item/') || (isPublicAuthRoute(requestUrl) && !token)
     const tokenTenantId = normalizeTokenTenantId(token)
     const activeOrgId = getActiveOrgId()
     const personalTenantId = getPersonalWalletTenantId()

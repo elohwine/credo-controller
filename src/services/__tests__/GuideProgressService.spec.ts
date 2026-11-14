@@ -115,9 +115,9 @@ describe('GettingStartedService', () => {
     db = new Database(':memory:')
     db.exec(readFileSync('migrations/140_wallet_guides_and_holder_settings.sql', 'utf8'))
     db.exec(`CREATE TABLE wallet_pending_offers (id TEXT, tenant_id TEXT, source_type TEXT, resolved_at TEXT, accepted_at TEXT);
-      CREATE TABLE device_keys (id TEXT, wallet_tenant_id TEXT, revoked_at TEXT);
+      CREATE TABLE device_keys (id TEXT, wallet_tenant_id TEXT, revoked_at TEXT, key_usage TEXT NOT NULL DEFAULT 'login');
       CREATE TABLE ssi_users (id TEXT, tenant_id TEXT);
-      CREATE TABLE org_memberships (user_id TEXT, org_tenant_id TEXT, status TEXT);`)
+      CREATE TABLE org_memberships (user_id TEXT, org_tenant_id TEXT, status TEXT, role TEXT);`)
     DatabaseManager.setDatabase(db)
   })
 
@@ -126,6 +126,8 @@ describe('GettingStartedService', () => {
     expect(service.status('wallet-1')).toEqual({
       identityCard: false,
       deviceSignIn: false,
+      moneyConfirm: false,
+      handlesMoney: false,
       organisation: false,
       cardSaving: false,
       staffCardWaiting: null,
@@ -135,13 +137,16 @@ describe('GettingStartedService', () => {
 
   it('reports each finished step from real account state', () => {
     db.exec(`INSERT INTO wallet_pending_offers VALUES ('o1', 'wallet-1', 'platform_identity', '2026-01-01', '2026-01-01');
-      INSERT INTO device_keys VALUES ('k1', 'wallet-1', NULL);
+      INSERT INTO device_keys VALUES ('k1', 'wallet-1', NULL, 'login');
+      INSERT INTO device_keys VALUES ('k2', 'wallet-1', NULL, 'payment');
       INSERT INTO ssi_users VALUES ('u1', 'wallet-1');
-      INSERT INTO org_memberships VALUES ('u1', 'org-1', 'active');`)
+      INSERT INTO org_memberships VALUES ('u1', 'org-1', 'active', 'owner');`)
     new HolderSettingsService().set('wallet-1', { autoSaveCards: false })
     expect(service.status('wallet-1')).toEqual({
       identityCard: true,
       deviceSignIn: true,
+      moneyConfirm: true,
+      handlesMoney: true,
       organisation: true,
       cardSaving: true,
       staffCardWaiting: null,
@@ -189,9 +194,18 @@ describe('GettingStartedService', () => {
   })
 
   it('ignores removed phones and suspended memberships', () => {
-    db.exec(`INSERT INTO device_keys VALUES ('k1', 'wallet-1', '2026-01-02');
+    db.exec(`INSERT INTO device_keys VALUES ('k1', 'wallet-1', '2026-01-02', 'login');
       INSERT INTO ssi_users VALUES ('u1', 'wallet-1');
-      INSERT INTO org_memberships VALUES ('u1', 'org-1', 'suspended');`)
-    expect(service.status('wallet-1')).toMatchObject({ deviceSignIn: false, organisation: false })
+      INSERT INTO org_memberships VALUES ('u1', 'org-1', 'suspended', 'owner');`)
+    expect(service.status('wallet-1')).toMatchObject({ deviceSignIn: false, organisation: false, handlesMoney: false })
+  })
+
+  it('keeps phone sign-in and money confirmation apart, and asks only people who handle money', () => {
+    db.exec(`INSERT INTO device_keys VALUES ('k1', 'wallet-1', NULL, 'payment');
+      INSERT INTO ssi_users VALUES ('u1', 'wallet-1');
+      INSERT INTO org_memberships VALUES ('u1', 'org-1', 'active', 'field_worker');`)
+    expect(service.status('wallet-1')).toMatchObject({ deviceSignIn: false, moneyConfirm: true, handlesMoney: false })
+    db.exec(`INSERT INTO org_memberships VALUES ('u1', 'org-2', 'active', 'accountant')`)
+    expect(service.status('wallet-1').handlesMoney).toBe(true)
   })
 })

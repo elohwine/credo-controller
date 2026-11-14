@@ -57,6 +57,49 @@ describe('branded documents', () => {
     expect(doc.lines).toEqual([{ description: 'Cement', quantity: 2, unitPrice: 10, amount: 20 }])
   })
 
+  test('shows the VAT, calls it a tax invoice only for a VAT-registered issuer, and uses the issuer details in the record', async () => {
+    const { documentBrand, documentTitle, documentTotalRows, payPageDocument } = await import('../credo-ui/shared/brandedDocument')
+    const included = documentFromClaims({
+      kind: 'invoice',
+      claims: {
+        invoiceId: 'INV-8',
+        amount: 115,
+        currency: 'USD',
+        taxRate: 15,
+        taxAmount: 15,
+        taxIncluded: true,
+        subtotal: 100,
+        issuerName: 'Sunrise Builders (Pvt) Ltd',
+        issuerVatNumber: '10012345',
+      },
+    })
+    expect(documentTotalRows(included)).toEqual([
+      ['Amount before VAT', 100],
+      ['VAT 15% (included)', 15],
+    ])
+    expect(included.lines).toEqual([{ description: 'Invoice', amount: 115 }])
+    const merged = documentBrand(included, { displayName: 'Old name', primaryColor: '#111111' })
+    expect(merged).toMatchObject({ displayName: 'Sunrise Builders (Pvt) Ltd', vatNumber: '10012345', primaryColor: '#111111' })
+    const html = renderDocumentHtml(included, merged)
+    expect(html).toContain('Tax invoice')
+    expect(html).toContain('VAT 10012345')
+    expect(html).toContain('VAT 15% (included)')
+
+    const plain = documentFromClaims({ kind: 'invoice', claims: { amount: 50, currency: 'USD' } })
+    expect(documentTitle(plain, { vatNumber: undefined })).toBe('Invoice')
+    expect(documentTotalRows(plain)).toEqual([])
+
+    const onTop = payPageDocument(
+      { description: 'Job J-1', amount: 115, currency: 'USD', documentFacts: { taxAmount: 15, taxRate: 15, taxIncluded: false, subtotal: 100 } },
+      'invoice',
+    )
+    expect(onTop.lines).toEqual([{ description: 'Job J-1', amount: 100 }])
+    expect(documentTotalRows(onTop)).toEqual([
+      ['Amount before VAT', 100],
+      ['VAT 15%', 15],
+    ])
+  })
+
   test('a receipt without line items gets one line for what was paid', () => {
     const doc = documentFromClaims({
       kind: 'receipt',
@@ -119,6 +162,15 @@ describe('brand setup', () => {
       invoiceDueDays: 0,
     })
     expect(payload).toEqual({ displayName: 'Acme', primaryColor: '#123456', invoiceDueDays: 0 })
+    expect(brandSavePayload({ displayName: 'Acme', vatRate: 15 })).toEqual({ displayName: 'Acme', vatRate: 15, pricesIncludeVat: true })
+    expect(brandSavePayload({ displayName: 'Acme', vatRate: 15, pricesIncludeVat: false })).toMatchObject({ pricesIncludeVat: false })
+  })
+
+  test('the preview shows VAT the way the organisation charges it', async () => {
+    const { sampleBrandDocument } = await import('../credo-ui/shared/brandForm')
+    expect(sampleBrandDocument('invoice', { vatRate: 15, pricesIncludeVat: false })).toMatchObject({ subtotal: 50, tax: 7.5, total: 57.5 })
+    expect(sampleBrandDocument('invoice', { vatRate: 15 })).toMatchObject({ tax: 6.52, total: 50, taxIncluded: true })
+    expect(sampleBrandDocument('invoice').tax).toBeUndefined()
   })
 
   test('renders the sample invoice with the brand', async () => {

@@ -15,6 +15,7 @@ import { orgWorkflowActorCredentialService } from '../../services/OrgWorkflowAct
 import { orgWorkflowActorService, requisitionApprovalSignMode } from '../../services/OrgWorkflowActorService'
 import { outboxService } from '../../services/OutboxService'
 import { platformRequestService } from '../../services/PlatformRequestService'
+import { stepAssuranceFor } from '../../services/ProofVcPolicyService'
 import { ReconciliationService } from '../../services/ReconciliationService'
 import { ShortlinkService } from '../../services/ShortlinkService'
 import { notifyStageDelegates } from '../../services/WorkflowStageInboxService'
@@ -59,6 +60,8 @@ interface ApprovalPresentationRequestResponse {
   requestId: string
   presentationRequestUrl: string
   verifierDid: string
+  /** One plain line the share screen shows: the step, the request and the amount. */
+  purposeLine?: string
 }
 
 interface VpPresentationRequestResponse {
@@ -66,12 +69,19 @@ interface VpPresentationRequestResponse {
   requestId: string
   presentationRequestUrl: string
   verifierDid: string
+  /** One plain line the share screen shows: the step, the request and the amount. */
+  purposeLine?: string
 }
 
 interface ReleaseRequest {
   amount?: number
   currency?: string
   description?: string
+  /** The staff-card share started with `{id}/release/request`. Releasing money always needs it. */
+  requestId?: string
+  vpToken?: string
+  idToken?: string
+  presentationSubmission?: unknown
   /** Signature from the enrolled phone. Required only when the organisation asks for it. */
   deviceAssertion?: {
     deviceKeyId: string
@@ -125,6 +135,15 @@ export class RequisitionController extends Controller {
       return tenantId
     }
     return undefined
+  }
+
+  /** Amount recorded when the requisition was raised, for the organisation's card-above limit. */
+  private requisitionAmount(id: string): number | undefined {
+    const created = new ReconciliationService()
+      .getEvents(id)
+      .find((event) => String(event.eventType || '').toUpperCase() === 'REQUISITION_CREATED')
+    const amount = Number(created?.amount ?? created?.metadata?.amount)
+    return Number.isFinite(amount) ? amount : undefined
   }
 
   /** True when the embedded wallet simply has no credential the organization accepts for the step. */
@@ -1139,6 +1158,13 @@ export class RequisitionController extends Controller {
         approvalMethod = 'signature'
       }
 
+      if (
+        approvalMethod === 'signature' &&
+        stepAssuranceFor(tenantId, 'requisition_approval', this.requisitionAmount(id)) === 'card_required'
+      ) {
+        throw new StatusException('This approval needs your staff card. Share it from your wallet.', 403)
+      }
+
       const approverDid =
         approvalMethod === 'oid4vp'
           ? this.extractApproverDid(verificationResult)
@@ -1343,6 +1369,7 @@ export class RequisitionController extends Controller {
         requestId: proof.requestId,
         presentationRequestUrl: proof.presentationRequestUrl,
         verifierDid: proof.verifierDid,
+        purposeLine: proof.purposeLine,
       }
     } catch (error: any) {
       this.setStatus(500)
@@ -1455,6 +1482,25 @@ export class RequisitionController extends Controller {
         transaction: { requisitionId: id, amount: body.amount || 0, currency: body.currency || 'USD' },
       })
       this.assertRequisitionStatus(id, 'APPROVED')
+      if (!body.requestId) {
+        throw new StatusException('Releasing money needs your staff card. Share it from your wallet first.', 403)
+      }
+      await stageProofService.verifyStageProof({
+        verifierAgent: this.getTenantAgent(request),
+        requestId: body.requestId,
+        orgTenantId: tenantId,
+        actionKey: 'requisition_release',
+        reference: id,
+        submitted:
+          body.vpToken || body.idToken
+            ? {
+                vpToken: body.vpToken,
+                idToken: body.idToken,
+                presentationSubmission: body.presentationSubmission,
+                state: body.requestId,
+              }
+            : undefined,
+      })
       const paymentLinkId = randomUUID()
       const now = new Date().toISOString()
       const ttlHours = 336
@@ -1531,8 +1577,8 @@ export class RequisitionController extends Controller {
           orgTenantId: tenantId,
           workflowRequestId: requisitionWorkflowRequestId,
           actionType: 'acknowledge_execution',
-          title: 'Acknowledge Completion Required',
-          body: 'Funds released. Acknowledge execution to complete this requisition.',
+          title: 'Confirm delivery',
+          body: 'The money was released. Confirm the items arrived to close this purchase.',
           preferredRoles: ['manager', 'approver', 'finance', 'admin', 'owner'],
         })
 
@@ -1587,6 +1633,7 @@ export class RequisitionController extends Controller {
         requestId: proof.requestId,
         presentationRequestUrl: proof.presentationRequestUrl,
         verifierDid: proof.verifierDid,
+        purposeLine: proof.purposeLine,
       }
     } catch (error: any) {
       this.setStatus(500)
@@ -1617,19 +1664,23 @@ export class RequisitionController extends Controller {
     }
     try {
       // The person confirms with the wallet attached to their account (shared StageProofService path).
-      await stageProofService.presentFromEmbeddedWallet({
+      const submitted = await stageProofService.presentFromEmbeddedWallet({
         request,
         walletId: body.walletId,
         presentationRequestUrl: body.presentationRequestUrl,
+        stageAction: 'release_funds',
         reference: id,
       })
-      // VP verified — proceed with actual release using the existing releaseFunds handler
       return await this.releaseFunds(
         id,
         {
           amount: body.amount,
           currency: body.currency,
           description: body.description,
+          requestId: body.requestId,
+          vpToken: submitted.vpToken,
+          idToken: submitted.idToken,
+          presentationSubmission: submitted.presentationSubmission,
         },
         request,
       )
@@ -1641,7 +1692,8 @@ export class RequisitionController extends Controller {
   }
 
   /**
-   * Create a VP presentation request URL for the acknowledge action.
+   * @deprecated Confirming delivery is a signed-in step (`{id}/ack`) and asks for no wallet share.
+   * Kept only for phone builds up to 1.0.49, which still open a share before calling `{id}/ack`.
    */
   @Post('{id}/ack/request')
   @Security('jwt', [SCOPES.TENANT_AGENT])
@@ -1665,6 +1717,7 @@ export class RequisitionController extends Controller {
         requestId: proof.requestId,
         presentationRequestUrl: proof.presentationRequestUrl,
         verifierDid: proof.verifierDid,
+        purposeLine: proof.purposeLine,
       }
     } catch (error: any) {
       this.setStatus(500)
@@ -1673,7 +1726,8 @@ export class RequisitionController extends Controller {
   }
 
   /**
-   * Server-side embedded-wallet variant of acknowledge: holder proves identity via VP before ack is recorded.
+   * @deprecated See `createAckPresentationRequest`. The share is not checked; `{id}/ack` decides
+   * on the signed-in session alone.
    */
   @Post('{id}/ack/embedded-wallet')
   @Security('jwt', [SCOPES.TENANT_AGENT])
@@ -1692,7 +1746,6 @@ export class RequisitionController extends Controller {
         presentationRequestUrl: body.presentationRequestUrl,
         reference: id,
       })
-      // VP verified — proceed with actual ack using the existing acknowledgeExecution handler
       return await this.acknowledgeExecution(id, { notes: body.notes }, request)
     } catch (error: any) {
       const status = error instanceof StatusException ? (error as any).status || 500 : 500

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { PhoneField } from '../../shared/PhoneField'
 import {
   Alert,
   Badge,
@@ -439,10 +440,11 @@ export default function IntakePage() {
                   value={form.clientName}
                   onChange={(event) => setForm((current) => ({ ...current, clientName: event.currentTarget.value }))}
                 />
-                <TextInput
+                <PhoneField
+                  surface="phone"
                   label="Client phone"
                   value={form.clientPhone}
-                  onChange={(event) => setForm((current) => ({ ...current, clientPhone: event.currentTarget.value }))}
+                  onChange={(clientPhone) => setForm((current) => ({ ...current, clientPhone }))}
                 />
                 <TextInput
                   label="Site / location"

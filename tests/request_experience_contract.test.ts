@@ -342,7 +342,8 @@ describe('configured new flows inherit request progress and actor routing', () =
 
   test('unsupported actions, phases and versions fail explicitly without saving', () => {
     for (const invalid of [
-      { ...definition, reviewAction: 'invented_action' },
+      // Custom step names are allowed when well formed, so only a malformed one is refused.
+      { ...definition, reviewAction: 'Invented Action!' },
       { ...definition, version: 2 },
       { ...definition, labels: { money_received: 'Paid' } },
     ]) {
@@ -356,7 +357,7 @@ describe('configured new flows inherit request progress and actor routing', () =
         sourceId: 'r',
         title: 'Invalid',
         body: 'Invalid',
-        stageAction: 'invented_action',
+        stageAction: 'Invented Action!',
       }),
     ).toThrow(/Unsupported request stage action/)
   })

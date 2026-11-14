@@ -150,6 +150,19 @@ export default function ConnectedSystemsPage() {
               ]}
             />
             {error && <Alert color="red">{error}</Alert>}
+            <Paper
+              withBorder
+              radius="md"
+              p="md"
+              role="button"
+              tabIndex={0}
+              onClick={() => router.push('/books-fiscal')}
+              onKeyDown={(event) => { if (event.key === 'Enter') router.push('/books-fiscal') }}
+              style={{ cursor: 'pointer', minHeight: 56 }}
+            >
+              <Text fw={600} size="sm">Books and tax receipts</Text>
+              <Text size="xs" c="dimmed" mt={2}>Connect Zoho Books and fiscalise invoices on Credentis.</Text>
+            </Paper>
             {loading ? (
               <Group justify="center" py="xl">
                 <Loader size="sm" />

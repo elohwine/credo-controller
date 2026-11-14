@@ -122,6 +122,8 @@ Each tenant can brand:
 - receipt footer
 - payment page style
 - dashboard header
+- VAT rate, and whether prices already include it
+- the same company details on the quote, invoice and receipt, and on the signed record
 
 Keep the branding lightweight. Do not build custom storefronts or deep page builders.
 

@@ -12,8 +12,9 @@ export type MilestoneKind =
   | 'empty_inbox'
   | 'onboarding_receive'
   | 'onboarding_share'
+  | 'security_on'
 
-export type MilestoneAnimation = 'success' | 'payment' | 'celebration' | 'welcome' | 'completion' | 'empty' | 'onboarding_receive' | 'onboarding_share'
+export type MilestoneAnimation = 'success' | 'payment' | 'celebration' | 'welcome' | 'completion' | 'empty' | 'onboarding_receive' | 'onboarding_share' | 'security'
 
 export const MILESTONE_ANIMATION: Record<MilestoneKind, MilestoneAnimation> = {
   card_saved: 'success',
@@ -25,6 +26,7 @@ export const MILESTONE_ANIMATION: Record<MilestoneKind, MilestoneAnimation> = {
   empty_inbox: 'empty',
   onboarding_receive: 'onboarding_receive',
   onboarding_share: 'onboarding_share',
+  security_on: 'security',
 }
 
 /** Loops for in-place states; everything else plays once. */
@@ -49,6 +51,8 @@ export function loadMilestoneAnimation(kind: MilestoneKind): Promise<object> {
       return import('./completion.json').then((m) => m.default as object)
     case 'empty':
       return import('./empty.json').then((m) => m.default as object)
+    case 'security':
+      return import('./security.json').then((m) => m.default as object)
     default:
       return import('./success.json').then((m) => m.default as object)
   }

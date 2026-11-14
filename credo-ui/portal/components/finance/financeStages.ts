@@ -34,6 +34,7 @@ export type ResolvedStageActor = {
     | 'configured_wallet'
     | 'configured_role'
     | 'shared_finance'
+    | 'main_person'
     | 'role_fallback'
     | 'owner_fallback'
     | string
@@ -59,14 +60,14 @@ export const REQUISITION_STAGES: FinanceStageDef[] = [
   {
     key: 'manager',
     label: 'Manager approval',
-    proof: 'OIDC4VP',
+    proof: 'CardOptional',
     vcType: 'ManagerApprovalProof',
     stageAction: 'approve_requisition',
   },
   {
     key: 'finance',
     label: 'Finance approval',
-    proof: 'OIDC4VP',
+    proof: 'CardOptional',
     vcType: 'ApprovalVC',
     stageAction: 'finance_approve_requisition',
   },
@@ -80,7 +81,7 @@ export const REQUISITION_STAGES: FinanceStageDef[] = [
   {
     key: 'ack',
     label: 'Delivery confirmed',
-    proof: 'OIDC4VP',
+    proof: 'Record',
     vcType: 'ExecutionAckVC',
     stageAction: 'acknowledge_execution',
   },
@@ -310,7 +311,7 @@ export const AP_STAGES: FinanceStageDef[] = [
   {
     key: 'payment',
     label: 'Payment recorded',
-    proof: 'OIDC4VP',
+    proof: 'CardOptional',
     vcType: 'PaymentProofVC',
     stageAction: 'record_payment',
   },
@@ -505,6 +506,7 @@ export function feptStages(stage?: string, output?: any): FinanceStageView[] {
 export const JOB_WAITING_LABEL: Record<string, string> = {
   await_site_inspection: 'Site inspection',
   await_risk_assessment: 'Worker safety check',
+  await_assignment: 'Someone to be chosen for the job',
   await_worker_start: 'Worker to start',
   await_arrival: 'Worker arrival',
   await_evidence_before: 'Before photos',
@@ -513,6 +515,7 @@ export const JOB_WAITING_LABEL: Record<string, string> = {
   await_evidence_receipt: 'Receipts for materials',
   await_completion_review: 'Work review',
   await_acknowledgement: 'Sign-off',
+  await_job_price: 'The price for the client',
   await_payout_release: 'Worker payout',
 }
 
@@ -581,6 +584,7 @@ const STAGE_ACTOR_ALIASES: Record<string, string[]> = {
 
 const PLAIN_STEP: Record<string, string> = {
   assign_field_worker: 'Who does the job',
+  set_job_price: 'Price for the client',
   inspect_site: 'Site check',
   assess_risk: 'Safety check',
   start_job: 'Job started',
@@ -640,6 +644,8 @@ export function actorModeLabel(mode?: string): string {
       return 'by role'
     case 'shared_finance':
       return 'same as purchase requests'
+    case 'main_person':
+      return 'main person for this kind of work'
     case 'policy_fallback':
       return 'from the organization fallback'
     case 'role_fallback':
@@ -705,7 +711,10 @@ export function actorDisplay(
   actor?: ResolvedStageActor,
   options: { people?: StagePerson[]; stageAction?: string; assigneeName?: string } = {},
 ): string {
-  if (options.stageAction === 'inspect_site' && options.assigneeName) {
+  if (
+    (options.stageAction === 'inspect_site' || options.stageAction === 'assign_field_worker') &&
+    options.assigneeName
+  ) {
     return `${options.assigneeName} (assigned field worker)`
   }
   const isWorkerStep = options.stageAction ? FIELD_WORKER_STAGE_ACTIONS.includes(options.stageAction) : false
@@ -724,7 +733,9 @@ export function actorDisplay(
 export function proofWords(proof?: string): string | undefined {
   switch (String(proof || '').toLowerCase()) {
     case 'oidc4vp':
-      return 'Confirmed from a wallet'
+      return 'Needs a staff card from the wallet'
+    case 'cardoptional':
+      return 'Staff card offered (needed above the org limit)'
     case 'oid4vci':
       return 'Sent to a wallet'
     case 'ssi':
@@ -747,6 +758,7 @@ export function proofWords(proof?: string): string | undefined {
 /** Keys stored on stage cards, approvals and payment tasks → the step the person must do. */
 const STEP_REQUIRED_LABEL: Record<string, string> = {
   assign_field_worker: 'Choose who does the job',
+  set_job_price: 'Set the price',
   inspect_site: 'Site check',
   assess_risk: 'Safety check',
   start_job: 'Start the job',
@@ -781,6 +793,7 @@ const STEP_REQUIRED_BY_STAGE: Record<string, string> = {
 
 /** A paused field job names the step it is actually waiting on, ahead of the coarse stage. */
 const STEP_REQUIRED_BY_PAUSE: Record<string, string> = {
+  await_assignment: 'Choose who does the job',
   await_worker_start: 'Start the job',
   await_arrival: 'Confirm arrival',
   await_site_inspection: 'Site check',
@@ -791,7 +804,51 @@ const STEP_REQUIRED_BY_PAUSE: Record<string, string> = {
   await_evidence_receipt: 'Add receipts',
   await_completion_review: 'Review work',
   await_acknowledgement: 'Sign off job',
+  await_job_price: 'Set the price',
   await_payout_release: 'Release worker payout',
+}
+
+// ── A field job's price (booked jobs arrive without one) ───────────────────────────────────
+// Keep this block identical in credo-ui/mobile/lib/uxCopy.ts and
+// credo-ui/portal/components/finance/financeStages.ts.
+
+export interface JobPriceState {
+  /** The office may still set or change the price (the bill is not with the client yet). */
+  canSet: boolean
+  /** The job is signed off and waits for the price before the bill goes out. */
+  waiting: boolean
+  /** One plain line for the job screen. */
+  line: string
+  /** Button text. */
+  action: string
+}
+
+const JOB_PAYMENT_TERMS: Record<string, string> = {
+  one_time: 'one payment',
+  instalment: 'instalments',
+  recurring: 'recurring payments',
+}
+
+export function jobPriceState(run: any): JobPriceState {
+  const input = run?.input || {}
+  const output = run?.output || {}
+  const status = String(run?.status || '').toLowerCase()
+  const billOut = Boolean(output.clientBill?.linkId)
+  const waiting = status === 'paused' && output.pauseReason === 'await_job_price'
+  const amount = Number(input.amount)
+  const priced = Number.isFinite(amount) && amount > 0
+  const canSet = !billOut && !['cancelled', 'failed'].includes(status)
+  const terms = JOB_PAYMENT_TERMS[String(input.paymentTerms || 'one_time')] || 'one payment'
+  const line = waiting
+    ? 'The work is signed off. Set the price and how the client pays, and the bill goes to them.'
+    : input.noCharge === true
+      ? 'No charge for this job.'
+      : priced
+        ? `${String(input.currency || 'USD')} ${amount.toFixed(2)}, ${terms}${billOut ? '. The bill is with the client.' : '. The bill goes to the client at sign-off.'}`
+        : status === 'completed'
+          ? 'This job closed without a price. Set one to bill the client now.'
+          : 'No price yet. Set it now, or the job waits for it at sign-off.'
+  return { canSet, waiting, line, action: priced || input.noCharge === true ? 'Change price and payment' : 'Set price and payment' }
 }
 
 export interface StepRequiredInput {
@@ -857,13 +914,11 @@ export function sharePurposeLine(input: {
           ? 'Approve this request'
           : mode === 'requisition-release'
             ? 'Release the money'
-            : mode === 'requisition-ack'
-              ? 'Acknowledge this request'
-              : mode === 'ap-workflow-transition'
-                ? 'Confirm this supplier bill'
-                : mode === 'ar-collection-consent'
-                  ? 'Agree to this collection'
-                  : ''
+            : mode === 'ap-workflow-transition'
+              ? 'Confirm this supplier bill'
+              : mode === 'ar-collection-consent'
+                ? 'Agree to this collection'
+                : ''
   const reference = String(input.reference || '').trim()
   const human = reference && !/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(reference) ? `Job ${reference}` : ''
   const amount = String(input.amount || '').trim()
@@ -884,6 +939,8 @@ export function stepRequiredLabel(input: StepRequiredInput): string | undefined 
     .toUpperCase()
   // A job already given to a worker is waiting for them to begin, not for someone to pick a worker.
   if (stage === 'ASSIGNED' && (!key || key === 'assign_field_worker' || key === 'start_job')) return 'Start the job'
+  // A purchase shares the sign-off step key with a job; for a purchase it means the goods arrived.
+  if (key === 'acknowledge_execution' && String(input.module || '').toLowerCase() === 'requisitions') return 'Confirm delivery'
   if (key) {
     if (STEP_REQUIRED_LABEL[key]) return STEP_REQUIRED_LABEL[key]
     const words = key.replace(/[_-]+/g, ' ').trim()

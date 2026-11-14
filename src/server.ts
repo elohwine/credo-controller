@@ -45,6 +45,7 @@ import { registerPrivacyPolicy } from './utils/privacyPolicy'
 import { runWithContext } from './utils/requestContext'
 
 const mobileAppUrl = () => (process.env.MOBILE_APP_URL || 'http://localhost:3001').replace(/\/+$/, '')
+import { registerFindLanding } from './utils/findLanding'
 import { registerWhatsAppInboxLanding } from './utils/whatsAppInboxLanding'
 
 dotenv.config()
@@ -474,6 +475,7 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   // take precedence over the generic Credo OpenID4VC router which matches prefixes.
   registerPrivacyPolicy(app)
   registerWhatsAppInboxLanding(app)
+  registerFindLanding(app)
   // Older pay links pointed at /pay/{code} on this host; send them to the app's checkout page.
   app.get('/pay/:code', (req, res) => {
     res.redirect(302, `${mobileAppUrl()}/pay/${encodeURIComponent(String(req.params.code || ''))}/`)

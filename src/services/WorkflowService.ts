@@ -25,6 +25,7 @@ import { workflowRepository } from '../persistence/WorkflowRepository'
 import { workflowRunRepository } from '../persistence/WorkflowRunRepository'
 import { rootLogger } from '../utils/pinoLogger'
 
+import { OrganizationService } from './OrganizationService'
 import { orgSetupProfileService } from './OrgSetupProfileService'
 import { workflowReadinessService } from './WorkflowReadinessService'
 import { ActionRegistry } from './workflow/ActionRegistry'
@@ -42,6 +43,7 @@ import { triggerFollowOnRequest } from './workflow/actions/RequestTriggerAction'
 import { StageGateActions } from './workflow/actions/StageGateActions'
 import { TrustActions } from './workflow/actions/TrustActions'
 import { createWorkflowStartAction } from './workflow/actions/WorkflowStartAction'
+import { AWAIT_JOB_PRICE, CLIENT_BILL_KEY, priceCardSourceId } from './workflow/jobPrice'
 import { ensureExecutableWorkflow } from './workflow/materialize'
 import { getWorkflowTypeForWorkflow } from './workflow/initiation'
 
@@ -95,6 +97,11 @@ export interface ExecuteWorkflowOptions {
   triggerType?: TriggerType
   triggerRef?: string
   async?: boolean // If true, returns runId immediately
+  /**
+   * A request's own flow: the request already checked who may decide each step, so the run is
+   * not held to (and does not fill in) the organisation readiness checklist.
+   */
+  requestFlow?: boolean
 }
 
 export interface WorkflowExecutionResult {
@@ -137,7 +144,9 @@ export class WorkflowService {
       throw new StatusException(`"${workflow.name || workflow.id}" is not available yet. Some of its steps are not built.`, 409)
     }
     orgSetupProfileService.assertWorkflow(tenantId, workflow)
-    workflowReadinessService.assertExecutable(tenantId, getWorkflowTypeForWorkflow(workflow))
+    if (!options.requestFlow) {
+      workflowReadinessService.assertExecutable(tenantId, getWorkflowTypeForWorkflow(workflow))
+    }
 
     // 2. Create Run Record. The run points at the executable row (a template alias such as
     // `field_execution_fept` is not a `workflows` row, and `workflow_runs.workflow_id` is a foreign key).
@@ -186,6 +195,9 @@ export class WorkflowService {
     // A job that handed control to another procedure waits for it before it can continue.
     const hold = workflowHandoffService.holdMessage(runId)
     if (hold) throw new Error(hold)
+    if ((run.output as any)?.pauseReason === AWAIT_JOB_PRICE) {
+      throw new Error('Set the price and how the client pays first.')
+    }
 
     // Reject a bad checkpoint submission while the run is still paused (it must not fail the run).
     FieldExecutionActions.prepareResume(runId, resumeData, actedByUserId)
@@ -250,6 +262,11 @@ export class WorkflowService {
   }
 
   public async reassignRun(runId: string, assigneeUserId: string, actedByUserId?: string) {
+    // A booked job has nobody on it yet: choosing the worker runs the normal assign step,
+    // which sends their job card and assignment record, and the job carries on from there.
+    if (FieldExecutionActions.isAwaitingAssignment(runId)) {
+      return this.assignWaitingJob(runId, assigneeUserId, actedByUserId)
+    }
     const moved = FieldExecutionActions.reassignRun(runId, assigneeUserId, actedByUserId)
     const { workflowVcOfferDispatcher } = await import('./workflow/WorkflowVcOfferDispatcher')
     try {
@@ -261,6 +278,33 @@ export class WorkflowService {
         "The job was reassigned, but its assignment record could not be transferred. Retry the reassignment to deliver the current worker's record.",
         503,
       )
+    }
+  }
+
+  private async assignWaitingJob(runId: string, assigneeUserId: string, actedByUserId?: string) {
+    const run = workflowRunRepository.findRunById(runId)
+    if (!run) throw new StatusException('Run not found', 404)
+    const stored = workflowRepository.findById(run.workflowId)
+    if (!stored) throw new StatusException('Workflow not found', 404)
+    const workflow =
+      Array.isArray(run.actionsSnapshot) && run.actionsSnapshot.length > 0
+        ? { ...stored, actions: run.actionsSnapshot }
+        : stored
+    const prepared = FieldExecutionActions.prepareFirstAssignment(runId, assigneeUserId, actedByUserId)
+    const result = await this.executeRun(
+      runId,
+      workflow,
+      prepared.input,
+      run.tenantId,
+      prepared.assignStep,
+      prepared.state,
+    )
+    const after = workflowRunRepository.findRunById(runId)
+    const output = (after?.output || result.output || {}) as Record<string, any>
+    return {
+      assigneeId: prepared.assigneeId,
+      workflowStage: output.workflowStage,
+      pauseReason: output.pauseReason,
     }
   }
 
@@ -306,6 +350,163 @@ export class WorkflowService {
       )
       .run(child.id, parent.id)
     return this.executeRun(child.id, { ...stored, actions }, input, parent.tenantId, step, { ...child.output })
+  }
+
+  /**
+   * Set or change a field job's price and how the client pays, at any stage until the bill is
+   * with the client. A job waiting for its price continues and bills the client; a job that
+   * already passed (or closed past) the bill step starts its bill now; an earlier job keeps the
+   * price for the bill step. "No charge" lets a waiting job finish without a bill.
+   */
+  public async setJobBilling(
+    runId: string,
+    terms: JobBillingTerms,
+    actedByUserId?: string,
+  ): Promise<{ runId: string; status: string; billing: 'saved' | 'billed' | 'no_charge'; output?: any }> {
+    const run = workflowRunRepository.findRunById(runId)
+    if (!run) throw new StatusException('Run not found', 404)
+    const stored = workflowRepository.findById(run.workflowId)
+    if (!stored) throw new StatusException('Workflow not found', 404)
+    const actions = Array.isArray(run.actionsSnapshot) && run.actionsSnapshot.length > 0 ? run.actionsSnapshot : stored.actions
+    const billStep = actions.findIndex(
+      (action: any) => action?.action === 'workflow.start' && action.config?.workflow === CLIENT_BILL_KEY,
+    )
+    if (billStep < 0) throw new StatusException('This job has no client bill step.', 409)
+    if (['cancelled', 'failed'].includes(run.status)) {
+      throw new StatusException('This job is not running. Retry or reopen it first.', 409)
+    }
+    const output = (run.output && typeof run.output === 'object' ? { ...run.output } : {}) as Record<string, any>
+    const childId = output.startedWorkflows?.[CLIENT_BILL_KEY]?.runId
+    const child = typeof childId === 'string' ? workflowRunRepository.findRunById(childId) : undefined
+    if (child?.output?.clientBill?.linkId || output.clientBill?.linkId) {
+      throw new StatusException(
+        'The bill is already with the client. Change or resend it from Money in instead.',
+        409,
+      )
+    }
+
+    const noCharge = terms.noCharge === true
+    const amount = Number(terms.amount)
+    if (!noCharge && !(Number.isFinite(amount) && amount > 0)) {
+      throw new StatusException('Enter the price the client pays, or choose no charge.', 400)
+    }
+    const paymentTerms = ['instalment', 'recurring'].includes(String(terms.paymentTerms))
+      ? String(terms.paymentTerms)
+      : 'one_time'
+    const instalments = Number(terms.instalments)
+    if (!noCharge && paymentTerms !== 'one_time' && !(Number.isInteger(instalments) && instalments >= 2 && instalments <= 60)) {
+      throw new StatusException('Choose between 2 and 60 payments.', 400)
+    }
+    const clientName = String(terms.clientName || '').trim()
+    const clientPhone = String(terms.clientPhone || '').trim()
+    if (clientPhone && !/^\+?[1-9]\d{6,14}$/.test(clientPhone)) {
+      throw new StatusException('Enter a valid international mobile for the client.', 400)
+    }
+    const firstPaymentAmount = Number(terms.firstPaymentAmount)
+    const billing: Record<string, unknown> = noCharge
+      ? { amount: 0, noCharge: true }
+      : {
+          amount,
+          currency: String(terms.currency || run.input?.currency || 'USD').trim().toUpperCase() || 'USD',
+          noCharge: false,
+          paymentTerms,
+          ...(paymentTerms !== 'one_time'
+            ? {
+                instalments,
+                paymentCadence: ['weekly', 'monthly', 'quarterly'].includes(String(terms.paymentCadence))
+                  ? terms.paymentCadence
+                  : 'monthly',
+                firstDueDate: terms.firstDueDate || new Date().toISOString().slice(0, 10),
+                ...(Number.isFinite(firstPaymentAmount) && firstPaymentAmount > 0 ? { firstPaymentAmount } : {}),
+              }
+            : { instalments: undefined, paymentCadence: undefined, firstDueDate: undefined, firstPaymentAmount: undefined }),
+        }
+    const input = {
+      ...(run.input || {}),
+      ...billing,
+      ...(clientName ? { clientName, payerName: clientName } : {}),
+      ...(clientPhone ? { customerMsisdn: clientPhone, payerPhone: clientPhone } : {}),
+      ...(actedByUserId ? { actedByUserId } : {}),
+    }
+    if (!noCharge && !String(input.customerMsisdn || '').trim()) {
+      throw new StatusException('Add the client mobile so the bill can reach them.', 400)
+    }
+    const at = new Date().toISOString()
+    output.jobPrice = {
+      ...(noCharge ? { noCharge: true } : { amount, currency: billing.currency, paymentTerms }),
+      setBy: actedByUserId,
+      setAt: at,
+      history: [
+        ...(Array.isArray(output.jobPrice?.history) ? output.jobPrice.history : []),
+        { amount: noCharge ? 0 : amount, currency: billing.currency, paymentTerms, noCharge, by: actedByUserId, at },
+      ],
+    }
+    FieldExecutionActions.closeStageCards(runId, priceCardSourceId(runId))
+
+    // Waiting at the bill step: run that step again with the price on the job.
+    if (run.status === 'paused' && output.pauseReason === AWAIT_JOB_PRICE) {
+      delete output.pauseReason
+      delete output.pauseRequestedAt
+      workflowRunRepository.updateRun(runId, { input })
+      const result = await this.executeRun(runId, { ...stored, actions }, input, run.tenantId, billStep, output)
+      return { runId, status: result.status, billing: noCharge ? 'no_charge' : 'billed', output: result.output }
+    }
+
+    // A bill that was started but never reached the client (no phone, nothing to charge): price it again.
+    if (child && !noCharge && ['completed', 'failed'].includes(child.status)) {
+      workflowRunRepository.updateRun(runId, { input, output })
+      const childStored = workflowRepository.findById(child.workflowId)
+      if (!childStored || childStored.tenantId !== run.tenantId) throw new StatusException('Billing workflow not found', 404)
+      const childActions = child.actionsSnapshot?.length ? child.actionsSnapshot : childStored.actions
+      const childInput = {
+        ...(child.input || {}),
+        ...billing,
+        payerName: input.clientName || child.input?.payerName,
+        payerPhone: input.customerMsisdn || child.input?.payerPhone,
+        ...(actedByUserId ? { actedByUserId } : {}),
+      }
+      const childState = { ...(child.output || {}) } as Record<string, any>
+      delete childState.finance
+      delete childState.clientBill
+      workflowRunRepository.updateRun(child.id, { input: childInput, status: 'running', error: '' })
+      DatabaseManager.getDatabase()
+        .prepare(
+          `UPDATE workflow_handoff_links SET status = 'running', finished_at = NULL, result_json = NULL
+            WHERE child_kind = 'run' AND child_id = ? AND parent_run_id = ?`,
+        )
+        .run(child.id, runId)
+      await this.executeRun(child.id, { ...childStored, actions: childActions }, childInput, run.tenantId, 0, childState)
+      return { runId, status: run.status, billing: 'billed', output: this.withCurrentBilling(workflowRunRepository.findRunById(runId)!).output }
+    }
+
+    const passedBillStep = run.status === 'completed' || Number(run.currentStep) > billStep
+    if (noCharge || !passedBillStep || child) {
+      workflowRunRepository.updateRun(runId, { input, output })
+      return { runId, status: run.status, billing: noCharge ? 'no_charge' : 'saved', output }
+    }
+
+    // Already past the bill step with no bill (an unpriced booking that closed): bill now, and
+    // the job is not settled until the client pays.
+    const start = ActionRegistry.get('workflow.start')
+    if (!start) throw new StatusException('Billing is not available on this server.', 500)
+    const state = { ...output, startedWorkflows: { ...(output.startedWorkflows || {}) } }
+    delete state.startedWorkflows[CLIENT_BILL_KEY]
+    const context: WorkflowActionContext = { input, workflowId: run.workflowId, tenantId: run.tenantId, state, runId }
+    await start(context, actions[billStep].config)
+    const started = context.state.startedWorkflows?.[CLIENT_BILL_KEY]
+    if (!started?.runId) {
+      throw new StatusException(
+        started?.status === 'blocked'
+          ? 'Client billing is not set up yet. Finish Payments under Organisation settings.'
+          : 'The client bill could not be started.',
+        409,
+      )
+    }
+    if (context.state.reconciliation?.status === 'reconciled') {
+      context.state.reconciliation = { ...context.state.reconciliation, status: 'awaiting_payment' }
+    }
+    workflowRunRepository.updateRun(runId, { input, output: context.state })
+    return { runId, status: run.status, billing: 'billed', output: context.state }
   }
 
   private withCurrentBilling(run: WorkflowRun): WorkflowRun {
@@ -364,23 +565,27 @@ export class WorkflowService {
   /**
    * Get run status and details
    */
-  public async getRunStatus(runId: string): Promise<WorkflowRun & { steps?: any[] }> {
+  public async getRunStatus(
+    runId: string,
+  ): Promise<WorkflowRun & { steps?: any[]; people: ReturnType<typeof teamNames> }> {
     const run = workflowRunRepository.findRunById(runId)
     if (!run) {
       throw new Error(`Run not found: ${runId}`)
     }
 
     const steps = workflowRunRepository.listSteps(runId)
-    return { ...this.withCurrentBilling(run), steps }
+    const current = this.withCurrentBilling(run)
+    return { ...current, steps, people: teamNames(current.tenantId) }
   }
 
   /**
    * List workflow runs
    */
   public async listRuns(tenantId: string, workflowId?: string, status?: any, limit?: number) {
+    const people = teamNames(tenantId)
     return workflowRunRepository
       .listRuns(tenantId, workflowId, status, limit)
-      .map((run) => this.withCurrentBilling(run))
+      .map((run) => ({ ...this.withCurrentBilling(run), people }))
   }
 
   /**
@@ -637,6 +842,34 @@ export class WorkflowService {
 
   public async getWorkflow(id: string): Promise<WorkflowRecord | undefined> {
     return workflowRepository.findById(id)
+  }
+}
+
+/** What the office sets for a field job's client bill. Same fields as the new-job form. */
+export interface JobBillingTerms {
+  amount?: number
+  currency?: string
+  paymentTerms?: 'one_time' | 'instalment' | 'recurring'
+  instalments?: number
+  paymentCadence?: 'weekly' | 'monthly' | 'quarterly'
+  firstDueDate?: string
+  firstPaymentAmount?: number
+  noCharge?: boolean
+  clientName?: string
+  clientPhone?: string
+}
+
+/** Names already stored on the organisation, so a job screen can say who did a step without a second directory call. */
+function teamNames(orgTenantId: string): Array<{ userId: string; role?: string; displayName?: string; phone?: string }> {
+  try {
+    return new OrganizationService(undefined as any).listOrgMembers(orgTenantId).map((member) => ({
+      userId: member.userId,
+      role: member.role,
+      displayName: member.displayName,
+      phone: member.phone,
+    }))
+  } catch {
+    return []
   }
 }
 

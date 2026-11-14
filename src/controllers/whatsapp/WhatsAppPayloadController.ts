@@ -7,11 +7,33 @@ import { container } from 'tsyringe'
 
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { inventoryService } from '../../services/InventoryService'
+import { notificationService } from '../../services/NotificationService'
+import { whatsAppSenderService } from '../../services/WhatsAppSenderService'
 import { SSIAuthService } from '../../services/SSIAuthService'
+import { documentClaims } from '../../services/documentFacts'
 import { rootLogger } from '../../utils/pinoLogger'
 import { getEcoCashWebhookSecret, getIssuerApiKey } from '../../utils/serviceApiKey'
 
 const logger = rootLogger.child({ module: 'WhatsAppPayloadController' })
+
+/** Store Graph's message id so a later delivered or read callback can be saved. Never sends. */
+function noteAcceptedReceipt(merchantId: string, phone: string, data: any): void {
+  const messageId = data?.messages?.[0]?.id
+  if (!messageId || !merchantId || !phone) return
+  try {
+    const sender = whatsAppSenderService.resolve(merchantId)
+    notificationService.recordAcceptedWhatsApp({
+      tenantId: merchantId,
+      to: phone,
+      eventType: 'payment_link',
+      messageId,
+      senderKey: sender.key,
+      phoneNumberId: sender.phoneNumberId,
+    })
+  } catch (error: any) {
+    logger.warn({ error: error.message }, 'Receipt WhatsApp was sent but not stored for delivery status')
+  }
+}
 
 /**
  * WhatsApp payload format: wa.me/<number>?text=<encoded>
@@ -229,6 +251,30 @@ class WhatsAppMessageService {
 
 const waMessageService = new WhatsAppMessageService()
 
+/**
+ * Where a basket may go next. A confirmed payment always lands on paid, also on an emptied
+ * basket, because the money has arrived. A paid basket can only be marked refunded.
+ * Credentis does not move the money back; the business pays the customer.
+ */
+const CART_MOVES: Record<string, string[]> = {
+  pending: ['pending', 'quoted', 'invoiced', 'cancelled'],
+  quoted: ['pending', 'quoted', 'invoiced', 'cancelled'],
+  invoiced: ['paid', 'cancelled'],
+  paid: ['paid', 'refunded'],
+  refunded: ['refunded'],
+  cancelled: ['paid'],
+}
+
+/** Plain words when a basket cannot move to `to`; undefined when it can. */
+export function cartMoveRefused(from: string, to: string): string | undefined {
+  if ((CART_MOVES[from] || []).includes(to)) return undefined
+  if (from === 'paid') return 'This basket is paid. Start a new basket.'
+  if (from === 'refunded') return 'This basket was refunded. Start a new basket.'
+  if (from === 'cancelled') return 'This basket was emptied. Start a new basket.'
+  if (from === 'invoiced') return 'This basket has already gone to checkout. Start a new basket.'
+  return 'This basket has not gone to checkout yet.'
+}
+
 @Route('api/wa')
 @Tags('WhatsApp Commerce')
 export class WhatsAppPayloadController extends Controller {
@@ -279,6 +325,11 @@ export class WhatsAppPayloadController extends Controller {
     // Create cart
     const cartId = `CART-${randomUUID()}`
     const quantity = waPayload.qty || 1
+    const short = inventoryService.shortOfStock(item.id, quantity)
+    if (short) {
+      this.setStatus(409)
+      throw new Error(short)
+    }
     const cartItems: WaCartItem[] = [
       {
         itemId: item.id,
@@ -395,6 +446,63 @@ export class WhatsAppPayloadController extends Controller {
   /**
    * Add item to existing cart
    */
+  /**
+   * Empty a basket that has not been paid. A paid basket stays as it is; its receipt is the record.
+   */
+  @Post('cart/{cartId}/cancel')
+  public async cancelCart(@Path() cartId: string): Promise<{ id: string; status: string }> {
+    const db = DatabaseManager.getDatabase()
+    const cart = db.prepare('SELECT id, status FROM carts WHERE id = ?').get(cartId) as { id: string; status: string } | undefined
+    if (!cart) {
+      this.setStatus(404)
+      throw new Error(`Cart ${cartId} not found`)
+    }
+    if (cart.status === 'cancelled') return { id: cart.id, status: 'cancelled' }
+    const refused = cartMoveRefused(cart.status, 'cancelled')
+    if (refused) {
+      this.setStatus(409)
+      throw new Error(refused)
+    }
+    db.prepare(`UPDATE carts SET status = 'cancelled', updated_at = ? WHERE id = ? AND status = ?`).run(
+      new Date().toISOString(),
+      cartId,
+      cart.status,
+    )
+    return { id: cart.id, status: 'cancelled' }
+  }
+
+  /**
+   * Record that a paid basket was refunded. The business pays the customer back.
+   * Credentis does not move the money.
+   */
+  @Post('cart/{cartId}/refund')
+  public async refundCart(@Path() cartId: string, @Body() body: { reason?: string }): Promise<{ id: string; status: string }> {
+    const db = DatabaseManager.getDatabase()
+    const cart = db.prepare('SELECT id, status FROM carts WHERE id = ?').get(cartId) as { id: string; status: string } | undefined
+    if (!cart) {
+      this.setStatus(404)
+      throw new Error(`Cart ${cartId} not found`)
+    }
+    if (cart.status === 'refunded') return { id: cart.id, status: 'refunded' }
+    const refused = cartMoveRefused(cart.status, 'refunded')
+    if (refused) {
+      this.setStatus(409)
+      throw new Error(refused)
+    }
+    const reason = String(body?.reason || '').trim().slice(0, 200)
+    const now = new Date().toISOString()
+    try {
+      db.prepare(`UPDATE carts SET status = 'refunded', refund_reason = ?, updated_at = ? WHERE id = ? AND status = 'paid'`).run(
+        reason || null,
+        now,
+        cartId,
+      )
+    } catch {
+      db.prepare(`UPDATE carts SET status = 'refunded', updated_at = ? WHERE id = ? AND status = 'paid'`).run(now, cartId)
+    }
+    return { id: cart.id, status: 'refunded' }
+  }
+
   @Post('cart/{cartId}/items')
   public async addItemToCart(
     @Path() cartId: string,
@@ -408,17 +516,33 @@ export class WhatsAppPayloadController extends Controller {
       throw new Error(`Cart ${cartId} not found`)
     }
 
+    const addRefused = cartMoveRefused(cart.status, 'pending')
+    if (addRefused) {
+      this.setStatus(409)
+      throw new Error(addRefused)
+    }
+
     // Lookup item
     const item = db.prepare('SELECT * FROM catalog_items WHERE id = ?').get(body.itemId) as any
     if (!item) {
       this.setStatus(404)
       throw new Error(`Item ${body.itemId} not found`)
     }
+    // One basket pays one business: its own prices, payment methods and delivery.
+    if (item.merchant_id !== cart.merchant_id) {
+      this.setStatus(409)
+      throw new Error('This basket is for another business. Pay for it first, or start a new basket for this one.')
+    }
 
     // Update cart items
     const items: WaCartItem[] = JSON.parse(cart.items || '[]')
     const qty = body.quantity || 1
     const existingIdx = items.findIndex((i) => i.itemId === body.itemId)
+    const short = inventoryService.shortOfStock(item.id, qty + (existingIdx >= 0 ? items[existingIdx].quantity : 0))
+    if (short) {
+      this.setStatus(409)
+      throw new Error(short)
+    }
 
     if (existingIdx >= 0) {
       items[existingIdx].quantity += qty
@@ -435,7 +559,7 @@ export class WhatsAppPayloadController extends Controller {
 
     db.prepare(
       `
-            UPDATE carts SET items = ?, total = ?, updated_at = ? WHERE id = ?
+            UPDATE carts SET items = ?, total = ?, status = 'pending', updated_at = ? WHERE id = ?
         `,
     ).run(JSON.stringify(items), newTotal, new Date().toISOString(), cartId)
 
@@ -446,7 +570,7 @@ export class WhatsAppPayloadController extends Controller {
       items,
       total: newTotal,
       currency: cart.currency,
-      status: cart.status,
+      status: 'pending',
       createdAt: cart.created_at,
     }
   }
@@ -540,9 +664,10 @@ export class WhatsAppPayloadController extends Controller {
       throw new Error(`Cart ${cartId} not found`)
     }
 
-    if (!['pending', 'quoted'].includes(cart.status)) {
+    const quoteRefused = cartMoveRefused(cart.status, 'quoted')
+    if (quoteRefused) {
       this.setStatus(400)
-      throw new Error(`Cart is ${cart.status}, quote not applicable`)
+      throw new Error(quoteRefused)
     }
 
     const items = JSON.parse(cart.items || '[]')
@@ -553,21 +678,25 @@ export class WhatsAppPayloadController extends Controller {
     const cartHash = createHash('sha256').update(JSON.stringify(items)).digest('hex')
     const quoteId = `QUOTE-${randomUUID().substring(0, 8)}`
 
-    const quoteClaims = {
-      quoteId: quoteId,
-      cartId: cartId,
-      cartHash: cartHash, // Link to Cart
-      previousRecordHash: cartHash, // Generic chain link
-      merchantId: cart.merchant_id,
-      items: items,
-      subtotal: cart.total,
-      taxAmount: 0,
-      discountAmount: 0,
-      grandTotal: cart.total,
-      currency: cart.currency,
-      validUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
-      timestamp: new Date().toISOString(),
-    }
+    const quoteClaims = documentClaims(
+      'QuoteVC',
+      {
+        quoteId: quoteId,
+        cartId: cartId,
+        cartHash: cartHash, // Link to Cart
+        previousRecordHash: cartHash, // Generic chain link
+        merchantId: cart.merchant_id,
+        merchantTenantId: cart.merchant_id,
+        items: items,
+        subtotal: cart.total,
+        discountAmount: 0,
+        grandTotal: cart.total,
+        currency: cart.currency,
+        validUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
+        timestamp: new Date().toISOString(),
+      },
+      cart.merchant_id,
+    )
 
     // 2. Calculate Quote Hash
     const quoteHash = createHash('sha256').update(JSON.stringify(quoteClaims)).digest('hex')
@@ -659,9 +788,10 @@ export class WhatsAppPayloadController extends Controller {
       throw new Error(`Cart ${cartId} not found`)
     }
 
-    if (!['pending', 'quoted'].includes(cart.status)) {
+    const checkoutRefused = cartMoveRefused(cart.status, 'invoiced')
+    if (checkoutRefused) {
       this.setStatus(400)
-      throw new Error(`Cart is ${cart.status}, cannot checkout`)
+      throw new Error(checkoutRefused)
     }
 
     if (body.tenantId && body.customerMsisdn) {
@@ -764,22 +894,27 @@ export class WhatsAppPayloadController extends Controller {
       const cartHash = createHash('sha256').update(JSON.stringify(items)).digest('hex')
       const previousHash = quoteHash || cartHash
 
-      const invoiceClaims = {
-        invoiceId: sourceRef,
-        cartId: cartId,
-        quoteId: quoteId, // Link to Quote (nullable)
-        quoteHash: quoteHash, // Link to Quote Hash
-        previousRecordHash: previousHash, // Chain link
-        items: items,
-        amount: cart.total,
-        currency: cart.currency,
-        customerMsisdn: body.customerMsisdn,
-        ecocashRef: ecocashRef,
-        paymentInstructions: paymentInstructions,
-        status: 'pending',
-        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        timestamp: new Date().toISOString(),
-      }
+      const invoiceClaims = documentClaims(
+        'InvoiceVC',
+        {
+          invoiceId: sourceRef,
+          cartId: cartId,
+          quoteId: quoteId, // Link to Quote (nullable)
+          quoteHash: quoteHash, // Link to Quote Hash
+          previousRecordHash: previousHash, // Chain link
+          merchantTenantId: cart.merchant_id,
+          items: items,
+          amount: cart.total,
+          currency: cart.currency,
+          customerMsisdn: body.customerMsisdn,
+          ecocashRef: ecocashRef,
+          paymentInstructions: paymentInstructions,
+          status: 'pending',
+          dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          timestamp: new Date().toISOString(),
+        },
+        cart.merchant_id,
+      )
 
       const invoiceHash = createHash('sha256').update(JSON.stringify(invoiceClaims)).digest('hex')
 
@@ -979,35 +1114,51 @@ export class WhatsAppPayloadController extends Controller {
     if (!cart.buyer_phone) {
       return { success: false, message: 'No buyer phone number on cart' }
     }
+    const receiptRefused = cartMoveRefused(cart.status, 'paid')
+    if (receiptRefused) {
+      return { success: false, message: receiptRefused }
+    }
 
     try {
       // Send confirmation message
-      await waMessageService.sendTextMessage(
+      noteAcceptedReceipt(
+        cart.merchant_id,
         cart.buyer_phone,
-        `✅ *Payment Confirmed!*\n\n` +
-          `Order: ${cartId}\n` +
-          `Amount: ${cart.currency} ${cart.total.toFixed(2)}\n` +
-          `Transaction: ${body.transactionId}\n\n` +
-          `Thank you for your purchase! Your receipt credential is ready.`,
+        await waMessageService.sendTextMessage(
+          cart.buyer_phone,
+          `✅ *Payment Confirmed!*\n\n` +
+            `Order: ${cartId}\n` +
+            `Amount: ${cart.currency} ${cart.total.toFixed(2)}\n` +
+            `Transaction: ${body.transactionId}\n\n` +
+            `Thank you for your purchase! Your receipt credential is ready.`,
+        ),
       )
 
       // Send receipt credential offer
-      await waMessageService.sendCtaUrlButton(
+      noteAcceptedReceipt(
+        cart.merchant_id,
         cart.buyer_phone,
-        '🧾 Your Receipt',
-        'Tap below to save your verifiable receipt to your wallet. Present this at delivery for verification.',
-        'Save Receipt',
-        body.receiptOfferUrl,
+        await waMessageService.sendCtaUrlButton(
+          cart.buyer_phone,
+          '🧾 Your Receipt',
+          'Tap below to save your verifiable receipt to your wallet. Present this at delivery for verification.',
+          'Save Receipt',
+          body.receiptOfferUrl,
+        ),
       )
 
       // Send verification code (for drivers)
       if (body.verificationUrl && body.verificationCode) {
-        await waMessageService.sendCtaUrlButton(
+        noteAcceptedReceipt(
+          cart.merchant_id,
           cart.buyer_phone,
-          '🚚 Delivery Verification',
-          `Show this code to your driver for verification:\n\n*${body.verificationCode}*`,
-          'Show QR Code',
-          body.verificationUrl,
+          await waMessageService.sendCtaUrlButton(
+            cart.buyer_phone,
+            '🚚 Delivery Verification',
+            `Show this code to your driver for verification:\n\n*${body.verificationCode}*`,
+            'Show QR Code',
+            body.verificationUrl,
+          ),
         )
       }
 

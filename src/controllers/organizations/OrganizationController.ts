@@ -46,6 +46,7 @@ import { container } from 'tsyringe'
 import { AuthContext } from '../../enums'
 import { StatusException } from '../../errors'
 import { OrganizationService } from '../../services/OrganizationService'
+import { marketingService, type BroadcastResult, type SavedBroadcast } from '../../services/MarketingService'
 import {
   orgOfferingsService,
   type OwnerOfferingsView,
@@ -57,10 +58,22 @@ import { orgMemberOnboardingService } from '../../services/OrgMemberOnboardingSe
 import type { PaymentMethodChoice, PaymentSetupItem, TrustedPartner } from '../../services/OrgSetupProvisioningService'
 import { orgSetupProvisioningService } from '../../services/OrgSetupProvisioningService'
 import { getOrCreateOrgProofVcPolicy, updateOrgProofVcPolicy } from '../../services/ProofVcPolicyService'
+import { SUGGESTED_CARD_REQUIRED_ABOVE, stepAssuranceSteps } from '../../services/stepAssurance'
+import {
+  requestFlowSettingsService,
+  type RequestFlowStepInput,
+  type RequestFlowView,
+} from '../../services/RequestFlowSettingsService'
+import { orgWorkflowActorCredentialService } from '../../services/OrgWorkflowActorCredentialService'
 import { saveRequestExperience } from '../../services/RequestExperienceService'
 import { workflowHandoffService, type WorkflowHandoffSetting } from '../../services/workflow/WorkflowHandoffService'
 
 // ─── Request/Response interfaces ───
+
+/** An offer saved for people who asked. It is not sent on WhatsApp from here. */
+export interface BroadcastInput {
+  message?: string
+}
 
 interface WorkflowHandoffPatch {
   /** 'auto' starts by itself when the required stages are done; 'manual' waits for someone to ask. */
@@ -334,6 +347,13 @@ interface UpdateOrgDiscoveryVisibilityResponse {
   isPublic: boolean
 }
 
+interface StepAssuranceSetting {
+  /** Above this amount a card-optional step requires the staff card. Null turns the limit off. */
+  cardRequiredAbove: number | null
+  /** Step key → 'session' | 'card_optional' | 'card_required'. */
+  steps: Record<string, 'session' | 'card_optional' | 'card_required'>
+}
+
 interface UpdateOrgProofVcPolicyRequest {
   defaultAcceptedVcTypes?: string[]
   actionOverrides?: Record<string, string[]>
@@ -341,6 +361,7 @@ interface UpdateOrgProofVcPolicyRequest {
     enabled: boolean
     requiredActions: string[]
   }
+  stepAssurance?: StepAssuranceSetting
 }
 
 interface OrgProofVcPolicyResponse {
@@ -351,6 +372,15 @@ interface OrgProofVcPolicyResponse {
     enabled: boolean
     requiredActions: string[]
   }
+  stepAssurance: StepAssuranceSetting
+  /** Every step the setting covers, with what it needs now; `locked` steps always need the card. */
+  assuranceSteps: Array<{
+    actionKey: string
+    label: string
+    mode: 'session' | 'card_optional' | 'card_required'
+    locked: boolean
+  }>
+  suggestedCardRequiredAbove: number
   updatedAt?: string
 }
 
@@ -683,7 +713,42 @@ export class OrganizationController extends Controller {
     @Body() body: UpdateOfferingsInput,
   ): Promise<OwnerOfferingsView> {
     const user = this.requireOrgManagerToken(request, orgTenantId)
-    return orgOfferingsService.update(user.id, orgTenantId, body || {})
+    const input = body || {}
+    const imported = input.importWhatsAppCatalog
+      ? await orgOfferingsService.importWhatsAppCatalog(user.id, orgTenantId)
+      : undefined
+    const view = orgOfferingsService.update(user.id, orgTenantId, input)
+    if (imported) {
+      view.goods.imported = imported.imported
+      view.goods.updated = imported.updated
+    }
+    return view
+  }
+
+  /**
+   * Save an offer for people who asked this business to send them offers.
+   * Nobody is messaged. Offers are not WhatsApp alerts, and one offer can be saved each day.
+   */
+  @Post('/{orgTenantId}/broadcasts')
+  @Security('jwt')
+  public async saveBroadcast(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Body() body: BroadcastInput,
+  ): Promise<SavedBroadcast> {
+    const user = this.requireOrgManagerToken(request, orgTenantId)
+    return marketingService.send(user.id, orgTenantId, body?.message)
+  }
+
+  /** How many people who asked for offers sent a request in the week after the latest offer. */
+  @Get('/{orgTenantId}/broadcasts/latest')
+  @Security('jwt')
+  public async latestBroadcastResult(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+  ): Promise<BroadcastResult> {
+    const user = this.requireOrgManagerToken(request, orgTenantId)
+    return marketingService.latestResult(user.id, orgTenantId)
   }
 
   /** What the public sees, also while the organisation is private. Owners and admins only. */
@@ -781,6 +846,9 @@ export class OrganizationController extends Controller {
       defaultAcceptedVcTypes: policy.defaultAcceptedVcTypes,
       actionOverrides: policy.actionOverrides,
       deviceTrust: policy.deviceTrust,
+      stepAssurance: policy.stepAssurance,
+      assuranceSteps: stepAssuranceSteps(policy.stepAssurance),
+      suggestedCardRequiredAbove: SUGGESTED_CARD_REQUIRED_ABOVE,
       updatedAt: policy.updatedAt,
     }
   }
@@ -826,17 +894,26 @@ export class OrganizationController extends Controller {
       throw new StatusException('actionOverrides must be an object map of action -> vc type array', 400)
     }
 
+    const limitBefore = getOrCreateOrgProofVcPolicy(orgTenantId).stepAssurance.cardRequiredAbove
     const policy = updateOrgProofVcPolicy(orgTenantId, {
       defaultAcceptedVcTypes: body.defaultAcceptedVcTypes,
       actionOverrides: body.actionOverrides,
       deviceTrust: body.deviceTrust,
+      stepAssurance: body.stepAssurance,
     })
+    if (limitBefore === null && policy.stepAssurance.cardRequiredAbove !== null) {
+      // Large amounts now need the staff card; send each member theirs so nobody is stuck.
+      orgWorkflowActorCredentialService.ensureForOrganizationInBackground(orgTenantId, { reason: 'staff_card_limit' })
+    }
 
     return {
       orgTenantId: policy.orgTenantId,
       defaultAcceptedVcTypes: policy.defaultAcceptedVcTypes,
       actionOverrides: policy.actionOverrides,
       deviceTrust: policy.deviceTrust,
+      stepAssurance: policy.stepAssurance,
+      assuranceSteps: stepAssuranceSteps(policy.stepAssurance),
+      suggestedCardRequiredAbove: SUGGESTED_CARD_REQUIRED_ABOVE,
       updatedAt: policy.updatedAt,
     }
   }
@@ -1342,6 +1419,44 @@ export class OrganizationController extends Controller {
     } catch (error: any) {
       this.setStatus(400)
       throw new StatusException(error.message, 400)
+    }
+  }
+
+  /**
+   * Each kind of request members can raise here, as a flow: who approves it, in order, and what
+   * starts once it is decided. Only work areas switched on in setup are listed.
+   */
+  @Get('/{orgTenantId}/workflows/request-flows')
+  @Security('jwt')
+  public async getRequestFlows(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+  ): Promise<{ flows: RequestFlowView[] }> {
+    this.assertHandoffAccess(request, orgTenantId, false)
+    return { flows: requestFlowSettingsService.list(orgTenantId) }
+  }
+
+  /**
+   * Replace the approvals of one kind of request. The usual approver decides first; finance can
+   * follow, for every request or only from an amount up. Owner/admin only. Requests already
+   * waiting continue with the steps that apply when they are next decided.
+   */
+  @Put('/{orgTenantId}/workflows/request-flows/steps')
+  @Security('jwt')
+  public async saveRequestFlowSteps(
+    @Request() request: ExRequest,
+    @Path() orgTenantId: string,
+    @Body() body: { requestType: string; steps: RequestFlowStepInput[] },
+  ): Promise<RequestFlowView> {
+    this.assertHandoffAccess(request, orgTenantId, true)
+    try {
+      return requestFlowSettingsService.saveSteps(orgTenantId, String(body?.requestType || ''), body?.steps || [])
+    } catch (error: any) {
+      if (error instanceof StatusException) {
+        this.setStatus(error.status)
+        throw error
+      }
+      throw error
     }
   }
 

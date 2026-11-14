@@ -28,6 +28,8 @@ import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
 import { rootLogger } from '../../utils/pinoLogger'
 
+import { credentialDigest, publicRecordClaims, redactForRegister } from './personalClaims'
+
 import { statusListAllocatorService, type BitstringStatusListEntry } from './StatusListAllocatorService'
 
 const logger = rootLogger.child({ module: 'CredentialLifecycleService' })
@@ -102,13 +104,18 @@ export class CredentialLifecycleService {
       )
     }
     try {
+      // The register is a reference, not a copy of the card: the person's own claims (name,
+      // phone, date of birth, photos, notes) stay in their wallet, and a digest of the signed
+      // document stands in for them (profile rules 2, 4, 5).
+      const issuedDocument = entry ? { ...input.credentialData, credentialStatus: entry } : input.credentialData
       this.issued.save({
         id: input.issuanceSessionId,
         tenantId: input.tenantId,
         credentialId: input.credentialId,
         holderDid: input.holderDid,
         credentialDefinitionId: input.credentialDefinitionId,
-        credentialData: entry ? { ...input.credentialData, credentialStatus: entry } : input.credentialData,
+        credentialData: redactForRegister(issuedDocument),
+        credentialDigest: credentialDigest(issuedDocument),
         format: input.format,
         revoked: false,
       })
@@ -125,8 +132,10 @@ export class CredentialLifecycleService {
   /**
    * The public "check a record" answer for a pasted reference. The issued-card register is the
    * first word: a row in `issued_credentials` whose `credential_id` (or row id) matches. The
-   * document itself lives in `credential_data`, so the type and what the record says come from
-   * there, and the standing comes from `revoked`. A reference that is only an inbox row
+   * register row names the type and the work, and the standing comes from `revoked`. What the
+   * answer may repeat is an allow-list (`publicRecordClaims`): the job, the money and the
+   * organisation, never the person. This check needs no sign-in, so a reference must not be a way
+   * to look someone up. A reference that is only an inbox row
    * (`wallet_pending_offers.id`) counts once the person has accepted it and the organisation has
    * not withdrawn it; an offer nobody accepted yet is not a record. Anything else was not issued
    * here.
@@ -219,7 +228,7 @@ export class CredentialLifecycleService {
       const types = Array.isArray(doc?.type) ? doc.type.map(String) : []
       const vcType = types.filter((type: string) => type !== 'VerifiableCredential').pop() || 'VerifiableCredential'
       const subject = doc?.credentialSubject
-      const claims = subject && typeof subject === 'object' ? (subject as Record<string, unknown>) : {}
+      const claims = publicRecordClaims(subject)
       const expirationDate = typeof doc?.expirationDate === 'string' ? doc.expirationDate : undefined
       return { vcType, claims, expirationDate }
     } catch {
@@ -227,10 +236,10 @@ export class CredentialLifecycleService {
     }
   }
 
+  /** Claims from an accepted inbox row, through the same public allow-list. */
   private parseClaims(raw: string | null): Record<string, unknown> {
     try {
-      const parsed = JSON.parse(String(raw || '{}'))
-      return parsed && typeof parsed === 'object' ? parsed : {}
+      return publicRecordClaims(JSON.parse(String(raw || '{}')))
     } catch {
       return {}
     }

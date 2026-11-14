@@ -18,6 +18,7 @@ import { container } from 'tsyringe'
 import { StatusException } from '../../errors'
 import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRepository'
 import { getTenantById } from '../../persistence/TenantRepository'
+import { orgOfferingsService } from '../../services/OrgOfferingsService'
 import { statusListAllocatorService } from '../../services/ssi/StatusListAllocatorService'
 import { credentialDefinitionStore, issuerConfigurationsForDefinition } from '../../utils/credentialDefinitionStore'
 
@@ -345,6 +346,7 @@ export class OidcIssuerController extends Controller {
       if (!record.revoked && !issuedCredentialRepository.revoke(record.credentialId, reason || 'revoked by issuer')) {
         throw new StatusException('credential revocation state could not be updated', 409)
       }
+      orgOfferingsService.withdrawBadgeForCredential(record)
       return { id: record.credentialId, revoked: true, status: 'revoked', reason }
     } catch (e: any) {
       if (e instanceof StatusException) {

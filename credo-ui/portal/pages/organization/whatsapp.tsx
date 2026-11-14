@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import axios from 'axios'
-import { Alert, Badge, Button, Container, Group, Paper, Stack, Switch, Table, Text, TextInput, Title } from '@mantine/core'
+import { Alert, Badge, Button, Container, Group, Paper, Stack, Switch, Table, Text, Title } from '@mantine/core'
 import { IconBrandWhatsapp } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 
 import Layout from '@/components/Layout'
+import { PhoneField } from '../../../shared/PhoneField'
 import { useRequireOrgContext } from '@/lib/portalContext'
 import { getOrgScopedToken, getPersonalToken, readActiveOrganization } from '@/utils/organizationContext'
 
@@ -157,12 +158,11 @@ export default function OrganizationWhatsAppPage() {
                 WhatsApp alerts are off for this organisation, so nothing will be sent even if you turn these on.
               </Alert>
             )}
-            <TextInput
+            <PhoneField
+              surface="portal"
               label="My WhatsApp number (the one I signed up with)"
-              placeholder="263771234567"
               value={phone}
-              onChange={(event) => setPhone(event.currentTarget.value)}
-              mb="sm"
+              onChange={setPhone}
             />
             <Stack gap="xs">
               {EVENTS.map((event) => (

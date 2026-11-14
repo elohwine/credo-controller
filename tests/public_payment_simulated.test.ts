@@ -186,6 +186,35 @@ describe('public checkout reuses configured simulated pay', () => {
     }
   })
 
+  test('a retried success callback stores the receipt when the first receipt write failed', async () => {
+    const org = seedOrganization()
+    const db = DatabaseManager.getDatabase()
+    db.prepare(
+      `INSERT INTO ack_payments (id,tenant_id,amount,currency,state,idempotency_key,metadata)
+      VALUES ('retry-payment', ?, 10, 'USD', 'pending', 'retry-reference', '{}')`,
+    ).run(org.orgTenantId)
+    jest.spyOn(axios, 'post').mockResolvedValue({ data: { credential_offer_url: 'openid-credential-offer://retry' } })
+    const payload = { sourceReference: 'retry-reference', status: 'SUCCESS', transactionId: 'RETRY-1', amount: 10 }
+    const secret = process.env.ECOCASH_WEBHOOK_SECRET || 'test-webhook-secret'
+
+    db.exec(`CREATE TRIGGER reject_retry_receipt BEFORE INSERT ON ack_payment_receipts
+      WHEN NEW.payment_id = 'retry-payment' BEGIN SELECT RAISE(FAIL, 'receipt write failed'); END`)
+    try {
+      await new EcoCashWebhookController().handleEcoCashWebhook(payload, secret)
+    } finally {
+      db.exec('DROP TRIGGER reject_retry_receipt')
+    }
+    expect(db.prepare(`SELECT state FROM ack_payments WHERE id = 'retry-payment'`).get()).toEqual({ state: 'pending' })
+
+    await new EcoCashWebhookController().handleEcoCashWebhook(payload, secret)
+    const replay = await new EcoCashWebhookController().handleEcoCashWebhook(payload, secret)
+    expect(db.prepare(`SELECT state FROM ack_payments WHERE id = 'retry-payment'`).get()).toEqual({ state: 'paid' })
+    expect(
+      db.prepare(`SELECT COUNT(*) AS n FROM ack_payment_receipts WHERE payment_id = 'retry-payment'`).get(),
+    ).toEqual({ n: 1 })
+    expect(replay).toEqual(expect.objectContaining({ reason: 'Payment already processed' }))
+  })
+
   test('rejects simulation for an organisation without that method, even when another organisation enables it', async () => {
     const practice = seedOrganization()
     orgSetupProvisioningService.selectPaymentMethod(practice.orgTenantId, 'simulated')

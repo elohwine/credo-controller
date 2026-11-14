@@ -88,12 +88,14 @@ function childOf(parentId: string, requestType: string) {
 
 /** Handoff runs after the status commit via a dynamic import. */
 async function waitForChild(parentId: string, requestType: string) {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  // Wait by time, not ticks: under a full parallel run the dynamic import can take a while.
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline) {
     const row = childOf(parentId, requestType)
     if (row) return row
-    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setTimeout(resolve, 20))
   }
-  return undefined
+  return childOf(parentId, requestType)
 }
 
 describe('field request family — readiness plus site access follow-on', () => {

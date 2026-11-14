@@ -742,6 +742,65 @@ describe('durable transactional WhatsApp notifications', () => {
     expect(link.text).toBe('https://wallet.example/inbox?item=hold-item')
   })
 
+  it('sends a bill to WhatsApp with its amount and its own pay link, even with no matching wallet account', async () => {
+    whatsAppSenderService.configure(tenant, {
+      ...selection,
+      templates: { ...selection.templates, payment_link: selection.templates.task },
+    })
+    consent('payment_link')
+    bind()
+    jest.spyOn(axios, 'get').mockResolvedValue(approved)
+    const post = jest.spyOn(axios, 'post').mockResolvedValue({ data: { messages: [{ id: 'wamid-bill' }] } })
+    jest.spyOn(service, 'sendSms').mockResolvedValue({ success: true })
+    await service.dispatchContactNotification({
+      tenantId: tenant,
+      dedupeKey: 'bill-one',
+      contact: { name: 'Tari', phone },
+      type: 'payment_link',
+      url: 'https://wallet.example/pay/ABC123',
+      issuerName: 'SGK Construction',
+      amount: 180,
+      currency: 'USD',
+    })
+    await new OutboxService().processPending('notification.whatsapp')
+    const [line, link] = (post.mock.calls[0][1] as any).template.components[0].parameters
+    expect(line.text).toContain('180')
+    expect(line.text).toContain('SGK Construction')
+    expect(link.text).toBe('https://wallet.example/pay/ABC123')
+    expect(db.prepare('SELECT status FROM notification_deliveries').get()).toEqual({ status: 'accepted' })
+  })
+
+  it('points a bill that did reach a wallet account at its own pay link too, not the inbox item', async () => {
+    whatsAppSenderService.configure(tenant, {
+      ...selection,
+      templates: { ...selection.templates, payment_link: selection.templates.task },
+    })
+    consent('payment_link')
+    bind()
+    jest.spyOn(axios, 'get').mockResolvedValue(approved)
+    db.prepare(
+      `INSERT INTO wallet_pending_offers (id, tenant_id, issuer_tenant_id, source_type, source_id, title, body, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run('bill-item', 'wallet-a', tenant, 'payment_link', 'link-one', 'Invoice INV-1042', 'USD 180.00 due', '2026-10-23')
+    const post = jest.spyOn(axios, 'post').mockResolvedValue({ data: { messages: [{ id: 'wamid-bill-2' }] } })
+    jest.spyOn(service, 'sendSms').mockResolvedValue({ success: true })
+    await service.dispatchContactNotification({
+      tenantId: tenant,
+      dedupeKey: 'bill-two',
+      inboxItemId: 'bill-item',
+      contact: { name: 'Tari', phone },
+      type: 'payment_link',
+      url: 'https://wallet.example/pay/ABC123',
+      issuerName: 'SGK Construction',
+      amount: 180,
+      currency: 'USD',
+    })
+    await new OutboxService().processPending('notification.whatsapp')
+    const [, link] = (post.mock.calls[0][1] as any).template.components[0].parameters
+    // The account-matched card still reads with its own title; only the button target changes.
+    expect(link.text).toBe('https://wallet.example/pay/ABC123')
+  })
+
   it('sends the branded task template once Meta has approved it, with the item title and a tap-to-open button', async () => {
     ready()
     const definition = RICH_TEMPLATES.task

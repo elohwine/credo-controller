@@ -5,7 +5,7 @@ import { LottiePlayer } from '@/components/feedback/LottiePlayer'
 import { supportsDeviceLogin } from '@/lib/deviceTrust'
 import { guideClient, TIP_KEYS, useAppGuides } from '@/lib/guides'
 import { GettingStartedChecklist, GuideTip, type ChecklistAction } from '../../../shared/Guides'
-import { checklistFor, checklistMarkedDone, GUIDE_PATHS, loadGettingStarted, phoneDeviceStepStillOpen, type ChecklistStep, type GettingStartedStatus, type GuideKey, type TipKey } from '../../../shared/guides'
+import { checklistFor, checklistMarkedDone, GUIDE_PATHS, loadGettingStarted, phoneSecurityStepsStillOpen, type ChecklistStep, type GettingStartedStatus, type GuideKey, type TipKey } from '../../../shared/guides'
 import { captureOrganizationSwitchContext } from '../../../shared/taskContext'
 import { applyOrgContext, clearTaskContext, getActiveOrgId, getPersonalWalletToken } from '@/lib/auth'
 import api from '@/lib/api'
@@ -80,17 +80,23 @@ export function InboxGettingStarted({
     await router.push('/settings/org/')
   }
 
+  const securityActions: Pick<Record<ChecklistStep, () => void>, 'deviceSignIn' | 'moneyConfirm'> = {
+    deviceSignIn: () => void router.push('/settings/security/?turnOn=signin'),
+    moneyConfirm: () => void router.push('/settings/security/?turnOn=money'),
+  }
+
   if (!guides.ready) return null
   if (!open) {
-    if (phoneDeviceStepStillOpen({
-      deviceLogin,
-      deviceSignIn: Boolean(status?.deviceSignIn),
-      devicePromptDone,
-    }) && status) {
+    const securitySteps = status ? phoneSecurityStepsStillOpen(status, { deviceLogin, devicePromptDone }) : []
+    if (status && securitySteps.length) {
       return (
         <GettingStartedChecklist
-          status={{ ...status, records: true, identityCard: true, organisation: true, cardSaving: true, orgSetup: true, staffCard: true, nextUse: true }}
-          steps={[{ step: 'deviceSignIn', onAction: () => void router.push('/settings/security/') }]}
+          status={{
+            ...status,
+            moneyConfirm: Boolean(status.moneyConfirm),
+            records: true, identityCard: true, organisation: true, cardSaving: true, orgSetup: true, staffCard: true, nextUse: true,
+          }}
+          steps={securitySteps.map((step) => ({ step, onAction: securityActions[step as keyof typeof securityActions] }))}
           onDismiss={() => void guides.mark('device_signin', 'dismissed')}
         />
       )
@@ -119,14 +125,14 @@ export function InboxGettingStarted({
       await guides.mark('next_use', 'done')
       return
     }
-    if (choiceId === 'start') void router.push('/settings/org/')
+    if (choiceId === 'start') void router.push('/settings/org/?create=1')
     if (choiceId === 'find') void router.push('/organizations/?tab=discover')
   }
   const actions: Record<ChecklistStep, () => void> = {
     identityCard: onShowIdentityCard,
     records: () => void router.push('/proofs/'),
-    deviceSignIn: () => void router.push('/settings/security/'),
-    organisation: () => void router.push('/settings/org/'),
+    ...securityActions,
+    organisation: () => void router.push('/settings/org/?create=1'),
     staffCard: () => void router.push(status.staffCardWaiting ? `/inbox?item=${encodeURIComponent(status.staffCardWaiting.offerId)}` : '/inbox'),
     orgSetup: () => void openOrgSetup(status.setupToFinish),
     cardSaving: () => void router.push('/settings/cards/'),

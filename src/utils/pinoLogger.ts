@@ -6,6 +6,28 @@ const isProd = process.env.NODE_ENV === 'production'
 export const rootLogger = pino({
   level,
   base: { service: 'credo-controller' },
+  // A log line is not a place to keep a person's name, number, PIN or a credential.
+  // Paths are the field names services already pass. A field not listed here is unchanged.
+  redact: {
+    censor: '[redacted]',
+    paths: [
+      'phone',
+      'email',
+      'pin',
+      'displayName',
+      'dateOfBirth',
+      'password',
+      'authorization',
+      'req.headers.authorization',
+      'req.headers.cookie',
+      '*.phone',
+      '*.email',
+      '*.pin',
+      '*.displayName',
+      '*.dateOfBirth',
+      '*.password',
+    ],
+  },
   transport: isProd
     ? undefined
     : {

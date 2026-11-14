@@ -2,11 +2,16 @@ import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { milestone } from '@/components/feedback/Milestone';
 import axios from 'axios';
 import { useRouter } from 'next/router';
-import { Alert, Badge, Box, Button, Card, Center, Group, Loader, Paper, Radio, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
-import { IconAlertCircle, IconArrowRight, IconCheck, IconDeviceMobile, IconShieldCheck, IconX } from '@tabler/icons-react';
+import { Alert, Badge, Box, Button, Card, Center, Group, Loader, Paper, Radio, Stack, Switch, Text, Title } from '@mantine/core';
+import { IconAlertCircle, IconArrowRight, IconCheck, IconShieldCheck, IconX } from '@tabler/icons-react';
 import { EnvContext } from '@/pages/_app';
 import { clientPayCopy } from '@/components/finance/financeStages';
+import { StageActorTimeline } from '@/components/finance/StageActorTimeline';
+import { clientBillingStages, CLIENT_BILLING_HELP } from '../../../shared/fieldJobOutcomes';
+import { PhoneField } from '../../../shared/PhoneField';
 import { getPersonalWalletToken } from '@/utils/portalTenant';
+import BrandedDocumentView from '@/components/documents/BrandedDocumentView';
+import { payPageDocument, type DocumentKind } from '@/lib/brandedDocument';
 
 interface PaymentDetails {
   linkId: string;
@@ -17,9 +22,40 @@ interface PaymentDetails {
   status: string;
   kind?: 'quote' | 'invoice';
   providerRef?: string;
+  paidAt?: string;
+  createdAt?: string;
+  reconciliation?: {
+    status: string;
+    receiptIssuedAt?: string;
+    settledAt?: string;
+    deliveredAt?: string;
+    reconciledAt?: string;
+  };
   invoiceRef?: string;
   availableMethods: string[];
   availableMethodDetails?: Array<{ providerId: string; providerName: string }>;
+  branding?: { displayName?: string; orgTenantId?: string };
+  documentFacts?: Record<string, unknown>;
+}
+
+function PaymentDocumentToggle({ payment, kind, providerRef }: { payment: PaymentDetails; kind: DocumentKind; providerRef?: string }) {
+  const [open, setOpen] = useState(false);
+  const label = kind === 'receipt' ? 'receipt' : kind === 'quote' ? 'quotation' : 'invoice';
+  return (
+    <Stack gap="xs">
+      <Button variant="default" onClick={() => setOpen((value) => !value)}>
+        {open ? `Hide ${label}` : `View or save ${label}`}
+      </Button>
+      {open && (
+        <BrandedDocumentView
+          orgTenantId={payment.branding?.orgTenantId}
+          fallbackName={payment.branding?.displayName || payment.merchantName}
+          height={480}
+          model={payPageDocument(payment, kind, providerRef)}
+        />
+      )}
+    </Stack>
+  );
 }
 
 function formatAmount(amount: number, currency: string): string {
@@ -166,13 +202,32 @@ export default function PortalPayPage() {
         <Alert color="green" icon={<IconCheck size={16} />} title={success && !success.providerRef ? 'Payment submitted' : copy.paidTitle}>
           {success?.instructions || copy.paidBody}
         </Alert>
+        <Paper withBorder p="sm" radius="md">
+          <Text size="sm" c="dimmed">{payment.branding?.displayName || payment.merchantName || 'Business'}</Text>
+          <Text fw={700} size="xl">{formatAmount(payment.amount, payment.currency)}</Text>
+          <Text fw={600}>{payment.description}</Text>
+        </Paper>
         {reference && (
           <Paper withBorder p="sm" radius="md">
             <Text size="xs" c="dimmed">{copy.referenceLabel}</Text>
             <Text fw={600}>{reference}</Text>
           </Paper>
         )}
+        {payment.reconciliation ? (
+          <StageActorTimeline
+            stages={clientBillingStages(undefined, {
+              status: 'paid',
+              obligationId: payment.linkId,
+              createdAt: payment.createdAt,
+              paidAt: payment.paidAt,
+              reconciliation: payment.reconciliation,
+            })}
+            title="Billing stages"
+            help={CLIENT_BILLING_HELP}
+          />
+        ) : null}
         {signedIn && <Button variant="light" onClick={() => router.push('/inbox')}>{copy.openRecordsLabel}</Button>}
+        <PaymentDocumentToggle payment={payment} kind="receipt" providerRef={success?.providerRef} />
       </>,
     );
   }
@@ -192,6 +247,8 @@ export default function PortalPayPage() {
         </Stack>
       </Card>
 
+      <PaymentDocumentToggle payment={payment} kind={payment.kind === 'quote' ? 'quote' : 'invoice'} />
+
       <Card withBorder radius="md" p="md">
         <Stack gap="sm">
           <Text fw={600}>Payment method</Text>
@@ -205,14 +262,13 @@ export default function PortalPayPage() {
         </Stack>
       </Card>
 
-      <TextInput
+      <PhoneField
+        surface="portal"
         label={copy.phoneLabel}
         description={copy.phoneHelp}
         required
-        placeholder="e.g. 0771234567"
         value={phone}
-        onChange={(e) => setPhone(e.currentTarget.value)}
-        leftSection={<IconDeviceMobile size={16} />}
+        onChange={setPhone}
       />
       <Switch checked={saveToWallet} onChange={(e) => setSaveToWallet(e.currentTarget.checked)} label={copy.keepLabel} description={copy.keepHelp} color="teal" />
 

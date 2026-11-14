@@ -28,6 +28,7 @@ import {
   type OrganizationCategory,
 } from '../persistence/OrganizationRegistryRepository'
 import { notificationService } from './NotificationService'
+import { whatsAppSenderService } from './WhatsAppSenderService'
 import {
   ORG_CONTEXT_ADMINS_ONLY,
   ORG_CONTEXT_ADMINS_ONLY_MESSAGE,
@@ -43,6 +44,7 @@ import { applyOrgSetupBootstrap, type OrgSetupBootstrapRequest, type OrgSetupBoo
 import { ensureDefaultDepartment } from './OrgStarterDepartments'
 import { ensureStarterRoles } from './OrgStarterRoles'
 import { SSIAuthService } from './SSIAuthService'
+import { phoneHashCandidates } from './ssi/contactHash'
 import {
   orgSetupProfileService,
   REQUEST_TYPE_NAMES,
@@ -68,12 +70,15 @@ import { signToken } from '../utils/jwt'
 import { rootLogger } from '../utils/pinoLogger'
 
 import {
+  ACTOR_MAIN_ROLE_LABEL,
+  mainRolesForAnswers,
   ACTOR_PRESETS,
   OrgWorkflowActorService,
   roleFallbackFor,
   describeActorMode,
   orgWorkflowActorService,
   type ActorFallbackEntry,
+  type ActorMainRole,
   type ActorPreset,
   type OrgMemberActor,
   type OrgWorkflowActorPolicy,
@@ -308,11 +313,23 @@ export interface WorkflowActorsView {
   members: OrgMemberActor[]
   /** Role keys an admin can pick (membership roles, org roles, built-in stage roles). */
   roles: string[]
+  /** Main people shown at the top of "Who does what". */
+  mainPeople: MainPersonView[]
   policy: OrgWorkflowActorPolicy
   /** Ready-made setups for purchase-request approvals. */
   presets: Array<Pick<ActorPreset, 'id' | 'title' | 'detail' | 'signMode'>>
   /** Whether the caller may change assignments (owner/admin). */
   canEdit: boolean
+}
+
+export interface MainPersonView {
+  role: ActorMainRole
+  label: string
+  description: string
+  required: boolean
+  entry?: ActorFallbackEntry
+  actor: ResolvedOrgWorkflowActor
+  needsAssignment: boolean
 }
 
 export interface WorkflowActorDefaultInput {
@@ -377,6 +394,21 @@ function resolveBestStageActor(
   stageAction: string,
 ): ResolvedOrgWorkflowActor {
   return orgWorkflowActorService.resolveActor({ orgTenantId, workflowType, stageAction })
+}
+
+const MAIN_ROLE_DESCRIPTION: Record<ActorMainRole, string> = {
+  approver: 'General approvals and disputes.',
+  finance: 'Money approvals, release, payouts, payment records and receipts.',
+  hr: 'Staff onboarding and payroll actions.',
+  operations: 'Field operations and work completion checks.',
+}
+
+/** Kinds of work this organisation has: the setup answers, limited to modules the plan allows. */
+function mainRolesFor(profile: Pick<OrgSetupProfile, 'kinds' | 'access'>): ActorMainRole[] {
+  return mainRolesForAnswers({
+    kinds: profile.kinds,
+    modules: profile.access.modules.filter((item) => item.available).map((item) => String(item.id || '')),
+  })
 }
 
 export interface OrganizationSetupDomainProgress {
@@ -870,7 +902,7 @@ export class OrganizationService {
     // An invited account starts with a placeholder card; a real name the team saved beats it.
     if (identityName && OrganizationService.cleanPersonName(identityName)) return identityName
     const stored = storedName?.trim()
-    const generic = !stored || /^(organization owner|team member)$/i.test(stored)
+    const generic = !stored || !OrganizationService.cleanPersonName(stored)
     if (stored && !generic) return stored
     if (String(role || '').toLowerCase() === 'owner') return 'Organization owner'
     return 'Team member'
@@ -1643,10 +1675,10 @@ export class OrganizationService {
    */
   lookupUserByPhone(orgTenantId: string, phone: string): { userId?: string; inTeam: boolean; role?: string } {
     const db = DatabaseManager.getDatabase()
-    const phoneHash = this.hashData(this.normalizePhone(phone))
-    const user = db.prepare('SELECT id FROM ssi_users WHERE phone_hash = ?').get(phoneHash) as
-      | { id: string }
-      | undefined
+    const candidates = phoneHashCandidates(phone)
+    const user = db
+      .prepare(`SELECT id FROM ssi_users WHERE phone_hash IN (${candidates.map(() => '?').join(', ')})`)
+      .get(...candidates) as { id: string } | undefined
     if (!user?.id) return { inTeam: false }
     const membership = db
       .prepare(`SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ? AND status = 'active'`)
@@ -1710,7 +1742,11 @@ export class OrganizationService {
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 80)
-    if (clean.length < 2 || /^(team member|organi[sz]ation owner|account|my account|member)$/i.test(clean)) return undefined
+    if (
+      clean.length < 2 ||
+      /^(team member|organi[sz]ation owner|account|my account|member|personal wallet)$/i.test(clean)
+    )
+      return undefined
     return clean
   }
 
@@ -1723,8 +1759,9 @@ export class OrganizationService {
 
   /**
    * Send the one-time link with which the person confirms their name and picks their own PIN.
-   * WhatsApp from the platform number when the inviter confirmed the person agreed, otherwise a
-   * text message. When neither can be sent the owner gets the link to pass on in person.
+   * WhatsApp from the platform number when the inviter confirmed the person agreed and a sender
+   * is actually switched on. Otherwise a text message. When neither can be sent the owner gets
+   * the link to pass on in person. Queuing WhatsApp is not the same as it being sent.
    */
   private async sendMemberInvite(
     orgTenantId: string,
@@ -1738,7 +1775,8 @@ export class OrganizationService {
     if (options.whatsappConsent) {
       try {
         notificationService.recordInviteConsent(orgTenantId, userId, phone)
-        if (notificationService.consentedRecipient(orgTenantId, 'invite', { userId })) {
+        const senderReady = whatsAppSenderService.selection(orgTenantId)?.enabled === true
+        if (senderReady && notificationService.consentedRecipient(orgTenantId, 'invite', { userId })) {
           notificationService.queueWhatsApp({
             tenantId: orgTenantId,
             to: phone,
@@ -1932,7 +1970,7 @@ export class OrganizationService {
    * Keep the member's internal contact named after the person (from their own wallet card)
    * and linked to their current wallet. Best effort; never fails the caller.
    */
-  private async syncMemberContact(orgTenantId: string, userId: string, role: string): Promise<void> {
+  async syncMemberContact(orgTenantId: string, userId: string, role: string): Promise<void> {
     const db = DatabaseManager.getDatabase()
     const user = db.prepare('SELECT tenant_id, did FROM ssi_users WHERE id = ?').get(userId) as
       | { tenant_id?: string; did?: string }
@@ -2145,6 +2183,32 @@ export class OrganizationService {
     const callerRole = this.getUserOrgRole(userId, orgTenantId)
     const policy = orgWorkflowActorService.getPolicy(orgTenantId)
     const savedDefaults = orgWorkflowActorService.listDefaults(orgTenantId)
+    const members = orgWorkflowActorService.listOrgMembers(orgTenantId)
+    const roles = orgWorkflowActorService.listRoleOptions(orgTenantId)
+    const relevantMainRoles = mainRolesFor({
+      kinds: orgSetupProfileService.get(orgTenantId).kinds,
+      access: configuration.access,
+    })
+    const mainPeople: MainPersonView[] = relevantMainRoles.map((role) => {
+      const stageAction =
+        role === 'finance'
+          ? 'finance_approve_requisition'
+          : role === 'hr'
+            ? 'approve_onboarding'
+            : role === 'operations'
+              ? 'dispatch_job'
+              : 'approve_request'
+      const actor = resolveBestStageActor(orgTenantId, `main_people.${role}`, stageAction)
+      return {
+        role,
+        label: ACTOR_MAIN_ROLE_LABEL[role],
+        description: MAIN_ROLE_DESCRIPTION[role],
+        required: role === 'approver' || role === 'finance',
+        entry: policy.mainPeople[role],
+        actor,
+        needsAssignment: OrgWorkflowActorService.needsAssignment(actor),
+      }
+    })
 
     const workflows = configuration.workflows.map((workflow) => {
       const template = configuration.templates.find(
@@ -2203,8 +2267,9 @@ export class OrganizationService {
     return {
       orgTenantId,
       workflows,
-      members: orgWorkflowActorService.listOrgMembers(orgTenantId),
-      roles: orgWorkflowActorService.listRoleOptions(orgTenantId),
+      members,
+      roles,
+      mainPeople,
       policy,
       presets: ACTOR_PRESETS.map((preset) => ({
         id: preset.id,
@@ -3048,6 +3113,12 @@ export class OrganizationService {
     } catch (error: any) {
       logger.warn({ error: error?.message, orgTenantId }, 'Could not fill starter roles after setup answers')
     }
+    try {
+      // Same answers as the starter roles: each kind of work this organisation has gets its main person.
+      if (profile.modules.length > 0) orgWorkflowActorService.fillMainPeopleFromAnswers(orgTenantId, profile)
+    } catch (error: any) {
+      logger.warn({ error: error?.message, orgTenantId }, 'Could not fill main people after setup answers')
+    }
     return profile
   }
 
@@ -3436,9 +3507,6 @@ export class OrganizationService {
     return digits
   }
 
-  private hashData(value: string): string {
-    return crypto.createHash('sha256').update(value).digest('hex')
-  }
 }
 
 function safeJsonParse(value: string): Record<string, unknown> {

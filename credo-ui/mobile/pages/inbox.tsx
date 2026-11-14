@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { OfferReviewCard } from '@/components/feedback/OfferReviewCard';
 import dayjs from 'dayjs';
+import { PRICE_CURRENCIES, acceptPriceBody, acceptPriceNeed } from '../../shared/acceptPrice';
 import { isPlatformRequestDecided, isPlatformRequestWaiting, platformRequestDecidedAt, type PlatformInboxRequest } from '../../shared/requestInbox';
 import {
   Stack, Title, Text, Box, Divider, Button, Center, ThemeIcon, Paper,
-  Loader, Alert, Group, Badge, ActionIcon, Tabs, Textarea, Modal, SegmentedControl, NumberInput, TextInput,
+  Loader, Alert, Group, Badge, ActionIcon, Tabs, Textarea, Modal, SegmentedControl, NumberInput, TextInput, Select,
   useMantineColorScheme, useMantineTheme,
 } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -13,7 +14,7 @@ import { useSessionStore } from '@/lib/state/session';
 import { useActivityStore } from '@/lib/state/activity';
 import { useUiStore } from '@/lib/state/ui';
 import { ListSkeleton } from '@/components/feedback/ListSkeleton';
-import { IconInbox, IconRefresh, IconCheck, IconX, IconAlertCircle, IconReceipt, IconTrash, IconShieldCheck, IconId, IconPlayerPlay, IconActivity, IconChevronRight, IconChevronDown } from '@tabler/icons-react';
+import { IconInbox, IconRefresh, IconCheck, IconX, IconAlertCircle, IconReceipt, IconTrash, IconShieldCheck, IconId, IconPlayerPlay, IconActivity, IconChevronRight, IconChevronDown, IconFileText } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
 import AppShellMobile from '@/components/layout/AppShellMobile';
 import InboxItem, { InboxItemData, isExpiredItem } from '@/components/inbox/InboxItem';
@@ -49,7 +50,9 @@ import { readOrgProfile } from '@/lib/orgProfile';
 import { captureOrganizationSwitchContext } from '../../shared/taskContext';
 import { UnreadCount } from '../../shared/UnreadCount';
 import { requestIdFromStageCard } from '../../shared/requestExperience';
-import { requestDecisionBlockText, STAFF_CARD_APPROVE_LABEL } from '../../shared/requestDecision';
+import { currentAccountId, restoreAccount, savedAccountTokens } from '@/lib/savedAccounts';
+import { RequestStepSummary } from '@/components/requests/RequestProgress';
+import { isRequestFlowRun, requestDecisionBlockText, STAFF_CARD_APPROVE_LABEL } from '../../shared/requestDecision';
 import { feedback, tick } from '@/lib/feedback';
 import { CARD_TARGET_ATTR, celebrateSaved } from '../../shared/cardMotion';
 import { milestone } from '@/components/feedback/Milestone';
@@ -330,9 +333,9 @@ function getRequisitionStageActionUiCopy(stageAction: string): { title: string; 
 
   if (normalized === 'acknowledge_execution') {
     return {
-      title: 'Acknowledge Completion Required',
-      description: 'Funds released. Acknowledge execution to complete this requisition.',
-      actionLabel: 'Acknowledge',
+      title: 'Confirm delivery',
+      description: 'The money was released. Confirm the items arrived to close this purchase.',
+      actionLabel: 'Confirm delivery',
     };
   }
 
@@ -1154,9 +1157,28 @@ export default function InboxPage() {
     }
     // Wait for this session's own fetch before deciding the card is gone.
     if (!inboxQuery.isFetchedAfterMount) return;
-    openedNotificationItem.current = itemId;
     let cancelled = false;
     void (async () => {
+      const here = currentAccountId();
+      for (const account of savedAccountTokens()) {
+        if (cancelled || account.id === here) continue;
+        try {
+          const probe = await api.get<{ mine: boolean; holder: string }>(
+            `/api/wallet/credentials/inbox-item/${encodeURIComponent(itemId)}`,
+            { headers: { Authorization: `Bearer ${account.token}` } },
+          );
+          if (!probe.data?.mine) continue;
+          if (!restoreAccount(account.id)) continue;
+          openedNotificationItem.current = itemId;
+          if (probe.data.holder === 'personal') setPersonalContext();
+          window.location.replace(appHref('/inbox?item=' + encodeURIComponent(itemId)));
+          return;
+        } catch {
+          // This sign-in could not be checked. Try the next one, then the message below.
+        }
+      }
+      if (cancelled) return;
+      openedNotificationItem.current = itemId;
       const inOrg = getContextMode() === 'org';
       if (inOrg) {
         const personalToken = getPersonalWalletToken() || getWalletToken();
@@ -1532,6 +1554,7 @@ export default function InboxPage() {
               const runRes = await api.get('/workflows/runs?limit=25', { headers });
               const rows = Array.isArray(runRes.data) ? runRes.data : [];
               fieldRuns = rows.filter((run: any) => {
+                if (isRequestFlowRun(run)) return false;
                 const workflowId = String(run.workflowId || run.workflow_id || '');
                 const stage = normalizeStage(run.output?.workflowStage || run.output?.stage || run.status || '');
                 return workflowId.includes('field') || workflowId.includes('fept') || FEPT_STAGES.has(stage);
@@ -1815,7 +1838,7 @@ export default function InboxPage() {
             status: 'pending' as const,
             priority: 'high' as const,
             createdAt: o.createdAt ?? new Date().toISOString(),
-            actionLabel: platformNextStep ? platformNextStep.label : platformRequestId ? 'Approve' : requestCopy.actionLabel,
+            actionLabel: platformNextStep ? platformNextStep.label : platformRequestId ? 'Review' : requestCopy.actionLabel,
             itemType: 'workflow' as const,
             stageAction: stageAction || undefined,
             workflowRequestType: requestType,
@@ -1863,6 +1886,7 @@ export default function InboxPage() {
             itemType: 'workflow' as const,
             workflowRequestId,
             workflowRequestType: requestType,
+            acceptPrice: acceptPriceNeed(pendingAssignment?.payload || claim) || undefined,
             requisitionId,
             actingOrgTenantId: targetOrgTenantId,
             ownerOrgTenantId: targetOrgTenantId,
@@ -2020,6 +2044,7 @@ export default function InboxPage() {
               fromJob: Boolean(claim.fromJob),
               issuedAt: firstNonEmptyString(claim.issuedAt) || undefined,
               sentAt: firstNonEmptyString(claim.sentAt) || undefined,
+              facts: claim,
             },
             amount: amountValue,
             currency: String(claim.currency || 'USD').trim() || 'USD',
@@ -2378,7 +2403,7 @@ export default function InboxPage() {
         workflowRequestType: row.request_type,
         platformNextStep: row.nextStep,
         requestDecision: row.decision,
-        actionLabel: row.nextStep?.label || 'Approve',
+        actionLabel: row.nextStep?.label || 'Review',
         actingOrgTenantId: activeOrgId || undefined,
         ownerOrgTenantId: activeOrgId || undefined,
         ownerDisplayName: activeOrgLabel || undefined,
@@ -2755,6 +2780,8 @@ export default function InboxPage() {
     setItems((prev) => prev.filter((i) => !isExpiredItem(i)));
   }, []);
 
+  const [acceptPriceForm, setAcceptPriceForm] = useState<{ amount: number | string; currency: string; note: string } | null>(null);
+
   const handleAction = async (action: 'approve' | 'reject' | 'dismiss') => {
     if (!selectedItem) return;
     if (action === 'dismiss') {
@@ -2913,11 +2940,14 @@ export default function InboxPage() {
         await router.push(buildArCollectionSettlementRoute(selectedItem));
         return;
       } else {
-        if (selectedItem.module === 'approvals' && selectedItem.platformRequestId) {
-          // Organization request (for example "Buy materials" raised from a job). Decide as the org.
-          if (action === 'reject' && !decisionReason.trim()) {
-            throw new Error('Please say why you are declining.');
-          }
+        if (selectedItem.module === 'approvals' && selectedItem.platformRequestId && !selectedItem.platformNextStep) {
+          // Decided on the organisation's Requests screen, after the switch.
+          await handleOpenPlatformRequest(selectedItem);
+          return;
+        }
+        if (selectedItem.module === 'approvals' && selectedItem.platformRequestId && selectedItem.platformNextStep) {
+          // Approved already: mark it bought, delivered or paid with the receipt or bill number
+          // and a photo of it (or a wallet receipt record), acting for the organisation.
           if (selectedItem.actingOrgTenantId) {
             const switched = await ensureOrgContextForApproval(selectedItem.actingOrgTenantId, selectedItem.ownerDisplayName, 'request', undefined, [selectedItem.platformRequestId, selectedItem.workflowRequestId]);
             if (!switched) {
@@ -2927,62 +2957,25 @@ export default function InboxPage() {
           }
           const orgToken = getOrgToken();
           if (!orgToken) throw new Error('Open the organization first, then try again.');
-          const headers = { Authorization: `Bearer ${orgToken}` };
-          if (selectedItem.platformNextStep) {
-            // Approved already: mark it bought, delivered or paid with the receipt or bill
-            // number and a photo of it (or a wallet receipt record).
-            const imageField = selectedItem.platformNextStep.fields.find((field) => field.type === 'image');
-            if (imageField?.required && !receiptProof) {
-              throw new Error(`${imageField.label} is needed, or a receipt record from your wallet.`);
-            }
-            await api.post(
-              '/api/platform/requests/transition',
-              {
-                requestId: selectedItem.platformRequestId,
-                toStatus: 'completed',
-                payload: { ...nextStepValues, ...receiptProofPayload(receiptProof) },
-              },
-              { headers },
-            );
-            milestone.show({
-              kind: 'workflow_complete',
-              title: 'Request completed',
-              detail: selectedItem.partOfLine ? 'The job continues.' : 'Anything waiting on it continues now.',
-            });
-            setSelectedItem(null);
-            setNextStepValues({});
-            setReceiptProof(null);
-            await syncAndFetch();
-            return;
-          }
-          const detailRes = await api.get(`/api/platform/requests/${encodeURIComponent(selectedItem.platformRequestId)}`, { headers });
-          const request = detailRes.data;
-          if (request?.id !== selectedItem.platformRequestId) throw new Error('The request details did not match this Inbox item.');
-          const decisionKey = action === 'approve' ? 'canApprove' : 'canReject';
-          if (!request?.decision?.[decisionKey]) {
-            throw new Error(requestDecisionBlockText(request?.decision));
+          const imageField = selectedItem.platformNextStep.fields.find((field) => field.type === 'image');
+          if (imageField?.required && !receiptProof) {
+            throw new Error(`${imageField.label} is needed, or a receipt record from your wallet.`);
           }
           await api.post(
-            `/api/platform/requests/${encodeURIComponent(selectedItem.platformRequestId)}/decision`,
-            { decision: action, reason: action === 'reject' ? decisionReason.trim() : undefined },
+            '/api/platform/requests/transition',
             {
-              headers: {
-                ...headers,
-                'x-idempotency-key': `request-decision:${selectedItem.platformRequestId}:${action}:${request.decision?.version || request.updated_at || request.status}`,
-              },
+              requestId: selectedItem.platformRequestId,
+              toStatus: 'completed',
+              payload: { ...nextStepValues, ...receiptProofPayload(receiptProof) },
             },
+            { headers: { Authorization: `Bearer ${orgToken}` } },
           );
-          if (action === 'approve') {
-            milestone.show({
-              kind: 'request_approved',
-              title: 'Approved',
-              detail: 'The linked job waits until the purchase or delivery is recorded.',
-            });
-          } else {
-            feedback.info('The request was declined.', { title: 'Declined' });
-          }
+          milestone.show({
+            kind: 'workflow_complete',
+            title: 'Request completed',
+            detail: selectedItem.partOfLine ? 'The job continues.' : 'Anything waiting on it continues now.',
+          });
           setSelectedItem(null);
-          setDecisionReason('');
           setNextStepValues({});
           setReceiptProof(null);
           await syncAndFetch();
@@ -3005,16 +2998,29 @@ export default function InboxPage() {
           }
 
           if (action === 'approve') {
+            let priceBody = {};
+            if (selectedItem.acceptPrice) {
+              if (!acceptPriceForm) {
+                const need = selectedItem.acceptPrice;
+                setAcceptPriceForm({ amount: need.amount ?? '', currency: need.currency, note: need.note });
+                return;
+              }
+              priceBody = acceptPriceBody(acceptPriceForm);
+            }
             await api.put(`/workflow-requests/${selectedItem.workflowRequestId}/approve-from-inbox`, {
               executeWorkflow: true,
+              ...priceBody,
             }, {
               headers: { Authorization: `Bearer ${token}` },
             });
 
+            setAcceptPriceForm(null);
             milestone.show({
               kind: 'request_approved',
               title: 'Approved',
-              detail: 'Approved for the organisation with the approval access you were given.',
+              detail: selectedItem.acceptPrice
+                ? `The ${selectedItem.acceptPrice.document} is on its way to them.`
+                : 'Approved for the organisation with the approval access you were given.',
             });
           } else if (action === 'reject') {
             await api.put(`/workflow-requests/${selectedItem.workflowRequestId}/reject-from-inbox`, {
@@ -3253,6 +3259,25 @@ export default function InboxPage() {
         await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
       }
 
+      // A step that moves no money (for example issuing the receipt) asks for no wallet share:
+      // the server says so with 409, and the signed-in step is finished here.
+      if (!requestRes && Number(lastRequestError?.response?.status) === 409 && item.requiredAction) {
+        const stepToken = requestTokens[0];
+        await api.post(
+          `/api/finance/ap/workflow-actions/${encodeURIComponent(resolvedTransactionId)}/transition`,
+          { transition: String(item.requiredAction), consentTimestamp: new Date().toISOString() },
+          {
+            headers: {
+              Authorization: `Bearer ${stepToken}`,
+              'x-idempotency-key': `money-step:${resolvedTransactionId}:${item.requiredAction}`,
+            },
+          },
+        );
+        feedback.success('This step is done.', { title: 'Step recorded' });
+        setSelectedItem(null);
+        return;
+      }
+
       if (!requestRes) {
         throw lastRequestError || new Error('Failed to create AR proof request');
       }
@@ -3435,47 +3460,31 @@ export default function InboxPage() {
     }
   };
 
-  /** Approve an organisation purchase or payment request by sharing the approver's staff card. */
-  const handleOpenRequestStaffCard = async (item: InboxItemData) => {
+  /**
+   * An organisation request opens like a job: ask to switch, then the organisation's Requests
+   * screen shows its steps, Details and History, and the Approve and Decline buttons.
+   */
+  const handleOpenPlatformRequest = async (item: InboxItemData) => {
     if (!item.platformRequestId) return;
+    const orgTenantId = item.actingOrgTenantId || item.ownerOrgTenantId;
     setActionLoading(true);
     try {
-      if (item.actingOrgTenantId) {
-        const switched = await ensureOrgContextForApproval(item.actingOrgTenantId, item.ownerDisplayName, 'request', undefined, [item.platformRequestId, item.workflowRequestId]);
+      if (orgTenantId) {
+        const switched = await ensureOrgContextForApproval(orgTenantId, item.ownerDisplayName || activeOrgLabel || undefined, 'request', {
+          title: item.title || getInboxDisplayTitle(item),
+          step: item.requestDecision?.stageLabel || (item.status === 'pending' ? 'Review and decide' : undefined),
+          explanation: 'You see every step, who does it and the history there, then approve or decline.',
+        }, [item.platformRequestId, item.workflowRequestId]);
         if (!switched) return;
       }
-      const orgToken = getOrgToken();
-      if (!orgToken) throw new Error('Open the organization first, then try again.');
-      const requestRes = await api.post(
-        `/api/platform/requests/${encodeURIComponent(item.platformRequestId)}/proof/request`,
-        { toStatus: 'approved' },
-        { headers: { Authorization: `Bearer ${orgToken}` } },
-      );
-      const requestUrl = requestRes.data?.presentationRequestUrl as string | undefined;
-      if (!requestUrl) throw new Error('This approval could not be prepared. Try again.');
-      const params = new URLSearchParams({
-        request_uri: requestUrl,
-        mode: 'request-staff-card',
-        platformRequestId: item.platformRequestId,
-        toStatus: 'approved',
-      });
-      if (item.actingOrgTenantId) params.set('orgTenantId', item.actingOrgTenantId);
-      if (requestRes.data?.requestId) params.set('requestId', String(requestRes.data.requestId));
-      upsertRunningAction({
-        id: `request:${item.platformRequestId}`,
-        type: 'proof',
-        title: item.title || 'Request approval',
-        description: item.description,
-        route: `/present?${params.toString()}`,
-        refId: item.platformRequestId,
-        orgTenantId: item.actingOrgTenantId,
-        status: 'active',
-      });
+      // Stays up across the move; the Requests screen takes it down once the request is drawn.
+      blockScreen({ key: 'open-request', title: 'Opening the request…', detail: item.title || getInboxDisplayTitle(item) || 'Loading its steps.' });
       setSelectedItem(null);
       setDecisionReason('');
-      await router.push(`/present?${params.toString()}`);
+      await router.push(`/requests?request=${encodeURIComponent(item.platformRequestId)}`);
     } catch (err: any) {
-      feedback.fromError(err, { title: 'Could not open the approval', retry: () => void handleOpenRequestStaffCard(item) });
+      unblockScreen('open-request');
+      feedback.fromError(err, { title: 'Could not open the request', retry: () => void handleOpenPlatformRequest(item) });
     } finally {
       setActionLoading(false);
     }
@@ -3810,9 +3819,13 @@ export default function InboxPage() {
             })}
           </Tabs.List>
         </Tabs>
-        {getContextMode() === 'org' && (
-          <Button variant="subtle" onClick={() => router.push('/requests')}>Requests history and audit</Button>
-        )}
+        <Button
+          variant="subtle"
+          justify="flex-start"
+          onClick={() => router.push(getContextMode() === 'org' ? '/requests' : '/my-requests')}
+        >
+          {getContextMode() === 'org' ? 'Requests' : 'My requests'}
+        </Button>
         <Divider />
 
         {error && <ErrorAlert message={error} />}
@@ -3958,226 +3971,27 @@ export default function InboxPage() {
         opened={!!selectedItem} onClose={() => { setSelectedItem(null); setDecisionReason(''); setNextStepValues({}); setReceiptProof(null); }}
         title={selectedItem?.title ?? ''}
       >
-        {selectedItem && (
-          <Stack gap="md" pb="lg">
-            {selectedItem.replaces && (
-              <Alert color="orange" variant="light" icon={<IconAlertCircle size={16} />} title={selectedItem.replaces.label}>
-                {selectedItem.replaces.note}
-              </Alert>
-            )}
-            {selectedItem.itemType !== 'payment_link' && <Text size="sm" c="dimmed">{selectedItem.description}</Text>}
-            {inboxWhenLabel(selectedItem.createdAt) && (
-              <Text size="xs" c="dimmed">{inboxWhenLabel(selectedItem.createdAt)}</Text>
-            )}
-            <Group gap="xs">
-              <Badge color="gray" variant="light">
-                {itemAttention(selectedItem) === 'new' ? 'New' : itemAttention(selectedItem) === 'opened' ? 'Opened' : 'Done'}
-              </Badge>
-              <StatusBadge status={selectedItem.status === 'pending' ? 'pending' : 'done'} />
-            </Group>
-
-            {selectedItem.module === 'field' && selectedItem.workflowRunId && (() => {
-              const step = stepRequiredLabel(selectedItem);
-              const explanation = fieldStepExplanation(step);
-              const forOrg = selectedItem.ownerDisplayName || (selectedItem.ownerOrgTenantId ? activeOrgLabel : '');
-              if (!step && !forOrg) return null;
-              return (
-                <Paper withBorder radius="md" p="sm">
-                  <Stack gap={4}>
-                    {step && <Text size="xs" c="dimmed" tt="uppercase" fw={600}>This step</Text>}
-                    {step && <Text fw={700}>{step}</Text>}
-                    {explanation && <Text size="sm">{explanation}</Text>}
-                    {forOrg && <Text size="xs" c="dimmed">You act for {forOrg} on this job.</Text>}
-                    {selectedItem.status === 'pending' && (
-                      <Text size="xs" c="dimmed">Open the job to see every step, what is done and who each step waits on.</Text>
-                    )}
-                  </Stack>
-                </Paper>
-              );
-            })()}
-
-            {selectedItem.itemType === 'payment_link' && (() => {
-              const bill = selectedItem.bill || {};
-              const when = (iso?: string) => (iso && dayjs(iso).isValid() ? dayjs(iso).format('D MMM YYYY, HH:mm') : undefined);
-              const day = (iso?: string) => (iso && dayjs(iso).isValid() ? dayjs(iso).format('D MMM YYYY') : undefined);
-              const expired = Boolean(bill.expiresAt && dayjs(bill.expiresAt).isBefore(dayjs()));
-              const overdue = Boolean(bill.dueDate && dayjs(bill.dueDate).isBefore(dayjs(), 'day'));
-              const paid = selectedItem.status !== 'pending';
-              const amount = selectedItem.amount != null
-                ? `${selectedItem.currency || 'USD'} ${Number(selectedItem.amount).toFixed(2)}`
-                : undefined;
-              const rows: Array<[string, string | undefined]> = [
-                ['From', bill.merchantName || selectedItem.ownerDisplayName],
-                ['For', bill.description],
-                ['Billed to', bill.payerName],
-                ['Reference', selectedItem.invoiceRef],
-                ['Instalment', bill.instalment && bill.totalInstalments && bill.totalInstalments > 1 ? `${bill.instalment} of ${bill.totalInstalments}` : undefined],
-                ['Due', day(bill.dueDate)],
-                ['Sent to you', when(bill.sentAt) || when(bill.issuedAt) || when(selectedItem.createdAt)],
-                ['Pay link valid until', when(bill.expiresAt)],
-              ];
-              return (
-                <Paper withBorder radius="md" p="sm">
-                  <Stack gap={6}>
-                    <Group justify="space-between" align="flex-start" wrap="nowrap">
-                      <Box>
-                        <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Bill to pay</Text>
-                        {amount && <Text fw={800} size="xl">{amount}</Text>}
-                      </Box>
-                      <Badge color={paid ? 'teal' : expired ? 'gray' : overdue ? 'red' : 'orange'} variant="light">
-                        {paid ? 'Paid' : expired ? 'Link expired' : overdue ? 'Overdue' : 'Unpaid'}
-                      </Badge>
-                    </Group>
-                    {rows.filter(([, value]) => Boolean(value)).map(([label, value]) => (
-                      <Group key={label} justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
-                        <Text size="sm" c="dimmed" style={{ flexShrink: 0 }}>{label}</Text>
-                        <Text size="sm" fw={500} ta="right">{value}</Text>
-                      </Group>
-                    ))}
-                    {bill.fromJob && (
-                      <Text size="xs" c="dimmed">This bill is for work done on a job by {bill.merchantName || 'the organisation'}.</Text>
-                    )}
-                    {selectedItem.amount != null && (
-                      <>
-                        <Button size="xs" variant="subtle" onClick={() => setBillDocumentOpen((open) => !open)}>
-                          {billDocumentOpen ? 'Hide' : 'View'} {bill.kind === 'quote' ? 'quotation' : 'invoice'}
-                        </Button>
-                        {billDocumentOpen && (
-                          <BrandedDocumentView
-                            orgTenantId={bill.orgTenantId}
-                            fallbackName={bill.merchantName || selectedItem.ownerDisplayName}
-                            height={460}
-                            model={documentFromClaims({
-                              kind: bill.kind === 'quote' ? 'quote' : 'invoice',
-                              issuedAt: bill.issuedAt || selectedItem.createdAt,
-                              signed: false,
-                              claims: {
-                                invoiceId: selectedItem.invoiceRef,
-                                quoteId: bill.kind === 'quote' ? selectedItem.invoiceRef : undefined,
-                                amount: selectedItem.amount,
-                                currency: selectedItem.currency,
-                                description: bill.description,
-                                payerName: bill.payerName,
-                                dueDate: bill.dueDate,
-                                validUntil: bill.kind === 'quote' ? bill.expiresAt : undefined,
-                                status: paid ? 'paid' : expired ? 'expired' : undefined,
-                              },
-                            })}
-                          />
-                        )}
-                      </>
-                    )}
-                    <Divider my={2} />
-                    <Text size="xs" fw={600}>What happens next</Text>
-                    <Text size="xs" c="dimmed">
-                      {paid
-                        ? 'This bill is settled. Your receipt is kept in your wallet.'
-                        : expired
-                          ? 'The pay link has expired. Pay now opens the checkout, where you can ask for a fresh link without contacting the organisation.'
-                          : 'Pay now opens the secure checkout, where you choose how to pay (EcoCash or another listed option). Once payment is confirmed, your receipt arrives here in your inbox.'}
-                    </Text>
-                  </Stack>
-                </Paper>
-              );
-            })()}
-
-            {/* Any step started on the share screen and not finished: resume it, whatever the workflow. */}
-            {selectedItem.status === 'pending' && !isRequisitionApproval(selectedItem) && (() => {
-              const running = findRunningProofResume([
-                selectedItem.workflowRequestId,
-                selectedItem.requisitionId,
-                selectedItem.workflowRunId,
-                selectedItem.transactionId,
-              ]);
-              if (!running) return null;
-              return (
-                <>
-                  <Alert color="yellow" variant="light" icon={<IconAlertCircle size={14} />}>
-                    You started this step earlier. Resume it to finish.
-                  </Alert>
-                  <Button
-                    fullWidth
-                    size="lg"
-                    color="indigo"
-                    loading={actionLoading}
-                    onClick={() => {
-                      setSelectedItem(null);
-                      void router.push(running.route);
-                    }}
-                  >
-                    Resume step
-                  </Button>
-                </>
-              );
-            })()}
-
-            {selectedItem.itemType === 'ar_collection' && (
-              <Paper withBorder radius="md" p="sm">
-                <Stack gap={6}>
-                  {(() => {
-                    const stage = deriveArCollectionFlowStage(selectedItem);
-                    const stageColor = stage === 'settled' ? 'teal' : stage === 'proof_presented' ? 'indigo' : stage === 'proof_requested' ? 'orange' : 'blue';
-                    return (
-                      <Group justify="space-between" align="center" wrap="nowrap">
-                        <Group gap={6}>
-                          <IconShieldCheck size={14} />
-                          <Text size="sm" fw={500}>Payment checks</Text>
-                        </Group>
-                        <Badge size="xs" color={stageColor} variant="light">{AR_COLLECTION_STAGE_WORDS[stage] || 'Waiting'}</Badge>
-                      </Group>
-                    );
-                  })()}
-                  <Text size="xs" c="dimmed">
-                    From: {selectedItem.counterpartyOrgName || selectedItem.ownerDisplayName || 'Another organisation'}
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    Checks: {AR_COLLECTION_STAGE_WORDS[String(selectedItem.trustStatus || '')] || 'Not started'}
-                  </Text>
-                  {selectedItem.invoiceRef && <Text size="xs" c="dimmed">Invoice: {selectedItem.invoiceRef}</Text>}
-                </Stack>
-              </Paper>
-            )}
-
-            <Group grow>
-              <Button
-                size="sm"
-                variant="light"
-                color={selectedItem.isRead ? 'blue' : 'gray'}
-                onClick={() => {
-                  setReadState(selectedItem, !selectedItem.isRead);
-                  setSelectedItem((prev) => (prev ? { ...prev, isRead: !prev.isRead } : prev));
-                }}
-              >
-                {selectedItem.isRead ? 'Mark as new' : 'Mark as opened'}
-              </Button>
-              {!isExpiredItem(selectedItem) && (
-                <Button
-                  size="sm"
-                  variant="light"
-                  color={isArchived(selectedItem) ? 'teal' : 'gray'}
-                  onClick={() => {
-                    const nextArchived = !isArchived(selectedItem);
-                    setArchivedState(selectedItem, nextArchived);
-                  }}
-                >
-                  {isArchived(selectedItem) ? 'Unarchive' : 'Archive'}
-                </Button>
-              )}
-              <Button
-                size="sm"
-                variant="light"
-                color="red"
-                leftSection={<IconTrash size={14} />}
-                onClick={() => {
-                  dismissItem(selectedItem.id);
-                  setSelectedItem(null);
-                }}
-              >
-                Delete
-              </Button>
-            </Group>
-
-            {isExpiredItem(selectedItem) ? (
+        {selectedItem && (() => {
+          // A request card reads like a job step card: a short summary here, the steps and the
+          // decision in the organisation after the switch.
+          const requestFirst = Boolean(selectedItem.platformRequestId && (selectedItem.authToken || getPersonalWalletToken() || getWalletToken()))
+          const orgRequestCard = selectedItem.module === 'approvals' && Boolean(selectedItem.platformRequestId) && !selectedItem.platformNextStep
+          const openRequestButton = orgRequestCard && !isExpiredItem(selectedItem) ? (
+            <Button
+              fullWidth
+              size="lg"
+              radius="xl"
+              color="teal"
+              leftSection={<IconFileText size={20} />}
+              loading={actionLoading}
+              onClick={() => void handleOpenPlatformRequest(selectedItem)}
+            >
+              {selectedItem.status === 'pending' && selectedItem.requestDecision?.canAct !== false ? 'Review and decide' : 'Open request'}
+            </Button>
+          ) : null
+          const actionArea = (
+            <>
+              {isExpiredItem(selectedItem) ? (
               <Stack gap="xs" mt="sm">
                 <Text size="sm" c="dimmed" fw={500}>This expired, so it was filed under Archived. It can no longer be accepted.</Text>
                 <Button fullWidth size="lg" color="gray" variant="light" leftSection={<IconTrash size={18} />} onClick={() => handleAction('dismiss')}>
@@ -4372,7 +4186,12 @@ export default function InboxPage() {
                 )}
                 {selectedItem.itemType === 'workflow' && !selectedItem.platformNextStep && (
                   <>
-                    {selectedItem.module === 'approvals' && !isRequisitionApproval(selectedItem) && !isWorkflowStepCard(selectedItem) && (
+                    {orgRequestCard && selectedItem.requestDecision && !selectedItem.requestDecision.canApprove && !selectedItem.requestDecision.canReject && (
+                      <Alert color="blue" variant="light" icon={<IconShieldCheck size={16} />}>
+                        {requestDecisionBlockText(selectedItem.requestDecision)}
+                      </Alert>
+                    )}
+                    {!orgRequestCard && selectedItem.module === 'approvals' && !isRequisitionApproval(selectedItem) && !isWorkflowStepCard(selectedItem) && (
                       selectedItem.requestDecision && !selectedItem.requestDecision.canApprove && !selectedItem.requestDecision.canReject ? (
                         <Alert color="blue" variant="light" icon={<IconShieldCheck size={16} />}>
                           {requestDecisionBlockText(selectedItem.requestDecision)}
@@ -4496,10 +4315,12 @@ export default function InboxPage() {
                         {STAFF_CARD_APPROVE_LABEL}
                       </Button>
                     ) : null}
-                    {selectedItem.module !== 'field'
+                    {!orgRequestCard
+                      && selectedItem.module !== 'field'
                       && !isWorkflowStepCard(selectedItem)
                       && (!isRequisitionApproval(selectedItem) || selectedItem.module !== 'approvals')
-                      && (selectedItem.requestDecision?.canApprove !== false || !selectedItem.platformRequestId) && (
+                      && (selectedItem.requestDecision?.canApprove !== false || !selectedItem.platformRequestId)
+                      && !selectedItem.requestDecision?.cardRequired && (
                       <Button
                         fullWidth
                         size="lg"
@@ -4512,23 +4333,8 @@ export default function InboxPage() {
                         {selectedItem.module === 'approvals' ? 'Approve request' : 'Open'}
                       </Button>
                     )}
-                    {selectedItem.module === 'approvals'
-                      && selectedItem.platformRequestId
-                      && !selectedItem.platformNextStep
-                      && selectedItem.requestDecision?.staffCard
-                      && selectedItem.requestDecision?.canApprove !== false && (
-                      <Button
-                        fullWidth
-                        size="lg"
-                        variant="outline"
-                        leftSection={<IconId size={18} />}
-                        loading={actionLoading}
-                        onClick={() => void handleOpenRequestStaffCard(selectedItem)}
-                      >
-                        {STAFF_CARD_APPROVE_LABEL}
-                      </Button>
-                    )}
-                    {selectedItem.module === 'approvals'
+                    {!orgRequestCard
+                      && selectedItem.module === 'approvals'
                       && !isRequisitionApproval(selectedItem)
                       && !isWorkflowStepCard(selectedItem)
                       && (selectedItem.requestDecision?.canReject !== false || !selectedItem.platformRequestId) && (
@@ -4548,9 +4354,282 @@ export default function InboxPage() {
                 )}
               </Stack>
             )}
+            </>
+          )
+          return (
+          <Stack gap="md" pb="lg">
+            {selectedItem.replaces && (
+              <Alert color="orange" variant="light" icon={<IconAlertCircle size={16} />} title={selectedItem.replaces.label}>
+                {selectedItem.replaces.note}
+              </Alert>
+            )}
+            {selectedItem.itemType !== 'payment_link' && <Text size="sm" c="dimmed">{selectedItem.description}</Text>}
+            {inboxWhenLabel(selectedItem.createdAt) && (
+              <Text size="xs" c="dimmed">{inboxWhenLabel(selectedItem.createdAt)}</Text>
+            )}
+            <Group gap="xs">
+              <Badge color="gray" variant="light">
+                {itemAttention(selectedItem) === 'new' ? 'New' : itemAttention(selectedItem) === 'opened' ? 'Opened' : 'Done'}
+              </Badge>
+              <StatusBadge status={selectedItem.status === 'pending' ? 'pending' : 'done'} />
+            </Group>
+            {selectedItem.platformRequestId && (selectedItem.authToken || getPersonalWalletToken() || getWalletToken()) && (
+              <RequestStepSummary
+                requestId={selectedItem.platformRequestId}
+                token={(selectedItem.authToken || getPersonalWalletToken() || getWalletToken()) as string}
+                orgName={selectedItem.ownerDisplayName}
+              >
+                {actionArea}
+                {openRequestButton}
+              </RequestStepSummary>
+            )}
+
+            {selectedItem.module === 'field' && selectedItem.workflowRunId && (() => {
+              const step = stepRequiredLabel(selectedItem);
+              const explanation = fieldStepExplanation(step);
+              const forOrg = selectedItem.ownerDisplayName || (selectedItem.ownerOrgTenantId ? activeOrgLabel : '');
+              if (!step && !forOrg) return null;
+              return (
+                <Paper withBorder radius="md" p="sm">
+                  <Stack gap={4}>
+                    {step && <Text size="xs" c="dimmed" tt="uppercase" fw={600}>This step</Text>}
+                    {step && <Text fw={700}>{step}</Text>}
+                    {explanation && <Text size="sm">{explanation}</Text>}
+                    {forOrg && <Text size="xs" c="dimmed">You act for {forOrg} on this job.</Text>}
+                    {selectedItem.status === 'pending' && (
+                      <Text size="xs" c="dimmed">Open the job to see every step, what is done and who each step waits on.</Text>
+                    )}
+                  </Stack>
+                </Paper>
+              );
+            })()}
+
+            {selectedItem.itemType === 'payment_link' && (() => {
+              const bill = selectedItem.bill || {};
+              const when = (iso?: string) => (iso && dayjs(iso).isValid() ? dayjs(iso).format('D MMM YYYY, HH:mm') : undefined);
+              const day = (iso?: string) => (iso && dayjs(iso).isValid() ? dayjs(iso).format('D MMM YYYY') : undefined);
+              const expired = Boolean(bill.expiresAt && dayjs(bill.expiresAt).isBefore(dayjs()));
+              const overdue = Boolean(bill.dueDate && dayjs(bill.dueDate).isBefore(dayjs(), 'day'));
+              const paid = selectedItem.status !== 'pending';
+              const amount = selectedItem.amount != null
+                ? `${selectedItem.currency || 'USD'} ${Number(selectedItem.amount).toFixed(2)}`
+                : undefined;
+              const rows: Array<[string, string | undefined]> = [
+                ['From', bill.merchantName || selectedItem.ownerDisplayName],
+                ['For', bill.description],
+                ['Billed to', bill.payerName],
+                ['Reference', selectedItem.invoiceRef],
+                ['Instalment', bill.instalment && bill.totalInstalments && bill.totalInstalments > 1 ? `${bill.instalment} of ${bill.totalInstalments}` : undefined],
+                ['Due', day(bill.dueDate)],
+                ['Sent to you', when(bill.sentAt) || when(bill.issuedAt) || when(selectedItem.createdAt)],
+                ['Pay link valid until', when(bill.expiresAt)],
+              ];
+              return (
+                <Paper withBorder radius="md" p="sm">
+                  <Stack gap={6}>
+                    <Group justify="space-between" align="flex-start" wrap="nowrap">
+                      <Box>
+                        <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Bill to pay</Text>
+                        {amount && <Text fw={800} size="xl">{amount}</Text>}
+                      </Box>
+                      <Badge color={paid ? 'teal' : expired ? 'gray' : overdue ? 'red' : 'orange'} variant="light">
+                        {paid ? 'Paid' : expired ? 'Link expired' : overdue ? 'Overdue' : 'Unpaid'}
+                      </Badge>
+                    </Group>
+                    {rows.filter(([, value]) => Boolean(value)).map(([label, value]) => (
+                      <Group key={label} justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
+                        <Text size="sm" c="dimmed" style={{ flexShrink: 0 }}>{label}</Text>
+                        <Text size="sm" fw={500} ta="right">{value}</Text>
+                      </Group>
+                    ))}
+                    {bill.fromJob && (
+                      <Text size="xs" c="dimmed">This bill is for work done on a job by {bill.merchantName || 'the organisation'}.</Text>
+                    )}
+                    {selectedItem.amount != null && (
+                      <>
+                        <Button size="xs" variant="subtle" onClick={() => setBillDocumentOpen((open) => !open)}>
+                          {billDocumentOpen ? 'Hide' : 'View'} {bill.kind === 'quote' ? 'quotation' : 'invoice'}
+                        </Button>
+                        {billDocumentOpen && (
+                          <BrandedDocumentView
+                            orgTenantId={bill.orgTenantId}
+                            fallbackName={bill.merchantName || selectedItem.ownerDisplayName}
+                            height={460}
+                            model={documentFromClaims({
+                              kind: bill.kind === 'quote' ? 'quote' : 'invoice',
+                              issuedAt: bill.issuedAt || selectedItem.createdAt,
+                              signed: false,
+                              claims: {
+                                ...(bill.facts || {}),
+                                invoiceId: selectedItem.invoiceRef,
+                                quoteId: bill.kind === 'quote' ? selectedItem.invoiceRef : undefined,
+                                amount: selectedItem.amount,
+                                currency: selectedItem.currency,
+                                description: bill.description,
+                                payerName: bill.payerName,
+                                dueDate: bill.dueDate,
+                                validUntil: bill.kind === 'quote' ? bill.expiresAt : undefined,
+                                status: paid ? 'paid' : expired ? 'expired' : undefined,
+                              },
+                            })}
+                          />
+                        )}
+                      </>
+                    )}
+                    <Divider my={2} />
+                    <Text size="xs" fw={600}>What happens next</Text>
+                    <Text size="xs" c="dimmed">
+                      {paid
+                        ? 'This bill is settled. Your receipt is kept in your wallet.'
+                        : expired
+                          ? 'The pay link has expired. Pay now opens the checkout, where you can ask for a fresh link without contacting the organisation.'
+                          : 'Pay now opens the secure checkout, where you choose how to pay (EcoCash or another listed option). Once payment is confirmed, your receipt arrives here in your inbox.'}
+                    </Text>
+                  </Stack>
+                </Paper>
+              );
+            })()}
+
+            {/* Any step started on the share screen and not finished: resume it, whatever the workflow. */}
+            {selectedItem.status === 'pending' && !isRequisitionApproval(selectedItem) && (() => {
+              const running = findRunningProofResume([
+                selectedItem.workflowRequestId,
+                selectedItem.requisitionId,
+                selectedItem.workflowRunId,
+                selectedItem.transactionId,
+              ]);
+              if (!running) return null;
+              return (
+                <>
+                  <Alert color="yellow" variant="light" icon={<IconAlertCircle size={14} />}>
+                    You started this step earlier. Resume it to finish.
+                  </Alert>
+                  <Button
+                    fullWidth
+                    size="lg"
+                    color="indigo"
+                    loading={actionLoading}
+                    onClick={() => {
+                      setSelectedItem(null);
+                      void router.push(running.route);
+                    }}
+                  >
+                    Resume step
+                  </Button>
+                </>
+              );
+            })()}
+
+            {selectedItem.itemType === 'ar_collection' && (
+              <Paper withBorder radius="md" p="sm">
+                <Stack gap={6}>
+                  {(() => {
+                    const stage = deriveArCollectionFlowStage(selectedItem);
+                    const stageColor = stage === 'settled' ? 'teal' : stage === 'proof_presented' ? 'indigo' : stage === 'proof_requested' ? 'orange' : 'blue';
+                    return (
+                      <Group justify="space-between" align="center" wrap="nowrap">
+                        <Group gap={6}>
+                          <IconShieldCheck size={14} />
+                          <Text size="sm" fw={500}>Payment checks</Text>
+                        </Group>
+                        <Badge size="xs" color={stageColor} variant="light">{AR_COLLECTION_STAGE_WORDS[stage] || 'Waiting'}</Badge>
+                      </Group>
+                    );
+                  })()}
+                  <Text size="xs" c="dimmed">
+                    From: {selectedItem.counterpartyOrgName || selectedItem.ownerDisplayName || 'Another organisation'}
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    Checks: {AR_COLLECTION_STAGE_WORDS[String(selectedItem.trustStatus || '')] || 'Not started'}
+                  </Text>
+                  {selectedItem.invoiceRef && <Text size="xs" c="dimmed">Invoice: {selectedItem.invoiceRef}</Text>}
+                </Stack>
+              </Paper>
+            )}
+
+            <Group grow>
+              <Button
+                size="sm"
+                variant="light"
+                color={selectedItem.isRead ? 'blue' : 'gray'}
+                onClick={() => {
+                  setReadState(selectedItem, !selectedItem.isRead);
+                  setSelectedItem((prev) => (prev ? { ...prev, isRead: !prev.isRead } : prev));
+                }}
+              >
+                {selectedItem.isRead ? 'Mark as new' : 'Mark as opened'}
+              </Button>
+              {!isExpiredItem(selectedItem) && (
+                <Button
+                  size="sm"
+                  variant="light"
+                  color={isArchived(selectedItem) ? 'teal' : 'gray'}
+                  onClick={() => {
+                    const nextArchived = !isArchived(selectedItem);
+                    setArchivedState(selectedItem, nextArchived);
+                  }}
+                >
+                  {isArchived(selectedItem) ? 'Unarchive' : 'Archive'}
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="light"
+                color="red"
+                leftSection={<IconTrash size={14} />}
+                onClick={() => {
+                  dismissItem(selectedItem.id);
+                  setSelectedItem(null);
+                }}
+              >
+                Delete
+              </Button>
+            </Group>
+
+            {!requestFirst && actionArea}
+            {!requestFirst && openRequestButton}
+          </Stack>
+          )
+        })()}
+      </BottomSheet>
+
+      <Modal
+        opened={Boolean(acceptPriceForm && selectedItem?.acceptPrice)}
+        onClose={() => setAcceptPriceForm(null)}
+        title={selectedItem?.acceptPrice?.title || 'Price'}
+        centered
+      >
+        {acceptPriceForm && selectedItem?.acceptPrice && (
+          <Stack gap="sm">
+            <Text size="sm" c="dimmed">{selectedItem.acceptPrice.hint}</Text>
+            <Group grow>
+              <NumberInput
+                label="Amount"
+                min={0}
+                decimalScale={2}
+                value={acceptPriceForm.amount}
+                onChange={(value) => setAcceptPriceForm({ ...acceptPriceForm, amount: value ?? '' })}
+                required
+                data-autofocus
+              />
+              <Select
+                label="Currency"
+                data={PRICE_CURRENCIES}
+                value={acceptPriceForm.currency}
+                onChange={(value) => setAcceptPriceForm({ ...acceptPriceForm, currency: value || 'USD' })}
+              />
+            </Group>
+            <TextInput
+              label={selectedItem.acceptPrice.document === 'quote' ? 'What the quote covers' : 'What the bill is for'}
+              value={acceptPriceForm.note}
+              onChange={(event) => setAcceptPriceForm({ ...acceptPriceForm, note: event.currentTarget.value })}
+            />
+            <Button fullWidth loading={actionLoading} onClick={() => void handleAction('approve')}>
+              Accept and send {selectedItem.acceptPrice.document}
+            </Button>
           </Stack>
         )}
-      </BottomSheet>
+      </Modal>
 
       <Modal
         opened={switchConsentOpen}

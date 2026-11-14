@@ -1,4 +1,5 @@
 import { feedback } from '@/lib/feedback';
+import { PhoneField } from '../../../shared/PhoneField';
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
@@ -37,7 +38,7 @@ import { csvFrom, EXPORT_MIME, exportFileName, saveExport } from '@/lib/exportFi
 import RecordActions from '@/components/shared/RecordActions'
 import type { RecordKind } from '../../../shared/recordHistory'
 import { FINANCE_FLOW_WORDS, financeStatusWord, type FinanceFlow } from '../../../shared/financeWords'
-import { requestExperienceForRow, requestWhoDid } from '../../../shared/requestExperience'
+import { requestExperienceForRow, requestStageNames } from '../../../shared/requestExperience'
 import { familyLinks } from '../../../shared/relatedWork'
 import { FamilyStrip, useRelatedWorkNavigation } from '@/components/workflows/JobHandoffsPanel'
 import { formatTxnTime } from '@/lib/inboxAttention'
@@ -153,12 +154,16 @@ export default function FinanceModulesPage() {
     title: string
     trail: ReturnType<typeof trailFromPaymentLink>
     record?: { kind: RecordKind; id: string; canCancel?: boolean }
+    /** An unpaid direct supplier bill; a purchase request's bill is paid by releasing the request. */
+    payBill?: any
   }>(
     null,
   )
   const [bill, setBill] = useState({ supplierName: '', invoiceRef: '', amount: '' })
   const [savingBill, setSavingBill] = useState(false)
   const [showBillCreate, setShowBillCreate] = useState(false)
+  const [billPayment, setBillPayment] = useState<{ bill: any; amount: string; method: string; reference: string } | null>(null)
+  const [savingBillPayment, setSavingBillPayment] = useState(false)
   const [showArCreate, setShowArCreate] = useState(false)
   const [savingAr, setSavingAr] = useState(false)
   const orgName = readActiveOrganization()?.name || ''
@@ -722,6 +727,7 @@ export default function FinanceModulesPage() {
               title: `Supplier bill ${row.invoice_ref || ''}`.trim(),
               trail: trailFromSupplierBill({ ...row, supplierName: supplier?.supplier_name }),
               record: { kind: 'supplier_bill', id: String(row.id), canCancel: !['paid', 'cancelled'].includes(String(row.status)) },
+              payBill: ['paid', 'cancelled'].includes(String(row.status)) ? undefined : { ...row, supplierName: supplier?.supplier_name },
             })
           },
         }
@@ -995,10 +1001,11 @@ export default function FinanceModulesPage() {
                     value={arForm.payerName}
                     onChange={(e) => setArForm({ ...arForm, payerName: e.currentTarget.value })}
                   />
-                  <TextInput
+                  <PhoneField
+                    surface="portal"
                     label="Client mobile"
                     value={arForm.payerPhone}
-                    onChange={(e) => setArForm({ ...arForm, payerPhone: e.currentTarget.value })}
+                    onChange={(payerPhone) => setArForm({ ...arForm, payerPhone })}
                   />
                 </Group>
                 <NumberInput
@@ -1190,6 +1197,93 @@ export default function FinanceModulesPage() {
                 />
               </FormCard>
             </Modal>
+            <Modal
+              opened={Boolean(billPayment)}
+              onClose={() => setBillPayment(null)}
+              withCloseButton={false}
+              centered
+              size="md"
+              padding={0}
+              radius="lg"
+            >
+              {billPayment && (
+                <FormCard
+                  title="Record a supplier payment"
+                  subtitle={`${billPayment.bill.invoice_ref || 'Bill'} · ${billPayment.bill.supplierName || 'Supplier'}. The payment is matched to this bill and the supplier is told.`}
+                  issuer={orgName}
+                  icon={<IconCash size={24} />}
+                  actions={
+                    <>
+                      <Button variant="default" radius="xl" onClick={() => setBillPayment(null)}>
+                        Cancel
+                      </Button>
+                      <Button
+                        radius="xl"
+                        loading={savingBillPayment}
+                        disabled={!(Number(billPayment.amount) > 0)}
+                        onClick={() => {
+                          const headers = authHeaders()
+                          if (!headers) return
+                          setSavingBillPayment(true)
+                          void axios
+                            .post(
+                              `${backendUrl}/api/finance/ap/payments`,
+                              {
+                                supplierId: billPayment.bill.supplier_id,
+                                apInvoiceId: billPayment.bill.id,
+                                amountPaid: Number(billPayment.amount),
+                                currency: billPayment.bill.currency || 'USD',
+                                paymentMethod: billPayment.method,
+                                reference: billPayment.reference.trim() || undefined,
+                              },
+                              { headers },
+                            )
+                            .then(() => {
+                              setBillPayment(null)
+                              notifications.show({ position: 'bottom-center', color: 'green', message: 'Payment recorded and matched to the bill.' })
+                              return load()
+                            })
+                            .catch((err) =>
+                              notifications.show({
+                                color: 'red',
+                                message: String(err?.response?.data?.message || err?.message || 'The payment could not be recorded.'),
+                              }),
+                            )
+                            .finally(() => setSavingBillPayment(false))
+                        }}
+                      >
+                        Record payment
+                      </Button>
+                    </>
+                  }
+                >
+                  <TextInput
+                    label="Amount paid"
+                    required
+                    value={billPayment.amount}
+                    onChange={(e) => setBillPayment({ ...billPayment, amount: e.currentTarget.value })}
+                  />
+                  <Select
+                    label="Paid by"
+                    data={[
+                      { value: 'bank_transfer', label: 'Bank transfer' },
+                      { value: 'ecocash', label: 'EcoCash' },
+                      { value: 'cash', label: 'Cash' },
+                      { value: 'cheque', label: 'Cheque' },
+                      { value: 'other', label: 'Other' },
+                    ]}
+                    value={billPayment.method}
+                    onChange={(value) => setBillPayment({ ...billPayment, method: value || 'bank_transfer' })}
+                  />
+                  <TextInput
+                    label="Payment reference"
+                    placeholder="Bank or EcoCash reference"
+                    value={billPayment.reference}
+                    onChange={(e) => setBillPayment({ ...billPayment, reference: e.currentTarget.value })}
+                  />
+                </FormCard>
+              )}
+            </Modal>
             <Text size="sm" c="dimmed" mb="xs">
               Money going out. These are amounts the organisation owes suppliers.
             </Text>
@@ -1305,7 +1399,7 @@ export default function FinanceModulesPage() {
             <StageActorTimeline
               stages={requestExperienceForRow(chainRequest).stages}
               people={people}
-              whoDid={requestWhoDid(chainRequest, chainRequest.people || people)}
+              whoDid={requestStageNames(chainRequest, chainRequest.people || people, chainRequest.parties)}
               title="Request progress"
             />
             {familyLinks(chainRequest.family, chainRequest.id).length > 0 && (
@@ -1322,6 +1416,24 @@ export default function FinanceModulesPage() {
         )}
         {moneyItem?.record && (
           <Group mt="md">
+            {moneyItem.payBill && (
+              <Button
+                radius="xl"
+                leftSection={<IconCash size={18} />}
+                onClick={() => {
+                  const payBill = moneyItem.payBill
+                  setMoneyItem(null)
+                  setBillPayment({
+                    bill: payBill,
+                    amount: String(payBill.balance_due ?? payBill.amount ?? ''),
+                    method: 'bank_transfer',
+                    reference: '',
+                  })
+                }}
+              >
+                Record payment
+              </Button>
+            )}
             <RecordActions
               kind={moneyItem.record.kind}
               id={moneyItem.record.id}

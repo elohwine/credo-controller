@@ -30,7 +30,11 @@ import {
   claimTenantForUser,
   getTenantCredentialCount,
 } from '../../services/PhoneTenantLinkingService'
-import { InviteRequiredError, SSIAuthService } from '../../services/SSIAuthService'
+import {
+  identityVerificationRequestService,
+  type RegistryRequestState,
+} from '../../services/IdentityVerificationRequestService'
+import { InviteRequiredError, PinLockedError, SSIAuthService } from '../../services/SSIAuthService'
 import { WalletLoginService } from '../../services/WalletLoginService'
 // import type { VerifyPresentationRequestBody } from '../../types/api'
 
@@ -64,6 +68,8 @@ interface RegisterRequest {
   tenantType?: 'USER' | 'ORG'
   domain?: string
   claimExistingTenant?: boolean // If true, claim any existing tenant linked to this phone
+  /** Ask the Central Registry to confirm a date of birth. The identity card is still issued. */
+  requestRegistryVerification?: boolean
 }
 
 interface InviteSummary {
@@ -144,6 +150,56 @@ export class WalletAuthController extends Controller {
     return new DeviceLoginService(container.resolve(Agent), this.ssiAuthService).finish(request, body)
   }
 
+  /**
+   * Opt in to the Central Registry confirming this person's date of birth. Not a lookup: it
+   * only records the request. When the registry connection is approved and built, confirming
+   * it reissues the platform identity (see IdentityVerificationRequestService). One request at
+   * a time; asking again while pending returns the same one.
+   */
+  @Post('/identity-verification/registry-request')
+  @Security('jwt')
+  public requestRegistryIdentityVerification(@Request() request: ExRequest): RegistryRequestState {
+    const user = (request as ExRequest & { user?: { tenantId?: string } }).user
+    if (!user?.tenantId) throw new StatusException('Sign in required', 401)
+    return identityVerificationRequestService.requestRegistryVerification(user.tenantId)
+  }
+
+  @Get('/identity-verification/status')
+  @Security('jwt')
+  public identityVerificationStatus(@Request() request: ExRequest): RegistryRequestState {
+    const user = (request as ExRequest & { user?: { tenantId?: string } }).user
+    if (!user?.tenantId) throw new StatusException('Sign in required', 401)
+    return identityVerificationRequestService.statusFor(user.tenantId)
+  }
+
+  /**
+   * The person enters their own date of birth now, instead of (or after) asking the registry.
+   * Reissues the platform identity with `identityVerification: 'self_attested'` — the same
+   * credential type, not a new one.
+   */
+  @Post('/identity-verification/self-attest')
+  @Security('jwt')
+  public async selfAttestDateOfBirth(
+    @Request() request: ExRequest,
+    @Body() body: { dateOfBirth: string; displayName?: string; phone?: string },
+  ): Promise<{ offered: boolean }> {
+    const user = (request as ExRequest & { user?: { tenantId?: string } }).user
+    if (!user?.tenantId) throw new StatusException('Sign in required', 401)
+    const dateOfBirth = String(body?.dateOfBirth || '').trim()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+      throw new StatusException('Enter a date of birth as YYYY-MM-DD', 400)
+    }
+    const offerUri = await this.ssiAuthService
+      .reissuePlatformIdentityWithDateOfBirth(user.tenantId, dateOfBirth, 'self_attested', body?.displayName, body?.phone)
+      .catch((error: any) => {
+        request.logger?.warn({ err: error?.message }, 'Self-attested date of birth reissue failed')
+        return undefined
+      })
+    if (!offerUri) throw new StatusException('Could not create the age verification card', 500)
+    // A pending registry request stays open: its confirmation later replaces this self-entered date.
+    return { offered: true }
+  }
+
   @Post('/device-enrollment')
   @Security('jwt')
   public beginDeviceEnrollment(
@@ -217,6 +273,7 @@ export class WalletAuthController extends Controller {
         email: body.email,
         phone: body.phone,
         claimExistingTenantId,
+        requestRegistryVerification: body.requestRegistryVerification === true,
       })
 
       // If we claimed a tenant, ensure the link is finalized
@@ -276,6 +333,7 @@ export class WalletAuthController extends Controller {
     } catch (e: any) {
       console.log('[LOGIN] Authentication failed:', e.message)
       if (e instanceof InviteRequiredError) throw new StatusException(e.message, 403)
+      if (e instanceof PinLockedError) throw new StatusException(e.message, 429)
       throw new StatusException('Invalid credentials', 401)
     }
   }
@@ -338,7 +396,7 @@ export class WalletAuthController extends Controller {
     @Request() request: ExRequest,
     @Body() body: SameDeviceLoginBody,
   ): Promise<{ presented: true }> {
-    throw new StatusException('Use the updated Android app and enroll this device under Account security.', 403)
+    throw new StatusException('Use the updated Android app and turn on sign-in with this phone in Settings, Sign-in and security.', 403)
   }
 
   @Get('/session')

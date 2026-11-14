@@ -4,6 +4,7 @@ import { ContactPickerSelect, type PickerContact } from './ContactPickerSelect'
 import { StageActorTimeline } from './StageActorTimeline'
 import { clientBillingStages, CLIENT_BILLING_HELP } from '../../../shared/fieldJobOutcomes'
 import { formatTxnTime } from '@/lib/inboxAttention'
+import { PhoneField } from '../../../shared/PhoneField'
 
 export interface ClientBillingDetailsProps {
   run?: any
@@ -98,7 +99,7 @@ export function ClientBillingDetails({ run, link, canManage, busy, onSend, onSav
               }}
             />
             <TextInput label="Client name" value={contact.payerName} onChange={(event) => setContact({ ...contact, payerName: event.currentTarget.value })} />
-            <TextInput label="Client mobile (international format)" value={contact.payerPhone} onChange={(event) => setContact({ ...contact, payerPhone: event.currentTarget.value })} />
+            <PhoneField surface="phone" label="Client mobile" value={contact.payerPhone} onChange={(payerPhone) => setContact({ ...contact, payerPhone })} />
             {link && onSavePayer && (
               <Group>
                 <Button variant="light" disabled={!canManage || !valid || !dirty} loading={busy} onClick={() => void saveOnly()}>Save client details</Button>

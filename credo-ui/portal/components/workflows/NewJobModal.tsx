@@ -13,9 +13,11 @@ import {
   stageActorOption,
 } from '@/lib/jobPeople'
 import BaseModal from '@/components/walt/modal/BaseModal'
+import { PhoneField } from '../../../shared/PhoneField'
 import FormCard from '@/components/shared/FormCard'
 import { ContactPickerSelect } from '@/components/finance/ContactPickerSelect'
 import { IconBriefcase } from '@tabler/icons-react'
+import JobPaymentPlanFields, { jobPaymentPlanBody } from './JobPaymentPlanFields'
 
 interface Member {
   userId: string
@@ -205,15 +207,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
         // Only a job that pays a worker or subcontractor has a payout step.
         ...(Number.isFinite(payoutAmount) && payoutAmount > 0 ? { payoutAmount } : {}),
         currency: form.currency,
-        paymentTerms: form.paymentTerms,
-        ...(form.paymentTerms !== 'one_time'
-          ? {
-              instalments: Number(form.instalments) || 2,
-              paymentCadence: form.paymentCadence,
-              firstDueDate: form.firstDueDate,
-              ...(Number(form.firstPaymentAmount) > 0 ? { firstPaymentAmount: Number(form.firstPaymentAmount) } : {}),
-            }
-          : {}),
+        ...jobPaymentPlanBody(form),
         description: form.description.trim(),
         requireConcealedWorkPhoto: form.requireConcealedWorkPhoto,
         poNumber: form.poNumber.trim(),
@@ -322,12 +316,12 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
             onChange={(e) => setForm({ ...form, location: e.currentTarget.value })}
           />
         </Group>
-        <TextInput
+        <PhoneField
+          surface="portal"
           label="Client mobile number"
           description="The client gets the bill, and any extra-work quote, as a text with a pay link. Leave empty if the client is billed another way."
-          placeholder="e.g. 0771234567"
           value={form.clientPhone}
-          onChange={(e) => setForm({ ...form, clientPhone: e.currentTarget.value })}
+          onChange={(clientPhone) => setForm({ ...form, clientPhone })}
         />
         <TextInput
           label="Assigned vehicle (optional)"
@@ -356,50 +350,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
             onChange={(value) => setForm({ ...form, currency: value || 'USD' })}
           />
         </Group>
-        <Select
-          label="How will the client pay?"
-          description="The job can close after sign-off while later payments remain in Finance."
-          data={[
-            { value: 'one_time', label: 'One payment' },
-            { value: 'instalment', label: 'A fixed number of instalments' },
-            { value: 'recurring', label: 'Recurring payments' },
-          ]}
-          value={form.paymentTerms}
-          onChange={(value) => setForm({ ...form, paymentTerms: value || 'one_time' })}
-        />
-        {form.paymentTerms !== 'one_time' && (
-          <Group grow>
-            <NumberInput
-              label="Number of payments"
-              min={2}
-              max={60}
-              value={form.instalments}
-              onChange={(value) => setForm({ ...form, instalments: value })}
-            />
-            <Select
-              label="How often"
-              data={[
-                { value: 'weekly', label: 'Weekly' },
-                { value: 'monthly', label: 'Monthly' },
-                { value: 'quarterly', label: 'Every three months' },
-              ]}
-              value={form.paymentCadence}
-              onChange={(value) => setForm({ ...form, paymentCadence: value || 'monthly' })}
-            />
-            <TextInput
-              type="date"
-              label="First payment due"
-              value={form.firstDueDate}
-              onChange={(e) => setForm({ ...form, firstDueDate: e.currentTarget.value })}
-            />
-            <NumberInput
-              label="First payment amount (optional)"
-              min={0}
-              value={form.firstPaymentAmount}
-              onChange={(value) => setForm({ ...form, firstPaymentAmount: value })}
-            />
-          </Group>
-        )}
+        <JobPaymentPlanFields value={form} onChange={(plan) => setForm({ ...form, ...plan })} />
         <NumberInput
           label="Worker payout (optional)"
           description="Only for a subcontractor or a per-job worker. Leave empty for salaried staff: the job then closes after sign-off with no payout step."

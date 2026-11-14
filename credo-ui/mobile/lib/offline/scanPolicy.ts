@@ -2,7 +2,6 @@ import { evaluateOrgActionPolicy, type OrgContextBundleCacheEntry } from './orgC
 import type { ScanMode } from '@/components/scan/ScanModeSheet'
 
 const SCAN_MODE_ACTION_TYPES: Partial<Record<ScanMode, string>> = {
-  'approve-requisition': 'workflow.approve_requisition',
   'capture-evidence': 'workflow.capture_evidence',
   'verify-presentation': 'verify.presentation',
   'verify-delivery': 'verify.consume',

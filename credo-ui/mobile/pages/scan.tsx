@@ -333,19 +333,6 @@ export default function ScanPage() {
   useEffect(() => {
     if (!router.isReady) return;
 
-    const requestedMode = router.query.mode;
-    const nextMode = Array.isArray(requestedMode) ? requestedMode[0] : requestedMode;
-    if (nextMode === 'approve-requisition' || nextMode === 'release-funds' || nextMode === 'acknowledge-requisition') {
-      void handleModeSelect(nextMode as ScanMode);
-      setModeSheetOpen(false);
-      setResult(null);
-      setError(null);
-    }
-  }, [router.isReady, router.query.mode]);
-
-  useEffect(() => {
-    if (!router.isReady) return;
-
     const scanValueParam = router.query.scanValue;
     const scanValue = Array.isArray(scanValueParam) ? scanValueParam[0] : scanValueParam;
     if (!scanValue || scanValue.trim().length === 0) return;
@@ -455,47 +442,18 @@ export default function ScanPage() {
 
       // SSI VP request routing for approval and verification flows.
       if (parsedPayload.kind === 'presentation-request') {
-        const requisitionId = Array.isArray(router.query.requisitionId) ? router.query.requisitionId[0] : router.query.requisitionId;
-        const orgTenantId = Array.isArray(router.query.orgTenantId) ? router.query.orgTenantId[0] : router.query.orgTenantId;
+        // Approve / Release funds on a purchase never arrive here: the phone opens the share
+        // screen directly from the purchase (same path as a job's sign-off and payout).
         const params = new URLSearchParams({ request_uri: parsedPayload.presentationRequestUri || parsedPayload.raw });
-
-        const effectiveRequisitionId = (typeof requisitionId === 'string' && requisitionId.length > 0)
-          ? requisitionId
-          : workflowContext.requisitionId;
 
         if (workflowContext.workflowRunId) params.set('workflowRunId', workflowContext.workflowRunId);
         if (workflowContext.workflowId) params.set('workflowId', workflowContext.workflowId);
         if (workflowContext.providerRef) params.set('providerRef', workflowContext.providerRef);
         if (workflowContext.sourceType) params.set('sourceType', workflowContext.sourceType);
         if (workflowContext.requestId) params.set('requestId', workflowContext.requestId);
+        if (workflowContext.requisitionId) params.set('requisitionId', workflowContext.requisitionId);
 
-        if (mode === 'approve-requisition' && effectiveRequisitionId) {
-          params.set('mode', 'requisition-approve');
-          params.set('requisitionId', effectiveRequisitionId);
-          if (typeof orgTenantId === 'string' && orgTenantId.length > 0) {
-            params.set('orgTenantId', orgTenantId);
-          }
-        } else if (mode === 'release-funds' && effectiveRequisitionId) {
-          params.set('mode', 'requisition-release');
-          params.set('requisitionId', effectiveRequisitionId);
-          const amount = Array.isArray(router.query.amount) ? router.query.amount[0] : router.query.amount;
-          const currency = Array.isArray(router.query.currency) ? router.query.currency[0] : router.query.currency;
-          if (typeof amount === 'string' && amount.trim().length > 0) {
-            params.set('amount', amount.trim());
-          }
-          if (typeof currency === 'string' && currency.trim().length > 0) {
-            params.set('currency', currency.trim());
-          }
-          if (typeof orgTenantId === 'string' && orgTenantId.length > 0) {
-            params.set('orgTenantId', orgTenantId);
-          }
-        } else if (mode === 'acknowledge-requisition' && effectiveRequisitionId) {
-          params.set('mode', 'requisition-ack');
-          params.set('requisitionId', effectiveRequisitionId);
-          if (typeof orgTenantId === 'string' && orgTenantId.length > 0) {
-            params.set('orgTenantId', orgTenantId);
-          }
-        } else if (workflowContext.workflowRunId || workflowContext.workflowId || workflowContext.providerRef) {
+        if (workflowContext.workflowRunId || workflowContext.workflowId || workflowContext.providerRef) {
           params.set('mode', 'workflow-action');
         }
 
@@ -603,23 +561,9 @@ export default function ScanPage() {
     <AppShellMobile>
       <Stack gap="lg" px="md" pt="lg" pb="xl">
         <Box>
-          <Title order={3}>
-            {mode === 'approve-requisition'
-              ? 'Scan To Approve'
-              : mode === 'release-funds'
-                ? 'Scan To Release Funds'
-                : mode === 'acknowledge-requisition'
-                  ? 'Scan To Acknowledge'
-                  : 'Scan / Capture'}
-          </Title>
+          <Title order={3}>Scan / Capture</Title>
           <Text size="sm" c="dimmed" mt={2}>
-            {mode === 'approve-requisition'
-              ? 'Scan the QR shown on the portal to prove authority and approve this requisition.'
-              : mode === 'release-funds'
-                ? 'Scan the QR shown on the portal to prove authority and release funds for this requisition.'
-                : mode === 'acknowledge-requisition'
-                  ? 'Scan the QR shown on the portal to prove authority and acknowledge this requisition.'
-              : 'Scan to sign in, review a request to share details, or receive a credential.'}
+            Scan to sign in, review a request to share details, or receive a credential.
           </Text>
         </Box>
         <SectionTip tip="tip_scan" when={!mode} />
@@ -691,13 +635,7 @@ export default function ScanPage() {
                 </Button>
                 <Text fw={600} size="lg">Tap to Scan</Text>
                 <Text size="sm" c="dimmed" ta="center">
-                  {mode === 'approve-requisition'
-                    ? 'Point your camera at the portal approval QR'
-                    : mode === 'release-funds'
-                      ? 'Point your camera at the portal release QR'
-                      : mode === 'acknowledge-requisition'
-                        ? 'Point your camera at the portal acknowledge QR'
-                    : 'Scan a credential offer or a sign-in / sharing request'}
+                  Scan a credential offer or a sign-in / sharing request
                 </Text>
               </Stack>
             </Center>

@@ -277,6 +277,13 @@ export class WorkflowRequestRepository {
     logger.info({ requestId: id, status, metadata }, 'Workflow request status updated')
   }
 
+  /** Replace what the request carries, e.g. the price the organisation set when it accepted. */
+  public updatePayload(id: string, payload: Record<string, any>): void {
+    this.db
+      .prepare(`UPDATE workflow_requests SET payload = @payload, updated_at = @updatedAt WHERE id = @id`)
+      .run({ id, payload: JSON.stringify(payload), updatedAt: new Date().toISOString() })
+  }
+
   public assignRequest(
     id: string,
     assignment: {

@@ -1,7 +1,8 @@
 /**
  * SSI Auth Controller - Self-Sovereign Identity Authentication
  *
- * TRUE SSI APPROACH - No PII stored in database!
+ * The account row keeps a keyed hash of the phone or email and a slow hash of the PIN.
+ * The name and the number live in the person's own card. See docs/SSI_PRODUCTION_PROFILE.md.
  *
  * Endpoints:
  * - POST /register - Create account, issue PlatformIdentityVC to wallet
@@ -10,8 +11,8 @@
  * - POST /login/pin - Web2 fallback: login with phone/email + PIN
  * - GET /session - Get current session info (from VC claims in wallet)
  *
- * User's PII lives ONLY in their wallet. We store ONLY:
- * - tenantId, DID, credential hashes for lookup
+ * The name lives in the person's card. This service stores the tenant, the DID, and the
+ * keyed contact hash used to find the account.
  */
 
 import 'reflect-metadata'
@@ -23,7 +24,7 @@ import { container } from 'tsyringe'
 
 import { SCOPES } from '../../enums'
 import { StatusException } from '../../errors'
-import { SSIAuthService } from '../../services/SSIAuthService'
+import { PinLockedError, SSIAuthService } from '../../services/SSIAuthService'
 
 // Request/Response interfaces
 
@@ -38,6 +39,8 @@ interface SSIRegisterRequest {
   pin?: string
   /** If provided, claim this existing tenant's VCs (from checkout flow) */
   claimExistingTenantId?: string
+  /** Ask the Central Registry to confirm a date of birth. The identity card is still issued. */
+  requestRegistryVerification?: boolean
 }
 
 interface SSIRegisterResponse {
@@ -173,6 +176,7 @@ export class SSIAuthController extends Controller {
         email: body.email,
         pin: body.pin,
         claimExistingTenantId: body.claimExistingTenantId,
+        requestRegistryVerification: body.requestRegistryVerification === true,
       })
 
       // Count existing credentials if claimed
@@ -329,6 +333,7 @@ export class SSIAuthController extends Controller {
       }
     } catch (error: any) {
       request.logger?.error({ error: error.message }, 'PIN Login failed')
+      if (error instanceof PinLockedError) throw new StatusException(error.message, 429)
       throw new StatusException('Invalid credentials', 401)
     }
   }

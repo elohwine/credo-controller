@@ -14,7 +14,10 @@ export interface IssuedCredentialPersistenceRecord {
   holderDid?: string
   credentialDefinitionId: string
   schemaId?: string
+  /** The register's copy: the signed document with the person's own claims removed. */
   credentialData: any
+  /** SHA-256 of the document as issued, so integrity survives the redaction. */
+  credentialDigest?: string
   format: string
   revoked: boolean
   revocationReason?: string
@@ -34,14 +37,15 @@ export class IssuedCredentialRepository {
     const stmt = db.prepare(`
       INSERT INTO issued_credentials (
         id, tenant_id, credential_id, holder_did, credential_definition_id,
-        schema_id, credential_data, format, revoked, issued_at
+        schema_id, credential_data, credential_digest, format, revoked, issued_at
       ) VALUES (
         @id, @tenantId, @credentialId, @holderDid, @credentialDefinitionId,
-        @schemaId, @credentialData, @format, @revoked, CURRENT_TIMESTAMP
+        @schemaId, @credentialData, @credentialDigest, @format, @revoked, CURRENT_TIMESTAMP
       )
       ON CONFLICT(id) DO UPDATE SET
         holder_did = @holderDid,
         credential_data = @credentialData,
+        credential_digest = @credentialDigest,
         format = @format,
         revoked = @revoked
     `)
@@ -55,6 +59,7 @@ export class IssuedCredentialRepository {
         credentialDefinitionId: record.credentialDefinitionId,
         schemaId: record.schemaId || null,
         credentialData: JSON.stringify(record.credentialData),
+        credentialDigest: record.credentialDigest || null,
         format: record.format,
         revoked: record.revoked ? 1 : 0,
       })
@@ -76,7 +81,8 @@ export class IssuedCredentialRepository {
       SELECT 
         id, tenant_id as tenantId, credential_id as credentialId, holder_did as holderDid,
         credential_definition_id as credentialDefinitionId, schema_id as schemaId,
-        credential_data as credentialData, format, revoked, revocation_reason as revocationReason,
+        credential_data as credentialData, credential_digest as credentialDigest,
+        format, revoked, revocation_reason as revocationReason,
         issued_at as issuedAt, revoked_at as revokedAt
       FROM issued_credentials
       WHERE credential_id = ?
@@ -107,7 +113,8 @@ export class IssuedCredentialRepository {
       SELECT 
         id, tenant_id as tenantId, credential_id as credentialId, holder_did as holderDid,
         credential_definition_id as credentialDefinitionId, schema_id as schemaId,
-        credential_data as credentialData, format, revoked, revocation_reason as revocationReason,
+        credential_data as credentialData, credential_digest as credentialDigest,
+        format, revoked, revocation_reason as revocationReason,
         issued_at as issuedAt, revoked_at as revokedAt
       FROM issued_credentials
       WHERE id = ?
@@ -138,7 +145,8 @@ export class IssuedCredentialRepository {
       SELECT 
         id, tenant_id as tenantId, credential_id as credentialId, holder_did as holderDid,
         credential_definition_id as credentialDefinitionId, schema_id as schemaId,
-        credential_data as credentialData, format, revoked, revocation_reason as revocationReason,
+        credential_data as credentialData, credential_digest as credentialDigest,
+        format, revoked, revocation_reason as revocationReason,
         issued_at as issuedAt, revoked_at as revokedAt
       FROM issued_credentials
       WHERE tenant_id = ?
@@ -166,7 +174,8 @@ export class IssuedCredentialRepository {
       SELECT 
         id, tenant_id as tenantId, credential_id as credentialId, holder_did as holderDid,
         credential_definition_id as credentialDefinitionId, schema_id as schemaId,
-        credential_data as credentialData, format, revoked, revocation_reason as revocationReason,
+        credential_data as credentialData, credential_digest as credentialDigest,
+        format, revoked, revocation_reason as revocationReason,
         issued_at as issuedAt, revoked_at as revokedAt
       FROM issued_credentials
       WHERE holder_did = ?

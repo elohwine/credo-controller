@@ -121,6 +121,7 @@ const CONTEXT_SCHEMAS = new Map<string, ReadonlySet<string>>([
   ['hr.delegation_request', new Set(['delegateRef', 'scopeRef', 'validFrom', 'validUntil', 'reasonCode'])],
   // Raised by a member from Home: time off, with who covers while they are away.
   ['hr.leave', new Set(['leaveType', 'startDate', 'endDate', 'days', 'reasonCode', 'coverRef'])],
+  ['hr.salary_advance', new Set(['repaymentMonths', 'periodRef', 'reasonCode'])],
   // A worker's nudge for a signed-off job whose payout has not been released yet.
   ['finance.payout_request', new Set(['workflowRunId', 'jobReference', 'periodRef'])],
   [

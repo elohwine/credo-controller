@@ -13,6 +13,7 @@ import api from '@/lib/api';
 import { initializeOfflineStorage } from '@/lib/offline/storage';
 import { syncWalletSnapshot } from '@/lib/offline/walletSnapshotSync';
 import { useActiveTabInView } from '@/lib/tabs';
+import { useKeyboardInset } from '@/lib/keyboardInset';
 import { walletQrKind } from '@/lib/walletScan';
 import { adoptRestoredCameraResult, clearCameraPending, pendingCameraReturn } from '@/lib/photoDraft';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
@@ -24,7 +25,7 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@/styles/globals.css';
 
-const PUBLIC_ROUTES = ['/login', '/login/', '/device-login', '/pay/[code]'];
+const PUBLIC_ROUTES = ['/login', '/login/', '/device-login', '/pay/[code]', '/demo/gate'];
 const ORG_ONLY_ROUTE_PREFIXES = ['/finance', '/workflows', '/field-jobs', '/intake', '/credential-operations', '/connected-systems', '/requests'];
 // /proofs is not here: with an organisation open it shows the organisation's own records.
 const PERSONAL_ONLY_ROUTE_PREFIXES = ['/shop', '/my-requests'];
@@ -194,6 +195,7 @@ async function trackDeepLinkEntry(rawUrl: string, parsed: { route: string; query
 
 export default function App({ Component, pageProps, router }: AppProps) {
   useActiveTabInView();
+  useKeyboardInset();
   const launchUrlHandled = useRef(false);
   const openingDeepLink = useRef<string | null>(null);
   // The exported HTML cannot see the stored sign-in, organisation or role, so pages that draw
@@ -233,7 +235,11 @@ export default function App({ Component, pageProps, router }: AppProps) {
       if (router.pathname !== '/inbox') void router.replace('/inbox');
     };
     const check = () => { settle(router.asPath); finish(); };
-    const start = (url: string) => settle(url);
+    // Route events carry the base path ("/app" on the web copy); task paths are matched without it.
+    const start = (url: string) => {
+      const base = router.basePath || '';
+      settle(base && url.startsWith(base) ? url.slice(base.length) || '/' : url);
+    };
     router.events.on('routeChangeStart', start);
     router.events.on('routeChangeComplete', finish);
     router.events.on('routeChangeError', finish);

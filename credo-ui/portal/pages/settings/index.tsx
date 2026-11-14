@@ -1,7 +1,6 @@
 import React from 'react'
 import { useRouter } from 'next/router'
 import { Container, Stack, Text, Title } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
 import {
   IconBrandWhatsapp,
   IconBuilding,
@@ -9,10 +8,10 @@ import {
   IconCertificate,
   IconHelpCircle,
   IconLogin2,
+  IconId,
   IconShieldLock,
 } from '@tabler/icons-react'
 import Layout from '@/components/Layout'
-import { showGuidesAgain } from '@/components/guides/SectionGuides'
 import { useAppGuides } from '@/lib/guides'
 import { usePortalContext } from '@/lib/portalContext'
 import { SettingsList, useHolderSettings, type SettingsGroup } from '../../../shared/Guides'
@@ -35,34 +34,26 @@ export default function SettingsHome() {
     },
     {
       title: 'Account',
-      rows: [{ key: 'security', icon: <IconShieldLock size={20} />, title: 'Sign-in and security', summary: 'Devices that can sign in to your account', onSelect: go('/account-security') }],
+      rows: [
+        { key: 'security', icon: <IconShieldLock size={20} />, title: 'Sign-in and security', summary: 'Devices that can sign in to your account', onSelect: go('/account-security') },
+        { key: 'identity', icon: <IconId size={20} />, title: 'Date of birth', summary: 'Ask the Central Registry, or add it yourself', onSelect: go('/settings/identity') },
+      ],
     },
     {
       title: activeOrg?.name && orgAdmin ? `Organisation · ${activeOrg.name}` : 'Organisation',
       rows: orgAdmin
         ? [
-            { key: 'setup', icon: <IconBuilding size={20} />, title: 'Organisation setup', summary: 'People, roles and records', onSelect: go('/organization/setup') },
-            { key: 'ops', icon: <IconCertificate size={20} />, title: 'Credential operations', summary: 'Issue, suspend and revoke', onSelect: go('/organization/credential-operations') },
+            { key: 'setup', icon: <IconBuilding size={20} />, title: 'Organisation setup', summary: 'Next setup step and every organisation setting', onSelect: go('/organization/setup') },
+            { key: 'ops', icon: <IconCertificate size={20} />, title: 'Manage records', summary: 'Issue, suspend and revoke', onSelect: go('/organization/credential-operations') },
             { key: 'alerts', icon: <IconBrandWhatsapp size={20} />, title: 'WhatsApp alerts', summary: 'What the organisation is told about', onSelect: go('/organization/whatsapp') },
             { key: 'partners', icon: <IconLogin2 size={20} />, title: 'Connected systems', summary: 'Sign-in partners and integrations', onSelect: go('/organization/sign-in-partners') },
           ]
         : [],
     },
     {
-      title: 'Help',
+      title: 'Support',
       rows: [
-        {
-          key: 'guide',
-          icon: <IconHelpCircle size={20} />,
-          title: 'Getting-started guide',
-          summary: 'Show the checklist and section tips again',
-          actionLabel: 'Show again',
-          onSelect: () => {
-            void showGuidesAgain(guides.mark).then(() =>
-              notifications.show({ color: 'green', message: 'The guide is back at the top of Inbox.' }),
-            )
-          },
-        },
+        { key: 'help', icon: <IconHelpCircle size={20} />, title: 'Help & Feedback', summary: 'Common questions, the getting-started guide and feedback', onSelect: go('/help?from=settings') },
       ],
     },
   ]

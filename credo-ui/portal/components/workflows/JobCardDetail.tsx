@@ -49,6 +49,7 @@ import {
   feptStages,
   handoffWaitingLine,
   holdCountWords,
+  jobPriceState,
   plainStepName,
   safetyHoldStateWords,
   type WorkflowActorReport,
@@ -57,10 +58,12 @@ import StageProofModal from './StageProofModal'
 import JobHandoffsPanel, { useJobBillingNavigation, useRelatedWorkNavigation } from './JobHandoffsPanel'
 import { handoffLinks } from '../../../shared/relatedWork'
 import JobAuditTrailPanel from './JobAuditTrailPanel'
+import JobPriceModal from './JobPriceModal'
 import WorkerJobSteps from './WorkerJobSteps'
 import {
   buildJobAuditTrail,
   holdIsLive,
+  peopleOnJob,
   jobHeading,
   stageMedia,
   stageRelatedWork,
@@ -68,6 +71,15 @@ import {
   purchaseReceiptsFromHandoffs,
 } from '@/components/finance/jobAuditTrail'
 import { jobStatusColor as getStatusColor, jobStatusLabel as getStatusLabel } from '../finance/financeStages'
+import { detailTabsFor, type DetailTabKey } from '../../../shared/detailTabs'
+
+const DETAIL_TAB_ICONS: Record<DetailTabKey, JSX.Element> = {
+  details: <IconFileText size={16} />,
+  photos: <IconPhoto size={16} />,
+  receipts: <IconReceipt2 size={16} />,
+  documents: <IconFiles size={16} />,
+  history: <IconHistory size={16} />,
+}
 
 type ProofStage = 'acknowledgement' | 'payout'
 
@@ -129,6 +141,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
   const [proofError, setProofError] = useState<string | null>(null)
   // True while the job waits on related work (a purchase or quote); step buttons are disabled.
   const [held, setHeld] = useState(false)
+  const [priceOpen, setPriceOpen] = useState(false)
   const [tab, setTab] = useState<'details' | 'photos' | 'receipts' | 'documents' | 'history'>(initialTab)
 
   useEffect(() => {
@@ -236,9 +249,10 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
   }
 
   const assigneeId = String(state?.assignment?.assigneeId || state?.assigneeId || input.assigneeId || '')
+  const namedPeople = peopleOnJob(job, members)
   const assigneeName = (() => {
     if (!assigneeId) return undefined
-    const member = members.find((m) => m.userId === assigneeId)
+    const member = namedPeople.find((m) => m.userId === assigneeId)
     if (!member) return undefined
     const name = String(member.displayName || '').trim()
     if (name && !/^(organization owner|team member)$/i.test(name)) return name
@@ -255,6 +269,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
   const waitingFor: Record<string, string> = {
     await_site_inspection: `A site check from ${workerName}`,
     await_risk_assessment: `A safety check from ${workerName}, before any work`,
+    await_assignment: 'An owner or admin to choose who does the job',
     await_worker_start: `${workerName} to start the job`,
     await_arrival: `${workerName} to confirm arrival (location or site code)`,
     await_evidence_before: `Before photos from ${workerName}`,
@@ -264,7 +279,10 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
     await_completion_review: 'A review of the finished work',
     await_acknowledgement: 'Sign-off from the sign-off person',
     await_payout_release: 'Worker payout release from the money person',
+    await_job_price: 'An owner or admin to set the price and how the client pays',
   }
+  const priceState = jobPriceState({ ...job, input })
+  const canSetPrice = canReassign && priceState.canSet
 
   const issuedRecords: Array<{ type: string; label: string; recipientStage?: string; offerId?: string }> =
     Object.entries(
@@ -651,6 +669,11 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
             Sign off job
           </Button>
         )}
+        {priceState.waiting && canSetPrice && (
+          <Button leftSection={<IconCash size={16} />} onClick={() => setPriceOpen(true)}>
+            {priceState.action}
+          </Button>
+        )}
         {job?.status === 'paused' && pauseReason === 'await_payout_release' && (
           <Button
             color="teal"
@@ -710,21 +733,18 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
       {actionError && <Alert color="red" variant="light" mb="md">{actionError}</Alert>}
       <Tabs value={tab} onChange={(value) => setTab((value as typeof tab) || 'details')} color={BRAND.curious}>
         <Tabs.List mb="md">
-          <Tabs.Tab value="details" leftSection={<IconFileText size={16} />}>
-            Details
-          </Tabs.Tab>
-          <Tabs.Tab value="photos" leftSection={<IconPhoto size={16} />}>
-            Photos ({photoEvidence.length})
-          </Tabs.Tab>
-          <Tabs.Tab value="receipts" leftSection={<IconReceipt2 size={16} />}>
-            Receipts ({manualReceipts.length + vcReceipts.length})
-          </Tabs.Tab>
-          <Tabs.Tab value="documents" leftSection={<IconFiles size={16} />}>
-            Documents & records ({sourceAttachments.length + issuedRecords.length})
-          </Tabs.Tab>
-          <Tabs.Tab value="history" leftSection={<IconHistory size={16} />}>
-            History
-          </Tabs.Tab>
+          {detailTabsFor({
+            capturesPhotos: true,
+            movesMoney: true,
+            issuesRecords: true,
+            photos: photoEvidence.length,
+            receipts: manualReceipts.length + vcReceipts.length,
+            documents: sourceAttachments.length + issuedRecords.length,
+          }).map((item) => (
+            <Tabs.Tab key={item.key} value={item.key} leftSection={DETAIL_TAB_ICONS[item.key]}>
+              {item.label}
+            </Tabs.Tab>
+          ))}
         </Tabs.List>
 
         <Tabs.Panel value="history">
@@ -733,6 +753,17 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
 
         <Tabs.Panel value="details">
           <Stack gap="lg">
+            {priceState.canSet && (
+              <Card withBorder radius="md">
+                <Text fw={600}>Price and payment</Text>
+                <Text size="sm">{priceState.line}</Text>
+                {canSetPrice && !priceState.waiting && (
+                  <Button mt="sm" variant="light" onClick={() => setPriceOpen(true)}>
+                    {priceState.action}
+                  </Button>
+                )}
+              </Card>
+            )}
             {state.clientBill && state.clientBill.kind !== 'quote' && (
               <Card withBorder radius="md">
                 <Text fw={600}>Client billing</Text>
@@ -877,7 +908,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
               <StageActorTimeline
                 stages={feptStages(String(state?.workflowStage || state?.stage || job?.status || ''), state)}
                 actors={fieldActors}
-                people={members}
+                people={namedPeople}
                 assigneeName={assigneeName}
                 whoDid={whoDid}
                 media={mediaByStage}
@@ -926,6 +957,37 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
               <Text size="md" mb="sm">
                 {input.clientName || 'N/A'}
               </Text>
+
+              {(input.customerMsisdn || input.clientPhone) && (
+                <>
+                  <Text size="sm" c="dimmed">
+                    Phone
+                  </Text>
+                  <Group gap="xs" mb="sm">
+                    <Text size="md">{String(input.customerMsisdn || input.clientPhone)}</Text>
+                    <Anchor size="sm" href={`tel:${String(input.customerMsisdn || input.clientPhone)}`}>Call</Anchor>
+                    <Anchor
+                      size="sm"
+                      href={`https://wa.me/${String(input.customerMsisdn || input.clientPhone).replace(/\D/g, '')}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      WhatsApp
+                    </Anchor>
+                  </Group>
+                </>
+              )}
+
+              {input.bookedVia && (
+                <>
+                  <Text size="sm" c="dimmed">
+                    How it came in
+                  </Text>
+                  <Text size="md" mb="sm">
+                    {`Booked by the client ${input.bookedVia === 'whatsapp' ? 'on WhatsApp' : 'in the app'}${input.serviceName ? ` · ${input.serviceName}` : ''}`}
+                  </Text>
+                </>
+              )}
 
               <Text size="sm" c="dimmed">
                 Client PO / store number
@@ -978,7 +1040,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                   {job?.status === 'paused' && canReassign && (
                     <Stack gap="xs" mt="sm">
                       <Select
-                        label="Move this job to someone else"
+                        label={pauseReason === 'await_assignment' ? 'Choose who does this job' : 'Move this job to someone else'}
                         placeholder="Choose a member"
                         value={nextAssignee}
                         onChange={setNextAssignee}
@@ -1014,7 +1076,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                         disabled={!nextAssignee}
                         onClick={handleReassign}
                       >
-                        Move job
+                        {pauseReason === 'await_assignment' ? 'Give them the job' : 'Move job'}
                       </Button>
                     </Stack>
                   )}
@@ -1211,6 +1273,10 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
           Close
         </Button>
       </Group>
+
+      {job?.id && (
+        <JobPriceModal job={{ ...job, input }} opened={priceOpen} onClose={() => setPriceOpen(false)} onSaved={onRefresh} />
+      )}
 
       {proofStage && (
         <StageProofModal

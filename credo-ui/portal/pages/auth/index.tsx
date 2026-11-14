@@ -4,6 +4,7 @@ import Layout from '@/components/Layout';
 import { EnvContext } from '@/pages/_app';
 import { rememberCurrentAccount } from '@/lib/savedAccounts';
 import { applyPersonalLogin } from '@/lib/personalSession';
+import { PhoneField } from '../../../shared/PhoneField';
 import {
     Container,
     Paper,
@@ -29,9 +30,9 @@ import {
     IconWallet,
     IconCheck,
     IconAlertCircle,
-    IconPhone,
 } from '@tabler/icons-react';
 import axios from 'axios';
+import { RegistrySignupChoice } from '../../../shared/IdentityVerification';
 
 export default function AuthPage() {
     const router = useRouter();
@@ -50,6 +51,7 @@ export default function AuthPage() {
     const [regEmail, setRegEmail] = useState('');
     const [regPassword, setRegPassword] = useState('');
     const [regConfirmPassword, setRegConfirmPassword] = useState('');
+    const [askRegistry, setAskRegistry] = useState(false);
     const [authChecked, setAuthChecked] = useState(false);
     const [registrationVcOfferUrl, setRegistrationVcOfferUrl] = useState<string | null>(null);
     const [registrationVcAutoAccepted, setRegistrationVcAutoAccepted] = useState<boolean | null>(null);
@@ -138,6 +140,7 @@ export default function AuthPage() {
                 phone: regPhone,
                 email: regEmail || undefined,
                 pin: regPassword,
+                requestRegistryVerification: askRegistry,
             });
 
             const { walletId, vcOfferUrl, vcOfferAutoAccepted } = response.data;
@@ -209,14 +212,13 @@ export default function AuthPage() {
                         <Tabs.Panel value="login">
                             <form onSubmit={handleLogin}>
                                 <Stack>
-                                    <TextInput
-                                        label="Phone Number"
-                                        placeholder="0774 123 456 or +263774123456"
+                                    <PhoneField
+                                        surface="portal"
+                                        label="Phone number"
                                         description="Use the phone number you registered with"
                                         required
-                                        leftSection={<IconPhone size={16} />}
                                         value={loginPhone}
-                                        onChange={(e) => setLoginPhone(e.target.value)}
+                                        onChange={setLoginPhone}
                                     />
                                     <PasswordInput
                                         label="PIN"
@@ -249,14 +251,13 @@ export default function AuthPage() {
                                         value={regUsername}
                                         onChange={(e) => setRegUsername(e.target.value)}
                                     />
-                                    <TextInput
-                                        label="Phone Number"
-                                        placeholder="0774 123 456 or +263774123456"
-                                        description="📱 Required to link VCs from EcoCash payments"
+                                    <PhoneField
+                                        surface="portal"
+                                        label="Phone number"
+                                        description="Required to link records from EcoCash payments"
                                         required
-                                        leftSection={<IconPhone size={16} />}
                                         value={regPhone}
-                                        onChange={(e) => setRegPhone(e.target.value)}
+                                        onChange={setRegPhone}
                                     />
                                     <TextInput
                                         label="Email (optional)"
@@ -282,6 +283,8 @@ export default function AuthPage() {
                                         value={regConfirmPassword}
                                         onChange={(e) => setRegConfirmPassword(e.target.value)}
                                     />
+
+                                    <RegistrySignupChoice value={askRegistry} onChange={setAskRegistry} />
 
                                     <Alert color="blue" variant="light" icon={<IconWallet size={16} />}>
                                         <Text size="sm">

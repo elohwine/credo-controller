@@ -400,6 +400,14 @@ export default function ActionCenter({
                         Make a request
                     </Button>
                 </Group>
+                <Text size="xs" c="dimmed">
+                    {isOrg
+                        ? 'Scan checks a record someone shows you. Make a request starts a purchase, a job, or a bill this organisation can run. It does not ask another supplier. Only what was turned on in setup is offered.'
+                        : 'Scan checks a record someone shows you. Make a request asks your organisation for time off or an expense, or asks a business you deal with for a quote, a bill or a service.'}
+                </Text>
+                <Button variant="subtle" justify="flex-start" onClick={() => router.push(isOrg ? '/requests' : '/my-requests')}>
+                    {isOrg ? 'Requests' : 'My requests'}
+                </Button>
                 {/* Records issued to the organisation and kept in its name; the org tabs have no Records slot. */}
                 {isOrg && ['owner', 'admin'].includes(getOrgRoleClaim() || '') && (
                     <Button variant="default" leftSection={<IconWallet size={18} />} onClick={() => router.push('/proofs')}>

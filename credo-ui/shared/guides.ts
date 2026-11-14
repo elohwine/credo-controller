@@ -33,6 +33,10 @@ export interface GettingStartedOrg {
 export interface GettingStartedStatus {
   identityCard: boolean
   deviceSignIn: boolean
+  /** A phone key that asks for fingerprint or face before a money step. */
+  moneyConfirm?: boolean
+  /** This person releases, pays out or records money in an organisation. */
+  handlesMoney?: boolean
   organisation: boolean
   cardSaving: boolean
   /** An organisation sent this person a staff card they have not accepted yet. */
@@ -246,18 +250,35 @@ export function checklistMarkedDone(stepIds: ChecklistStep[], status: ChecklistS
 
 export type ChecklistStep = keyof ChecklistStatus
 
-/** The phone sign-in step stays up after the shared checklist is closed, until this phone is enrolled or the prompt is dismissed. */
-export function phoneDeviceStepStillOpen(input: {
-  deviceLogin: boolean
-  deviceSignIn: boolean
-  devicePromptDone: boolean
-}): boolean {
-  const open = input.deviceLogin && !input.deviceSignIn && !input.devicePromptDone
-  return open
+/**
+ * Phone security steps stay up after the shared checklist is closed, until each is turned on or the
+ * prompt is dismissed. Returns the steps still open; empty when there is nothing to show.
+ */
+export function phoneSecurityStepsStillOpen(
+  server: GettingStartedStatus,
+  input: { deviceLogin: boolean; devicePromptDone: boolean },
+): ChecklistStep[] {
+  if (input.devicePromptDone) return []
+  const steps = phoneSecuritySteps(server, input.deviceLogin)
+  const done: Partial<Record<ChecklistStep, boolean>> = { deviceSignIn: server.deviceSignIn, moneyConfirm: Boolean(server.moneyConfirm) }
+  return steps.some((step) => !done[step]) ? steps : []
+}
+
+/**
+ * Phone security steps still to do, in order: sign in with the phone, then (for people who handle
+ * money) fingerprint or face on money steps. Phone only; the portal never shows them.
+ */
+export function phoneSecuritySteps(server: GettingStartedStatus, withDevice: boolean): ChecklistStep[] {
+  if (!withDevice || !server.identityCard) return []
+  const steps: ChecklistStep[] = ['deviceSignIn']
+  if (server.handlesMoney) steps.push('moneyConfirm')
+  return steps
 }
 
 /** Server state plus progress only the app knows, such as having looked at Records. */
-export interface ChecklistStatus extends Omit<GettingStartedStatus, 'staffCardWaiting' | 'setupToFinish'> {
+export interface ChecklistStatus extends Omit<GettingStartedStatus, 'staffCardWaiting' | 'setupToFinish' | 'moneyConfirm' | 'handlesMoney'> {
+  /** Ticked once this phone confirms money steps with fingerprint or face. */
+  moneyConfirm: boolean
   records: boolean
   /** Ticked when no organisation is waiting on this person's setup answers. */
   orgSetup: boolean
@@ -293,6 +314,7 @@ export function checklistFor(
   const status: ChecklistStatus = {
     identityCard: server.identityCard,
     deviceSignIn: server.deviceSignIn,
+    moneyConfirm: Boolean(server.moneyConfirm),
     organisation: server.organisation,
     cardSaving: server.cardSaving,
     records: local.records,
@@ -304,8 +326,7 @@ export function checklistFor(
   if (!server.identityCard) {
     return { status, steps: ['identityCard'], copy }
   }
-  const steps: ChecklistStep[] = ['identityCard', 'cardSaving', 'records']
-  if (local.withDevice) steps.push('deviceSignIn')
+  const steps: ChecklistStep[] = ['identityCard', 'cardSaving', 'records', ...phoneSecuritySteps(server, local.withDevice)]
   if (server.staffCardWaiting) {
     steps.push('staffCard')
     copy.staffCard = {
@@ -349,8 +370,13 @@ export const CHECKLIST_COPY: Record<ChecklistStep, ChecklistCopy> = {
   },
   deviceSignIn: {
     title: 'Sign in with this phone',
-    detail: 'Use your screen lock next time instead of typing your PIN.',
-    action: 'Set up',
+    detail: 'Next time, use your fingerprint, face or screen lock instead of typing your PIN. It only works on this phone.',
+    action: 'Turn on',
+  },
+  moneyConfirm: {
+    title: 'Confirm money with your fingerprint',
+    detail: 'Before money is released, paid out or recorded, this phone asks for your fingerprint or face. Someone with only your PIN cannot do it.',
+    action: 'Turn on',
   },
   organisation: {
     title: 'Start an organisation',

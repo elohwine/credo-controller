@@ -30,6 +30,20 @@ const SHARE_STEP_TITLES: Record<string, string> = {
   release_funds: 'Release the money',
   record_payment: 'Record this payment',
   acknowledge_remittance: 'Confirm this payment',
+  issue_receipt_vc: 'Issue a receipt',
+}
+
+/** The same steps as a list on a card, where "this request" would read the same three times. */
+const CARD_STEP_WORDS: Record<string, string> = {
+  approve_requisition: 'Approve purchases',
+  finance_approve_requisition: 'Approve purchases for finance',
+  approve_request: 'Approve requests',
+  release_funds: 'Release money',
+  record_payment: 'Record payments',
+  acknowledge_remittance: 'Confirm payments',
+  issue_receipt_vc: 'Issue receipts',
+  trigger_payout: 'Release worker payouts',
+  acknowledge_execution: 'Sign off jobs',
 }
 
 /** One line for the share screen: the step, the job reference, and the amount when we have them. */
@@ -45,7 +59,12 @@ export function sharePurposeFromBinding(binding: { step?: unknown; job?: unknown
 }
 
 /** The job binding the verifier put on the request (step, job reference, amount), decoded. */
-export function shareBindingFromResolvedRequest(resolved: any): { step?: string; job?: string; amount?: string } {
+export function shareBindingFromResolvedRequest(resolved: any): {
+  step?: string
+  job?: string
+  amount?: string
+  currency?: string
+} {
   const raw = resolved?.authorizationRequestPayload?.transaction_data
   const encoded = Array.isArray(raw) ? raw.find((item: unknown) => typeof item === 'string') : undefined
   if (typeof encoded !== 'string' || !encoded) return {}
@@ -59,6 +78,7 @@ export function shareBindingFromResolvedRequest(resolved: any): { step?: string;
           .toLowerCase() || undefined,
       job: String(decoded.job || '').trim() || undefined,
       amount: decoded.amount == null || decoded.amount === '' ? undefined : String(decoded.amount),
+      currency: String(decoded.currency || '').trim() || undefined,
     }
   } catch {
     return {}
@@ -68,7 +88,8 @@ export function shareBindingFromResolvedRequest(resolved: any): { step?: string;
 /** Read the job binding the verifier put on the request, for the share screen. */
 export function purposeLineFromResolvedRequest(resolved: any): string {
   const binding = shareBindingFromResolvedRequest(resolved)
-  return binding.step || binding.job || binding.amount ? sharePurposeFromBinding(binding) : ''
+  const amount = binding.amount && binding.currency ? `${binding.currency} ${binding.amount}` : binding.amount
+  return binding.step || binding.job || binding.amount ? sharePurposeFromBinding({ ...binding, amount }) : ''
 }
 
 /**
@@ -250,13 +271,14 @@ export function buildStageProofDcqlQuery(params: {
 }
 
 /** Why this card can answer the step, from what it would reveal. */
-export type ShareBasis = 'step_on_card' | 'named_on_job' | 'role_for_flow' | 'whole_card'
+export type ShareBasis = 'step_on_card' | 'named_on_job' | 'role_for_flow' | 'whole_card' | 'age_over'
 
 export const SHARE_BASIS_LINES: Record<ShareBasis, string> = {
   step_on_card: 'Your card lists this step',
   named_on_job: 'You are the person named on this job',
   role_for_flow: 'Your role card covers this kind of work',
   whole_card: 'This card cannot share only some details, so the whole card is shared',
+  age_over: 'This site asked only whether you are 18 or over',
 }
 
 export interface ShareReviewRow {
@@ -265,7 +287,27 @@ export interface ShareReviewRow {
 }
 
 /** Keys that are bookkeeping on a card, never a detail a person reads. */
-const SHARE_HIDDEN_KEYS = /^(claims|assignmentMode|requestType|stageAction|templateId|fingerprint|offerId|did|jti|id)$/i
+const SHARE_HIDDEN_KEYS =
+  /^(claims|assignmentMode|requestType|stageAction|templateId|fingerprint|offerId|did|jti|id|source|platformName)$/i
+
+/** "request.approve" → "approve requests". */
+function permissionWords(permission: string): string {
+  const [noun, verb] = permission.split('.')
+  if (!verb) return readableWords(permission).toLowerCase()
+  const thing = readableWords(noun).toLowerCase()
+  return `${readableWords(verb).toLowerCase()} ${thing.endsWith('s') ? thing : `${thing}s`}`
+}
+
+const VERIFICATION_LEVEL_WORDS: Record<string, string> = {
+  phone_verified: 'Phone number',
+  email_verified: 'Email address',
+  kyc_verified: 'Identity documents',
+}
+
+const IDENTITY_SOURCE_WORDS: Record<string, string> = {
+  self_attested: 'Entered by you',
+  registry_confirmed: 'Central Registry',
+}
 
 function readableWords(value: string): string {
   return value
@@ -343,13 +385,63 @@ export function shareReviewRows(input: {
         continue
       }
       if (key === 'stageActions') {
-        const steps = listOf(raw).map(shareStepLabel)
+        const keys = listOf(raw)
+        const steps = Array.from(
+          new Set(
+            keys.length === 1 && !isHeld
+              ? keys.map(shareStepLabel)
+              : keys.map((step) => CARD_STEP_WORDS[step.toLowerCase()] || shareStepLabel(step)),
+          ),
+        )
         if (steps.length === 0) continue
         push(isHeld ? 'Other steps on your card' : steps.length === 1 ? 'This step' : 'Steps', steps.join(', '))
         continue
       }
+      if (key === 'permissions') {
+        const words = Array.from(new Set(listOf(raw).map(permissionWords).filter(Boolean)))
+        if (words.length) push('Allowed to', words.join(', '))
+        continue
+      }
+      if (key === 'issuedAt' || key === 'issuanceDate' || key === 'registeredAt') {
+        const when = new Date(String(raw))
+        push(
+          key === 'registeredAt' ? 'Member since' : 'Issued',
+          Number.isNaN(when.getTime())
+            ? String(raw)
+            : when.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+        )
+        continue
+      }
+      if (key === 'orgAccess') {
+        push('Access', String(raw) === 'manage' ? 'Runs the organisation' : readableWords(String(raw)))
+        continue
+      }
       if (key === 'employmentStatus') {
         push('Status', readableWords(String(raw)))
+        continue
+      }
+      if (key === 'over18') {
+        push('18 or over', String(raw) === 'Yes' || raw === true ? 'Yes' : String(raw))
+        continue
+      }
+      if (key === 'fullName' || key === 'displayName') {
+        push('Full name', String(raw))
+        continue
+      }
+      if (key === 'dateOfBirth') {
+        push('Date of birth', String(raw))
+        continue
+      }
+      if (key === 'verificationLevel') {
+        push('Checked', VERIFICATION_LEVEL_WORDS[String(raw)] || readableWords(String(raw)))
+        continue
+      }
+      if (key === 'identityVerification') {
+        push('Date of birth from', IDENTITY_SOURCE_WORDS[String(raw)] || readableWords(String(raw)))
+        continue
+      }
+      if (key === 'idNumber') {
+        push('Identity number', String(raw))
         continue
       }
       if (key === 'role' || key === 'memberRole') {
@@ -371,6 +463,7 @@ export function shareReviewRows(input: {
 
   let basis: ShareBasis
   if (!input.selective) basis = 'whole_card'
+  else if (disclosed.over18 != null) basis = 'age_over'
   else if (disclosed.userId) basis = 'named_on_job'
   else if (disclosed.workflowType || (disclosed.role && !disclosed.employmentStatus)) basis = 'role_for_flow'
   else basis = 'step_on_card'

@@ -28,7 +28,8 @@ primary_region = "jnb"
   WALLET_PUBLIC_URL = "https://credentis.fly.dev"
   MOBILE_APP_URL = "https://credentis.fly.dev/app"
   WHATSAPP_DELIVERY_ENABLED = "true"
-  # Test-only until WHATSAPP_PRODUCTION_ENABLED = "true" is deliberately set.
+  # Alerts go to any opted-in number. WHATSAPP_TEST_RECIPIENTS applies only when this is not "true".
+  WHATSAPP_PRODUCTION_ENABLED = "true"
   WHATSAPP_TEST_RECIPIENTS = "263774183277"
   ANDROID_APP_PACKAGE = "com.credentis.mobile"
   ANDROID_APP_CERT_SHA256 = "9F:D9:DB:FF:DE:69:92:A9:2B:6C:67:BF:92:C8:7D:7C:50:72:F1:88:02:57:25:AF:6D:1F:C7:0D:96:65:9D:E0"

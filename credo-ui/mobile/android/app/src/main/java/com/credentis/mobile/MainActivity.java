@@ -49,7 +49,10 @@ public class MainActivity extends BridgeActivity {
             int right = Math.round(insets.right / density);
             int bottom = Math.round(insets.bottom / density);
             int left = Math.round(insets.left / density);
-            applySafeAreaScript(safeAreaInsets.update(top, right, bottom, left));
+            // Edge-to-edge stops Android from shrinking the WebView for the keyboard; the page lifts sheets itself.
+            Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
+            int keyboard = Math.max(0, Math.round((ime.bottom - insets.bottom) / density));
+            applySafeAreaScript(safeAreaInsets.update(top, right, bottom, left, keyboard));
             return windowInsets;
         });
         ViewCompat.requestApplyInsets(getBridge().getWebView());
@@ -64,12 +67,17 @@ public class MainActivity extends BridgeActivity {
         private String javascript;
 
         String update(int top, int right, int bottom, int left) {
+            return update(top, right, bottom, left, 0);
+        }
+
+        String update(int top, int right, int bottom, int left, int keyboard) {
             String next =
                 "(function(){var insets={" +
                 "'--safe-area-inset-top':'" + top + "px'," +
                 "'--safe-area-inset-right':'" + right + "px'," +
                 "'--safe-area-inset-bottom':'" + bottom + "px'," +
-                "'--safe-area-inset-left':'" + left + "px'};" +
+                "'--safe-area-inset-left':'" + left + "px'," +
+                "'--keyboard-inset-bottom':'" + keyboard + "px'};" +
                 "var style=document.documentElement.style;" +
                 "Object.keys(insets).forEach(function(name){" +
                 "if(style.getPropertyValue(name)!==insets[name])style.setProperty(name,insets[name]);" +

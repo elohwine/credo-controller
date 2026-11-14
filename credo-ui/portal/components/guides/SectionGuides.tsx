@@ -107,6 +107,7 @@ export function InboxGettingStarted({ wrap }: { wrap?: CSSProperties }) {
       identityCard: () => void showIdentityCard(),
       records: () => void router.push('/wallet'),
       deviceSignIn: () => undefined,
+      moneyConfirm: () => undefined,
       organisation: () => void router.push('/organization/setup'),
       staffCard: () => void router.push(status.staffCardWaiting ? `/inbox?item=${encodeURIComponent(status.staffCardWaiting.offerId)}` : '/inbox'),
       orgSetup: () => void openOrgSetup(),

@@ -381,6 +381,10 @@ Order:
 3. A portal-only setup assistant pilot (onboarding phase 5): AI SDK Core under `src/ai/` (`AiSetupAssistantService`, `POST /ai/setup/chat`), `useChat` in a Mantine side panel, read-only tools (readiness, next steps, help text) plus one proposal tool (setup answers). Owners only, behind a flag, written to the organisation audit.
 4. Only if the pilot is used: a sentence-to-workflow proposal tool and a policy-grounded "why is this asked" line on the share screen.
 
+## 2026-11-01 — A booked job with no price waits, then bills
+
+A job booked from Discover has no amount. It used to skip the client bill (`has_customer_charge` did not match) and close as settled. It now pauses after sign-off until an owner or admin sets the price and how the client pays, on the job, on either app. The bill then goes out by itself, and the job is not settled until that bill is paid. "No charge" finishes the job with no bill. A job the office created with an amount and a plan is unchanged.
+
 ## Reference docs
 
 - [SGK_FLOW.md](../SGK_FLOW.md)

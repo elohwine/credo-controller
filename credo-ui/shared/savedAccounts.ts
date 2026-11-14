@@ -128,6 +128,17 @@ export function currentAccountId(): string | null {
   return readTokenTenantId(personal)
 }
 
+/** Wallet tokens for the other sign-ins on this phone. Used to open a link in the account it was sent to. */
+export function savedAccountTokens(): Array<{ id: string; token: string }> {
+  return readList()
+    .filter((account) => !account.signedOut)
+    .map((account) => ({
+      id: account.id,
+      token: account.session.walletToken || account.session.authToken || account.session['auth.token'] || '',
+    }))
+    .filter((account) => account.token.length > 0)
+}
+
 export function listSavedAccounts(): SavedAccount[] {
   return readList().map((account) => ({
     id: account.id,

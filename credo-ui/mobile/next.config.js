@@ -12,7 +12,10 @@ const nextConfig = {
   experimental: { externalDir: true },
   eslint: { ignoreDuringBuilds: true },
   webpack: (config) => {
-    config.resolve.alias.react = require('path').dirname(require.resolve('react/package.json'))
+    const path = require('path')
+    // Shared screens live outside this app, so their imports resolve here.
+    config.resolve.modules = [path.resolve(__dirname, 'node_modules'), ...(config.resolve.modules || [])]
+    config.resolve.alias.react = path.dirname(require.resolve('react/package.json'))
     return config
   },
 }

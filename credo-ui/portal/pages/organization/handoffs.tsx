@@ -19,6 +19,7 @@ import {
 } from '@mantine/core'
 import { IconAlertCircle, IconArrowRight, IconCheck, IconRoute } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
+import RequestFlowSettings from '@/components/organization/RequestFlowSettings'
 
 // Mirrors WorkflowHandoffService.WorkflowHandoffSetting
 type Handoff = {
@@ -231,6 +232,10 @@ export default function OrganizationHandoffsPage() {
             </Alert>
           )}
           {loading && <Loader size="sm" />}
+
+          {orgTenantId && (
+            <RequestFlowSettings orgTenantId={orgTenantId} canEdit={canEdit} backendUrl={backendUrl} getToken={getToken} />
+          )}
 
           {jobs.length > 0 && (
             <Stack gap="sm">

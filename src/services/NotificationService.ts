@@ -21,6 +21,7 @@ import { getTenantById } from '../persistence/TenantRepository'
 import { rootLogger } from '../utils/pinoLogger'
 
 import { DispatchError, outboxService } from './OutboxService'
+import { phoneHashCandidates } from './ssi/contactHash'
 import {
   normalizeNotificationPhone,
   whatsAppGraphUrl,
@@ -58,6 +59,12 @@ export interface WhatsAppTextPayload {
   to: string
   body: string
   previewUrl?: boolean
+  /**
+   * Where this alert actually leads (a pay link, an acknowledgement link, …). Kept alongside
+   * `body` through the outbox so the worker that sends the message later still has the real
+   * content and link, not just the event type and an inbox item id it may not be able to match.
+   */
+  actionUrl?: string
 }
 
 export interface WhatsAppCtaPayload {
@@ -99,7 +106,7 @@ export class NotificationService {
     const user = db.prepare('SELECT phone_hash FROM ssi_users WHERE id = ?').get(input.userId) as
       | { phone_hash?: string }
       | undefined
-    if (!user?.phone_hash || user.phone_hash !== createHash('sha256').update(phone).digest('hex')) {
+    if (!user?.phone_hash || !phoneHashCandidates(phone).includes(user.phone_hash)) {
       throw new DispatchError('Phone is not owned by authenticated user', 'permanent')
     }
     const now = new Date().toISOString()
@@ -163,6 +170,9 @@ export class NotificationService {
     requestId?: string
     inboxItemId?: string
     inviteId?: string
+    /** The real message and link, kept so a payer-facing alert never sends empty-handed. */
+    body?: string
+    actionUrl?: string
   }): string {
     if (!WHATSAPP_EVENTS.includes(input.eventType as any))
       throw new DispatchError('Unsupported notification event', 'permanent')
@@ -180,6 +190,8 @@ export class NotificationService {
           ...(input.requestId ? { requestId: input.requestId } : {}),
           ...(input.inboxItemId ? { inboxItemId: input.inboxItemId } : {}),
           ...(input.inviteId ? { inviteId: input.inviteId } : {}),
+          ...(input.body ? { body: input.body } : {}),
+          ...(input.actionUrl ? { actionUrl: input.actionUrl } : {}),
         },
       })
       const now = new Date().toISOString()
@@ -301,7 +313,10 @@ export class NotificationService {
   /** The invite link by text message, at most once per invite. Each send replaces the code. */
   public async sendInviteFallbackSms(inviteId: string | undefined, phone: string): Promise<boolean> {
     if (!inviteId) return false
+    // Do not spend the one text, or the code, when nothing can carry the link.
+    if (!process.env.SMS_API_KEY && !process.env.AT_API_KEY && !process.env.SMS_GATEWAY_URL) return false
     const { memberInviteService, memberInviteLink } = await import('./MemberInviteService')
+    if (!memberInviteLink('ready')) return false
     const invite = memberInviteService.get(inviteId)
     if (!invite || invite.used_at || !memberInviteService.claimFallback(inviteId)) return false
     const code = memberInviteService.issueCode(inviteId)
@@ -375,6 +390,13 @@ export class NotificationService {
       const orgName = templateText(getTenantById(payload.tenantId)?.label, 40, 'Your organisation')
       // Values for the branded per-event template; left unset when this alert has no item to link to.
       let richValues: { body: string[]; link: string } | undefined
+      // A bill or a remittance goes to someone outside this organisation, often on a phone that is
+      // signed into a different Credentis account (or none). Its own public page works whoever is
+      // signed in, or no one; the wallet's "/inbox?item=" route only works for the one matching
+      // account, and otherwise strands the person on a card it cannot find. So this alert always
+      // points at the link it was actually created for, not at the inbox item.
+      const payerFacingEvent = payload.eventType === 'payment_link' || payload.eventType === 'remittance'
+      let matchedItem = false
       if (payload.eventType === 'invite') {
         const { memberInviteService, memberInviteLink } = await import('./MemberInviteService')
         const invite = payload.inviteId ? memberInviteService.get(payload.inviteId) : undefined
@@ -398,6 +420,7 @@ export class NotificationService {
           body: [templateText(invite.proposed_name, 40, 'there'), orgName, role],
           link: code!,
         }
+        matchedItem = true
       } else if (payload.inboxItemId) {
         const owner = db
           .prepare(
@@ -422,6 +445,7 @@ export class NotificationService {
         // The approved generic template carries one line; make it name the organisation and the item.
         bodyText = templateText(`${emoji} ${orgName}: ${title.replace(/[.!?…]+$/, '')}. ${detail}`, 300, bodyText)
         richValues = { body: [orgName, title, detail], link: payload.inboxItemId }
+        matchedItem = true
       } else if (
         payload.requestId &&
         db
@@ -432,6 +456,21 @@ export class NotificationService {
           .get(payload.requestId, payload.tenantId)
       ) {
         action.searchParams.set('request', payload.requestId)
+      }
+      // No org inbox item was matched (no account yet, or the item moved on): a bill or
+      // remittance falls back to the real text it was raised for, rather than the empty "sign
+      // in to view it" default. Other alert types (invites, staff cards) carry their own claim
+      // link or token in `body`/`actionUrl` for SMS only; they keep the generic inbox message.
+      if (payerFacingEvent && !matchedItem && payload.body) bodyText = templateText(payload.body, 300, bodyText)
+      // A bill or remittance alert always leads to its own page, matched item or not, so the
+      // button never depends on which wallet account happens to be open on this phone.
+      if (payerFacingEvent && payload.actionUrl) {
+        try {
+          action = new URL(payload.actionUrl)
+          richValues = undefined
+        } catch {
+          // Keep the computed default; a malformed link here must not break the whole send.
+        }
       }
       const actionUrl = action.toString()
       const rich = richValues
@@ -655,6 +694,8 @@ export class NotificationService {
       eventType: payload.eventType,
       dedupeKey: payload.dedupeKey || randomUUID(),
       ...(payload.inboxItemId ? { inboxItemId: payload.inboxItemId } : {}),
+      ...(payload.body ? { body: payload.body } : {}),
+      ...(payload.actionUrl ? { actionUrl: payload.actionUrl } : {}),
     })
     const delivery = DatabaseManager.getDatabase()
       .prepare('SELECT status, provider_message_id FROM notification_deliveries WHERE id = ?')
@@ -814,6 +855,9 @@ export class NotificationService {
         send: this.sendWhatsAppText({
           to: contact.phone,
           body: message,
+          // Only a bill's own pay page is ever the WhatsApp button target; a vc_offer/proof_request
+          // link can carry a one-time claim token meant for SMS, not for the outbox or WhatsApp.
+          ...(type === 'payment_link' ? { actionUrl: url } : {}),
           tenantId: opts.tenantId,
           eventType: type,
           dedupeKey: opts.dedupeKey,
@@ -882,6 +926,7 @@ export class NotificationService {
         send: this.sendWhatsAppText({
           to: contact.phone,
           body: bodyText,
+          actionUrl: acknowledgeUrl,
           tenantId: opts.tenantId,
           eventType: 'remittance',
           dedupeKey: opts.dedupeKey,
@@ -915,6 +960,40 @@ export class NotificationService {
     const accepted = channels.some((channel) => channel.status === 'accepted')
     if (!accepted) logger.warn({ channels }, 'Remittance not accepted by a delivery provider')
     return { accepted, channels }
+  }
+
+  /**
+   * Remember a WhatsApp message Graph already accepted, so a later sent, delivered or read
+   * callback can update this row. This does not send and does not create consent.
+   */
+  recordAcceptedWhatsApp(input: {
+    tenantId: string
+    to: string
+    eventType: string
+    messageId: string
+    senderKey: string
+    phoneNumberId: string
+  }): void {
+    if (!input.messageId || !input.tenantId || !input.senderKey || !input.phoneNumberId) return
+    const recipient = normalizeNotificationPhone(input.to)
+    const now = new Date().toISOString()
+    DatabaseManager.getDatabase()
+      .prepare(
+        `INSERT OR IGNORE INTO notification_deliveries
+        (id, tenant_id, event_type, recipient, sender_key, phone_number_id, provider_message_id, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'accepted', ?, ?)`,
+      )
+      .run(
+        `wa-${randomUUID()}`,
+        input.tenantId,
+        input.eventType,
+        recipient,
+        input.senderKey,
+        input.phoneNumberId,
+        input.messageId,
+        now,
+        now,
+      )
   }
 }
 

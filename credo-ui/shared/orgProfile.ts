@@ -244,15 +244,34 @@ export type OrgSetupPlan = {
     financeConfirms?: string
     releases?: string
   }
+  /** Who each kind of work goes to, from the answers. `kept`: someone was already chosen. */
+  mainPeople?: Array<{ role: string; label: string; assignee: string; status: 'kept' | 'new' }>
   workAreas: Array<{ id: string; label: string; opens: string; included: boolean }>
   payment: { method?: string; name?: string }
+  /** Staff card on large amounts. `cardRequiredAbove` null: off. */
+  staffCard?: { cardRequiredAbove: number | null; suggested: number; keepCurrent: boolean }
   askedOnFirstUse: string[]
+}
+
+/**
+ * Staff card limit to save at the end of setup. What the person picked on the review screen wins;
+ * otherwise keep the org's current limit, or suggest one (on) when it has none yet.
+ */
+export function staffCardLimitFor(plan: Pick<OrgSetupPlan, 'staffCard'> | null, picked?: number | null): number | null | undefined {
+  if (picked !== undefined) return picked
+  if (!plan?.staffCard) return undefined
+  return plan.staffCard.cardRequiredAbove ?? plan.staffCard.suggested
+}
+
+/** "Approver: Manager · Finance: Finance officer · Operations: Supervisor" for the review screen. */
+export function mainPeopleLine(plan: Pick<OrgSetupPlan, 'mainPeople'>): string {
+  return (plan.mainPeople ?? []).map((item) => `${item.label}: ${item.assignee}`).join(' · ')
 }
 
 /** Request body for the bootstrap call: the answers plus teams and the money choice. */
 export function bootstrapRequest(
   profile: OrgProfile,
-  extra: { departments: string[]; moneyPresetId: string; dryRun?: boolean },
+  extra: { departments: string[]; moneyPresetId: string; dryRun?: boolean; cardRequiredAbove?: number | null },
 ) {
   return { ...profileToServer(profile), ...extra }
 }
@@ -396,6 +415,61 @@ export function orgSetupLater(orgTenantId: string): boolean {
   }
 }
 
+const SETUP_DRAFT_KEY = 'credoOrgSetupDraft'
+
+/** Unconfirmed answers to the five setup questions, kept on this device so the owner can resume. */
+export type OrgSetupDraft = {
+  question: 1 | 2 | 3 | 4 | 5
+  kinds: OrgKind[]
+  modules: OrgModule[]
+  operatingModel?: OrgOperatingModel
+  presetId: string
+  paymentChoice: PaymentChoice
+  /** null: the owner has not changed the suggested teams. */
+  teams: string[] | null
+  savedAt: string
+}
+
+function readDrafts(): Record<string, OrgSetupDraft> {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SETUP_DRAFT_KEY) || '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+export function saveOrgSetupDraft(orgTenantId: string, draft: Omit<OrgSetupDraft, 'savedAt'>) {
+  if (typeof window === 'undefined' || !orgTenantId) return
+  const drafts = readDrafts()
+  drafts[orgTenantId] = { ...draft, savedAt: new Date().toISOString() }
+  window.localStorage.setItem(SETUP_DRAFT_KEY, JSON.stringify(drafts))
+}
+
+export function readOrgSetupDraft(orgTenantId: string): OrgSetupDraft | null {
+  if (typeof window === 'undefined' || !orgTenantId) return null
+  const draft = readDrafts()[orgTenantId]
+  if (!draft || ![1, 2, 3, 4, 5].includes(Number(draft.question))) return null
+  return {
+    question: Number(draft.question) as OrgSetupDraft['question'],
+    kinds: cleanKinds(draft.kinds),
+    modules: cleanModules(draft.modules),
+    operatingModel: draft.operatingModel,
+    presetId: String(draft.presetId || ''),
+    paymentChoice: cleanPayment(draft.paymentChoice),
+    teams: Array.isArray(draft.teams) ? draft.teams.map(String) : null,
+    savedAt: String(draft.savedAt || ''),
+  }
+}
+
+export function clearOrgSetupDraft(orgTenantId: string) {
+  if (typeof window === 'undefined' || !orgTenantId) return
+  const drafts = readDrafts()
+  if (!(orgTenantId in drafts)) return
+  delete drafts[orgTenantId]
+  window.localStorage.setItem(SETUP_DRAFT_KEY, JSON.stringify(drafts))
+}
+
 /** Steps that approve, release, record or receipt money. They share the purchase-request people. */
 const MONEY_STAGES = new Set([
   'approve_requisition',
@@ -411,6 +485,14 @@ const MONEY_STAGES = new Set([
 export type SetupStepId = 'kinds' | 'people' | 'money' | 'payments' | 'brand' | 'team'
 
 export type SetupStep = { id: SetupStepId; label: string; done: boolean; note?: string }
+
+export const SETUP_QUESTION_HELP = {
+  1: 'Pick the activities that apply. We will suggest work areas from your answers.',
+  2: 'Suggested areas are already selected. Keep only what you need; staff tools are optional.',
+  3: 'Teams help organise work. You can keep the suggestions and rename them later.',
+  4: 'This sets the default for money steps. You can choose different people for individual requests later.',
+  5: 'Practice payments do not move real money. Choose Not yet if you are not ready to connect payments.',
+} as const
 
 /**
  * The getting-started checklist, in order. Each step opens on its own screen.
@@ -474,6 +556,17 @@ export function teamRolesFromCatalog(
     fromSetup.push({ value, label: String(role.name || value).trim() || value })
   }
   return fromSetup
+}
+
+/** Role an invite starts on: someone who does the work, not a read-only auditor. */
+export function defaultInviteRole(choices: Array<{ value: string }>): string {
+  const values = choices.map((choice) => choice.value)
+  return (
+    ['field_worker', 'member', 'staff'].find((value) => values.includes(value)) ||
+    values.find((value) => value !== 'auditor') ||
+    values[0] ||
+    'member'
+  )
 }
 
 export function describeOrgProfile(profile: OrgProfile): string[] {

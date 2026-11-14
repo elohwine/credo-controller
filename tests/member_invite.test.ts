@@ -10,7 +10,7 @@ import { container } from 'tsyringe'
 
 import { getContactById, upsertContact } from '../src/persistence/ContactRepository'
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
-import { memberInviteService } from '../src/services/MemberInviteService'
+import { memberInviteLink, memberInviteService } from '../src/services/MemberInviteService'
 import { notificationService } from '../src/services/NotificationService'
 import { OrganizationService } from '../src/services/OrganizationService'
 import { InviteRequiredError, SSIAuthService } from '../src/services/SSIAuthService'
@@ -131,8 +131,30 @@ describe('member invite links', () => {
     expect(rows.map((r) => r.event_type).filter((e) => e !== 'invite')).toEqual([])
   })
 
+  test('an invite link keeps a path on the wallet address', () => {
+    process.env.WALLET_PUBLIC_URL = 'http://localhost:3006/app'
+    expect(memberInviteLink('abc')).toBe('http://localhost:3006/app/login/join?code=abc')
+    process.env.WALLET_PUBLIC_URL = 'https://wallet.example'
+    expect(memberInviteLink('abc')).toBe('https://wallet.example/login/join?code=abc')
+  })
+
+  test('a text fallback is not spent when no text message can be sent', async () => {
+    const { inviteId } = invitedPerson()
+    delete process.env.SMS_API_KEY
+    delete process.env.AT_API_KEY
+    delete process.env.SMS_GATEWAY_URL
+    const sms = jest.spyOn(notificationService, 'sendSms')
+    await expect(notificationService.sendInviteFallbackSms(inviteId, PHONE)).resolves.toBe(false)
+    expect(sms).not.toHaveBeenCalled()
+    expect(memberInviteService.get(inviteId)?.fallback_sent_at).toBeNull()
+    expect(memberInviteService.issueCode(inviteId)).toBeTruthy()
+    sms.mockRestore()
+  })
+
   test('an invite WhatsApp cannot carry falls back to one text message with a fresh link', async () => {
     const { inviteId } = invitedPerson()
+    process.env.WALLET_PUBLIC_URL = 'https://wallet.example'
+    process.env.SMS_API_KEY = 'test-key'
     const sms = jest.spyOn(notificationService, 'sendSms').mockResolvedValue({ success: true })
     await expect(notificationService.sendInviteFallbackSms(inviteId, PHONE)).resolves.toBe(true)
     await expect(notificationService.sendInviteFallbackSms(inviteId, PHONE)).resolves.toBe(false)

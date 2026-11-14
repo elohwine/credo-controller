@@ -7,6 +7,7 @@ import { Controller, Post, Get, Route, Tags, Body, Path, Query, Security, Reques
 import { SCOPES } from '../../enums'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { credentialIssuanceService } from '../../services/CredentialIssuanceService'
+import { inventoryService } from '../../services/InventoryService'
 import { orgSetupProfileService } from '../../services/OrgSetupProfileService'
 
 function sellsOrAdvertises(merchantId: string): boolean {
@@ -37,6 +38,8 @@ export interface CatalogItem {
   sku?: string
   category?: string
   createdAt: string
+  /** Left in stock, only when the business tracks stock for this product. */
+  stockLeft?: number
   catalogItemVcOffer?: {
     offerId: string
     credential_offer_uri: string
@@ -188,6 +191,7 @@ export class CatalogController extends Controller {
         )
         .all(query, query, query) as any[]
 
+      const left = inventoryService.stockLeft(rows.map((row) => row.id))
       return rows.map((row) => ({
         id: row.id,
         merchantId: row.merchant_id,
@@ -199,6 +203,7 @@ export class CatalogController extends Controller {
         sku: row.sku,
         category: row.category,
         createdAt: row.created_at,
+        ...(left.has(row.id) ? { stockLeft: left.get(row.id) } : {}),
       }))
     } catch (error: any) {
       this.setStatus(500)

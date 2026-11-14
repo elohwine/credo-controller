@@ -1,8 +1,16 @@
-import type { ProofVcActionKey } from './ProofVcPolicyService'
+import { type ProofVcActionKey, proofActionForStage, stepAssuranceFor } from './ProofVcPolicyService'
+import type { StepAssuranceMode } from './stepAssurance'
 
 import { createHash, randomUUID } from 'crypto'
 
 import { StatusException } from '../errors'
+import {
+  MEMBER_REQUEST_FLOWS,
+  MEMBER_REQUEST_TYPE_KEYS,
+  memberRequestTypesForModule,
+  requestFlowFor,
+} from '../config/requestFlows'
+import { isStageAction } from '../config/requestExperience'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { compactReceiptRecord, readReceiptProof } from '../utils/receiptProof'
 
@@ -13,9 +21,12 @@ import { orgWorkflowActorService } from './OrgWorkflowActorService'
 import { requestContextValidator } from './RequestContextValidator'
 import { experienceForRequest, requestExperienceDefinition, requestExperienceEvents } from './RequestExperienceService'
 import { isActiveStageDelegate } from './WorkflowStageInboxService'
+import { findOrgTemplate } from './workflow/materialize'
+import { stageApplies, type StageCondition } from './workflow/stageGate'
+import { getTemplateById } from './workflow/templates'
 
 /** Request kinds that need the People & payroll module switched on for the organisation. */
-export const PEOPLE_PAYROLL_REQUEST_TYPES = new Set(['hr.leave', 'finance.expense_claim'])
+export const PEOPLE_PAYROLL_REQUEST_TYPES = new Set(memberRequestTypesForModule('people_payroll'))
 export const MODULE_OFF_MESSAGE =
   'Your organisation has not switched on People & payroll. Ask the owner to turn it on under Organization setup.'
 
@@ -143,12 +154,16 @@ const REQUESTER_FINISHES = new Set(['procurement.requisition', 'requisition'])
 /**
  * Purchase and payment steps a person can confirm with their staff card, by request type and the
  * status the step moves to. Same proof keys as the older requisition screens and the job payout,
- * so one policy (Settings → proof cards) decides which cards each step accepts.
+ * so one policy (Settings → proof cards) decides which cards each step accepts, and
+ * `stepAssuranceFor` decides whether the card is offered or required.
+ *
+ * A purchase order is completed by marking it delivered, which moves no money, so it uses the
+ * "confirm received" key and not `requisition_release` (always the card).
  */
 const STAFF_CARD_STEPS: Record<string, Partial<Record<RequestStatus, ProofVcActionKey>>> = {
   'procurement.requisition': { approved: 'requisition_approval' },
   requisition: { approved: 'requisition_approval' },
-  'finance.purchase_order': { approved: 'requisition_approval', completed: 'requisition_release' },
+  'finance.purchase_order': { approved: 'requisition_approval', completed: 'requisition_ack' },
   'finance.payment_request': { approved: 'requisition_approval', completed: 'payment_record' },
 }
 
@@ -156,25 +171,35 @@ export function staffCardStepFor(requestType: unknown, toStatus: unknown): Proof
   return STAFF_CARD_STEPS[String(requestType || '').toLowerCase()]?.[String(toStatus || '') as RequestStatus]
 }
 
-const DONE_WHEN_APPROVED = new Set(['hr.leave', 'platform.general', 'finance.payout_request'])
+/**
+ * Approvals that commit the organisation's money without being a purchase: the card is offered
+ * and the organisation's "card above this amount" applies, as for a purchase approval. The card
+ * is checked against the step itself (`stage:approve_request`), so the people approver's card
+ * answers it. Leave and general requests move no money and keep the sign-in.
+ */
+const MONEY_APPROVALS = new Set(['hr.salary_advance', 'finance.expense_claim'])
+
+/** What a request step needs: the proof key a share is checked against, and how sure to be. */
+export interface RequestCardRule {
+  actionKey?: ProofVcActionKey
+  mode: StepAssuranceMode
+}
+
+/** The approval is the last step here; an approved salary advance is paid out by its own payment request. */
+const DONE_WHEN_APPROVED = new Set(['hr.leave', 'hr.salary_advance', 'platform.general', 'finance.payout_request'])
 
 /**
  * Requests a person can raise from Home, by hand. Everything else in `requests` is started by a
  * job or by an organisation screen. The keys are request types; the Request sheet on both apps
  * prints its own plain words for them (`requestCatalog.ts`).
  */
-export const MEMBER_REQUEST_TYPES = [
-  'hr.leave',
-  'finance.expense_claim',
-  'finance.payout_request',
-  'procurement.requisition',
-  'platform.general',
-] as const
+export const MEMBER_REQUEST_TYPES: readonly string[] = MEMBER_REQUEST_TYPE_KEYS
 
 /** Plain inbox sentence for a hand-raised request, used when the request has no job family. */
 const SUBMIT_BODY_BY_TYPE: Record<string, string> = {
   'hr.leave': 'A leave request is waiting for your decision.',
   'finance.expense_claim': 'An expense claim is waiting for your decision.',
+  'hr.salary_advance': 'A salary advance is waiting for your decision.',
   'finance.payout_request': 'The worker asks for the payment for this job to be released.',
   'procurement.requisition': 'An item or purchase request is waiting for your decision.',
   'platform.general': 'A request is waiting for your decision.',
@@ -255,7 +280,31 @@ export interface CreatePlatformRequestInput {
  * AuthorizationService; business modules do not implement their own RBAC logic.
  */
 /** Why a member cannot decide a request that is waiting for a decision. */
-export type RequestDecisionBlock = 'own_request' | 'own_request_no_other_approver' | 'not_stage_actor' | 'no_authority'
+/** One approval a request waits for, read from the flow the request starts. */
+export interface RequestDecisionStage {
+  stageAction: string
+  workflowType: string
+  title?: string
+  /** The organisation's own flow says only a staff-card share decides this step. */
+  requireProof?: boolean
+}
+
+/** Where a request is in its approvals: every step that applies, and the one it waits at now. */
+export interface RequestDecisionProgress {
+  stages: RequestDecisionStage[]
+  index: number
+  current: RequestDecisionStage
+  final: boolean
+  /** People who approved an earlier step of this round; they do not approve the next one too. */
+  earlierApproverPersonIds: string[]
+}
+
+export type RequestDecisionBlock =
+  | 'own_request'
+  | 'own_request_no_other_approver'
+  | 'not_stage_actor'
+  | 'no_authority'
+  | 'approved_earlier_step'
 
 export class PlatformRequestService {
   public resolvePrincipal(tenantId: string, subjectRef: string) {
@@ -398,9 +447,10 @@ export class PlatformRequestService {
     subjectRef: string,
     toStatus: RequestStatus,
     payload: Record<string, unknown> = {},
+    options: { viaStaffCard?: boolean } = {},
   ) {
     const principal = this.resolvePrincipal(tenantId, subjectRef)
-    return this.transition(requestId, tenantId, toStatus, principal.personId, payload, subjectRef)
+    return this.transition(requestId, tenantId, toStatus, principal.personId, payload, subjectRef, options)
   }
 
   public transition(
@@ -410,8 +460,14 @@ export class PlatformRequestService {
     actorPersonId: string,
     payload: Record<string, unknown> = {},
     actorSubjectRef?: string,
+    options: { viaStaffCard?: boolean } = {},
   ) {
     const db = DatabaseManager.getDatabase()
+    // Only a verified share (RequestController.finishWithStaffCard) may say it was confirmed with the card.
+    if (!options.viaStaffCard && payload && 'staffCard' in payload) {
+      const { staffCard: _ignored, ...rest } = payload
+      payload = rest
+    }
     const current = db
       .prepare(
         `
@@ -463,6 +519,24 @@ export class PlatformRequestService {
       throw new StatusException(`Invalid request transition: ${current.status} -> ${toStatus}`, 409)
     }
 
+    if (!options.viaStaffCard) {
+      const rule = this.cardRuleFor({
+        tenantId,
+        requestId,
+        requestType: current.requestType,
+        toStatus,
+        amount: typeof current.amount === 'number' ? current.amount : undefined,
+      })
+      if (rule.actionKey && rule.mode === 'card_required') {
+        throw new StatusException(
+          toStatus === 'approved'
+            ? 'This step needs your staff card. Use "Approve with staff card".'
+            : 'This step needs your staff card. Finish it with your staff card.',
+          403,
+        )
+      }
+    }
+
     let stored: Record<string, unknown> = payload
     let completionStep: RequestNextStep | undefined
     if (toStatus === 'completed') {
@@ -490,7 +564,19 @@ export class PlatformRequestService {
     if (actorIsRequester && ['in_review', 'approved', 'rejected'].includes(toStatus)) {
       throw new StatusException('You raised this request, so someone else has to decide it.', 403)
     }
-    if (['in_review', 'approved', 'rejected'].includes(toStatus)) {
+    // The approval this request waits at now; later steps of its flow wait their turn.
+    const progress = ['in_review', 'approved', 'rejected'].includes(toStatus)
+      ? this.decisionProgressFor(
+          requestId,
+          tenantId,
+          current.requestType || 'general',
+          typeof current.amount === 'number' ? current.amount : undefined,
+        )
+      : undefined
+    if (progress?.earlierApproverPersonIds.includes(actorPersonId)) {
+      throw new StatusException('You approved an earlier step of this request, so someone else decides this one.', 403)
+    }
+    if (progress) {
       const subjectRef =
         actorSubjectRef ||
         (
@@ -503,6 +589,7 @@ export class PlatformRequestService {
         requestType: current.requestType || 'general',
         subjectRef,
         amount: typeof current.amount === 'number' ? current.amount : undefined,
+        stage: progress.current,
       })
     }
 
@@ -539,13 +626,18 @@ export class PlatformRequestService {
         departmentId: current.departmentId,
         projectRef: typeof context.projectRef === 'string' ? context.projectRef : undefined,
         costCentreRef: typeof context.costCentreRef === 'string' ? context.costCentreRef : undefined,
-        workflowType: stage.workflowType,
-        stageAction: deciding ? stage.definition.reviewAction : stage.definition.fulfilmentAction,
+        workflowType: deciding && progress ? progress.current.workflowType : stage.workflowType,
+        stageAction: deciding && progress ? progress.current.stageAction : stage.definition.fulfilmentAction,
         separationOfDutiesPersonIds: separationOfDuties,
       })
       if (decision.decision !== 'allow') {
         throw new StatusException(`Insufficient authority: ${decision.reasonCode}`, 403)
       }
+    }
+
+    // An approval that is not the last one moves the request to its next approver.
+    if (toStatus === 'approved' && progress && !progress.final) {
+      return this.approveStage({ requestId, tenantId, actorPersonId, actorSubjectRef, current, progress })
     }
 
     const now = new Date().toISOString()
@@ -680,10 +772,189 @@ export class PlatformRequestService {
       await workflowHandoffService.onRequestStatus(requestId, toStatus)
     }
     void followOn().catch(() => undefined)
+    if (['submitted', 'approved', 'rejected', 'cancelled'].includes(toStatus)) {
+      void this.syncRequestFlow(
+        requestId,
+        tenantId,
+        toStatus as 'submitted' | 'approved' | 'rejected' | 'cancelled',
+        actorSubjectRef,
+      )
+    }
 
     // The transition has already passed authorization and committed atomically;
     // do not require a separate read permission merely to return its new state.
     return this.getForTenant(requestId, tenantId)
+  }
+
+  /**
+   * One approval of several: record it, keep the request in review, and put the next step's card
+   * in its approver's inbox. Hand-offs, records and the finish step wait for the last approval.
+   */
+  private approveStage(input: {
+    requestId: string
+    tenantId: string
+    actorPersonId: string
+    actorSubjectRef?: string
+    current: {
+      status?: RequestStatus
+      requestType?: string
+      title?: string
+      amount?: number
+      departmentId?: string
+    }
+    progress: RequestDecisionProgress
+  }) {
+    const { requestId, tenantId, actorPersonId, current, progress } = input
+    const db = DatabaseManager.getDatabase()
+    const next = progress.stages[progress.index + 1]
+    const now = new Date().toISOString()
+    db.transaction(() => {
+      if (this.approvedStages(requestId).has(progress.current.stageAction)) {
+        throw new StatusException('This step was already approved. Reload and try again.', 409)
+      }
+      const update = db
+        .prepare(
+          `UPDATE requests SET status = 'in_review', updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND COALESCE(status, 'draft') = ?`,
+        )
+        .run(requestId, current.status ?? 'draft')
+      if (update.changes !== 1) {
+        throw new StatusException('Request changed before the decision could be recorded. Reload and try again.', 409)
+      }
+      if (current.status === 'submitted') {
+        this.recordEvent(requestId, 'request.status_changed', actorPersonId, 'submitted', 'in_review', {})
+      }
+      this.recordEvent(requestId, 'request.stage_approved', actorPersonId, 'in_review', 'in_review', {
+        stageAction: progress.current.stageAction,
+        workflowType: progress.current.workflowType,
+        stageTitle: progress.current.title,
+        step: progress.index + 1,
+        of: progress.stages.length,
+        nextStageAction: next.stageAction,
+        nextStageTitle: next.title,
+      })
+      db.prepare(
+        `UPDATE wallet_pending_offers SET resolved_at = ?
+         WHERE source_type = 'workflow_stage_action' AND resolved_at IS NULL
+           AND (source_id = ? OR source_id LIKE ?)`,
+      ).run(now, requestId, `${requestId}:delegation:%`)
+    })()
+
+    const requestType = current.requestType || 'platform.general'
+    void import('./WorkflowStageInboxService')
+      .then(({ routeWorkflowStageInbox }) => {
+        routeWorkflowStageInbox({
+          orgTenantId: tenantId,
+          requestType,
+          workflowType: next.workflowType,
+          stageAction: next.stageAction,
+          decisionStage: true,
+          sourceId: requestId,
+          title: current.title || requestType,
+          body: `Step ${progress.index + 2} of ${progress.stages.length}: ${
+            next.title || next.stageAction.replace(/_/g, ' ')
+          }. The earlier step is approved; this one is waiting for your decision.`,
+          departmentId: current.departmentId,
+          extraMetadata: { ...(this.familyCard(requestId).extraMetadata || {}), stageAction: next.stageAction },
+          amount: typeof current.amount === 'number' ? current.amount : undefined,
+        })
+      })
+      .catch(() => undefined)
+    void this.syncRequestFlow(requestId, tenantId, 'stage_approved', input.actorSubjectRef)
+    return this.getForTenant(requestId, tenantId)
+  }
+
+  /** The run this request started, when it started one. */
+  private requestFlowRun(requestId: string): { runId: string; templateId: string } | undefined {
+    const row = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT payload_json AS payloadJson FROM request_events
+         WHERE request_id = ? AND event_type = 'request.flow_started' ORDER BY rowid DESC LIMIT 1`,
+      )
+      .get(requestId) as { payloadJson?: string } | undefined
+    const payload = this.parseContext(row?.payloadJson)
+    return typeof payload.runId === 'string' ? { runId: payload.runId, templateId: String(payload.templateId || '') } : undefined
+  }
+
+  /**
+   * Keep the request's flow in step with the request: start it when the request is sent, move it
+   * past each approval, stop it when the request is declined or withdrawn. The request record is
+   * what people act on; a flow that cannot start or move never blocks the request.
+   */
+  private async syncRequestFlow(
+    requestId: string,
+    tenantId: string,
+    event: 'submitted' | 'stage_approved' | 'approved' | 'rejected' | 'cancelled',
+    actedByUserId?: string,
+  ): Promise<void> {
+    try {
+      const { workflowService } = await import('./WorkflowService')
+      const { workflowRunRepository } = await import('../persistence/WorkflowRunRepository')
+      const linked = this.requestFlowRun(requestId)
+      const run = linked ? workflowRunRepository.findRunById(linked.runId) : undefined
+      const open = run && ['pending', 'running', 'paused'].includes(String(run.status))
+
+      if (event === 'submitted') {
+        if (open) return
+        const row = DatabaseManager.getDatabase()
+          .prepare(
+            `SELECT request_type AS requestType, amount, currency, title FROM requests WHERE id = ?`,
+          )
+          .get(requestId) as { requestType?: string; amount?: number; currency?: string; title?: string } | undefined
+        const templateId = requestFlowFor(row?.requestType)?.templateId
+        if (!row?.requestType || !templateId) return
+        const stages = this.decisionStagesFor(tenantId, row.requestType, row.amount)
+        const result = await workflowService.executeWorkflow(
+          templateId,
+          {
+            requestId,
+            requestFlow: true,
+            requestType: row.requestType,
+            amount: typeof row.amount === 'number' ? row.amount : undefined,
+            currency: row.currency,
+            reference: row.title,
+          },
+          tenantId,
+          { triggerType: 'manual', triggerRef: requestId, async: true, requestFlow: true },
+        )
+        this.recordEvent(requestId, 'request.flow_started', undefined, null, null, {
+          runId: result.runId,
+          templateId,
+          stages: stages.map((stage) => stage.title || stage.stageAction.replace(/_/g, ' ')),
+        })
+        // Someone may have decided the request while its flow was starting; catch the flow up.
+        const settled = DatabaseManager.getDatabase()
+          .prepare('SELECT status FROM requests WHERE id = ?')
+          .get(requestId) as { status?: string } | undefined
+        const approvals = this.approvedStages(requestId).size
+        for (let step = 0; step < approvals; step += 1) {
+          await this.syncRequestFlow(requestId, tenantId, 'stage_approved', actedByUserId)
+        }
+        if (['approved', 'in_fulfilment', 'completed'].includes(String(settled?.status))) {
+          await this.syncRequestFlow(requestId, tenantId, 'approved', actedByUserId)
+        } else if (['rejected', 'cancelled'].includes(String(settled?.status))) {
+          await this.syncRequestFlow(requestId, tenantId, 'cancelled', actedByUserId)
+        }
+        return
+      }
+
+      if (!linked || !run) return
+      // The run starts in the background; give it a moment to reach its first step.
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const latest = workflowRunRepository.findRunById(linked.runId)
+        if (!latest || latest.status !== 'pending' && latest.status !== 'running') break
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      const latest = workflowRunRepository.findRunById(linked.runId)
+      if (!latest || latest.status !== 'paused') return
+      if (event === 'rejected' || event === 'cancelled') {
+        await workflowService.cancelRun(linked.runId, { requestOutcome: event })
+        return
+      }
+      await workflowService.resumeWorkflow(linked.runId, { requestDecision: 'approved' }, actedByUserId)
+    } catch {
+      // The request already moved; its flow catching up is best-effort.
+    }
   }
 
   public decideBySubject(
@@ -705,26 +976,187 @@ export class PlatformRequestService {
     )
   }
 
+  /**
+   * The approvals this request waits for, in order. They come from the flow the request starts
+   * (the organisation's own copy first, then the built-in one). A step with a `when` applies only
+   * when the request meets it. No flow or no decision step: the request family's review step.
+   */
+  public decisionStagesFor(tenantId: string, requestType: string, amount?: number | null): RequestDecisionStage[] {
+    const { stages } = this.configuredStagesFor(tenantId, requestType)
+    const applying = stages.filter((stage) => stageApplies(stage.when, { amount }))
+    if (applying.length === 0) {
+      const { when: _when, ...first } = stages[0]
+      return [first]
+    }
+    return applying.map(({ when: _when, ...stage }) => stage)
+  }
+
+  /**
+   * Every approval step configured for this kind of request, with its condition, before any
+   * request is looked at. Settings show these; `decisionStagesFor` keeps the ones that apply.
+   * `own` is set when the organisation saved its own copy of the flow.
+   */
+  public configuredStagesFor(
+    tenantId: string,
+    requestType: string,
+  ): { stages: Array<RequestDecisionStage & { when?: StageCondition }>; own: boolean } {
+    const resolved = requestExperienceDefinition(tenantId, requestType)
+    const review: RequestDecisionStage = {
+      stageAction: resolved.definition.reviewAction,
+      workflowType: resolved.workflowType,
+    }
+    const templateId = requestFlowFor(requestType)?.templateId
+    if (!templateId) return { stages: [review], own: false }
+    let own: { steps?: Array<{ action: string; config?: Record<string, unknown> }> } | undefined
+    try {
+      own = findOrgTemplate(tenantId, templateId)
+    } catch {
+      own = undefined
+    }
+    const steps = (own?.steps || getTemplateById(templateId)?.steps || []) as Array<{
+      action: string
+      config?: Record<string, unknown>
+    }>
+    const word = (value: unknown) =>
+      String(value || '')
+        .trim()
+        .toLowerCase()
+    const declared: Array<RequestDecisionStage & { when?: StageCondition }> = []
+    for (const step of steps) {
+      const config = step?.config || {}
+      if (step?.action !== 'stage.await_actor' || !config.requestDecision) continue
+      const stageAction = word(config.stageAction)
+      if (!isStageAction(stageAction) || declared.some((stage) => stage.stageAction === stageAction)) continue
+      declared.push({
+        stageAction,
+        workflowType: word(config.workflowType) || review.workflowType,
+        title: config.title ? String(config.title) : undefined,
+        ...(config.requireProof === true ? { requireProof: true } : {}),
+        ...(config.when && typeof config.when === 'object' ? { when: config.when as StageCondition } : {}),
+      })
+    }
+    if (declared.length === 0) return { stages: [review], own: Boolean(own) }
+    // The built-in flow's first step is the family's review step, which setup may have renamed.
+    if (!own) {
+      declared[0] = { ...declared[0], stageAction: review.stageAction, workflowType: review.workflowType }
+      return {
+        stages: declared.filter((stage, index) => index === 0 || stage.stageAction !== review.stageAction),
+        own: false,
+      }
+    }
+    return { stages: declared, own: true }
+  }
+
+  /**
+   * Whether this step of the request needs a staff-card share, offers one, or neither, and the
+   * proof key the share is checked against. Every step of a request reads it here: the transition
+   * guard, the decision the apps show, and the share the wallet answers.
+   *
+   * - An approval the organisation marked "staff card needed" in its own flow needs the card.
+   * - Otherwise the request type decides: purchase, payment, expense and advance approvals offer
+   *   the card and need it above the organisation's amount; leave and general requests do not ask.
+   * - The usual approver of a purchase or payment keeps its key (`requisition_approval`); a later
+   *   step, or a request type that had no card before, is checked against its own step.
+   */
+  public cardRuleFor(input: {
+    tenantId: string
+    requestId?: string
+    requestType?: string
+    toStatus: RequestStatus
+    amount?: number
+    progress?: RequestDecisionProgress
+  }): RequestCardRule {
+    const requestType = String(input.requestType || '').toLowerCase()
+    const familyKey = staffCardStepFor(requestType, input.toStatus)
+    if (input.toStatus !== 'approved') {
+      return familyKey ? { actionKey: familyKey, mode: stepAssuranceFor(input.tenantId, familyKey, input.amount) } : { mode: 'session' }
+    }
+    const progress =
+      input.progress ||
+      (input.requestId
+        ? this.decisionProgressFor(input.requestId, input.tenantId, requestType || 'general', input.amount)
+        : undefined)
+    const stage = progress?.current
+    const assuranceKey: ProofVcActionKey | undefined =
+      familyKey || (MONEY_APPROVALS.has(requestType) ? 'requisition_approval' : undefined)
+    const actionKey =
+      familyKey && (!progress || progress.index === 0)
+        ? familyKey
+        : proofActionForStage(stage?.stageAction, familyKey) || familyKey
+    if (!actionKey) return { mode: 'session' }
+    if (stage?.requireProof) return { actionKey, mode: 'card_required' }
+    return { actionKey, mode: assuranceKey ? stepAssuranceFor(input.tenantId, assuranceKey, input.amount) : 'session' }
+  }
+
+  /** What an approval of this kind needs when the flow does not say "staff card needed" (amount not counted). */
+  public defaultApprovalCardMode(tenantId: string, requestType: string): StepAssuranceMode {
+    const type = String(requestType || '').toLowerCase()
+    const key: ProofVcActionKey | undefined =
+      staffCardStepFor(type, 'approved') || (MONEY_APPROVALS.has(type) ? 'requisition_approval' : undefined)
+    return key ? stepAssuranceFor(tenantId, key) : 'session'
+  }
+
+  /** Steps approved since the request was last sent, with who approved each. */
+  private approvedStages(requestId: string): Map<string, string> {
+    const rows = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT event_type AS eventType, to_status AS toStatus, actor_person_id AS actorPersonId, payload_json AS payloadJson
+         FROM request_events WHERE request_id = ? ORDER BY rowid ASC`,
+      )
+      .all(requestId) as Array<{ eventType: string; toStatus?: string; actorPersonId?: string; payloadJson?: string }>
+    const approved = new Map<string, string>()
+    for (const row of rows) {
+      // Sending the request again (after a rejection) starts its approvals over.
+      if (row.eventType === 'request.status_changed' && row.toStatus === 'submitted') approved.clear()
+      if (row.eventType !== 'request.stage_approved') continue
+      const stageAction = String(this.parseContext(row.payloadJson).stageAction || '')
+      if (stageAction) approved.set(stageAction, String(row.actorPersonId || ''))
+    }
+    return approved
+  }
+
+  public decisionProgressFor(
+    requestId: string,
+    tenantId: string,
+    requestType: string,
+    amount?: number | null,
+  ): RequestDecisionProgress {
+    const stages = this.decisionStagesFor(tenantId, requestType, amount)
+    const approved = this.approvedStages(requestId)
+    const waiting = stages.findIndex((stage) => !approved.has(stage.stageAction))
+    const index = waiting === -1 ? stages.length - 1 : waiting
+    return {
+      stages,
+      index,
+      current: stages[index],
+      final: index === stages.length - 1,
+      earlierApproverPersonIds: stages
+        .slice(0, index)
+        .map((stage) => approved.get(stage.stageAction) || '')
+        .filter(Boolean),
+    }
+  }
+
   private assertRequestStageActor(input: {
     tenantId: string
     requestType: string
     subjectRef?: string
     amount?: number
+    stage: RequestDecisionStage
   }): void {
     if (!input.subjectRef) {
       throw new StatusException('A signed-in organization member is required to decide this request', 403)
     }
-    const resolved = requestExperienceDefinition(input.tenantId, input.requestType)
     const directActor = orgWorkflowActorService.mayAct({
       orgTenantId: input.tenantId,
-      workflowType: resolved.workflowType,
-      stageAction: resolved.definition.reviewAction,
+      workflowType: input.stage.workflowType,
+      stageAction: input.stage.stageAction,
       userId: input.subjectRef,
     }).allowed
     const assignedActor = orgWorkflowActorService.resolveActor({
       orgTenantId: input.tenantId,
-      workflowType: resolved.workflowType,
-      stageAction: resolved.definition.reviewAction,
+      workflowType: input.stage.workflowType,
+      stageAction: input.stage.stageAction,
     })
     const delegate = Boolean(
       assignedActor.userId &&
@@ -732,7 +1164,7 @@ export class PlatformRequestService {
           orgTenantId: input.tenantId,
           delegatorUserId: assignedActor.userId,
           delegateUserId: input.subjectRef,
-          stageAction: resolved.definition.reviewAction,
+          stageAction: input.stage.stageAction,
           requestType: input.requestType,
           amount: input.amount,
         }),
@@ -763,11 +1195,19 @@ export class PlatformRequestService {
     const lastEvent = DatabaseManager.getDatabase()
       .prepare('SELECT id FROM request_events WHERE request_id = ? ORDER BY rowid DESC LIMIT 1')
       .get(request.id) as { id?: string } | undefined
-    const definition = requestExperienceDefinition(tenantId, requestType)
+    // The approval the request waits at now: for most requests the one review step, for a flow
+    // with several approvals the next one not yet given.
+    const progress = this.decisionProgressFor(
+      request.id,
+      tenantId,
+      requestType,
+      typeof request.amount === 'number' ? request.amount : undefined,
+    )
+    const stage = progress.current
     const stageActor = orgWorkflowActorService.resolveActor({
       orgTenantId: tenantId,
-      workflowType: definition.workflowType,
-      stageAction: definition.definition.reviewAction,
+      workflowType: stage.workflowType,
+      stageAction: stage.stageAction,
     })
     const members = orgWorkflowActorService.listOrgMembers(tenantId)
     const actorMember = stageActor.userId ? members.find((member) => member.userId === stageActor.userId) : undefined
@@ -775,8 +1215,8 @@ export class PlatformRequestService {
     const assigned = activeDecisionStage
       ? orgWorkflowActorService.mayAct({
           orgTenantId: tenantId,
-          workflowType: definition.workflowType,
-          stageAction: definition.definition.reviewAction,
+          workflowType: stage.workflowType,
+          stageAction: stage.stageAction,
           userId: subjectRef,
         }).allowed
       : false
@@ -788,11 +1228,12 @@ export class PlatformRequestService {
             orgTenantId: tenantId,
             delegatorUserId: stageActor.userId,
             delegateUserId: subjectRef,
-            stageAction: definition.definition.reviewAction,
+            stageAction: stage.stageAction,
             requestType,
             amount: typeof request.amount === 'number' ? request.amount : undefined,
           }),
       )
+    const approvedEarlier = progress.earlierApproverPersonIds.includes(personId)
     const authorizedActor = assigned || delegated
     const requester = Boolean(request.requester_person_id && request.requester_person_id === personId)
     const context = this.parseContext(request.context_json)
@@ -814,15 +1255,15 @@ export class PlatformRequestService {
         departmentId: request.department_id || undefined,
         projectRef: typeof context.projectRef === 'string' ? context.projectRef : undefined,
         costCentreRef: typeof context.costCentreRef === 'string' ? context.costCentreRef : undefined,
-        workflowType: definition.workflowType,
-        stageAction: definition.definition.reviewAction,
+        workflowType: stage.workflowType,
+        stageAction: stage.stageAction,
         separationOfDutiesPersonIds: separationOfDuties,
         skipAudit: true,
       })
       return result.decision === 'allow'
     }
     const canDecide = (action: 'request.approve' | 'request.reject') =>
-      activeDecisionStage && authorizedActor && !requester ? decisionResult(action) : false
+      activeDecisionStage && authorizedActor && !requester && !approvedEarlier ? decisionResult(action) : false
     const canApprove = canDecide('request.approve')
     const canReject = canDecide('request.reject')
     const othersCanDecide = () =>
@@ -831,8 +1272,8 @@ export class PlatformRequestService {
           member.userId !== subjectRef &&
           orgWorkflowActorService.mayAct({
             orgTenantId: tenantId,
-            workflowType: definition.workflowType,
-            stageAction: definition.definition.reviewAction,
+            workflowType: stage.workflowType,
+            stageAction: stage.stageAction,
             userId: member.userId,
           }).allowed,
       )
@@ -840,7 +1281,9 @@ export class PlatformRequestService {
     const blockedReason: RequestDecisionBlock | undefined =
       !activeDecisionStage || canApprove || canReject
         ? undefined
-        : requester && authorizedActor
+        : approvedEarlier
+          ? 'approved_earlier_step'
+          : requester && authorizedActor
           ? othersCanDecide()
             ? 'own_request'
             : 'own_request_no_other_approver'
@@ -848,21 +1291,38 @@ export class PlatformRequestService {
             ? 'not_stage_actor'
             : 'no_authority'
 
+    const cardRule = this.cardRuleFor({
+      tenantId,
+      requestType,
+      toStatus: 'approved',
+      amount: typeof request.amount === 'number' ? request.amount : undefined,
+      progress,
+    })
+    const cardMode = cardRule.actionKey ? cardRule.mode : 'session'
     return {
       version: lastEvent?.id || String(request.updated_at || status),
-      stageAction: definition.definition.reviewAction,
-      stageLabel: status === 'submitted' ? 'Review and decide' : 'Decision pending',
+      stageAction: stage.stageAction,
+      stageLabel:
+        progress.stages.length > 1
+          ? `Step ${progress.index + 1} of ${progress.stages.length}: ${stage.title || stage.stageAction.replace(/_/g, ' ')}`
+          : status === 'submitted'
+            ? 'Review and decide'
+            : 'Decision pending',
+      stageNumber: progress.index + 1,
+      stageCount: progress.stages.length,
       actorLabel: delegated
         ? 'your delegated request authority'
         : actorMember?.displayName || actorMember?.role || stageActor.role || 'Organization approver',
       actorMode: stageActor.mode,
-      canAct: activeDecisionStage && authorizedActor && !requester,
+      canAct: activeDecisionStage && authorizedActor && !requester && !approvedEarlier,
       canApprove,
       canReject,
       blockedReason,
       isRequester: requester,
       /** The approval can be confirmed with the person's staff card (purchase and payment steps). */
-      staffCard: Boolean(staffCardStepFor(requestType, 'approved')),
+      staffCard: cardMode !== 'session',
+      /** Only the staff card moves this step (org setting, or the amount is over the org's limit). */
+      cardRequired: cardMode === 'card_required',
     }
   }
 
@@ -875,7 +1335,7 @@ export class PlatformRequestService {
     tenantId: string,
     subjectRef: string,
     toStatus: RequestStatus,
-  ): { actionKey: ProofVcActionKey; requestType: string; title?: string } {
+  ): { actionKey: ProofVcActionKey; requestType: string; title?: string; workflowType?: string } {
     const row = DatabaseManager.getDatabase()
       .prepare(
         `SELECT r.status, r.request_type AS requestType, r.title, r.amount, r.requester_person_id AS requesterPersonId
@@ -886,26 +1346,44 @@ export class PlatformRequestService {
       | { status?: string; requestType?: string; title?: string; amount?: number; requesterPersonId?: string }
       | undefined
     if (!row) throw new StatusException('Request not found', 404)
-    const actionKey = staffCardStepFor(row.requestType, toStatus)
-    if (!actionKey) throw new StatusException('This step does not ask for a staff card.', 400)
+    const rule = this.cardRuleFor({
+      tenantId,
+      requestId,
+      requestType: row.requestType,
+      toStatus,
+      amount: typeof row.amount === 'number' ? row.amount : undefined,
+    })
+    const actionKey = rule.actionKey
+    if (!actionKey || (toStatus === 'approved' && rule.mode === 'session')) {
+      throw new StatusException('This step does not ask for a staff card.', 400)
+    }
     const waiting =
       toStatus === 'approved'
         ? ['submitted', 'in_review'].includes(String(row.status))
         : ['approved', 'in_fulfilment'].includes(String(row.status))
     if (!waiting) throw new StatusException('This request is not waiting for this step right now.', 409)
+    let workflowType = requestExperienceDefinition(tenantId, String(row.requestType || 'general')).workflowType
     if (toStatus === 'approved') {
       const principal = this.resolvePrincipal(tenantId, subjectRef)
       if (principal.personId === row.requesterPersonId) {
         throw new StatusException('You raised this request, so someone else has to decide it.', 403)
       }
+      const stage = this.decisionProgressFor(
+        requestId,
+        tenantId,
+        row.requestType || 'general',
+        typeof row.amount === 'number' ? row.amount : undefined,
+      ).current
       this.assertRequestStageActor({
         tenantId,
         requestType: row.requestType || 'general',
         subjectRef,
         amount: typeof row.amount === 'number' ? row.amount : undefined,
+        stage,
       })
+      workflowType = stage?.workflowType || workflowType
     }
-    return { actionKey, requestType: String(row.requestType || ''), title: row.title }
+    return { actionKey, requestType: String(row.requestType || ''), title: row.title, workflowType }
   }
 
   /**
@@ -1291,9 +1769,11 @@ export class PlatformRequestService {
       }
     }
 
+    const detail = this.hydrateRequest(requestId, request)
     return {
-      ...this.hydrateRequest(requestId, request),
+      ...detail,
       decision: decisionContext,
+      ...this.castFor(tenantId, request, detail.events),
     }
   }
 
@@ -1434,13 +1914,16 @@ export class PlatformRequestService {
     const result: RequestOptionsMembership[] = memberships.map((membership) => {
       // Leave, expense claims and payslips belong to the People & payroll module; an
       // organisation that has not switched it on offers none of them.
+      // Every kind comes from the request flow registry, in its order; its work area decides.
       const peoplePayroll = orgEntitlementService.hasModule(membership.orgTenantId, 'people_payroll')
-      const kinds: string[] = peoplePayroll ? ['hr.leave', 'finance.expense_claim'] : []
-      if (orgSetupProfileService.get(membership.orgTenantId).requestTypes.includes('internal_requisitions')) {
-        kinds.push('procurement.requisition')
-      }
-      if (payoutJobs.some((job) => job.orgTenantId === membership.orgTenantId)) kinds.push('finance.payout_request')
-      kinds.push('platform.general')
+      const purchases = orgSetupProfileService.get(membership.orgTenantId).requestTypes.includes('internal_requisitions')
+      const hasPayoutJob = payoutJobs.some((job) => job.orgTenantId === membership.orgTenantId)
+      const kinds = MEMBER_REQUEST_FLOWS.filter((flow) => {
+        if (flow.requestType === 'finance.payout_request') return hasPayoutJob
+        if (flow.module === 'people_payroll') return peoplePayroll
+        if (flow.module === 'purchases') return purchases
+        return flow.module === null
+      }).map((flow) => flow.requestType)
       records.push({ item: 'staff_card', orgTenantId: membership.orgTenantId, orgName: membership.orgName })
       if (peoplePayroll)
         records.push({ item: 'payslips', orgTenantId: membership.orgTenantId, orgName: membership.orgName })
@@ -1638,6 +2121,22 @@ export class PlatformRequestService {
     return this.transitionBySubject(requestId, request.orgTenantId, subjectRef, 'completed', payload)
   }
 
+  /** The person withdraws a request they raised, from their own wallet. Same rule as the organisation's cancel. */
+  public cancelMine(requestId: string, subjectRef: string, payload: Record<string, unknown> = {}) {
+    const request = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT r.id, o.tenant_id AS orgTenantId
+           FROM requests r
+           JOIN people p ON p.id = r.requester_person_id
+           JOIN organizations o ON o.id = r.organization_id
+          WHERE r.id = ? AND p.subject_ref = ?`,
+      )
+      .get(requestId, subjectRef) as { id: string; orgTenantId: string } | undefined
+    if (!request) throw new StatusException('Only the person who raised this request can withdraw it here.', 403)
+    this.transitionBySubject(requestId, request.orgTenantId, subjectRef, 'cancelled', payload)
+    return request.orgTenantId
+  }
+
   public getMine(requestId: string, subjectRef: string) {
     const db = DatabaseManager.getDatabase()
     const request = db
@@ -1651,32 +2150,42 @@ export class PlatformRequestService {
       .get(requestId, subjectRef) as any
     if (!request) return undefined
     const detail = this.hydrateRequest(requestId, request)
-    // The requester has no org member list of their own; name the people who acted on this
-    // request so the History drawer reads "Kuda · Owner", not an id fragment.
-    const actorIds = new Set(
-      (detail.events as Array<{ actor_user_id?: string | null }>)
-        .map((event) => String(event.actor_user_id || ''))
-        .filter(Boolean),
-    )
-    let people: Array<{ userId: string; role?: string; displayName?: string; phone?: string }> = []
-    if (actorIds.size > 0 && request.org_tenant_id) {
-      try {
-        const { orgWorkflowActorService } =
-          require('./OrgWorkflowActorService') as typeof import('./OrgWorkflowActorService')
-        people = orgWorkflowActorService
-          .listOrgMembers(String(request.org_tenant_id))
-          .filter((member) => actorIds.has(member.userId))
-          .map((member) => ({
-            userId: member.userId,
-            role: member.role,
-            displayName: member.displayName || undefined,
-            phone: member.phone || undefined,
-          }))
-      } catch {
-        people = []
-      }
+    // Name who asked, who decides and who already acted, so History reads a name, not an id.
+    const cast = request.org_tenant_id ? this.castFor(String(request.org_tenant_id), request, detail.events) : {}
+    return { ...detail, ...cast, requesterStep: this.requesterStepFor(request) }
+  }
+
+  /**
+   * One request for the signed-in person, from their own wallet. They must have raised it
+   * or belong to the organisation. Same steps and names as the organisation view.
+   */
+  public previewForHolder(requestId: string, subjectRef: string) {
+    const db = DatabaseManager.getDatabase()
+    const request = db
+      .prepare(
+        `SELECT r.*, o.name AS org_name, o.tenant_id AS org_tenant_id
+           FROM requests r
+           JOIN organizations o ON o.id = r.organization_id
+          WHERE r.id = ? AND o.status = 'active'`,
+      )
+      .get(requestId) as any
+    if (!request) return undefined
+    const member = db
+      .prepare(
+        `SELECT 1 AS ok FROM org_memberships
+          WHERE org_tenant_id = ? AND user_id = ? AND status = 'active'`,
+      )
+      .get(request.org_tenant_id, subjectRef) as { ok?: number } | undefined
+    const requester = db
+      .prepare('SELECT subject_ref AS subjectRef FROM people WHERE id = ?')
+      .get(request.requester_person_id) as { subjectRef?: string } | undefined
+    if (!member && requester?.subjectRef !== subjectRef) return undefined
+    const detail = this.hydrateRequest(requestId, request)
+    return {
+      ...detail,
+      org_name: request.org_name,
+      ...this.castFor(String(request.org_tenant_id), request, detail.events),
     }
-    return { ...detail, people, requesterStep: this.requesterStepFor(request) }
   }
 
   /**
@@ -1769,6 +2278,95 @@ export class PlatformRequestService {
     })
 
     return { taskId, created: true }
+  }
+
+  /**
+   * Who asked, who is set to decide, and who is set to finish it, plus the members those
+   * steps name. A step with nobody chosen stays unnamed so the screen can say so.
+   */
+  private castFor(
+    orgTenantId: string,
+    request: { requester_person_id?: string; request_type?: string },
+    events: Array<{ actor_user_id?: string | null }> = [],
+  ): {
+    parties: { requesterName?: string; reviewName?: string; fulfilmentName?: string }
+    people: Array<{ userId: string; role?: string; displayName?: string; phone?: string }>
+  } {
+    const empty = { parties: {}, people: [] as Array<{ userId: string; role?: string; displayName?: string; phone?: string }> }
+    try {
+      const members = orgWorkflowActorService.listOrgMembers(orgTenantId)
+      const nameOf = (userId?: string) => {
+        const member = userId ? members.find((item) => item.userId === userId) : undefined
+        const name = String(member?.displayName || '').trim()
+        if (!name || /^(organization owner|team member)$/i.test(name)) return undefined
+        return name
+      }
+      const roleWords = (role?: string) => {
+        const key = String(role || '').toLowerCase()
+        const words: Record<string, string> = {
+          owner: 'Owner',
+          admin: 'Admin',
+          manager: 'Manager',
+          approver: 'Approver',
+          hr_manager: 'HR manager',
+          director: 'Director',
+          finance_manager: 'Finance officer',
+          field_worker: 'Field worker',
+        }
+        return words[key] || key.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) || 'Team member'
+      }
+      const labelFor = (userId: string | undefined, role: string | undefined, mode: string) => {
+        if (mode === 'unassigned' || !userId) return undefined
+        const name = nameOf(userId)
+        const roleName = roleWords(role)
+        const base = name ? (name.toLowerCase() === roleName.toLowerCase() ? name : `${name} · ${roleName}`) : roleName
+        return mode === 'owner_fallback' ? `${base} · standing in until someone is chosen` : base
+      }
+      const requesterUser = request.requester_person_id
+        ? (DatabaseManager.getDatabase()
+            .prepare('SELECT subject_ref AS subjectRef FROM people WHERE id = ?')
+            .get(request.requester_person_id) as { subjectRef?: string } | undefined)
+        : undefined
+      const definition = requestExperienceDefinition(orgTenantId, String(request.request_type || 'general'))
+      const review = orgWorkflowActorService.resolveActor({
+        orgTenantId,
+        workflowType: definition.workflowType,
+        stageAction: definition.definition.reviewAction,
+      })
+      const fulfilmentAction = definition.definition.fulfilmentAction
+      const fulfilment = fulfilmentAction
+        ? orgWorkflowActorService.resolveActor({
+            orgTenantId,
+            workflowType: definition.workflowType,
+            stageAction: fulfilmentAction,
+          })
+        : undefined
+      const ids = new Set<string>()
+      for (const event of events) {
+        const id = String(event.actor_user_id || '')
+        if (id) ids.add(id)
+      }
+      if (requesterUser?.subjectRef) ids.add(requesterUser.subjectRef)
+      if (review.userId) ids.add(review.userId)
+      if (fulfilment?.userId) ids.add(fulfilment.userId)
+      return {
+        parties: {
+          requesterName: nameOf(requesterUser?.subjectRef),
+          reviewName: labelFor(review.userId, review.role, review.mode),
+          fulfilmentName: fulfilment ? labelFor(fulfilment.userId, fulfilment.role, fulfilment.mode) : undefined,
+        },
+        people: members
+          .filter((member) => ids.has(member.userId))
+          .map((member) => ({
+            userId: member.userId,
+            role: member.role,
+            displayName: member.displayName || undefined,
+            phone: member.phone || undefined,
+          })),
+      }
+    } catch {
+      return empty
+    }
   }
 
   private hydrateRequest(requestId: string, request: any) {

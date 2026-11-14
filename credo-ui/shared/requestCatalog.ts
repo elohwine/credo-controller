@@ -93,7 +93,7 @@ export const REQUEST_GROUP_WORDS: Record<RequestGroup, { title: string; line: st
   },
   org_ops: {
     title: 'Start work for the organisation',
-    line: 'Things the organisation starts: purchases, jobs, collections.',
+    line: 'A purchase, a job, or a bill this organisation can run. Not a request sent to another supplier. Only what was turned on in setup is listed.',
   },
 }
 
@@ -109,6 +109,11 @@ const MEMBER_KIND_WORDS: Record<string, { label: string; line: string; icon: Req
     label: 'Expense claim',
     line: 'Money you spent for work. Add the receipt.',
     icon: 'receipt',
+  },
+  'hr.salary_advance': {
+    label: 'Salary advance',
+    line: 'Part of your pay early. It comes off your next pay.',
+    icon: 'cash',
   },
   'finance.payout_request': {
     label: 'Ask for my payout',
@@ -334,6 +339,10 @@ export function requestKindLine(requestType: unknown, context?: Record<string, u
     const category = EXPENSE_CATEGORIES.find((entry) => entry.value === details.categoryCode)?.label
     return category || 'Expense claim'
   }
+  if (key === 'hr.salary_advance') {
+    const months = Number(details.repaymentMonths)
+    return months > 0 ? `Paid back over ${months} month${months === 1 ? '' : 's'}` : 'Paid back from your next pay'
+  }
   if (key === 'finance.payout_request') {
     return details.jobReference ? `Job ${details.jobReference}` : 'Finished job waiting for its payment'
   }
@@ -379,7 +388,7 @@ export function requestStatusWords(status: unknown): { label: string; color: str
  * Kinds that are finished the moment someone says yes (server: PlatformRequestService.DONE_WHEN_APPROVED).
  * Other kinds still have work after approval (pay back, deliver), so "approved" is still waiting.
  */
-const DONE_WHEN_APPROVED = new Set(['hr.leave', 'platform.general', 'finance.payout_request'])
+const DONE_WHEN_APPROVED = new Set(['hr.leave', 'hr.salary_advance', 'platform.general', 'finance.payout_request'])
 
 export type RequestListBucket = 'waiting' | 'done' | 'closed'
 

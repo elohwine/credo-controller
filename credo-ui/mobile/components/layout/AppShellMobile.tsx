@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Box, Group, Text, ActionIcon, Avatar, Drawer, Stack, Button, Divider, useMantineColorScheme, Menu, UnstyledButton } from '@mantine/core';
-import { IconSettings, IconLogout, IconBuilding, IconChevronDown, IconSun, IconMoon, IconCheck, IconUser, IconPlus, IconArrowLeft } from '@tabler/icons-react';
+import { IconSettings, IconHelpCircle, IconLogout, IconBuilding, IconChevronDown, IconSun, IconMoon, IconCheck, IconUser, IconPlus, IconArrowLeft } from '@tabler/icons-react';
 import BottomNav from './BottomNav';
 import { CREDENTIS_CONTEXT_CHANGED_EVENT, clearTaskContext, getTaskContext, getActiveOrgLabel, getUserName, getUserRole, clearAuth, getWalletToken, syncOrgContextFromServer, applyOrgContext, setPersonalContext, mayOpenOrgContext, getContextMode, getOrgToken, getContextTokenStrict, getPersonalWalletToken } from '@/lib/auth';
 import { beginAddAccount, currentAccountId, listSavedAccounts, loadSavedAccountNames, rememberCurrentAccount, restoreAccount } from '@/lib/savedAccounts';
@@ -627,7 +627,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
         }}
       >
         <Stack gap="md" pb="lg">
-          <Button variant="light" leftSection={<IconSettings size={16} />} onClick={() => {
+          <Button variant="light" justify="flex-start" leftSection={<IconSettings size={16} />} onClick={() => {
             // Closing first would let the drawer's Back entry cancel a navigation that is still loading.
             void router.push('/settings/').finally(() => setSettingsOpen(false));
           }}>
@@ -727,6 +727,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
             <Button
               variant="subtle"
               color="credentis"
+              justify="flex-start"
               leftSection={<IconPlus size={16} />}
               onClick={() => {
                 setSettingsOpen(false);
@@ -748,6 +749,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
             <Button
               variant="light"
               color="gray"
+              justify="flex-start"
               leftSection={safeColorScheme === 'dark' ? <IconSun size={16} /> : <IconMoon size={16} />}
               onClick={() => toggleColorScheme()}
             >
@@ -758,8 +760,21 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
           <Divider />
 
           <Button
+            variant="subtle"
+            color="gray"
+            justify="flex-start"
+            leftSection={<IconHelpCircle size={16} />}
+            onClick={() => {
+              void router.push('/help/?from=account').finally(() => setSettingsOpen(false));
+            }}
+          >
+            Help & Feedback
+          </Button>
+
+          <Button
             variant="light"
             color="red"
+            justify="flex-start"
             leftSection={<IconLogout size={16} />}
             onClick={handleLogout}
           >

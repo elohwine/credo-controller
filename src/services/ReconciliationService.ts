@@ -244,6 +244,168 @@ export class ReconciliationService {
   }
 
   /**
+   * A paid checkout that no workflow run owns (a Money in request, a pay link, a WhatsApp cart):
+   * payment and receipt land on the provider reference, and the settlement once the debt is matched.
+   * `deliveryRequired: false` marks a request with nothing to deliver, so it reconciles at
+   * payment + receipt + settlement; carts leave it unset and keep the tenant's delivery rule.
+   */
+  recordPaidCheckout(
+    providerRef: string,
+    input: {
+      tenantId: string
+      amount?: number
+      currency?: string
+      linkId?: string
+      cartId?: string
+      receiptId?: string
+      settled: boolean
+      deliveryRequired?: boolean
+      kind: 'payment_request' | 'pay_link' | 'cart' | 'supplier_payment'
+      /** Event source. Money in checkouts use 'checkout'; a supplier payment uses 'ap_payment'. */
+      source?: 'checkout' | 'ap_payment'
+      /** False when no receipt was issued (for example a remittance advice that failed). Default true. */
+      receiptIssued?: boolean
+    },
+  ): void {
+    const source = input.source ?? 'checkout'
+    try {
+      const seen = DatabaseManager.getDatabase()
+        .prepare(
+          `SELECT 1 FROM reconciliation_events WHERE provider_ref = ? AND event_type = 'PAYMENT_SUCCESS' AND source = ? LIMIT 1`,
+        )
+        .get(providerRef, source)
+      if (seen) {
+        if (!input.settled) return
+        const matched = DatabaseManager.getDatabase()
+          .prepare(
+            `SELECT 1 FROM reconciliation_events WHERE provider_ref = ? AND event_type = 'SETTLEMENT_CONFIRMED' AND source = ? LIMIT 1`,
+          )
+          .get(providerRef, source)
+        if (matched) return
+        this.recordEvent(providerRef, 'SETTLEMENT_CONFIRMED', source, {
+          tenantId: input.tenantId,
+          amount: input.amount,
+          currency: input.currency,
+          linkId: input.linkId,
+          cartId: input.cartId,
+          kind: input.kind,
+          ...(input.deliveryRequired === false ? { deliveryRequired: false } : {}),
+        })
+        return
+      }
+    } catch (err: any) {
+      logger.error({ error: err.message, providerRef }, 'Paid checkout not reconciled (non-fatal)')
+      return
+    }
+    const base = {
+      tenantId: input.tenantId,
+      amount: input.amount,
+      currency: input.currency,
+      linkId: input.linkId,
+      cartId: input.cartId,
+      kind: input.kind,
+      ...(input.deliveryRequired === false ? { deliveryRequired: false } : {}),
+    }
+    this.recordEvent(providerRef, 'PAYMENT_SUCCESS', source, base)
+    if (input.receiptIssued !== false) {
+      this.recordEvent(providerRef, 'RECEIPT_ISSUED', source, { ...base, receiptId: input.receiptId })
+    }
+    if (input.settled) this.recordEvent(providerRef, 'SETTLEMENT_CONFIRMED', source, base)
+  }
+
+  /**
+   * Hand a paid checkout over. The website receipt page and the phone delivery scan both call this.
+   * The payment is marked delivered and delivery is recorded once, so a sale that was already matched
+   * becomes Reconciled. A second confirm does not add another delivery event.
+   */
+  confirmHandover(
+    transactionId: string,
+    options?: { allowPending?: boolean },
+  ): { found: boolean; ok: boolean; state: string; message: string } {
+    const db = DatabaseManager.getDatabase()
+    const payment = db
+      .prepare(
+        `SELECT * FROM ack_payments
+         WHERE provider_ref = ? OR payment_request_token = ? OR idempotency_key = ?`,
+      )
+      .get(transactionId, transactionId, transactionId) as
+      | {
+          id: string
+          tenant_id?: string
+          cart_id?: string
+          provider_ref?: string
+          payment_request_token?: string
+          amount?: number
+          currency?: string
+          state: string
+        }
+      | undefined
+    if (!payment) return { found: false, ok: false, state: 'unknown', message: 'Transaction not found' }
+    if (payment.state !== 'paid' && payment.state !== 'delivered') {
+      if (!(options?.allowPending && payment.state === 'pending' && payment.provider_ref)) {
+        return {
+          found: true,
+          ok: false,
+          state: payment.state,
+          message: `Cannot confirm delivery. Payment state is '${payment.state}' (must be 'paid')`,
+        }
+      }
+    }
+    if (payment.state !== 'delivered') {
+      db.prepare(`UPDATE ack_payments SET state = 'delivered', updated_at = ? WHERE id = ?`).run(
+        new Date().toISOString(),
+        payment.id,
+      )
+    }
+    const providerRef = payment.provider_ref || payment.payment_request_token
+    if (providerRef) {
+      const already = db
+        .prepare(
+          `SELECT 1 FROM reconciliation_events WHERE provider_ref = ? AND event_type = 'DELIVERY_VERIFIED' LIMIT 1`,
+        )
+        .get(providerRef)
+      if (!already) {
+        this.recordEvent(providerRef, 'DELIVERY_VERIFIED', 'checkout', {
+          tenantId: payment.tenant_id,
+          amount: payment.amount,
+          currency: payment.currency,
+          cartId: payment.cart_id,
+        })
+      }
+    }
+    return { found: true, ok: true, state: 'delivered', message: 'Delivery confirmed successfully' }
+  }
+
+  /** Dates on a paid checkout's own trail. Empty when this reference has no reconciliation row. */
+  checkoutTrail(providerRef?: string | null): {
+    status: string
+    receiptIssuedAt?: string
+    settledAt?: string
+    deliveredAt?: string
+    reconciledAt?: string
+  } | undefined {
+    if (!providerRef) return undefined
+    const db = DatabaseManager.getDatabase()
+    const status = db
+      .prepare(`SELECT status, updated_at FROM reconciliation_status WHERE provider_ref = ?`)
+      .get(providerRef) as { status: string; updated_at: string } | undefined
+    if (!status) return undefined
+    const events = db
+      .prepare(
+        `SELECT event_type, MIN(occurred_at) AS at FROM reconciliation_events WHERE provider_ref = ? GROUP BY event_type`,
+      )
+      .all(providerRef) as Array<{ event_type: string; at: string }>
+    const at = (type: string) => events.find((event) => event.event_type === type)?.at
+    return {
+      status: status.status,
+      receiptIssuedAt: at('RECEIPT_ISSUED'),
+      settledAt: at('SETTLEMENT_CONFIRMED'),
+      deliveredAt: at('DELIVERY_VERIFIED'),
+      reconciledAt: status.status === 'RECONCILED' ? status.updated_at : undefined,
+    }
+  }
+
+  /**
    * Deterministic state machine: read all events for a providerRef,
    * apply matching rules, update reconciliation_status.
    *
@@ -263,7 +425,7 @@ export class ReconciliationService {
     const events = db
       .prepare(
         `
-            SELECT event_type, amount, currency, occurred_at
+            SELECT event_type, amount, currency, occurred_at, metadata
             FROM reconciliation_events 
             WHERE provider_ref = ? 
             ORDER BY occurred_at ASC
@@ -274,6 +436,7 @@ export class ReconciliationService {
       amount: number | null
       currency: string | null
       occurred_at: string
+      metadata: string | null
     }>
 
     if (events.length === 0) return
@@ -305,7 +468,14 @@ export class ReconciliationService {
       }
     }
     // If no template is found default to requiring delivery (safest, ecommerce-compatible)
-    const requiresDelivery = tenantRequiresDelivery === null ? true : tenantRequiresDelivery
+    const nothingToDeliver = events.some((e) => {
+      try {
+        return e.metadata ? JSON.parse(e.metadata).deliveryRequired === false : false
+      } catch {
+        return false
+      }
+    })
+    const requiresDelivery = nothingToDeliver ? false : tenantRequiresDelivery === null ? true : tenantRequiresDelivery
 
     // Build event presence flags
     const has = (type: string) => events.some((e) => e.event_type === type)

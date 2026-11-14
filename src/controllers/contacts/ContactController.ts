@@ -27,6 +27,7 @@ import {
   SuccessResponse,
   Query,
 } from 'tsoa'
+import { container } from 'tsyringe'
 import { v4 as uuidv4 } from 'uuid'
 
 import { SCOPES } from '../../enums'
@@ -45,10 +46,12 @@ import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { getTenantById } from '../../persistence/TenantRepository'
 import { credentialIssuanceService } from '../../services/CredentialIssuanceService'
 import { notificationService } from '../../services/NotificationService'
+import { OrganizationService } from '../../services/OrganizationService'
 import { outboxService } from '../../services/OutboxService'
 import { paymentLinkService } from '../../services/PaymentLinkService'
 import { ShortlinkService } from '../../services/ShortlinkService'
 import { shouldAllowWholeCardType } from '../../services/ssi/proofModeMatrix'
+import { defaultVerifierOf } from '../../services/ssi/siteVerifier'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 
 // ─── Request / Response shapes ────────────────────────────────────────────
@@ -275,7 +278,7 @@ export class ContactController extends Controller {
     const tenant = getTenantById(tenantId)
 
     if (tenant?.tenantType === 'ORG') {
-      this.ensureOwnerContactForOrg(tenantId)
+      await this.ensureOwnerContactForOrg(tenantId)
     }
 
     const effectiveScope = contactScope ?? (tenant?.tenantType === 'ORG' ? 'external' : undefined)
@@ -889,7 +892,7 @@ export class ContactController extends Controller {
 
     // Resolve verifier DID — reuse existing or mint a new one
     const verifiers = await (agent.modules as any).openId4VcVerifier.getAllVerifiers()
-    const verifierRecord = verifiers[0]
+    const verifierRecord = defaultVerifierOf(verifiers) as any
     let verifierDid: string =
       verifierRecord?.verifierDid || verifierRecord?.did || (await agent.dids.getCreatedDids({ method: 'key' }))[0]?.did
     if (!verifierDid) {
@@ -1086,19 +1089,13 @@ export class ContactController extends Controller {
     )
   }
 
-  private ensureOwnerContactForOrg(orgTenantId: string): void {
-    const db = DatabaseManager.getDatabase()
-    const owner = db
+  private async ensureOwnerContactForOrg(orgTenantId: string): Promise<void> {
+    const owner = DatabaseManager.getDatabase()
       .prepare(
         `
-      SELECT
-        m.user_id,
-        su.tenant_id as wallet_tenant_id,
-        su.did as holder_did,
-        t.label as holder_name
+      SELECT m.user_id
       FROM org_memberships m
       JOIN ssi_users su ON su.id = m.user_id
-      JOIN tenants t ON t.id = su.tenant_id
       WHERE m.org_tenant_id = ?
         AND m.role = 'owner'
         AND m.status = 'active'
@@ -1106,27 +1103,9 @@ export class ContactController extends Controller {
       LIMIT 1
     `,
       )
-      .get(orgTenantId) as
-      | {
-          user_id?: string
-          wallet_tenant_id?: string
-          holder_did?: string
-          holder_name?: string
-        }
-      | undefined
+      .get(orgTenantId) as { user_id?: string } | undefined
 
     if (!owner?.user_id) return
-
-    const displayName = owner.holder_name?.trim() || 'Organization Owner'
-    upsertContact({
-      id: `${orgTenantId}:owner:${owner.user_id}`,
-      orgTenantId,
-      contactScope: 'internal',
-      name: displayName,
-      did: owner.holder_did || undefined,
-      walletTenantId: owner.wallet_tenant_id || undefined,
-      linkedAt: new Date().toISOString(),
-      notes: 'Auto-linked from organization member account',
-    })
+    await container.resolve(OrganizationService).syncMemberContact(orgTenantId, owner.user_id, 'owner')
   }
 }

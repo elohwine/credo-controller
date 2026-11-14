@@ -23,6 +23,7 @@ import { notifications } from '@mantine/notifications'
 
 import Layout from '@/components/Layout'
 import ConnectedRecordTypes from '@/components/organization/ConnectedRecordTypes'
+import BooksFiscalPanel from '@/components/organization/BooksFiscalPanel'
 import { useRequireOrgContext } from '@/lib/portalContext'
 import { getOrgScopedToken, getPersonalToken } from '@/utils/organizationContext'
 
@@ -42,7 +43,11 @@ interface PartnerClient {
   revokedAt: string | null
 }
 
-type Operation = 'sign_in' | 'send_records'
+type Operation = 'sign_in' | 'send_records' | 'discover'
+
+const operationLabel = (operation: Operation): string =>
+  operation === 'sign_in' ? 'Signs people in' : operation === 'send_records' ? 'Sends records' : 'Searches businesses'
+
 type RecipientScope = 'org_members' | 'any_registered'
 
 interface Settings {
@@ -210,6 +215,8 @@ export default function SignInPartnersPage() {
 
           {error && <Alert color="red">{error}</Alert>}
 
+          <BooksFiscalPanel />
+
           {settings && (
             <Paper withBorder p="md">
               <Text fw={600} mb={4}>
@@ -228,6 +235,10 @@ export default function SignInPartnersPage() {
               <Text size="sm" mt={6}>
                 Sending records: <Code>POST /api/partner/v1/records</Code> with the client ID and secret (HTTP Basic) and
                 an <Code>Idempotency-Key</Code> header. Repeating a key never sends the record twice.
+              </Text>
+              <Text size="sm" mt={6}>
+                Searching businesses: <Code>POST /api/partner/v1/discovery/search</Code> with the client ID and secret.
+                The reply names businesses that fit. It has no phone number, email or account id. A system that only signs people in cannot search.
               </Text>
             </Paper>
           )}
@@ -252,7 +263,7 @@ export default function SignInPartnersPage() {
                   <Group gap={6}>
                     {operationsOf(client).map((operation) => (
                       <Badge key={operation} size="sm" variant="outline" color="gray">
-                        {operation === 'sign_in' ? 'Signs people in' : 'Sends records'}
+                        {operationLabel(operation)}
                       </Badge>
                     ))}
                   </Group>
@@ -320,6 +331,7 @@ export default function SignInPartnersPage() {
               <Stack gap={6} mt={6}>
                 <Checkbox value="sign_in" label="Signs people in with their wallet" disabled={Boolean(draft.clientId)} />
                 <Checkbox value="send_records" label="Sends our records to people's wallets" disabled={Boolean(draft.clientId)} />
+                <Checkbox value="discover" label="Searches businesses people can ask" disabled={Boolean(draft.clientId)} />
               </Stack>
             </Checkbox.Group>
             {draftSends && (

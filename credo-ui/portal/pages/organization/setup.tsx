@@ -6,7 +6,7 @@ import Layout from '@/components/Layout'
 import { StepHelp } from '@/components/help/StepHelp'
 import RecordSettingsCard from '@/components/organization/RecordSettingsCard'
 import DeviceTrustSettingsCard from '@/components/organization/DeviceTrustSettingsCard'
-import { SectionTip } from '@/components/guides/SectionGuides'
+import StaffCardStepsCard from '@/components/organization/StaffCardStepsCard'
 import {
   getOrgScopedToken,
   getPersonalToken,
@@ -19,6 +19,8 @@ import {
   SETUP_PROFILE_PATH,
   describeOrgProfile,
   persistOrgProfile,
+  clearOrgSetupDraft,
+  readOrgSetupDraft,
   profileFromServer,
   readOrgProfile,
   setupChecklist,
@@ -35,15 +37,15 @@ import {
   Card,
   Container,
   Group,
-  Progress,
   Stack,
-  ThemeIcon,
   Text,
   TextInput,
   Title,
 } from '@mantine/core'
-import { IconAlertCircle, IconBuildingPlus, IconCheck, IconRefresh } from '@tabler/icons-react'
-import { reveal } from '../../../shared/reveal'
+import { IconAlertCircle, IconBuildingPlus, IconRefresh } from '@tabler/icons-react'
+import { OrgSetupOverview } from '../../../shared/OrgSetupOverview'
+import { orgSettingSummary, orgSettingsStatus, visibleOrgSettings, type OrgSettingsGroup } from '../../../shared/orgSettings'
+import { SettingsList } from '../../../shared/Guides'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -144,6 +146,7 @@ function actionLinkFor(item: { key: string; actionPath?: string }): { href: stri
 
 /** Where each checklist step opens. Question steps chain to the next unfinished one. */
 function stepHref(step: SetupStep, steps: SetupStep[]): string {
+  if (step.id === 'kinds' && !step.done) return '/organization/onboarding'
   if (step.id === 'team') return '/organization/people'
   if (step.id === 'brand') return '/organization/brand'
   const rest = steps
@@ -233,6 +236,16 @@ export default function OrganizationSetupPage() {
   const [memberCount, setMemberCount] = useState(0)
   const [memberRoles, setMemberRoles] = useState<string[]>([])
   const [canEditRecords, setCanEditRecords] = useState(false)
+  const [recordSettingsOpen, setRecordSettingsOpen] = useState<string | null>(null)
+  const [settingsGroup, setSettingsGroup] = useState<string | null>(null)
+  const [draftQuestion, setDraftQuestion] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (router.asPath.endsWith('#records')) {
+      setSettingsGroup('advanced')
+      setRecordSettingsOpen('records')
+    }
+  }, [router.asPath])
 
   const groupedItems = useMemo(() => {
     if (!readiness) return [] as Array<{ domain: ReadinessDomain; items: ReadinessItem[]; percent: number }>
@@ -372,7 +385,25 @@ export default function OrganizationSetupPage() {
     () => setupChecklist({ profile: orgProfile, items: readiness?.items ?? [], memberCount, roles: memberRoles, brandConfigured }),
     [orgProfile, readiness, memberCount, memberRoles, brandConfigured],
   )
-  const doneCount = steps.filter((step) => step.done).length
+
+  useEffect(() => {
+    if (!orgTenantId) return
+    setDraftQuestion(readOrgSetupDraft(orgTenantId)?.question ?? null)
+  }, [orgTenantId])
+
+  const settingsStatus = orgSettingsStatus({ profile: orgProfile, memberCount, brandConfigured })
+  // Record settings open in place below; the list row would only scroll to them.
+  const visibleSettings = visibleOrgSettings(canEditRecords, (item) => item.id !== 'records')
+  const advancedSettings = canEditRecords ? visibleSettings.find((group) => group.id === 'advanced') : undefined
+  const settingsRows = (group: OrgSettingsGroup) => ({
+    title: group.label,
+    rows: group.items.map((item) => ({
+      key: item.id,
+      title: item.label,
+      summary: orgSettingSummary(item, settingsStatus),
+      onSelect: () => void router.push(item.href),
+    })),
+  })
   const firstOpen = steps.find((step) => !step.done)
 
   const missingGroups = groupedItems.filter((group) =>
@@ -382,15 +413,15 @@ export default function OrganizationSetupPage() {
   )
 
   return (
-    <Layout title="Setup">
+    <Layout title="Organisation setup">
       <Container size="md" py="xl">
         <Stack gap="lg">
           <Group justify="space-between" align="flex-end">
             <Box>
-              <Title order={2}>Setup</Title>
+              <Title order={2}>Organisation setup</Title>
               {readiness && (
                 <Text c="dimmed" size="sm" mt={4}>
-                  {firstOpen ? `${doneCount} of ${steps.length} done` : 'You are set. Everything is in place.'}
+                  {firstOpen ? 'Your next step, then every organisation setting.' : 'You are set. Everything is in place.'}
                 </Text>
               )}
             </Box>
@@ -428,7 +459,6 @@ export default function OrganizationSetupPage() {
             </Alert>
           ) : null}
 
-          <SectionTip tip="tip_org_settings" when={canEditRecords && Boolean(orgTenantId)} />
 
           {orgTenantId && loading && !readiness && (
             <Stack gap="sm" aria-label="Loading setup">
@@ -484,100 +514,125 @@ export default function OrganizationSetupPage() {
           {/* ── Readiness ─────────────────────────────── */}
           {readiness && (
             <Stack gap="md">
-              <Card withBorder radius="md" p="lg">
-                <Stack className={reveal.stagger} gap="sm">
-                  <Progress value={(doneCount / steps.length) * 100} size="sm" radius="xl" aria-label="Setup progress" />
-                  {steps.map((step) => {
-                    const isNext = firstOpen?.id === step.id
-                    return (
-                      <Group key={step.id} justify="space-between" wrap="nowrap">
-                        <Group gap="sm" wrap="nowrap">
-                          <ThemeIcon
-                            radius="xl"
-                            size="sm"
-                            color={step.done ? 'teal' : 'gray'}
-                            variant={step.done ? 'filled' : 'light'}
-                          >
-                            {step.done ? <IconCheck size={12} /> : null}
-                          </ThemeIcon>
-                          <Box>
-                            <Text size="sm" fw={isNext ? 600 : 400} c={step.done ? 'dimmed' : undefined}>
-                              {step.label}
-                            </Text>
-                            {step.note && (
-                              <Text size="xs" c="dimmed">{step.note}</Text>
-                            )}
-                          </Box>
-                        </Group>
-                        <Button
-                          size="xs"
-                          variant={isNext ? 'filled' : 'subtle'}
-                          component={Link}
-                          href={stepHref(step, steps)}
-                        >
-                          {isNext ? 'Start' : step.done ? 'Change' : 'Open'}
-                        </Button>
-                      </Group>
-                    )
-                  })}
-                </Stack>
-              </Card>
-
-              <Text fw={600} size="sm">
-                Kinds of requests
-              </Text>
-              <Stack gap={4}>
-                {(readiness.workflows ?? []).map((workflow) => {
-                  const gaps = requestGaps(workflow, readiness.items)
-                  return (
-                    <Text key={workflow.templateId || workflow.workflowType} size="sm">
-                      {plainRequestName(workflow)}
-                      {workflow.ready
-                        ? openNote(workflow, readiness.items)
-                        : gaps.length > 0
-                          ? ` · ${gaps.join(', ')}`
-                          : ' · Still to do'}
+              <OrgSetupOverview
+                steps={steps}
+                canEdit={canEditRecords}
+                onOpen={(step) => { void router.push(stepHref(step, steps)) }}
+                onExplore={() => { void router.push('/requests') }}
+                resume={
+                  draftQuestion
+                    ? {
+                        question: draftQuestion,
+                        total: 5,
+                        onResume: () => { void router.push('/organization/onboarding') },
+                        onDiscard: () => {
+                          clearOrgSetupDraft(orgTenantId)
+                          setDraftQuestion(null)
+                        },
+                      }
+                    : null
+                }
+              />
+              <Accordion variant="separated" radius="md">
+                <Accordion.Item value="availability">
+                  <Accordion.Control>
+                    <Text fw={500} size="sm">Request availability</Text>
+                    <Text size="xs" c="dimmed">
+                      {(readiness.workflows ?? []).filter((workflow) => workflow.ready).length} of {readiness.workflows?.length ?? 0} request types ready. See what is available and what needs attention.
                     </Text>
-                  )
-                })}
-              </Stack>
-
-              {(readiness.workflows?.length ?? 0) > 0 && (
-                <Group gap="sm">
-                  <Button variant="light" size="sm" component={Link} href="/organization/actors">
-                    Who does what
-                  </Button>
-                  <Button variant="light" size="sm" component={Link} href="/organization/handoffs">
-                    What happens next
-                  </Button>
-                </Group>
-              )}
-
-              {missingGroups.length > 0 && (
-                <Stack gap="md">
-                  {missingGroups.map((group) => (
-                    <MissingGroup key={group.domain} domain={group.domain} items={group.items} />
-                  ))}
-                </Stack>
-              )}
+                  </Accordion.Control>
+                  <Accordion.Panel>
+                    <Stack gap="sm">
+                      {(readiness.workflows ?? []).map((workflow) => {
+                        const gaps = requestGaps(workflow, readiness.items)
+                        return (
+                          <Text key={workflow.templateId || workflow.workflowType} size="sm">
+                            {plainRequestName(workflow)}
+                            {workflow.ready
+                              ? openNote(workflow, readiness.items)
+                              : gaps.length > 0
+                                ? ` · ${gaps.join(', ')}`
+                                : ' · Still to do'}
+                          </Text>
+                        )
+                      })}
+                      {(readiness.workflows?.length ?? 0) > 0 && (
+                        <Group gap="sm">
+                          <Button variant="light" size="sm" component={Link} href="/organization/actors">
+                            Who does what
+                          </Button>
+                          <Button variant="light" size="sm" component={Link} href="/organization/handoffs">
+                            What happens next
+                          </Button>
+                        </Group>
+                      )}
+                      {missingGroups.length > 0 && (
+                        <Stack gap="md">
+                          {missingGroups.map((group) => (
+                            <MissingGroup key={group.domain} domain={group.domain} items={group.items} />
+                          ))}
+                        </Stack>
+                      )}
+                    </Stack>
+                  </Accordion.Panel>
+                </Accordion.Item>
+              </Accordion>
             </Stack>
           )}
 
           {orgTenantId && (
-            <Accordion variant="separated" radius="md" chevronPosition="right">
-              <Accordion.Item value="advanced">
-                <Accordion.Control>
-                  <Text fw={500} size="sm">Advanced settings</Text>
-                  <Text size="xs" c="dimmed">Which records each workflow issues, and which steps need the enrolled phone.</Text>
-                </Accordion.Control>
-                <Accordion.Panel>
-                  <Stack gap="md">
-                    <RecordSettingsCard orgTenantId={orgTenantId} canEdit={canEditRecords} />
-                    <DeviceTrustSettingsCard orgTenantId={orgTenantId} canEdit={canEditRecords} />
-                  </Stack>
-                </Accordion.Panel>
-              </Accordion.Item>
-            </Accordion>
+            <Stack gap="sm">
+              <Box>
+                <Title order={3}>Organisation settings</Title>
+                <Text size="sm" c="dimmed">Change only what you need. These settings are always available here.</Text>
+              </Box>
+              <SettingsList groups={visibleSettings.filter((group) => group.id !== 'advanced').map(settingsRows)} />
+              {advancedSettings && (
+                <Accordion variant="separated" radius="md" value={settingsGroup} onChange={setSettingsGroup}>
+                  <Accordion.Item value="advanced">
+                    <Accordion.Control>
+                      <Text size="sm" fw={500}>{advancedSettings.label}</Text>
+                      <Text size="xs" c="dimmed">{advancedSettings.detail}</Text>
+                    </Accordion.Control>
+                    <Accordion.Panel>
+                      <SettingsList groups={[{ ...settingsRows(advancedSettings), showTitle: false }]} />
+                      <Accordion
+                        mt="sm"
+                        variant="separated"
+                        radius="md"
+                        chevronPosition="right"
+                        value={recordSettingsOpen}
+                        onChange={setRecordSettingsOpen}
+                      >
+                        <Accordion.Item value="records" id="records">
+                          <Accordion.Control>
+                            <Text fw={500} size="sm">Record settings</Text>
+                            <Text size="xs" c="dimmed">
+                              Which records each workflow issues, and which steps need the staff card or the enrolled phone.
+                            </Text>
+                          </Accordion.Control>
+                          <Accordion.Panel>
+                            <Stack gap="md">
+                              <RecordSettingsCard orgTenantId={orgTenantId} canEdit={canEditRecords} />
+                              <StaffCardStepsCard orgTenantId={orgTenantId} canEdit={canEditRecords} />
+                              <DeviceTrustSettingsCard orgTenantId={orgTenantId} canEdit={canEditRecords} />
+                            </Stack>
+                          </Accordion.Panel>
+                        </Accordion.Item>
+                      </Accordion>
+                    </Accordion.Panel>
+                  </Accordion.Item>
+                </Accordion>
+              )}
+              <SettingsList
+                groups={[
+                  {
+                    title: 'Support',
+                    rows: [{ key: 'help', title: 'Help & Feedback', summary: 'Common questions and how to reach us', onSelect: () => void router.push('/help?from=setup') }],
+                  },
+                ]}
+              />
+            </Stack>
           )}
         </Stack>
       </Container>

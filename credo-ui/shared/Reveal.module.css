@@ -5,8 +5,9 @@
  */
 .stagger > * {
   --n: 12;
-  animation: revealIn 480ms cubic-bezier(.2, .8, .2, 1) both;
-  animation-delay: calc(var(--reveal-delay, 40ms) + var(--n) * 55ms);
+  /* Material 3 emphasized decelerate; a short step so a list feels like one gesture, not a queue. */
+  animation: revealIn var(--reveal-duration, 400ms) cubic-bezier(0.05, 0.7, 0.1, 1) both;
+  animation-delay: calc(var(--reveal-delay, 30ms) + var(--n) * var(--reveal-step, 40ms));
 }
 .stagger > :nth-child(1) { --n: 0; }
 .stagger > :nth-child(2) { --n: 1; }
@@ -21,11 +22,11 @@
 .stagger > :nth-child(11) { --n: 10; }
 .stagger > :nth-child(12) { --n: 11; }
 
-/* One block arriving on its own (a tip, a card). */
-.rise { animation: revealIn 420ms cubic-bezier(.2, .8, .2, 1) both; }
+/* One block arriving on its own (the getting-started card). Emphasized decelerate, then a short pause. */
+.rise { animation: revealIn 640ms cubic-bezier(0.05, 0.7, 0.1, 1) 200ms both; }
 
-/* Opening a collapsed part: the new rows slide down into place. */
-.unfold > * { animation: unfold 360ms cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--n, 0) * 45ms); }
+/* Opening a collapsed part: the new rows slide down into place, one after another. */
+.unfold > * { animation: unfold 480ms cubic-bezier(0.05, 0.7, 0.1, 1) both; animation-delay: calc(var(--n, 0) * 90ms); }
 .unfold > :nth-child(2) { --n: 1; }
 .unfold > :nth-child(3) { --n: 2; }
 .unfold > :nth-child(4) { --n: 3; }
