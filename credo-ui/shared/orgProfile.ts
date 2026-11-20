@@ -6,6 +6,8 @@ import {
   type OrgOperatingModel,
   type OrgConfigurationAccess,
 } from '../../src/config/orgModules'
+import { editionAllowsKind, editionAllowsModule } from '../../src/config/productEdition'
+export { PRODUCT_NAME, editionAllowsKind, editionAllowsModule } from '../../src/config/productEdition'
 export type { OrgModule, OrgOperatingModel, OrgConfigurationAccess } from '../../src/config/orgModules'
 export { suggestedOrgModules, suggestOrgSetup } from '../../src/config/orgModules'
 export { DEFAULT_DEPARTMENT_NAME, cleanDepartmentNames, suggestedDepartmentsFor } from '../../src/config/orgStructure'
@@ -30,7 +32,7 @@ export type OrgKindOption = {
   detail: string
 }
 
-/** What the organisation does. Shop and school turn on the store and school-fee invoices. Jobs and supplier payments stay either way. */
+/** What the organisation does. This branch offers jobs only. */
 export const ORG_KIND_OPTIONS: OrgKindOption[] = [
   { id: 'office', label: 'Buys things and pays suppliers', detail: 'Purchase requests and supplier bills' },
   { id: 'field', label: 'Sends people out to do jobs', detail: 'Jobs with photos, sign-off and payment' },
@@ -40,7 +42,7 @@ export const ORG_KIND_OPTIONS: OrgKindOption[] = [
     label: 'Sells from a shop or advertises what it delivers',
     detail: 'Counter sales, a catalog, and a public store',
   },
-]
+].filter((option) => editionAllowsKind(option.id))
 
 /**
  * Modules an organisation switches on by its own question. People & payroll is not assumed:
@@ -77,7 +79,9 @@ export function startingModules(
   return suggestedOrgModules(kinds.length > 0 ? kinds : ['office'], operatingModel)
 }
 
-export const ORG_MODULE_OPTIONS: OrgModuleOption[] = ORG_MODULE_CATALOGUE.map(({ id, label, detail, opens }) => ({
+export const ORG_MODULE_OPTIONS: OrgModuleOption[] = ORG_MODULE_CATALOGUE.filter((module) =>
+  editionAllowsModule(module.id),
+).map(({ id, label, detail, opens }) => ({
   id,
   label,
   detail,

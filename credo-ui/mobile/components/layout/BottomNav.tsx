@@ -43,7 +43,7 @@ export default function BottomNav({ inboxCount = 0 }: BottomNavProps) {
     { href: '/', label: 'Home', icon: IconHome },
     { href: '/inbox', label: 'Activity', icon: IconInbox },
     { href: fabHref, label: fabLabel, icon: FabIcon, isFab: true },
-    { href: '/organizations', label: 'Network', icon: IconBuilding },
+    { href: '/contacts', label: 'Network', icon: IconBuilding },
     { href: '/proofs', label: 'Records', icon: IconWallet },
   ];
 

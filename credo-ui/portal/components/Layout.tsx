@@ -35,14 +35,13 @@ import {
     IconCreditCard,
     IconUsers,
     IconSchool,
-    IconSearch,
     IconShoppingBag,
     IconReportMoney,
 } from '@tabler/icons-react';
 import OrgSwitcher from '@/components/OrgSwitcher';
 import { endPortalTask, usePortalContext, usePortalTaskGuard } from '@/lib/portalContext';
 import { getOrgScopedToken, getPersonalToken } from '@/utils/organizationContext';
-import { readOrgProfile } from '@/utils/orgProfile';
+import { PRODUCT_NAME, editionAllowsKind, editionAllowsModule, readOrgProfile } from '@/utils/orgProfile';
 import { getWorkflowCapabilityFlags } from '@/lib/workflowCapabilities';
 import { openInboxOffers } from '@/lib/inboxAttention';
 import { RECORDS_TARGET_ATTR } from '../../shared/cardMotion';
@@ -65,7 +64,7 @@ const BRAND = {
     dark: '#0A3D5C',
 };
 
-const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
+const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => {
     const isNested = useContext(LayoutNestingContext);
     const router = useRouter();
     const { mounted, isOrg, activeOrg } = usePortalContext();
@@ -131,7 +130,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
         return (
             <>
                 <Head>
-                    <title>{title} | Credentis</title>
+                    <title>{title} | {PRODUCT_NAME}</title>
                     <meta charSet="utf-8" />
                     <meta name="viewport" content="initial-scale=1.0, width=device-width" />
                 </Head>
@@ -152,8 +151,8 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
     const kinds = profile?.kinds || [];
     const modules = profile?.modules || [];
     const hasJobs = capabilityFlags.fieldExecution || kinds.includes('field');
-    const hasSchool = capabilityFlags.educationFees || kinds.includes('school');
-    const hasCommerce = capabilityFlags.cashCounter || capabilityFlags.ecommerce || kinds.includes('shop');
+    const hasSchool = editionAllowsKind('school') && (capabilityFlags.educationFees || kinds.includes('school'));
+    const hasCommerce = editionAllowsModule('commerce') && (capabilityFlags.cashCounter || capabilityFlags.ecommerce || kinds.includes('shop'));
     const hasPeople = capabilityFlags.hrOps || modules.includes('people_payroll');
 
     const groups: Array<{ label: string; items: Array<{ label: string; href: string; icon: React.ReactNode }> }> = [
@@ -170,7 +169,6 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                     { label: 'Home', href: '/', icon: <IconHome size={18} /> },
                     { label: 'Inbox', href: '/inbox', icon: <IconInbox size={18} /> },
                     { label: 'My requests', href: '/requests/mine', icon: <IconReceipt size={18} /> },
-                    { label: 'Discover services', href: '/discover', icon: <IconSearch size={18} /> },
                 ],
         },
         ...(isOrg ? [{
@@ -250,7 +248,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
             }}
         >
             <Head>
-                <title>{title} | Credentis</title>
+                <title>{title} | {PRODUCT_NAME}</title>
                 <meta charSet="utf-8" />
                 <meta name="viewport" content="initial-scale=1.0, width=device-width" />
             </Head>
@@ -264,7 +262,7 @@ const Layout = ({ children, title = 'Credentis Portal' }: LayoutProps) => {
                         <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
                             <Group gap={6} wrap="nowrap" c={dark ? '#88C4E3' : BRAND.curious}>
                                 <BrandMark size={40} />
-                                <Text fw={700} size="lg">Credentis</Text>
+                                <Text fw={700} size="lg">{PRODUCT_NAME}</Text>
                             </Group>
                         </Link>
                     </Group>

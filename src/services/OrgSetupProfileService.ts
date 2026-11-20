@@ -24,6 +24,7 @@ import {
   type OrgOperatingModel,
   type OrgConfigurationAccess,
 } from '../config/orgModules'
+import { editionKinds, editionModules } from '../config/productEdition'
 import { MEMBER_REQUEST_FLOWS } from '../config/requestFlows'
 import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
@@ -186,8 +187,8 @@ export class OrgSetupProfileService {
       }
       return Array.from(new Set<T>(value))
     }
-    const kinds = row ? parseSelection(row.kinds, ORG_KINDS) : []
-    let modules = row ? parseSelection(row.modules, ORG_MODULES) : []
+    const kinds = editionKinds(row ? parseSelection(row.kinds, ORG_KINDS) : [])
+    let modules = editionModules(row ? parseSelection(row.modules, ORG_MODULES) : [])
     const mode = row?.configuration_mode ?? 'unconfigured'
     if (mode === 'legacy') {
       modules = legacyModules(kinds, modules)
@@ -367,8 +368,8 @@ export class OrgSetupProfileService {
     ) {
       throw new StatusException('Answer the organisation setup questions before saving work areas.', 400)
     }
-    const kinds = input.kinds !== undefined ? cleanKinds(input.kinds) : current.kinds
-    const modules = input.modules !== undefined ? cleanModules(input.modules) : current.modules
+    const kinds = editionKinds(input.kinds !== undefined ? cleanKinds(input.kinds) : current.kinds)
+    const modules = editionModules(input.modules !== undefined ? cleanModules(input.modules) : current.modules)
     const mode = configure ? 'explicit' : current.access.mode
     const operatingModel = input.operatingModel ?? current.access.operatingModel
     if (mode === 'explicit' && operatingModel === 'integration' && modules.length > 0) {

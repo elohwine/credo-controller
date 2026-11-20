@@ -1,0 +1,30 @@
+import { describe, expect, it } from '@jest/globals'
+
+import { suggestOrgSetup } from '../orgModules'
+import { editionAllowsKind, editionAllowsModule, PRODUCT_NAME } from '../productEdition'
+
+describe('SGK product edition', () => {
+  it('offers jobs, the team, and the modules a job uses', () => {
+    expect(PRODUCT_NAME).toBe('SGK')
+    expect(editionAllowsKind('field')).toBe(true)
+    expect(editionAllowsModule('field_jobs')).toBe(true)
+    expect(editionAllowsModule('purchases')).toBe(true)
+    expect(editionAllowsModule('payables')).toBe(true)
+    expect(editionAllowsModule('collections')).toBe(true)
+    expect(editionAllowsModule('people_payroll')).toBe(true)
+  })
+
+  it('does not offer school fees, the shop, or an office-only setup', () => {
+    expect(editionAllowsKind('school')).toBe(false)
+    expect(editionAllowsKind('shop')).toBe(false)
+    expect(editionAllowsKind('office')).toBe(false)
+    expect(editionAllowsModule('school_fees')).toBe(false)
+    expect(editionAllowsModule('commerce')).toBe(false)
+    expect(suggestOrgSetup(['school', 'shop', 'field'], 'internal').map((item) => item.id)).toEqual([
+      'field_jobs',
+      'purchases',
+      'payables',
+      'collections',
+    ])
+  })
+})

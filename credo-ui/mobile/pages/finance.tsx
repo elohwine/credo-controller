@@ -154,7 +154,7 @@ import {
 } from '@/lib/auth'
 import { openOrganizationForTask, taskRefs, type OrgTaskPurpose } from '@/lib/orgTaskAccess'
 import { findTemplateForCapability, getWorkflowCapabilityFlags } from '@/lib/workflowCapabilities'
-import { readOrgProfile, persistOrgProfile, profileFromServer, SETUP_PROFILE_PATH, type OrgProfile } from '@/lib/orgProfile'
+import { editionAllowsModule, readOrgProfile, persistOrgProfile, profileFromServer, SETUP_PROFILE_PATH, type OrgProfile } from '@/lib/orgProfile'
 import { requireSensitiveOrgReauth } from '@/lib/offline/localReauth'
 import { confirmWithDevice } from '@/lib/deviceTrust'
 import {
@@ -1962,13 +1962,13 @@ export default function FinancePage() {
   const capabilityFlags = getWorkflowCapabilityFlags(activeTemplates, scopedProfile?.access ?? null)
   const hasPaymentCollection = capabilityFlags.paymentCollection
   const hasArCollections = capabilityFlags.arCollections
-  const hasEducation = capabilityFlags.educationFees
+  const hasEducation = capabilityFlags.educationFees && editionAllowsModule('school_fees')
   const hasInternalRequisitions = capabilityFlags.internalRequisitions
   const hasFieldExecutionConfigured = capabilityFlags.fieldExecution
   const hasFieldExecution = hasFieldExecutionConfigured && isEmployeeOrgRole()
   const hasApPayables = capabilityFlags.apPayables
   const orgKinds = scopedProfile?.kinds || []
-  const hasCommerce = capabilityFlags.cashCounter || capabilityFlags.ecommerce || orgKinds.includes('shop')
+  const hasCommerce = editionAllowsModule('commerce') && (capabilityFlags.cashCounter || capabilityFlags.ecommerce || orgKinds.includes('shop'))
   const requisitionRows = requisitions
   const selectedRequisitionRow = selectedRequisitionId
     ? requisitions.find((row) => row.id === selectedRequisitionId) || null

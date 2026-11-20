@@ -6,6 +6,7 @@ import { tick } from '@/lib/feedback';
 import { WalletOnboarding } from '../../shared/WalletOnboarding';
 import { PhoneField } from '../../shared/PhoneField';
 import { BrandMark } from '../../shared/BrandMark';
+import { PRODUCT_NAME } from '@/lib/orgProfile';
 import { useRouter } from 'next/router';
 import {
   Box,
@@ -223,7 +224,7 @@ export default function LoginPage() {
       <Stack className="login-content" gap="xl">
         <Box className="login-branding">
           <Box className="login-brand" aria-hidden="true"><BrandMark size={52} /></Box>
-          <Text fw={800} size="xl" className="login-brand-name">Credentis</Text>
+          <Text fw={800} size="xl" className="login-brand-name">{PRODUCT_NAME}</Text>
         </Box>
         <Stack gap="lg" className="login-main">
           {!guiding && <Stack gap={6} ta="center">
@@ -325,7 +326,7 @@ export default function LoginPage() {
             )}
         </Stack>
         {!guiding && <Stack gap={4} align="center">
-          <Text size="sm" c="dimmed">{tab === 'login' ? 'New to Credentis?' : 'Already have an account?'}</Text>
+          <Text size="sm" c="dimmed">{tab === 'login' ? `New to ${PRODUCT_NAME}?` : 'Already have an account?'}</Text>
           <Button variant="subtle" fullWidth disabled={loading} onClick={() => {
             setTab(tab === 'login' ? 'register' : 'login');
             setSetupStep(1);

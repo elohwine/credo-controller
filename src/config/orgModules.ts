@@ -1,3 +1,5 @@
+import { editionAllowsKind, editionAllowsModule } from './productEdition'
+
 /**
  * Pure configuration contract shared by the API, portal and mobile app. SSI is not a module.
  * `templateIds` are catalogue workflow templates whose instantiated workflows carry a generic
@@ -81,7 +83,12 @@ const SUGGESTIONS_BY_KIND: Record<string, Array<{ id: OrgModule; reason: string 
     { id: 'payables', reason: 'Because you run an office that pays suppliers.' },
     { id: 'collections', reason: 'Because you run an office that collects payments.' },
   ],
-  field: [{ id: 'field_jobs', reason: 'Because you send people out to do jobs.' }],
+  field: [
+    { id: 'field_jobs', reason: 'Because you send people out to do jobs.' },
+    { id: 'purchases', reason: 'Because a job can ask for materials.' },
+    { id: 'payables', reason: 'Because those materials can become a supplier bill.' },
+    { id: 'collections', reason: 'Because the client pays for the job.' },
+  ],
   school: [{ id: 'school_fees', reason: 'Because you collect school fees.' }],
   shop: [{ id: 'commerce', reason: 'Because you sell goods or services.' }],
 }
@@ -93,7 +100,10 @@ export interface OrgModuleSuggestion {
 
 export function suggestOrgSetup(kinds: readonly string[], operatingModel: OrgOperatingModel): OrgModuleSuggestion[] {
   if (operatingModel === 'integration') return []
-  return kinds.flatMap((kind) => SUGGESTIONS_BY_KIND[kind] ?? [])
+  return kinds
+    .filter((kind) => editionAllowsKind(kind))
+    .flatMap((kind) => SUGGESTIONS_BY_KIND[kind] ?? [])
+    .filter((item) => editionAllowsModule(item.id))
 }
 
 export function suggestedOrgModules(kinds: readonly string[], operatingModel: OrgOperatingModel): OrgModule[] {

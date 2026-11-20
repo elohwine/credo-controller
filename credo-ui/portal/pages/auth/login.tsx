@@ -295,7 +295,7 @@ export default function LoginPage() {
                                 <QRCode value={`credentis://device-login?request=${encodeURIComponent(authRequest)}`} size={200} />
                             </Paper>
                             <Button component="a" href={`credentis://device-login?request=${encodeURIComponent(authRequest)}`}>
-                                Open Credentis on this device
+                                Open SGK on this device
                             </Button>
                             
                             <Text ta="center" size="xs" c="dimmed">
