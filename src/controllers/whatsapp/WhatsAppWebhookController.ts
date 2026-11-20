@@ -28,8 +28,18 @@ export interface WhatsAppWebhookPayload {
           id: string
           type: string
           text?: { [key: string]: any; body: string }
+          location?: { [key: string]: any; name?: string; address?: string }
+          image?: { [key: string]: any; id: string; mime_type?: string; caption?: string }
+          document?: { [key: string]: any; id: string; mime_type?: string; caption?: string }
           /** Quick-reply button tapped on a template message */
           button?: { [key: string]: any; payload?: string; text?: string }
+          /** A button or list row tapped on a chat reply; the id is the command it stands for */
+          interactive?: {
+            [key: string]: any
+            type?: string
+            button_reply?: { [key: string]: any; id?: string; title?: string }
+            list_reply?: { [key: string]: any; id?: string; title?: string }
+          }
         }>
         statuses?: Array<{
           [key: string]: any
@@ -109,15 +119,32 @@ export class WhatsAppWebhookController extends Controller {
           } catch {
             logger.warn({ messageId: message.id }, 'Offer opt-out was not saved')
           }
-        } else if (message.type === 'text' && message.text?.body && message.id) {
+        } else if (message.id) {
           // A reply to this message only. Alert consent is not created here.
+          const base = { senderKey, messageId: message.id, from: message.from }
+          const media = message.type === 'image' ? message.image : message.type === 'document' ? message.document : undefined
           try {
-            await whatsAppInquiryService.handle({
-              senderKey,
-              messageId: message.id,
-              from: message.from,
-              text: message.text.body,
-            })
+            // Only the job card's answer buttons come back as template taps; other template buttons are links.
+            const tappedJob =
+              message.type === 'button' && /^JOB_[A-Z]+:/.test(message.button?.payload || '')
+                ? message.button?.payload
+                : undefined
+            const tapped =
+              message.type === 'interactive'
+                ? message.interactive?.button_reply?.id || message.interactive?.list_reply?.id
+                : tappedJob
+            const said = message.type === 'text' ? message.text?.body : tapped
+            if (said) {
+              const name = (value.contacts || []).find((contact: any) => contact?.wa_id === message.from)?.profile?.name
+              await whatsAppInquiryService.handle({ ...base, text: said, name })
+            } else if (message.type === 'location' && message.location) {
+              await whatsAppInquiryService.handleLocation({ ...base, location: message.location })
+            } else if (media?.id) {
+              await whatsAppInquiryService.handleMedia({
+                ...base,
+                media: { id: media.id, mimeType: media.mime_type, caption: media.caption },
+              })
+            }
           } catch {
             logger.warn({ messageId: message.id }, 'WhatsApp inquiry was not answered')
           }

@@ -128,6 +128,7 @@ interface CatalogItem {
   price: number;
   currency: string;
   category?: string;
+  image?: string;
 }
 
 function ServiceCard({ service, onRequest }: { service: Service; onRequest: () => void }) {
@@ -852,7 +853,14 @@ export default function OrganizationDetailPage() {
             ) : (
               <Stack gap={8}>
                 {catalogItems.slice(0, 6).map((item) => (
-                  <Group key={item.id} justify="space-between" align="start">
+                  <Group key={item.id} justify="space-between" align="start" wrap="nowrap">
+                    {item.image ? (
+                      <img
+                        src={item.image}
+                        alt=""
+                        style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 12, flexShrink: 0 }}
+                      />
+                    ) : null}
                     <Box style={{ flex: 1 }}>
                       <Text size="sm" fw={500}>{item.title}</Text>
                       <Text size="xs" c="dimmed">{item.description || item.category || 'Product'}</Text>

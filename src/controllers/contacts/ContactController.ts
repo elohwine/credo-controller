@@ -48,10 +48,11 @@ import { credentialIssuanceService } from '../../services/CredentialIssuanceServ
 import { notificationService } from '../../services/NotificationService'
 import { OrganizationService } from '../../services/OrganizationService'
 import { outboxService } from '../../services/OutboxService'
+import type { ProofShareView } from '../../services/ProofRequestResult'
 import { paymentLinkService } from '../../services/PaymentLinkService'
 import { ShortlinkService } from '../../services/ShortlinkService'
 import { shouldAllowWholeCardType } from '../../services/ssi/proofModeMatrix'
-import { defaultVerifierOf } from '../../services/ssi/siteVerifier'
+import { stageProofService, verifierModuleOf } from '../../services/ssi/StageProofService'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 
 // ─── Request / Response shapes ────────────────────────────────────────────
@@ -840,9 +841,8 @@ export class ContactController extends Controller {
    * (no PII — only providerRef + tenantId), then dispatches the deep-link
    * to the contact via WhatsApp/SMS.
    *
-   * School fee receipts (PaymentReceiptVC / SchoolFeeReceiptVC) are permanent
-   * non-revocable proofs — set credentialTypes accordingly and the contact's
-   * wallet will match them regardless of revocation status.
+   * The contact shares a record of the named type. Its standing (still valid, or
+   * withdrawn) is read afterwards from GET /proof-requests/{requestId}.
    */
   @Post('/{contactId}/request-proof')
   @SuccessResponse('201', 'Created')
@@ -890,23 +890,14 @@ export class ContactController extends Controller {
       })),
     }
 
-    // Resolve verifier DID — reuse existing or mint a new one
-    const verifiers = await (agent.modules as any).openId4VcVerifier.getAllVerifiers()
-    const verifierRecord = defaultVerifierOf(verifiers) as any
-    let verifierDid: string =
-      verifierRecord?.verifierDid || verifierRecord?.did || (await agent.dids.getCreatedDids({ method: 'key' }))[0]?.did
-    if (!verifierDid) {
-      const created = await agent.dids.create({ method: 'key', options: { keyType: 'Ed25519' } })
-      verifierDid = created.didState.did as string
-    }
-    const verifierDidUrl =
-      verifierDid.startsWith('did:key:') && !verifierDid.includes('#')
-        ? `${verifierDid}#${verifierDid.replace('did:key:', '')}`
-        : verifierDid
-
-    const result = await (agent.modules as any).openId4VcVerifier.createAuthorizationRequest({
-      verifierId: verifierRecord?.verifierId,
-      requestSigner: { method: 'did', did: verifierDid, didUrl: verifierDidUrl },
+    // The same verifier every other ask uses, created for this organisation if it has none yet.
+    const verifierModule = verifierModuleOf(agent)
+    const verifier = await stageProofService.getOrCreateVerifierForAgent(agent)
+    const verifierDid = verifier.signerDidUrl.split('#')[0]
+    const result = await verifierModule.createAuthorizationRequest({
+      verifierId: verifier.verifierId,
+      version: 'v1.draft24',
+      requestSigner: { method: 'did', did: verifierDid, didUrl: verifier.signerDidUrl },
       presentationExchange: { definition: presentationDefinition },
     })
 
@@ -1000,11 +991,63 @@ export class ContactController extends Controller {
     const response: RequestProofResponse = { requestId, requestUrl, deepLink, expiresAt }
     if (contact.phone) {
       const msg = encodeURIComponent(
-        `Hi ${contact.name}, ${tenantLabel} requests proof of your ${types.join(', ')} credential. Open your wallet:\n${deepLink}`,
+        `Hi ${contact.name}, ${tenantLabel} asks you to share a record. Open your wallet:\n${deepLink}`,
       )
       response.whatsappUrl = `https://wa.me/${contact.phone.replace(/\D/g, '')}?text=${msg}`
     }
     return response
+  }
+
+  /**
+   * Whether the contact has shared, and what the shared record says.
+   * Pending until the wallet answers. A withdrawn record reads "No longer valid".
+   */
+  @Get('/proof-requests/{requestId}')
+  @Security('jwt', ['tenant'])
+  public async proofRequestResult(
+    @Request() request: ExRequest,
+    @Path() requestId: string,
+  ): Promise<ProofShareView> {
+    const tenantId = this.resolveTenantId(request)
+    const agent = (request as any).agent
+    if (!agent) {
+      this.setStatus(503)
+      throw new StatusException('Agent not available — ensure tenant session is active', 503)
+    }
+    let saved: { content?: { tenantId?: string } } | undefined
+    try {
+      saved = await agent.genericRecords.findById(`vp-request:${requestId}`)
+    } catch {
+      saved = undefined
+    }
+    if (!saved?.content || saved.content.tenantId !== tenantId) {
+      this.setStatus(404)
+      throw new StatusException('Proof request not found', 404)
+    }
+
+    const { verifierModuleOf } = await import('../../services/ssi/StageProofService')
+    const { extractPresentedCredentials } = await import('../../services/ActorCredentialProofService')
+    const { credentialLifecycleService } = await import('../../services/ssi/CredentialLifecycleService')
+    const { describeProofShare } = await import('../../services/ProofRequestResult')
+
+    const verifier = verifierModuleOf(agent)
+    const session = await verifier.getVerificationSessionById(requestId)
+    if (session?.state !== 'ResponseVerified') {
+      return describeProofShare({ sessionState: session?.state })
+    }
+    const verified = await verifier.getVerifiedAuthorizationResponse(requestId)
+    const cards = extractPresentedCredentials(verified).map((card) => ({
+      types: card.types,
+      subject: card.subject,
+      id: card.id,
+    }))
+    const reference = cards.find((card) => card.id)?.id
+    const standing = reference ? credentialLifecycleService.checkRecord(reference) : undefined
+    return describeProofShare({
+      sessionState: session.state,
+      cards,
+      standing: standing ? { status: standing.status, issuerName: standing.issuerName } : undefined,
+    })
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────

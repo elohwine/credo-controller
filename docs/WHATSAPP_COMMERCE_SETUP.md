@@ -47,10 +47,15 @@ Graph calls use `v26.0` by default; override with `WHATSAPP_GRAPH_VERSION`
    recategorises it as MARKETING it will be refused at dispatch; edit and resubmit.
    The branded templates (`credentis_team_added`, `credentis_task_update`,
    `credentis_record_ready`, `credentis_check_request`, `credentis_bill_ready`,
-   `credentis_payment_sent`, language `en`, category UTILITY) are registered with
-   `node scripts/whatsapp-templates.js --submit` and are already APPROVED on the
-   platform WABA. Sends use a branded template only when Meta's copy still matches
-   the code; otherwise they use `credentis_inbox_update`.
+   `credentis_payment_sent`, `credentis_price_request`, language `en`, category UTILITY)
+   are registered with `node scripts/whatsapp-templates.js --submit`. The first six
+   are already APPROVED on the platform WABA. `credentis_price_request` is the job card a
+   business gets for a customer's quote request (image header, Send quote / Ask a
+   question / Skip). Meta is not allowed to move it to another category. Until Meta
+   approves it, that alert uses `credentis_task_update`. An earlier copy,
+   `credentis_new_job`, was moved to marketing while pending and is not sent.
+   Sends use a branded template only when Meta's copy still matches the code;
+   otherwise they use `credentis_inbox_update`.
 4. **Webhook** — App dashboard → WhatsApp → Configuration: callback
    `https://credentis.fly.dev/wa/webhook`, verify token = `WHATSAPP_VERIFY_TOKEN`,
    subscribe the `messages` field.
@@ -268,18 +273,50 @@ payment and delivery is named ("Their record covers: …"). A registrar's creden
 is named "Checked: …". An expired registration credential removes it. A saved
 offer is included in the reply. Nobody is messaged by saving it. Place, payment and delivery
 rule businesses out; quantity and day are shown, not matched. A product the shop sells is matched the same way as a service name, so "cement" finds a shop that sells cement. A business whose
-registration credential has been revoked is no longer listed. The reply names businesses that fit and links to
-`/find`, where each business has an "Ask for a quote" button that opens it in
-the phone app (`MOBILE_APP_URL`). A message of `status` (or `my requests`,
-`track`) is answered with the sender's own latest three requests instead: the
-business, and waiting / accepted (with the price) / declined / done. They are
-found through the phone on the person's account; a number with no account gets
-"No requests found". It is a reply to the message they just sent: it does not record alert
-consent, it does not use an alert template, and a later alert still needs an
-opt-in. `STOP` opts out of alerts and, after that has succeeded, of offers.
+registration credential has been revoked is no longer listed. The reply names the businesses that fit and shows the request back. Nothing is asked until the person taps Confirm & Send. That sends the same
+request Discover uses (`channel: whatsapp` on that request only). `/find` still links each business to "Ask for a quote" in
+the phone app (`MOBILE_APP_URL`). A number with no account asks as a guest.
+Signing up with that number moves those requests onto the account; the guest
+row stores no phone hash, so sign-up is not blocked. Reply `PAY 1` for the
+payment link (the payment goes to the business), `STATUS` to compare, or
+`NOT DONE 1` and what was not done. A photo or a location is kept with the next
+request. When the business accepts and sets a price, or declines, the answer
+goes back in that chat while it is still open (24 hours), as a session reply,
+not an alert. A message of `status` (or `my requests`, `track`) is answered
+with the sender's own latest three requests instead: the business, and waiting
+/ accepted (with the price) / declined / done. It is a reply to the message
+they just sent: it does not record alert consent, it does not use an alert
+template, and a later alert still needs an opt-in. `STOP` opts out of alerts
+and, after that has succeeded, of offers.
 It is not treated as a search. Nothing is sent unless
 `WHATSAPP_DELIVERY_ENABLED=true` and the sender has a token. The same WhatsApp
 message id is answered once.
+
+Chat replies use WhatsApp's tap messages, which need no template inside the open chat.
+`hi` welcomes the person by name and offers "I need a service", "My requests" and
+"I run a business". "I need a service" asks them to describe it, with a list of
+plumber, electrician, hardware, cleaning, bakery and school fees. What they type is
+read back as a category ("Sounds like you need a Plumber") with "Yes, that fits" and
+"Pick another". A missing place is asked for, by text or a location pin. The summary
+card ("Here's your request") sends the request only on "Confirm & Send"; "Cancel"
+sends nothing. "Done" then names the businesses that were asked. A price comes back
+as a quote card with "Pay USD 40" and "Compare quotes". Compare is a list, one row
+per quote, and tapping a priced row is `PAY 1`, which opens that business's payment
+page. A bare `1` still picks that business, and YES / SEND still work as words.
+If WhatsApp refuses the buttons, the same words go as plain text. The `/find` link
+uses the public `https` address (`PUBLIC_BASE_URL`, else `WALLET_PUBLIC_URL`), never
+a `localhost` one when an `https` one is set.
+
+The business is told with the task alert, on the same consent. When `credentis_price_request`
+is approved, a pending quote uses that card instead of `credentis_task_update`: the job,
+the place and the customer's first name, with Send quote, Ask a question and Skip.
+A tap is answered only when that phone is the number the member turned task alerts on
+for, and their role is owner, admin, manager or approver. Send quote asks for an amount;
+the next message ("25") accepts the request at that price through the same accept the
+app uses. Ask a question is passed to the customer while their chat is still open, and
+their reply goes back to the business. Skip only acknowledges. When the customer pays,
+the member who quoted is told in the chat if they have written in the last day. Every
+other task alert stays on `credentis_task_update`.
 
 Focused verification:
 
@@ -546,7 +583,11 @@ Then configure:
 | POST   | `/api/wa/cart/:id/present-options` | Send in-chat options     |
 | POST   | `/api/wa/cart/:id/issue-quote`     | Issue QuoteVC (optional) |
 | POST   | `/api/wa/cart/:id/checkout`        | Initiate payment         |
-| POST   | `/api/wa/cart/:id/send-receipt`    | Send ReceiptVC           |
+| POST   | `/api/wa/cart/:id/send-receipt`    | Send the shop receipt    |
+
+A shop receipt uses the approved payment template (`credentis_payment_sent`) when that
+number has not written in the chat in the last 24 hours. Inside that window it keeps
+the receipt messages. It does not record an alert preference.
 | POST   | `/webhooks/ecocash`                | EcoCash payment webhook  |
 | GET    | `/api/receipts/verify/:txId`       | Verify receipt           |
 | POST   | `/api/receipts/confirm-delivery`   | Confirm delivery         |

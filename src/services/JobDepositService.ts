@@ -23,6 +23,10 @@ export interface JobDepositView {
   disputeReason?: string
   /** Why the business was asked, saved when the match sent the request. */
   matchReasons?: string[]
+  /** Set when the request was asked from the WhatsApp chat; the answer goes back there. */
+  channel?: 'whatsapp'
+  /** Photos sent in the chat with the request. Opened through `GET /workflow-requests/{id}/photos/{photoId}`. */
+  photos?: Array<{ id: string; caption?: string }>
   note: string
 }
 
@@ -69,9 +73,18 @@ export class JobDepositService {
     const request = workflowRequestRepository.findById(requestId)
     if (!request || !isMatchQuote(request)) return { requestId, available: false, note: '' }
     this.assertParty(request, callerTenantId, callerUserId)
-    const saved = payloadOf(request).matchReasons
+    const payload = payloadOf(request)
+    const saved = payload.matchReasons
     const matchReasons = Array.isArray(saved) ? saved.map(String).filter(Boolean).slice(0, 8) : []
-    const why = matchReasons.length ? { matchReasons } : {}
+    const media = Array.isArray(payload.whatsappMedia) ? (payload.whatsappMedia as Array<{ id?: unknown; caption?: unknown }>) : []
+    const photos = media
+      .filter((photo) => typeof photo?.id === 'string')
+      .map((photo) => ({ id: String(photo.id), ...(typeof photo.caption === 'string' && photo.caption ? { caption: photo.caption } : {}) }))
+    const why = {
+      ...(matchReasons.length ? { matchReasons } : {}),
+      ...(payload.channel === 'whatsapp' ? { channel: 'whatsapp' as const } : {}),
+      ...(photos.length ? { photos } : {}),
+    }
     const row = this.refresh(requestId)
     if (!row) {
       const amount = this.price(request)

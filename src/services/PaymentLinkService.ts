@@ -472,7 +472,7 @@ export class PaymentLinkService {
   /** Money is in: mark the link paid and let the waiting run continue. Safe to call twice. */
   public async settlePaid(
     linkId: string,
-    payment: { reference?: string; payerPhone?: string; paidAt?: string },
+    payment: { reference?: string; payerPhone?: string; paidAt?: string; payerWalletTenantId?: string },
   ): Promise<void> {
     const paidAt = payment.paidAt || new Date().toISOString()
     DatabaseManager.getDatabase()
@@ -502,8 +502,15 @@ export class PaymentLinkService {
     if (!waiting) return
     const { workflowService } = await import('./WorkflowService')
     try {
+      const payerWalletTenantId = this.payerWalletOf(linkId, payment)
       const resumed = await workflowService.resumeWorkflow(waiting.run.id, {
-        clientPayment: { status: 'paid', linkId, reference: payment.reference, paidAt },
+        clientPayment: {
+          status: 'paid',
+          linkId,
+          reference: payment.reference,
+          paidAt,
+          ...(payerWalletTenantId ? { payerWalletTenantId } : {}),
+        },
       })
     } catch (error: any) {
       throw error
@@ -535,6 +542,23 @@ export class PaymentLinkService {
     }
     logger.info({ linkId, runId: waiting?.run.id }, 'Client declined the payment link')
     return true
+  }
+
+  /**
+   * The wallet the receipt copy should land in. The caller may already know it (the person who
+   * paid). Otherwise the phone number on the link is matched to an account. No account means no copy.
+   */
+  private payerWalletOf(
+    linkId: string,
+    payment: { payerPhone?: string; payerWalletTenantId?: string },
+  ): string | undefined {
+    const given = typeof payment.payerWalletTenantId === 'string' ? payment.payerWalletTenantId.trim() : ''
+    if (given) return given
+    const stored = DatabaseManager.getDatabase()
+      .prepare(`SELECT payer_phone AS phone FROM payment_links WHERE id = ?`)
+      .get(linkId) as { phone?: string | null } | undefined
+    const phone = payment.payerPhone || stored?.phone || undefined
+    return findWalletTenantByContact(phone)
   }
 
   /** Cancel one attempt. The debt survives unless the caller explicitly cancels the bill/plan. */

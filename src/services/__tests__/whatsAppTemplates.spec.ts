@@ -85,6 +85,36 @@ describe('branded WhatsApp templates', () => {
     expect(isApprovedRichTemplate({ ...stored, components: textHeader }, definition, ORIGIN)).toBe(false)
   })
 
+  it('gives the job card answer buttons, then stop, then the link, each answer with its own payload', () => {
+    const job = RICH_TEMPLATES.new_job
+    const buttons = (metaTemplateDefinition(job, ORIGIN) as any).components.find((c: any) => c.type === 'BUTTONS').buttons
+    expect(buttons.map((b: any) => b.text)).toEqual(['Send quote', 'Ask a question', 'Skip', STOP_BUTTON_TEXT, 'Open job'])
+    expect(buttons.slice(0, 4).every((b: any) => b.type === 'QUICK_REPLY')).toBe(true)
+    expect(buttons[4]).toMatchObject({ type: 'URL', url: `${ORIGIN}/inbox?item={{1}}` })
+    const replies = ['JOB_QUOTE:r1', 'JOB_ASK:r1', 'JOB_SKIP:r1']
+    const components = richTemplateComponents(job, {
+      imageUrl: headerImageUrl(ORIGIN, 'new_job'),
+      body: ['Burst pipe', 'Avondale', 'Rumbi'],
+      link: 'item-1',
+      replies,
+    }) as any[]
+    const sent = components.filter((c) => c.type === 'button')
+    expect(sent.map((c) => [c.index, c.sub_type])).toEqual([
+      ['0', 'quick_reply'],
+      ['1', 'quick_reply'],
+      ['2', 'quick_reply'],
+      ['3', 'quick_reply'],
+      ['4', 'url'],
+    ])
+    expect(sent.slice(0, 4).map((c) => c.parameters[0].payload)).toEqual([...replies, 'STOP_ALERTS'])
+    expect(() => richTemplateComponents(job, { imageUrl: 'x', body: ['a', 'b', 'c'], link: 'l' })).toThrow(/reply payloads/)
+    const stored = { ...metaTemplateDefinition(job, ORIGIN), status: 'APPROVED' }
+    expect(isApprovedRichTemplate(stored, job, ORIGIN)).toBe(true)
+    // The task template's layout (link first) is not the job card.
+    const taskShaped = { ...metaTemplateDefinition({ ...RICH_TEMPLATES.task, name: job.name, body: job.body }, ORIGIN), status: 'APPROVED' }
+    expect(isApprovedRichTemplate(taskShaped, job, ORIGIN)).toBe(false)
+  })
+
   it('cleans parameters and names card types', () => {
     expect(templateText('  *Approve*\n\tpurchase   now ', 60, 'x')).toBe('Approve purchase now')
     expect(templateText('', 60, 'Record')).toBe('Record')

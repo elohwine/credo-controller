@@ -10,6 +10,7 @@ import { NotificationController } from '../../controllers/whatsapp/NotificationC
 import { WhatsAppWebhookController } from '../../controllers/whatsapp/WhatsAppWebhookController'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { providerRepository } from '../../persistence/ProviderRepository'
+import { workflowRequestRepository } from '../../persistence/WorkflowRequestRepository'
 import { NotificationService } from '../NotificationService'
 import { DispatchError, OutboxService, outboxService } from '../OutboxService'
 import { tenantWhatsAppSecretPrefix, whatsAppSenderService } from '../WhatsAppSenderService'
@@ -855,6 +856,158 @@ describe('durable transactional WhatsApp notifications', () => {
     expect(template.components[2]).toMatchObject({ sub_type: 'url', parameters: [{ text: 'rich-item%3A1' }] })
     expect(template.components[3]).toMatchObject({ sub_type: 'quick_reply' })
     expect(delivery(outbox.id)).toMatchObject({ template_name: 'credentis_task_update/en' })
+  })
+
+  it('sends the job card for a quote request, and the task card for every other task', async () => {
+    ready()
+    const job = RICH_TEMPLATES.new_job
+    const task = RICH_TEMPLATES.task
+    const stored = (definition: typeof job) => ({
+      name: definition.name,
+      language: definition.language,
+      status: 'APPROVED',
+      category: 'UTILITY',
+      components: (metaTemplateDefinition(definition, 'https://wallet.example') as any).components,
+    })
+    jest.spyOn(axios, 'get').mockImplementation(async (_url: string, config: any) => {
+      const name = config?.params?.name
+      if (name === job.name || name === task.name) return { data: { data: [stored(name === job.name ? job : task)] } }
+      return approved
+    })
+    const quote = {
+      id: 'req-9',
+      requestType: 'quote',
+      status: 'pending',
+      targetOrgTenantId: tenant,
+      payload: {
+        description: 'Burst kitchen pipe\nPlace: Avondale, Harare\nPay with: cash',
+        place: 'Avondale, Harare',
+        clientName: 'Rumbi C.',
+      },
+    }
+    jest.spyOn(workflowRequestRepository, 'findById').mockImplementation((id: string) => (id === 'req-9' ? (quote as any) : undefined))
+    const insert = (id: string, sourceId: string) =>
+      db
+        .prepare(
+          `INSERT INTO wallet_pending_offers (id, tenant_id, issuer_tenant_id, source_type, source_id, title, body, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(id, 'wallet-a', tenant, 'workflow_request_assignment', sourceId, 'Ask for a quote', 'A customer asked.', '2026-11-16')
+    insert('job-item', 'req-9')
+    service.queueInboxNotification('job-event', {
+      tenantId: 'wallet-a',
+      issuerTenantId: tenant,
+      sourceType: 'workflow_request_assignment',
+      sourceId: 'req-9',
+    })
+    const outbox = db.prepare("SELECT id, payload FROM integration_outbox WHERE payload LIKE '%job-item%'").get() as {
+      id: string
+      payload: string
+    }
+    const post = jest
+      .spyOn(axios, 'post')
+      .mockResolvedValueOnce({ data: { messages: [{ id: 'wamid-job' }] } })
+      .mockResolvedValueOnce({ data: { messages: [{ id: 'wamid-other' }] } })
+    await service.processWhatsAppIntent(outbox.id, JSON.parse(outbox.payload))
+    const template = (post.mock.calls[0][1] as any).template
+    expect(template.name).toBe('credentis_price_request')
+    expect(template.components[0].parameters[0].image.link).toBe('https://wallet.example/wa/new_job.png?v=1')
+    expect(template.components[1].parameters.map((p: any) => p.text)).toEqual([
+      'Burst kitchen pipe',
+      'Avondale, Harare',
+      'Rumbi C.',
+    ])
+    expect(template.components.slice(2, 5).map((c: any) => c.parameters[0].payload)).toEqual([
+      'JOB_QUOTE:req-9',
+      'JOB_ASK:req-9',
+      'JOB_SKIP:req-9',
+    ])
+    expect(template.components[5]).toMatchObject({ sub_type: 'quick_reply', parameters: [{ payload: 'STOP_ALERTS' }] })
+    expect(template.components[6]).toMatchObject({ sub_type: 'url' })
+
+    // An assignment that is not a pending quote keeps the task card, even with the job card approved.
+    insert('other-item', 'req-other')
+    service.queueInboxNotification('other-event', {
+      tenantId: 'wallet-a',
+      issuerTenantId: tenant,
+      sourceType: 'workflow_request_assignment',
+      sourceId: 'req-other',
+    })
+    const other = db.prepare("SELECT id, payload FROM integration_outbox WHERE payload LIKE '%other-item%'").get() as {
+      id: string
+      payload: string
+    }
+    await service.processWhatsAppIntent(other.id, JSON.parse(other.payload))
+    expect((post.mock.calls[1][1] as any).template.name).toBe('credentis_task_update')
+  })
+
+  it('sends a customer quote request as the job card with answer buttons, and the task card until it is approved', async () => {
+    ready()
+    const job = RICH_TEMPLATES.new_job
+    const task = RICH_TEMPLATES.task
+    const storedFor = (definition: typeof job) => ({
+      ...(metaTemplateDefinition(definition, 'https://wallet.example') as any),
+      status: 'APPROVED',
+    })
+    let jobApproved = false
+    jest.spyOn(axios, 'get').mockImplementation(async (_url: string, config: any) => {
+      if (config?.params?.name === job.name) return { data: { data: jobApproved ? [storedFor(job)] : [] } }
+      if (config?.params?.name === task.name) return { data: { data: [storedFor(task)] } }
+      return approved
+    })
+    jest.spyOn(workflowRequestRepository, 'findById').mockReturnValue({
+      id: 'req-job',
+      requestType: 'quote',
+      status: 'pending',
+      targetOrgTenantId: tenant,
+      payload: { description: 'Plumber\nBurst kitchen pipe\nPlace: Avondale', place: 'Avondale, Harare', clientName: 'Rumbi C.' },
+    } as any)
+    db.prepare(
+      `INSERT INTO wallet_pending_offers (id, tenant_id, issuer_tenant_id, source_type, source_id, title, body, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run('job-item:1', 'wallet-a', tenant, 'workflow_request_assignment', 'req-job', 'Plumber', 'Burst kitchen pipe', '2026-11-16')
+    service.queueInboxNotification('job-event', {
+      tenantId: 'wallet-a',
+      issuerTenantId: tenant,
+      sourceType: 'workflow_request_assignment',
+      sourceId: 'req-job',
+    })
+    const outbox = db.prepare("SELECT id, payload FROM integration_outbox WHERE payload LIKE '%job-item%'").get() as {
+      id: string
+      payload: string
+    }
+    const post = jest
+      .spyOn(axios, 'post')
+      .mockResolvedValueOnce({ data: { messages: [{ id: 'wamid-task' }] } })
+      .mockResolvedValueOnce({ data: { messages: [{ id: 'wamid-job' }] } })
+
+    await service.processWhatsAppIntent(outbox.id, JSON.parse(outbox.payload))
+    expect((post.mock.calls[0][1] as any).template.name).toBe('credentis_task_update')
+
+    jobApproved = true
+    db.prepare(`UPDATE notification_deliveries SET status = 'queued', provider_message_id = NULL WHERE id = ?`).run(
+      outbox.id,
+    )
+    db.prepare(`UPDATE integration_outbox SET status = 'pending' WHERE id = ?`).run(outbox.id)
+    post.mockReset()
+    post.mockResolvedValue({ data: { messages: [{ id: 'wamid-job' }] } })
+    await service.processWhatsAppIntent(outbox.id, JSON.parse(outbox.payload))
+    const template = (post.mock.calls[0][1] as any).template
+    expect(template.name).toBe('credentis_price_request')
+    expect(template.components[0].parameters[0].image.link).toBe('https://wallet.example/wa/new_job.png?v=1')
+    expect(template.components[1].parameters.map((p: any) => p.text)).toEqual([
+      'Plumber · Burst kitchen pipe',
+      'Avondale, Harare',
+      'Rumbi C.',
+    ])
+    const buttons = template.components.slice(2)
+    expect(buttons.map((b: any) => b.parameters[0].payload || b.parameters[0].text)).toEqual([
+      'JOB_QUOTE:req-job',
+      'JOB_ASK:req-job',
+      'JOB_SKIP:req-job',
+      'STOP_ALERTS',
+      'job-item%3A1',
+    ])
   })
 
   it('treats a tap on the Stop alerts button like a typed STOP', async () => {

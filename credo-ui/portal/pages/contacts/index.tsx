@@ -60,6 +60,13 @@ interface ProofRequestResult {
   whatsappUrl?: string;
 }
 
+interface ProofShareView {
+  status: 'pending' | 'shared' | 'failed';
+  summary: string;
+  standingTitle?: string;
+  rows?: Array<{ label: string; value: string }>;
+}
+
 interface PaymentLinkResult {
   paymentLinkId: string;
   shortUrl: string;
@@ -144,6 +151,7 @@ export default function ContactsPage() {
   const [proofPurpose, setProofPurpose] = useState('');
   const [proofProviderRef, setProofProviderRef] = useState('');
   const [proofResult, setProofResult] = useState<ProofRequestResult | null>(null);
+  const [proofShare, setProofShare] = useState<ProofShareView | null>(null);
   const [requestingProof, setRequestingProof] = useState(false);
   const [offerContact, setOfferContact] = useState<Contact | null>(null);
   // After a client's name or mobile is corrected: their unpaid bills, offered for sending again.
@@ -415,11 +423,36 @@ export default function ContactsPage() {
   const openRequestProof = (c: Contact) => {
     setProofContact(c);
     setProofResult(null);
-    setProofTypes('PaymentReceiptVC');
-    setProofPurpose(`Verify school fee payment receipt for ${c.name}`);
+    setProofShare(null);
+    setProofTypes('SchoolFeeReceiptVC');
+    setProofPurpose(`School fee receipt for ${c.name}`);
     setProofProviderRef('');
     setShowRequestProof(true);
   };
+
+  useEffect(() => {
+    if (!showRequestProof || !proofResult?.requestId) return;
+    let stopped = false;
+    const load = async () => {
+      try {
+        const { data } = await axios.get(
+          `${baseUrl}/api/contacts/proof-requests/${encodeURIComponent(proofResult.requestId)}`,
+          auth(),
+        );
+        if (!stopped) setProofShare(data);
+      } catch {
+        /* The request is still being prepared. The next check tries again. */
+      }
+    };
+    void load();
+    // Keep reading while the panel is open. A recall after the share must change
+    // "Still valid" to "No longer valid" without sending the request again.
+    const timer = window.setInterval(() => void load(), 3000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [showRequestProof, proofResult?.requestId, baseUrl]);
 
   const handleRequestProof = async () => {
     if (!proofContact) return;
@@ -672,28 +705,26 @@ export default function ContactsPage() {
 
       <Modal
         opened={showRequestProof}
-        onClose={() => { setShowRequestProof(false); setProofResult(null); }}
-        title={proofContact ? `Request Proof — ${proofContact.name}` : 'Request Proof'}
+        onClose={() => { setShowRequestProof(false); setProofResult(null); setProofShare(null); }}
+        title={proofContact ? `Ask ${proofContact.name} to share a record` : 'Ask for a record'}
         size="md"
       >
         {!proofResult ? (
           <Stack gap="sm">
             <Text size="sm" c="dimmed">
-              Creates an OID4VP presentation request. The contact's SSI wallet receives the
-              request and submits a proof of their credential — no server ever sees raw PII.
-              School fee receipts are <strong>non-revocable permanent proofs</strong> and will
-              verify successfully regardless of revocation status.
+              They get the request on their phone and choose whether to share. You see the record
+              and whether it is still valid. A record the organisation has withdrawn shows as no longer valid.
             </Text>
             <TextInput
-              label="Credential types (comma-separated)"
-              placeholder="PaymentReceiptVC, SchoolFeeReceiptVC"
+              label="Record to ask for"
+              placeholder="SchoolFeeReceiptVC"
               required
               value={proofTypes}
               onChange={(e) => setProofTypes(e.target.value)}
             />
             <TextInput
-              label="Purpose (shown in wallet UI)"
-              placeholder="Verify school fee payment Term 3 2026"
+              label="Why you are asking"
+              placeholder="School fee receipt for this term"
               value={proofPurpose}
               onChange={(e) => setProofPurpose(e.target.value)}
             />
@@ -711,17 +742,33 @@ export default function ContactsPage() {
                 color="violet"
                 onClick={handleRequestProof}
               >
-                Send Proof Request
+                Send the request
               </Button>
             </Group>
           </Stack>
         ) : (
           <Stack gap="md">
-            <Alert color="violet" icon={<IconShieldCheck size={16} />} title="Proof request created">
-              Request ID: {proofResult.requestId.slice(0, 16)}… — expires {new Date(proofResult.expiresAt).toLocaleString()}
+            <Alert
+              color={proofShare?.status === 'shared' ? (proofShare.standingTitle === 'Still valid' ? 'teal' : 'orange') : proofShare?.status === 'failed' ? 'red' : 'blue'}
+              icon={<IconShieldCheck size={16} />}
+              title={proofShare?.standingTitle || (proofShare?.status === 'failed' ? 'Not shared' : 'Waiting')}
+            >
+              {proofShare?.summary || 'Waiting for them to share.'}
             </Alert>
+            {proofShare?.rows && proofShare.rows.length > 0 && (
+              <Paper withBorder p="sm">
+                <Stack gap={6}>
+                  {proofShare.rows.map((row) => (
+                    <Group key={row.label} justify="space-between" wrap="nowrap">
+                      <Text size="sm" c="dimmed">{row.label}</Text>
+                      <Text size="sm">{row.value}</Text>
+                    </Group>
+                  ))}
+                </Stack>
+              </Paper>
+            )}
 
-            <Divider label="Share with contact" />
+            <Divider label="Or share this with them" />
 
             <Box ta="center">
               <Text size="xs" c="dimmed" mb="xs">Scan to open in wallet app</Text>

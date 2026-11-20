@@ -75,6 +75,8 @@ export interface PublicGoodsItem {
   price: number
   currency: string
   category?: string
+  /** First product photo, when the shop has one. */
+  image?: string
   /** Left in stock, only when the business tracks stock for this product. */
   stockLeft?: number
 }
@@ -242,6 +244,18 @@ export interface MatchRequest {
 }
 
 const MODULE_LABEL = new Map<string, string>(ORG_MODULE_CATALOGUE.map((module) => [module.id, module.label]))
+
+/** The first https photo on a shop product. Anything else is left out. */
+function firstCatalogImage(raw?: string): string | undefined {
+  try {
+    const parsed = JSON.parse(raw || '[]')
+    if (!Array.isArray(parsed)) return undefined
+    const url = parsed.find((item) => typeof item === 'string' && /^https:\/\//.test(item))
+    return typeof url === 'string' ? url : undefined
+  } catch {
+    return undefined
+  }
+}
 
 function clean(value: unknown, max = 500): string | undefined {
   if (value === undefined || value === null) return undefined
@@ -426,7 +440,7 @@ export class OrgOfferingsService {
     if (!this.sellsGoods(orgTenantId)) return []
     const rows = DatabaseManager.getDatabase()
       .prepare(
-        `SELECT id, merchant_id, title, description, price, currency, category
+        `SELECT id, merchant_id, title, description, price, currency, category, images
            FROM catalog_items WHERE merchant_id = ? ORDER BY created_at DESC LIMIT ?`,
       )
       .all(orgTenantId, limit) as Array<{
@@ -437,17 +451,19 @@ export class OrgOfferingsService {
       price: number
       currency: string
       category?: string
+      images?: string
     }>
     const left = inventoryService.stockLeft(rows.map((row) => row.id))
     return rows.map((row) => ({
       id: row.id,
-      kind: 'goods',
+      kind: 'goods' as const,
       merchantId: row.merchant_id,
       title: row.title,
       description: row.description || undefined,
       price: Number(row.price || 0),
       currency: row.currency || 'USD',
       category: row.category || undefined,
+      image: firstCatalogImage(row.images),
       ...(left.has(row.id) ? { stockLeft: left.get(row.id) } : {}),
     }))
   }

@@ -136,10 +136,20 @@ const SCHOOL_FEE_WORKFLOW_TYPES = new Set([
   'tpl-education-fee',
 ])
 
-/** School fees collect through the shared pay-link steps; templates saved with the old capture stub are upgraded. */
+/**
+ * School fees collect through the shared pay-link steps. A template saved with the old capture
+ * stub, or without the parent's own copy of the receipt, is brought up to the current steps.
+ */
 function normalizeSchoolFeeTemplate(record: WorkflowTemplateDefinition): WorkflowTemplateDefinition {
-  if (Array.isArray(record.steps) && record.steps.some((step) => step.action === 'client.request_payment'))
-    return record
+  const steps = Array.isArray(record.steps) ? record.steps : []
+  const hasPayLink = steps.some((step) => step.action === 'client.request_payment')
+  const hasPayerCopy = steps.some(
+    (step) =>
+      step.action === 'credential.issue' &&
+      step.config?.type === 'SchoolFeeReceiptVC' &&
+      step.config?.holder === 'payer',
+  )
+  if (hasPayLink && hasPayerCopy) return record
   const template = getTemplateById('tpl-education-fee')
   if (!template) return record
   return {

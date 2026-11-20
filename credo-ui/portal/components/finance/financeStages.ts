@@ -1278,7 +1278,7 @@ export const SCHOOL_FEE_HELP = {
   points: [
     'The pay link goes to the parent phone on the fee.',
     'The parent pays from the link; instalments follow the payment plan.',
-    'The receipt is kept once the payment is in. The person named for that step gets it in their inbox.',
+    'The school keeps the receipt. A parent who paid from the app also gets their own copy on their phone.',
   ],
 }
 

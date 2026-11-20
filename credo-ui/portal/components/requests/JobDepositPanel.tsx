@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Button, Paper, Stack, Text, Textarea } from '@mantine/core'
+import { Button, Group, Image, Modal, Paper, Stack, Text, Textarea, UnstyledButton } from '@mantine/core'
 import axios from 'axios'
 import { feedback } from '@/lib/feedback'
 
@@ -13,7 +13,61 @@ type DepositView = {
   payUrl?: string
   disputeReason?: string
   matchReasons?: string[]
+  channel?: 'whatsapp'
+  photos?: Array<{ id: string; caption?: string }>
   note: string
+}
+
+/** Photos sent in the WhatsApp chat. Loaded with the sign-in token, so a plain image link is not used. */
+function RequestPhotos({ requestId, token, photos }: { requestId: string; token: string; photos: Array<{ id: string; caption?: string }> }) {
+  const [urls, setUrls] = useState<Record<string, string>>({})
+  const [open, setOpen] = useState<{ url: string; caption?: string } | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    const made: string[] = []
+    void Promise.all(
+      photos.map(async (photo) => {
+        try {
+          const res = await axios.get<Blob>(
+            `${backendUrl}/workflow-requests/${encodeURIComponent(requestId)}/photos/${encodeURIComponent(photo.id)}`,
+            { headers: { Authorization: `Bearer ${token}` }, responseType: 'blob' },
+          )
+          const url = URL.createObjectURL(res.data)
+          made.push(url)
+          return [photo.id, url] as const
+        } catch {
+          return undefined
+        }
+      }),
+    ).then((pairs) => {
+      if (alive) setUrls(Object.fromEntries(pairs.filter((pair): pair is readonly [string, string] => Boolean(pair))))
+    })
+    return () => {
+      alive = false
+      made.forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [requestId, token, photos.map((photo) => photo.id).join(',')])
+
+  return (
+    <>
+      <Text size="sm" fw={500}>Photos from the chat</Text>
+      <Group gap="xs">
+        {photos.map((photo) =>
+          urls[photo.id] ? (
+            <UnstyledButton key={photo.id} onClick={() => setOpen({ url: urls[photo.id], caption: photo.caption })} aria-label="Open photo">
+              <Image src={urls[photo.id]} alt={photo.caption || 'Photo from the chat'} w={72} h={72} radius="sm" fit="cover" />
+            </UnstyledButton>
+          ) : (
+            <Text key={photo.id} size="xs" c="dimmed">{photo.caption || 'Photo'} (not available)</Text>
+          ),
+        )}
+      </Group>
+      <Modal opened={Boolean(open)} onClose={() => setOpen(null)} title={open?.caption || 'Photo from the chat'} centered size="lg">
+        {open ? <Image src={open.url} alt={open.caption || 'Photo from the chat'} radius="md" /> : null}
+      </Modal>
+    </>
+  )
 }
 
 /**
@@ -75,6 +129,10 @@ export default function JobDepositPanel({
         {audience === 'business' && view.matchReasons?.length ? (
           <Text size="sm" c="dimmed">Why you were asked: {view.matchReasons.join(' · ')}</Text>
         ) : null}
+        {audience === 'business' && view.channel === 'whatsapp' ? (
+          <Text size="sm" c="dimmed">Asked on WhatsApp. Your price, or your answer if you decline, is sent to them in that chat.</Text>
+        ) : null}
+        {view.photos?.length ? <RequestPhotos requestId={requestId} token={token} photos={view.photos} /> : null}
         {audience === 'customer' && view.status === 'not_opened' && view.amount ? (
           <Button loading={busy} onClick={() => void run(base)}>Pay the business</Button>
         ) : null}

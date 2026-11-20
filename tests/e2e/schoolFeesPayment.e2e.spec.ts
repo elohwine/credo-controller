@@ -179,8 +179,11 @@ describe('School fees payment e2e', () => {
       expect((runStatus.output as any)?.payment).toMatchObject({ status: 'completed', reference: 'ECO-E2E-1' })
 
       const credentialSteps = (runStatus.steps || []).filter((step: any) => step.actionName === 'credential.issue')
-      expect(credentialSteps).toHaveLength(1)
-      const receiptOffer = credentialSteps[0]?.outputState?.offer
+      // The school copy, then the parent's copy (skipped when that phone has no wallet).
+      expect(credentialSteps).toHaveLength(2)
+      const receiptOffer = credentialSteps
+        .map((step: any) => step?.outputState?.offer)
+        .find((offer: any) => String(offer?.credentialType || '').includes('SchoolFeeReceiptVC'))
       expect(receiptOffer?.credentialType).toContain('SchoolFeeReceiptVC')
 
       const credentialRecords = await client.listIssuedCredentials(orgTenant.token)

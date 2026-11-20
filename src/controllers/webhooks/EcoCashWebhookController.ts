@@ -295,9 +295,14 @@ export class EcoCashWebhookController extends Controller {
           const paymentLinkId = paymentMetadata(existingPayment.metadata).paymentLinkId
           if (typeof paymentLinkId === 'string') {
             try {
+              const payerWalletTenantId =
+                typeof existingPayment.tenant_id === 'string' && existingPayment.tenant_id !== merchantTenantId
+                  ? existingPayment.tenant_id
+                  : undefined
               await paymentLinkService.settlePaid(paymentLinkId, {
                 reference: payload.transactionId,
                 payerPhone: existingPayment.payer_phone,
+                payerWalletTenantId,
               })
             } catch (settleErr: any) {
               logger.warn({ paymentLinkId, error: settleErr?.message }, 'Paid link did not continue its job')
@@ -397,6 +402,13 @@ export class EcoCashWebhookController extends Controller {
                     dedupeKey: `receipt:${payload.transactionId}`,
                   })
                   .catch((err: any) => logger.warn({ error: err?.message, linkId }, 'Receipt WhatsApp not queued'))
+              }
+              // A deposit asked from the WhatsApp chat is confirmed in that chat; other links are ignored there.
+              if (originalLinkId) {
+                const reference = String(payload.transactionId)
+                void import('../../services/WhatsAppInquiryService')
+                  .then(({ whatsAppInquiryService }) => whatsAppInquiryService.linkPaid(originalLinkId, reference))
+                  .catch(() => undefined)
               }
             }
           }

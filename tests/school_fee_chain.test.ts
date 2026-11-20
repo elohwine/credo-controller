@@ -3,7 +3,8 @@
  *
  * A school fee is one run of `education_fee_payment`: the fee is set, the parent gets a pay link
  * (one payment or instalments) backed by a `fee_assessment` money record, the paid link resumes
- * the run, and the school keeps a receipt. Credential issuance is stubbed so no agent is needed;
+ * the run, the school keeps a receipt, and a parent with the app also gets a copy. Credential issuance
+ * is stubbed so no agent is needed;
  * client.request_payment, PaymentLinkService.settlePaid and the money records run unmodified.
  */
 
@@ -11,6 +12,7 @@ import 'reflect-metadata'
 import { afterAll, beforeAll, describe, expect, jest, test } from '@jest/globals'
 
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
+import { contactHash, normalizeContactPhone } from '../src/services/ssi/contactHash'
 import { notificationService } from '../src/services/NotificationService'
 import { WorkflowTemplateRepository } from '../src/persistence/WorkflowTemplateRepository'
 import { paymentLinkService } from '../src/services/PaymentLinkService'
@@ -170,6 +172,34 @@ describe('School fee chain — fee → pay link → paid → receipt', () => {
     expect(issued).toHaveLength(1)
   })
 
+  test('a parent who has the app also gets their own copy; the school copy is unchanged', async () => {
+    issued.length = 0
+    const walletId = 'wallet-parent-fee'
+    DatabaseManager.getDatabase()
+      .prepare(
+        `INSERT INTO ssi_users (id, tenant_id, did, phone_hash, created_at, updated_at)
+         VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      )
+      .run('user-parent-fee', walletId, 'did:key:parent-fee', contactHash(normalizeContactPhone(FEE.payerPhone)))
+
+    const start = await workflowService.executeWorkflow(
+      'education_fee_payment',
+      { ...FEE, studentId: 'STU-2026-004', amount: 650, reference: 'FEE-STU4-1' },
+      org.orgTenantId,
+    )
+    const waiting = runRow(start.runId)
+    await paymentLinkService.settlePaid(waiting.state.clientBill.linkId, { reference: 'ECO-FEE-4' })
+
+    expect(issued.map((vc) => ({ type: vc.type, holder: vc.holder }))).toEqual([
+      { type: 'SchoolFeeReceiptVC', holder: 'organization' },
+      { type: 'SchoolFeeReceiptVC', holder: 'payer' },
+    ])
+    expect(issued[0].claims).toMatchObject({ amount: 650, paymentRef: 'ECO-FEE-4', studentId: 'STU-2026-004' })
+    expect(issued[1].claims).toMatchObject(issued[0].claims)
+    expect(runRow(start.runId).state.payment.payerWalletTenantId).toBe(walletId)
+    expect(runRow(start.runId).state.issuedCredentials.SchoolFeeReceiptVC).toBeTruthy()
+  })
+
   test('instalments: one fee_assessment with three obligations; the first paid link moves the fee on', async () => {
     issued.length = 0
     const start = await workflowService.executeWorkflow(
@@ -232,5 +262,17 @@ describe('School fee chain — fee → pay link → paid → receipt', () => {
     const actions = loaded.steps.map((step) => step.action)
     expect(actions).toContain('client.request_payment')
     expect(actions).not.toContain('external.ecocash_payment')
+    expect(loaded.steps.some((step) => step.config?.holder === 'payer')).toBe(true)
+
+    const withoutParent = configureSchoolFeeTemplate(`org-no-parent-${Date.now()}`, {
+      steps: [
+        { action: 'finance.calculate_invoice', config: {} },
+        { action: 'client.request_payment', config: { transactionType: 'fee_assessment' } },
+        { action: 'credential.issue', config: { type: 'SchoolFeeReceiptVC', holder: 'organization' } },
+      ],
+    })
+    const upgraded = repo.findById(withoutParent.id)!
+    expect(upgraded.steps.filter((step) => step.config?.holder === 'payer')).toHaveLength(1)
+    expect(upgraded.steps.filter((step) => step.config?.holder === 'organization')).toHaveLength(1)
   })
 })

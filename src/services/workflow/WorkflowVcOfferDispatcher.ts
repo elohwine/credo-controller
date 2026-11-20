@@ -571,10 +571,11 @@ export class WorkflowVcOfferDispatcher {
     const claims = recordClaims(orgTenantId, credentialType, params.claims, workflowType)
 
     // ── 1. Resolve actor ──────────────────────────────────────────────────────
-    const resolvedActor =
-      walletTenantId === orgTenantId
-        ? undefined
-        : this.actorService.resolveActor({ orgTenantId, workflowType, stageAction })
+    // An explicit wallet (the organisation's own copy, or the payer's copy) is the recipient.
+    // Staff-actor lookup stays for a stage record that has not named a wallet.
+    const resolvedActor = walletTenantId
+      ? undefined
+      : this.actorService.resolveActor({ orgTenantId, workflowType, stageAction })
 
     logger.info(
       { orgTenantId, workflowType, stageAction, actor: resolvedActor },

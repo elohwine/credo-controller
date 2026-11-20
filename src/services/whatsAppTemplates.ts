@@ -9,7 +9,7 @@
  * Kept free of imports so `scripts/whatsapp-templates.js` can submit the same definitions to Meta.
  */
 
-export type RichTemplateEvent = 'invite' | 'task' | 'vc_offer' | 'proof_request' | 'payment_link' | 'remittance'
+export type RichTemplateEvent = 'invite' | 'task' | 'vc_offer' | 'proof_request' | 'payment_link' | 'remittance' | 'new_job'
 
 export interface RichTemplateDefinition {
   /** Meta classes invites to people with no relationship yet as marketing; alerts are utility. */
@@ -27,6 +27,11 @@ export interface RichTemplateDefinition {
   stopButton: boolean
   /** Shown when the inbox item has no detail line of its own. */
   defaultDetail: string
+  /**
+   * Answer buttons placed before the stop button and the link, such as "Send quote".
+   * Each send gives every one its own payload, so a tap says which item it was for.
+   */
+  quickReplies?: string[]
   examples: { body: string[]; link: string }
 }
 
@@ -148,7 +153,31 @@ export const RICH_TEMPLATES: Record<RichTemplateEvent, RichTemplateDefinition> =
       link: 'item-7f3a9c',
     },
   },
+  new_job: {
+    // Sent instead of the task alert when the task is a customer's request for a quote.
+    // Same consent as task alerts. Falls back to the task template until Meta approves it.
+    event: 'new_job',
+    name: 'credentis_price_request',
+    category: 'UTILITY',
+    language: 'en',
+    body:
+      'A customer asked you for a price.\n\n📝 {{1}}\n📍 {{2}}\n👤 {{3}}\n\n' +
+      'Reply on this message to give your price, or open the request in Credentis.',
+    footer: FOOTER,
+    linkPath: '/inbox?item=',
+    buttonText: 'Open job',
+    stopButton: true,
+    defaultDetail: 'A customer asked for a price.',
+    quickReplies: ['Send quote', 'Ask a question', 'Skip'],
+    examples: {
+      body: ['Burst kitchen pipe, water everywhere', 'Avondale, Harare', 'Rumbi C.'],
+      link: 'item-7f3a9c',
+    },
+  },
 }
+
+/** Payload prefixes on the job buttons; the request id follows the colon. */
+export const JOB_REPLY_PAYLOADS = ['JOB_QUOTE', 'JOB_ASK', 'JOB_SKIP'] as const
 
 /** Earlier text-header versions, superseded by the image templates above (still on Meta, never sent). */
 export const RETIRED_TEMPLATE_NAMES = [
@@ -161,6 +190,8 @@ export const RETIRED_TEMPLATE_NAMES = [
   'credentis_team_invite',
   'credentis_account_activation',
   'credentis_team_join',
+  // Meta moved this pending copy to MARKETING, and this token cannot delete it. Never sent.
+  'credentis_new_job',
 ]
 
 /** Public banner for an alert type, served from `assets/whatsapp` by the API. */
@@ -176,6 +207,7 @@ export const EVENT_EMOJI: Record<RichTemplateEvent, string> = {
   proof_request: '🔍',
   payment_link: '💳',
   remittance: '✅',
+  new_job: '🛠️',
 }
 
 export function richTemplateFor(event: string): RichTemplateDefinition | undefined {
@@ -244,19 +276,21 @@ export function metaTemplateDefinition(
   origin: string,
   headerHandle = '<uploaded banner handle>',
 ): Record<string, unknown> {
-  const buttons: Array<Record<string, unknown>> = [
-    {
-      type: 'URL',
-      text: definition.buttonText,
-      url: expectedLinkUrl(origin, definition),
-      example: [`${origin}${definition.linkPath}${definition.examples.link}`],
-    },
-  ]
-  if (definition.stopButton) buttons.push({ type: 'QUICK_REPLY', text: STOP_BUTTON_TEXT })
+  const buttons = buttonLayout(definition).map((button) =>
+    button.kind === 'url'
+      ? {
+          type: 'URL',
+          text: definition.buttonText,
+          url: expectedLinkUrl(origin, definition),
+          example: [`${origin}${definition.linkPath}${definition.examples.link}`],
+        }
+      : { type: 'QUICK_REPLY', text: button.text },
+  )
   return {
     name: definition.name,
     language: definition.language,
     category: definition.category,
+    allow_category_change: false,
     components: [
       { type: 'HEADER', format: 'IMAGE', example: { header_handle: [headerHandle] } },
       { type: 'BODY', text: definition.body, example: { body_text: [definition.examples.body] } },
@@ -266,31 +300,51 @@ export function metaTemplateDefinition(
   }
 }
 
-/** Template components for a send request. */
+type TemplateButton = { kind: 'url' } | { kind: 'reply'; text: string; answer?: number }
+
+/**
+ * Button order Meta stores: plain templates are link then stop; answer templates are
+ * answers, stop, then link (Meta wants quick replies kept together).
+ */
+function buttonLayout(definition: RichTemplateDefinition): TemplateButton[] {
+  const stop: TemplateButton[] = definition.stopButton ? [{ kind: 'reply', text: STOP_BUTTON_TEXT }] : []
+  if (!definition.quickReplies?.length) return [{ kind: 'url' }, ...stop]
+  const answers = definition.quickReplies.map((text, answer): TemplateButton => ({ kind: 'reply', text, answer }))
+  return [...answers, ...stop, { kind: 'url' }]
+}
+
+/** Template components for a send request. `replies` are the payloads for `quickReplies`, in order. */
 export function richTemplateComponents(
   definition: RichTemplateDefinition,
-  values: { imageUrl: string; body: string[]; link: string },
+  values: { imageUrl: string; body: string[]; link: string; replies?: string[] },
 ): Array<Record<string, unknown>> {
   if (values.body.length !== variableCount(definition.body))
     throw new Error(`Template ${definition.name} needs ${variableCount(definition.body)} values`)
+  if ((values.replies?.length || 0) !== (definition.quickReplies?.length || 0))
+    throw new Error(`Template ${definition.name} needs ${definition.quickReplies?.length || 0} reply payloads`)
   const components: Array<Record<string, unknown>> = [
     { type: 'header', parameters: [{ type: 'image', image: { link: values.imageUrl } }] },
     { type: 'body', parameters: values.body.map((text) => ({ type: 'text', text })) },
-    {
-      type: 'button',
-      sub_type: 'url',
-      index: '0',
-      parameters: [{ type: 'text', text: encodeURIComponent(values.link) }],
-    },
   ]
-  if (definition.stopButton) {
-    components.push({
-      type: 'button',
-      sub_type: 'quick_reply',
-      index: '1',
-      parameters: [{ type: 'payload', payload: 'STOP_ALERTS' }],
-    })
-  }
+  buttonLayout(definition).forEach((button, index) => {
+    components.push(
+      button.kind === 'url'
+        ? {
+            type: 'button',
+            sub_type: 'url',
+            index: String(index),
+            parameters: [{ type: 'text', text: encodeURIComponent(values.link) }],
+          }
+        : {
+            type: 'button',
+            sub_type: 'quick_reply',
+            index: String(index),
+            parameters: [
+              { type: 'payload', payload: button.answer === undefined ? 'STOP_ALERTS' : values.replies![button.answer] },
+            ],
+          },
+    )
+  })
   return components
 }
 
@@ -302,11 +356,15 @@ export function isApprovedRichTemplate(item: any, definition: RichTemplateDefini
   const body = components.find((c) => c.type === 'BODY')
   const header = components.find((c) => c.type === 'HEADER')
   const buttons: any[] = components.find((c) => c.type === 'BUTTONS')?.buttons || []
+  const layout = buttonLayout(definition)
   return (
     body?.text === definition.body &&
     header?.format === 'IMAGE' &&
-    buttons[0]?.type === 'URL' &&
-    buttons[0]?.url === expectedLinkUrl(origin, definition) &&
-    (!definition.stopButton || buttons[1]?.type === 'QUICK_REPLY')
+    buttons.length >= layout.length &&
+    layout.every((button, index) =>
+      button.kind === 'url'
+        ? buttons[index]?.type === 'URL' && buttons[index]?.url === expectedLinkUrl(origin, definition)
+        : buttons[index]?.type === 'QUICK_REPLY',
+    )
   )
 }

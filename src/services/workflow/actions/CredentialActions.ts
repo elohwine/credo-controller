@@ -172,6 +172,12 @@ export class CredentialActions {
       const { workflowVcOfferDispatcher } = await import('../WorkflowVcOfferDispatcher')
 
       const holdInOrgWallet = config.holder === 'organization'
+      // A payer copy goes only to the person who paid. No wallet means no copy; the school's copy is separate.
+      const payerWallet = config.holder === 'payer' ? context.state.payment?.payerWalletTenantId : undefined
+      if (config.holder === 'payer' && (typeof payerWallet !== 'string' || !payerWallet.trim())) {
+        logger.info({ credentialType }, 'Payer copy skipped: the payer has no wallet')
+        return
+      }
       const dispatchResult = await workflowVcOfferDispatcher.dispatch({
         orgTenantId: tenantId,
         workflowType: context.workflowType,
@@ -180,13 +186,15 @@ export class CredentialActions {
         claims,
         contextRef: context.runId,
         subjectDid: typeof subjectDid === 'string' && subjectDid ? subjectDid : undefined,
-        walletTenantId: holdInOrgWallet ? tenantId : undefined,
+        walletTenantId: holdInOrgWallet ? tenantId : config.holder === 'payer' ? String(payerWallet).trim() : undefined,
       })
 
+      const recordKey =
+        typeof config.recordAs === 'string' && config.recordAs.trim() ? config.recordAs.trim() : credentialType
       context.state.offer = dispatchResult
       context.state.issuedCredentials = {
         ...(context.state.issuedCredentials || {}),
-        [credentialType]: {
+        [recordKey]: {
           offerId: dispatchResult.offerId,
           issuedAt: new Date().toISOString(),
           // Who the record went to, for the job's full history.

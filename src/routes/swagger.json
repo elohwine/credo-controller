@@ -2627,6 +2627,616 @@
         "type": "object",
         "description": "Make all properties in T optional"
       },
+      "BookedJobProgress": {
+        "description": "A booked job's progress, as the person who booked it sees it.",
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "pauseReason": {
+            "type": "string"
+          },
+          "assigned": {
+            "type": "boolean",
+            "description": "Someone at the organisation is on the job."
+          },
+          "history": {
+            "items": {
+              "properties": {
+                "at": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "stage"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "status",
+          "assigned",
+          "history"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "RequestStageAction": {
+        "type": "string",
+        "description": "A step any workflow may name. Templates onboarded later (by hand or from the builder) bring\ntheir own steps, so the vocabulary stays open: a step the platform does not ship still routes\nto an inbox and still asks the acting person for their staff card.\n\nPlain `string` because this crosses the API boundary and the generated routes must accept a\nstep the platform has never heard of. The shape is checked by `isStageAction`, and every\nsaved experience goes through `validateRequestExperience`."
+      },
+      "RequestProgressStage": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "proof": {
+            "type": "string"
+          },
+          "vcType": {
+            "type": "string"
+          },
+          "stageAction": {
+            "$ref": "#/components/schemas/RequestStageAction"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "active",
+              "pending",
+              "skipped",
+              "held"
+            ]
+          },
+          "at": {
+            "type": "string"
+          },
+          "actorUserId": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "proof",
+          "vcType",
+          "status"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "RequestExperience": {
+        "properties": {
+          "version": {
+            "type": "number",
+            "enum": [
+              1
+            ],
+            "nullable": false
+          },
+          "resourceType": {
+            "type": "string",
+            "enum": [
+              "request"
+            ],
+            "nullable": false
+          },
+          "resourceId": {
+            "type": "string"
+          },
+          "family": {
+            "type": "string"
+          },
+          "workflowType": {
+            "type": "string"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/RequestProgressStage"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "version",
+          "resourceType",
+          "resourceId",
+          "family",
+          "workflowType",
+          "stages"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "WorkflowRequestResponse": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "requesterTenantId": {
+            "type": "string"
+          },
+          "targetOrgTenantId": {
+            "type": "string"
+          },
+          "targetOrgName": {
+            "type": "string",
+            "description": "Plain name of the organisation the request went to, for the requester's own list."
+          },
+          "contactName": {
+            "type": "string"
+          },
+          "requestType": {
+            "type": "string"
+          },
+          "workflowType": {
+            "type": "string"
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/Record_string.unknown_"
+          },
+          "status": {
+            "type": "string"
+          },
+          "responseVcId": {
+            "type": "string"
+          },
+          "rejectionReason": {
+            "type": "string"
+          },
+          "assigneeUserId": {
+            "type": "string"
+          },
+          "assigneeWalletTenantId": {
+            "type": "string"
+          },
+          "assigneeRole": {
+            "type": "string"
+          },
+          "assignedAt": {
+            "type": "string"
+          },
+          "assignmentMode": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "approvedAt": {
+            "type": "string"
+          },
+          "rejectedAt": {
+            "type": "string"
+          },
+          "fulfilledAt": {
+            "type": "string"
+          },
+          "job": {
+            "$ref": "#/components/schemas/BookedJobProgress",
+            "description": "The job a booking created, when it is one."
+          },
+          "experience": {
+            "$ref": "#/components/schemas/RequestExperience",
+            "description": "The request's stages with when each happened, for the timeline both apps show."
+          }
+        },
+        "required": [
+          "id",
+          "requesterTenantId",
+          "targetOrgTenantId",
+          "requestType",
+          "payload",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "WorkflowRequestType": {
+        "type": "string",
+        "enum": [
+          "quote",
+          "invoice",
+          "vc_issuance",
+          "service",
+          "requisition",
+          "payment_link"
+        ]
+      },
+      "CreateRequestBody": {
+        "properties": {
+          "contactId": {
+            "type": "string",
+            "description": "The organisation's record of this person. Omit it when writing to an organisation for the first time."
+          },
+          "targetOrgTenantId": {
+            "type": "string",
+            "description": "First contact from Discover: the organisation adds this person to its contacts and the request lands as usual."
+          },
+          "requesterName": {
+            "type": "string",
+            "description": "How the person wants the organisation to know them. Only used when a contact is created."
+          },
+          "requestType": {
+            "$ref": "#/components/schemas/WorkflowRequestType"
+          },
+          "workflowType": {
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/Record_string.unknown_"
+          },
+          "expiresInDays": {
+            "type": "number",
+            "format": "double"
+          },
+          "assignToUserId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestType",
+          "payload"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "AskedProvider": {
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "requestId",
+          "tenantId",
+          "name",
+          "reasons"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "SkippedProvider": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "reason"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "AskProvidersResult": {
+        "properties": {
+          "asked": {
+            "items": {
+              "$ref": "#/components/schemas/AskedProvider"
+            },
+            "type": "array"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/SkippedProvider"
+            },
+            "type": "array"
+          },
+          "note": {
+            "type": "string",
+            "description": "Set when nobody was asked."
+          }
+        },
+        "required": [
+          "asked",
+          "skipped"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "AskProvidersBody": {
+        "properties": {
+          "need": {
+            "type": "string",
+            "description": "What is needed, in the customer's words."
+          },
+          "area": {
+            "type": "string",
+            "description": "Suburb or city."
+          },
+          "payment": {
+            "type": "string",
+            "description": "How they want to pay, such as ecocash."
+          },
+          "fulfilment": {
+            "type": "string",
+            "description": "call_out, delivery or collection."
+          },
+          "details": {
+            "type": "string",
+            "description": "Anything else the businesses should know."
+          },
+          "requesterName": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number",
+            "format": "double",
+            "description": "How many to ask. Defaults to 3 and is never more than 5."
+          }
+        },
+        "required": [
+          "need"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "DepositStatus": {
+        "type": "string",
+        "enum": [
+          "not_opened",
+          "awaiting_payment",
+          "paid",
+          "disputed",
+          "acknowledged"
+        ]
+      },
+      "JobDepositView": {
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DepositStatus"
+          },
+          "payUrl": {
+            "type": "string"
+          },
+          "disputeReason": {
+            "type": "string"
+          },
+          "matchReasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Why the business was asked, saved when the match sent the request."
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "whatsapp"
+            ],
+            "nullable": false,
+            "description": "Set when the request was asked from the WhatsApp chat; the answer goes back there."
+          },
+          "photos": {
+            "items": {
+              "properties": {
+                "caption": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "type": "object"
+            },
+            "type": "array",
+            "description": "Photos sent in the chat with the request. Opened through `GET /workflow-requests/{id}/photos/{photoId}`."
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "available",
+          "note"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "DepositDispute": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "What was not done."
+          }
+        },
+        "type": "object",
+        "additionalProperties": false
+      },
+      "ContactCapabilityResponse": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "contactId": {
+            "type": "string"
+          },
+          "orgTenantId": {
+            "type": "string"
+          },
+          "capabilityType": {
+            "type": "string"
+          },
+          "vcTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/Record_string.unknown_"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "contactId",
+          "orgTenantId",
+          "capabilityType",
+          "enabled",
+          "metadata",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "AddContactCapabilityBody": {
+        "properties": {
+          "capabilityType": {
+            "type": "string"
+          },
+          "vcTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/Record_string.unknown_"
+          }
+        },
+        "required": [
+          "capabilityType"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "WorkflowRequestStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "approved",
+          "rejected",
+          "fulfilled",
+          "cancelled",
+          "expired"
+        ]
+      },
+      "AcceptPrice": {
+        "properties": {
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "description": "What the price covers, shown on the bill or quote."
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "ApproveRequestBody": {
+        "properties": {
+          "approverId": {
+            "type": "string"
+          },
+          "approverRole": {
+            "type": "string"
+          },
+          "executeWorkflow": {
+            "type": "boolean"
+          },
+          "price": {
+            "$ref": "#/components/schemas/AcceptPrice",
+            "description": "Required when accepting a request for a bill or a quote: the organisation sets the price."
+          }
+        },
+        "type": "object",
+        "additionalProperties": false
+      },
+      "RejectRequestBody": {
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
       "SectorType": {
         "type": "string",
         "enum": [
@@ -3071,6 +3681,10 @@
           },
           "category": {
             "type": "string"
+          },
+          "image": {
+            "type": "string",
+            "description": "First product photo, when the shop has one."
           },
           "stockLeft": {
             "type": "number",
@@ -4266,12 +4880,11 @@
         "type": "object",
         "additionalProperties": false
       },
-      "RequestStageAction": {
-        "type": "string",
-        "description": "A step any workflow may name. Templates onboarded later (by hand or from the builder) bring\ntheir own steps, so the vocabulary stays open: a step the platform does not ship still routes\nto an inbox and still asks the acting person for their staff card.\n\nPlain `string` because this crosses the API boundary and the generated routes must accept a\nstep the platform has never heard of. The shape is checked by `isStageAction`, and every\nsaved experience goes through `validateRequestExperience`."
-      },
       "Partial_Record_RequestPhase.string__": {
         "properties": {
+          "approved": {
+            "type": "string"
+          },
           "draft": {
             "type": "string"
           },
@@ -4279,9 +4892,6 @@
             "type": "string"
           },
           "in_review": {
-            "type": "string"
-          },
-          "approved": {
             "type": "string"
           },
           "in_fulfilment": {
@@ -7803,6 +8413,40 @@
                           "messages": {
                             "items": {
                               "properties": {
+                                "interactive": {
+                                  "properties": {
+                                    "list_reply": {
+                                      "properties": {
+                                        "title": {
+                                          "type": "string"
+                                        },
+                                        "id": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "additionalProperties": {},
+                                      "type": "object"
+                                    },
+                                    "button_reply": {
+                                      "properties": {
+                                        "title": {
+                                          "type": "string"
+                                        },
+                                        "id": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "additionalProperties": {},
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": {},
+                                  "type": "object",
+                                  "description": "A button or list row tapped on a chat reply; the id is the command it stands for"
+                                },
                                 "button": {
                                   "properties": {
                                     "text": {
@@ -7815,6 +8459,54 @@
                                   "additionalProperties": {},
                                   "type": "object",
                                   "description": "Quick-reply button tapped on a template message"
+                                },
+                                "document": {
+                                  "properties": {
+                                    "caption": {
+                                      "type": "string"
+                                    },
+                                    "mime_type": {
+                                      "type": "string"
+                                    },
+                                    "id": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": {},
+                                  "required": [
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                },
+                                "image": {
+                                  "properties": {
+                                    "caption": {
+                                      "type": "string"
+                                    },
+                                    "mime_type": {
+                                      "type": "string"
+                                    },
+                                    "id": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": {},
+                                  "required": [
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                },
+                                "location": {
+                                  "properties": {
+                                    "address": {
+                                      "type": "string"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": {},
+                                  "type": "object"
                                 },
                                 "text": {
                                   "properties": {
@@ -11646,96 +12338,6 @@
         "type": "object",
         "additionalProperties": false
       },
-      "RequestProgressStage": {
-        "properties": {
-          "key": {
-            "type": "string"
-          },
-          "label": {
-            "type": "string"
-          },
-          "proof": {
-            "type": "string"
-          },
-          "vcType": {
-            "type": "string"
-          },
-          "stageAction": {
-            "$ref": "#/components/schemas/RequestStageAction"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "done",
-              "active",
-              "pending",
-              "skipped",
-              "held"
-            ]
-          },
-          "at": {
-            "type": "string"
-          },
-          "actorUserId": {
-            "type": "string"
-          },
-          "note": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "key",
-          "label",
-          "proof",
-          "vcType",
-          "status"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
-      "RequestExperience": {
-        "properties": {
-          "version": {
-            "type": "number",
-            "enum": [
-              1
-            ],
-            "nullable": false
-          },
-          "resourceType": {
-            "type": "string",
-            "enum": [
-              "request"
-            ],
-            "nullable": false
-          },
-          "resourceId": {
-            "type": "string"
-          },
-          "family": {
-            "type": "string"
-          },
-          "workflowType": {
-            "type": "string"
-          },
-          "stages": {
-            "items": {
-              "$ref": "#/components/schemas/RequestProgressStage"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "version",
-          "resourceType",
-          "resourceId",
-          "family",
-          "workflowType",
-          "stages"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
       "Pick_RaiseRequestInput.Exclude_keyofRaiseRequestInput.subjectRef__": {
         "properties": {
           "description": {
@@ -12707,496 +13309,6 @@
         "type": "object",
         "additionalProperties": false
       },
-      "BookedJobProgress": {
-        "description": "A booked job's progress, as the person who booked it sees it.",
-        "properties": {
-          "runId": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "stage": {
-            "type": "string"
-          },
-          "pauseReason": {
-            "type": "string"
-          },
-          "assigned": {
-            "type": "boolean",
-            "description": "Someone at the organisation is on the job."
-          },
-          "history": {
-            "items": {
-              "properties": {
-                "at": {
-                  "type": "string"
-                },
-                "stage": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "stage"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "createdAt": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "runId",
-          "status",
-          "assigned",
-          "history"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
-      "WorkflowRequestResponse": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "requesterTenantId": {
-            "type": "string"
-          },
-          "targetOrgTenantId": {
-            "type": "string"
-          },
-          "targetOrgName": {
-            "type": "string",
-            "description": "Plain name of the organisation the request went to, for the requester's own list."
-          },
-          "contactName": {
-            "type": "string"
-          },
-          "requestType": {
-            "type": "string"
-          },
-          "workflowType": {
-            "type": "string"
-          },
-          "workflowId": {
-            "type": "string"
-          },
-          "payload": {
-            "$ref": "#/components/schemas/Record_string.unknown_"
-          },
-          "status": {
-            "type": "string"
-          },
-          "responseVcId": {
-            "type": "string"
-          },
-          "rejectionReason": {
-            "type": "string"
-          },
-          "assigneeUserId": {
-            "type": "string"
-          },
-          "assigneeWalletTenantId": {
-            "type": "string"
-          },
-          "assigneeRole": {
-            "type": "string"
-          },
-          "assignedAt": {
-            "type": "string"
-          },
-          "assignmentMode": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "updatedAt": {
-            "type": "string"
-          },
-          "approvedAt": {
-            "type": "string"
-          },
-          "rejectedAt": {
-            "type": "string"
-          },
-          "fulfilledAt": {
-            "type": "string"
-          },
-          "job": {
-            "$ref": "#/components/schemas/BookedJobProgress",
-            "description": "The job a booking created, when it is one."
-          },
-          "experience": {
-            "$ref": "#/components/schemas/RequestExperience",
-            "description": "The request's stages with when each happened, for the timeline both apps show."
-          }
-        },
-        "required": [
-          "id",
-          "requesterTenantId",
-          "targetOrgTenantId",
-          "requestType",
-          "payload",
-          "status",
-          "createdAt",
-          "updatedAt"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
-      "WorkflowRequestType": {
-        "type": "string",
-        "enum": [
-          "quote",
-          "invoice",
-          "vc_issuance",
-          "service",
-          "requisition",
-          "payment_link"
-        ]
-      },
-      "CreateRequestBody": {
-        "properties": {
-          "contactId": {
-            "type": "string",
-            "description": "The organisation's record of this person. Omit it when writing to an organisation for the first time."
-          },
-          "targetOrgTenantId": {
-            "type": "string",
-            "description": "First contact from Discover: the organisation adds this person to its contacts and the request lands as usual."
-          },
-          "requesterName": {
-            "type": "string",
-            "description": "How the person wants the organisation to know them. Only used when a contact is created."
-          },
-          "requestType": {
-            "$ref": "#/components/schemas/WorkflowRequestType"
-          },
-          "workflowType": {
-            "type": "string"
-          },
-          "payload": {
-            "$ref": "#/components/schemas/Record_string.unknown_"
-          },
-          "expiresInDays": {
-            "type": "number",
-            "format": "double"
-          },
-          "assignToUserId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "requestType",
-          "payload"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
-      "AskedProvider": {
-        "properties": {
-          "requestId": {
-            "type": "string"
-          },
-          "tenantId": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "reasons": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "requestId",
-          "tenantId",
-          "name",
-          "reasons"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
-      "SkippedProvider": {
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "reason"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
-      "AskProvidersResult": {
-        "properties": {
-          "asked": {
-            "items": {
-              "$ref": "#/components/schemas/AskedProvider"
-            },
-            "type": "array"
-          },
-          "skipped": {
-            "items": {
-              "$ref": "#/components/schemas/SkippedProvider"
-            },
-            "type": "array"
-          },
-          "note": {
-            "type": "string",
-            "description": "Set when nobody was asked."
-          }
-        },
-        "required": [
-          "asked",
-          "skipped"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
-      "AskProvidersBody": {
-        "properties": {
-          "need": {
-            "type": "string",
-            "description": "What is needed, in the customer's words."
-          },
-          "area": {
-            "type": "string",
-            "description": "Suburb or city."
-          },
-          "payment": {
-            "type": "string",
-            "description": "How they want to pay, such as ecocash."
-          },
-          "fulfilment": {
-            "type": "string",
-            "description": "call_out, delivery or collection."
-          },
-          "details": {
-            "type": "string",
-            "description": "Anything else the businesses should know."
-          },
-          "requesterName": {
-            "type": "string"
-          },
-          "limit": {
-            "type": "number",
-            "format": "double",
-            "description": "How many to ask. Defaults to 3 and is never more than 5."
-          }
-        },
-        "required": [
-          "need"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
-      "DepositStatus": {
-        "type": "string",
-        "enum": [
-          "not_opened",
-          "awaiting_payment",
-          "paid",
-          "disputed",
-          "acknowledged"
-        ]
-      },
-      "JobDepositView": {
-        "properties": {
-          "requestId": {
-            "type": "string"
-          },
-          "available": {
-            "type": "boolean"
-          },
-          "amount": {
-            "type": "number",
-            "format": "double"
-          },
-          "currency": {
-            "type": "string"
-          },
-          "status": {
-            "$ref": "#/components/schemas/DepositStatus"
-          },
-          "payUrl": {
-            "type": "string"
-          },
-          "disputeReason": {
-            "type": "string"
-          },
-          "matchReasons": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "description": "Why the business was asked, saved when the match sent the request."
-          },
-          "note": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "requestId",
-          "available",
-          "note"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
-      "DepositDispute": {
-        "properties": {
-          "reason": {
-            "type": "string",
-            "description": "What was not done."
-          }
-        },
-        "type": "object",
-        "additionalProperties": false
-      },
-      "ContactCapabilityResponse": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "contactId": {
-            "type": "string"
-          },
-          "orgTenantId": {
-            "type": "string"
-          },
-          "capabilityType": {
-            "type": "string"
-          },
-          "vcTypes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "enabled": {
-            "type": "boolean"
-          },
-          "metadata": {
-            "$ref": "#/components/schemas/Record_string.unknown_"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "contactId",
-          "orgTenantId",
-          "capabilityType",
-          "enabled",
-          "metadata",
-          "createdAt",
-          "updatedAt"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
-      "AddContactCapabilityBody": {
-        "properties": {
-          "capabilityType": {
-            "type": "string"
-          },
-          "vcTypes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "enabled": {
-            "type": "boolean"
-          },
-          "metadata": {
-            "$ref": "#/components/schemas/Record_string.unknown_"
-          }
-        },
-        "required": [
-          "capabilityType"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
-      "WorkflowRequestStatus": {
-        "type": "string",
-        "enum": [
-          "pending",
-          "approved",
-          "rejected",
-          "fulfilled",
-          "cancelled",
-          "expired"
-        ]
-      },
-      "AcceptPrice": {
-        "properties": {
-          "amount": {
-            "type": "number",
-            "format": "double"
-          },
-          "currency": {
-            "type": "string"
-          },
-          "note": {
-            "type": "string",
-            "description": "What the price covers, shown on the bill or quote."
-          }
-        },
-        "required": [
-          "amount"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
-      "ApproveRequestBody": {
-        "properties": {
-          "approverId": {
-            "type": "string"
-          },
-          "approverRole": {
-            "type": "string"
-          },
-          "executeWorkflow": {
-            "type": "boolean"
-          },
-          "price": {
-            "$ref": "#/components/schemas/AcceptPrice",
-            "description": "Required when accepting a request for a bill or a quote: the organisation sets the price."
-          }
-        },
-        "type": "object",
-        "additionalProperties": false
-      },
-      "RejectRequestBody": {
-        "properties": {
-          "reason": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "reason"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
       "EvidenceCaptureResponse": {
         "properties": {
           "providerRef": {
@@ -13725,6 +13837,67 @@
             "description": "External reference for reconciliation timeline (e.g. invoice ref).\nSchool fee receipts should pass the invoice ref here so PRESENTATION_VERIFIED\nappears on the same reconciliation timeline as the original payment."
           }
         },
+        "type": "object",
+        "additionalProperties": false
+      },
+      "ProofShareView": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "shared",
+              "failed"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "standing": {
+            "type": "string",
+            "enum": [
+              "valid",
+              "revoked",
+              "expired",
+              "not_found",
+              "invalid"
+            ]
+          },
+          "standingTitle": {
+            "type": "string"
+          },
+          "cardLabel": {
+            "type": "string"
+          },
+          "issuerName": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "value",
+                "label"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "status",
+          "summary"
+        ],
         "type": "object",
         "additionalProperties": false
       },
@@ -21866,6 +22039,971 @@
             }
           }
         ]
+      }
+    },
+    "/workflow-requests": {
+      "post": {
+        "operationId": "CreateRequest",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRequestResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Holder initiates a workflow request to an org contact\nRequires personal wallet token (holder context)",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRequestBody"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflow-requests/ask": {
+      "post": {
+        "operationId": "AskProviders",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AskProvidersResult"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Ask the best matching businesses for a quote.\nEach one gets the same quote request a person would send from Discover.\nA business that cannot be asked is skipped; the others still get the request.",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskProvidersBody"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflow-requests/{id}/deposit": {
+      "get": {
+        "operationId": "GetDeposit",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDepositView"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The deposit on a quote from Discover. Paying it pays the business.\nCredentis does not hold the money. Other requests have nothing here.",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "OpenDeposit",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDepositView"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create the payment link for that deposit. The same link is returned if it already exists.",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workflow-requests/{id}/photos/{photoId}": {
+      "get": {
+        "operationId": "GetRequestPhoto",
+        "responses": {
+          "204": {
+            "description": "No content",
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "A photo sent in the WhatsApp chat with this request. Only the person who sent it and the business see it.",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "photoId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workflow-requests/{id}/deposit/dispute": {
+      "post": {
+        "operationId": "DisputeDeposit",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDepositView"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The customer says the work was not done. The business cannot mark the job done until this is settled.",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DepositDispute"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflow-requests/{id}/deposit/settle": {
+      "post": {
+        "operationId": "SettleDeposit",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDepositView"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The customer withdraws that. The payment stays with the business.",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workflow-requests/{id}/deposit/acknowledge": {
+      "post": {
+        "operationId": "AcknowledgeDeposit",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDepositView"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The business marks the job done. Refused while the customer says the work was not done.",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workflow-requests/contacts/{contactId}/capabilities": {
+      "get": {
+        "operationId": "ListContactCapabilities",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ContactCapabilityResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List capability profile for a contact (holder view)\nUsed for DID contact routing previews before request creation.",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contactId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "AddContactCapability",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactCapabilityResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Add capability profile to a contact (org admin view)\nPowers SGK supplier DID capability setup.",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contactId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddContactCapabilityBody"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflow-requests/outbound": {
+      "get": {
+        "operationId": "ListOutboundRequests",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WorkflowRequestResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List holder's outgoing workflow requests\nRequires personal wallet token (holder context)",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/WorkflowRequestStatus"
+            }
+          },
+          {
+            "in": "query",
+            "name": "requestType",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/WorkflowRequestType"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "double",
+              "type": "number"
+            }
+          }
+        ]
+      }
+    },
+    "/workflow-requests/assigned": {
+      "get": {
+        "operationId": "ListAssignedRequests",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WorkflowRequestResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List workflow requests assigned to the current holder user for org action.\nRequires personal wallet token (holder context).",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/WorkflowRequestStatus"
+            }
+          },
+          {
+            "in": "query",
+            "name": "requestType",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/WorkflowRequestType"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "includeDoneSinceDays",
+            "required": false,
+            "schema": {
+              "format": "double",
+              "type": "number"
+            }
+          }
+        ]
+      }
+    },
+    "/workflow-requests/inbound": {
+      "get": {
+        "operationId": "ListInboundRequests",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WorkflowRequestResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "List org's inbound workflow requests\nRequires org token with admin/manager/owner role",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/WorkflowRequestStatus"
+            }
+          },
+          {
+            "in": "query",
+            "name": "requestType",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/WorkflowRequestType"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "includeHistory",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "format": "double",
+              "type": "number"
+            }
+          }
+        ]
+      }
+    },
+    "/workflow-requests/{id}": {
+      "get": {
+        "operationId": "GetRequest",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRequestResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get single workflow request by ID\nAccess: requester OR target org member",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant",
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workflow-requests/{id}/approve": {
+      "put": {
+        "operationId": "ApproveRequest",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRequestResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Approve workflow request (org-side)\nOptionally triggers workflow execution immediately",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequestBody"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflow-requests/{id}/approve-from-inbox": {
+      "put": {
+        "operationId": "ApproveFromInbox",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRequestResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Approve workflow request directly from holder inbox while acting on behalf of org.\nRequires personal wallet token + active org assignment/membership.",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequestBody"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflow-requests/{id}/reject": {
+      "put": {
+        "operationId": "RejectRequest",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRequestResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reject workflow request (org-side)",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRequestBody"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflow-requests/{id}/reject-from-inbox": {
+      "put": {
+        "operationId": "RejectFromInbox",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRequestResponse"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reject workflow request directly from holder inbox while acting on behalf of org.\nRequires personal wallet token + active org assignment/membership.",
+        "tags": [
+          "Workflow Requests"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "wallet"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRequestBody"
+              }
+            }
+          }
+        }
       }
     },
     "/api/organizations": {
@@ -39009,926 +40147,6 @@
         }
       }
     },
-    "/workflow-requests": {
-      "post": {
-        "operationId": "CreateRequest",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkflowRequestResponse"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "Holder initiates a workflow request to an org contact\nRequires personal wallet token (holder context)",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": [
-              "wallet"
-            ]
-          }
-        ],
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateRequestBody"
-              }
-            }
-          }
-        }
-      }
-    },
-    "/workflow-requests/ask": {
-      "post": {
-        "operationId": "AskProviders",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AskProvidersResult"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "Ask the best matching businesses for a quote.\nEach one gets the same quote request a person would send from Discover.\nA business that cannot be asked is skipped; the others still get the request.",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": [
-              "wallet"
-            ]
-          }
-        ],
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AskProvidersBody"
-              }
-            }
-          }
-        }
-      }
-    },
-    "/workflow-requests/{id}/deposit": {
-      "get": {
-        "operationId": "GetDeposit",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JobDepositView"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "The deposit on a quote from Discover. Paying it pays the business.\nCredentis does not hold the money. Other requests have nothing here.",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      },
-      "post": {
-        "operationId": "OpenDeposit",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JobDepositView"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "Create the payment link for that deposit. The same link is returned if it already exists.",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/workflow-requests/{id}/deposit/dispute": {
-      "post": {
-        "operationId": "DisputeDeposit",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JobDepositView"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "The customer says the work was not done. The business cannot mark the job done until this is settled.",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DepositDispute"
-              }
-            }
-          }
-        }
-      }
-    },
-    "/workflow-requests/{id}/deposit/settle": {
-      "post": {
-        "operationId": "SettleDeposit",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JobDepositView"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "The customer withdraws that. The payment stays with the business.",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/workflow-requests/{id}/deposit/acknowledge": {
-      "post": {
-        "operationId": "AcknowledgeDeposit",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JobDepositView"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "The business marks the job done. Refused while the customer says the work was not done.",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/workflow-requests/contacts/{contactId}/capabilities": {
-      "get": {
-        "operationId": "ListContactCapabilities",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ContactCapabilityResponse"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "List capability profile for a contact (holder view)\nUsed for DID contact routing previews before request creation.",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": [
-              "wallet"
-            ]
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "contactId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      },
-      "post": {
-        "operationId": "AddContactCapability",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ContactCapabilityResponse"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "Add capability profile to a contact (org admin view)\nPowers SGK supplier DID capability setup.",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": [
-              "tenant"
-            ]
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "contactId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AddContactCapabilityBody"
-              }
-            }
-          }
-        }
-      }
-    },
-    "/workflow-requests/outbound": {
-      "get": {
-        "operationId": "ListOutboundRequests",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/WorkflowRequestResponse"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "List holder's outgoing workflow requests\nRequires personal wallet token (holder context)",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": [
-              "wallet"
-            ]
-          }
-        ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/WorkflowRequestStatus"
-            }
-          },
-          {
-            "in": "query",
-            "name": "requestType",
-            "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/WorkflowRequestType"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "format": "double",
-              "type": "number"
-            }
-          }
-        ]
-      }
-    },
-    "/workflow-requests/assigned": {
-      "get": {
-        "operationId": "ListAssignedRequests",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/WorkflowRequestResponse"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "List workflow requests assigned to the current holder user for org action.\nRequires personal wallet token (holder context).",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": [
-              "wallet"
-            ]
-          }
-        ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/WorkflowRequestStatus"
-            }
-          },
-          {
-            "in": "query",
-            "name": "requestType",
-            "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/WorkflowRequestType"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "format": "double",
-              "type": "number"
-            }
-          },
-          {
-            "in": "query",
-            "name": "includeDoneSinceDays",
-            "required": false,
-            "schema": {
-              "format": "double",
-              "type": "number"
-            }
-          }
-        ]
-      }
-    },
-    "/workflow-requests/inbound": {
-      "get": {
-        "operationId": "ListInboundRequests",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/WorkflowRequestResponse"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "List org's inbound workflow requests\nRequires org token with admin/manager/owner role",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": [
-              "tenant"
-            ]
-          }
-        ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/WorkflowRequestStatus"
-            }
-          },
-          {
-            "in": "query",
-            "name": "requestType",
-            "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/WorkflowRequestType"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "format": "double",
-              "type": "number"
-            }
-          },
-          {
-            "in": "query",
-            "name": "includeHistory",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "format": "double",
-              "type": "number"
-            }
-          }
-        ]
-      }
-    },
-    "/workflow-requests/{id}": {
-      "get": {
-        "operationId": "GetRequest",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkflowRequestResponse"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "Get single workflow request by ID\nAccess: requester OR target org member",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": [
-              "tenant",
-              "wallet"
-            ]
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/workflow-requests/{id}/approve": {
-      "put": {
-        "operationId": "ApproveRequest",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkflowRequestResponse"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "Approve workflow request (org-side)\nOptionally triggers workflow execution immediately",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": [
-              "tenant"
-            ]
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApproveRequestBody"
-              }
-            }
-          }
-        }
-      }
-    },
-    "/workflow-requests/{id}/approve-from-inbox": {
-      "put": {
-        "operationId": "ApproveFromInbox",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkflowRequestResponse"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "Approve workflow request directly from holder inbox while acting on behalf of org.\nRequires personal wallet token + active org assignment/membership.",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": [
-              "wallet"
-            ]
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApproveRequestBody"
-              }
-            }
-          }
-        }
-      }
-    },
-    "/workflow-requests/{id}/reject": {
-      "put": {
-        "operationId": "RejectRequest",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkflowRequestResponse"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "Reject workflow request (org-side)",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": [
-              "tenant"
-            ]
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RejectRequestBody"
-              }
-            }
-          }
-        }
-      }
-    },
-    "/workflow-requests/{id}/reject-from-inbox": {
-      "put": {
-        "operationId": "RejectFromInbox",
-        "responses": {
-          "200": {
-            "description": "Ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkflowRequestResponse"
-                }
-              }
-            },
-            "headers": {
-              "x-correlation-id": {
-                "description": "Correlation ID for tracing across systems",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "description": "Reject workflow request directly from holder inbox while acting on behalf of org.\nRequires personal wallet token + active org assignment/membership.",
-        "tags": [
-          "Workflow Requests"
-        ],
-        "security": [
-          {
-            "jwt": [
-              "wallet"
-            ]
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RejectRequestBody"
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/workflows/evidence": {
       "post": {
         "operationId": "CaptureEvidence",
@@ -40586,7 +40804,7 @@
             }
           }
         },
-        "description": "Request a verifiable proof from a contact via OID4VP.\n\nCreates a presentation request, stores the context for reconciliation\n(no PII — only providerRef + tenantId), then dispatches the deep-link\nto the contact via WhatsApp/SMS.\n\nSchool fee receipts (PaymentReceiptVC / SchoolFeeReceiptVC) are permanent\nnon-revocable proofs — set credentialTypes accordingly and the contact's\nwallet will match them regardless of revocation status.",
+        "description": "Request a verifiable proof from a contact via OID4VP.\n\nCreates a presentation request, stores the context for reconciliation\n(no PII — only providerRef + tenantId), then dispatches the deep-link\nto the contact via WhatsApp/SMS.\n\nThe contact shares a record of the named type. Its standing (still valid, or\nwithdrawn) is read afterwards from GET /proof-requests/{requestId}.",
         "tags": [
           "Contacts"
         ],
@@ -40617,6 +40835,52 @@
             }
           }
         }
+      }
+    },
+    "/api/contacts/proof-requests/{requestId}": {
+      "get": {
+        "operationId": "ProofRequestResult",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProofShareView"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Whether the contact has shared, and what the shared record says.\nPending until the wallet answers. A withdrawn record reads \"No longer valid\".",
+        "tags": [
+          "Contacts"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/payment-links": {

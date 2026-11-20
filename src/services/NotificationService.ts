@@ -390,6 +390,8 @@ export class NotificationService {
       const orgName = templateText(getTenantById(payload.tenantId)?.label, 40, 'Your organisation')
       // Values for the branded per-event template; left unset when this alert has no item to link to.
       let richValues: { body: string[]; link: string } | undefined
+      // A customer's request for a price gets the job card (answer buttons) when Meta approved it.
+      let jobValues: { body: string[]; link: string; replies: string[] } | undefined
       // A bill or a remittance goes to someone outside this organisation, often on a phone that is
       // signed into a different Credentis account (or none). Its own public page works whoever is
       // signed in, or no one; the wallet's "/inbox?item=" route only works for the one matching
@@ -424,11 +426,19 @@ export class NotificationService {
       } else if (payload.inboxItemId) {
         const owner = db
           .prepare(
-            `SELECT u.id, w.title, w.body, w.credential_type FROM wallet_pending_offers w JOIN ssi_users u ON u.tenant_id = w.tenant_id
+            `SELECT u.id, w.title, w.body, w.credential_type, w.source_type, w.source_id
+            FROM wallet_pending_offers w JOIN ssi_users u ON u.tenant_id = w.tenant_id
             WHERE w.id = ? AND w.issuer_tenant_id = ?`,
           )
           .get(payload.inboxItemId, payload.tenantId) as
-          | { id: string; title?: string | null; body?: string | null; credential_type?: string }
+          | {
+              id: string
+              title?: string | null
+              body?: string | null
+              credential_type?: string
+              source_type?: string | null
+              source_id?: string | null
+            }
           | undefined
         const item =
           owner &&
@@ -445,6 +455,33 @@ export class NotificationService {
         // The approved generic template carries one line; make it name the organisation and the item.
         bodyText = templateText(`${emoji} ${orgName}: ${title.replace(/[.!?…]+$/, '')}. ${detail}`, 300, bodyText)
         richValues = { body: [orgName, title, detail], link: payload.inboxItemId }
+        if (payload.eventType === 'task' && owner!.source_type === 'workflow_request_assignment' && owner!.source_id) {
+          const { workflowRequestRepository } = await import('../persistence/WorkflowRequestRepository')
+          const request = workflowRequestRepository.findById(owner!.source_id)
+          if (
+            request?.requestType === 'quote' &&
+            request.status === 'pending' &&
+            request.targetOrgTenantId === payload.tenantId
+          ) {
+            const job = request.payload || {}
+            jobValues = {
+              body: [
+                templateText(
+                  String(job.description || owner!.title || '')
+                    .split('\n')
+                    .filter((line) => line.trim() && !/^(Place|Pay with):/.test(line))
+                    .join(' · '),
+                  120,
+                  title,
+                ),
+                templateText(job.place || job.location, 60, 'Place not given'),
+                templateText(job.clientName || job.requesterName, 40, 'A customer'),
+              ],
+              link: payload.inboxItemId,
+              replies: ['JOB_QUOTE', 'JOB_ASK', 'JOB_SKIP'].map((answer) => `${answer}:${request.id}`),
+            }
+          }
+        }
         matchedItem = true
       } else if (
         payload.requestId &&
@@ -473,14 +510,20 @@ export class NotificationService {
         }
       }
       const actionUrl = action.toString()
-      const rich = richValues
-        ? await whatsAppSenderService.approvedRichTemplate(sender, payload.eventType, base.origin)
+      const jobCard = jobValues
+        ? await whatsAppSenderService.approvedRichTemplate(sender, 'new_job', base.origin)
         : undefined
+      const rich =
+        jobCard ||
+        (richValues ? await whatsAppSenderService.approvedRichTemplate(sender, payload.eventType, base.origin) : undefined)
       const template = rich
         ? { name: rich.name, language: rich.language }
         : await whatsAppSenderService.requireApprovedTemplate(sender, templateEvent)
       const components = rich
-        ? richTemplateComponents(rich, { ...richValues!, imageUrl: headerImageUrl(base.origin, rich.event) })
+        ? richTemplateComponents(rich, {
+            ...(jobCard ? jobValues! : richValues!),
+            imageUrl: headerImageUrl(base.origin, rich.event),
+          })
         : [
             {
               type: 'body',

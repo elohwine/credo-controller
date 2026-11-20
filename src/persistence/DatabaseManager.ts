@@ -213,6 +213,7 @@ export class DatabaseManager {
         file: '150_job_deposits_and_marketing.sql',
         name: 'job_deposits_and_marketing',
       },
+      { version: 151, file: '151_whatsapp_chat_sessions.sql', name: 'whatsapp_chat_sessions' },
     ]
 
     for (const migration of migrationFiles) {

@@ -29,7 +29,8 @@ import {
 import { clampDoneDays } from '../../services/InboxPreferenceService'
 import { OrgWorkflowActorService } from '../../services/OrgWorkflowActorService'
 import { jobDepositService, type JobDepositView } from '../../services/JobDepositService'
-import { orgOfferingsService } from '../../services/OrgOfferingsService'
+import { orgOfferingsService, type ProviderMatch } from '../../services/OrgOfferingsService'
+import { whatsAppInquiryService } from '../../services/WhatsAppInquiryService'
 import { orgSetupProfileService } from '../../services/OrgSetupProfileService'
 import { notifyStageDelegates, resolveStageRoute } from '../../services/WorkflowStageInboxService'
 import { outboxService } from '../../services/OutboxService'
@@ -77,7 +78,7 @@ interface DepositDispute {
   reason?: string
 }
 
-interface AskProvidersBody {
+export interface AskProvidersBody {
   /** What is needed, in the customer's words. */
   need: string
   /** Suburb or city. */
@@ -105,7 +106,7 @@ interface SkippedProvider {
   reason: string
 }
 
-interface AskProvidersResult {
+export interface AskProvidersResult {
   asked: AskedProvider[]
   skipped: SkippedProvider[]
   /** Set when nobody was asked. */
@@ -991,6 +992,13 @@ export class WorkflowRequestController extends Controller {
       .catch(() => undefined)
   }
 
+  /** A request asked from the WhatsApp chat hears the answer there. Every other request is left alone. */
+  private tellWhatsAppChat(requestId: string): void {
+    void import('../../services/WhatsAppInquiryService')
+      .then(({ whatsAppInquiryService }) => whatsAppInquiryService.requestAnswered(requestId))
+      .catch(() => undefined)
+  }
+
   /** Closes the approval card for every wallet that received it (assignee, stand-in owners, delegates). */
   private clearApproverInboxNotification(requestId: string, _assigneeWalletTenantId?: string): void {
     this.db
@@ -1215,6 +1223,24 @@ export class WorkflowRequestController extends Controller {
       return empty
     }
 
+    const result = await this.askMatches(matches, body, req)
+    this.setStatus(200)
+    if (replay.key) IdempotencyGuard.record(this.db, replay.key, requesterTenantId, 'discovery.ask', result)
+    return result
+  }
+
+  /**
+   * Send the same quote request to each business already matched. Discover calls this after
+   * matching; the WhatsApp chat calls it with the businesses it listed, adding `extraPayload`
+   * (where it came from, the phone, photos). One business that cannot be asked is skipped.
+   */
+  public async askMatches(
+    matches: ProviderMatch[],
+    body: AskProvidersBody,
+    req: ExRequest,
+    extraPayload: Record<string, unknown> = {},
+  ): Promise<AskProvidersResult> {
+    const need = String(body?.need || '').trim()
     const lines = [
       need,
       body?.details?.trim(),
@@ -1239,6 +1265,7 @@ export class WorkflowRequestController extends Controller {
               // Why this business was asked, kept with the request as the record of the match.
               matchReasons: match.reasons,
               ...(match.unsure.length ? { matchGaps: match.unsure } : {}),
+              ...extraPayload,
             },
           },
           req,
@@ -1254,14 +1281,11 @@ export class WorkflowRequestController extends Controller {
         skipped.push({ name: match.name, reason })
       }
     }
-    this.setStatus(200)
-    const result: AskProvidersResult = {
+    return {
       asked,
       skipped,
       ...(asked.length === 0 ? { note: 'None of the matching businesses could be asked.' } : {}),
     }
-    if (replay.key) IdempotencyGuard.record(this.db, replay.key, requesterTenantId, 'discovery.ask', result)
-    return result
   }
 
   /**
@@ -1272,6 +1296,19 @@ export class WorkflowRequestController extends Controller {
   @Security('jwt')
   public async getDeposit(@Path() id: string, @Request() req: ExRequest): Promise<JobDepositView> {
     return jobDepositService.view(id, this.requireTenantId(req), this.actorUserId(req))
+  }
+
+  /** A photo sent in the WhatsApp chat with this request. Only the person who sent it and the business see it. */
+  @Get('{id}/photos/{photoId}')
+  @Security('jwt')
+  public async getRequestPhoto(@Path() id: string, @Path() photoId: string, @Request() req: ExRequest): Promise<void> {
+    const userId = this.actorUserId(req)
+    const photo = whatsAppInquiryService.photoFor(id, photoId, {
+      tenantId: this.asContext(req).tenantId,
+      isMember: (orgTenantId) => Boolean(this.resolveMembership(orgTenantId, userId)),
+    })
+    if (!photo) throw new StatusException('Photo not found.', 404)
+    req.res!.status(200).type(photo.mimeType).set('Cache-Control', 'private, max-age=3600').send(photo.data)
   }
 
   /** Create the payment link for that deposit. The same link is returned if it already exists. */
@@ -1613,6 +1650,7 @@ export class WorkflowRequestController extends Controller {
     )
 
     this.continueIntoNextRequest(accepted, userId)
+    this.tellWhatsAppChat(id)
     return response
   }
 
@@ -1726,6 +1764,7 @@ export class WorkflowRequestController extends Controller {
     })()
 
     this.continueIntoNextRequest(accepted, actor.userId)
+    this.tellWhatsAppChat(id)
     return response
   }
 
@@ -1798,6 +1837,7 @@ export class WorkflowRequestController extends Controller {
     })()
 
     logger.info({ requestId: id, reason: body.reason }, 'Workflow request rejected')
+    this.tellWhatsAppChat(id)
 
     return response
   }
@@ -1890,6 +1930,7 @@ export class WorkflowRequestController extends Controller {
       return mapped
     })()
 
+    this.tellWhatsAppChat(id)
     return response
   }
 

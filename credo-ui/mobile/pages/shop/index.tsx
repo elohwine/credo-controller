@@ -65,7 +65,8 @@ type CatalogItem = {
   price: number;
   currency: string;
   category?: string;
-  images: string[];
+  images?: string[];
+  image?: string;
   stockLeft?: number;
 };
 
@@ -309,11 +310,16 @@ function ProductCard({ item, dark }: { item: CatalogItem; dark: boolean }) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            overflow: 'hidden',
           }}
         >
-          <ThemeIcon variant="white" color="blue" radius="xl" size={40}>
-            <IconShoppingBag size={20} />
-          </ThemeIcon>
+          {item.images?.[0] || item.image ? (
+            <img src={item.images?.[0] || item.image} alt={item.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            <ThemeIcon variant="white" color="blue" radius="xl" size={40}>
+              <IconShoppingBag size={20} />
+            </ThemeIcon>
+          )}
         </Box>
 
         <Group justify="space-between" align="start" wrap="nowrap">

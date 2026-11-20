@@ -8,13 +8,79 @@ import { container } from 'tsyringe'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { inventoryService } from '../../services/InventoryService'
 import { notificationService } from '../../services/NotificationService'
-import { whatsAppSenderService } from '../../services/WhatsAppSenderService'
+import { whatsAppGraphUrl, whatsAppSenderService } from '../../services/WhatsAppSenderService'
+import { headerImageUrl, richTemplateComponents, templateText } from '../../services/whatsAppTemplates'
 import { SSIAuthService } from '../../services/SSIAuthService'
 import { documentClaims } from '../../services/documentFacts'
 import { rootLogger } from '../../utils/pinoLogger'
 import { getEcoCashWebhookSecret, getIssuerApiKey } from '../../utils/serviceApiKey'
 
 const logger = rootLogger.child({ module: 'WhatsAppPayloadController' })
+
+/** True when this number wrote to the business inside WhatsApp's 24-hour reply window. */
+function receiptChatOpen(phone: string): boolean {
+  const digits = String(phone || '').replace(/\D/g, '')
+  if (!digits) return false
+  try {
+    const row = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT last_inbound_at FROM whatsapp_chat_sessions
+         WHERE phone IN (?, ?) ORDER BY last_inbound_at DESC LIMIT 1`,
+      )
+      .get(digits, `+${digits}`) as { last_inbound_at?: string } | undefined
+    const at = row?.last_inbound_at ? Date.parse(row.last_inbound_at) : NaN
+    return Number.isFinite(at) && Date.now() - at < 24 * 60 * 60 * 1000
+  } catch {
+    return false
+  }
+}
+
+/**
+ * A shop receipt with no open chat cannot be a free-form message. Send the approved
+ * payment template instead. Returns false when that template is not approved, so the
+ * caller keeps today's messages. Does not record alert consent.
+ */
+async function sendClosedWindowReceipt(cart: any, transactionId: string): Promise<boolean> {
+  const sender = whatsAppSenderService.resolve(cart.merchant_id)
+  const origin = String(process.env.WALLET_PUBLIC_URL || 'https://credentis.fly.dev').replace(/\/+$/, '')
+  const definition = await whatsAppSenderService.approvedRichTemplate(sender, 'remittance', origin)
+  if (!definition) return false
+  const org = DatabaseManager.getDatabase()
+    .prepare('SELECT display_name FROM organization_registry WHERE tenant_id = ?')
+    .get(cart.merchant_id) as { display_name?: string } | undefined
+  const components = richTemplateComponents(definition, {
+    imageUrl: headerImageUrl(origin, 'remittance'),
+    body: [
+      templateText(org?.display_name, 80, 'The business'),
+      templateText('Receipt', 40, 'Receipt'),
+      templateText(
+        `${cart.currency || 'USD'} ${Number(cart.total).toFixed(2)} paid. Reference ${transactionId}.`,
+        160,
+        'Paid',
+      ),
+    ],
+    link: templateText(transactionId, 80, 'receipt'),
+  })
+  const { data } = await axios.post(
+    whatsAppGraphUrl(`${sender.phoneNumberId}/messages`),
+    {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: String(cart.buyer_phone).replace(/\D/g, ''),
+      type: 'template',
+      template: { name: definition.name, language: { code: definition.language }, components },
+    },
+    { headers: { Authorization: `Bearer ${sender.token}` }, timeout: 15000 },
+  )
+  noteAcceptedReceipt(cart.merchant_id, cart.buyer_phone, data)
+  const messageId = data?.messages?.[0]?.id
+  if (messageId) {
+    DatabaseManager.getDatabase()
+      .prepare(`UPDATE notification_deliveries SET template_name = ? WHERE provider_message_id = ?`)
+      .run(`${definition.name}/${definition.language}`, messageId)
+  }
+  return Boolean(messageId)
+}
 
 /** Store Graph's message id so a later delivered or read callback can be saved. Never sends. */
 function noteAcceptedReceipt(merchantId: string, phone: string, data: any): void {
@@ -1120,6 +1186,20 @@ export class WhatsAppPayloadController extends Controller {
     }
 
     try {
+      // Status callbacks can only be checked once this number is bound to the platform sender.
+      try {
+        const sender = whatsAppSenderService.resolve(cart.merchant_id)
+        if (sender.key === 'platform') await whatsAppSenderService.ensurePlatformBinding(sender)
+      } catch (error: any) {
+        logger.warn({ error: error?.message }, 'Receipt sender was not bound for delivery status')
+      }
+      if (!receiptChatOpen(cart.buyer_phone)) {
+        const templated = await sendClosedWindowReceipt(cart, body.transactionId)
+        if (templated) {
+          db.prepare(`UPDATE carts SET status = 'paid', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), cartId)
+          return { success: true, message: 'Receipt sent to WhatsApp' }
+        }
+      }
       // Send confirmation message
       noteAcceptedReceipt(
         cart.merchant_id,

@@ -94,7 +94,7 @@ export function registerWhatsAppInboxLanding(app: Express): void {
   // Header banners for the WhatsApp templates; Meta fetches them by URL on every send.
   // Non-banner paths fall through so GET /wa/webhook (Meta's verify handshake) reaches the TSOA route.
   app.get('/wa/:file', (req: Request, res: Response, next: NextFunction) => {
-    if (!/^(task|vc_offer|proof_request|payment_link|remittance|invite)\.png$/.test(req.params.file)) {
+    if (!/^(task|vc_offer|proof_request|payment_link|remittance|invite|new_job)\.png$/.test(req.params.file)) {
       next()
       return
     }

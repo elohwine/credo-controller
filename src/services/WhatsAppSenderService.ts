@@ -274,27 +274,73 @@ export class WhatsAppSenderService {
    * Nothing is sent unless WhatsApp delivery is turned on and this sender has a token.
    */
   public async sendSessionReply(senderKey: string, to: string, body: string): Promise<'sent' | 'held'> {
-    if (process.env.WHATSAPP_DELIVERY_ENABLED !== 'true') return 'held'
+    return (await this.sendSessionMessage(senderKey, to, body)).status
+  }
+
+  /** The same reply, with Graph's message id so a later delivery callback can update its row. */
+  public async sendSessionMessage(
+    senderKey: string,
+    to: string,
+    body: string,
+  ): Promise<{ status: 'sent' | 'held'; messageId?: string; phoneNumberId?: string }> {
+    return this.postSessionMessage(senderKey, to, { type: 'text', text: { preview_url: false, body: body.slice(0, 1000) } })
+  }
+
+  /**
+   * Tap buttons, a pick list or a link button in the same open chat. Same rules as a text reply:
+   * not an alert, no template, nothing sent unless delivery is on. A tap comes back as the button id.
+   */
+  public async sendSessionInteractive(
+    senderKey: string,
+    to: string,
+    interactive: Record<string, unknown>,
+  ): Promise<{ status: 'sent' | 'held'; messageId?: string; phoneNumberId?: string }> {
+    return this.postSessionMessage(senderKey, to, { type: 'interactive', interactive })
+  }
+
+  private async postSessionMessage(
+    senderKey: string,
+    to: string,
+    message: Record<string, unknown>,
+  ): Promise<{ status: 'sent' | 'held'; messageId?: string; phoneNumberId?: string }> {
+    if (process.env.WHATSAPP_DELIVERY_ENABLED !== 'true') return { status: 'held' }
+    const sender = this.sessionSender(senderKey)
+    if (!sender) return { status: 'held' }
+    const recipient = normalizeNotificationPhone(to)
+    const { data } = await axios.post(
+      whatsAppGraphUrl(`${sender.phoneNumberId}/messages`),
+      { messaging_product: 'whatsapp', recipient_type: 'individual', to: recipient, ...message },
+      { headers: { Authorization: `Bearer ${sender.token}` }, timeout: 10000 },
+    )
+    const messageId = data?.messages?.[0]?.id
+    if (!messageId) throw new DispatchError('Provider accepted outcome unknown', 'uncertain')
+    return { status: 'sent', messageId: String(messageId), phoneNumberId: sender.phoneNumberId }
+  }
+
+  /** A photo or document the person sent. Meta keeps it for a limited time, so it is fetched when it arrives. */
+  public async downloadMedia(senderKey: string, mediaId: string): Promise<{ data: Buffer; mimeType: string } | undefined> {
+    const sender = this.sessionSender(senderKey)
+    if (!sender || !/^[A-Za-z0-9_-]{1,128}$/.test(mediaId)) return undefined
+    const headers = { Authorization: `Bearer ${sender.token}` }
+    const { data: meta } = await axios.get(whatsAppGraphUrl(mediaId), { headers, timeout: 10000 })
+    if (!meta?.url) return undefined
+    const file = await axios.get(String(meta.url), {
+      headers,
+      timeout: 20000,
+      responseType: 'arraybuffer',
+      maxContentLength: 5 * 1024 * 1024,
+    })
+    return { data: Buffer.from(file.data), mimeType: String(meta.mime_type || file.headers['content-type'] || 'application/octet-stream') }
+  }
+
+  private sessionSender(senderKey: string): { phoneNumberId: string; token: string } | undefined {
     const binding = DatabaseManager.getDatabase()
       .prepare('SELECT phone_number_id FROM whatsapp_sender_bindings WHERE sender_key = ? LIMIT 1')
       .get(senderKey) as { phone_number_id: string } | undefined
     const prefix = senderKey === 'platform' ? '' : tenantWhatsAppSecretPrefix(senderKey.startsWith('tenant:') ? senderKey.slice(7) : senderKey)
     const token = process.env[prefix ? `${prefix}_TOKEN` : 'WABA_TOKEN']
-    if (!binding?.phone_number_id || !token) return 'held'
-    const recipient = normalizeNotificationPhone(to)
-    const { data } = await axios.post(
-      whatsAppGraphUrl(`${binding.phone_number_id}/messages`),
-      {
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to: recipient,
-        type: 'text',
-        text: { preview_url: false, body: body.slice(0, 1000) },
-      },
-      { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 },
-    )
-    if (!data?.messages?.[0]?.id) throw new DispatchError('Provider accepted outcome unknown', 'uncertain')
-    return 'sent'
+    if (!binding?.phone_number_id || !token) return undefined
+    return { phoneNumberId: binding.phone_number_id, token }
   }
 }
 

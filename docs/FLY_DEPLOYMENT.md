@@ -25,6 +25,12 @@ The script increments the Android version and writes the signed APK to `credo-ui
 For an undistributed rebuild of the same version, set `SKIP_VERSION_BUMP=1`.
 Verify the APK's version and signing certificate before sharing it.
 
+2026-11-16 — API deploy of the WhatsApp quote chat. A person confirms the request before anyone is asked, a price comes back as a quote card, and Compare quotes lists each price. The job-card banner is at `/wa/new_job.png`. The `credentis_price_request` template was submitted to Meta as a utility template and is waiting for approval; until then a quote alert uses `credentis_task_update`. An earlier copy, `credentis_new_job`, was moved to marketing while pending and is not sent. The WhatsApp callback is `https://credentis.fly.dev/wa/webhook`. No new APK. This deploy does not publish the separate portal.
+
+2026-11-16 — API deploy only. WhatsApp chat replies (tap buttons, the service list, and the Pay link) run on the server. No new APK. The installed app bundles its own screens; 1.0.51 (52), built 14 Nov, does not include the product photos added on 15 Nov. Those photos are on the website at `/app`. This deploy does not publish the separate portal.
+
+2026-11-16 — Android 1.0.52 (53), signed with the same upgrade certificate as 1.0.51, is in `credo-ui/mobile/dist/credentis-1.0.52-53.apk`. It points at `https://credentis.fly.dev`. The shop and the business page show a product photo, and a job shows photos sent in the WhatsApp chat. The same phone screens are on Fly at `/app`. This build does not publish the separate portal. WhatsApp buttons stay on the server; they do not need this APK.
+
 The 1.0.38 (39) Android release includes the shared sample-receipt/sharing onboarding
 guide and eight original 1080×1080, 60 fps vector animations. The same guide is included
 in the portal source; deploying Fly's `/app` does not publish the separate portal.

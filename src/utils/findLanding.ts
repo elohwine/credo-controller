@@ -53,6 +53,6 @@ export function registerFindLanding(app: Express): void {
 main{max-width:480px;margin:auto} article{background:#fff;border-radius:16px;padding:16px;margin:12px 0}
 h3{margin:0 0 8px} ul{margin:8px 0 0;padding-left:18px} p{line-height:1.45}
 .ask{display:inline-flex;align-items:center;min-height:48px;margin-top:12px;padding:0 20px;border-radius:24px;background:#0b6bcb;color:#fff;text-decoration:none;font-weight:500}</style></head>
-<body><main><h2>Businesses that can help</h2><p>${escapeHtml(need || 'Tell us what you need.')}</p>${understood ? `<p>Looking for: ${escapeHtml(understood)}</p>` : ''}${items}</main></body></html>`)
+<body><main><h2>Businesses that can help</h2><p>${escapeHtml(need || 'Tell us what you need.')}</p>${understood ? `<p>Looking for: ${escapeHtml(understood)}</p>` : ''}<p>The same list is asked for a quote when you send this on WhatsApp.</p>${items}</main></body></html>`)
   })
 }

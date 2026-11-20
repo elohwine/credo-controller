@@ -3,9 +3,12 @@
  *
  * Issuing: every card gets a status-list entry (W3C Bitstring Status List, purpose
  * `revocation`) and a row in `issued_credentials`, keyed by the issuance session id, which is
- * also the `offerId` stored on the wallet inbox row. Whole-record cards carry the entry as
- * `credentialStatus`; selective-disclosure cards carry the same entry as the always-visible
- * `status` claim next to `jti`.
+ * also the `offerId` stored on the wallet inbox row. The register copy of a whole-record card
+ * keeps the entry as `credentialStatus`. The signed JWT does not: Credo's JWT presentation
+ * check refuses every card that carries one, so a holder could never show it. Recall still
+ * flips the register row, and Check a record plus a shared-proof result read that row.
+ * Selective-disclosure cards carry the same entry as the always-visible `status` claim next
+ * to `jti`, because that checker can read it.
  *
  * Withdrawing: `revoke` flips the status-list bit and marks the issued row; `revokeStaffCards`
  * does that for the staff cards a person accepted from one organisation. The stage checker
@@ -137,7 +140,8 @@ export class CredentialLifecycleService {
    * organisation, never the person. This check needs no sign-in, so a reference must not be a way
    * to look someone up. A reference that is only an inbox row
    * (`wallet_pending_offers.id`) counts once the person has accepted it and the organisation has
-   * not withdrawn it; an offer nobody accepted yet is not a record. Anything else was not issued
+   * not withdrawn it, and answers with the standing of the card issued from its offer when the
+   * register holds one; an offer nobody accepted yet is not a record. Anything else was not issued
    * here.
    */
   public checkRecord(reference: string): RecordCheck {
@@ -146,36 +150,8 @@ export class CredentialLifecycleService {
     const none: RecordCheck = { reference: ref, vcType: 'Unknown', status: 'not_found', checkedAt }
     if (!ref) return none
     const db = DatabaseManager.getDatabase()
-    const row = db
-      .prepare(
-        `SELECT credential_id, credential_data, issued_at, revoked, revocation_reason
-           FROM issued_credentials WHERE credential_id = ? OR id = ? LIMIT 1`,
-      )
-      .get(ref, ref) as
-      | {
-          credential_id: string
-          credential_data: string
-          issued_at: string | null
-          revoked: number
-          revocation_reason: string | null
-        }
-      | undefined
-    if (row) {
-      const doc = this.parseRecordDocument(row.credential_data)
-      const expiresAt = doc.expirationDate
-      const expired = Boolean(expiresAt && new Date(expiresAt).getTime() < Date.now())
-      return {
-        reference: ref,
-        vcType: doc.vcType,
-        status: row.revoked ? 'revoked' : expired ? 'expired' : 'valid',
-        reason: row.revoked ? row.revocation_reason || undefined : undefined,
-        issuerName: this.issued.organizationNameForCredentialId(row.credential_id),
-        issuedAt: sqliteUtc(row.issued_at),
-        expiresAt: expired ? expiresAt : undefined,
-        claims: doc.claims,
-        checkedAt,
-      }
-    }
+    const registered = this.checkRegisterRow(ref, ref, checkedAt)
+    if (registered) return registered
     const offer = db
       .prepare(
         `SELECT credential_type, metadata, accepted_at, last_error, o.name AS org_name
@@ -193,6 +169,11 @@ export class CredentialLifecycleService {
         }
       | undefined
     if (offer?.accepted_at && !/^withdrawn:/i.test(String(offer.last_error || ''))) {
+      // An accepted inbox row stands for the card issued from its offer; the card's own standing
+      // wins, so a withdrawn card is never "valid" under its inbox reference.
+      const offerId = this.offerIdOf(offer.metadata)
+      const issuedFromOffer = offerId ? this.checkRegisterRow(offerId, `urn:uuid:${offerId}`, checkedAt, ref) : undefined
+      if (issuedFromOffer) return issuedFromOffer
       return {
         reference: ref,
         vcType: offer.credential_type || 'Unknown',
@@ -215,6 +196,52 @@ export class CredentialLifecycleService {
       }
     }
     return none
+  }
+
+  private checkRegisterRow(
+    id: string,
+    credentialId: string,
+    checkedAt: string,
+    reference: string = id,
+  ): RecordCheck | undefined {
+    const row = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT credential_id, credential_data, issued_at, revoked, revocation_reason
+           FROM issued_credentials WHERE credential_id = ? OR id = ? LIMIT 1`,
+      )
+      .get(credentialId, id) as
+      | {
+          credential_id: string
+          credential_data: string
+          issued_at: string | null
+          revoked: number
+          revocation_reason: string | null
+        }
+      | undefined
+    if (!row) return undefined
+    const doc = this.parseRecordDocument(row.credential_data)
+    const expiresAt = doc.expirationDate
+    const expired = Boolean(expiresAt && new Date(expiresAt).getTime() < Date.now())
+    return {
+      reference,
+      vcType: doc.vcType,
+      status: row.revoked ? 'revoked' : expired ? 'expired' : 'valid',
+      reason: row.revoked ? row.revocation_reason || undefined : undefined,
+      issuerName: this.issued.organizationNameForCredentialId(row.credential_id),
+      issuedAt: sqliteUtc(row.issued_at),
+      expiresAt: expired ? expiresAt : undefined,
+      claims: doc.claims,
+      checkedAt,
+    }
+  }
+
+  private offerIdOf(metadata: string | null): string | undefined {
+    try {
+      const offerId = JSON.parse(String(metadata || '{}'))?.offerId
+      return typeof offerId === 'string' && offerId.trim() ? offerId.trim() : undefined
+    } catch {
+      return undefined
+    }
   }
 
   /** Type and subject out of a stored credential document; never throws on bad JSON. */

@@ -154,9 +154,11 @@ function toPresentedCredential(raw: unknown): PresentedCredential | undefined {
     if (!subject.id && Array.isArray(vc.credentialSubjectIds) && vc.credentialSubjectIds[0]) {
       subject.id = vc.credentialSubjectIds[0]
     }
-    // Credo class instances keep claims under `claims` for some formats.
-    if (Object.keys(subject).length === 0 && subjectRaw?.claims && typeof subjectRaw.claims === 'object') {
-      Object.assign(subject, subjectRaw.claims)
+    // Credo's credential subject keeps the fields on `claims` and only `id` beside it.
+    // `id` being set used to hide the amount, the term and the school name from a checker.
+    if (subject.claims && typeof subject.claims === 'object') {
+      Object.assign(subject, subject.claims)
+      delete subject.claims
     }
     const status = vc.credentialStatus && typeof vc.credentialStatus === 'object' ? vc.credentialStatus : undefined
     return {

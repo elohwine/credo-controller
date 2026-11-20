@@ -671,7 +671,7 @@ export const EducationFeeTemplate: WorkflowTemplate = {
   id: 'tpl-education-fee',
   name: 'Education Fee Payment',
   description:
-    'School fee collection: the parent gets a pay link (one payment or termly instalments), the paid link continues the run and the school keeps a receipt. No delivery step.',
+    'School fee collection: the parent gets a pay link (one payment or termly instalments), the paid link continues the run, the school keeps a receipt, and a parent who paid from the app gets their own copy. No delivery step.',
   category: 'education',
   industry: ['education', 'training'],
   triggerTypes: ['manual', 'webhook', 'schedule'],
@@ -734,6 +734,29 @@ export const EducationFeeTemplate: WorkflowTemplate = {
         },
       },
       description: "Keep the school's copy of the fee receipt",
+    },
+    {
+      action: 'credential.issue',
+      config: {
+        type: 'SchoolFeeReceiptVC',
+        recordAs: 'SchoolFeeReceiptVCPayer',
+        recipientStage: 'issue_receipt_vc',
+        holder: 'payer',
+        skipUnless: 'state.payment.payerWalletTenantId',
+        mapping: {
+          receiptId: 'runId',
+          amount: 'state.payment.amount',
+          currency: 'state.payment.currency',
+          paymentRef: 'state.payment.reference',
+          paidAt: 'state.payment.timestamp',
+          studentId: 'input.studentId',
+          studentName: 'input.studentName',
+          term: 'input.term',
+          feeType: 'input.feeType',
+          schoolName: 'input.schoolName',
+        },
+      },
+      description: 'Send the parent their copy of the fee receipt when they paid from the app',
     },
     {
       action: 'trust.update_score',

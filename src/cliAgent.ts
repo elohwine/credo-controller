@@ -282,7 +282,9 @@ export const buildModules = (cfg: {
             format: ClaimFormat.JwtVc,
             credentialData: credentialPayload,
           })
-          if (statusEntry) credentialPayload.credentialStatus = statusEntry
+          // Status stays on the register, not on the signed JWT. Credo's JWT
+          // presentation check refuses any card that carries credentialStatus.
+          void statusEntry
 
           return {
             type: 'credentials',

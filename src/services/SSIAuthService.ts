@@ -306,6 +306,15 @@ export class SSIAuthService {
       new Date().toISOString(),
     )
 
+    // Requests this number sent from the WhatsApp chat before it had an account.
+    if (claims.phone && tenantId) {
+      const phone = claims.phone
+      const accountTenantId = tenantId
+      void import('./WhatsAppInquiryService')
+        .then(({ whatsAppInquiryService }) => whatsAppInquiryService.claimGuest(phone, accountTenantId))
+        .catch((error: any) => logger.warn({ error: error?.message }, 'WhatsApp guest requests were not moved'))
+    }
+
     if (vcOfferUrl && tenantId) {
       void import('./OrgMembershipCredentialService')
         .then(({ orgMembershipCredentialService }) => {

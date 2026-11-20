@@ -316,12 +316,17 @@ export class ClientPaymentActions {
       throw new Error('Waiting for the client to pay')
     }
     context.state.clientBill = { ...bill, status: 'paid', paidAt: paid.paidAt, reference: paid.reference }
+    const payerWalletTenantId =
+      typeof paid.payerWalletTenantId === 'string' && paid.payerWalletTenantId.trim()
+        ? paid.payerWalletTenantId.trim()
+        : undefined
     context.state.payment = {
       status: 'completed',
       reference: paid.reference || bill.code || bill.linkId,
       amount: bill.amount,
       currency: bill.currency,
       timestamp: paid.paidAt,
+      ...(payerWalletTenantId ? { payerWalletTenantId } : {}),
     }
     delete context.state.pauseReason
     noteClientPaymentOnJob(context, bill, paid)

@@ -293,7 +293,13 @@ async function run() {
               format: ClaimFormat.JwtVc,
               credentialData: credentialJson,
             })
-            if (statusEntry) credentialJson.credentialStatus = statusEntry
+            // The status entry stays on the issued-card register. Putting it on the
+            // signed card makes Credo's JWT presentation check refuse the card
+            // ("Verifying credential status is not supported for JWT VCs"), so the
+            // holder could never show it. Recall still flips the register row, and
+            // Check a record plus the proof result read that row. Selective-disclosure
+            // cards above keep `status` on the card; their checker supports it.
+            void statusEntry
 
             console.log('[startServer] Constructed Credential (Plain):', JSON.stringify(credentialJson))
 

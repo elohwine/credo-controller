@@ -1,6 +1,7 @@
 // Renders WhatsApp template headers at 1600x836 from an 800x418 vector artboard.
 //
-//   node scripts/whatsapp-banners.js
+//   node scripts/whatsapp-banners.js            all banners
+//   node scripts/whatsapp-banners.js new_job    just the named ones
 //
 // Needs `sharp`; it uses the copy installed for the mobile app when the root has none.
 // The images are committed; re-run only when the artwork changes.
@@ -49,6 +50,10 @@ const ICONS = {
   remittance: `
     <circle cx="60" cy="60" r="46" fill="none" stroke="#fff" stroke-width="6"/>
     <path d="M38 60 l15 15 l30 -32" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>`,
+  new_job: `
+    <path d="M78 14 a24 24 0 0 0 -22 32 l-40 40 a10 10 0 0 0 14 14 l40 -40 a24 24 0 0 0 32 -22 l-14 14 l-14 -4 l-4 -14 z" fill="none" stroke="#fff" stroke-width="6" stroke-linejoin="round"/>
+    <circle cx="96" cy="96" r="16" fill="#fff"/>
+    <path d="M96 88 v16 M88 96 h16" stroke="#10B981" stroke-width="5" stroke-linecap="round"/>`,
   invite: `
     <circle cx="48" cy="40" r="18" fill="none" stroke="#fff" stroke-width="6"/>
     <path d="M14 104 c4 -28 20 -40 34 -40 s30 12 34 40" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
@@ -87,6 +92,12 @@ const BANNERS = {
     accent: '#10B981',
   },
   invite: { kicker: 'TEAM INVITE', title: 'You are invited', line: 'Join your team on Credentis', accent: BLUE },
+  new_job: {
+    kicker: 'NEW JOB',
+    title: 'A customer needs you',
+    line: 'Send your price right here in WhatsApp',
+    accent: '#10B981',
+  },
 }
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -136,7 +147,8 @@ async function main() {
   const sharp = loadSharp()
   const out = path.join(__dirname, '../assets/whatsapp')
   fs.mkdirSync(out, { recursive: true })
-  for (const event of Object.keys(BANNERS)) {
+  const only = process.argv.slice(2)
+  for (const event of Object.keys(BANNERS).filter((name) => !only.length || only.includes(name))) {
     const file = path.join(out, `${event}.png`)
     await sharp(Buffer.from(svg(event)), { density: 72 * SCALE })
       .resize(W * SCALE, H * SCALE)
