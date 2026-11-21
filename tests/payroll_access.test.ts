@@ -49,7 +49,10 @@ describe('Payroll access', () => {
     )
     // In this edition People & payroll is always on, so an organisation that never ticked it still has it.
     const plain = seedOrganization({ name: 'Never Ticked Co' })
-    await expect(controller.listEmployees(asUser(plain.orgTenantId, 'owner'))).resolves.toEqual([])
+    // The owner is on the team, so the list is the owner's own record and nobody else.
+    const people = await controller.listEmployees(asUser(plain.orgTenantId, 'owner'))
+    expect(people).toHaveLength(1)
+    expect(people[0]).toMatchObject({ tenantId: plain.orgTenantId, baseSalary: 0 })
     // The plan is what can still switch it off.
     const off = seedOrganization({ name: 'No Payroll Co' })
     orgEntitlementService.setPlan(off.orgTenantId, { plan: 'free', grantedModules: [] })
@@ -67,8 +70,11 @@ describe('Payroll access', () => {
     await controller.saveEmployee(asUser(rival.orgTenantId, 'owner'), { firstName: 'Other', lastName: 'Person', baseSalary: 400 })
 
     const mine = await controller.listEmployees(asUser(shop.orgTenantId, 'accountant'))
-    expect(mine.map((e) => e.firstName)).toEqual(['Tendai'])
-    expect(mine[0].tenantId).toBe(shop.orgTenantId)
+    // Tendai, plus the owner, who is on the team and so has a record with no salary yet.
+    expect(mine.map((e) => e.firstName)).toContain('Tendai')
+    expect(mine.map((e) => e.firstName)).not.toContain('Other')
+    expect(mine.every((e) => e.tenantId === shop.orgTenantId)).toBe(true)
+    expect(mine.filter((e) => e.firstName !== 'Tendai').every((e) => e.baseSalary === 0 && e.userId)).toBe(true)
 
     const run = await controller.createRun(asUser(shop.orgTenantId, 'finance_manager'), { period: '2026-10' })
     expect(run.tenantId).toBe(shop.orgTenantId)

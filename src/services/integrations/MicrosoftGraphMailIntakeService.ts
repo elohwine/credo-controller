@@ -7,12 +7,17 @@
  * unique per organisation, and a job naming a store and client PO that is already booked is
  * saved as a possible repeat that the dispatcher must confirm before it starts.
  *
- * Configuration (all required to switch it on):
- *   MS_GRAPH_TENANT_ID, MS_GRAPH_CLIENT_ID, MS_GRAPH_CLIENT_SECRET  app registration
- *   MS_GRAPH_MAILBOX        the jobs mailbox, e.g. jobs@sgk.co.za
- *   MS_GRAPH_ORG_TENANT_ID  the organisation that receives the jobs
- * Optional: MS_GRAPH_MAIL_FOLDER (inbox), MS_GRAPH_POLL_SECONDS (120),
- *   MS_GRAPH_FIRST_SYNC_DAYS (14) how far back the first read goes.
+ * Same approach as the LDK website: an Entra app registration signs in on its own (client
+ * credentials, application permission `Mail.Read`, admin consent) and reads one named mailbox.
+ * LDK is told about new mail by Graph webhooks; here the mailbox is read on a timer with a
+ * delta link, which needs no public address and gives the same guarantees.
+ *
+ * Configuration (all required to switch it on). The names are LDK's; the older MS_GRAPH_* names still work:
+ *   MICROSOFT_GRAPH_TENANT_ID, MICROSOFT_GRAPH_CLIENT_ID, MICROSOFT_GRAPH_CLIENT_SECRET  app registration
+ *   MICROSOFT_GRAPH_PRIMARY_MAILBOX   the jobs mailbox, e.g. jobs@sgk.co.za
+ *   MICROSOFT_GRAPH_ORG_TENANT_ID     the organisation that receives the jobs
+ * Optional: MICROSOFT_GRAPH_MAIL_FOLDER (inbox), MICROSOFT_GRAPH_POLL_SECONDS (120),
+ *   MICROSOFT_GRAPH_FIRST_SYNC_DAYS (14) how far back the first read goes.
  */
 
 import { randomUUID } from 'crypto'
@@ -46,6 +51,7 @@ export interface GraphMessage {
   from?: { emailAddress?: { address?: string; name?: string } }
   receivedDateTime?: string
   hasAttachments?: boolean
+  isDraft?: boolean
   body?: { contentType?: string; content?: string }
   '@removed'?: unknown
 }
@@ -54,27 +60,77 @@ export interface MailSyncResult {
   imported: number
   repeats: number
   alreadySaved: number
+  /** Drafts and no-reply or bounce mail: read, but not turned into jobs. */
+  skipped: number
   failed: number
   error?: string
 }
 
 type Fetch = typeof fetch
 
-export function readMailIntakeConfig(env: NodeJS.ProcessEnv = process.env): MailIntakeConfig | undefined {
-  const value = (key: string) => String(env[key] || '').trim()
-  const config = {
-    tenantId: value('MS_GRAPH_TENANT_ID'),
-    clientId: value('MS_GRAPH_CLIENT_ID'),
-    clientSecret: value('MS_GRAPH_CLIENT_SECRET'),
-    mailbox: value('MS_GRAPH_MAILBOX'),
-    orgTenantId: value('MS_GRAPH_ORG_TENANT_ID'),
-    folder: value('MS_GRAPH_MAIL_FOLDER') || 'inbox',
-    pollSeconds: Math.max(30, Number(value('MS_GRAPH_POLL_SECONDS')) || 120),
-    firstSyncDays: Math.max(1, Number(value('MS_GRAPH_FIRST_SYNC_DAYS')) || 14),
+/** A setting copied from an example file ("your-…", "replace_…") counts as not set. */
+function setting(env: NodeJS.ProcessEnv, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = String(env[key] || '').trim()
+    if (value && !/^(your-|replace[_-])/i.test(value)) return value
   }
-  return config.tenantId && config.clientId && config.clientSecret && config.mailbox && config.orgTenantId
-    ? config
-    : undefined
+  return ''
+}
+
+const SETTING_KEYS = {
+  tenantId: ['MICROSOFT_GRAPH_TENANT_ID', 'MS_GRAPH_TENANT_ID'],
+  clientId: ['MICROSOFT_GRAPH_CLIENT_ID', 'MS_GRAPH_CLIENT_ID'],
+  clientSecret: ['MICROSOFT_GRAPH_CLIENT_SECRET', 'MS_GRAPH_CLIENT_SECRET'],
+  mailbox: ['MICROSOFT_GRAPH_PRIMARY_MAILBOX', 'MS_GRAPH_MAILBOX'],
+  orgTenantId: ['MICROSOFT_GRAPH_ORG_TENANT_ID', 'MS_GRAPH_ORG_TENANT_ID'],
+  folder: ['MICROSOFT_GRAPH_MAIL_FOLDER', 'MS_GRAPH_MAIL_FOLDER'],
+  pollSeconds: ['MICROSOFT_GRAPH_POLL_SECONDS', 'MS_GRAPH_POLL_SECONDS'],
+  firstSyncDays: ['MICROSOFT_GRAPH_FIRST_SYNC_DAYS', 'MS_GRAPH_FIRST_SYNC_DAYS'],
+} as const
+
+const REQUIRED_SETTINGS = ['tenantId', 'clientId', 'clientSecret', 'mailbox', 'orgTenantId'] as const
+
+/** Names of the required settings that are still empty (never their values). */
+export function missingMailIntakeSettings(env: NodeJS.ProcessEnv = process.env): string[] {
+  return REQUIRED_SETTINGS.filter((name) => !setting(env, ...SETTING_KEYS[name])).map((name) => SETTING_KEYS[name][0])
+}
+
+export function readMailIntakeConfig(env: NodeJS.ProcessEnv = process.env): MailIntakeConfig | undefined {
+  const value = (name: keyof typeof SETTING_KEYS) => setting(env, ...SETTING_KEYS[name])
+  const config = {
+    tenantId: value('tenantId'),
+    clientId: value('clientId'),
+    clientSecret: value('clientSecret'),
+    mailbox: value('mailbox').toLowerCase(),
+    orgTenantId: value('orgTenantId'),
+    folder: value('folder') || 'inbox',
+    pollSeconds: Math.max(30, Number(value('pollSeconds')) || 120),
+    firstSyncDays: Math.max(1, Number(value('firstSyncDays')) || 14),
+  }
+  return missingMailIntakeSettings(env).length === 0 ? config : undefined
+}
+
+/**
+ * Graph hands back page and delta links, and every request to them carries our token.
+ * Only an address on Graph itself may be followed.
+ */
+export function assertGraphUrl(value: string): string {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new Error('Microsoft Graph returned an invalid page address.')
+  }
+  if (url.origin !== 'https://graph.microsoft.com' || !url.pathname.startsWith('/v1.0/')) {
+    throw new Error('Microsoft Graph returned an unexpected page address.')
+  }
+  return url.toString()
+}
+
+/** Drafts and mail sent by a machine (no-reply, postmaster, bounce notices) are not jobs. */
+export function isAutomatedMessage(message: Pick<GraphMessage, 'isDraft' | 'from'>): boolean {
+  const sender = String(message.from?.emailAddress?.address || '').trim().toLowerCase()
+  return Boolean(message.isDraft) || /^(no-?reply|do-?not-?reply|postmaster|mailer-daemon)@/.test(sender)
 }
 
 export class MicrosoftGraphMailIntakeService {
@@ -102,7 +158,10 @@ export class MicrosoftGraphMailIntakeService {
 
   public status(orgTenantId: string) {
     const config = this.configOf()
-    if (!config || config.orgTenantId !== orgTenantId) return { connected: false as const }
+    if (!config || config.orgTenantId !== orgTenantId) {
+      // Names only, so an admin can see what is still to be filled in; never a value.
+      return { connected: false as const, missing: missingMailIntakeSettings() }
+    }
     const state = this.state(config)
     return {
       connected: true as const,
@@ -126,14 +185,14 @@ export class MicrosoftGraphMailIntakeService {
 
   private async sync(): Promise<MailSyncResult> {
     const config = this.configOf()
-    const result: MailSyncResult = { imported: 0, repeats: 0, alreadySaved: 0, failed: 0 }
+    const result: MailSyncResult = { imported: 0, repeats: 0, alreadySaved: 0, skipped: 0, failed: 0 }
     if (!config) return { ...result, error: 'The jobs mailbox is not connected.' }
     try {
       const since = new Date(Date.now() - config.firstSyncDays * 86_400_000).toISOString()
       let url: string | undefined =
         this.state(config)?.deltaLink ||
         `${GRAPH}/users/${encodeURIComponent(config.mailbox)}/mailFolders/${encodeURIComponent(config.folder)}/messages/delta` +
-          `?$select=id,internetMessageId,subject,from,receivedDateTime,hasAttachments,body` +
+          `?$select=id,internetMessageId,subject,from,receivedDateTime,hasAttachments,isDraft,body` +
           `&$filter=${encodeURIComponent(`receivedDateTime ge ${since}`)}`
       while (url) {
         const page = (await this.graph(config, url)) as {
@@ -162,7 +221,8 @@ export class MicrosoftGraphMailIntakeService {
   public async importMessage(
     config: MailIntakeConfig,
     message: GraphMessage,
-  ): Promise<'imported' | 'repeats' | 'alreadySaved' | 'failed'> {
+  ): Promise<'imported' | 'repeats' | 'alreadySaved' | 'skipped' | 'failed'> {
+    if (isAutomatedMessage(message)) return 'skipped'
     const sourceMessageId = String(message.internetMessageId || message.id).slice(0, 500)
     const db = DatabaseManager.getDatabase()
     const known = db
@@ -246,10 +306,11 @@ export class MicrosoftGraphMailIntakeService {
   }
 
   private async graph(config: MailIntakeConfig, url: string): Promise<unknown> {
-    const response = await this.http(url, {
+    const response = await this.http(assertGraphUrl(url), {
       headers: {
         Authorization: `Bearer ${await this.accessToken(config)}`,
-        Prefer: 'outlook.body-content-type="text"',
+        // Text body, and ids that stay the same when someone moves the email to another folder.
+        Prefer: 'outlook.body-content-type="text", IdType="ImmutableId"',
       },
     })
     if (response.status === 410) {

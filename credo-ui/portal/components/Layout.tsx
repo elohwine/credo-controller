@@ -195,7 +195,7 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
             items: [
                 { label: 'People & HR', href: '/hr', icon: <IconUsers size={18} /> },
                 { label: 'Staff requests', href: '/requests?tab=people', icon: <IconChecklist size={18} /> },
-                { label: 'Payroll & employees', href: '/payroll', icon: <IconReceipt size={18} /> },
+                { label: 'People & payroll', href: '/payroll?tab=employees', icon: <IconReceipt size={18} /> },
             ],
         }] : [])] : []),
         {
@@ -214,7 +214,6 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
         groups.push({
             label: 'Organisation',
             items: [
-                { label: 'Members', href: '/organization/people', icon: <IconUsers size={18} /> },
                 { label: 'Workflows', href: '/workflows', icon: <IconChecklist size={18} /> },
             ],
         });

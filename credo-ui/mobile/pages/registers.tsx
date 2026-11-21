@@ -23,7 +23,7 @@ export default function RegistersPage() {
         </Title>
         <Text size="sm" c="dimmed" mb="md">
           Each store keeps its jobs, quotes and invoices. Each van keeps its service day, MOT, drivers and accidents. People and
-          their work are on the website under Payroll, Employees.
+          their work are on the People page.
         </Text>
         <OperationsRegisters
           key={`${tab}|${store}`}

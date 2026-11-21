@@ -215,6 +215,7 @@ export class DatabaseManager {
       },
       { version: 152, file: '152_stores_staff_vans_mail_intake.sql', name: 'stores_staff_vans_mail_intake' },
       { version: 153, file: '153_employee_staff_link.sql', name: 'employee_staff_link' },
+      { version: 154, file: '154_job_attention_log.sql', name: 'job_attention_log' },
     ]
 
     for (const migration of migrationFiles) {

@@ -568,9 +568,9 @@ export default function OnboardingPage() {
                     variant={brandConfigured === false ? 'light' : 'filled'}
                     rightSection={<IconArrowRight size={16} />}
                     component={Link}
-                    href="/organization/people"
+                    href="/payroll?tab=employees"
                   >
-                    Invite your team
+                    Add your people
                   </Button>
                 </>
               ) : null}
@@ -647,7 +647,7 @@ export default function OnboardingPage() {
                 {review.roles.map((role) => (role.status === 'new' ? `${role.name} (new)` : role.name)).join(', ')}
               </Text>
               <Text size="xs" c="dimmed" mt={4}>
-                Invite people into these roles under Organisation → Members.
+                Add people into these roles under People & payroll.
               </Text>
             </Card>
 

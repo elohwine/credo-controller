@@ -84,9 +84,10 @@ request/workflow model instead of a dedicated SGK job-card app:
   Each store has a file (`GET /api/platform/operations/stores/{storeNumber}`): job cards,
   outstanding jobs, call-outs, cancelled, completed, quotes, invoices and jobs waiting to be booked.
 - Each attendant is a payroll employee (`employees.staff_number`, `employees.skills_json`), linked to
-  their team account (`employees.user_id`). Payroll → Employees opens their file: job cards, failed,
-  completed, holidays, off sick, the van they drive and accidents (leave comes from `hr.leave`).
-  There is no separate staff list. Org setup and Members stay the place people are invited.
+  their team account (`employees.user_id`). People & payroll on the website, and People on the phone,
+  open their file: job cards, failed, completed, holidays, off sick, the van they drive and accidents
+  (leave comes from `hr.leave`). There is no separate staff list and no separate Members or user
+  management section. Invite, role and app access hang off that same person. Pay is set on the website.
 - Van register (`org_vans`, `org_van_events`): registration, service day, MOT due, driver, status,
   and a file of allocations, services, MOTs and accidents. One van per driver; an off-road or
   retired van cannot be booked.
@@ -117,10 +118,14 @@ request/workflow model instead of a dedicated SGK job-card app:
   into a waiting job (store number, PO, what, where, date, amount, attachments), and never imports
   the same mail twice (internet message id). A mail for a store and PO that is already booked is
   marked "Possible repeat" and cannot be booked without confirming. The read position only moves
-  forward when every mail on a page was saved, so a failed read is retried, not skipped. Settings:
-  `MS_GRAPH_TENANT_ID`, `MS_GRAPH_CLIENT_ID`, `MS_GRAPH_CLIENT_SECRET`, `MS_GRAPH_MAILBOX`,
-  `MS_GRAPH_ORG_TENANT_ID`, optional `MS_GRAPH_MAIL_FOLDER` (default inbox),
-  `MS_GRAPH_POLL_SECONDS` (default 120), `MS_GRAPH_FIRST_SYNC_DAYS` (default 14). Covered by
+  forward when every mail on a page was saved, so a failed read is retried, not skipped. Drafts and
+  no-reply, postmaster or bounce mail are skipped, and only addresses on Graph itself are followed.
+  Same sign-in and setting names as the LDK website (webhooks there, a timed delta read here; the
+  older `MS_GRAPH_*` names still work). Settings: `MICROSOFT_GRAPH_TENANT_ID`, `MICROSOFT_GRAPH_CLIENT_ID`,
+  `MICROSOFT_GRAPH_CLIENT_SECRET`, `MICROSOFT_GRAPH_PRIMARY_MAILBOX`, `MICROSOFT_GRAPH_ORG_TENANT_ID`,
+  optional `MICROSOFT_GRAPH_MAIL_FOLDER` (default inbox), `MICROSOFT_GRAPH_POLL_SECONDS` (default 120),
+  `MICROSOFT_GRAPH_FIRST_SYNC_DAYS` (default 14). Not yet done, as in LDK: reading sent mail and a
+  second observer mailbox. Covered by
   `src/services/__tests__/OperationsRegisterService.spec.ts` against a mocked Graph; not yet run
   against SGK's own tenant.
 
@@ -357,7 +362,7 @@ The field job is the reference. Work, money owed and proof stay separate records
 | School fee (`fee_assessment`)       | Usable as of today. Both apps start `education_fee_payment`. Portal run `090fdf6d-e4a5-462d-8ab2-d8d08014766d` paid and completed. Phone run `89d215d5-b7b0-46b6-86cf-b94d1bed9ae7` is three instalments, still waiting.              | The fee record closes when it is paid (2026-10-27). The school keeps its receipt; the parent keeps the pay-page receipt. Suite A in `FEPT_Playwright_Test_Matrix.md` is still a hand walk.                                             |
 | Sale (`sale`)                       | Split. A job's quote and client bill already send a pay link. Since 2026-10-27 a counter sale is on the same rail: `tpl-cash-counter` takes the money through `external.cash_capture`, which creates a paid pay link, a closed `sale` record and a receipt (`tests/counter_sale_quote_chain.test.ts`). No screen starts a counter sale yet. Choosing "shop" at setup only turns on `cash_counter_payment`. | Shop and services is named in navigation and is the largest hole in Operations.                                                                                                                                 |
 | Collection plan (`collection_plan`) | Partial. `tpl-ar-collections` is one step (`ar.create_plan`). Plans with no owner are adopted as `collection_plan` when the API starts. The phone still offers "New AR Collection" and "New Payment Link" beside Operations.          | Money in is the pay link. This template stays a template until it grows the same progress words as a fee.                                                                                                       |
-| People (not a transaction type)     | Leave and expenses are usable: inbox cards and approval records, always shown in the SGK edition (the menu's People group: People & HR, Staff requests, Payroll & employees).                                                                                                  | Payroll is the website-only `/api/payroll` page (runs and payslips). There is no phone payroll screen and no `business_transactions` row. Job-costed payroll stays out until a pilot asks.                      |
+| People (not a transaction type)     | Leave and expenses are usable: inbox cards and approval records, always shown in the SGK edition (the menu's People group: People & HR, Staff requests, People & payroll). The phone People page is the same list: invite, role, staff number and work. | Pay runs and payslips stay on the website (`/payroll`). The phone does not show salary. There is no `business_transactions` row. Job-costed payroll stays out until a pilot asks.                      |
 
 Way forward, in this order:
 

@@ -22,7 +22,7 @@ const WAITING_STATUSES = new Set(['submitted', 'pending', 'in_review', 'under_re
 
 /**
  * The people overview: who is on the team, what is waiting, and where to go next.
- * Employees are added and edited in one place only (Payroll & employees), so there is no second form here.
+ * People are added, invited to the app and edited in one place only (People & payroll), so there is no second form here.
  */
 export default function HRHub() {
   const env = useContext(EnvContext);
@@ -73,7 +73,7 @@ export default function HRHub() {
   const pendingExpenses = expenseClaims.filter((e) => WAITING_STATUSES.has(String(e.status))).length;
 
   const links = [
-    { href: '/payroll?tab=employees', title: 'Employees & payroll', text: 'Add people, staff numbers, skills, payroll runs and payslips', icon: <DocumentTextIcon className="h-6 w-6" style={{ color: BRAND.curious }} /> },
+    { href: '/payroll?tab=employees', title: 'People & payroll', text: 'Add people, give them the app, set staff numbers, skills and pay, run payroll and payslips', icon: <DocumentTextIcon className="h-6 w-6" style={{ color: BRAND.curious }} /> },
     { href: '/hr/operations', title: 'Time off & expenses', text: 'Ask for time off or claim an expense', icon: <ClockIcon className="h-6 w-6" style={{ color: BRAND.curious }} /> },
     { href: '/requests?tab=people', title: 'Staff requests', text: 'Everything waiting for a decision about people', icon: <ClipboardDocumentListIcon className="h-6 w-6" style={{ color: BRAND.curious }} /> },
   ];
@@ -94,7 +94,7 @@ export default function HRHub() {
 
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-3 mb-8">
           {[
-            { label: 'Employees', value: employeeCount, icon: <UserGroupIcon className="h-6 w-6" />, href: '/payroll?tab=employees' },
+            { label: 'People', value: employeeCount, icon: <UserGroupIcon className="h-6 w-6" />, href: '/payroll?tab=employees' },
             { label: 'Time off waiting', value: pendingLeave, icon: <ClockIcon className="h-6 w-6" />, href: '/hr/operations' },
             { label: 'Expenses waiting', value: pendingExpenses, icon: <CurrencyDollarIcon className="h-6 w-6" />, href: '/hr/operations' },
           ].map((stat) => (

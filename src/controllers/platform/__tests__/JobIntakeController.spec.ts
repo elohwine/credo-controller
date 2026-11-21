@@ -22,6 +22,8 @@ describe('JobIntakeController', () => {
       );
     `)
     db.exec(fs.readFileSync(`${process.cwd()}/migrations/129_job_intake.sql`, 'utf8'))
+    // 152 adds the repeat-booking key the repository writes.
+    db.exec('ALTER TABLE job_intakes ADD COLUMN dedupe_key TEXT; ALTER TABLE job_intakes ADD COLUMN duplicate_of TEXT;')
     DatabaseManager.setDatabase(db)
     db.prepare('INSERT INTO org_memberships (id, user_id, org_tenant_id, role, status) VALUES (?, ?, ?, ?, ?)')
       .run('membership-a', 'dispatcher-a', 'org-a', 'dispatcher', 'active')

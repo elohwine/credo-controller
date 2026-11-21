@@ -13,6 +13,7 @@ import { notificationService } from '../src/services/NotificationService'
 import { OrganizationService } from '../src/services/OrganizationService'
 import { orgWorkflowActorCredentialService } from '../src/services/OrgWorkflowActorCredentialService'
 import { workflowService } from '../src/services/WorkflowService'
+import { contactHash, normalizeContactPhone } from '../src/services/ssi/contactHash'
 import { ActionRegistry } from '../src/services/workflow/ActionRegistry'
 import { FieldExecutionActions } from '../src/services/workflow/actions/FieldExecutionActions'
 import { ensureExecutableWorkflow } from '../src/services/workflow/materialize'
@@ -156,7 +157,7 @@ describe('booked field job', () => {
     const orgService = container.resolve(OrganizationService) as any
     DatabaseManager.getDatabase()
       .prepare(`UPDATE ssi_users SET phone_hash = ? WHERE id = ?`)
-      .run(orgService.hashData(orgService.normalizePhone(phone)), workerUserId)
+      .run(contactHash(normalizeContactPhone(phone)), workerUserId)
     expect(orgService.lookupUserByPhone(org.orgTenantId, phone)).toMatchObject({ userId: workerUserId, inTeam: true })
     const started = await workflowService.executeWorkflow(
       'field_execution_fept',

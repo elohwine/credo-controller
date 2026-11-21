@@ -84,21 +84,24 @@ describe('Shared organisation settings navigation', () => {
       'records',
       'roles',
       'store',
-      'team',
     ])
     expect(
       mobile
         .filter((item) => !item.adminOnly)
         .map((item) => item.mobileSection)
         .sort(),
-    ).toEqual(['actors', 'alerts', 'handoffs', 'team'])
+    ).toEqual(['actors', 'alerts', 'handoffs'])
+    // People is its own page, not a section inside organisation settings.
+    const team = items.find((item) => item.id === 'team')
+    expect(team?.mobileHref).toBe('/people')
+    expect(team?.adminOnly).toBeFalsy()
   })
 
   test('keeps every former portal organisation settings destination reachable', () => {
     const items = ORG_SETTINGS_GROUPS.flatMap((group) => group.items)
     expect(items.map((item) => item.href)).toEqual(
       expect.arrayContaining([
-        '/organization/people',
+        '/payroll?tab=employees',
         '/organization/setup#records',
         '/organization/actors',
         '/organization/handoffs',
@@ -128,7 +131,7 @@ describe('Settings status and visibility', () => {
       brandConfigured: false,
     })
     expect(status).toMatchObject({
-      team: '3 members',
+      team: '3 people',
       departments: 'None yet',
       actors: 'Money: Owner handles money',
       payments: 'Simulated pay',

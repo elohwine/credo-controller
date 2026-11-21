@@ -65,7 +65,7 @@ function motTone(motDue?: string): { color: string; label: string } | null {
 }
 
 /** One row: at least 56dp on the phone, headline, supporting line, trailing status. */
-function Row({ title, detail, trailing, onClick, surface }: { title: ReactNode; detail?: ReactNode; trailing?: ReactNode; onClick?: () => void; surface: Surface }) {
+export function Row({ title, detail, trailing, onClick, surface }: { title: ReactNode; detail?: ReactNode; trailing?: ReactNode; onClick?: () => void; surface: Surface }) {
   const body = (
     <Group justify="space-between" wrap="nowrap" gap="sm" style={{ minHeight: surface === 'phone' ? 56 : 44 }}>
       <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>

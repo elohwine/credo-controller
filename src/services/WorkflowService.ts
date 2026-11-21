@@ -638,6 +638,7 @@ export class WorkflowService {
           error,
           completedAt: new Date(),
         })
+        await this.announceStoppedJob(runId)
         return { runId, status: 'failed', error }
       }
 
@@ -738,6 +739,7 @@ export class WorkflowService {
           completedAt: new Date(),
         })
         await this.notifyParentOfFinish(runId, 'failed', context.state)
+        await this.announceStoppedJob(runId)
 
         return { runId, status: 'failed', error: error.message, output: context.state }
       }
@@ -766,6 +768,19 @@ export class WorkflowService {
     delete state.pauseReason
     workflowRunRepository.updateRun(runId, { status: 'cancelled', output: state, completedAt: new Date() })
     await this.notifyParentOfFinish(runId, 'cancelled', state)
+  }
+
+  /**
+   * A stopped job must not sit quietly: tell the office now (field jobs only; the hourly check
+   * covers any run this misses). Never lets a notification problem change the run's result.
+   */
+  private async announceStoppedJob(runId: string): Promise<void> {
+    try {
+      const { jobAttentionService } = await import('./JobAttentionService')
+      jobAttentionService.onRunFailed(runId)
+    } catch (error: any) {
+      this.logger.warn({ runId, error: error?.message }, 'The office was not told this job stopped')
+    }
   }
 
   /** If this run was started as a hand-off from another job, hand control back. */

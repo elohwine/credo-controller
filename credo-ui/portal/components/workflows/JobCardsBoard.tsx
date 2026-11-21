@@ -19,6 +19,7 @@ import { endPortalTask, getPortalTask } from '@/lib/portalContext';
 import { usePortalOperations } from '@/lib/operations';
 import { fieldJobAssigneeId, fieldJobCategory, fieldJobInput, type FieldJobCategory as JobCategory } from '../../../../src/config/fieldJobCategory';
 import { IncomingJobs } from '../../../shared/operations/IncomingJobs';
+import { JobAttention } from '../../../shared/operations/JobAttention';
 
 interface JobCard {
     id: string;
@@ -228,6 +229,26 @@ export default function JobCardsBoard() {
         if (match) setSelectedJob((current) => (current && String(current.id) === runId ? current : match));
     }, [router.isReady, router.query.runId, jobs]);
 
+    // A stuck job may be older than the 50 runs on the board: load it by itself when it is not there.
+    const openJobById = async (runId: string) => {
+        const loaded = jobs.find((job) => String(job.id) === runId);
+        if (loaded) {
+            setSelectedJob(loaded);
+            return;
+        }
+        const token = localStorage.getItem('credoOrgToken') || getPreferredTenantToken();
+        if (!token) return;
+        try {
+            const credoBackend = env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000';
+            const res = await axios.get(`${credoBackend}/workflows/runs/${encodeURIComponent(runId)}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            setSelectedJob({ ...res.data, authToken: token, authContext: 'org' });
+        } catch {
+            notify('That job could not be opened. Refresh the list and try again.', 'error');
+        }
+    };
+
     const filteredJobs = jobs.filter((job) => {
         if (statusFilter === 'all') return true
         if (statusFilter === 'waiting') return isWaitingOverWeek(job)
@@ -304,6 +325,18 @@ export default function JobCardsBoard() {
                 onClose={() => setShowNewJob(false)}
                 onCreated={() => setTimeout(fetchJobs, 800)}
             />
+
+            <Paper withBorder radius="md" p="md" mb="md">
+                <Title order={4} fw={500} mb="xs">Needs attention</Title>
+                <JobAttention
+                    api={operations}
+                    surface="portal"
+                    members={teamMembers}
+                    notify={notify}
+                    refreshKey={jobs.length}
+                    onOpenJob={(runId) => void openJobById(runId)}
+                />
+            </Paper>
 
             {canCreate && (
                 <Paper withBorder radius="md" p="md" mb="md">

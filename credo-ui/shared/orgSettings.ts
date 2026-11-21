@@ -57,10 +57,10 @@ export const ORG_SETTINGS_GROUPS: OrgSettingsGroup[] = [
     items: [
       {
         id: 'team',
-        label: 'Team',
-        summary: 'Invite people and set their access',
-        href: '/organization/people',
-        mobileSection: 'team',
+        label: 'People & payroll',
+        summary: 'Add people, give them the app, staff numbers and pay',
+        href: '/payroll?tab=employees',
+        mobileHref: '/people',
       },
       {
         id: 'actors',
@@ -209,7 +209,7 @@ export type OrgSettingsFacts = {
 export function orgSettingsStatus(facts: OrgSettingsFacts): Partial<Record<OrgSettingsItemId, string>> {
   const status: Partial<Record<OrgSettingsItemId, string>> = {}
   if (typeof facts.memberCount === 'number' && facts.memberCount > 0) {
-    status.team = facts.memberCount === 1 ? 'Only you so far' : `${facts.memberCount} members`
+    status.team = facts.memberCount === 1 ? 'Only you so far' : `${facts.memberCount} people`
   }
   if (typeof facts.departmentCount === 'number') {
     status.departments =

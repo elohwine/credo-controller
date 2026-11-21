@@ -137,9 +137,9 @@ const DOMAIN_BY_KEY: Record<string, WorkflowReadinessDomain> = {
 }
 
 const ACTION_PATH_BY_KEY: Record<string, string> = {
-  primary_admin: '/organization/people',
-  active_members: '/organization/people',
-  people_records: '/organization/people',
+  primary_admin: '/payroll?tab=employees',
+  active_members: '/payroll?tab=employees',
+  people_records: '/payroll?tab=employees',
   departments: '/organization/departments',
   roles: '/organization/roles',
   authorities: '/organization/authorities',

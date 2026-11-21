@@ -11,7 +11,15 @@ import { jobIntakeRepository } from '../../persistence/JobIntakeRepository'
 import { OrganizationService } from '../OrganizationService'
 import { OperationsRegisterService } from '../OperationsRegisterService'
 import { parseJobEmail } from '../integrations/jobEmailParser'
-import { MicrosoftGraphMailIntakeService, type MailIntakeConfig } from '../integrations/MicrosoftGraphMailIntakeService'
+import {
+  MicrosoftGraphMailIntakeService,
+  assertGraphUrl,
+  missingMailIntakeSettings,
+  readMailIntakeConfig,
+  type MailIntakeConfig,
+} from '../integrations/MicrosoftGraphMailIntakeService'
+
+const GRAPH_DELTA = 'https://graph.microsoft.com/v1.0/users/jobs/mailFolders/inbox/messages/delta'
 
 const ORG = 'org-sgk'
 const FARAI = 'user-farai'
@@ -142,6 +150,30 @@ describe('Stores, attendants and vans', () => {
     expect(file.accidents).toEqual([expect.objectContaining({ notes: 'Reversed into a bollard', userId: FARAI })])
   })
 
+  it('keeps one list of people: every team member has an employee record, none twice', () => {
+    // Tino was typed into Payroll by hand with his phone number, before he joined the team.
+    db.prepare(
+      `INSERT INTO employees (id, tenant_id, first_name, last_name, phone, base_salary) VALUES ('E-TINO', ?, 'Tino', 'Dube', '0771000002', 450)`,
+    ).run(ORG)
+    restores.push(
+      jest.spyOn(OrganizationService.prototype, 'listOrgMembers').mockReturnValue([
+        { userId: FARAI, role: 'field_worker', status: 'active', displayName: 'Farai Ncube', phone: '+263771000001', createdAt: '' },
+        { userId: TINO, role: 'field_worker', status: 'invited', displayName: 'Tino', phone: '+263771000002', createdAt: '' },
+      ] as any),
+    )
+    const attendants = service.listAttendants(ORG)
+    expect(attendants.map((item) => item.userId)).toEqual([FARAI, TINO])
+    const rows = db.prepare('SELECT id, first_name, last_name, base_salary, user_id FROM employees ORDER BY id').all() as any[]
+    // Farai gets a record with no salary yet; Tino's own record is linked, not copied.
+    expect(rows).toHaveLength(2)
+    expect(rows.find((row) => row.user_id === TINO)).toMatchObject({ id: 'E-TINO', base_salary: 450 })
+    expect(rows.find((row) => row.user_id === FARAI)).toMatchObject({ first_name: 'Farai', last_name: 'Ncube', base_salary: 0 })
+    // Asking again changes nothing, and a staff number can now be saved for someone who never had a record.
+    service.listAttendants(ORG)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM employees').get()).toEqual({ n: 2 })
+    expect(service.saveAttendantProfile(ORG, FARAI, { staffNumber: 'sgk-001' }).staffNumber).toBe('SGK-001')
+  })
+
   it('keeps a van file: service day, MOT, drivers, accidents and the jobs it went to', () => {
     const van = service.saveVan(ORG, 'owner', { registration: 'AEB 1234', serviceDay: 'friday', motDue: '2026-12-01', driverUserId: FARAI })
     service.saveVan(ORG, 'owner', { id: van.id, driverUserId: TINO })
@@ -226,9 +258,9 @@ describe('Stores, attendants and vans', () => {
           [
             {
               value: [message('m1', 'New job PO 5531', 'Description: Replace broken door closer\nRequired by 25/11/2026')],
-              '@odata.deltaLink': 'https://graph/delta?token=1',
+              '@odata.deltaLink': `${GRAPH_DELTA}?token=1`,
             },
-            { value: [message('m1', 'New job PO 5531', 'repeat delivery')], '@odata.deltaLink': 'https://graph/delta?token=2' },
+            { value: [message('m1', 'New job PO 5531', 'repeat delivery')], '@odata.deltaLink': `${GRAPH_DELTA}?token=2` },
           ],
           calls,
         ),
@@ -237,7 +269,7 @@ describe('Stores, attendants and vans', () => {
       expect(first).toMatchObject({ imported: 1, failed: 0 })
       const second = await service.syncNow()
       expect(second).toMatchObject({ imported: 0, alreadySaved: 1 })
-      expect(calls.filter((url) => url.startsWith('https://graph/delta'))).toEqual(['https://graph/delta?token=1'])
+      expect(calls.filter((url) => url.startsWith(GRAPH_DELTA))).toEqual([`${GRAPH_DELTA}?token=1`])
 
       const [intake] = jobIntakeRepository.listForTenant(ORG)
       expect(intake.payload).toMatchObject({
@@ -256,7 +288,7 @@ describe('Stores, attendants and vans', () => {
       const calls: string[] = []
       const service = new MicrosoftGraphMailIntakeService(
         () => config,
-        graphFetch([{ value: [message('m2', 'Job', 'Fix it')], '@odata.deltaLink': 'https://graph/delta?token=9' }], calls),
+        graphFetch([{ value: [message('m2', 'Job', 'Fix it')], '@odata.deltaLink': `${GRAPH_DELTA}?token=9` }], calls),
       )
       const spy = jest.spyOn(jobIntakeRepository, 'create').mockImplementation(() => {
         throw new Error('disk full')
@@ -265,6 +297,60 @@ describe('Stores, attendants and vans', () => {
       spy.mockRestore()
       expect(result.failed).toBe(1)
       expect(db.prepare('SELECT delta_link AS d FROM mail_intake_state').get()).toEqual({ d: null })
+    })
+
+    it('reads drafts and no-reply or bounce mail without turning them into jobs', async () => {
+      const calls: string[] = []
+      const bounce = { ...message('m3', 'Undeliverable: job', 'Your message could not be delivered'), from: { emailAddress: { address: 'Postmaster@spar.test' } } }
+      const draft = { ...message('m4', 'Half written', 'x'), isDraft: true }
+      const service = new MicrosoftGraphMailIntakeService(
+        () => config,
+        graphFetch([{ value: [bounce, draft, message('m5', 'Job PO 7', 'Description: Fix the door')], '@odata.deltaLink': `${GRAPH_DELTA}?token=3` }], calls),
+      )
+      const result = await service.syncNow()
+      expect(result).toMatchObject({ imported: 1, skipped: 2, failed: 0 })
+    })
+
+    it('asks for text bodies and ids that survive a move to another folder', async () => {
+      const seen: Array<Record<string, string> | undefined> = []
+      const fetcher = (async (url: string, init?: { headers?: Record<string, string> }) => {
+        if (String(url).includes('oauth2')) return new Response(JSON.stringify({ access_token: 'x', expires_in: 3600 }))
+        seen.push(init?.headers)
+        return new Response(JSON.stringify({ value: [], '@odata.deltaLink': `${GRAPH_DELTA}?token=4` }))
+      }) as unknown as typeof fetch
+      await new MicrosoftGraphMailIntakeService(() => config, fetcher).syncNow()
+      expect(seen[0]?.Prefer).toBe('outlook.body-content-type="text", IdType="ImmutableId"')
+    })
+
+    it('refuses a page or delta link that does not point at Graph, so the token is never sent elsewhere', async () => {
+      const calls: string[] = []
+      const service = new MicrosoftGraphMailIntakeService(
+        () => config,
+        graphFetch([{ value: [], '@odata.nextLink': 'https://evil.example/v1.0/steal' }], calls),
+      )
+      const result = await service.syncNow()
+      expect(result.error).toMatch(/unexpected page address/i)
+      expect(calls.some((url) => url.includes('evil.example'))).toBe(false)
+      expect(() => assertGraphUrl('http://graph.microsoft.com/v1.0/x')).toThrow()
+      expect(() => assertGraphUrl('https://graph.microsoft.com/beta/x')).toThrow()
+      expect(assertGraphUrl('https://graph.microsoft.com/v1.0/users/a/messages')).toContain('/v1.0/users/a/messages')
+    })
+
+    it('takes LDK-style setting names, still reads the old ones, and ignores example values', () => {
+      const ldk = {
+        MICROSOFT_GRAPH_TENANT_ID: 'tenant',
+        MICROSOFT_GRAPH_CLIENT_ID: 'client',
+        MICROSOFT_GRAPH_CLIENT_SECRET: 'secret',
+        MICROSOFT_GRAPH_PRIMARY_MAILBOX: 'Jobs@SGK.test',
+        MICROSOFT_GRAPH_ORG_TENANT_ID: ORG,
+      } as unknown as NodeJS.ProcessEnv
+      expect(readMailIntakeConfig(ldk)).toMatchObject({ mailbox: 'jobs@sgk.test', folder: 'inbox', pollSeconds: 120 })
+      const old = { MS_GRAPH_TENANT_ID: 't', MS_GRAPH_CLIENT_ID: 'c', MS_GRAPH_CLIENT_SECRET: 's', MS_GRAPH_MAILBOX: 'j@x.test', MS_GRAPH_ORG_TENANT_ID: ORG } as unknown as NodeJS.ProcessEnv
+      expect(readMailIntakeConfig(old)?.mailbox).toBe('j@x.test')
+      const example = { ...ldk, MICROSOFT_GRAPH_CLIENT_SECRET: 'REPLACE_WITH_SECRET_VALUE' } as unknown as NodeJS.ProcessEnv
+      expect(readMailIntakeConfig(example)).toBeUndefined()
+      expect(missingMailIntakeSettings(example)).toEqual(['MICROSOFT_GRAPH_CLIENT_SECRET'])
+      expect(missingMailIntakeSettings({} as NodeJS.ProcessEnv)).toHaveLength(5)
     })
   })
 })

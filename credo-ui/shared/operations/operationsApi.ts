@@ -3,6 +3,16 @@
  * Mirrors `src/services/OperationsRegisterService.ts`; the words people read live here once.
  */
 
+import {
+  ONBOARDING_PATH,
+  sendCardsPath,
+  staffCardChangeRule,
+  type MemberCardKind,
+  type MemberOnboarding,
+  type StaffCardChangeRule,
+} from '../orgOnboarding'
+import { SETUP_PROFILE_PATH } from '../orgProfile'
+
 export type JobCategory = 'pending' | 'assigned' | 'active' | 'on_hold' | 'failed' | 'completed' | 'reconciled' | 'cancelled'
 
 export interface JobSummary {
@@ -175,11 +185,67 @@ export interface IntakeItem {
 
 export interface MailStatus {
   connected: boolean
+  /** Settings still to be filled in on the server, by name. */
+  missing?: string[]
   mailbox?: string
   lastReadAt?: string
   lastError?: string
   imported?: number
   repeats?: number
+}
+
+export type AttentionKind = 'failed' | 'overdue' | 'unassigned' | 'stalled' | 'waiting'
+
+/** A job that is stopped, late, has nobody on it, is not moving, or was never booked. Mirrors `JobAttentionService`. */
+export interface AttentionItem {
+  kind: AttentionKind
+  runId?: string
+  intakeId?: string
+  reference: string
+  label: string
+  storeNumber?: string
+  assigneeId?: string
+  since: string
+  days: number
+  headline: string
+  detail: string
+}
+
+export const ATTENTION_WORDS: Record<AttentionKind, { label: string; color: string }> = {
+  failed: { label: 'Stopped', color: 'red' },
+  overdue: { label: 'Late', color: 'orange' },
+  unassigned: { label: 'Nobody on it', color: 'yellow' },
+  stalled: { label: 'Not moving', color: 'orange' },
+  waiting: { label: 'Not booked', color: 'blue' },
+}
+
+/** One person on the team, as `GET /api/organizations/{org}/members` returns them. */
+export interface TeamMember {
+  userId: string
+  role: string
+  status: string
+  createdAt?: string
+  displayName?: string
+  phone?: string
+  invitePending?: boolean
+}
+
+/** A payroll employee. Everyone on the team has one; this is the single record for a person. */
+export interface EmployeeRecord {
+  id: string
+  firstName: string
+  lastName: string
+  email?: string | null
+  phone?: string | null
+  did?: string | null
+  baseSalary: number
+  currency: string
+  nssaNumber?: string | null
+  tin?: string | null
+  staffNumber?: string
+  skills?: string[]
+  userId?: string
+  status: string
 }
 
 export class OperationsApiError extends Error {
@@ -206,6 +272,7 @@ export function operationsApi(backend: string, token: string | null | undefined)
     return data as T
   }
   const base = '/api/platform/operations'
+  const orgBase = (org: string) => `/api/organizations/${encodeURIComponent(org)}`
   const query = (params: Record<string, string | undefined>) => {
     const search = new URLSearchParams()
     Object.entries(params).forEach(([key, value]) => value && search.set(key, value))
@@ -270,6 +337,7 @@ export function operationsApi(backend: string, token: string | null | undefined)
       excludeRunId?: string
       excludeIntakeId?: string
     }) => call<ScheduleCheck>(`${base}/schedule-check${query(params)}`),
+    attention: () => call<{ items: AttentionItem[] }>(`${base}/attention`).then((data) => data.items),
     intakes: () => call<{ items: IntakeItem[] }>('/api/platform/job-intake').then((data) => data.items),
     assignIntake: (
       intakeId: string,
@@ -283,9 +351,47 @@ export function operationsApi(backend: string, token: string | null | undefined)
       call<{ filename: string; mediaType: string; dataBase64: string }>(
         `/api/platform/job-intake/${encodeURIComponent(intakeId)}/attachments/${encodeURIComponent(attachmentId)}`,
       ),
+    // ── People: the payroll employee is the one record; app access hangs off it ──
+    employees: () => call<EmployeeRecord[]>('/api/payroll/employees'),
+    saveEmployee: (input: Partial<EmployeeRecord> & { firstName: string; lastName: string; baseSalary: number }) =>
+      // Only the fields the API takes, and no empty ones: a null is not a valid text.
+      call<EmployeeRecord>('/api/payroll/employees', {
+        method: 'POST',
+        body: Object.fromEntries(
+          (['id', 'status', 'firstName', 'lastName', 'email', 'phone', 'baseSalary', 'currency', 'nssaNumber', 'tin', 'did', 'staffNumber', 'skills', 'userId'] as const)
+            .map((key) => [key, input[key]])
+            .filter(([, value]) => value !== null && value !== undefined),
+        ),
+      }),
+    members: (org: string) => call<TeamMember[]>(`${orgBase(org)}/members`),
+    memberOnboarding: (org: string) => call<MemberOnboarding[]>(`${orgBase(org)}${ONBOARDING_PATH}`),
+    teamRoles: (org: string) => call<Array<{ name?: string; membershipRole?: string }>>(`${orgBase(org)}/roles`),
+    inviteMember: (org: string, input: { phone: string; name: string; role: string; whatsappConsent: boolean }) =>
+      call<{ targetUserId: string; message?: string; invite?: { channel?: string; link?: string } }>(
+        `${orgBase(org)}/members/invite`,
+        { method: 'POST', body: input },
+      ),
+    resendInvite: (org: string, userId: string) =>
+      call<{ message?: string; invite?: { channel?: string; link?: string } }>(
+        `${orgBase(org)}/members/${encodeURIComponent(userId)}/resend-invite`,
+        { method: 'POST', body: {} },
+      ),
+    changeRole: (org: string, userId: string, role: string) =>
+      call(`${orgBase(org)}/members/${encodeURIComponent(userId)}`, { method: 'PATCH', body: { role } }),
+    removeMember: (org: string, userId: string) =>
+      call(`${orgBase(org)}/members/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
+    sendCards: (org: string, userId: string, kind: MemberCardKind | 'all') =>
+      call<{ sent?: string[]; skipped?: Array<{ reason: string }>; member?: MemberOnboarding }>(
+        `${orgBase(org)}${sendCardsPath(userId)}`,
+        { method: 'POST', body: { kind } },
+      ),
+    staffCardChange: (org: string) =>
+      call<{ staffCardChange?: string }>(`${orgBase(org)}${SETUP_PROFILE_PATH}`).then((data) => staffCardChangeRule(data?.staffCardChange)),
+    saveStaffCardChange: (org: string, rule: StaffCardChangeRule) =>
+      call(`${orgBase(org)}${SETUP_PROFILE_PATH}`, { method: 'PUT', body: { staffCardChange: rule } }),
     mailStatus: () => call<MailStatus>('/api/platform/job-intake/mail'),
     mailSync: () =>
-      call<{ imported: number; repeats: number; alreadySaved: number; failed: number; error?: string }>(
+      call<{ imported: number; repeats: number; alreadySaved: number; skipped: number; failed: number; error?: string }>(
         '/api/platform/job-intake/mail/sync',
         { method: 'POST' },
       ),

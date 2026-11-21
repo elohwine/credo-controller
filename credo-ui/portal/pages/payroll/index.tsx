@@ -17,12 +17,11 @@ import {
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { Drawer } from '@mantine/core';
 import { EnvContext } from '@/pages/_app';
 import { getOrgScopedToken, readActiveOrganization } from '@/utils/organizationContext';
 import { useRequireOrgContext } from '@/lib/portalContext';
 import { usePortalOperations } from '@/lib/operations';
-import { MemberWorkFile } from '../../../shared/operations/OperationsRegisters';
+import { PeopleDirectory } from '../../../shared/people/PeopleDirectory';
 
 // Credentis brand colors
 const BRAND = {
@@ -95,7 +94,6 @@ export default function PayrollPage() {
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [taxRecords, setTaxRecords] = useState<TaxCompliance[]>([]);
     const [showRunModal, setShowRunModal] = useState(false);
-    const [showEmployeeModal, setShowEmployeeModal] = useState(false);
     const [showReofferModal, setShowReofferModal] = useState(false);
     const [reofferUri, setReofferUri] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'runs' | 'employees' | 'compliance'>('runs');
@@ -103,20 +101,6 @@ export default function PayrollPage() {
     const [newRun, setNewRun] = useState({
         period: new Date().toISOString().slice(0, 7)
     });
-    const [newEmployee, setNewEmployee] = useState({
-        firstName: '',
-        lastName: '',
-        email: '',
-        baseSalary: 0,
-        currency: 'USD',
-        nssaNumber: '',
-        tin: '',
-        staffNumber: '',
-        skills: '',
-        userId: '',
-    });
-    const [members, setMembers] = useState<Array<{ userId: string; displayName?: string; phone?: string }>>([]);
-    const [workUserId, setWorkUserId] = useState<string | null>(null);
     const { api: operationsApi, notify } = usePortalOperations();
 
     useRequireOrgContext('/inbox');
@@ -141,16 +125,6 @@ export default function PayrollPage() {
             fetchPayrollRuns();
             fetchEmployees();
             fetchTaxCompliance();
-            const orgId = readActiveOrganization()?.orgTenantId;
-            const token = getOrgScopedToken();
-            if (orgId && token) {
-                fetch(`${backendUrl}/api/organizations/${encodeURIComponent(orgId)}/members`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                })
-                    .then((res) => res.json())
-                    .then((rows) => setMembers(Array.isArray(rows) ? rows : []))
-                    .catch(() => setMembers([]));
-            }
         }
     }, [env.NEXT_PUBLIC_BACKEND_URL]);
 
@@ -261,60 +235,27 @@ export default function PayrollPage() {
         }
     };
 
-    const handleSaveEmployee = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setIsLoading(true);
-        try {
-            const res = await payrollFetch(`/api/payroll/employees`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ...newEmployee,
-                    staffNumber: newEmployee.staffNumber.trim() || undefined,
-                    skills: newEmployee.skills.split(',').map((skill) => skill.trim()).filter(Boolean),
-                    userId: newEmployee.userId || undefined,
-                })
-            });
-            if (!res.ok) {
-                const data = await res.json().catch(() => null);
-                notify(data?.message || 'Could not save the employee', 'error');
-                return;
-            }
-            setShowEmployeeModal(false);
-            fetchEmployees();
-            setNewEmployee({ firstName: '', lastName: '', email: '', baseSalary: 0, currency: 'USD', nssaNumber: '', tin: '', staffNumber: '', skills: '', userId: '' });
-        } catch (error) {
-            console.error('Failed to save employee:', error);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
     const formatCurrency = (amount: number, currency: string = 'USD') => {
         return new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 2 }).format(amount);
     };
 
     const stats = [
-        { label: 'Active Employees', value: employees.filter(e => e.status === 'active').length, icon: <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg> },
+        { label: 'People working', value: employees.filter(e => e.status === 'active').length, icon: <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg> },
         { label: 'Payroll Runs', value: runs.length, icon: <DocumentTextIcon className="h-6 w-6" /> },
         { label: 'Total Net Paid', value: formatCurrency(runs.filter(r => r.status === 'completed').reduce((a, r) => a + r.totalNet, 0)), icon: <CurrencyDollarIcon className="h-6 w-6" /> },
         { label: 'Tax Filings', value: taxRecords.length, icon: <BuildingLibraryIcon className="h-6 w-6" /> }
     ];
 
     return (
-        <Layout title="Payroll Management">
+        <Layout title="People & payroll">
             <div className="px-4 sm:px-6 lg:px-8 py-6">
                 {/* Header */}
                 <div className="sm:flex sm:items-center sm:justify-between mb-8">
                     <div>
-                        <h1 className="text-3xl font-bold" style={{ color: 'var(--mantine-color-text)' }}>Payroll & employees</h1>
-                        <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>Process payroll runs and issue verifiable PayslipVCs to employees</p>
+                        <h1 className="text-3xl font-bold" style={{ color: 'var(--mantine-color-text)' }}>People & payroll</h1>
+                        <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>Your people in one list, with their app access, staff numbers and pay. Run payroll and give everyone a payslip.</p>
                     </div>
                     <div className="mt-4 sm:mt-0 flex gap-3">
-                        <button onClick={() => setShowEmployeeModal(true)} className="inline-flex items-center rounded-lg border-2 px-4 py-2 text-sm font-medium transition-all hover:shadow-md" style={{ borderColor: BRAND.curious, color: BRAND.curious, backgroundColor: 'white' }}>
-                            <svg className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
-                            Add Employee
-                        </button>
                         <button onClick={() => setShowRunModal(true)} className="inline-flex items-center rounded-lg px-4 py-2 text-sm font-medium text-white transition-all hover:shadow-md" style={{ backgroundColor: BRAND.curious }}>
                             <PlayIcon className="h-5 w-5 mr-2" />
                             Run Payroll
@@ -338,7 +279,7 @@ export default function PayrollPage() {
                 {/* Tabs */}
                 <div className="border-b border-gray-200 mb-6">
                     <nav className="-mb-px flex space-x-8">
-                        {[{ id: 'runs', label: 'Payroll Runs', icon: <DocumentTextIcon className="h-5 w-5" /> }, { id: 'employees', label: 'Employees', icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> }, { id: 'compliance', label: 'Tax Compliance', icon: <BuildingLibraryIcon className="h-5 w-5" /> }].map((tab) => (
+                        {[{ id: 'runs', label: 'Payroll Runs', icon: <DocumentTextIcon className="h-5 w-5" /> }, { id: 'employees', label: 'People', icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> }, { id: 'compliance', label: 'Tax Compliance', icon: <BuildingLibraryIcon className="h-5 w-5" /> }].map((tab) => (
                             <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`group inline-flex items-center border-b-2 py-4 px-1 text-sm font-medium transition-colors ${activeTab === tab.id ? 'border-current' : 'border-transparent hover:border-gray-300'}`} style={{ color: activeTab === tab.id ? BRAND.curious : '#6B7280', borderColor: activeTab === tab.id ? BRAND.curious : undefined }}>
                                 {tab.icon}<span className="ml-2">{tab.label}</span>
                             </button>
@@ -402,40 +343,17 @@ export default function PayrollPage() {
                     </div>
                 )}
 
-                {/* Employees Tab */}
+                {/* Employees tab: the one list of people (details, app access, staff number, skills, their work) */}
                 {activeTab === 'employees' && (
-                    <div className="overflow-hidden rounded-xl shadow ring-1 ring-black ring-opacity-5">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead style={{ backgroundColor: BRAND.linkWater }}>
-                                <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Name</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Staff number</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Email</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Base Salary</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Status</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}></th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200 bg-white">
-                                {employees.length === 0 ? (
-                                    <tr><td colSpan={6} className="px-6 py-12 text-center text-sm text-gray-500">No employees yet. Click "Add Employee" to add one.</td></tr>
-                                ) : employees.map((emp) => (
-                                    <tr key={emp.id} className="hover:bg-gray-50">
-                                        <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.dark }}>{emp.firstName} {emp.lastName}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-500">{emp.staffNumber || '—'}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-500">{emp.email || '—'}</td>
-                                        <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.curious }}>{formatCurrency(emp.baseSalary, emp.currency)}</td>
-                                        <td className="px-6 py-4 text-sm"><StatusBadge status={emp.status} /></td>
-                                        <td className="px-6 py-4 text-sm">
-                                            <button type="button" disabled={!emp.userId} onClick={() => emp.userId && setWorkUserId(emp.userId)} className="text-sm font-medium disabled:opacity-40" style={{ color: BRAND.curious }}>
-                                                Their work
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <PeopleDirectory
+                        api={operationsApi}
+                        orgTenantId={readActiveOrganization()?.orgTenantId || ''}
+                        surface="portal"
+                        role={String(readActiveOrganization()?.role || '').toLowerCase()}
+                        notify={notify}
+                        onOpenJob={(runId) => { window.location.href = `/finance/job-cards?runId=${encodeURIComponent(runId)}`; }}
+                        onChanged={fetchEmployees}
+                    />
                 )}
 
                 {/* Tax Compliance Tab */}
@@ -495,47 +413,6 @@ export default function PayrollPage() {
                     </div>
                 )}
 
-                {/* Add Employee Modal */}
-                {showEmployeeModal && (
-                    <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-[100]">
-                        <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
-                            <div className="flex items-center gap-3 mb-6">
-                                <div className="p-2 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}><svg className="h-6 w-6" style={{ color: BRAND.curious }} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg></div>
-                                <h3 className="text-xl font-semibold" style={{ color: BRAND.dark }}>Add Employee</h3>
-                            </div>
-                            <form onSubmit={handleSaveEmployee} className="space-y-4">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>First Name</label><input type="text" required value={newEmployee.firstName} onChange={e => setNewEmployee({ ...newEmployee, firstName: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" /></div>
-                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Last Name</label><input type="text" required value={newEmployee.lastName} onChange={e => setNewEmployee({ ...newEmployee, lastName: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" /></div>
-                                </div>
-                                <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Email</label><input type="email" value={newEmployee.email} onChange={e => setNewEmployee({ ...newEmployee, email: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" /></div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Base Salary</label><input type="number" required min="0" step="0.01" value={newEmployee.baseSalary} onChange={e => setNewEmployee({ ...newEmployee, baseSalary: parseFloat(e.target.value) })} className="w-full rounded-lg border-gray-300 shadow-sm" /></div>
-                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Currency</label><select value={newEmployee.currency} onChange={e => setNewEmployee({ ...newEmployee, currency: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm"><option value="USD">USD</option><option value="ZWL">ZWL</option><option value="ZAR">ZAR</option></select></div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>NSSA Number</label><input type="text" value={newEmployee.nssaNumber} onChange={e => setNewEmployee({ ...newEmployee, nssaNumber: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="Optional" /></div>
-                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>TIN</label><input type="text" value={newEmployee.tin} onChange={e => setNewEmployee({ ...newEmployee, tin: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="Optional" /></div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Staff number</label><input type="text" value={newEmployee.staffNumber} onChange={e => setNewEmployee({ ...newEmployee, staffNumber: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="e.g. SGK-014" /></div>
-                                    <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Team account</label>
-                                        <select value={newEmployee.userId} onChange={e => setNewEmployee({ ...newEmployee, userId: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm">
-                                            <option value="">Not linked</option>
-                                            {members.map((member) => <option key={member.userId} value={member.userId}>{member.displayName || member.phone || 'Team member'}</option>)}
-                                        </select>
-                                    </div>
-                                </div>
-                                <div><label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Skills</label><input type="text" value={newEmployee.skills} onChange={e => setNewEmployee({ ...newEmployee, skills: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="Plumbing, Electrical" /></div>
-                                <div className="flex justify-end gap-3 pt-4">
-                                    <button type="button" onClick={() => setShowEmployeeModal(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
-                                    <button type="submit" disabled={isLoading} className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50" style={{ backgroundColor: BRAND.curious }}>{isLoading ? 'Saving...' : 'Add Employee'}</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                )}
-
                 {/* Reoffer VC Modal */}
                 {showReofferModal && reofferUri && (
                     <div className="fixed inset-0 z-[100] overflow-y-auto">
@@ -585,19 +462,6 @@ export default function PayrollPage() {
                     </div>
                 )}
             </div>
-            <Drawer opened={Boolean(workUserId)} onClose={() => setWorkUserId(null)} position="right" size="lg" title="Their work">
-                {workUserId && (
-                    <MemberWorkFile
-                        api={operationsApi}
-                        userId={workUserId}
-                        names={Object.fromEntries(members.map((member) => [member.userId, member.displayName || member.phone || 'Team member']))}
-                        surface="portal"
-                        canEdit
-                        notify={notify}
-                        onOpenJob={(runId) => { window.location.href = `/finance/job-cards?runId=${encodeURIComponent(runId)}` }}
-                    />
-                )}
-            </Drawer>
         </Layout>
     );
 }

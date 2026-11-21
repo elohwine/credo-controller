@@ -149,8 +149,34 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
   }
 
   try {
-    const { microsoftGraphMailIntakeService } = await import('./services/integrations/MicrosoftGraphMailIntakeService')
+    // Stuck jobs: failed, late, nobody on them, not moving, or never booked. Hourly check; the
+    // daily and weekly summaries are sent from it, once each.
+    const { jobAttentionService } = await import('./services/JobAttentionService')
+    const check = () => {
+      try {
+        jobAttentionService.sweep()
+      } catch (e) {
+        agent?.config?.logger?.warn?.(`Stuck job check failed: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    check()
+    const timer = setInterval(check, 60 * 60 * 1000)
+    timer.unref()
+    agent?.config?.logger?.info?.('Stuck job alerts initialized')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    agent?.config?.logger?.warn?.(`Stuck job alerts failed to initialize: ${msg}`)
+  }
+
+  try {
+    const { microsoftGraphMailIntakeService, missingMailIntakeSettings } = await import(
+      './services/integrations/MicrosoftGraphMailIntakeService'
+    )
     if (microsoftGraphMailIntakeService.start()) agent?.config?.logger?.info?.('Jobs mailbox polling started')
+    else {
+      const missing = missingMailIntakeSettings()
+      if (missing.length > 0) agent?.config?.logger?.info?.(`Jobs mailbox not connected; still to set: ${missing.join(', ')}`)
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     agent?.config?.logger?.warn?.(`Jobs mailbox polling failed to start: ${msg}`)

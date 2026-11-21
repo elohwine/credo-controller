@@ -4,6 +4,7 @@ import { Body, Get, Path, Post, Put, Query, Request, Route, Security, Tags } fro
 
 import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
+import { jobAttentionService } from '../../services/JobAttentionService'
 import { operationsRegisterService, type VanStatus } from '../../services/OperationsRegisterService'
 
 const MANAGERS = ['owner', 'admin', 'dispatcher', 'manager']
@@ -137,6 +138,21 @@ export class OperationsRegisterController {
   ) {
     const principal = principalOf(request, true)
     return asBadRequest(() => operationsRegisterService.addVanEvent(principal.tenantId, principal.subjectId, vanId, body || {}))
+  }
+
+  /**
+   * Jobs that are stopped, late, have nobody on them or are not moving, and jobs nobody has booked.
+   * The office sees them all; anyone else sees only the jobs they are on.
+   */
+  @Get('/attention')
+  public attention(@Request() request: ExRequest) {
+    const principal = principalOf(request, false)
+    const items = jobAttentionService.attention(principal.tenantId)
+    return {
+      items: MANAGERS.includes(principal.role)
+        ? items
+        : items.filter((item) => item.assigneeId === principal.subjectId),
+    }
   }
 
   @Get('/schedule-check')

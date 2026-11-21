@@ -11,6 +11,7 @@ import { DatabaseManager } from '../persistence/DatabaseManager'
 import { rootLogger } from '../utils/pinoLogger'
 
 import { credentialIssuanceService } from './CredentialIssuanceService'
+import { normalizeContactPhone } from './ssi/contactHash'
 import { NSSACalculator, PAYECalculator } from './payroll/plugins/StatutoryPlugins'
 
 const logger = rootLogger.child({ module: 'PayrollService' })
@@ -123,6 +124,14 @@ export class PayrollService {
     const id = employee.id || `EMP-${randomUUID()}`
     const now = new Date().toISOString()
     const tenantId = employee.tenantId || 'default'
+    // Editing a record keeps the date it was first added.
+    const existing = db.prepare('SELECT created_at FROM employees WHERE id = ? AND tenant_id = ?').get(id, tenantId) as
+      | { created_at?: string }
+      | undefined
+    if (employee.id && !existing) {
+      const other = db.prepare('SELECT tenant_id FROM employees WHERE id = ?').get(id) as { tenant_id: string } | undefined
+      if (other && other.tenant_id !== tenantId) throw new Error('That employee belongs to another organisation')
+    }
 
     const staffNumber = String(employee.staffNumber || '').trim().toUpperCase() || null
     const userId = String(employee.userId || '').trim() || null
@@ -165,7 +174,7 @@ export class PayrollService {
       skills_json: JSON.stringify(skills),
       user_id: userId,
       status: employee.status || 'active',
-      created_at: now,
+      created_at: existing?.created_at || now,
       updated_at: now,
     }
 
@@ -201,6 +210,47 @@ export class PayrollService {
     return employeeFromRow(emp)
   }
 
+  /**
+   * One list of people. Everyone on the team has an employee record, so People & payroll is
+   * the only place a person is added, linked to their app account, given a staff number and
+   * skills, and paid. Safe to call again and again.
+   *
+   * - A team member with no record gets one (no salary yet, so payroll skips them until a
+   *   salary is set).
+   * - An employee typed in earlier with the same phone number is linked, not duplicated.
+   */
+  syncTeam(
+    tenantId: string,
+    members: Array<{ userId: string; displayName?: string; phone?: string; status?: string }>,
+  ): number {
+    const db = DatabaseManager.getDatabase()
+    const rows = db
+      .prepare('SELECT id, phone, user_id FROM employees WHERE tenant_id = ?')
+      .all(tenantId) as Array<{ id: string; phone?: string | null; user_id?: string | null }>
+    const linked = new Set(rows.filter((row) => row.user_id).map((row) => String(row.user_id)))
+    const loose = rows.filter((row) => !row.user_id)
+    let added = 0
+    for (const member of members) {
+      if (!member?.userId || member.status === 'inactive' || linked.has(member.userId)) continue
+      const phoneKey = normalizeContactPhone(member.phone || '')
+      const match = phoneKey ? loose.find((row) => normalizeContactPhone(row.phone || '') === phoneKey) : undefined
+      if (match) {
+        db.prepare('UPDATE employees SET user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(member.userId, match.id)
+        loose.splice(loose.indexOf(match), 1)
+      } else {
+        const name = String(member.displayName || member.phone || 'Team member').replace(/\s+/g, ' ').trim()
+        const [first, ...rest] = name.split(' ')
+        db.prepare(
+          `INSERT INTO employees (id, tenant_id, first_name, last_name, phone, base_salary, currency, status, user_id)
+           VALUES (?, ?, ?, ?, ?, 0, 'USD', 'active', ?)`,
+        ).run(`EMP-${randomUUID()}`, tenantId, first || 'Team member', rest.join(' '), member.phone || null, member.userId)
+        added += 1
+      }
+      linked.add(member.userId)
+    }
+    return added
+  }
+
   async listEmployees(tenantId: string = 'default'): Promise<Employee[]> {
     const db = DatabaseManager.getDatabase()
     const rows = db.prepare('SELECT * FROM employees WHERE tenant_id = ?').all(tenantId) as any[]
@@ -215,7 +265,8 @@ export class PayrollService {
     const db = DatabaseManager.getDatabase()
     const runId = `RUN-${period}-${randomUUID().substring(0, 6)}`
     const employees = await this.listEmployees(tenantId)
-    const activeEmployees = employees.filter((e) => e.status === 'active')
+    // People with no salary yet (team members just added) are not paid or issued a payslip.
+    const activeEmployees = employees.filter((e) => e.status === 'active' && e.baseSalary > 0)
 
     let totalGross = 0
     let totalNet = 0

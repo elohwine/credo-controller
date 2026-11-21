@@ -310,19 +310,34 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
 Jobs mailbox (optional, SGK): leave these unset to keep the mailbox off. With them set, the API reads
-the mailbox every `MS_GRAPH_POLL_SECONDS` and puts each new job mail under Waiting to be booked.
-The Azure app registration needs the `Mail.Read` application permission with admin consent.
+the mailbox every `MICROSOFT_GRAPH_POLL_SECONDS` and puts each new job mail under Waiting to be booked.
+This is the same app-only sign-in the LDK website uses to read its mailbox, with the same setting
+names (the older `MS_GRAPH_*` names still work). Drafts and no-reply or bounce mail are read but not
+turned into jobs. If some settings are missing, the API log at start-up lists them by name.
+
+What the organisation provides: its own Entra app registration with the `Mail.Read` **application**
+permission and admin consent, a client secret (the value, not its id), and the mailbox address. Do not
+reuse another company's app. Because that permission reaches every mailbox in the tenant, limit the app
+to the one jobs mailbox with an Exchange application access policy.
 
 ```env
-MS_GRAPH_TENANT_ID=<azure-tenant-id>
-MS_GRAPH_CLIENT_ID=<app-registration-client-id>
-MS_GRAPH_CLIENT_SECRET=<client-secret>
-MS_GRAPH_MAILBOX=jobs@example.com
-MS_GRAPH_ORG_TENANT_ID=<organisation tenant id the jobs belong to>
-MS_GRAPH_MAIL_FOLDER=inbox
-MS_GRAPH_POLL_SECONDS=120
-MS_GRAPH_FIRST_SYNC_DAYS=14
+MICROSOFT_GRAPH_TENANT_ID=<azure-tenant-id>
+MICROSOFT_GRAPH_CLIENT_ID=<app-registration-client-id>
+MICROSOFT_GRAPH_CLIENT_SECRET=<client-secret-value>
+MICROSOFT_GRAPH_PRIMARY_MAILBOX=jobs@example.com
+MICROSOFT_GRAPH_ORG_TENANT_ID=<organisation tenant id the jobs belong to>
+MICROSOFT_GRAPH_MAIL_FOLDER=inbox
+MICROSOFT_GRAPH_POLL_SECONDS=120
+MICROSOFT_GRAPH_FIRST_SYNC_DAYS=14
 ```
+
+Stuck jobs (SGK): the API checks once an hour. A field job that has stopped, is late, has nobody on it
+after 24 hours, or has not moved for 48 hours, and a job waiting to be booked for 24 hours, is listed
+under Needs attention. A step that says it is running but has not finished is stuck after 1 hour.
+Owners and admins get one inbox card the first time it is seen. From 06:00 UTC there is one daily
+summary of everything still stuck a day or more, and on Monday one weekly list instead of the daily
+one. Those times are in the code (`JobAttentionService`), not settings. The cards use the same inbox
+path as a finished job, so WhatsApp goes out only when that person already gets inbox alerts.
 
 ## Database Initialization
 

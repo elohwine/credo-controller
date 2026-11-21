@@ -6,12 +6,16 @@ import { SCOPES } from '../../enums'
 import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { getTenantById } from '../../persistence/TenantRepository'
+import { OrganizationService } from '../../services/OrganizationService'
 import { orgEntitlementService } from '../../services/OrgEntitlementService'
 import { payoutService } from '../../services/PayoutService'
 import { payrollService, Employee, PayrollRun, Payslip, TaxCompliance } from '../../services/PayrollService'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 
 export interface CreateEmployeeRequest {
+  /** Send the id of an existing employee to change that record instead of adding one. */
+  id?: string
+  status?: 'active' | 'terminated' | 'on_leave'
   firstName: string
   lastName: string
   email?: string
@@ -80,7 +84,10 @@ export class PayrollController extends Controller {
   @Get('employees')
   @Security('jwt', [SCOPES.TENANT_AGENT])
   public async listEmployees(@Request() request: ExRequest): Promise<Employee[]> {
-    return payrollService.listEmployees(this.payrollTenant(request))
+    const tenantId = this.payrollTenant(request)
+    // Everyone on the team is listed here, so there is one list of people.
+    payrollService.syncTeam(tenantId, new OrganizationService(undefined as any).listOrgMembers(tenantId))
+    return payrollService.listEmployees(tenantId)
   }
 
   /**

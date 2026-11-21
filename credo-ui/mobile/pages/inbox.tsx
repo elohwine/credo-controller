@@ -2218,22 +2218,24 @@ export default function InboxPage() {
       const mapJobUpdate = (o: any): InboxItemData => {
         const claim = o.claims || {};
         const cancelled = String(claim.outcome || '') === 'cancelled';
+        // A stopped, late or stuck job (or the daily or weekly list of them) is a warning, not a result.
+        const warning = claim.attention === true;
         const seen = o.status === 'resolved';
         return {
           id: o.id,
-          title: o.title || (cancelled ? 'Job cancelled' : 'Job complete'),
-          description: o.body || 'Nothing more is needed from you.',
+          title: o.title || (warning ? 'A job needs attention' : cancelled ? 'Job cancelled' : 'Job complete'),
+          description: o.body || (warning ? 'Open Jobs to deal with it.' : 'Nothing more is needed from you.'),
           module: 'field',
           flowType: 'SYSTEM' as const,
           status: seen ? 'completed' as const : 'pending' as const,
           finished: seen,
-          priority: 'low' as const,
+          priority: warning ? 'high' as const : 'low' as const,
           createdAt: o.createdAt ?? new Date().toISOString(),
-          actionLabel: 'Got it',
+          actionLabel: warning ? 'Review' : 'Got it',
           itemType: 'workflow' as const,
           sourceType: 'workflow_update',
           workflowRunId: normalizeRunId(String(o.workflowRunId || claim.workflowRunId || '')) || undefined,
-          workflowStage: cancelled ? 'CANCELLED' : 'COMPLETED',
+          workflowStage: warning ? undefined : cancelled ? 'CANCELLED' : 'COMPLETED',
           ownerOrgTenantId: claim.orgTenantId || undefined,
           ownerDisplayName: claim.orgName || o.issuerName || undefined,
           authContext: o._context || 'personal',

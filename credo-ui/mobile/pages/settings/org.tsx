@@ -4,7 +4,7 @@ import { LottiePlayer } from '@/components/feedback/LottiePlayer';
 import { GuidedSteps } from '@/components/feedback/GuidedSteps';
 import {
   Stack, Title, Text, Box, Divider, Button, Group, Checkbox, TextInput, Alert, Loader, Center,
-  Paper, Badge, Collapse, Stepper, SimpleGrid, ThemeIcon, Card, ColorInput, ScrollArea, Select, MultiSelect,
+  Paper, Badge, Stepper, SimpleGrid, ThemeIcon, Card, ColorInput, ScrollArea, Select, MultiSelect,
   SegmentedControl, Modal, Radio, Chip, Progress, UnstyledButton, Switch, NumberInput, Accordion,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -12,13 +12,12 @@ import {
   IconBuilding, IconCheck, IconPlus, IconSettingsAutomation, IconCreditCard, IconCertificate,
   IconPalette, IconRocket, IconArrowLeft, IconArrowRight, IconShieldCheck, IconBuildingStore,
   IconCash, IconQrcode, IconDeviceMobile, IconBuildingBank, IconReceipt,
-  IconTruck, IconSchool, IconUsers, IconClipboardList, IconShoppingCart, IconUserPlus, IconTrash,
+  IconTruck, IconSchool, IconUsers, IconClipboardList, IconShoppingCart,
   IconEdit, IconUsersGroup,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
 import { StepHelp } from '@/components/help/StepHelp';
 import AppShellMobile from '@/components/layout/AppShellMobile';
-import { PhoneField } from '../../../shared/PhoneField';
 import { reveal } from '../../../shared/reveal';
 import { OrgSetupOverview } from '../../../shared/OrgSetupOverview';
 import { ORG_SETTINGS_GROUPS, orgSettingSummary, orgSettingsStatus, visibleOrgSettings, type OrgSettingsGroup, type OrgSettingsSection } from '../../../shared/orgSettings';
@@ -39,13 +38,8 @@ import OrgPermissionsSettings from '@/components/shared/OrgPermissionsSettings';
 import api, { safeArray } from '@/lib/api';
 import BrandEditor from '@/components/org/BrandEditor';
 import { getActiveOrgLabel, getActiveOrgId, getWalletToken, getPreferredToken, applyOrgContext, getOrgRoleClaim, decodeJwtPayload } from '@/lib/auth';
-import {
-  CARD_STATE_COLOR, CARD_STATE_LABEL, MY_SUMMARY_LABEL, ONBOARDING_PATH, SUMMARY_COLOR, SUMMARY_LABEL,
-  DEFAULT_STAFF_CARD_CHANGE, STAFF_CARD_CHANGE_OPTIONS,
-  cardCanResend, cardPurpose, cardResendHint, memberAccessBadge, myOnboardingSteps, readyCount, sendCardsPath, staffCardChangeRule,
-  type MemberCardKind, type MemberOnboarding, type StaffCardChangeRule,
-} from '@/lib/orgOnboarding';
-import { MONEY_CHOICES, OPERATING_MODEL_NOTE, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, TEAM_ROLE_FALLBACK, kindsFromRequestTypes, markOrgSetupLater, modulePlanNote, isLockedModule, withLockedModules, LOCKED_MODULE_NOTE, orgSetupLater, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, openedWorkAreas, setupChecklist, startingModules, teamRolesFromCatalog, defaultInviteRole, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
+import { MY_SUMMARY_LABEL, ONBOARDING_PATH, SUMMARY_COLOR, myOnboardingSteps, type MemberOnboarding } from '@/lib/orgOnboarding';
+import { MONEY_CHOICES, OPERATING_MODEL_NOTE, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, kindsFromRequestTypes, markOrgSetupLater, modulePlanNote, isLockedModule, withLockedModules, LOCKED_MODULE_NOTE, orgSetupLater, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, openedWorkAreas, setupChecklist, startingModules, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
 import { SETUP_BOOTSTRAP_PATH, bootstrapRequest, cleanDepartmentNames, mainPeopleLine, staffCardLimitFor, suggestedDepartmentsFor, suggestedOrgModules, type OrgOperatingModel, type OrgSetupPlan } from '@/lib/orgProfile';
 
 // ── Org list types ──
@@ -321,8 +315,8 @@ type ReadinessFixTarget = 'members' | 'actors' | 'payments' | 'partners' | 'prof
 /** One settings area per screen. `null` is the organisation home. */
 type OrgSection = OrgSettingsSection;
 
-const SECTION_FOR_FIX: Record<ReadinessFixTarget, OrgSection> = {
-  members: 'team',
+/** People are managed on the People page, so a "members" fix opens it instead of a settings section. */
+const SECTION_FOR_FIX: Record<Exclude<ReadinessFixTarget, 'members'>, OrgSection> = {
   roles: 'roles',
   authorities: 'authorities',
   departments: 'departments',
@@ -430,19 +424,6 @@ export default function OrgSettingsPage() {
 
   // Member management
   const [memberList, setMemberList] = useState<Array<{ userId: string; role: string; walletTenantId?: string; status: string; displayName?: string; phone?: string; invitePending?: boolean }>>([]);
-  const [membersLoading, setMembersLoading] = useState(false);
-  const [showInvite, setShowInvite] = useState(false);
-  const [invitePhone, setInvitePhone] = useState('');
-  const [inviteName, setInviteName] = useState('');
-  const [inviteWhatsApp, setInviteWhatsApp] = useState(true);
-  const [resendingInvite, setResendingInvite] = useState<string | null>(null);
-  const [inviteRole, setInviteRole] = useState<string | null>('field_worker');
-  const [teamRoleChoices, setTeamRoleChoices] = useState(TEAM_ROLE_FALLBACK);
-  const [inviting, setInviting] = useState(false);
-  const [changingRole, setChangingRole] = useState<string | null>(null);
-  /** Organisation setting: what happens to an earlier staff card when a role changes. */
-  const [staffCardChange, setStaffCardChange] = useState<StaffCardChangeRule>(DEFAULT_STAFF_CARD_CHANGE);
-  const [savingStaffCardChange, setSavingStaffCardChange] = useState(false);
   const [departments, setDepartments] = useState<Array<{ id: string; name: string; code?: string }>>([]);
   const [deptName, setDeptName] = useState('');
   const [createSheet, setCreateSheet] = useState<'partner' | 'department' | null>(null);
@@ -451,8 +432,6 @@ export default function OrgSettingsPage() {
 
   // What each person still has to do: sign in, identity card, staff card, role cards.
   const [onboardingRows, setOnboardingRows] = useState<MemberOnboarding[]>([]);
-  const [expandedMember, setExpandedMember] = useState<string | null>(null);
-  const [sendingCards, setSendingCards] = useState<string | null>(null);
 
   const fetchOnboarding = useCallback(async (orgId: string) => {
     const token = getPreferredToken();
@@ -463,107 +442,21 @@ export default function OrgSettingsPage() {
     } catch { setOnboardingRows([]); }
   }, []);
 
-  const loadTeamRoles = useCallback(async (orgId: string) => {
-    const token = getPreferredToken();
-    if (!token || !orgId) return;
-    try {
-      const res = await api.get(`/api/organizations/${orgId}/roles`, { headers: { Authorization: `Bearer ${token}` } });
-      const fromSetup = teamRolesFromCatalog(safeArray(res.data));
-      const next = fromSetup.length > 0 ? fromSetup : TEAM_ROLE_FALLBACK;
-      setTeamRoleChoices(next);
-      setInviteRole((current) => (current !== 'auditor' && next.some((choice) => choice.value === current) ? current : defaultInviteRole(next)));
-    } catch {
-      setTeamRoleChoices(TEAM_ROLE_FALLBACK);
-    }
-  }, []);
-
   const fetchMembers = useCallback(async (orgId: string) => {
     const token = getPreferredToken();
     if (!token || !orgId) return;
-    setMembersLoading(true);
     try {
       const res = await api.get(`/api/organizations/${orgId}/members`, { headers: { Authorization: `Bearer ${token}` } });
       setMemberList(safeArray(res.data?.members ?? res.data));
-    } catch { setMemberList([]); } finally { setMembersLoading(false); }
+    } catch { setMemberList([]); }
     void fetchOnboarding(orgId);
   }, [fetchOnboarding]);
-
-  const sendMemberCards = async (userId: string, kind: MemberCardKind | 'all') => {
-    const token = getPreferredToken();
-    if (!token || !activeId) return;
-    setSendingCards(`${userId}:${kind}`);
-    try {
-      const res = await api.post(`/api/organizations/${activeId}${sendCardsPath(userId)}`, { kind }, { headers: { Authorization: `Bearer ${token}` } });
-      const sent: string[] = res.data?.sent || [];
-      const skipped: Array<{ reason: string }> = res.data?.skipped || [];
-      if (res.data?.member) setOnboardingRows((prev) => prev.map((row) => (row.userId === userId ? res.data.member : row)));
-      notifications.show({
-        title: sent.length > 0 ? 'Sent' : 'Nothing new to send',
-        message: sent.length > 0 ? 'They will find it in their app inbox.' : skipped[0]?.reason || 'Everything they need is already in their app.',
-        color: sent.length > 0 ? 'green' : 'gray',
-      });
-    } catch (err: any) {
-      feedback.error(err.response?.data?.message ?? err.message, { title: 'Could not send' });
-    } finally { setSendingCards(null); }
-  };
 
   const myUserId = useMemo(() => {
     const token = getPreferredToken();
     const payload = token ? decodeJwtPayload(token) : null;
     return payload?.id ? String(payload.id) : null;
   }, [activeId]);
-
-  const showInviteResult = (data: any, who?: string) => {
-    if (data?.invite?.channel === 'link' && data.invite.link) {
-      void navigator.clipboard?.writeText(data.invite.link).catch(() => undefined);
-      notifications.show({ title: 'Give them this link', message: `${data.message} Copied: ${data.invite.link}`, color: 'orange', autoClose: false });
-      return;
-    }
-    notifications.show({ title: who ? `${who} invited` : 'Invite sent', message: data?.message || 'They are on the team.', color: data?.invite?.channel === 'none' ? 'orange' : 'green' });
-  };
-
-  const resendInvite = async (userId: string) => {
-    const token = getPreferredToken();
-    if (!token || !activeId) return;
-    setResendingInvite(userId);
-    try {
-      const res = await api.post(`/api/organizations/${activeId}/members/${userId}/resend-invite`, {}, { headers: { Authorization: 'Bearer ' + token } });
-      showInviteResult(res.data);
-      void fetchMembers(activeId);
-    } catch (err: any) {
-      feedback.error(err.response?.data?.message ?? err.message, { title: 'Could not resend' });
-    } finally {
-      setResendingInvite(null);
-    }
-  };
-
-  const handleInviteMember = async () => {
-    const token = getPreferredToken();
-    if (!token || !activeId || !invitePhone.trim() || inviteName.trim().length < 2) return;
-    setInviting(true);
-    try {
-      const res = await api.post(`/api/organizations/${activeId}/members/invite`, { phone: invitePhone.trim(), name: inviteName.trim(), role: inviteRole || 'member', whatsappConsent: inviteWhatsApp }, { headers: { Authorization: `Bearer ${token}` } });
-      showInviteResult(res.data, inviteName.trim());
-      setInvitePhone(''); setInviteName(''); setShowInvite(false);
-      void fetchMembers(activeId);
-    } catch (err: any) {
-      feedback.error(err.response?.data?.message ?? err.message, { title: 'Invite failed' });
-    } finally { setInviting(false); }
-  };
-
-  const handleRemoveMember = async (userId: string) => {
-    const token = getPreferredToken();
-    if (!token || !activeId) return;
-    const who = memberList.find((m) => m.userId === userId);
-    if (!window.confirm(`Remove ${personName(who, userId)} from the organization?`)) return;
-    try {
-      await api.delete(`/api/organizations/${activeId}/members/${encodeURIComponent(userId)}`, { headers: { Authorization: `Bearer ${token}` } });
-      feedback.info(personName(who, userId), { title: 'Removed' });
-      void fetchMembers(activeId);
-    } catch (err: any) {
-      feedback.error(err.response?.data?.message ?? err.message, { title: 'Remove failed' });
-    }
-  };
 
   const [actorsView, setActorsView] = useState<WorkflowActorsView | null>(null);
   /** True when the organisation already chose people for its money steps. Mirrors the website onboarding check. */
@@ -599,7 +492,8 @@ export default function OrgSettingsPage() {
   const [section, setSection] = useState<OrgSection | null>(null);
   useEffect(() => {
     const wanted = typeof router.query.section === 'string' ? router.query.section : '';
-    if (wanted && sectionLabels().some((item) => item.id === wanted)) setSection(wanted as OrgSection);
+    if (wanted === 'team' || wanted === 'members') void router.replace('/people');
+    else if (wanted && sectionLabels().some((item) => item.id === wanted)) setSection(wanted as OrgSection);
   }, [router.query.section]);
   useEffect(() => {
     if (router.query.create !== '1') return;
@@ -782,12 +676,11 @@ export default function OrgSettingsPage() {
     void loadStoreBasics(activeId);
     void loadWorkflowActorDefaults();
     void fetchMembers(activeId);
-    void loadTeamRoles(activeId);
     void loadDepartments(activeId);
     void loadActiveWorkflowTypes(activeId);
     void loadReadiness(activeId);
     void loadOrgSetupExtras(activeId);
-  }, [activeId, fetchMembers, loadTeamRoles, loadActiveWorkflowTypes, loadReadiness, loadOrgSetupExtras]);
+  }, [activeId, fetchMembers, loadActiveWorkflowTypes, loadReadiness, loadOrgSetupExtras]);
 
   // ── Data loading (reused from original) ──
 
@@ -991,44 +884,6 @@ export default function OrgSettingsPage() {
       setApplyingPreset(null);
     }
   };
-
-  const saveStaffCardChange = async (value: string) => {
-    const token = getPreferredToken() || getWalletToken();
-    const rule = staffCardChangeRule(value);
-    if (!token || !activeId) return;
-    const previous = staffCardChange;
-    setStaffCardChange(rule);
-    setSavingStaffCardChange(true);
-    try {
-      await api.put(`/api/organizations/${encodeURIComponent(activeId)}${SETUP_PROFILE_PATH}`, { staffCardChange: rule }, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      feedback.success('Applies the next time a role changes.', { title: 'Saved' });
-    } catch (err: any) {
-      setStaffCardChange(previous);
-      feedback.fromError(err, { title: 'Could not save' });
-    } finally {
-      setSavingStaffCardChange(false);
-    }
-  };
-
-  const changeMemberRole = async (userId: string, role: string | null) => {
-    const token = getPreferredToken();
-    if (!token || !activeId || !role) return;
-    setChangingRole(userId);
-    try {
-      await api.patch(`/api/organizations/${encodeURIComponent(activeId)}/members/${encodeURIComponent(userId)}`, { role }, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      feedback.success(`${ROLE_LABELS[role] || humanizeKey(role)}. A new staff card is on its way to their app inbox.${['owner', 'admin'].includes(String(role).toLowerCase()) ? ' Once they accept it, they can open the organisation and its dashboard.' : ' Their jobs and approvals come to their personal inbox.'}`, { title: 'Role updated' });
-      await fetchMembers(activeId);
-    } catch (err: any) {
-      feedback.fromError(err, { title: 'Could not change role' });
-    } finally {
-      setChangingRole(null);
-    }
-  };
-
 
   const offerActorCredentials = async () => {
     const token = getPreferredToken();
@@ -1251,7 +1106,6 @@ export default function OrgSettingsPage() {
       })
       .then((res) => {
         if (cancelled) return;
-        setStaffCardChange(staffCardChangeRule(res.data?.staffCardChange));
         const server = profileFromServer(res.data);
         setServerProfile(server);
         if (server) {
@@ -1345,7 +1199,7 @@ export default function OrgSettingsPage() {
           if (server) persistOrgProfile(server);
         }
         setPickedTeams(null);
-        await Promise.all([loadDepartments(activeId), loadActiveWorkflowTypes(activeId), loadReadiness(activeId), loadTeamRoles(activeId)]);
+        await Promise.all([loadDepartments(activeId), loadActiveWorkflowTypes(activeId), loadReadiness(activeId)]);
       }
       return res.data;
     } catch (err: any) {
@@ -1423,7 +1277,11 @@ export default function OrgSettingsPage() {
       setOrgQuestion(1);
       return;
     }
-    if (id === 'team' || id === 'brand') {
+    if (id === 'team') {
+      void router.push('/people');
+      return;
+    }
+    if (id === 'brand') {
       setSection(id);
       return;
     }
@@ -1772,8 +1630,8 @@ export default function OrgSettingsPage() {
                           Next: add your logo and document details
                         </Button>
                       )}
-                      <Button size="sm" fullWidth variant={brandConfigured ? 'filled' : 'light'} rightSection={<IconArrowRight size={14} />} onClick={() => { setOrgDone(null); setSection('team'); }}>
-                        Invite your team
+                      <Button size="sm" fullWidth variant={brandConfigured ? 'filled' : 'light'} rightSection={<IconArrowRight size={14} />} onClick={() => { setOrgDone(null); void router.push('/people'); }}>
+                        Add your people
                       </Button>
                     </>
                   ) : null}
@@ -1807,7 +1665,7 @@ export default function OrgSettingsPage() {
                   <Stack gap={2}>
                     <Text size="xs" fw={600}>Roles</Text>
                     <Text size="sm">{orgReview.roles.map((role) => (role.status === 'new' ? `${role.name} (new)` : role.name)).join(', ')}</Text>
-                    <Text size="xs" c="dimmed">Invite people into these roles under Organisation → Members.</Text>
+                    <Text size="xs" c="dimmed">Add people into these roles under People.</Text>
                   </Stack>
                   {(orgReview.mainPeople?.length ?? 0) > 0 && (
                     <Stack gap={2}>
@@ -2226,7 +2084,7 @@ export default function OrgSettingsPage() {
                           <Group key={item.key} justify="space-between" wrap="nowrap">
                             <Text size="sm">{plainReadinessTitle(item)}</Text>
                             {target && item.status !== 'pending_external' ? (
-                              <Button size="compact-xs" variant="subtle" onClick={() => setSection(SECTION_FOR_FIX[target])}>
+                              <Button size="compact-xs" variant="subtle" onClick={() => (target === 'members' ? void router.push('/people') : setSection(SECTION_FOR_FIX[target]))}>
                                 Open
                               </Button>
                             ) : (
@@ -2285,7 +2143,7 @@ export default function OrgSettingsPage() {
 
             {(section === 'roles' || section === 'authorities') && canManageOrgSetup && activeId && (
               <OrgPermissionsSettings key={activeId} orgId={activeId} section={section} onChanged={async () => {
-                await Promise.all([loadTeamRoles(activeId), fetchMembers(activeId), loadReadiness(activeId)]);
+                await Promise.all([fetchMembers(activeId), loadReadiness(activeId)]);
               }} />
             )}
 
@@ -2681,163 +2539,6 @@ export default function OrgSettingsPage() {
             ) : (
               <Alert color="gray" variant="light">Only owners and admins can change the brand.</Alert>
             ))}
-
-            {/* ── Member Management ── */}
-            {section === 'team' && (
-            <Paper id="org-card-members" p="md" radius="md" withBorder>
-              <Stack gap="sm">
-                <Group justify="space-between" align="start">
-                  <Box>
-                    <Group gap="xs"><IconUsers size={18} color="var(--mantine-color-indigo-6)" /><Text fw={700}>Team members</Text></Group>
-                    <Text size="xs" c="dimmed" mt={4}>
-                      {onboardingRows.length > 0
-                        ? (() => { const c = readyCount(onboardingRows); return c.ready === c.total ? 'Everyone has what they need in the app.' : `${c.ready} of ${c.total} ready. Tap a person to see what is still missing.`; })()
-                        : 'Invite, manage roles, and remove members from this organisation.'}
-                    </Text>
-                  </Box>
-                  {canManageOrgSetup && (
-                    <Button size="xs" leftSection={<IconUserPlus size={14} />} onClick={() => setShowInvite((s) => !s)}>Invite</Button>
-                  )}
-                </Group>
-
-                <Collapse in={showInvite && canManageOrgSetup}>
-                  <Paper p="sm" radius="sm" withBorder>
-                    <Stack gap="xs">
-                      <TextInput label="Their name" description="They confirm or correct it when they open their invite." placeholder="e.g. Rudo Moyo" value={inviteName} onChange={(e) => setInviteName(e.target.value)} size="xs" required />
-                      <PhoneField surface="phone" label="Phone number" description="They get a one-time link on this number to choose their own PIN." value={invitePhone} onChange={setInvitePhone} required />
-                      <Checkbox size="xs" checked={inviteWhatsApp} onChange={(e) => setInviteWhatsApp(e.currentTarget.checked)} label="They agreed to get the invite on WhatsApp" description="Otherwise we send a text message." />
-                      <Select label="Role" description="These follow the answers from setup." size="xs" value={inviteRole} onChange={setInviteRole} data={teamRoleChoices} />
-                      <Group justify="flex-end">
-                        <Button size="xs" variant="subtle" onClick={() => setShowInvite(false)}>Cancel</Button>
-                        <Button size="xs" loading={inviting} disabled={!invitePhone.trim() || inviteName.trim().length < 2} onClick={handleInviteMember}>Send Invite</Button>
-                      </Group>
-                    </Stack>
-                  </Paper>
-                </Collapse>
-
-                {membersLoading ? (
-                  <Center py="xs"><Loader size="sm" /></Center>
-                ) : memberList.length === 0 ? (
-                  <Text size="xs" c="dimmed">{canManageOrgSetup ? 'No members yet. Invite your team above.' : 'No other members yet.'}</Text>
-                ) : (
-                  <Stack gap="xs">
-                    {memberList.map((m) => {
-                      const ob = onboardingRows.find((row) => row.userId === m.userId);
-                      const open = expandedMember === m.userId;
-                      return (
-                      <Paper key={m.userId} p="xs" radius="sm" withBorder>
-                        <Group justify="space-between" align="center" wrap="nowrap">
-                          <Box style={{ flex: 1, minWidth: 0 }}>
-                            <Group gap={6} wrap="nowrap" onClick={() => ob && setExpandedMember(open ? null : m.userId)} style={{ cursor: ob ? 'pointer' : undefined }}>
-                              <Text size="xs" fw={600} truncate>{personName(m)}</Text>
-                              {ob && (
-                                <Badge size="xs" variant="light" color={SUMMARY_COLOR[ob.summary]}>
-                                  {SUMMARY_LABEL[ob.summary]}
-                                  {ob.summary !== 'ready' && ob.summary !== 'no_app' ? ` · ${ob.cards.filter((c) => c.state === 'accepted').length}/${ob.cards.length}` : ''}
-                                </Badge>
-                              )}
-                            </Group>
-                            {m.phone && personName(m) !== m.phone && <Text size="10px" c="dimmed">{m.phone}</Text>}
-                            <Group gap={4} mt={2}>
-                              {canManageOrgSetup && m.role !== 'owner' ? (
-                                <Select
-                                  size="xs"
-                                  data={teamRoleChoices.some((choice) => choice.value === m.role) ? teamRoleChoices : [...teamRoleChoices, { value: m.role, label: ROLE_LABELS[m.role] || humanizeKey(m.role) }]}
-                                  value={m.role}
-                                  disabled={changingRole === m.userId}
-                                  onChange={(value) => void changeMemberRole(m.userId, value)}
-                                  allowDeselect={false}
-                                  style={{ width: 150 }}
-                                />
-                              ) : (
-                                <Badge size="xs" variant="light" color="indigo">{ROLE_LABELS[m.role] || humanizeKey(m.role)}</Badge>
-                              )}
-                              <Badge size="xs" variant="outline" color={memberAccessBadge(m.role).color}>{memberAccessBadge(m.role).label}</Badge>
-                              {m.walletTenantId && !m.invitePending && <Badge size="xs" variant="dot" color="teal">App installed</Badge>}
-                              {m.invitePending && <Badge size="xs" variant="light" color="orange">Invite not opened</Badge>}
-                              {m.invitePending && canManageOrgSetup && (
-                                <Button size="compact-xs" variant="subtle" loading={resendingInvite === m.userId} onClick={() => void resendInvite(m.userId)}>Resend invite</Button>
-                              )}
-                              <Badge size="xs" variant="light" color={m.status === 'active' ? 'green' : 'gray'}>{m.status === 'active' ? 'Active' : m.status === 'suspended' ? 'Suspended' : 'Invited'}</Badge>
-                            </Group>
-                          </Box>
-                          <Button size="xs" variant="subtle" color="red" leftSection={<IconTrash size={12} />} onClick={() => handleRemoveMember(m.userId)}>
-                            Remove
-                          </Button>
-                        </Group>
-                        {ob && (
-                          <Collapse in={open}>
-                            <Stack gap={6} mt="xs">
-                              <Text size="xs">{ob.nextStep}</Text>
-                              <Group justify="space-between" wrap="nowrap">
-                                <Group gap={6} wrap="nowrap">
-                                  <ThemeIcon radius="xl" size="xs" color={ob.hasApp ? 'teal' : 'gray'} variant={ob.hasApp ? 'filled' : 'light'}>{ob.hasApp ? <IconCheck size={10} /> : null}</ThemeIcon>
-                                  <Text size="xs">Signed in to the app</Text>
-                                </Group>
-                                <Badge size="xs" variant="light" color={ob.hasApp ? 'teal' : 'gray'}>{ob.hasApp ? 'Done' : 'Not yet'}</Badge>
-                              </Group>
-                              {ob.cards.map((card) => (
-                                <Box key={`${card.kind}:${card.workflowType || ''}`}>
-                                  <Group justify="space-between" wrap="nowrap" align="start">
-                                    <Group gap={6} wrap="nowrap" align="start">
-                                      <ThemeIcon radius="xl" size="xs" color={card.state === 'accepted' ? 'teal' : 'gray'} variant={card.state === 'accepted' ? 'filled' : 'light'}>{card.state === 'accepted' ? <IconCheck size={10} /> : null}</ThemeIcon>
-                                      <Box>
-                                        <Text size="xs">{card.label}</Text>
-                                        <Text size="10px" c="dimmed">{cardPurpose(card)}</Text>
-                                        {cardResendHint(card) && <Text size="10px" c="dimmed">{cardResendHint(card)}</Text>}
-                                      </Box>
-                                    </Group>
-                                    <Stack gap={2} align="end">
-                                      <Badge size="xs" variant="light" color={CARD_STATE_COLOR[card.state]}>{CARD_STATE_LABEL[card.state]}</Badge>
-                                      {canManageOrgSetup && ob.hasApp && cardCanResend(card) && (
-                                        <Button size="compact-xs" variant="subtle" loading={sendingCards === `${ob.userId}:${card.kind}`} onClick={() => void sendMemberCards(ob.userId, card.kind)}>
-                                          {card.state === 'not_sent' ? 'Send' : 'Send again'}
-                                        </Button>
-                                      )}
-                                    </Stack>
-                                  </Group>
-                                </Box>
-                              ))}
-                              {ob.hasApp && !(ob.cards.find((card) => card.kind === 'employee')?.covers?.length) && (
-                                <Text size="10px" c="dimmed">Their staff card is enough for now. Who goes out and who checks the work is chosen on each job.</Text>
-                              )}
-                              {canManageOrgSetup && ob.hasApp && ob.summary !== 'ready' && (
-                                <Button size="xs" loading={sendingCards === `${ob.userId}:all`} onClick={() => void sendMemberCards(ob.userId, 'all')} style={{ alignSelf: 'flex-start' }}>
-                                  Send everything missing
-                                </Button>
-                              )}
-                            </Stack>
-                          </Collapse>
-                        )}
-                      </Paper>
-                      );
-                    })}
-                  </Stack>
-                )}
-
-                {canManageOrgSetup && (
-                  <Paper p="sm" radius="sm" withBorder>
-                    <Stack gap="xs">
-                      <Text size="sm" fw={600}>When a role changes</Text>
-                      <Text size="xs" c="dimmed">
-                        The person gets a new staff card in their app inbox. Choose what happens to the one they already hold.
-                      </Text>
-                      <Radio.Group value={staffCardChange} onChange={(value) => void saveStaffCardChange(value)}>
-                        <Stack gap="xs">
-                          {STAFF_CARD_CHANGE_OPTIONS.map((option) => (
-                            <Radio key={option.value} value={option.value} size="xs" label={option.label} description={option.hint} disabled={savingStaffCardChange} />
-                          ))}
-                        </Stack>
-                      </Radio.Group>
-                      <Text size="10px" c="dimmed">
-                        When someone leaves, their staff card stops working straight away. Either way, the earlier card stays on their phone until they remove it from Records.
-                      </Text>
-                    </Stack>
-                  </Paper>
-                )}
-              </Stack>
-            </Paper>
-            )}
 
             {canManageOrgSetup && section === 'store' && activeId && (
             <>

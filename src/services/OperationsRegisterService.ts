@@ -28,6 +28,7 @@ import {
 } from '../config/fieldJobCategory'
 import { getWorkflowTypeForWorkflow, normalizeWorkflowTypeAlias } from './workflow/initiation'
 import { OrganizationService } from './OrganizationService'
+import { payrollService } from './PayrollService'
 
 export type VanStatus = 'active' | 'off_road' | 'retired'
 export type VanEventKind = 'allocated' | 'service' | 'mot' | 'accident'
@@ -403,6 +404,8 @@ export class OperationsRegisterService {
   }
 
   public listAttendants(orgTenantId: string): AttendantSummary[] {
+    // Every team member has an employee record (People & payroll), where the staff number lives.
+    payrollService.syncTeam(orgTenantId, this.members(orgTenantId))
     const profiles = this.profiles(orgTenantId)
     const vans = this.listVans(orgTenantId)
     const jobs = this.listJobs(orgTenantId)
@@ -431,6 +434,7 @@ export class OperationsRegisterService {
     if (!this.members(orgTenantId).some((member: any) => String(member.userId) === userId)) {
       throw new Error('That person is not an active member of this organisation')
     }
+    payrollService.syncTeam(orgTenantId, this.members(orgTenantId))
     const staffNumber = clean(input.staffNumber, 40).toUpperCase()
     if (!staffNumber) throw new Error('Add a staff number')
     const taken = this.db
@@ -449,9 +453,7 @@ export class OperationsRegisterService {
           WHERE tenant_id = ? AND user_id = ?`,
       )
       .run(staffNumber, JSON.stringify(skills), orgTenantId, userId)
-    if (!updated.changes) {
-      throw new Error('Add this person under Payroll, Employees, and link their team account')
-    }
+    if (!updated.changes) throw new Error('That person has no record yet. Open People & payroll and try again.')
     return this.listAttendants(orgTenantId).find((item) => item.userId === userId)!
   }
 
