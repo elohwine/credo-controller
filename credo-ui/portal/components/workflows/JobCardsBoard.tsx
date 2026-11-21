@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useContext } from 'react';
+import React, { useState, useEffect, useCallback, useContext, useRef } from 'react';
 import axios from 'axios';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/router';
@@ -219,15 +219,8 @@ export default function JobCardsBoard() {
         fetchJobs();
     }, [fetchJobs]);
 
-    // `/finance/job-cards?runId=…` opens that job straight away (inbox and finance links land here).
     const router = useRouter();
-    useEffect(() => {
-        if (!router.isReady) return;
-        const runId = String(router.query.runId || '').trim();
-        if (!runId || jobs.length === 0) return;
-        const match = jobs.find((job) => String(job.id) === runId);
-        if (match) setSelectedJob((current) => (current && String(current.id) === runId ? current : match));
-    }, [router.isReady, router.query.runId, jobs]);
+    const openedFromQuery = useRef<string | null>(null);
 
     // A stuck job may be older than the 50 runs on the board: load it by itself when it is not there.
     const openJobById = async (runId: string) => {
@@ -248,6 +241,21 @@ export default function JobCardsBoard() {
             notify('That job could not be opened. Refresh the list and try again.', 'error');
         }
     };
+
+    // `/finance/job-cards?runId=…` opens that job. If it is older than the loaded board, fetch it.
+    useEffect(() => {
+        if (!router.isReady || loading) return;
+        const runId = String(router.query.runId || '').trim();
+        if (!runId) return;
+        const match = jobs.find((job) => String(job.id) === runId);
+        if (match) {
+            setSelectedJob((current) => (current && String(current.id) === runId ? current : match));
+            return;
+        }
+        if (openedFromQuery.current === runId) return;
+        openedFromQuery.current = runId;
+        void openJobById(runId);
+    }, [router.isReady, router.query.runId, jobs, loading]);
 
     const filteredJobs = jobs.filter((job) => {
         if (statusFilter === 'all') return true

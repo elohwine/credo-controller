@@ -540,7 +540,7 @@ function mapStageCardToRow(card: StageCardApiRow): RequestRow | null {
   const workflowRunId = String(
     card.workflowRunId
       || claims.workflowRunId
-      || String(card.sourceId || '').replace(/:(signoff|payout|review|inspection|safety-hold:[^:]+|safety-resume:[^:]+)(:delegation:.*)?$/i, ''),
+      || String(card.sourceId || '').replace(/:(signoff|payout|review|inspection|safety-hold:[^:]+|safety-resume:[^:]+|failed-visit:[^:]+|rebooked:[^:]+)(:delegation:.*)?$/i, ''),
   ).trim()
   if (!workflowRunId) return null
   const stageAction = String(claims.stageAction || '').toLowerCase()
@@ -2530,6 +2530,11 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
               const row = entry.row!
               const rowAttention = inboxAttention({ status: normalizeStatus(row.status), isRead: openedIds.has(row.id), stillOpen: Boolean(row.nextStep) })
               const newRowStyle = mode === 'inbox' && rowAttention === 'done' ? { opacity: 0.8 } : undefined
+              // A card has to sit above the page in both schemes. The default paper matches the dark page, so it disappears.
+              const inboxSurface = {
+                background: 'light-dark(var(--mantine-color-white), var(--mantine-color-dark-5))',
+                borderColor: 'light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-3))',
+              }
               if (isRecordOfferRow(row)) {
                 const recordAt = formatTxnTime(inboxActivityIso(row))
                 const sourceType = String(parseRequestContext(row).offerSourceType || 'workflow_vc_offer')
@@ -2546,7 +2551,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
                     p="md"
                     data-inbox-item={row.inboxItemId || undefined}
                     {...(sourceType === 'platform_identity' ? { [CARD_TARGET_ATTR]: 'identity' } : null)}
-                    style={{ ...newRowStyle, ...(highlighted ? { boxShadow: '0 0 0 2px var(--mantine-color-blue-filled)' } : null) }}
+                    style={{ ...inboxSurface, ...newRowStyle, ...(highlighted ? { boxShadow: '0 0 0 2px var(--mantine-color-blue-filled)' } : null) }}
                   >
                     <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
                       <Avatar radius="xl" size="sm" color="gray" variant="light">{inboxInitials(fromLine)}</Avatar>
@@ -2559,13 +2564,13 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
                         {row.description && <Text size="xs" c={rowAttention === 'new' ? undefined : 'dimmed'} fw={rowAttention === 'new' ? 600 : undefined} mt={6} lineClamp={2}>{row.description}</Text>}
                         <Group gap={6} mt={8} wrap="wrap">
                           <Text size="xs" c="dimmed">{entry.label || 'Cards'}</Text>
-                          <Badge size="xs" color="gray" variant="light">Waiting</Badge>
+                          <Badge size="xs" color="orange" variant="light">Waiting</Badge>
                           <Text size="xs" c="dimmed">Your step: {recordStep}</Text>
                         </Group>
                       </Box>
                       <Stack gap={4} align="flex-end" style={{ flexShrink: 0 }}>
                         {rowAttention === 'new' && <UnreadCount count={1} />}
-                        <Button size="xs" variant="subtle" color="gray" loading={keepingRecordId === row.id} onClick={() => void keepRecordOffer(row)}>
+                        <Button size="xs" variant="light" color="credentis" loading={keepingRecordId === row.id} onClick={() => void keepRecordOffer(row)}>
                           {isReceipt ? 'Keep record' : 'Accept card'}
                         </Button>
                       </Stack>
@@ -2605,7 +2610,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
                   || row.description
                   || (row.nextStep?.label || currentStage?.label ? `Next: ${row.nextStep?.label || currentStage?.label}` : '')
                 return (
-                  <Paper key={entry.key} withBorder radius="md" p="md" style={newRowStyle}>
+                  <Paper key={entry.key} withBorder radius="md" p="md" style={{ ...inboxSurface, ...newRowStyle }}>
                     <UnstyledButton
                       onClick={() => openRequestDetails(row)}
                       aria-label={`Open ${row.title || requestKindLabel(requestType)}`}
@@ -2624,7 +2629,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
                           {detail && <Text size="xs" c={rowAttention === 'new' ? undefined : 'dimmed'} fw={rowAttention === 'new' ? 600 : undefined} mt={6} lineClamp={2}>{detail}</Text>}
                           <Group gap={6} mt={8} wrap="wrap">
                             <Text size="xs" c="dimmed">{entry.label || INBOX_TAB_LABELS[requestCategoryTab]}</Text>
-                            <Badge size="xs" color="gray" variant="light">{inboxStatusWord(row)}</Badge>
+                            <Badge size="xs" color={inboxStatusWord(row) === 'Waiting' ? 'orange' : inboxStatusWord(row) === 'Declined' ? 'red' : 'gray'} variant="light">{inboxStatusWord(row)}</Badge>
                             {stepRequired && rowAttention !== 'done' && (
                               <Text size="xs" c="dimmed">Your step: {stepRequired}</Text>
                             )}
@@ -2654,7 +2659,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
                   withBorder
                   radius="md"
                   p="md"
-                  style={newRowStyle}
+                  style={{ ...inboxSurface, ...newRowStyle }}
                 >
                   <UnstyledButton
                     onClick={() => openRequestDetails(row)}

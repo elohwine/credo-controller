@@ -222,6 +222,7 @@ export const REQUEST_FAMILIES: RequestFamilyDeclaration[] = [
       ['review_completion', ['field.review', 'field_review', 'review_completion']],
       ['resolve_safety_hold', ['field.safety_hold', 'field_safety_hold', 'resolve_safety_hold']],
       ['assess_risk', ['field.safety_resume', 'field_safety_resume', 'assess_risk']],
+      ['dispatch_job', ['field.failed_visit', 'field_failed_visit', 'dispatch_job']],
       ['acknowledge_execution', ['field.signoff', 'field_signoff', 'acknowledge_execution']],
       ['trigger_payout', ['field.payout', 'field_payout', 'trigger_payout', 'finance.payout_request']],
     ] satisfies Array<[RequestStageAction, string[]]>

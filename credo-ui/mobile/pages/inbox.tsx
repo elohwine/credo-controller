@@ -945,6 +945,8 @@ function WorkflowGroupRow({ group, isExpanded, onToggleExpand, onItemClick, atte
         overflow: 'hidden',
         cursor: 'default',
         opacity: attention === 'done' && !isNew ? 0.8 : 1,
+        background: 'light-dark(var(--mantine-color-white), var(--mantine-color-dark-5))',
+        borderColor: 'light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-3))',
       }}
     >
       {/* Primary item header — always visible, click to open detail sheet */}
@@ -1771,7 +1773,7 @@ export default function InboxPage() {
             ? normalizeRunId(
               o.workflowRunId
               || claim.workflowRunId
-              || String(o.sourceId || '').replace(/:(signoff|payout|review|inspection|safety-hold:[^:]+|safety-resume:[^:]+)(:delegation:.*)?$/i, ''),
+              || String(o.sourceId || '').replace(/:(signoff|payout|review|inspection|safety-hold:[^:]+|safety-resume:[^:]+|failed-visit:[^:]+|rebooked:[^:]+)(:delegation:.*)?$/i, ''),
             )
             : undefined;
           if (isFieldStage && stageRunId) {

@@ -14,6 +14,14 @@ import type { WorkflowActionContext } from '../ActionRegistry'
 
 import { createHash, randomUUID } from 'crypto'
 
+import {
+  failedVisitReasonLabel,
+  failedVisitsOf,
+  isFailedVisitReason,
+  openFailedVisit,
+  rebookDateError,
+  type FailedVisit,
+} from '../../../config/failedVisit'
 import { DatabaseManager } from '../../../persistence/DatabaseManager'
 import { workflowRunRepository } from '../../../persistence/WorkflowRunRepository'
 import { rootLogger } from '../../../utils/pinoLogger'
@@ -318,6 +326,18 @@ function safetyHoldCardId(runId: string, holdId: string): string {
 function safetyResumeCardId(runId: string, holdId: string): string {
   return `${runId}:safety-resume:${holdId}`
 }
+function failedVisitCardId(runId: string, visitId: string): string {
+  return `${runId}:failed-visit:${visitId}`
+}
+
+/** Steps that happen in the office, after the work, or before anyone is sent: no visit to fail. */
+const NOT_ON_SITE_STEPS = new Set([
+  AWAIT_ASSIGNMENT,
+  'await_job_price',
+  'await_completion_review',
+  'await_acknowledgement',
+  'await_payout_release',
+])
 
 function emitFeptOutboxEvent(params: {
   context: WorkflowActionContext
@@ -1109,6 +1129,174 @@ export class FieldExecutionActions {
     })
 
     return { holdId: hold.id, status: 'resolved', resolvedAt: now, resolvedBy: actedByUserId, resolutionNote }
+  }
+
+  /**
+   * The worker went out and could not finish (no access, store closed, parts needed…). The job
+   * stays on the step it reached and waits for the office to re-book it; the office is told.
+   * A job holds one open failed visit, so sending the same report again records nothing new.
+   */
+  public static reportFailedVisit(
+    runId: string,
+    params: { reason: string; note?: string },
+    reportedBy?: string,
+  ): { visit: FailedVisit; created: boolean } {
+    const run = workflowRunRepository.findRunById(runId)
+    if (!run) throw new Error(`Run not found: ${runId}`)
+    const state = (run.output && typeof run.output === 'object' ? { ...run.output } : {}) as Record<string, any>
+    const open = openFailedVisit(state)
+    if (open) return { visit: open, created: false }
+
+    const stage = String(state.workflowStage || '').toUpperCase()
+    const pauseReason = String(state.pauseReason || '').toLowerCase()
+    if (run.status !== 'paused' || ['COMPLETED', 'CANCELLED', 'REVOKED'].includes(stage)) {
+      throw new Error('Only a job that is still under way can have a failed visit.')
+    }
+    if (!pauseReason.startsWith('await_') || NOT_ON_SITE_STEPS.has(pauseReason)) {
+      throw new Error('A failed visit is reported while the job is out on site, before the work is finished.')
+    }
+    if (!isFailedVisitReason(params.reason)) throw new Error('Choose why the visit could not be finished.')
+    const note = String(params.note || '')
+      .trim()
+      .slice(0, 1000)
+    if (params.reason === 'other' && !note) throw new Error('Say what stopped the visit.')
+
+    const input = (run.input && typeof run.input === 'object' ? run.input : {}) as Record<string, any>
+    const visit: FailedVisit = {
+      id: randomUUID(),
+      reason: params.reason,
+      ...(note ? { note } : {}),
+      at: new Date().toISOString(),
+      by: reportedBy,
+      workerId: explicitAssignee(state.assignment?.assigneeId || input.assigneeId),
+      status: 'open',
+    }
+    state.failedVisits = [...failedVisitsOf(state), visit]
+    DatabaseManager.getDatabase().prepare(`UPDATE workflow_runs SET output = ? WHERE id = ?`).run(JSON.stringify(state), runId)
+
+    const jobRef = jobRefOf(input, runId)
+    const why = `${failedVisitReasonLabel(visit.reason)}${note ? `: ${note}` : ''}`
+    try {
+      routeWorkflowStageInbox({
+        orgTenantId: run.tenantId,
+        requestType: 'field.failed_visit',
+        workflowType: 'field_execution_fept',
+        sourceId: failedVisitCardId(runId, visit.id),
+        title: `Visit failed on job ${jobRef}`,
+        body: `The visit could not be finished. ${why}. Re-book the job with a new date.`,
+        amount: typeof input.amount === 'number' ? input.amount : undefined,
+        extraMetadata: {
+          workflowRunId: runId,
+          workflowStage: state.workflowStage,
+          pauseReason: state.pauseReason,
+          failedVisitId: visit.id,
+          reportedBy,
+        },
+      })
+    } catch (error: any) {
+      logger.warn({ error: error?.message, runId }, 'Failed visit inbox card was not written')
+    }
+
+    new ReconciliationService().recordEvent(providerRefOf(input, runId), 'FAILED_VISIT_REPORTED', 'workflow', {
+      tenantId: run.tenantId,
+      failedVisitId: visit.id,
+      reason: visit.reason,
+      note,
+      reportedBy,
+      workerId: visit.workerId,
+      reportedAt: visit.at,
+    })
+    return { visit, created: true }
+  }
+
+  /**
+   * The office gave a failed visit a new date (and, if it chose, a van). The job carries on from
+   * the step it reached. Moving it to another worker is done first by `reassignRun`.
+   */
+  public static rebookFailedVisit(
+    runId: string,
+    visitId: string,
+    params: { scheduledDate: string; vanId?: string; note?: string; reassigned?: boolean },
+    actedByUserId?: string,
+  ): { visit: FailedVisit; scheduledDate: string } {
+    const run = workflowRunRepository.findRunById(runId)
+    if (!run) throw new Error(`Run not found: ${runId}`)
+    const state = (run.output && typeof run.output === 'object' ? { ...run.output } : {}) as Record<string, any>
+    const visits = failedVisitsOf(state)
+    const visit = visits.find((item) => String(item?.id || '') === String(visitId || ''))
+    if (!visit) throw new Error('That failed visit is not on this job.')
+    if (visit.status === 'rebooked') return { visit, scheduledDate: String(visit.rebookedFor || '') }
+
+    const scheduledDate = String(params.scheduledDate || '').trim()
+    const dateError = rebookDateError(scheduledDate)
+    if (dateError) throw new Error(dateError)
+
+    const db = DatabaseManager.getDatabase()
+    const input = { ...((run.input && typeof run.input === 'object' ? run.input : {}) as Record<string, any>) }
+    const vanId = String(params.vanId || '').trim()
+    if (vanId) {
+      const van = db
+        .prepare(`SELECT registration, status FROM org_vans WHERE id = ? AND org_tenant_id = ? LIMIT 1`)
+        .get(vanId, run.tenantId) as { registration?: string; status?: string } | undefined
+      if (!van?.registration) throw new Error('That van is not on the register.')
+      if (van.status !== 'active') throw new Error(`Van ${van.registration} is not on the road.`)
+      input.vanId = vanId
+      input.vehicleReference = van.registration
+    }
+    input.scheduledDate = scheduledDate
+
+    const now = new Date().toISOString()
+    const note = String(params.note || '')
+      .trim()
+      .slice(0, 1000)
+    const assigneeId = explicitAssignee(state.assignment?.assigneeId || input.assigneeId)
+    visit.status = 'rebooked'
+    visit.rebookedAt = now
+    visit.rebookedBy = actedByUserId
+    visit.rebookedFor = scheduledDate
+    visit.rebookedTo = assigneeId
+    if (note) visit.rebookNote = note
+    state.failedVisits = visits
+    if (state.workflowInput && typeof state.workflowInput === 'object') {
+      state.workflowInput = {
+        ...state.workflowInput,
+        scheduledDate,
+        ...(vanId ? { vanId, vehicleReference: input.vehicleReference } : {}),
+      }
+    }
+    db.prepare(`UPDATE workflow_runs SET input = ?, output = ? WHERE id = ?`).run(JSON.stringify(input), JSON.stringify(state), runId)
+
+    FieldExecutionActions.closeStageCards(runId, failedVisitCardId(runId, visit.id))
+    const jobRef = jobRefOf(input, runId)
+    // A job moved to someone else already sent them its card; the same worker is told the new date.
+    if (!params.reassigned && assigneeId) {
+      try {
+        routeWorkflowStageInbox({
+          orgTenantId: run.tenantId,
+          requestType: 'field.site_access',
+          workflowType: 'field_execution_fept',
+          sourceId: `${runId}:rebooked:${visit.id}`,
+          assigneeUserId: assigneeId,
+          title: `Job ${jobRef} re-booked for ${scheduledDate}`,
+          body: `Go back on ${scheduledDate}${input.vehicleReference ? ` with van ${input.vehicleReference}` : ''}.${note ? ` ${note}` : ''} The job carries on from where it stopped.`,
+          amount: typeof input.amount === 'number' ? input.amount : undefined,
+          extraMetadata: { workflowRunId: runId, failedVisitId: visit.id, rebookedBy: actedByUserId },
+        })
+      } catch (error: any) {
+        logger.warn({ error: error?.message, runId }, 'Re-booked job inbox card was not written')
+      }
+    }
+
+    new ReconciliationService().recordEvent(providerRefOf(input, runId), 'FAILED_VISIT_REBOOKED', 'workflow', {
+      tenantId: run.tenantId,
+      failedVisitId: visit.id,
+      rebookedBy: actedByUserId,
+      rebookedFor: scheduledDate,
+      rebookedTo: assigneeId,
+      vanId: vanId || undefined,
+      note,
+    })
+    return { visit, scheduledDate }
   }
 
   /**

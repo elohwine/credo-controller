@@ -525,6 +525,7 @@ const STEP_REQUIRED_LABEL: Record<string, string> = {
   capture_evidence: 'Add photos',
   review_completion: 'Review work',
   resolve_safety_hold: 'Sort out the safety hold',
+  dispatch_job: 'Re-book the job',
   acknowledge_execution: 'Sign off job',
   trigger_payout: 'Release worker payout',
   release_funds: 'Release payment',

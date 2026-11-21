@@ -46,6 +46,7 @@ import {
   type RunHandoffsView,
 } from '../../services/workflow/WorkflowHandoffService'
 import { FieldExecutionActions } from '../../services/workflow/actions/FieldExecutionActions'
+import type { FailedVisit } from '../../config/failedVisit'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 import { requireDeviceTrust } from '../../services/deviceAssertion'
 
@@ -684,6 +685,85 @@ export class WorkflowController extends Controller {
       if (idempotency.key) IdempotencyGuard.record(db, idempotency.key, run.tenantId, action, result)
       IdempotencyGuard.record(db, naturalKey, run.tenantId, action, result)
       return result
+    } catch (error: any) {
+      this.setStatus(this.statusOf(error))
+      return { error: error.message }
+    }
+  }
+
+  /** The job's worker, or whoever books jobs (dispatcher, manager, owner, admin). */
+  private mayBookJob(run: { tenantId: string }, userId: string): boolean {
+    return orgWorkflowActorService.mayAct({
+      orgTenantId: run.tenantId,
+      workflowType: 'field_execution_fept',
+      stageAction: 'dispatch_job',
+      userId,
+    }).allowed
+  }
+
+  /**
+   * The visit could not be finished (no access, store closed, parts needed…). The job's worker
+   * reports it from site, or the office logs it for them. The job waits for a re-booking.
+   */
+  @Post('runs/{runId}/failed-visit')
+  @Security('jwt', ['tenant'])
+  public async reportFailedVisit(
+    @Path() runId: string,
+    @Body() body: { reason: string; note?: string },
+    @Request() request: ExRequest,
+  ): Promise<{ visit: FailedVisit; created: boolean } | { error: string }> {
+    try {
+      const user = (request as any).user || {}
+      const callerUserId = String(user.id || '')
+      const run = workflowRunRepository.findRunById(runId)
+      if (!run || !canAccessRun(user, run)) throw new StatusException(`Run not found: ${runId}`, 404)
+      const state = (run.output && typeof run.output === 'object' ? run.output : {}) as Record<string, any>
+      const assigneeId = String(state.assignment?.assigneeId || (run.input as any)?.assigneeId || '')
+      if (!callerUserId || (assigneeId !== callerUserId && !this.mayBookJob(run, callerUserId))) {
+        throw new StatusException('Only the worker on this job or the person who books jobs can report a failed visit.', 403)
+      }
+      return workflowService.reportFailedVisit(
+        runId,
+        { reason: String(body?.reason || ''), note: body?.note },
+        callerUserId,
+      )
+    } catch (error: any) {
+      this.setStatus(this.statusOf(error))
+      return { error: error.message }
+    }
+  }
+
+  /** Give a failed visit a new date, and optionally another worker or van. */
+  @Post('runs/{runId}/failed-visits/{visitId}/rebook')
+  @Security('jwt', ['tenant'])
+  public async rebookFailedVisit(
+    @Path() runId: string,
+    @Path() visitId: string,
+    @Body() body: { scheduledDate: string; assigneeUserId?: string; vanId?: string; note?: string },
+    @Request() request: ExRequest,
+  ): Promise<{ visit: FailedVisit; scheduledDate: string } | { error: string }> {
+    try {
+      const user = (request as any).user || {}
+      const callerUserId = String(user.id || '')
+      const run = workflowRunRepository.findRunById(runId)
+      if (!run) throw new StatusException(`Run not found: ${runId}`, 404)
+      if (!user.tenantId || run.tenantId !== user.tenantId) {
+        throw new StatusException('This job belongs to another organization.', 403)
+      }
+      if (!callerUserId || !this.mayBookJob(run, callerUserId)) {
+        throw new StatusException('Only the person who books jobs, or an organization admin, can re-book a job.', 403)
+      }
+      return await workflowService.rebookFailedVisit(
+        runId,
+        visitId,
+        {
+          scheduledDate: String(body?.scheduledDate || ''),
+          assigneeUserId: body?.assigneeUserId,
+          vanId: body?.vanId,
+          note: body?.note,
+        },
+        callerUserId,
+      )
     } catch (error: any) {
       this.setStatus(this.statusOf(error))
       return { error: error.message }

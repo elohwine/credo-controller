@@ -12,6 +12,7 @@ import {
   type StaffCardChangeRule,
 } from '../orgOnboarding'
 import { SETUP_PROFILE_PATH } from '../orgProfile'
+import type { FailedVisit } from '../../../src/config/failedVisit'
 
 export type JobCategory = 'pending' | 'assigned' | 'active' | 'on_hold' | 'failed' | 'completed' | 'reconciled' | 'cancelled'
 
@@ -389,6 +390,23 @@ export function operationsApi(backend: string, token: string | null | undefined)
       call<{ staffCardChange?: string }>(`${orgBase(org)}${SETUP_PROFILE_PATH}`).then((data) => staffCardChangeRule(data?.staffCardChange)),
     saveStaffCardChange: (org: string, rule: StaffCardChangeRule) =>
       call(`${orgBase(org)}${SETUP_PROFILE_PATH}`, { method: 'PUT', body: { staffCardChange: rule } }),
+    reportFailedVisit: (runId: string, input: { reason: string; note?: string }) =>
+      call<{ visit: FailedVisit; created: boolean }>(`/workflows/runs/${encodeURIComponent(runId)}/failed-visit`, {
+        method: 'POST',
+        body: { reason: input.reason, ...(input.note ? { note: input.note } : {}) },
+      }),
+    rebookFailedVisit: (
+      runId: string,
+      visitId: string,
+      input: { scheduledDate: string; assigneeUserId?: string; vanId?: string; note?: string },
+    ) =>
+      call<{ visit: FailedVisit; scheduledDate: string }>(
+        `/workflows/runs/${encodeURIComponent(runId)}/failed-visits/${encodeURIComponent(visitId)}/rebook`,
+        {
+          method: 'POST',
+          body: Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined && value !== '')),
+        },
+      ),
     mailStatus: () => call<MailStatus>('/api/platform/job-intake/mail'),
     mailSync: () =>
       call<{ imported: number; repeats: number; alreadySaved: number; skipped: number; failed: number; error?: string }>(

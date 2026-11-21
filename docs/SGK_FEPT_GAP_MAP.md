@@ -412,6 +412,38 @@ Order:
 
 A job booked from Discover has no amount. It used to skip the client bill (`has_customer_charge` did not match) and close as settled. It now pauses after sign-off until an owner or admin sets the price and how the client pays, on the job, on either app. The bill then goes out by itself, and the job is not settled until that bill is paid. "No charge" finishes the job with no bill. A job the office created with an amount and a plan is unchanged.
 
+## 2026-11-21 — Compared with MyMobileWorkers, besides the jobs mailbox
+
+SGK uses MyMobileWorkers (Asolvi) today. The client login is https://live.mymobileworkers.com/. Signing in with the address SGK gave was refused twice ("Incorrect details"), so this comparison is against their published job, fleet and customer features and against the meeting notes, not against a live walk of SGK's own account. The password was not saved.
+
+Already in this branch, on both apps unless noted:
+
+- A job card from a written job or from mail, with store number, PO, description and the client's documents.
+- Before and after photos from the live camera, sealed with time and location. Writing that time and location into the image file itself is still open.
+- A safety hold with a reason and a photo, sorted by the office, then redone by the worker.
+- Colour-coded states: unassigned, assigned, in progress, on hold, needs attention, completed, closed, cancelled.
+- One store file (jobs, quotes, invoices, call-outs, cancelled) and one attendant file (jobs, failed, completed, holidays, off sick, van, accidents).
+- A van register, the van on the job, and a warning when the store, the worker or the van is already booked that day.
+- A quote and an invoice the client pays by link, and a payout after sign-off.
+- A stuck job announced to the office, then reminded daily and weekly.
+
+Closed in this change: a failed visit. The worker says why the visit could not be finished, the job waits, and the office re-books it with a new date (and, if needed, another worker or van). The reason stays on that person's file.
+
+Still open for a first prototype, besides connecting the jobs mailbox:
+
+1. A calendar of who is out on which day. Clash warnings exist; there is no day or week view.
+2. The client's own view of the job: status, photos and the invoice, without a staff account. They can pay a link today. They cannot browse the job.
+3. A signature from the person at the store, taken on the worker's phone. Sign-off today is a staff card held by someone in the organisation.
+4. A daily check the driver completes for the van, and an accident report with photos. The van file records service, MOT and a written accident.
+5. A checklist, measurements and items used on the job sheet, chosen per job type.
+6. Rate cards, so a quote is priced from agreed rates instead of a typed amount.
+7. Export of the job list. One job already has a history export; the board does not.
+8. The mail thread kept on the job card after the job is booked. Intake keeps the sender, subject and attachments.
+9. A reports page (active, completed, pending, on hold) beyond the job board and Needs attention.
+10. Time and location stamped into the photo file, and photo quality held to the same bar as Site Audit Pro.
+
+Not needed for the first prototype, from the wider MyMobileWorkers list: a live map, lone-worker alerts, near-miss reports, a full risk-assessment library, branches, a customer disclaimer on the device, digital timesheets, and scheduled email reports.
+
 ## Reference docs
 
 - [SGK_FLOW.md](../SGK_FLOW.md)

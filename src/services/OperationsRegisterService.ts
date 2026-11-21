@@ -26,6 +26,7 @@ import {
   fieldJobInput,
   type FieldJobCategory,
 } from '../config/fieldJobCategory'
+import { failedVisitReasonLabel, failedVisitsOf, openFailedVisit } from '../config/failedVisit'
 import { getWorkflowTypeForWorkflow, normalizeWorkflowTypeAlias } from './workflow/initiation'
 import { OrganizationService } from './OrganizationService'
 import { payrollService } from './PayrollService'
@@ -47,6 +48,10 @@ export interface JobSummary {
   vanId?: string
   vehicle?: string
   createdAt: string
+  /** The visit waiting to be re-booked. */
+  failedVisit?: { reason: string; label: string; note?: string; at: string; workerId?: string }
+  /** Everyone who had a failed visit on this job, even after it was re-booked to someone else. */
+  failedVisitWorkers?: string[]
 }
 
 export interface BillSummary {
@@ -234,6 +239,9 @@ export class OperationsRegisterService {
       const storeNumber =
         normalizeStoreNumber(input.storeNumber) || (storeNumbers.has(normalizeStoreNumber(po)) ? normalizeStoreNumber(po) : '')
       const vanId = clean(input.vanId, 80)
+      const visits = failedVisitsOf(run.output)
+      const open = fieldJobCategory(run) === 'failed' ? openFailedVisit(run.output) : undefined
+      const visitWorkers = [...new Set(visits.map((visit) => String(visit?.workerId || '')).filter(Boolean))]
       jobs.push({
         runId: row.id,
         reference: clean(input.reference || input.requestId || row.id, 120),
@@ -248,6 +256,18 @@ export class OperationsRegisterService {
         vanId: vanId || undefined,
         vehicle: (vanId && vans.get(vanId)?.registration) || clean(input.vehicleReference, 120) || undefined,
         createdAt: row.createdAt,
+        ...(open
+          ? {
+              failedVisit: {
+                reason: open.reason,
+                label: failedVisitReasonLabel(open.reason),
+                note: clean(open.note, 500) || undefined,
+                at: open.at,
+                workerId: open.workerId,
+              },
+            }
+          : {}),
+        ...(visitWorkers.length ? { failedVisitWorkers: visitWorkers } : {}),
       })
     }
     return jobs
@@ -483,12 +503,16 @@ export class OperationsRegisterService {
   public attendantFile(orgTenantId: string, userId: string): AttendantFile | undefined {
     const attendant = this.listAttendants(orgTenantId).find((item) => item.userId === userId)
     if (!attendant) return undefined
-    const jobs = this.listJobs(orgTenantId).filter((job) => job.assigneeId === userId)
+    const all = this.listJobs(orgTenantId)
+    const jobs = all.filter((job) => job.assigneeId === userId)
     const leave = this.leave(orgTenantId, userId)
     return {
       attendant,
       jobCards: jobs,
-      failed: jobs.filter((job) => job.category === 'failed'),
+      // A failed visit stays on the file of the person who had it, even once the job moved on.
+      failed: all.filter(
+        (job) => (job.assigneeId === userId && job.category === 'failed') || job.failedVisitWorkers?.includes(userId),
+      ),
       completed: jobs.filter((job) => job.category === 'completed' || job.category === 'reconciled'),
       holidays: leave.filter((item) => item.leaveType !== 'sick'),
       offSick: leave.filter((item) => item.leaveType === 'sick'),

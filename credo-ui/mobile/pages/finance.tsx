@@ -134,7 +134,7 @@ import { relatedWorkLine, requestStatusWords } from '@/lib/uxCopy'
 import { formatTxnTime } from '@/lib/inboxAttention'
 import { captureHashedPhoto } from '@/lib/evidenceHash'
 import { FIELD_CHECKER_STAGE, FIELD_WORKER_STAGE, jobContactOption, jobPeopleOptions, OUTSIDE_CONTACT_NEEDS_APP, parseJobContactSelection, stageActorOption } from '@/lib/jobPeople'
-import api, { safeArray } from '@/lib/api'
+import api, { API_BASE_URL, safeArray } from '@/lib/api'
 import { appRoute } from '@/lib/appPath'
 import { friendlyRequestError } from '@/lib/requestError'
 import {
@@ -200,6 +200,8 @@ import {
 import JobPaymentPlanFields, { jobPaymentPlanBody } from '@/components/shared/JobPaymentPlanFields'
 import { usePhoneOperations } from '@/lib/operations'
 import { JobScheduleFields } from '../../shared/operations/JobScheduleFields'
+import { FailedVisitPanel } from '../../shared/operations/FailedVisitPanel'
+import { operationsApi } from '../../shared/operations/operationsApi'
 import JobPriceSheet from '@/components/shared/JobPriceSheet'
 import { detailTabsFor, type DetailTabKey } from '../../shared/detailTabs'
 
@@ -1785,7 +1787,23 @@ export default function FinancePage() {
   const [requisitionLifecycleNote, setRequisitionLifecycleNote] = useState('Goods/services received and confirmed.')
   const [orgContextBundle, setOrgContextBundle] = useState<OrgContextBundleCacheEntry | null>(null)
   const [showFieldRun, setShowFieldRun] = useState(false)
-  const { api: phoneOperations } = usePhoneOperations()
+  const { api: phoneOperations, notify: phoneNotify } = usePhoneOperations()
+  // A worker acts on their own job with whichever profile they are in, so not only the org token.
+  const fieldJobApi = useMemo(() => {
+    const token = getPreferredToken()
+    return token ? operationsApi(API_BASE_URL, token) : null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFieldRun?.id])
+  const refreshSelectedFieldRun = async () => {
+    const runId = normalizeRunId(String(selectedFieldRun?.id || ''))
+    const token = getPreferredToken()
+    await fetchFieldRuns()
+    if (!runId || !token) return
+    const refreshed = await api.get(`/workflows/runs/${encodeURIComponent(runId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    setSelectedFieldRun(refreshed.data)
+  }
   const [creatingFieldRun, setCreatingFieldRun] = useState(false)
   const [fieldRunForm, setFieldRunForm] = useState({
     storeNumber: '',
@@ -7953,6 +7971,19 @@ export default function FinancePage() {
                                 Waiting for: {pauseLine}
                               </Alert>
                             )}
+                            <Box mb="sm">
+                              <FailedVisitPanel
+                                api={fieldJobApi}
+                                surface="phone"
+                                job={run}
+                                canReport={isWorker || isOrgAdmin || isChosenFor('dispatch_job')}
+                                canRebook={isOrgAdmin || isChosenFor('dispatch_job')}
+                                people={fieldJobPeople.filter((option) => !option.value.startsWith('contact:'))}
+                                names={memberNames}
+                                notify={phoneNotify}
+                                onChanged={() => void refreshSelectedFieldRun()}
+                              />
+                            </Box>
                             {activeHold &&
                               (() => {
                                 const viewer = isWorker ? 'worker' : 'org'

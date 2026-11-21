@@ -393,9 +393,10 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
           aria-label="Account picker: switch between personal and organization context"
           style={{
             borderRadius: 8,
-            border: `1px solid ${activeOrg ? 'var(--mantine-color-blue-3)' : 'var(--mantine-color-default-border)'}`,
+            border: `1px solid ${activeOrg ? 'light-dark(var(--mantine-color-blue-3), var(--mantine-color-dark-3))' : 'var(--mantine-color-default-border)'}`,
             padding: compact ? '8px 10px' : '8px 12px',
-            backgroundColor: activeOrg ? 'var(--mantine-color-blue-0)' : 'transparent',
+            backgroundColor: activeOrg ? 'light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))' : 'transparent',
+            color: 'var(--mantine-color-text)',
             width: '100%',
           }}
         >

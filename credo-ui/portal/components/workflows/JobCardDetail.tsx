@@ -72,6 +72,9 @@ import {
 } from '@/components/finance/jobAuditTrail'
 import { jobStatusColor as getStatusColor, jobStatusLabel as getStatusLabel } from '../finance/financeStages'
 import { detailTabsFor, type DetailTabKey } from '../../../shared/detailTabs'
+import { FailedVisitPanel } from '../../../shared/operations/FailedVisitPanel'
+import { jobPeopleOptions } from '../../../shared/jobPeople'
+import { usePortalOperations } from '@/lib/operations'
 
 const DETAIL_TAB_ICONS: Record<DetailTabKey, JSX.Element> = {
   details: <IconFileText size={16} />,
@@ -117,6 +120,7 @@ interface JobCardDetailProps {
 }
 
 export default function JobCardDetail({ job, opened, onClose, onRefresh, initialTab = 'details' }: JobCardDetailProps) {
+  const { api: operations, notify } = usePortalOperations()
   const openRelatedWork = useRelatedWorkNavigation()
   const openBilling = useJobBillingNavigation()
   const [submitting, setSubmitting] = useState(false)
@@ -250,6 +254,14 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
 
   const assigneeId = String(state?.assignment?.assigneeId || state?.assigneeId || input.assigneeId || '')
   const namedPeople = peopleOnJob(job, members)
+  const peopleNames = Object.fromEntries(
+    namedPeople
+      .map((person) => [person.userId, String(person.displayName || person.phone || '').trim()])
+      .filter(([, name]) => name && !/^(organization owner|team member)$/i.test(name)),
+  ) as Record<string, string>
+  const mayBookJobs =
+    canReassign ||
+    (Boolean(currentUserId) && fieldActors.some((s) => s.stageAction === 'dispatch_job' && s.actor?.userId === currentUserId))
   const assigneeName = (() => {
     if (!assigneeId) return undefined
     const member = namedPeople.find((m) => m.userId === assigneeId)
@@ -790,6 +802,20 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                 refreshKey={`${job?.status}:${pauseReason}:${String(job?.updatedAt || '')}`}
                 onChanged={onRefresh}
                 onHoldChange={setHeld}
+              />
+            )}
+
+            {job?.id && (
+              <FailedVisitPanel
+                api={operations}
+                surface="portal"
+                job={job}
+                canReport={Boolean(currentUserId) && (assigneeId === currentUserId || mayBookJobs)}
+                canRebook={mayBookJobs}
+                people={jobPeopleOptions(members, [])}
+                names={peopleNames}
+                notify={notify}
+                onChanged={onRefresh}
               />
             )}
 

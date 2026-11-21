@@ -2,6 +2,8 @@
  * Where a field job stands, from its run status and state. One answer for the job board,
  * the store file, the attendant file and the schedule check.
  */
+import { openFailedVisit } from './failedVisit'
+
 export type FieldJobCategory =
   | 'pending'
   | 'assigned'
@@ -44,6 +46,7 @@ export function fieldJobCategory(job: FieldJobRunLike): FieldJobCategory {
   if (status === 'cancelled' || ['CANCELLED', 'REVOKED'].includes(stage)) return 'cancelled'
   if (stage === 'RECONCILED') return 'reconciled'
   if (status === 'completed' || stage === 'COMPLETED') return 'completed'
+  if (openFailedVisit(state)) return 'failed'
   if (
     pauseReason.startsWith('await_handoff:') ||
     (Array.isArray(state.checkpointBlocks) &&

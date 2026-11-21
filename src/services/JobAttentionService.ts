@@ -209,6 +209,16 @@ export class JobAttentionService {
       detail,
     })
 
+    if (job.failedVisit) {
+      const since = time(job.failedVisit.at)
+      const at = Number.isFinite(since) ? since : last
+      return make(
+        'failed',
+        at,
+        `${sentence(label)}: visit failed`,
+        `${job.failedVisit.label}${job.failedVisit.note ? ` (${job.failedVisit.note})` : ''}, ${age(now - at)} ago. Re-book it with a new date.`,
+      )
+    }
     if (job.category === 'failed') {
       const since = Number.isFinite(progress?.finishedAt) ? progress!.finishedAt! : last
       return make(

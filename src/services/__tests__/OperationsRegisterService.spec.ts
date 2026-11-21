@@ -150,6 +150,26 @@ describe('Stores, attendants and vans', () => {
     expect(file.accidents).toEqual([expect.objectContaining({ notes: 'Reversed into a bollard', userId: FARAI })])
   })
 
+  it('keeps a failed visit on the file of the worker who had it, after the job moved on', () => {
+    addJob('RUN-OPEN-FAIL', { description: 'Fix shutter', assigneeId: FARAI }, 'paused', {
+      pauseReason: 'await_arrival',
+      failedVisits: [{ id: 'V1', reason: 'store_closed', at: '2026-11-20T09:00:00Z', workerId: FARAI, status: 'open' }],
+    })
+    addJob('RUN-MOVED', { description: 'Fix sink', assigneeId: TINO }, 'paused', {
+      pauseReason: 'await_arrival',
+      assignment: { assigneeId: TINO },
+      failedVisits: [{ id: 'V2', reason: 'parts_needed', at: '2026-11-19T09:00:00Z', workerId: FARAI, status: 'rebooked' }],
+    })
+    const jobs = service.listJobs(ORG)
+    expect(jobs.find((job) => job.runId === 'RUN-OPEN-FAIL')).toMatchObject({
+      category: 'failed',
+      failedVisit: { reason: 'store_closed', label: 'Store closed', workerId: FARAI },
+    })
+    expect(jobs.find((job) => job.runId === 'RUN-MOVED')?.failedVisit).toBeUndefined()
+    expect(service.attendantFile(ORG, FARAI)!.failed.map((job) => job.runId).sort()).toEqual(['RUN-MOVED', 'RUN-OPEN-FAIL'])
+    expect(service.attendantFile(ORG, TINO)!.failed).toEqual([])
+  })
+
   it('keeps one list of people: every team member has an employee record, none twice', () => {
     // Tino was typed into Payroll by hand with his phone number, before he joined the team.
     db.prepare(

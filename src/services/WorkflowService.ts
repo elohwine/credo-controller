@@ -18,6 +18,7 @@ import type { WorkflowRecord } from '../persistence/WorkflowRepository'
 import type { WorkflowRun, TriggerType } from '../persistence/WorkflowRunRepository'
 import type { WorkflowActionContext } from './workflow/ActionRegistry'
 
+import { failedVisitsOf, openFailedVisit, rebookDateError } from '../config/failedVisit'
 import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { providerRepository } from '../persistence/ProviderRepository'
@@ -198,6 +199,9 @@ export class WorkflowService {
     if ((run.output as any)?.pauseReason === AWAIT_JOB_PRICE) {
       throw new Error('Set the price and how the client pays first.')
     }
+    if (openFailedVisit(run.output as any)) {
+      throw new Error('The last visit failed. The office re-books the job before work carries on.')
+    }
 
     // Reject a bad checkpoint submission while the run is still paused (it must not fail the run).
     FieldExecutionActions.prepareResume(runId, resumeData, actedByUserId)
@@ -259,6 +263,40 @@ export class WorkflowService {
    */
   public resolveSafetyHold(runId: string, holdId: string, note: string, actedByUserId?: string) {
     return FieldExecutionActions.resolveHold(runId, holdId, note, actedByUserId)
+  }
+
+  /** The worker (or the office, on their behalf) says the visit could not be finished. */
+  public reportFailedVisit(runId: string, params: { reason: string; note?: string }, reportedBy?: string) {
+    return FieldExecutionActions.reportFailedVisit(runId, params, reportedBy)
+  }
+
+  /**
+   * Give a failed visit a new date, and optionally a van or another worker. A new worker gets
+   * the job through the normal reassignment first, so their card and record move with it.
+   */
+  public async rebookFailedVisit(
+    runId: string,
+    visitId: string,
+    params: { scheduledDate: string; assigneeUserId?: string; vanId?: string; note?: string },
+    actedByUserId?: string,
+  ) {
+    const run = workflowRunRepository.findRunById(runId)
+    if (!run) throw new StatusException('Run not found', 404)
+    const state = (run.output && typeof run.output === 'object' ? run.output : {}) as Record<string, any>
+    const visit = failedVisitsOf(state).find((item) => item.id === visitId)
+    if (!visit) throw new StatusException('That failed visit is not on this job.', 404)
+    const dateError = visit.status === 'open' ? rebookDateError(params.scheduledDate) : undefined
+    if (dateError) throw new StatusException(dateError, 400)
+    const current = String(state.assignment?.assigneeId || (run.input as any)?.assigneeId || '')
+    const next = String(params.assigneeUserId || '').trim()
+    const moving = visit.status === 'open' && Boolean(next) && next !== current
+    if (moving) await this.reassignRun(runId, next, actedByUserId)
+    return FieldExecutionActions.rebookFailedVisit(
+      runId,
+      visitId,
+      { scheduledDate: params.scheduledDate, vanId: params.vanId, note: params.note, reassigned: moving },
+      actedByUserId,
+    )
   }
 
   public async reassignRun(runId: string, assigneeUserId: string, actedByUserId?: string) {

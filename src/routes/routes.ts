@@ -3711,6 +3711,30 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "FailedVisitReason": {
+        "dataType": "refAlias",
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["other"]},{"dataType":"enum","enums":["no_access"]},{"dataType":"enum","enums":["store_closed"]},{"dataType":"enum","enums":["nobody_on_site"]},{"dataType":"enum","enums":["parts_needed"]},{"dataType":"enum","enums":["more_work"]},{"dataType":"enum","enums":["wrong_details"]},{"dataType":"enum","enums":["weather"]}],"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "FailedVisit": {
+        "dataType": "refObject",
+        "properties": {
+            "id": {"dataType":"string","required":true},
+            "reason": {"ref":"FailedVisitReason","required":true},
+            "note": {"dataType":"string"},
+            "at": {"dataType":"string","required":true},
+            "by": {"dataType":"string"},
+            "workerId": {"dataType":"string"},
+            "status": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["open"]},{"dataType":"enum","enums":["rebooked"]}],"required":true},
+            "rebookedAt": {"dataType":"string"},
+            "rebookedBy": {"dataType":"string"},
+            "rebookedFor": {"dataType":"string"},
+            "rebookedTo": {"dataType":"string"},
+            "rebookNote": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "HandoffInputField": {
         "dataType": "refObject",
         "properties": {
@@ -5320,7 +5344,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "ReconciliationEventType": {
         "dataType": "refAlias",
-        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["QUOTE_ISSUED"]},{"dataType":"enum","enums":["INVOICE_ISSUED"]},{"dataType":"enum","enums":["PAYMENT_SUCCESS"]},{"dataType":"enum","enums":["RECEIPT_ISSUED"]},{"dataType":"enum","enums":["DELIVERY_VERIFIED"]},{"dataType":"enum","enums":["ESCROW_RELEASED"]},{"dataType":"enum","enums":["PAYOUT_FAILED"]},{"dataType":"enum","enums":["SETTLEMENT_CONFIRMED"]},{"dataType":"enum","enums":["REFUNDED"]},{"dataType":"enum","enums":["DISPUTED"]},{"dataType":"enum","enums":["REQUISITION_CREATED"]},{"dataType":"enum","enums":["REQUISITION_APPROVED"]},{"dataType":"enum","enums":["REQUISITION_MANAGER_APPROVED"]},{"dataType":"enum","enums":["REQUISITION_FINANCE_APPROVED"]},{"dataType":"enum","enums":["REQUISITION_RELEASED"]},{"dataType":"enum","enums":["EXECUTION_ACKNOWLEDGED"]},{"dataType":"enum","enums":["WORK_EVIDENCE_BEFORE"]},{"dataType":"enum","enums":["WORK_EVIDENCE_CONCEALED"]},{"dataType":"enum","enums":["WORK_EVIDENCE_AFTER"]},{"dataType":"enum","enums":["WORK_EVIDENCE_RECEIPT"]},{"dataType":"enum","enums":["AGENT_ASSIGNED"]},{"dataType":"enum","enums":["SITE_INSPECTION_COMPLETED"]},{"dataType":"enum","enums":["RISK_ASSESSMENT_COMPLETED"]},{"dataType":"enum","enums":["RISK_ASSESSMENT_HOLD_RAISED"]},{"dataType":"enum","enums":["RISK_ASSESSMENT_HOLD_RESOLVED"]},{"dataType":"enum","enums":["ARRIVAL_CONFIRMED"]},{"dataType":"enum","enums":["COMPLETION_REVIEWED"]},{"dataType":"enum","enums":["JOB_STARTED"]},{"dataType":"enum","enums":["JOB_CLOSED"]}],"validators":{}},
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["QUOTE_ISSUED"]},{"dataType":"enum","enums":["INVOICE_ISSUED"]},{"dataType":"enum","enums":["PAYMENT_SUCCESS"]},{"dataType":"enum","enums":["RECEIPT_ISSUED"]},{"dataType":"enum","enums":["DELIVERY_VERIFIED"]},{"dataType":"enum","enums":["ESCROW_RELEASED"]},{"dataType":"enum","enums":["PAYOUT_FAILED"]},{"dataType":"enum","enums":["SETTLEMENT_CONFIRMED"]},{"dataType":"enum","enums":["REFUNDED"]},{"dataType":"enum","enums":["DISPUTED"]},{"dataType":"enum","enums":["REQUISITION_CREATED"]},{"dataType":"enum","enums":["REQUISITION_APPROVED"]},{"dataType":"enum","enums":["REQUISITION_MANAGER_APPROVED"]},{"dataType":"enum","enums":["REQUISITION_FINANCE_APPROVED"]},{"dataType":"enum","enums":["REQUISITION_RELEASED"]},{"dataType":"enum","enums":["EXECUTION_ACKNOWLEDGED"]},{"dataType":"enum","enums":["WORK_EVIDENCE_BEFORE"]},{"dataType":"enum","enums":["WORK_EVIDENCE_CONCEALED"]},{"dataType":"enum","enums":["WORK_EVIDENCE_AFTER"]},{"dataType":"enum","enums":["WORK_EVIDENCE_RECEIPT"]},{"dataType":"enum","enums":["AGENT_ASSIGNED"]},{"dataType":"enum","enums":["SITE_INSPECTION_COMPLETED"]},{"dataType":"enum","enums":["RISK_ASSESSMENT_COMPLETED"]},{"dataType":"enum","enums":["RISK_ASSESSMENT_HOLD_RAISED"]},{"dataType":"enum","enums":["RISK_ASSESSMENT_HOLD_RESOLVED"]},{"dataType":"enum","enums":["FAILED_VISIT_REPORTED"]},{"dataType":"enum","enums":["FAILED_VISIT_REBOOKED"]},{"dataType":"enum","enums":["ARRIVAL_CONFIRMED"]},{"dataType":"enum","enums":["COMPLETION_REVIEWED"]},{"dataType":"enum","enums":["JOB_STARTED"]},{"dataType":"enum","enums":["JOB_CLOSED"]}],"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "ReconciliationEvent": {
@@ -5948,6 +5972,8 @@ const models: TsoaRoute.Models = {
             "vanId": {"dataType":"string"},
             "vehicle": {"dataType":"string"},
             "createdAt": {"dataType":"string","required":true},
+            "failedVisit": {"dataType":"nestedObjectLiteral","nestedProperties":{"workerId":{"dataType":"string"},"at":{"dataType":"string","required":true},"note":{"dataType":"string"},"label":{"dataType":"string","required":true},"reason":{"dataType":"string","required":true}}},
+            "failedVisitWorkers": {"dataType":"array","array":{"dataType":"string"}},
         },
         "additionalProperties": false,
     },
@@ -17311,6 +17337,83 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'resolveSafetyHold',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWorkflowController_reportFailedVisit: Record<string, TsoaRoute.ParameterSchema> = {
+                runId: {"in":"path","name":"runId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"note":{"dataType":"string"},"reason":{"dataType":"string","required":true}}},
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.post('/workflows/runs/:runId/failed-visit',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController)),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController.prototype.reportFailedVisit)),
+
+            async function WorkflowController_reportFailedVisit(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWorkflowController_reportFailedVisit, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WorkflowController>(WorkflowController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'reportFailedVisit',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWorkflowController_rebookFailedVisit: Record<string, TsoaRoute.ParameterSchema> = {
+                runId: {"in":"path","name":"runId","required":true,"dataType":"string"},
+                visitId: {"in":"path","name":"visitId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"note":{"dataType":"string"},"vanId":{"dataType":"string"},"assigneeUserId":{"dataType":"string"},"scheduledDate":{"dataType":"string","required":true}}},
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.post('/workflows/runs/:runId/failed-visits/:visitId/rebook',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController)),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController.prototype.rebookFailedVisit)),
+
+            async function WorkflowController_rebookFailedVisit(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWorkflowController_rebookFailedVisit, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WorkflowController>(WorkflowController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'rebookFailedVisit',
                 controller,
                 response,
                 next,
