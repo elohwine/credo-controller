@@ -18,7 +18,9 @@
       "react": ["./node_modules/@types/react/index.d.ts"],
       "@/*": ["./*"],
       "country-flag-icons/react/3x2": ["./node_modules/country-flag-icons/react/3x2/index.js"],
-      "libphonenumber-js/min/metadata": ["./node_modules/libphonenumber-js/metadata.min.json.js"]
+      "libphonenumber-js/min/metadata": ["./node_modules/libphonenumber-js/metadata.min.json.js"],
+      "@mantine/core": ["./node_modules/@mantine/core"],
+      "@tabler/icons-react": ["./node_modules/@tabler/icons-react"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],

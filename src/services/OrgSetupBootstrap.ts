@@ -19,6 +19,7 @@
  */
 
 import { ORG_MODULE_CATALOGUE, ORG_MODULES, type OrgModule } from '../config/orgModules'
+import { withEditionModules } from '../config/productEdition'
 import { cleanDepartmentNames } from '../config/orgStructure'
 import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
@@ -146,8 +147,9 @@ export function buildOrgSetupPlan(orgTenantId: string, input: OrgSetupBootstrapR
   const current = orgSetupProfileService.get(orgTenantId)
   const organizationId = organizationIdFor(orgTenantId)
   const kinds = input.kinds ?? current.kinds
-  const modules = (input.modules ?? current.modules).filter((module): module is OrgModule =>
-    ORG_MODULES.includes(module as OrgModule),
+  // The jobs and the team are part of this edition, so the preview plans for them even if the form left them out.
+  const modules = withEditionModules(
+    (input.modules ?? current.modules).filter((module): module is OrgModule => ORG_MODULES.includes(module as OrgModule)),
   )
   const preset = moneyPresetToApply(input)
   const approvalPresetId = preset?.id ?? input.approvalPresetId ?? current.approvalPresetId

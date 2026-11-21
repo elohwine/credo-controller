@@ -26,3 +26,14 @@ export function editionKinds<T extends string>(kinds: readonly T[]): T[] {
 export function editionModules<T extends string>(modules: readonly T[]): T[] {
   return modules.filter((module) => editionAllowsModule(module))
 }
+
+/** Always on in this edition: the jobs, and the team who do them (staff, leave, payroll). */
+export const EDITION_ALWAYS_ON_MODULES = ['field_jobs', 'people_payroll'] as const
+
+export function editionAlwaysOn(module: string): boolean {
+  return (EDITION_ALWAYS_ON_MODULES as readonly string[]).includes(module)
+}
+
+export function withEditionModules<T extends string>(modules: readonly T[]): T[] {
+  return Array.from(new Set([...modules, ...(EDITION_ALWAYS_ON_MODULES as readonly string[] as readonly T[])]))
+}

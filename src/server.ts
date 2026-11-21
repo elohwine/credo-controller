@@ -148,6 +148,14 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     agent?.config?.logger?.warn?.(`Receivable reminders failed to initialize: ${msg}`)
   }
 
+  try {
+    const { microsoftGraphMailIntakeService } = await import('./services/integrations/MicrosoftGraphMailIntakeService')
+    if (microsoftGraphMailIntakeService.start()) agent?.config?.logger?.info?.('Jobs mailbox polling started')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    agent?.config?.logger?.warn?.(`Jobs mailbox polling failed to start: ${msg}`)
+  }
+
   // await otelSDK.start()
   // agent.config.logger.info('OpenTelemetry SDK started')
 

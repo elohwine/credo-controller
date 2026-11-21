@@ -14,6 +14,8 @@ export interface OrgContact {
   /** Holder's SSI DID — set when known (self-sovereign) */
   did?: string
   notes?: string
+  /** The client's own store number; one per store within the organisation. */
+  storeNumber?: string
   /** Linked holder wallet tenant ID, if the contact has claimed the link */
   walletTenantId?: string
   /** When the holder linked their wallet to this contact */
@@ -36,6 +38,7 @@ interface ContactRow {
   email: string | null
   did: string | null
   notes: string | null
+  store_number?: string | null
   wallet_tenant_id: string | null
   linked_at: string | null
   link_token: string | null
@@ -54,6 +57,7 @@ function toContact(row: ContactRow): OrgContact {
     email: row.email ?? undefined,
     did: row.did ?? undefined,
     notes: row.notes ?? undefined,
+    storeNumber: row.store_number ?? undefined,
     walletTenantId: row.wallet_tenant_id ?? undefined,
     linkedAt: row.linked_at ?? undefined,
     createdAt: row.created_at,
@@ -162,12 +166,38 @@ export interface UpsertContactInput {
   notes?: string
   walletTenantId?: string
   linkedAt?: string
+  /** Left out keeps the saved store number; an empty string clears it. */
+  storeNumber?: string
+}
+
+/** One spelling per store: "store #01042 " and "01042" are the same store. */
+export function normalizeStoreNumber(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .replace(/^(store|shop|site)\s*(no\.?|number|#)?\s*[:#-]?\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .toUpperCase()
+    .slice(0, 40)
+}
+
+export function findContactByStoreNumber(orgTenantId: string, storeNumber: string): OrgContact | undefined {
+  const normalized = normalizeStoreNumber(storeNumber)
+  if (!normalized) return undefined
+  const row = DatabaseManager.getDatabase()
+    .prepare('SELECT * FROM org_contacts WHERE org_tenant_id = ? AND store_number = ? LIMIT 1')
+    .get(orgTenantId, normalized) as ContactRow | undefined
+  return row ? toContact(row) : undefined
 }
 
 export function upsertContact(input: UpsertContactInput): OrgContact {
   const db = DatabaseManager.getDatabase()
   const id = input.id ?? crypto.randomUUID()
   const now = new Date().toISOString()
+  const storeNumber = input.storeNumber === undefined ? undefined : normalizeStoreNumber(input.storeNumber)
+  if (storeNumber) {
+    const taken = findContactByStoreNumber(input.orgTenantId, storeNumber)
+    if (taken && taken.id !== id) throw new Error(`Store ${storeNumber} is already saved for ${taken.name}`)
+  }
   db.prepare(
     `
     INSERT INTO org_contacts (
@@ -200,6 +230,13 @@ export function upsertContact(input: UpsertContactInput): OrgContact {
     now,
     now,
   )
+  if (storeNumber !== undefined) {
+    db.prepare('UPDATE org_contacts SET store_number = ? WHERE id = ? AND org_tenant_id = ?').run(
+      storeNumber || null,
+      id,
+      input.orgTenantId,
+    )
+  }
   const saved = getContactById(id, input.orgTenantId)!
   if (saved.contactScope === 'internal' && saved.walletTenantId) {
     void import('../services/OrgMembershipCredentialService')
@@ -296,6 +333,7 @@ export const contactRepository = {
   findByIdInOrg: findContactById,
   findByDid: findContactByDid,
   findByWalletTenantId: findContactByWalletTenantId,
+  findByStoreNumber: findContactByStoreNumber,
   upsert: upsertContact,
   getByLinkToken: getContactByLinkToken,
   createLinkToken: createContactLinkToken,

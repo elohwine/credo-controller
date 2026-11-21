@@ -46,6 +46,16 @@ describe('workflow centre classification', () => {
     expect(mobile.enabledBusinessCentres(mobileFlags)).toEqual(portal.enabledBusinessCentres(portalFlags))
   })
 
+  it('always shows jobs and people & payroll in this edition, with or without setup answers or templates', () => {
+    const withSetup = { mode: 'explicit', modules: [] } as any
+    for (const access of [null, withSetup]) {
+      const flags = portal.getWorkflowCapabilityFlags([], access)
+      expect(flags.fieldExecution).toBe(true)
+      expect(flags.hrOps).toBe(true)
+      expect(mobile.getWorkflowCapabilityFlags([], access)).toEqual(flags)
+    }
+  })
+
   it('opens setup-driven centres even before template metadata is loaded', () => {
     const emptyFlags = portal.getWorkflowCapabilityFlags([])
     expect(portal.enabledBusinessCentres(emptyFlags, ['field', 'school', 'shop'])).toEqual([
@@ -53,6 +63,7 @@ describe('workflow centre classification', () => {
       'field_jobs',
       'school_fees',
       'commerce',
+      'people',
     ])
     expect(mobile.enabledBusinessCentres(emptyFlags, ['field', 'school', 'shop'])).toEqual(
       portal.enabledBusinessCentres(emptyFlags, ['field', 'school', 'shop']),

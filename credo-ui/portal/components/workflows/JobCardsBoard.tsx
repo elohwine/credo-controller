@@ -14,8 +14,11 @@ import { EnvContext } from '@/pages/_app';
 import { getPreferredTenantToken } from '@/utils/portalTenant';
 import { readActiveOrganization } from '@/utils/organizationContext';
 import { jobStatusColor as getStatusColor, jobStatusLabel as getStatusLabel } from '../finance/financeStages';
-import { holdIsLive, jobHeading } from '../finance/jobAuditTrail';
+import { jobHeading } from '../finance/jobAuditTrail';
 import { endPortalTask, getPortalTask } from '@/lib/portalContext';
+import { usePortalOperations } from '@/lib/operations';
+import { fieldJobAssigneeId, fieldJobCategory, fieldJobInput, type FieldJobCategory as JobCategory } from '../../../../src/config/fieldJobCategory';
+import { IncomingJobs } from '../../../shared/operations/IncomingJobs';
 
 interface JobCard {
     id: string;
@@ -31,49 +34,14 @@ interface JobCard {
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
-function jobInput(job: JobCard) {
-    return job.output?.workflowInput || job.input || {}
-}
-
-function jobAssigneeId(job: JobCard): string {
-    const state = job.output || {}
-    const input = jobInput(job)
-    return String(state.assignment?.assigneeId || state.assigneeId || input.assigneeId || '').trim()
-}
-
-function isUnassigned(job: JobCard): boolean {
-    return !jobAssigneeId(job) && !['completed', 'cancelled'].includes(String(job.status).toLowerCase())
-}
+const jobInput = (job: JobCard) => fieldJobInput(job)
+const jobAssigneeId = (job: JobCard) => fieldJobAssigneeId(job)
+const jobCategory = (job: JobCard): JobCategory => fieldJobCategory(job)
 
 function isWaitingOverWeek(job: JobCard, now = Date.now()): boolean {
     if (jobCategory(job) !== 'pending') return false
     const createdAt = Date.parse(String(job.created_at || (job as any).createdAt || ''))
     return Number.isFinite(createdAt) && now - createdAt >= WEEK_MS
-}
-
-type JobCategory = 'pending' | 'assigned' | 'active' | 'on_hold' | 'failed' | 'completed' | 'reconciled' | 'cancelled'
-
-function jobCategory(job: JobCard): JobCategory {
-    const state = job.output || {}
-    const status = String(job.status || '').toLowerCase()
-    const stage = String(state.workflowStage || state.stage || '').toUpperCase()
-    const pauseReason = String(state.pauseReason || '').toLowerCase()
-
-    if (status === 'failed' || stage === 'DISPUTED') return 'failed'
-    if (status === 'cancelled' || ['CANCELLED', 'REVOKED'].includes(stage)) return 'cancelled'
-    if (stage === 'RECONCILED') return 'reconciled'
-    if (status === 'completed' || stage === 'COMPLETED') return 'completed'
-    if (
-        pauseReason.startsWith('await_handoff:') ||
-        (Array.isArray(state.checkpointBlocks) &&
-            state.checkpointBlocks.some((hold: any) => hold?.checkpoint === 'risk_assessment' && holdIsLive(hold?.status)))
-    ) return 'on_hold'
-    if (isUnassigned(job)) return 'pending'
-    if (stage === 'ASSIGNED') return 'assigned'
-    if (['running', 'paused'].includes(status) || ['IN_PROGRESS', 'EVIDENCE_CAPTURED', 'ACKNOWLEDGED', 'PAYMENT_TRIGGERED', 'RECEIPT_ISSUED'].includes(stage)) {
-        return 'active'
-    }
-    return 'pending'
 }
 
 function isArrived(job: JobCard): boolean {
@@ -112,6 +80,8 @@ export default function JobCardsBoard() {
     const [showNewJob, setShowNewJob] = useState(false);
     const [canCreate, setCanCreate] = useState(false);
     const [memberNames, setMemberNames] = useState<Record<string, string>>({});
+    const [teamMembers, setTeamMembers] = useState<Array<{ userId: string; role: string; displayName?: string; phone?: string; status?: string }>>([]);
+    const { api: operations, notify } = usePortalOperations();
 
     useEffect(() => {
         const role = String(readActiveOrganization()?.role || '').toLowerCase();
@@ -128,6 +98,13 @@ export default function JobCardsBoard() {
             headers: { Authorization: `Bearer ${token}` },
         }).then((res) => {
             const rows = Array.isArray(res.data) ? res.data : [];
+            setTeamMembers(rows.filter((m: any) => m?.userId).map((m: any) => ({
+                userId: String(m.userId),
+                role: String(m.role || 'member'),
+                displayName: m.displayName ? String(m.displayName) : undefined,
+                phone: m.phone ? String(m.phone) : undefined,
+                status: m.status ? String(m.status) : undefined,
+            })));
             const names: Record<string, string> = {};
             for (const m of rows) {
                 if (!m?.userId) continue;
@@ -328,6 +305,19 @@ export default function JobCardsBoard() {
                 onCreated={() => setTimeout(fetchJobs, 800)}
             />
 
+            {canCreate && (
+                <Paper withBorder radius="md" p="md" mb="md">
+                    <Title order={4} fw={500} mb="xs">Waiting to be booked</Title>
+                    <IncomingJobs
+                        api={operations}
+                        surface="portal"
+                        members={teamMembers}
+                        notify={notify}
+                        onStarted={() => setTimeout(fetchJobs, 800)}
+                    />
+                </Paper>
+            )}
+
             <Grid mb="md">
                 {[
                     { label: 'Pending / unassigned', count: categoryCounts.pending, color: 'gray', filter: 'pending' },
@@ -421,7 +411,7 @@ export default function JobCardsBoard() {
                                     >
                                         <Table.Td>
                                             <Text size="sm" fw={600}>{input.reference || job.id}</Text>
-                                            <Text size="xs" c="dimmed">{input.poNumber ? `PO ${input.poNumber}` : 'No client PO'}</Text>
+                                            <Text size="xs" c="dimmed">{[input.storeNumber ? `Store ${input.storeNumber}` : '', input.poNumber ? `PO ${input.poNumber}` : '', input.callOut ? 'Call-out' : ''].filter(Boolean).join(' · ') || 'No store or PO'}</Text>
                                         </Table.Td>
                                         <Table.Td>{input.clientName || 'Unknown client'}</Table.Td>
                                         <Table.Td>{input.description || '—'}</Table.Td>
@@ -484,7 +474,7 @@ export default function JobCardsBoard() {
                                         </div>
                                         <div>
                                             <Text fw={600} size="md" style={{ color: BRAND.dark }} lineClamp={2}>{heading.title}</Text>
-                                            <Text size="xs" c="dimmed">{[client, input.poNumber, input.reference].filter(Boolean).join(' · ')}</Text>
+                                            <Text size="xs" c="dimmed">{[client, input.storeNumber ? `Store ${input.storeNumber}` : '', input.poNumber, input.reference, input.callOut ? 'Call-out' : ''].filter(Boolean).join(' · ')}</Text>
                                         </div>
                                     </Group>
                                     <Badge color={overdue ? 'grape' : arrived ? 'teal' : getStatusColor(job.status, state.workflowStage)} variant="light">

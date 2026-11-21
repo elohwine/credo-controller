@@ -45,7 +45,7 @@ import {
   cardCanResend, cardPurpose, cardResendHint, memberAccessBadge, myOnboardingSteps, readyCount, sendCardsPath, staffCardChangeRule,
   type MemberCardKind, type MemberOnboarding, type StaffCardChangeRule,
 } from '@/lib/orgOnboarding';
-import { MONEY_CHOICES, OPERATING_MODEL_NOTE, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, TEAM_ROLE_FALLBACK, kindsFromRequestTypes, markOrgSetupLater, modulePlanNote, orgSetupLater, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, openedWorkAreas, setupChecklist, startingModules, teamRolesFromCatalog, defaultInviteRole, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
+import { MONEY_CHOICES, OPERATING_MODEL_NOTE, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, TEAM_ROLE_FALLBACK, kindsFromRequestTypes, markOrgSetupLater, modulePlanNote, isLockedModule, withLockedModules, LOCKED_MODULE_NOTE, orgSetupLater, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, openedWorkAreas, setupChecklist, startingModules, teamRolesFromCatalog, defaultInviteRole, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
 import { SETUP_BOOTSTRAP_PATH, bootstrapRequest, cleanDepartmentNames, mainPeopleLine, staffCardLimitFor, suggestedDepartmentsFor, suggestedOrgModules, type OrgOperatingModel, type OrgSetupPlan } from '@/lib/orgProfile';
 
 // ── Org list types ──
@@ -1945,18 +1945,18 @@ export default function OrgSettingsPage() {
                   {orgQuestion === 2 && (
                     <Stack gap="sm">
                     <Text size="sm" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas are needed for a connected system.' : SETUP_QUESTION_HELP[2]}</Text>
-                    <Chip.Group multiple value={orgModules} onChange={(value) => setOrgModules(value as OrgModule[])}>
+                    <Chip.Group multiple value={orgModules} onChange={(value) => setOrgModules(withLockedModules(value as OrgModule[], operatingModel))}>
                       <Stack gap={6}>
-                        {ORG_MODULE_OPTIONS.filter((option) => suggestedOrgModules(orgKinds, operatingModel).includes(option.id) || (operatingModel !== 'integration' && option.id === 'people_payroll')).map((option) => (
+                        {ORG_MODULE_OPTIONS.filter((option) => suggestedOrgModules(orgKinds, operatingModel).includes(option.id) || isLockedModule(option.id, operatingModel)).map((option) => (
                           <Box key={option.id}>
-                            <Chip value={option.id} radius="md" variant="outline">
+                            <Chip value={option.id} radius="md" variant="outline" disabled={isLockedModule(option.id, operatingModel)}>
                               {option.label}
                             </Chip>
                             <Text size="xs" c="dimmed" mt={2}>{option.detail}</Text>
-                            <Text size="xs" c="dimmed">{modulePlanNote(option.id, serverProfile?.plan)}</Text>
+                            <Text size="xs" c="dimmed">{isLockedModule(option.id, operatingModel) ? LOCKED_MODULE_NOTE : modulePlanNote(option.id, serverProfile?.plan)}</Text>
                           </Box>
                         ))}
-                        <Text size="xs" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas needed. SSI remains available; external-client APIs are a later delivery.' : 'Suggested from your activity answers. Untick anything handled elsewhere; staff tools are optional.'}</Text>
+                        <Text size="xs" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas needed. SSI remains available; external-client APIs are a later delivery.' : 'Jobs and People & payroll are always on. Untick anything else that is handled elsewhere.'}</Text>
                       </Stack>
                     </Chip.Group>
                     </Stack>

@@ -37,6 +37,7 @@ import {
     IconSchool,
     IconShoppingBag,
     IconReportMoney,
+    IconTruck,
 } from '@tabler/icons-react';
 import OrgSwitcher from '@/components/OrgSwitcher';
 import { endPortalTask, usePortalContext, usePortalTaskGuard } from '@/lib/portalContext';
@@ -174,7 +175,10 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
         ...(isOrg ? [{
             label: 'Operations',
             items: [
-                ...(hasJobs ? [{ label: 'Jobs', href: '/finance/job-cards', icon: <IconBriefcase size={18} /> }] : []),
+                ...(hasJobs ? [
+                    { label: 'Jobs', href: '/finance/job-cards', icon: <IconBriefcase size={18} /> },
+                    { label: 'Stores & vans', href: '/operations', icon: <IconTruck size={18} /> },
+                ] : []),
                 { label: 'Purchase requests', href: '/finance/requisitions', icon: <IconChecklist size={18} /> },
                 ...(hasSchool ? [{ label: 'School fees', href: '/finance/school-fees', icon: <IconSchool size={18} /> }] : []),
                 ...(hasCommerce ? [{ label: 'Shop & services', href: '/shop', icon: <IconShoppingBag size={18} /> }] : []),
@@ -189,8 +193,9 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
         }, ...(hasPeople ? [{
             label: 'People',
             items: [
-                { label: 'Staff requests', href: '/requests?tab=people', icon: <IconUsers size={18} /> },
-                { label: 'Payroll', href: '/payroll', icon: <IconReceipt size={18} /> },
+                { label: 'People & HR', href: '/hr', icon: <IconUsers size={18} /> },
+                { label: 'Staff requests', href: '/requests?tab=people', icon: <IconChecklist size={18} /> },
+                { label: 'Payroll & employees', href: '/payroll', icon: <IconReceipt size={18} /> },
             ],
         }] : [])] : []),
         {

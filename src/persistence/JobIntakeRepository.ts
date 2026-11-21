@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from 'crypto'
 
+import { intakeDedupeKey, operationsRegisterService } from '../services/OperationsRegisterService'
+
+import { normalizeStoreNumber } from './ContactRepository'
 import { DatabaseManager } from './DatabaseManager'
 
 export type JobIntakeStatus = 'pending' | 'assigning' | 'assigned'
@@ -12,6 +15,8 @@ export interface JobIntakeAttachmentInput {
 
 export interface JobIntakeInput {
   reference?: string
+  /** The client's store number: the job lands in that store's file. */
+  storeNumber?: string
   poNumber?: string
   problemType?: string
   description: string
@@ -23,6 +28,10 @@ export interface JobIntakeInput {
   payoutAmount?: number
   currency: string
   vehicleReference?: string
+  /** A van from the register; its registration becomes the vehicle reference. */
+  vanId?: string
+  /** Unplanned work the store called in. */
+  callOut?: boolean
   requireConcealedWorkPhoto?: boolean
   sourceType?: 'manual' | 'email'
   sourceMessageId?: string
@@ -40,6 +49,8 @@ export interface JobIntakeRecord {
   assignedTo?: string
   workflowRunId?: string
   assignmentAttempt: number
+  /** The job or intake already booked for the same store and client reference. */
+  duplicateOf?: string
   createdAt: string
   updatedAt: string
   attachments: Array<{
@@ -65,9 +76,15 @@ type IntakeRow = {
   assignedTo?: string
   workflowRunId?: string
   assignmentAttempt: number
+  duplicateOf?: string
   createdAt: string
   updatedAt: string
 }
+
+const INTAKE_COLUMNS = `id, tenant_id AS tenantId, created_by AS createdBy, status, payload_json AS payloadJson,
+  assigned_to AS assignedTo, workflow_run_id AS workflowRunId,
+  assignment_attempt AS assignmentAttempt, duplicate_of AS duplicateOf, created_at AS createdAt,
+  updated_at AS updatedAt`
 
 export class JobIntakeRepository {
   public create(
@@ -78,10 +95,10 @@ export class JobIntakeRepository {
   ): JobIntakeRecord {
     const db = DatabaseManager.getDatabase()
     const id = randomUUID()
-    const {
-      attachments = [],
-      ...payload
-    } = input
+    const { attachments = [], ...rest } = input
+    const storeNumber = normalizeStoreNumber(rest.storeNumber)
+    const payload = { ...rest, ...(storeNumber ? { storeNumber } : {}) }
+    const dedupeKey = intakeDedupeKey(storeNumber, payload.poNumber)
     const decodedAttachments = attachments.map((attachment) => ({
       attachment,
       bytes: this.decodeAttachment(attachment),
@@ -106,10 +123,13 @@ export class JobIntakeRepository {
 
       if (existing) return existing.id
 
+      const repeat = dedupeKey
+        ? operationsRegisterService.findBookedRepeat(tenantId, storeNumber, String(payload.poNumber || ''))
+        : undefined
       db.prepare(
         `INSERT INTO job_intakes
-          (id, tenant_id, created_by, payload_json, idempotency_key, source_message_id)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+          (id, tenant_id, created_by, payload_json, idempotency_key, source_message_id, dedupe_key, duplicate_of)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         tenantId,
@@ -117,6 +137,8 @@ export class JobIntakeRepository {
         JSON.stringify(payload),
         idempotencyKey || null,
         input.sourceMessageId || null,
+        dedupeKey || null,
+        repeat?.id || null,
       )
 
       const insertAttachment = db.prepare(
@@ -145,10 +167,7 @@ export class JobIntakeRepository {
   public listForTenant(tenantId: string, status?: JobIntakeStatus): JobIntakeRecord[] {
     const rows = DatabaseManager.getDatabase()
       .prepare(
-        `SELECT id, tenant_id AS tenantId, created_by AS createdBy, status, payload_json AS payloadJson,
-                assigned_to AS assignedTo, workflow_run_id AS workflowRunId,
-                assignment_attempt AS assignmentAttempt, created_at AS createdAt,
-                updated_at AS updatedAt
+        `SELECT ${INTAKE_COLUMNS}
          FROM job_intakes WHERE tenant_id = ? ${status ? 'AND status = ?' : ''}
          ORDER BY created_at DESC LIMIT 200`,
       )
@@ -159,10 +178,7 @@ export class JobIntakeRepository {
   public getForTenant(id: string, tenantId: string): JobIntakeRecord | undefined {
     const row = DatabaseManager.getDatabase()
       .prepare(
-        `SELECT id, tenant_id AS tenantId, created_by AS createdBy, status, payload_json AS payloadJson,
-                assigned_to AS assignedTo, workflow_run_id AS workflowRunId,
-                assignment_attempt AS assignmentAttempt, created_at AS createdAt,
-                updated_at AS updatedAt
+        `SELECT ${INTAKE_COLUMNS}
          FROM job_intakes WHERE id = ? AND tenant_id = ?`,
       )
       .get(id, tenantId) as IntakeRow | undefined
@@ -225,6 +241,19 @@ export class JobIntakeRepository {
     return result.changes === 1
   }
 
+  /** Save details the dispatcher filled in before starting the job (price, van, store). */
+  public updatePayload(id: string, tenantId: string, changes: Partial<Omit<JobIntakeInput, 'attachments'>>): void {
+    const current = this.getForTenant(id, tenantId)
+    if (!current || current.status !== 'pending') return
+    const payload = { ...current.payload, ...changes }
+    DatabaseManager.getDatabase()
+      .prepare(
+        `UPDATE job_intakes SET payload_json = ?, dedupe_key = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND tenant_id = ? AND status = 'pending'`,
+      )
+      .run(JSON.stringify(payload), intakeDedupeKey(payload.storeNumber, payload.poNumber) || null, id, tenantId)
+  }
+
   public resetAssignment(id: string, tenantId: string): void {
     DatabaseManager.getDatabase()
       .prepare(
@@ -252,6 +281,7 @@ export class JobIntakeRepository {
       assignedTo: row.assignedTo,
       workflowRunId: row.workflowRunId,
       assignmentAttempt: row.assignmentAttempt,
+      duplicateOf: row.duplicateOf || undefined,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       attachments,

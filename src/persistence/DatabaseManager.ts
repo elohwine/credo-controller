@@ -213,6 +213,8 @@ export class DatabaseManager {
         file: '150_job_deposits_and_marketing.sql',
         name: 'job_deposits_and_marketing',
       },
+      { version: 152, file: '152_stores_staff_vans_mail_intake.sql', name: 'stores_staff_vans_mail_intake' },
+      { version: 153, file: '153_employee_staff_link.sql', name: 'employee_staff_link' },
     ]
 
     for (const migration of migrationFiles) {

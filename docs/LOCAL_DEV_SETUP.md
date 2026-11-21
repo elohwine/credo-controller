@@ -309,6 +309,21 @@ LOG_LEVEL=debug
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
+Jobs mailbox (optional, SGK): leave these unset to keep the mailbox off. With them set, the API reads
+the mailbox every `MS_GRAPH_POLL_SECONDS` and puts each new job mail under Waiting to be booked.
+The Azure app registration needs the `Mail.Read` application permission with admin consent.
+
+```env
+MS_GRAPH_TENANT_ID=<azure-tenant-id>
+MS_GRAPH_CLIENT_ID=<app-registration-client-id>
+MS_GRAPH_CLIENT_SECRET=<client-secret>
+MS_GRAPH_MAILBOX=jobs@example.com
+MS_GRAPH_ORG_TENANT_ID=<organisation tenant id the jobs belong to>
+MS_GRAPH_MAIL_FOLDER=inbox
+MS_GRAPH_POLL_SECONDS=120
+MS_GRAPH_FIRST_SYNC_DAYS=14
+```
+
 ## Database Initialization
 
 ```bash

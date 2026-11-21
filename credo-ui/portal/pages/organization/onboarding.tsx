@@ -24,6 +24,9 @@ import {
   modulePlanNote,
   OPERATING_MODEL_NOTE,
   startingModules,
+  isLockedModule,
+  withLockedModules,
+  LOCKED_MODULE_NOTE,
   openedWorkAreas,
   persistOrgProfile,
   clearOrgSetupDraft,
@@ -40,6 +43,7 @@ import {
   type OrgSetupPlan,
   type PaymentChoice,
 } from '@/utils/orgProfile'
+import { PRODUCT_NAME } from '../../../../src/config/productEdition'
 import { reveal } from '../../../shared/reveal'
 import {
   Alert,
@@ -463,7 +467,7 @@ export default function OnboardingPage() {
 
   if (step === 'welcome') {
     return (
-      <Layout title="Welcome to Credentis">
+      <Layout title={`Welcome to ${PRODUCT_NAME}`}>
         <Container size="sm" py={60}>
           <Stack className={reveal.stagger} gap="xl" align="center">
             <Box ta="center">
@@ -829,18 +833,18 @@ export default function OnboardingPage() {
           {question === 2 && (
             <Stack gap="sm">
             <Text size="sm" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas are needed for a connected system.' : SETUP_QUESTION_HELP[2]}</Text>
-            <Chip.Group multiple value={modules} onChange={(value) => setModules(value as OrgModule[])}>
+            <Chip.Group multiple value={modules} onChange={(value) => setModules(withLockedModules(value as OrgModule[], operatingModel))}>
               <Stack gap="sm">
-                {ORG_MODULE_OPTIONS.filter((option) => suggestedOrgModules(kinds, operatingModel).includes(option.id) || (operatingModel !== 'integration' && option.id === 'people_payroll')).map((option) => (
+                {ORG_MODULE_OPTIONS.filter((option) => suggestedOrgModules(kinds, operatingModel).includes(option.id) || isLockedModule(option.id, operatingModel)).map((option) => (
                   <Box key={option.id}>
-                    <Chip value={option.id} size="md" radius="md" variant="outline">
+                    <Chip value={option.id} size="md" radius="md" variant="outline" disabled={isLockedModule(option.id, operatingModel)}>
                       {option.label}
                     </Chip>
                     <Text size="xs" c="dimmed" mt={4} ml={4}>{option.detail}</Text>
-                    <Text size="xs" c="dimmed" ml={4}>{modulePlanNote(option.id, plan)}</Text>
+                    <Text size="xs" c="dimmed" ml={4}>{isLockedModule(option.id, operatingModel) ? LOCKED_MODULE_NOTE : modulePlanNote(option.id, plan)}</Text>
                   </Box>
                 ))}
-                <Text size="xs" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas are needed. Your organisation keeps its SSI identity. After setup, connect your own software under Connected systems to sign people in or send your records to their wallets.' : 'Suggested from your activity answers. Untick anything handled elsewhere; staff tools are optional.'}</Text>
+                <Text size="xs" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas are needed. Your organisation keeps its SSI identity. After setup, connect your own software under Connected systems to sign people in or send your records to their wallets.' : 'Jobs and People & payroll are always on. Untick anything else that is handled elsewhere.'}</Text>
               </Stack>
             </Chip.Group>
             </Stack>

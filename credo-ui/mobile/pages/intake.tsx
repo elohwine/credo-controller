@@ -1,15 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { PhoneField } from '../../shared/PhoneField'
 import {
   Alert,
-  Badge,
   Box,
   Button,
-  Card,
   Checkbox,
   FileInput,
   Group,
-  Modal,
   NumberInput,
   Select,
   Stack,
@@ -19,46 +16,15 @@ import {
   ThemeIcon,
   Title,
 } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
-import { IconBriefcase, IconFileText, IconInbox, IconShieldCheck } from '@tabler/icons-react'
+import { IconInbox, IconShieldCheck } from '@tabler/icons-react'
 import { useRouter } from 'next/router'
 import AppShellMobile from '@/components/layout/AppShellMobile'
+import BottomSheet from '@/components/shared/BottomSheet'
 import api from '@/lib/api'
 import { getActiveOrgId, getContextMode, getOrgToken, isEmployeeOrgRole } from '@/lib/auth'
-
-interface IntakeAttachment {
-  id: string
-  filename: string
-  mediaType: string
-  sizeBytes: number
-  sha256: string
-}
-
-interface IntakeItem {
-  id: string
-  status: 'pending' | 'assigning' | 'assigned'
-  payload: {
-    reference: string
-    poNumber?: string
-    problemType?: string
-    description: string
-    clientName?: string
-    clientPhone?: string
-    location?: string
-    scheduledDate?: string
-    amount: number
-    payoutAmount?: number
-    currency: string
-    vehicleReference?: string
-    requireConcealedWorkPhoto?: boolean
-    sourceSender?: string
-    sourceSubject?: string
-  }
-  assignedTo?: string
-  workflowRunId?: string
-  createdAt: string
-  attachments: IntakeAttachment[]
-}
+import { usePhoneOperations } from '@/lib/operations'
+import { IncomingJobs } from '../../shared/operations/IncomingJobs'
+import { JobScheduleFields } from '../../shared/operations/JobScheduleFields'
 
 interface Member {
   userId: string
@@ -86,16 +52,18 @@ function toBase64(file: File): Promise<string> {
 
 export default function IntakePage() {
   const router = useRouter()
-  const [selected, setSelected] = useState<IntakeItem | null>(null)
-  const [items, setItems] = useState<IntakeItem[]>([])
+  const { api: operations, notify } = usePhoneOperations()
+  const [refreshKey, setRefreshKey] = useState(0)
   const [members, setMembers] = useState<Member[]>([])
-  const [assignees, setAssignees] = useState<Record<string, string | null>>({})
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [creating, setCreating] = useState(false)
   const [hasFeptEnabled, setHasFeptEnabled] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [form, setForm] = useState({
+    storeNumber: '',
+    callOut: false,
+    vanId: '',
     poNumber: '',
     problemType: '',
     description: '',
@@ -129,33 +97,13 @@ export default function IntakePage() {
   const canUseFeptOps = getContextMode() === 'org' && !!getActiveOrgId() && isEmployeeOrgRole() && hasFeptEnabled
   const token = getOrgToken()
   const organizationId = getActiveOrgId()
-  const fieldWorkers = useMemo(
-    () =>
-      members
-        .filter((member) => member.status !== 'inactive' && ['field_worker', 'technician', 'driver', 'inspector', 'dispatcher', 'supervisor'].includes(member.role.toLowerCase()))
-        .map((member) => ({
-          value: member.userId,
-          label:
-            member.displayName && !/^(organization owner|team member)$/i.test(member.displayName)
-              ? `${member.displayName} (${member.role.replace(/_/g, ' ')})`
-              : `${member.phone || 'Field worker'} (${member.role.replace(/_/g, ' ')})`,
-        })),
-    [members],
-  )
-
   const loadItems = useCallback(async () => {
-    if (!token || !canUseFeptOps) return
+    if (!token || !canUseFeptOps || !organizationId) return
     setLoading(true)
     try {
-      const [intakeResponse, membersResponse] = await Promise.all([
-        api.get('/api/platform/job-intake', { headers: { Authorization: `Bearer ${token}` } }),
-        organizationId
-          ? api.get(`/api/organizations/${encodeURIComponent(organizationId)}/members`, {
-              headers: { Authorization: `Bearer ${token}` },
-            })
-          : Promise.resolve({ data: [] }),
-      ])
-      setItems(Array.isArray(intakeResponse.data?.items) ? intakeResponse.data.items : [])
+      const membersResponse = await api.get(`/api/organizations/${encodeURIComponent(organizationId)}/members`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
       const rows = Array.isArray(membersResponse.data) ? membersResponse.data : []
       setMembers(
         rows
@@ -169,15 +117,11 @@ export default function IntakePage() {
           })),
       )
     } catch (error: any) {
-      notifications.show({
-        title: 'Could not load job intake',
-        message: error.response?.data?.message || error.response?.data?.error || error.message,
-        color: 'red',
-      })
+      notify(error.response?.data?.message || error.response?.data?.error || error.message, 'error')
     } finally {
       setLoading(false)
     }
-  }, [token, canUseFeptOps, organizationId])
+  }, [token, canUseFeptOps, organizationId, notify])
 
   useEffect(() => {
     void loadItems()
@@ -186,7 +130,7 @@ export default function IntakePage() {
   const createIntake = async () => {
     if (!token) return
     if (!form.description.trim() || !form.amount || form.amount <= 0) {
-      notifications.show({ title: 'Add job details', message: 'Description and client amount are required.', color: 'orange' })
+      notify('Add what the job is and the client amount.', 'error')
       return
     }
     setSaving(true)
@@ -208,6 +152,9 @@ export default function IntakePage() {
           ...form,
           amount: Number(form.amount),
           ...(form.payoutAmount > 0 ? { payoutAmount: Number(form.payoutAmount) } : {}),
+          storeNumber: form.storeNumber.trim() || undefined,
+          callOut: form.callOut,
+          vanId: form.vanId || undefined,
           poNumber: form.poNumber.trim() || undefined,
           problemType: form.problemType.trim() || undefined,
           description: form.description.trim(),
@@ -221,14 +168,13 @@ export default function IntakePage() {
         },
         { headers: { Authorization: `Bearer ${token}` } },
       )
-      notifications.show({
-        title: 'Job saved to intake',
-        message: 'It remains unassigned until a dispatcher chooses a field worker.',
-        color: 'teal',
-      })
+      notify('Job saved. It waits here until someone books a worker for it.', 'success')
       setCreating(false)
       setFiles([])
       setForm({
+        storeNumber: '',
+        callOut: false,
+        vanId: '',
         poNumber: '',
         problemType: '',
         description: '',
@@ -242,73 +188,11 @@ export default function IntakePage() {
         vehicleReference: '',
         requireConcealedWorkPhoto: false,
       })
-      await loadItems()
+      setRefreshKey((key) => key + 1)
     } catch (error: any) {
-      notifications.show({
-        title: 'Could not save job intake',
-        message: error.response?.data?.message || error.response?.data?.error || error.message,
-        color: 'red',
-      })
+      notify(error.response?.data?.message || error.response?.data?.error || error.message, 'error')
     } finally {
       setSaving(false)
-    }
-  }
-
-  const assignJob = async (item: IntakeItem) => {
-    if (!token) return
-    const assigneeId = assignees[item.id]
-    if (!assigneeId) {
-      notifications.show({ title: 'Choose a field worker', message: 'Select an active team member first.', color: 'orange' })
-      return
-    }
-    setSelected(item)
-    try {
-      const result = await api.post(
-        `/api/platform/job-intake/${encodeURIComponent(item.id)}/assign`,
-        { assigneeId },
-        { headers: { Authorization: `Bearer ${token}` } },
-      )
-      notifications.show({
-        title: 'Job assigned',
-        message: 'The FEPT job card is ready for the assigned worker.',
-        color: 'teal',
-      })
-      await loadItems()
-      if (result.data?.runId) await router.push(`/finance?tab=field&runId=${encodeURIComponent(result.data.runId)}`)
-    } catch (error: any) {
-      notifications.show({
-        title: 'Could not assign job',
-        message: error.response?.data?.message || error.response?.data?.error || error.message,
-        color: 'red',
-      })
-    } finally {
-      setSelected(null)
-    }
-  }
-
-  const openAttachment = async (item: IntakeItem, attachment: IntakeAttachment) => {
-    if (!token) return
-    try {
-      const response = await api.get(
-        `/api/platform/job-intake/${encodeURIComponent(item.id)}/attachments/${encodeURIComponent(attachment.id)}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      )
-      const raw = atob(String(response.data.dataBase64 || ''))
-      const bytes = new Uint8Array(raw.length)
-      for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index)
-      const url = URL.createObjectURL(new Blob([bytes], { type: response.data.mediaType }))
-      const link = document.createElement('a')
-      link.href = url
-      link.download = response.data.filename || attachment.filename
-      link.rel = 'noopener'
-      link.click()
-      URL.revokeObjectURL(url)
-    } catch (error: any) {
-      notifications.show({
-        title: 'Could not open source document',
-        message: error.response?.data?.message || error.response?.data?.error || error.message,
-        color: 'red',
-      })
     }
   }
 
@@ -318,7 +202,7 @@ export default function IntakePage() {
         {!canUseFeptOps && (
           <Box p="md">
             <Alert icon={<IconShieldCheck size={18} />} color="gray" title="Unavailable">
-              This FEPT operational intake view is only available to organization employees when field execution workflow is active.
+              Incoming jobs are for team members of an organisation that runs field jobs.
             </Alert>
           </Box>
         )}
@@ -327,100 +211,60 @@ export default function IntakePage() {
           <>
             <Box
               p="md"
-              style={{
-                background: 'rgba(255,255,255,0.74)',
-                borderBottom: '1px solid rgba(148,163,184,0.2)',
-                backdropFilter: 'blur(12px) saturate(150%)',
-              }}
+              style={{ background: 'var(--mantine-color-body)', borderBottom: '1px solid var(--mantine-color-default-border)' }}
             >
               <Group justify="space-between">
                 <Box>
-                  <Title order={3}>Operational Intake</Title>
-                  <Text size="sm" c="dimmed">Save incoming work before dispatching it to a field worker</Text>
+                  <Title order={3} fw={500}>Waiting to be booked</Title>
+                  <Text size="sm" c="dimmed">Jobs from the jobs mailbox and jobs saved by hand, before a worker is booked</Text>
                 </Box>
-                <ThemeIcon size="xl" radius="md" variant="light" color="teal">
+                <ThemeIcon size={48} radius="md" variant="light" color="credentis">
                   <IconInbox size={24} />
                 </ThemeIcon>
               </Group>
               <Group mt="sm">
-                <Button onClick={() => setCreating(true)}>Add job intake</Button>
-                <Button variant="light" onClick={() => void loadItems()} loading={loading}>Refresh</Button>
+                <Button size="md" radius="xl" onClick={() => setCreating(true)}>Add a job</Button>
+                <Button size="md" radius="xl" variant="light" loading={loading} onClick={() => void router.push('/registers')}>Stores & vans</Button>
               </Group>
             </Box>
 
-            <Stack gap="sm" p="md">
-              {items.map((item) => (
-                <Card key={item.id} withBorder radius="md" p="sm">
-                  <Group justify="space-between" align="flex-start" wrap="nowrap">
-                    <Box style={{ flex: 1, minWidth: 0 }}>
-                      <Group gap={6} mb={4}>
-                        <Badge size="xs" variant="light" color={item.status === 'assigned' ? 'teal' : 'orange'}>
-                          {item.status === 'assigned' ? 'Assigned' : item.status === 'assigning' ? 'Assigning' : 'Pending assignment'}
-                        </Badge>
-                        <Text size="xs" c="dimmed">{new Date(item.createdAt).toLocaleDateString()}</Text>
-                      </Group>
-                      <Text fw={600} size="sm">{item.payload.reference}</Text>
-                      {item.payload.poNumber && <Text size="xs" c="dimmed">Client PO: {item.payload.poNumber}</Text>}
-                      <Text size="sm" lineClamp={2}>{item.payload.description}</Text>
-                      <Text size="xs" c="dimmed">{[item.payload.clientName, item.payload.location].filter(Boolean).join(' · ')}</Text>
-                      {item.payload.sourceSubject && <Text size="xs" c="dimmed">{item.payload.sourceSubject}</Text>}
-                      {item.attachments.length > 0 && (
-                        <Group gap={4} mt={6}>
-                          {item.attachments.map((attachment) => (
-                            <Button
-                              key={attachment.id}
-                              size="compact-xs"
-                              variant="subtle"
-                              leftSection={<IconFileText size={13} />}
-                              onClick={() => void openAttachment(item, attachment)}
-                            >
-                              {attachment.filename}
-                            </Button>
-                          ))}
-                        </Group>
-                      )}
-                    </Box>
-                    <Box ta="right">
-                      <Text fw={700} c="teal">{item.payload.amount} {item.payload.currency}</Text>
-                    </Box>
-                  </Group>
-                  {item.status !== 'assigned' && (
-                    <Group mt="sm" align="flex-end">
-                      <Select
-                        label="Assign worker"
-                        placeholder={fieldWorkers.length ? 'Choose a field worker' : 'No field workers available'}
-                        data={fieldWorkers}
-                        value={assignees[item.id] || null}
-                        onChange={(value) => setAssignees((current) => ({ ...current, [item.id]: value }))}
-                        searchable
-                        style={{ flex: 1 }}
-                      />
-                      <Button
-                        leftSection={<IconBriefcase size={15} />}
-                        disabled={!fieldWorkers.length || item.status === 'assigning'}
-                        loading={selected?.id === item.id}
-                        onClick={() => void assignJob(item)}
-                      >
-                        Start job
-                      </Button>
-                    </Group>
-                  )}
-                </Card>
-              ))}
-              {!loading && items.length === 0 && (
-                <Card withBorder ta="center" p="xl">
-                  <Text c="dimmed">No jobs are waiting in intake. Add a job from a client order or PO.</Text>
-                </Card>
-              )}
-            </Stack>
+            <Box p="md">
+              <IncomingJobs
+                api={operations}
+                surface="phone"
+                members={members}
+                notify={notify}
+                refreshKey={refreshKey}
+                onStarted={(runId) => void router.push(`/finance?tab=field&runId=${encodeURIComponent(runId)}`)}
+              />
+            </Box>
 
-            <Modal opened={creating} onClose={() => setCreating(false)} title="Add job to intake" centered>
+            <BottomSheet opened={creating} onClose={() => setCreating(false)} title="Add a job">
               <Stack gap="sm">
-                <Alert color="blue" icon={<IconShieldCheck size={16} />}>
-                  This saves the job as unassigned. Assignment starts the existing FEPT workflow and notifies the selected worker.
+                <Alert color="credentis" icon={<IconShieldCheck size={16} />}>
+                  The job waits under Waiting to be booked. Booking it sends it to the worker you choose.
                 </Alert>
+                <JobScheduleFields
+                  api={operations}
+                  surface="phone"
+                  storeNumber={form.storeNumber}
+                  onStoreNumber={(storeNumber) => setForm((current) => ({ ...current, storeNumber }))}
+                  onStorePicked={(store) =>
+                    setForm((current) => ({
+                      ...current,
+                      storeNumber: store.storeNumber,
+                      clientName: current.clientName || store.name,
+                      clientPhone: current.clientPhone || store.phone || '',
+                    }))
+                  }
+                  vanId={form.vanId || null}
+                  onVan={(van) => setForm((current) => ({ ...current, vanId: van?.id || '', vehicleReference: van?.registration || '' }))}
+                  callOut={form.callOut}
+                  onCallOut={(callOut) => setForm((current) => ({ ...current, callOut }))}
+                  date={form.scheduledDate}
+                />
                 <TextInput
-                  label="Client PO / store number (optional)"
+                  label="Client PO (optional)"
                   value={form.poNumber}
                   onChange={(event) => setForm((current) => ({ ...current, poNumber: event.currentTarget.value }))}
                 />
@@ -456,11 +300,6 @@ export default function IntakePage() {
                   type="date"
                   value={form.scheduledDate}
                   onChange={(event) => setForm((current) => ({ ...current, scheduledDate: event.currentTarget.value }))}
-                />
-                <TextInput
-                  label="Vehicle reference (optional)"
-                  value={form.vehicleReference}
-                  onChange={(event) => setForm((current) => ({ ...current, vehicleReference: event.currentTarget.value }))}
                 />
                 <Checkbox
                   label="Require a photo before work is covered"
@@ -506,10 +345,10 @@ export default function IntakePage() {
                 />
                 <Group justify="flex-end">
                   <Button variant="default" onClick={() => setCreating(false)}>Cancel</Button>
-                  <Button loading={saving} onClick={() => void createIntake()}>Save unassigned job</Button>
+                  <Button loading={saving} onClick={() => void createIntake()}>Save job</Button>
                 </Group>
               </Stack>
-            </Modal>
+            </BottomSheet>
           </>
         )}
       </Box>

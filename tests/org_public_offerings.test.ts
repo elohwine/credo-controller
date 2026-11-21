@@ -127,7 +127,9 @@ describe('organisation public offerings', () => {
     expect(storefront.contactLinks.phone).toBe('+263771234567')
   })
 
-  test('goods show only for organisations that sell, separately from services', async () => {
+  // Selling goods is the shop work area. The SGK edition does not offer it (see src/config/productEdition.ts),
+  // so these three run on the platform branch only.
+  test.skip('goods show only for organisations that sell, separately from services', async () => {
     const shop = seedListedOrg(['shop'])
     addGoods(shop.orgTenantId, 'Cement 50kg')
     const view = orgOfferingsService.update(shop.ownerUserId, shop.orgTenantId, { isPublic: true })
@@ -144,26 +146,24 @@ describe('organisation public offerings', () => {
     expect(orgOfferingsService.goods(office.orgTenantId)).toEqual([])
   })
 
-  test('a service hides itself when its work area is switched off, and private orgs are not found', async () => {
+  test('the job service stays available because jobs are always on here, and private orgs are not found', async () => {
     const org = seedListedOrg(['field'])
     orgOfferingsService.update(org.ownerUserId, org.orgTenantId, { isPublic: true })
+    // Even if the saved answers lose the field kind, jobs stay on in this edition.
     DatabaseManager.getDatabase()
       .prepare(`UPDATE org_setup_profiles SET kinds = '[]' WHERE org_tenant_id = ?`)
       .run(org.orgTenantId)
 
     const view = orgOfferingsService.ownerView(org.orgTenantId)
     const job = view.services.find((service) => service.offeringKey === 'book_job')!
-    expect(job.available).toBe(false)
-    expect(() =>
-      orgOfferingsService.update(org.ownerUserId, org.orgTenantId, { services: [{ id: job.id, published: true }] }),
-    ).toThrow(/work area switched on/)
+    expect(job.available).toBe(true)
 
     orgOfferingsService.update(org.ownerUserId, org.orgTenantId, { isPublic: false })
     await expect(new DiscoveryController().getStorefront(org.orgTenantId)).rejects.toThrow(/not found/)
     expect(orgOfferingsService.preview(org.orgTenantId).isPublic).toBe(false)
   })
 
-  test('the owner adds and removes goods; organisations that do not sell cannot add them', () => {
+  test.skip('the owner adds and removes goods; organisations that do not sell cannot add them', () => {
     const shop = seedListedOrg(['shop'])
     const added = orgOfferingsService.update(shop.ownerUserId, shop.orgTenantId, {
       addGoods: { title: 'Bread', price: 1.2, currency: 'usd' },
@@ -199,7 +199,7 @@ describe('organisation public offerings', () => {
     )
   })
 
-  test('a WhatsApp catalog import adds a product once and refreshes it by name or code', () => {
+  test.skip('a WhatsApp catalog import adds a product once and refreshes it by name or code', () => {
     expect(catalogPrice('12.50 USD')).toEqual({ price: 12.5, currency: 'USD' })
     expect(catalogPrice('nope')).toBeUndefined()
 

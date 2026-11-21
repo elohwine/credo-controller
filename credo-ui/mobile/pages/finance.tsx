@@ -82,6 +82,8 @@ import {
   IconDots,
   IconBriefcase,
   IconShoppingCart,
+  IconInbox,
+  IconTruck,
 } from '@tabler/icons-react'
 import AppShellMobile from '@/components/layout/AppShellMobile'
 import FormCard from '@/components/shared/FormCard'
@@ -196,6 +198,8 @@ import {
   type SchoolFeeRunLike,
 } from '@/lib/uxCopy'
 import JobPaymentPlanFields, { jobPaymentPlanBody } from '@/components/shared/JobPaymentPlanFields'
+import { usePhoneOperations } from '@/lib/operations'
+import { JobScheduleFields } from '../../shared/operations/JobScheduleFields'
 import JobPriceSheet from '@/components/shared/JobPriceSheet'
 import { detailTabsFor, type DetailTabKey } from '../../shared/detailTabs'
 
@@ -1781,8 +1785,12 @@ export default function FinancePage() {
   const [requisitionLifecycleNote, setRequisitionLifecycleNote] = useState('Goods/services received and confirmed.')
   const [orgContextBundle, setOrgContextBundle] = useState<OrgContextBundleCacheEntry | null>(null)
   const [showFieldRun, setShowFieldRun] = useState(false)
+  const { api: phoneOperations } = usePhoneOperations()
   const [creatingFieldRun, setCreatingFieldRun] = useState(false)
   const [fieldRunForm, setFieldRunForm] = useState({
+    storeNumber: '',
+    vanId: '',
+    callOut: false,
     poNumber: '',
     problemType: '',
     description: '',
@@ -3868,6 +3876,9 @@ export default function FinancePage() {
         ...jobPaymentPlanBody(fieldRunForm),
         description: fieldRunForm.description,
         poNumber: fieldRunForm.poNumber.trim(),
+        ...(fieldRunForm.storeNumber.trim() ? { storeNumber: fieldRunForm.storeNumber.trim() } : {}),
+        ...(fieldRunForm.vanId ? { vanId: fieldRunForm.vanId } : {}),
+        callOut: fieldRunForm.callOut,
         ...(fieldRunForm.problemType ? { problemType: fieldRunForm.problemType } : {}),
         ...(fieldRunForm.vehicleReference.trim() ? { vehicleReference: fieldRunForm.vehicleReference.trim() } : {}),
         requireConcealedWorkPhoto: fieldRunForm.requireConcealedWorkPhoto,
@@ -3893,6 +3904,9 @@ export default function FinancePage() {
 
       setShowFieldRun(false)
       setFieldRunForm({
+        storeNumber: '',
+        vanId: '',
+        callOut: false,
         poNumber: '',
         problemType: '',
         description: '',
@@ -4977,7 +4991,10 @@ export default function FinancePage() {
       status: fieldJobStatusLabel(run.status, stage, run.output?.pauseReason),
       statusColor: FEPT_STAGE_COLOR[stage] || 'gray',
       dateLabel: formatTxnTime(run.updatedAt || run.updated_at || run.createdAt || run.created_at) || undefined,
-      note: [input.reference || input.poNumber, input.location].filter(Boolean).join(' · ') || undefined,
+      note:
+        [input.storeNumber ? `Store ${input.storeNumber}` : '', input.reference || input.poNumber, input.callOut ? 'Call-out' : '', input.location]
+          .filter(Boolean)
+          .join(' · ') || undefined,
       amountLabel: input.amount ? fmt(Number(input.amount), input.currency || 'USD') : undefined,
       trailing: (
         <Badge size="xs" color={closed ? 'gray' : 'teal'} variant="dot">
@@ -5227,6 +5244,18 @@ export default function FinancePage() {
             )}
           </Group>
         )}
+        {area === 'operations' &&
+          hasFieldExecution &&
+          ['owner', 'admin', 'manager', 'dispatcher', 'supervisor'].includes(String(getOrgRoleClaim() || '').toLowerCase()) && (
+            <Group grow>
+              <Button variant="light" size="md" radius="xl" leftSection={<IconInbox size={18} />} onClick={() => router.push('/intake')}>
+                Waiting to be booked
+              </Button>
+              <Button variant="light" size="md" radius="xl" leftSection={<IconTruck size={18} />} onClick={() => router.push('/registers')}>
+                Stores & vans
+              </Button>
+            </Group>
+          )}
 
         <Tabs value={tab} onChange={setTab}>
           <Tabs.List grow>
@@ -7311,7 +7340,7 @@ export default function FinancePage() {
           />
 
           <TextInput
-            label="Client PO / store number (if provided)"
+            label="Client PO (if provided)"
             placeholder="e.g. PO-2026-004"
             value={fieldRunForm.poNumber}
             onChange={(e) => setFieldRunForm({ ...fieldRunForm, poNumber: e.currentTarget.value })}
@@ -7408,12 +7437,6 @@ export default function FinancePage() {
             onChange={(e) => setFieldRunForm({ ...fieldRunForm, location: e.currentTarget.value })}
           />
 
-          <TextInput
-            label="Assigned vehicle (optional)"
-            placeholder="Registration or fleet reference"
-            value={fieldRunForm.vehicleReference}
-            onChange={(e) => setFieldRunForm({ ...fieldRunForm, vehicleReference: e.currentTarget.value })}
-          />
           <Checkbox
             label="Require a photo before work is covered"
             description="Adds an in-progress, location-sealed photo step for work that will be hidden."
@@ -7434,6 +7457,28 @@ export default function FinancePage() {
             value={fieldRunForm.assigneeId}
             onChange={(val) => setFieldRunForm({ ...fieldRunForm, assigneeId: val || 'stage-actor' })}
             data={[stageActorOption(fieldStageActors, FIELD_WORKER_STAGE, orgMembers), ...fieldJobPeople]}
+          />
+
+          <JobScheduleFields
+            api={phoneOperations}
+            surface="phone"
+            storeNumber={fieldRunForm.storeNumber}
+            onStoreNumber={(storeNumber) => setFieldRunForm((prev) => ({ ...prev, storeNumber }))}
+            onStorePicked={(store) =>
+              setFieldRunForm((prev) => ({
+                ...prev,
+                storeNumber: store.storeNumber,
+                clientName: prev.clientName || store.name,
+                clientPhone: prev.clientPhone || store.phone || '',
+              }))
+            }
+            vanId={fieldRunForm.vanId || null}
+            onVan={(van) => setFieldRunForm((prev) => ({ ...prev, vanId: van?.id || '', vehicleReference: van?.registration || '' }))}
+            callOut={fieldRunForm.callOut}
+            onCallOut={(callOut) => setFieldRunForm((prev) => ({ ...prev, callOut }))}
+            date={fieldRunForm.scheduledDate}
+            assigneeId={fieldRunForm.assigneeId === 'stage-actor' || parseJobContactSelection(fieldRunForm.assigneeId) ? null : fieldRunForm.assigneeId}
+            names={Object.fromEntries(orgMembers.map((m) => [m.userId, m.displayName || m.phone || 'Team member']))}
           />
 
           <Select
@@ -8281,10 +8326,32 @@ export default function FinancePage() {
                                 <Text size="sm">{input.scheduledDate || 'N/A'}</Text>
                               </Group>
                             </Box>
+                            {input.storeNumber && (
+                              <Box>
+                                <Text size="sm" c="dimmed">
+                                  Store number
+                                </Text>
+                                <Anchor
+                                  size="sm"
+                                  onClick={() => void router.push(`/registers?store=${encodeURIComponent(String(input.storeNumber))}`)}
+                                >
+                                  {String(input.storeNumber)}
+                                  {input.callOut ? ' · Call-out' : ''}
+                                </Anchor>
+                              </Box>
+                            )}
+                            {input.vehicleReference && (
+                              <Box>
+                                <Text size="sm" c="dimmed">
+                                  Van
+                                </Text>
+                                <Text size="sm">{String(input.vehicleReference)}</Text>
+                              </Box>
+                            )}
                             {runRef && runRef !== String(run.id || '') && (
                               <Box>
                                 <Text size="sm" c="dimmed">
-                                  Reference
+                                  {input.poNumber ? 'Client PO' : 'Reference'}
                                 </Text>
                                 <Text size="sm">{runRef}</Text>
                               </Box>

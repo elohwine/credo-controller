@@ -24,7 +24,7 @@ import {
   type OrgOperatingModel,
   type OrgConfigurationAccess,
 } from '../config/orgModules'
-import { editionKinds, editionModules } from '../config/productEdition'
+import { editionKinds, editionModules, withEditionModules } from '../config/productEdition'
 import { MEMBER_REQUEST_FLOWS } from '../config/requestFlows'
 import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
@@ -193,6 +193,8 @@ export class OrgSetupProfileService {
     if (mode === 'legacy') {
       modules = legacyModules(kinds, modules)
     }
+    // Connecting your own systems only runs no internal work areas, so nothing is forced on for it.
+    if (mode !== 'unconfigured' && row?.operating_model !== 'integration') modules = withEditionModules(modules)
     // A module the plan does not cover stays chosen but opens nothing until the plan does.
     const plan = orgEntitlementService.planFor(orgTenantId)
     const usableModules = modules.filter((module) => orgEntitlementService.planAllows(plan, module))

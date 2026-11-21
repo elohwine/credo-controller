@@ -88,6 +88,7 @@ const SUGGESTIONS_BY_KIND: Record<string, Array<{ id: OrgModule; reason: string 
     { id: 'purchases', reason: 'Because a job can ask for materials.' },
     { id: 'payables', reason: 'Because those materials can become a supplier bill.' },
     { id: 'collections', reason: 'Because the client pays for the job.' },
+    { id: 'people_payroll', reason: 'Because the people who go out need leave, sick days and payslips.' },
   ],
   school: [{ id: 'school_fees', reason: 'Because you collect school fees.' }],
   shop: [{ id: 'commerce', reason: 'Because you sell goods or services.' }],

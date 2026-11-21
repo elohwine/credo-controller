@@ -15,6 +15,34 @@ import { NSSACalculator, PAYECalculator } from './payroll/plugins/StatutoryPlugi
 
 const logger = rootLogger.child({ module: 'PayrollService' })
 
+function employeeFromRow(row: any): Employee {
+  let skills: string[] = []
+  try {
+    const parsed = JSON.parse(row.skills_json || '[]')
+    skills = Array.isArray(parsed) ? parsed.map((skill) => String(skill)) : []
+  } catch {
+    skills = []
+  }
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    did: row.did,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    email: row.email,
+    phone: row.phone,
+    baseSalary: row.base_salary,
+    currency: row.currency,
+    nssaNumber: row.nssa_number,
+    tin: row.tin,
+    staffNumber: row.staff_number || undefined,
+    skills,
+    userId: row.user_id || undefined,
+    status: row.status,
+    createdAt: row.created_at,
+  }
+}
+
 export interface Employee {
   id: string
   tenantId: string
@@ -27,6 +55,11 @@ export interface Employee {
   currency: string
   nssaNumber?: string
   tin?: string
+  /** The attendant's number. Unique in the organisation. */
+  staffNumber?: string
+  skills?: string[]
+  /** The team account this employee uses, so their jobs, leave and van can be listed. */
+  userId?: string
   status: 'active' | 'terminated' | 'on_leave'
   createdAt: string
 }
@@ -91,6 +124,31 @@ export class PayrollService {
     const now = new Date().toISOString()
     const tenantId = employee.tenantId || 'default'
 
+    const staffNumber = String(employee.staffNumber || '').trim().toUpperCase() || null
+    const userId = String(employee.userId || '').trim() || null
+    if (staffNumber) {
+      const taken = db
+        .prepare('SELECT id FROM employees WHERE tenant_id = ? AND staff_number = ? AND id <> ?')
+        .get(tenantId, staffNumber, id) as { id: string } | undefined
+      if (taken) throw new Error(`Staff number ${staffNumber} is already in use`)
+    }
+    if (userId) {
+      const member = db
+        .prepare(`SELECT user_id FROM org_memberships WHERE org_tenant_id = ? AND user_id = ? AND status != 'inactive'`)
+        .get(tenantId, userId) as { user_id: string } | undefined
+      if (!member) throw new Error('Link a person who is already on the team')
+      const linked = db
+        .prepare('SELECT id FROM employees WHERE tenant_id = ? AND user_id = ? AND id <> ?')
+        .get(tenantId, userId, id) as { id: string } | undefined
+      if (linked) throw new Error('That team account is already linked to an employee')
+    }
+    const skillsByKey = new Map<string, string>()
+    for (const skill of employee.skills || []) {
+      const name = String(skill || '').trim().slice(0, 60)
+      if (name && !skillsByKey.has(name.toLowerCase())) skillsByKey.set(name.toLowerCase(), name)
+    }
+    const skills = Array.from(skillsByKey.values()).slice(0, 20)
+
     const record = {
       id,
       tenant_id: tenantId,
@@ -103,6 +161,9 @@ export class PayrollService {
       currency: employee.currency || 'USD',
       nssa_number: employee.nssaNumber || null,
       tin: employee.tin || null,
+      staff_number: staffNumber,
+      skills_json: JSON.stringify(skills),
+      user_id: userId,
       status: employee.status || 'active',
       created_at: now,
       updated_at: now,
@@ -111,8 +172,8 @@ export class PayrollService {
     db.prepare(
       `
             INSERT OR REPLACE INTO employees 
-            (id, tenant_id, did, first_name, last_name, email, phone, base_salary, currency, nssa_number, tin, status, created_at, updated_at)
-            VALUES (@id, @tenant_id, @did, @first_name, @last_name, @email, @phone, @base_salary, @currency, @nssa_number, @tin, @status, @created_at, @updated_at)
+            (id, tenant_id, did, first_name, last_name, email, phone, base_salary, currency, nssa_number, tin, staff_number, skills_json, user_id, status, created_at, updated_at)
+            VALUES (@id, @tenant_id, @did, @first_name, @last_name, @email, @phone, @base_salary, @currency, @nssa_number, @tin, @staff_number, @skills_json, @user_id, @status, @created_at, @updated_at)
         `,
     ).run(record)
 
@@ -126,21 +187,7 @@ export class PayrollService {
     const row = db.prepare('SELECT * FROM employees WHERE id = ?').get(id) as any
     if (!row) return null
 
-    return {
-      id: row.id,
-      tenantId: row.tenant_id,
-      did: row.did,
-      firstName: row.first_name,
-      lastName: row.last_name,
-      email: row.email,
-      phone: row.phone,
-      baseSalary: row.base_salary,
-      currency: row.currency,
-      nssaNumber: row.nssa_number,
-      tin: row.tin,
-      status: row.status as any,
-      createdAt: row.created_at,
-    }
+    return employeeFromRow(row)
   }
 
   /**
@@ -151,41 +198,13 @@ export class PayrollService {
     const emp = db.prepare('SELECT * FROM employees WHERE email = ?').get(email) as any
     if (!emp) return null
 
-    return {
-      id: emp.id,
-      tenantId: emp.tenant_id,
-      did: emp.did,
-      firstName: emp.first_name,
-      lastName: emp.last_name,
-      email: emp.email,
-      phone: emp.phone,
-      baseSalary: emp.base_salary,
-      currency: emp.currency,
-      nssaNumber: emp.nssa_number,
-      tin: emp.tin,
-      status: emp.status as any,
-      createdAt: emp.created_at,
-    }
+    return employeeFromRow(emp)
   }
 
   async listEmployees(tenantId: string = 'default'): Promise<Employee[]> {
     const db = DatabaseManager.getDatabase()
     const rows = db.prepare('SELECT * FROM employees WHERE tenant_id = ?').all(tenantId) as any[]
-    return rows.map((row) => ({
-      id: row.id,
-      tenantId: row.tenant_id,
-      did: row.did,
-      firstName: row.first_name,
-      lastName: row.last_name,
-      email: row.email,
-      phone: row.phone,
-      baseSalary: row.base_salary,
-      currency: row.currency,
-      nssaNumber: row.nssa_number,
-      tin: row.tin,
-      status: row.status as any,
-      createdAt: row.created_at,
-    }))
+    return rows.map((row) => employeeFromRow(row))
   }
 
   /**

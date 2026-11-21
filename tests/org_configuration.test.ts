@@ -74,14 +74,16 @@ describe('Answer-driven organisation configuration', () => {
     const org = seedOrganization({ setup: 'new' })
     const saved = configure(org.orgTenantId, ['field'])
     expect(saved.access.mode).toBe('explicit')
-    expect(saved.modules).toEqual(['field_jobs'])
-    expect(saved.access.suggestions).toEqual([{ id: 'field_jobs', reason: expect.stringMatching(/send people out/i) }])
-    expect(saved.requestTypes).toEqual(['field_execution_fept'])
+    // This edition offers jobs, the team and what a job uses (materials, supplier bills, payment) and nothing else.
+    expect(saved.modules).toEqual(['field_jobs', 'purchases', 'payables', 'collections', 'people_payroll'])
+    expect(saved.access.suggestions[0]).toEqual({ id: 'field_jobs', reason: expect.stringMatching(/send people out/i) })
+    expect(saved.requestTypes).toEqual(expect.arrayContaining(['field_execution_fept', 'hr_requests']))
 
     expect(raise(org.orgTenantId, org.ownerUserId, 'field_job')).toBeTruthy()
-    expectStatus(() => raise(org.orgTenantId, org.ownerUserId, 'internal_requisitions'), 403, /setup answers/i)
+    expectStatus(() => raise(org.orgTenantId, org.ownerUserId, 'education_fee_payment'), 403, /setup answers/i)
     expect(orgEntitlementService.hasModule(org.orgTenantId, 'field_jobs')).toBe(true)
-    expect(orgEntitlementService.hasModule(org.orgTenantId, 'purchases')).toBe(false)
+    expect(orgEntitlementService.hasModule(org.orgTenantId, 'people_payroll')).toBe(true)
+    expect(orgEntitlementService.hasModule(org.orgTenantId, 'school_fees')).toBe(false)
   })
 
   test('integration-only answers run no work areas here and reject selected modules', () => {
@@ -119,19 +121,21 @@ describe('Answer-driven organisation configuration', () => {
     configure(org.orgTenantId, ['field'])
     DatabaseManager.getDatabase()
       .prepare(
-        `INSERT INTO requests (id, organization_id, requester_person_id, request_type, title, status) VALUES (?, ?, ?, 'field_job', 'Open job', 'submitted')`,
+        `INSERT INTO requests (id, organization_id, requester_person_id, request_type, title, status) VALUES (?, ?, ?, 'internal_requisitions', 'Open job', 'submitted')`,
       )
       .run(randomUUID(), org.organizationId, org.ownerPersonId)
-    const saved = configure(org.orgTenantId, ['office'])
-    expect(saved.modules).not.toContain('field_jobs')
+    // Jobs and the team cannot be switched off in this edition, so the area taken away is purchases.
+    const saved = configure(org.orgTenantId, ['field'], 'internal', [])
+    expect(saved.modules).not.toContain('purchases')
+    expect(saved.modules).toEqual(expect.arrayContaining(['field_jobs', 'people_payroll']))
     expect(saved.access.drainingWork).toEqual([
       expect.objectContaining({
-        moduleId: 'field_jobs',
+        moduleId: 'purchases',
         activeRequests: 1,
         activeWorkflowRuns: 0,
       }),
     ])
-    expectStatus(() => raise(org.orgTenantId, org.ownerUserId, 'field_job'), 403, /setup answers/i)
+    expectStatus(() => raise(org.orgTenantId, org.ownerUserId, 'internal_requisitions'), 403, /setup answers/i)
     expect(
       DatabaseManager.getDatabase().prepare('SELECT status FROM requests WHERE title = ?').get('Open job'),
     ).toEqual({
@@ -161,19 +165,19 @@ describe('Answer-driven organisation configuration', () => {
     expect(saved.modules).toEqual(expect.arrayContaining(['purchases', 'payables', 'collections']))
   })
 
-  test('people and payroll still needs both the answer and the plan, even for existing organisations', () => {
+  test('people and payroll is always on in this edition, and only the plan can still switch it off', () => {
     const org = seedOrganization()
-    expectStatus(() => raise(org.orgTenantId, org.ownerUserId, 'hr.leave'), 403, /people and payroll/i)
-
-    orgSetupProfileService.save(org.orgTenantId, { modules: ['people_payroll'], expectedRevision: 0 })
     const selected = orgSetupProfileService
       .get(org.orgTenantId)
       .access.modules.find((item) => item.id === 'people_payroll')
     expect(selected?.selected).toBe(true)
-    if (!selected?.entitled) {
-      expectStatus(() => raise(org.orgTenantId, org.ownerUserId, 'hr.leave'), 403, /plan/i)
-      orgEntitlementService.setPlan(org.orgTenantId, { grantedModules: ['people_payroll'] })
-    }
+    expect(orgEntitlementService.hasModule(org.orgTenantId, 'people_payroll')).toBe(true)
+
+    orgEntitlementService.setPlan(org.orgTenantId, { plan: 'free', grantedModules: [] })
+    expect(orgEntitlementService.hasModule(org.orgTenantId, 'people_payroll')).toBe(false)
+    expectStatus(() => raise(org.orgTenantId, org.ownerUserId, 'hr.leave'), 403, /plan/i)
+
+    orgEntitlementService.setPlan(org.orgTenantId, { grantedModules: ['people_payroll'] })
     expect(orgEntitlementService.hasModule(org.orgTenantId, 'people_payroll')).toBe(true)
   })
 
@@ -185,10 +189,10 @@ describe('Answer-driven organisation configuration', () => {
     )
 
     const legacy = seedOrganization()
-    expectStatus(() => orgSetupProfileService.save(legacy.orgTenantId, { kinds: ['shop'], expectedRevision: 5 }), 409)
-    expectStatus(() => orgSetupProfileService.save(legacy.orgTenantId, { kinds: ['shop'] }), 409)
-    expect(orgSetupProfileService.save(legacy.orgTenantId, { kinds: ['shop'], expectedRevision: 0 }).kinds).toEqual([
-      'shop',
+    expectStatus(() => orgSetupProfileService.save(legacy.orgTenantId, { kinds: ['field'], expectedRevision: 5 }), 409)
+    expectStatus(() => orgSetupProfileService.save(legacy.orgTenantId, { kinds: ['field'] }), 409)
+    expect(orgSetupProfileService.save(legacy.orgTenantId, { kinds: ['field'], expectedRevision: 0 }).kinds).toEqual([
+      'field',
     ])
   })
 
@@ -202,7 +206,10 @@ describe('Answer-driven organisation configuration', () => {
     expect(orgSetupProfileService.moduleForWorkflow({ id: 'tpl-employee-onboarding', category: 'hr' })).toBe(
       'people_payroll',
     )
-    expectStatus(() => orgSetupProfileService.assertWorkflow(org.orgTenantId, arWorkflow), 403)
+    // Supplier and client money steps belong to this edition; school fees do not.
+    const feeWorkflow = { id: `tpl-education-fee-${org.orgTenantId}-1700000000000`, category: 'finance' }
+    expectStatus(() => orgSetupProfileService.assertWorkflow(org.orgTenantId, feeWorkflow), 403)
+    expect(() => orgSetupProfileService.assertWorkflow(org.orgTenantId, arWorkflow)).not.toThrow()
     expect(() => orgSetupProfileService.assertWorkflow(org.orgTenantId, feptWorkflow)).not.toThrow()
   })
 
@@ -219,12 +226,13 @@ describe('Answer-driven organisation configuration', () => {
     for (const status of ['pending', 'running', 'paused', 'completed', 'cancelled', 'failed'] as const) {
       const org = seedOrganization({ setup: 'new' })
       configure(org.orgTenantId, ['field'])
-      const id = `tpl-fept-field-execution-${org.orgTenantId}-1700000000000`
+      // Jobs cannot be switched off in this edition, so the workflow that drains belongs to client collections.
+      const id = `tpl-ar-collections-${org.orgTenantId}-1700000000000`
       workflowRepository.save({
         id,
         tenantId: org.orgTenantId,
-        name: 'Field job',
-        category: 'utilities',
+        name: 'Collect payment',
+        category: 'finance',
         provider: 'test',
         description: '',
         inputSchema: {},
@@ -239,18 +247,18 @@ describe('Answer-driven organisation configuration', () => {
       workflowRepository.save({
         id,
         tenantId: org.orgTenantId,
-        name: 'Field job',
-        category: 'utilities',
+        name: 'Collect payment',
+        category: 'finance',
         provider: 'test',
         description: '',
         inputSchema: {},
         actions: [{ id: 'edited-step', type: 'test' }],
       })
-      const saved = configure(org.orgTenantId, ['office'])
-      expect(saved.modules).not.toContain('field_jobs')
+      const saved = configure(org.orgTenantId, ['field'], 'internal', [])
+      expect(saved.modules).not.toContain('collections')
       expect(saved.access.drainingWork).toEqual(
         ['pending', 'running', 'paused'].includes(status)
-          ? [expect.objectContaining({ moduleId: 'field_jobs', activeWorkflowRuns: 1, activeRequests: 0 })]
+          ? [expect.objectContaining({ moduleId: 'collections', activeWorkflowRuns: 1, activeRequests: 0 })]
           : [],
       )
       expect(workflowRunRepository.findRunById(run.id)?.status).toBe(status)
@@ -269,7 +277,9 @@ describe('Answer-driven organisation configuration', () => {
       entitled: false,
       available: false,
     })
-    expect(profile.requestTypes).toEqual([])
+    // Jobs are always on in this edition; only the staff requests wait for the plan.
+    expect(profile.requestTypes).toContain('field_execution_fept')
+    expect(profile.requestTypes).not.toContain('hr_requests')
     expectStatus(() => raise(org.orgTenantId, org.ownerUserId, 'hr.leave'), 403, /plan/i)
     expectStatus(
       () =>
@@ -281,7 +291,7 @@ describe('Answer-driven organisation configuration', () => {
       /plan/i,
     )
     orgEntitlementService.setPlan(org.orgTenantId, { grantedModules: ['people_payroll'] })
-    expect(orgSetupProfileService.get(org.orgTenantId).requestTypes).toEqual(['hr_requests'])
+    expect(orgSetupProfileService.get(org.orgTenantId).requestTypes).toContain('hr_requests')
   })
 
   test('catalogue aliases, concrete instance IDs and meaningful custom categories agree', () => {

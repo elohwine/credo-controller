@@ -47,7 +47,12 @@ describe('Payroll access', () => {
     await expect(controller.listEmployees(asUser(shop.orgTenantId, 'field_worker'))).rejects.toThrow(
       'Only an owner, admin, HR or finance manager can run payroll.',
     )
+    // In this edition People & payroll is always on, so an organisation that never ticked it still has it.
+    const plain = seedOrganization({ name: 'Never Ticked Co' })
+    await expect(controller.listEmployees(asUser(plain.orgTenantId, 'owner'))).resolves.toEqual([])
+    // The plan is what can still switch it off.
     const off = seedOrganization({ name: 'No Payroll Co' })
+    orgEntitlementService.setPlan(off.orgTenantId, { plan: 'free', grantedModules: [] })
     await expect(controller.listEmployees(asUser(off.orgTenantId, 'owner'))).rejects.toThrow(
       /has not switched on People & payroll/,
     )

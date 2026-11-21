@@ -1,4 +1,5 @@
 import { readOrgProfile } from './orgProfile'
+import { editionAlwaysOn } from '../../src/config/productEdition'
 import type { OrgConfigurationAccess, OrgModule } from '../../src/config/orgModules'
 
 export type WorkflowCapability =
@@ -136,6 +137,9 @@ export function getWorkflowCapabilityFlags(
   access: OrgConfigurationAccess | null | undefined = readOrgProfile()?.access,
 ) {
   const capabilities = deriveWorkflowCapabilities(templates)
+  // The jobs and the team are part of every organisation's setup in this edition, so the menu never hides them.
+  const editionJobs = editionAlwaysOn('field_jobs')
+  const editionPeople = editionAlwaysOn('people_payroll')
   if (access && access.mode !== 'legacy') {
     const available = (id: OrgModule) => access.modules.some((module) => module.id === id && module.available)
     return {
@@ -144,10 +148,10 @@ export function getWorkflowCapabilityFlags(
       apPayables: available('payables'),
       educationFees: available('school_fees'),
       internalRequisitions: available('purchases'),
-      fieldExecution: available('field_jobs'),
+      fieldExecution: editionJobs || available('field_jobs'),
       cashCounter: available('commerce'),
       ecommerce: available('commerce'),
-      hrOps: available('people_payroll'),
+      hrOps: editionPeople || available('people_payroll'),
     }
   }
   return {
@@ -156,10 +160,10 @@ export function getWorkflowCapabilityFlags(
     apPayables: capabilities.has('ap_payables'),
     educationFees: capabilities.has('education_fees'),
     internalRequisitions: capabilities.has('internal_requisitions'),
-    fieldExecution: capabilities.has('field_execution'),
+    fieldExecution: editionJobs || capabilities.has('field_execution'),
     cashCounter: capabilities.has('cash_counter'),
     ecommerce: capabilities.has('ecommerce'),
-    hrOps: capabilities.has('hr_ops'),
+    hrOps: editionPeople || capabilities.has('hr_ops'),
   }
 }
 

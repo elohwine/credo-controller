@@ -143,13 +143,15 @@ describe('Setup bootstrap', () => {
       financeConfirms: 'Finance officer',
       releases: 'Director',
     })
-    expect(plan.workAreas.map((area) => area.id)).toEqual(['purchases', 'payables', 'field_jobs'])
+    // People & payroll is always on in this edition, so the plan includes it although the form left it out.
+    expect(plan.workAreas.map((area) => area.id)).toEqual(['purchases', 'payables', 'field_jobs', 'people_payroll'])
     expect(plan.payment).toEqual({ method: 'simulated', name: 'Simulated pay' })
     expect(plan.askedOnFirstUse).toHaveLength(1)
-    // Main people follow the same answers: field work → Supervisor runs operations; no payroll → no HR.
+    // Main people follow the same answers: field work → Supervisor runs operations; the team → a Manager does HR.
     expect(plan.mainPeople.map((item) => [item.role, item.assignee, item.status])).toEqual([
       ['approver', 'Manager', 'new'],
       ['finance', 'Finance officer', 'new'],
+      ['hr', 'Manager', 'new'],
       ['operations', 'Supervisor', 'new'],
     ])
 
@@ -195,6 +197,7 @@ describe('Setup bootstrap', () => {
     expect(orgWorkflowActorService.getPolicy(org.orgTenantId).mainPeople).toEqual({
       approver: { type: 'role', value: 'manager' },
       finance: { type: 'role', value: 'finance_manager' },
+      hr: { type: 'role', value: 'manager' },
       operations: { type: 'role', value: 'supervisor' },
     })
     // Operations steps in any flow go to the supervisor once one joins; until then the owner stands in.
@@ -225,11 +228,13 @@ describe('Setup bootstrap', () => {
       ['approver', 'new'],
       ['finance', 'kept'],
       ['hr', 'new'],
+      ['operations', 'new'],
     ])
     expect(orgWorkflowActorService.getPolicy(org.orgTenantId).mainPeople).toEqual({
       approver: { type: 'role', value: 'director' },
       finance: ownerPick,
       hr: { type: 'role', value: 'manager' },
+      operations: { type: 'role', value: 'supervisor' },
     })
   })
 

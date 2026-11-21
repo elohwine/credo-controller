@@ -6,8 +6,8 @@ import {
   type OrgOperatingModel,
   type OrgConfigurationAccess,
 } from '../../src/config/orgModules'
-import { editionAllowsKind, editionAllowsModule } from '../../src/config/productEdition'
-export { PRODUCT_NAME, editionAllowsKind, editionAllowsModule } from '../../src/config/productEdition'
+import { PRODUCT_NAME, editionAllowsKind, editionAllowsModule, editionAlwaysOn, withEditionModules } from '../../src/config/productEdition'
+export { PRODUCT_NAME, editionAllowsKind, editionAllowsModule, editionAlwaysOn, withEditionModules } from '../../src/config/productEdition'
 export type { OrgModule, OrgOperatingModel, OrgConfigurationAccess } from '../../src/config/orgModules'
 export { suggestedOrgModules, suggestOrgSetup } from '../../src/config/orgModules'
 export { DEFAULT_DEPARTMENT_NAME, cleanDepartmentNames, suggestedDepartmentsFor } from '../../src/config/orgStructure'
@@ -33,7 +33,7 @@ export type OrgKindOption = {
 }
 
 /** What the organisation does. This branch offers jobs only. */
-export const ORG_KIND_OPTIONS: OrgKindOption[] = [
+export const ORG_KIND_OPTIONS: OrgKindOption[] = ([
   { id: 'office', label: 'Buys things and pays suppliers', detail: 'Purchase requests and supplier bills' },
   { id: 'field', label: 'Sends people out to do jobs', detail: 'Jobs with photos, sign-off and payment' },
   { id: 'school', label: 'Collects school fees', detail: 'Fee invoices for students and parents' },
@@ -42,7 +42,7 @@ export const ORG_KIND_OPTIONS: OrgKindOption[] = [
     label: 'Sells from a shop or advertises what it delivers',
     detail: 'Counter sales, a catalog, and a public store',
   },
-].filter((option) => editionAllowsKind(option.id))
+] as OrgKindOption[]).filter((option) => editionAllowsKind(option.id))
 
 /**
  * Modules an organisation switches on by its own question. People & payroll is not assumed:
@@ -75,8 +75,8 @@ export function startingModules(
   kinds: readonly string[],
   operatingModel: OrgOperatingModel = 'internal',
 ): OrgModule[] {
-  if (saved?.completedAt) return saved.modules
-  return suggestedOrgModules(kinds.length > 0 ? kinds : ['office'], operatingModel)
+  if (saved?.completedAt) return withLockedModules(saved.modules, operatingModel)
+  return withLockedModules(suggestedOrgModules(kinds.length > 0 ? kinds : ['office'], operatingModel), operatingModel)
 }
 
 export const ORG_MODULE_OPTIONS: OrgModuleOption[] = ORG_MODULE_CATALOGUE.filter((module) =>
@@ -110,6 +110,18 @@ export type OrgPlanSummary = {
 
 /** Under "How will you use the platform?": sign-in, cards and step checks cannot be switched off. */
 export const OPERATING_MODEL_NOTE = 'Whichever you pick, sign-in, staff cards and the checks on each step stay on.'
+
+/** A work area this edition always includes (jobs, people & payroll): shown ticked and cannot be unticked. */
+export function isLockedModule(module: string, operatingModel: OrgOperatingModel): boolean {
+  return operatingModel !== 'integration' && editionAlwaysOn(module)
+}
+
+/** The ticked work areas with the locked ones always in. */
+export function withLockedModules(values: readonly OrgModule[], operatingModel: OrgOperatingModel): OrgModule[] {
+  return operatingModel === 'integration' ? [...values] : withEditionModules(values)
+}
+
+export const LOCKED_MODULE_NOTE = `Always on in ${PRODUCT_NAME}.`
 
 /** One line under a module choice: whether it costs anything right now. */
 export function modulePlanNote(module: OrgModule, plan: OrgPlanSummary | null | undefined): string {
@@ -346,6 +358,12 @@ export function persistOrgProfile(profile: OrgProfile) {
   window.dispatchEvent(new Event('orgConfigurationChanged'))
 }
 
+function modulesForProfile(modules: OrgModule[], saved: { operatingModel?: OrgOperatingModel; access?: { mode?: string; operatingModel?: OrgOperatingModel }; completedAt?: string }): OrgModule[] {
+  const mode = saved.access?.mode
+  const configured = mode ? mode !== 'unconfigured' : Boolean(saved.completedAt)
+  return configured ? withLockedModules(modules, saved.operatingModel ?? saved.access?.operatingModel ?? 'internal') : modules
+}
+
 export function readOrgProfile(): OrgProfile | null {
   if (typeof window === 'undefined') return null
   try {
@@ -360,7 +378,8 @@ export function readOrgProfile(): OrgProfile | null {
       operatingModel: parsed.operatingModel,
       access: parsed.access,
       kinds: cleanKinds(parsed.kinds),
-      modules: cleanModules(parsed.modules),
+      // Same rule as the server: once setup is answered, jobs and the team are in whatever was saved here earlier.
+      modules: modulesForProfile(cleanModules(parsed.modules), parsed),
       approvalPresetId: String(parsed.approvalPresetId || ''),
       approvalTitle: String(parsed.approvalTitle || ''),
       paymentChoice: cleanPayment(parsed.paymentChoice),
@@ -492,7 +511,7 @@ export type SetupStep = { id: SetupStepId; label: string; done: boolean; note?: 
 
 export const SETUP_QUESTION_HELP = {
   1: 'Pick the activities that apply. We will suggest work areas from your answers.',
-  2: 'Suggested areas are already selected. Keep only what you need; staff tools are optional.',
+  2: 'Suggested areas are already selected. Jobs and staff tools come with every organisation.',
   3: 'Teams help organise work. You can keep the suggestions and rename them later.',
   4: 'This sets the default for money steps. You can choose different people for individual requests later.',
   5: 'Practice payments do not move real money. Choose Not yet if you are not ready to connect payments.',

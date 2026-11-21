@@ -990,7 +990,19 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
               )}
 
               <Text size="sm" c="dimmed">
-                Client PO / store number
+                Store number
+              </Text>
+              <Text size="md" mb="sm">
+                {input.storeNumber ? (
+                  <Anchor href={`/operations?store=${encodeURIComponent(input.storeNumber)}`}>{input.storeNumber}</Anchor>
+                ) : (
+                  'N/A'
+                )}
+                {input.callOut ? ' · Call-out' : ''}
+              </Text>
+
+              <Text size="sm" c="dimmed">
+                Client PO
               </Text>
               <Text size="md" mb="sm">
                 {input.poNumber || 'N/A'}

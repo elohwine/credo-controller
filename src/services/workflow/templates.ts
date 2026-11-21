@@ -852,8 +852,11 @@ export const FieldExecutionProofTemplate: WorkflowTemplate = {
     type: 'object',
     properties: {
       reference: { type: 'string', title: 'Workflow Reference' },
-      poNumber: { type: 'string', title: 'Client PO / store number' },
+      storeNumber: { type: 'string', title: "Client's store number" },
+      poNumber: { type: 'string', title: 'Client PO' },
       problemType: { type: 'string', title: 'Problem type' },
+      callOut: { type: 'boolean', title: 'Call-out (urgent, unplanned)', default: false },
+      vanId: { type: 'string', title: 'Van from the register' },
       vehicleReference: { type: 'string', title: 'Assigned vehicle reference' },
       requestId: { type: 'string', title: 'Request ID' },
       requesterId: { type: 'string', title: 'Requester ID' },

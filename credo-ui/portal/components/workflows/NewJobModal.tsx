@@ -18,6 +18,8 @@ import FormCard from '@/components/shared/FormCard'
 import { ContactPickerSelect } from '@/components/finance/ContactPickerSelect'
 import { IconBriefcase } from '@tabler/icons-react'
 import JobPaymentPlanFields, { jobPaymentPlanBody } from './JobPaymentPlanFields'
+import { usePortalOperations } from '@/lib/operations'
+import { JobScheduleFields } from '../../../shared/operations/JobScheduleFields'
 
 interface Member {
   userId: string
@@ -59,7 +61,11 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
   const [loadingSetup, setLoadingSetup] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const { api: operations } = usePortalOperations()
   const [form, setForm] = useState({
+    storeNumber: '',
+    vanId: '',
+    callOut: false,
     poNumber: '',
     problemType: '',
     description: '',
@@ -211,7 +217,10 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
         description: form.description.trim(),
         requireConcealedWorkPhoto: form.requireConcealedWorkPhoto,
         poNumber: form.poNumber.trim(),
+        ...(form.storeNumber.trim() ? { storeNumber: form.storeNumber.trim() } : {}),
+        ...(form.callOut ? { callOut: true } : {}),
         ...(form.problemType ? { problemType: form.problemType } : {}),
+        ...(form.vanId ? { vanId: form.vanId } : {}),
         ...(form.vehicleReference.trim() ? { vehicleReference: form.vehicleReference.trim() } : {}),
         clientName: form.clientName.trim(),
         ...(form.clientPhone.trim() ? { customerMsisdn: form.clientPhone.trim() } : {}),
@@ -234,6 +243,9 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
       onCreated(String(res.data?.runId || ''))
       setForm((prev) => ({
         ...prev,
+        storeNumber: '',
+        vanId: '',
+        callOut: false,
         poNumber: '',
         problemType: '',
         description: '',
@@ -268,7 +280,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
           </Alert>
         )}
         <TextInput
-          label="Client PO / store number (if provided)"
+          label="Client PO (if provided)"
           placeholder="e.g. PO-2026-004"
           value={form.poNumber}
           onChange={(e) => setForm({ ...form, poNumber: e.currentTarget.value })}
@@ -323,12 +335,6 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
           value={form.clientPhone}
           onChange={(clientPhone) => setForm({ ...form, clientPhone })}
         />
-        <TextInput
-          label="Assigned vehicle (optional)"
-          placeholder="Registration or fleet reference"
-          value={form.vehicleReference}
-          onChange={(e) => setForm({ ...form, vehicleReference: e.currentTarget.value })}
-        />
         <Group grow>
           <TextInput
             type="date"
@@ -365,6 +371,27 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
           data={[stageActorOption(actorsView, FIELD_WORKER_STAGE, members), ...peopleOptions]}
           value={form.assigneeId}
           onChange={(value) => setForm({ ...form, assigneeId: value || STAGE_ACTOR })}
+        />
+        <JobScheduleFields
+          api={operations}
+          surface="portal"
+          storeNumber={form.storeNumber}
+          onStoreNumber={(storeNumber) => setForm((prev) => ({ ...prev, storeNumber }))}
+          onStorePicked={(store) =>
+            setForm((prev) => ({
+              ...prev,
+              storeNumber: store.storeNumber,
+              clientName: prev.clientName || store.name,
+              clientPhone: prev.clientPhone || store.phone || '',
+            }))
+          }
+          vanId={form.vanId || null}
+          onVan={(van) => setForm((prev) => ({ ...prev, vanId: van?.id || '', vehicleReference: van?.registration || '' }))}
+          callOut={form.callOut}
+          onCallOut={(callOut) => setForm((prev) => ({ ...prev, callOut }))}
+          date={form.scheduledDate}
+          assigneeId={form.assigneeId === STAGE_ACTOR || parseJobContactSelection(form.assigneeId) ? null : form.assigneeId}
+          names={Object.fromEntries(members.map((m) => [m.userId, m.displayName || m.phone || 'Team member']))}
         />
         <Select
           label="Who checks the work"

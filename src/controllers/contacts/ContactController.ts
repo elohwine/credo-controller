@@ -67,6 +67,8 @@ interface CreateContactBody {
   /** Known wallet/org tenant for this contact (e.g. discovered org tenant) */
   walletTenantId?: string
   notes?: string
+  /** The client's store number, when this contact is a store that sends jobs */
+  storeNumber?: string
   /** 'internal' for staff/teammates, 'external' for customers/vendors/students */
   contactScope?: 'internal' | 'external'
   /** If true, create a wallet signup/link invite immediately after contact creation */
@@ -95,6 +97,8 @@ interface UpdateContactBody {
   /** Holder's SSI DID — update once the holder has shared it */
   did?: string
   notes?: string
+  /** Empty string removes the store number */
+  storeNumber?: string
   contactScope?: 'internal' | 'external'
 }
 
@@ -216,7 +220,7 @@ export class ContactController extends Controller {
       this.setStatus(400)
       throw new StatusException('name is required', 400)
     }
-    const contact = upsertContact({
+    const contact = this.saveContact({
       orgTenantId: tenantId,
       contactScope: body.contactScope ?? 'external',
       name: body.name.trim(),
@@ -224,6 +228,7 @@ export class ContactController extends Controller {
       email: body.email,
       did: body.did,
       notes: body.notes,
+      storeNumber: body.storeNumber,
       walletTenantId: body.walletTenantId,
       linkedAt: body.walletTenantId ? new Date().toISOString() : undefined,
     })
@@ -325,7 +330,7 @@ export class ContactController extends Controller {
       this.setStatus(404)
       throw new StatusException('Contact not found', 404)
     }
-    return upsertContact({
+    return this.saveContact({
       id: contactId,
       orgTenantId: tenantId,
       contactScope: body.contactScope ?? existing.contactScope,
@@ -334,9 +339,22 @@ export class ContactController extends Controller {
       email: body.email ?? existing.email,
       did: body.did ?? existing.did,
       notes: body.notes ?? existing.notes,
+      storeNumber: body.storeNumber,
       walletTenantId: existing.walletTenantId,
       linkedAt: existing.linkedAt,
     })
+  }
+
+  private saveContact(input: Parameters<typeof upsertContact>[0]): OrgContact {
+    try {
+      return upsertContact(input)
+    } catch (error) {
+      if (error instanceof Error && /^Store .* is already saved for/.test(error.message)) {
+        this.setStatus(409)
+        throw new StatusException(error.message, 409)
+      }
+      throw error
+    }
   }
 
   /**

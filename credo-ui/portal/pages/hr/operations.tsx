@@ -9,6 +9,7 @@ import RequestSheet from '@/components/requests/RequestSheet'
 import { StepHelp } from '@/components/help/StepHelp'
 import { requestKindLine, requestStatusWords, type RequestContext } from '@/lib/requestCatalog'
 import { EnvContext } from '@/pages/_app'
+import { PRODUCT_NAME } from '../../../../src/config/productEdition'
 import { getOrgScopedToken, getPersonalToken, readActiveOrganization } from '@/utils/organizationContext'
 
 type HrKind = 'hr.leave' | 'finance.expense_claim'
@@ -99,7 +100,7 @@ const HrOperations = () => {
   return (
     <Layout>
       <Head>
-        <title>Time off and expenses | Credentis Portal</title>
+        <title>{`Time off and expenses | ${PRODUCT_NAME} Portal`}</title>
       </Head>
       <Stack p="lg" gap="md">
         <Group justify="space-between" align="center">

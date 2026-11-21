@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals'
 
 import { suggestOrgSetup } from '../orgModules'
-import { editionAllowsKind, editionAllowsModule, PRODUCT_NAME } from '../productEdition'
+import { editionAllowsKind, editionAllowsModule, editionAlwaysOn, PRODUCT_NAME, withEditionModules } from '../productEdition'
 
 describe('SGK product edition', () => {
   it('offers jobs, the team, and the modules a job uses', () => {
@@ -25,6 +25,14 @@ describe('SGK product edition', () => {
       'purchases',
       'payables',
       'collections',
+      'people_payroll',
     ])
+  })
+
+  it('always keeps jobs and the team on, even if an older setup left them off', () => {
+    expect(withEditionModules(['purchases'])).toEqual(['purchases', 'field_jobs', 'people_payroll'])
+    expect(editionAlwaysOn('field_jobs')).toBe(true)
+    expect(editionAlwaysOn('people_payroll')).toBe(true)
+    expect(editionAlwaysOn('purchases')).toBe(false)
   })
 })

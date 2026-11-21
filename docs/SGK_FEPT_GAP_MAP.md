@@ -77,9 +77,22 @@ request/workflow model instead of a dedicated SGK job-card app:
 - Reconciliation and audit trail support exist.
 - The portal has a Job Cards board with list and card presentations, status filters, a job detail
   drawer, assignment changes, audit history, and team workload counts.
-- Job creation keeps the client's PO/store number (when provided) separate from the internal job
-  reference, and captures problem type, client details, location, schedule, worker, sign-off actor,
-  and an optional vehicle reference.
+- Job creation keeps the store number (the client's primary id), the client PO (when provided) and
+  the internal job reference apart, and captures problem type, client details, location, schedule,
+  worker, sign-off actor, call-out, and a van picked from the van register.
+- Store numbers live on the client contact (`org_contacts.store_number`, unique per organisation).
+  Each store has a file (`GET /api/platform/operations/stores/{storeNumber}`): job cards,
+  outstanding jobs, call-outs, cancelled, completed, quotes, invoices and jobs waiting to be booked.
+- Each attendant is a payroll employee (`employees.staff_number`, `employees.skills_json`), linked to
+  their team account (`employees.user_id`). Payroll → Employees opens their file: job cards, failed,
+  completed, holidays, off sick, the van they drive and accidents (leave comes from `hr.leave`).
+  There is no separate staff list. Org setup and Members stay the place people are invited.
+- Van register (`org_vans`, `org_van_events`): registration, service day, MOT due, driver, status,
+  and a file of allocations, services, MOTs and accidents. One van per driver; an off-road or
+  retired van cannot be booked.
+- Booking warns before double scheduling (`GET /api/platform/operations/schedule-check`): other open
+  jobs and waiting jobs for the same store, the worker or van already booked that day, an MOT that
+  has run out and the van's service day. Both apps show the same warnings (`JobScheduleFields`).
 - Evidence capture is phase-locked on the phone: live camera only, before / after / receipt as
   separate steps the job drives, with an optional concealed-work photo for jobs that need it.
 - Arrival, safety checks/holds, review, sign-off, worker payout, client billing, and reconciliation
@@ -95,13 +108,21 @@ request/workflow model instead of a dedicated SGK job-card app:
 - The board can identify unassigned jobs and highlight those waiting over a week. Operational Intake
   now persists tenant-scoped, unassigned manual submissions and source documents until an authorized
   dispatcher assigns a worker and starts the existing FEPT run.
-- The job form accepts a vehicle reference as text, not a managed vehicle/fleet assignment.
 - The job detail now includes an office closeout checklist projected from the same job audit trail,
   including operational proof, customer billing, payout, and reconciliation status.
 - The existing Catalog, Inventory, quote, invoice, and reconciliation capabilities are not yet
   composed into a complete job-specific pricing, stock-reservation, and quote-to-invoice workflow.
-- Inbound email/PO mailbox ingestion remains unimplemented until a mail-provider and deployment
-  contract is selected; manual intake is available without introducing a provider-specific dependency.
+- Jobs mailbox (Microsoft Graph, `MicrosoftGraphMailIntakeService`): reads one Microsoft 365 mailbox
+  with an app registration (client credentials, `Mail.Read` application permission), turns each mail
+  into a waiting job (store number, PO, what, where, date, amount, attachments), and never imports
+  the same mail twice (internet message id). A mail for a store and PO that is already booked is
+  marked "Possible repeat" and cannot be booked without confirming. The read position only moves
+  forward when every mail on a page was saved, so a failed read is retried, not skipped. Settings:
+  `MS_GRAPH_TENANT_ID`, `MS_GRAPH_CLIENT_ID`, `MS_GRAPH_CLIENT_SECRET`, `MS_GRAPH_MAILBOX`,
+  `MS_GRAPH_ORG_TENANT_ID`, optional `MS_GRAPH_MAIL_FOLDER` (default inbox),
+  `MS_GRAPH_POLL_SECONDS` (default 120), `MS_GRAPH_FIRST_SYNC_DAYS` (default 14). Covered by
+  `src/services/__tests__/OperationsRegisterService.spec.ts` against a mocked Graph; not yet run
+  against SGK's own tenant.
 
 ### Distance to parity
 
@@ -116,10 +137,11 @@ The main distance is in four areas:
 2. Evidence semantics: before / concealed-work / after / receipt are distinct, camera-locked steps;
    concealed-work proof is optional per job and off by default (see "Evidence capture" below).
 3. Intake and dispatch: manual source-document intake, durable unassigned jobs, and
-   dispatch-to-FEPT assignment now share one persistent flow; automatic mailbox ingestion remains.
+   dispatch-to-FEPT assignment now share one persistent flow; the Microsoft 365 jobs mailbox feeds
+   the same queue (live tenant credentials still to be supplied).
 4. Management and finance integration: the board has workload and audit views plus an office
-   closeout checklist; managed vehicle selection and connected job pricing/stock workflows remain
-   incomplete.
+   closeout checklist, store / staff / van registers and van selection at booking; connected job
+   pricing/stock workflows remain incomplete.
 
 ### Closed by the org-readiness remodel
 
@@ -146,13 +168,13 @@ The main distance is in four areas:
 
 ### Remaining gaps
 
-1. Add authenticated inbound email/PO ingestion after selecting the mail provider contract; manual
-   intake and durable unassigned queue are implemented, with per-tenant idempotency and content-hashed
-   source attachments.
+1. Connect the jobs mailbox to SGK's Microsoft 365 tenant (app registration with `Mail.Read`,
+   ideally limited to the jobs mailbox with an application access policy) and tune the mail parser
+   against their real job mails.
 2. Add a retention policy and operator controls for stored source documents; currently attachments
    remain with the job intake record.
-3. Integrate managed vehicle assignment and existing Catalog/Inventory/finance services into the job
-   flow without duplicating stock, quote, invoice, payment, or reconciliation state.
+3. Integrate existing Catalog/Inventory/finance services into the job flow without duplicating stock,
+   quote, invoice, payment, or reconciliation state.
 4. The `DatabaseManager` registry still skips historical migration files (`013`, `014`, `036`, `061`,
    reconciliation ledger). Migration `097_create_workflow_runtime_compat_schema.sql` recreates those
    tables with `IF NOT EXISTS` so fresh databases work; the registry itself has not been reconciled.
@@ -326,7 +348,7 @@ Still behind the job: the school receipt is not offered to the parent's wallet (
 
 ## 2026-10-12 — How ready each business transaction is
 
-The field job is the reference. Work, money owed and proof stay separate records. Five types are stored (`BusinessTransactionService`): `field_job`, `purchase`, `sale`, `fee_assessment`, `collection_plan`. People and payroll are a module an organisation switches on. They are not a sixth type.
+The field job is the reference. Work, money owed and proof stay separate records. Five types are stored (`BusinessTransactionService`): `field_job`, `purchase`, `sale`, `fee_assessment`, `collection_plan`. People and payroll are a module (always on in the SGK edition, like jobs). They are not a sixth type.
 
 | Transaction                         | From setup to daily use                                                                                                                                                                                                               | What is still open                                                                                                                                                                                              |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -335,7 +357,7 @@ The field job is the reference. Work, money owed and proof stay separate records
 | School fee (`fee_assessment`)       | Usable as of today. Both apps start `education_fee_payment`. Portal run `090fdf6d-e4a5-462d-8ab2-d8d08014766d` paid and completed. Phone run `89d215d5-b7b0-46b6-86cf-b94d1bed9ae7` is three instalments, still waiting.              | The fee record closes when it is paid (2026-10-27). The school keeps its receipt; the parent keeps the pay-page receipt. Suite A in `FEPT_Playwright_Test_Matrix.md` is still a hand walk.                                             |
 | Sale (`sale`)                       | Split. A job's quote and client bill already send a pay link. Since 2026-10-27 a counter sale is on the same rail: `tpl-cash-counter` takes the money through `external.cash_capture`, which creates a paid pay link, a closed `sale` record and a receipt (`tests/counter_sale_quote_chain.test.ts`). No screen starts a counter sale yet. Choosing "shop" at setup only turns on `cash_counter_payment`. | Shop and services is named in navigation and is the largest hole in Operations.                                                                                                                                 |
 | Collection plan (`collection_plan`) | Partial. `tpl-ar-collections` is one step (`ar.create_plan`). Plans with no owner are adopted as `collection_plan` when the API starts. The phone still offers "New AR Collection" and "New Payment Link" beside Operations.          | Money in is the pay link. This template stays a template until it grows the same progress words as a fee.                                                                                                       |
-| People (not a transaction type)     | Leave and expenses are usable: inbox cards and approval records, shown only when the organisation switched on People and payroll.                                                                                                     | Payroll is the website-only `/api/payroll` page (runs and payslips). There is no phone payroll screen and no `business_transactions` row. Job-costed payroll stays out until a pilot asks.                      |
+| People (not a transaction type)     | Leave and expenses are usable: inbox cards and approval records, always shown in the SGK edition (the menu's People group: People & HR, Staff requests, Payroll & employees).                                                                                                  | Payroll is the website-only `/api/payroll` page (runs and payslips). There is no phone payroll screen and no `business_transactions` row. Job-costed payroll stays out until a pilot asks.                      |
 
 Way forward, in this order:
 

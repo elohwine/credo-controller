@@ -9,6 +9,8 @@ import { workflowRunRepository } from '../../persistence/WorkflowRunRepository'
 import { workflowService } from '../../services/WorkflowService'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
+import { operationsRegisterService } from '../../services/OperationsRegisterService'
+import { microsoftGraphMailIntakeService } from '../../services/integrations/MicrosoftGraphMailIntakeService'
 
 interface Principal {
   tenantId: string
@@ -43,6 +45,9 @@ function validateInput(body: JobIntakeInput): void {
     throw new StatusException('Description must be between 1 and 4000 characters', 400)
   }
   if (!Number.isFinite(body.amount) || body.amount <= 0) throw new StatusException('A positive job amount is required', 400)
+  if (body.callOut !== undefined && typeof body.callOut !== 'boolean') {
+    throw new StatusException('callOut must be a boolean', 400)
+  }
   if (body.payoutAmount !== undefined && (!Number.isFinite(body.payoutAmount) || body.payoutAmount <= 0)) {
     throw new StatusException('Worker payout must be a positive amount when provided', 400)
   }
@@ -53,6 +58,8 @@ function validateInput(body: JobIntakeInput): void {
     throw new StatusException('requireConcealedWorkPhoto must be a boolean', 400)
   }
   for (const [field, max] of [
+    ['storeNumber', 40],
+    ['vanId', 80],
     ['poNumber', 120],
     ['problemType', 120],
     ['clientName', 240],
@@ -131,11 +138,38 @@ export class JobIntakeController {
     }
   }
 
+  /** Whether the jobs mailbox is connected, when it was last read, and what it found. */
+  @Get('/mail')
+  public mailStatus(@Request() request: ExRequest) {
+    const principal = principalOf(request)
+    return microsoftGraphMailIntakeService.status(principal.tenantId)
+  }
+
+  /** Read the jobs mailbox now instead of waiting for the next poll. */
+  @Post('/mail/sync')
+  public async mailSync(@Request() request: ExRequest) {
+    const principal = principalOf(request)
+    if (!microsoftGraphMailIntakeService.isConfiguredFor(principal.tenantId)) {
+      throw new StatusException('The jobs mailbox is not connected for this organisation.', 400)
+    }
+    return microsoftGraphMailIntakeService.syncNow()
+  }
+
   @Post('/{intakeId}/assign')
   public async assign(
     @Request() request: ExRequest,
     @Path() intakeId: string,
-    @Body() body: { assigneeId: string; receiverId?: string },
+    @Body()
+    body: {
+      assigneeId: string
+      receiverId?: string
+      /** A van from the register for this job. */
+      vanId?: string
+      /** The client amount, when the email did not say. */
+      amount?: number
+      /** The dispatcher checked: this is a separate job, not the one already booked. */
+      confirmRepeat?: boolean
+    },
   ) {
     const principal = principalOf(request)
     const assigneeId = String(body?.assigneeId || '').trim()
@@ -162,10 +196,39 @@ export class JobIntakeController {
       if (!receiver) throw new StatusException('The sign-off person must be an active organization member.', 400)
     }
 
-    const intake = jobIntakeRepository.getForTenant(intakeId, principal.tenantId)
+    let intake = jobIntakeRepository.getForTenant(intakeId, principal.tenantId)
     if (!intake) throw new StatusException('Job intake not found', 404)
     if (intake.status === 'assigned' && intake.workflowRunId) {
       return { intake, runId: intake.workflowRunId, status: 'assigned' }
+    }
+    if (intake.status === 'pending') {
+      const payload = intake.payload
+      if (intake.duplicateOf && body?.confirmRepeat !== true) {
+        throw new StatusException(
+          `Store ${payload.storeNumber} already has job ${payload.poNumber} booked. Check it is a separate job before starting this one.`,
+          409,
+        )
+      }
+      const changes: Partial<JobIntakeInput> = {}
+      const vanId = String(body?.vanId || '').trim()
+      if (vanId) {
+        const van = operationsRegisterService.getVan(principal.tenantId, vanId)
+        if (!van) throw new StatusException('That van is not on the register.', 400)
+        if (van.status !== 'active') throw new StatusException(operationsRegisterService.vanWarning(van) || 'That van is not available.', 409)
+        changes.vanId = van.id
+        changes.vehicleReference = van.registration
+      }
+      if (body?.amount !== undefined) {
+        if (!Number.isFinite(body.amount) || body.amount <= 0) throw new StatusException('The client amount must be more than zero', 400)
+        changes.amount = body.amount
+      }
+      if (!(Number(changes.amount ?? payload.amount) > 0)) {
+        throw new StatusException('Add the client amount before starting this job.', 400)
+      }
+      if (Object.keys(changes).length) {
+        jobIntakeRepository.updatePayload(intakeId, principal.tenantId, changes)
+        intake = jobIntakeRepository.getForTenant(intakeId, principal.tenantId)!
+      }
     }
     if (intake.status === 'assigning') {
       const triggerRef = `job-intake:${intakeId}:attempt:${intake.assignmentAttempt}`

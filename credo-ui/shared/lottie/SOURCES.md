@@ -34,9 +34,11 @@ Both apps play these with `lottie-web`'s light SVG player. Under reduced motion 
 ## Guided wallet journey
 
 The mobile Create account flow and portal registration use the same interactive example.
-It follows one fictional employee journey: Mavambo Works sends Tendai a staff card,
-then assigns a delivery to confirm using that card. The employer, role, task and supporting
-card are explicit. It does not promise regulatory KYC, selective disclosure, or access to
+It follows one fictional field technician's journey (this branch names the product with
+`PRODUCT_NAME`): the company sends a staff card with a staff number, then the first job card
+names Store 1042, the van, and the three steps (arrive, photos before and after, the store
+signs off). "Try starting the job" ticks the first step. Leave, sick days and payslips are
+mentioned because they live in the same app. The employer, role, job and van are explicit. It does not promise regulatory KYC, selective disclosure, or access to
 all organisation work merely by holding a card. Real task authorization remains server-enforced.
 It never issues a credential or sends information; every example is labelled.
 Both screens replace feedback in place and keep navigation in a bottom row. Mobile uses a

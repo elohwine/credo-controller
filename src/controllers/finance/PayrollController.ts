@@ -21,6 +21,11 @@ export interface CreateEmployeeRequest {
   nssaNumber?: string
   tin?: string
   did?: string
+  /** Attendant number, unique in the organisation. */
+  staffNumber?: string
+  skills?: string[]
+  /** Team account, so this employee's jobs, leave and van can be listed. */
+  userId?: string
 }
 
 export interface CreateRunRequest {
@@ -85,9 +90,15 @@ export class PayrollController extends Controller {
   @Security('jwt', [SCOPES.TENANT_AGENT])
   public async saveEmployee(@Request() request: ExRequest, @Body() body: CreateEmployeeRequest): Promise<Employee> {
     const tenantId = this.payrollTenant(request)
-    const employee = await payrollService.saveEmployee({ ...body, tenantId })
-    this.setStatus(201)
-    return employee
+    try {
+      const employee = await payrollService.saveEmployee({ ...body, tenantId })
+      this.setStatus(201)
+      return employee
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not save the employee'
+      const conflict = /already/i.test(message)
+      throw new StatusException(message, conflict ? 409 : 400)
+    }
   }
 
   /**

@@ -173,7 +173,7 @@ describe('Setup draft on this device', () => {
     try {
       saveOrgSetupDraft('org-a', {
         question: 3,
-        kinds: ['office', 'not-a-kind' as any],
+        kinds: ['field', 'not-a-kind' as any],
         modules: ['purchases'],
         operatingModel: 'internal',
         presetId: 'finance_team',
@@ -190,7 +190,7 @@ describe('Setup draft on this device', () => {
       })
       expect(readOrgSetupDraft('org-a')).toMatchObject({
         question: 3,
-        kinds: ['office'],
+        kinds: ['field'],
         modules: ['purchases'],
         presetId: 'finance_team',
         paymentChoice: 'ecocash',
