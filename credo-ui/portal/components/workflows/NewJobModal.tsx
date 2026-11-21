@@ -33,6 +33,7 @@ interface Contact {
   name: string
   phone: string
   contactScope?: 'internal' | 'external'
+  storeNumber?: string
 }
 
 interface NewJobModalProps {
@@ -144,6 +145,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
               id: String(c.id || c.phone),
               name: String(c.name || 'Contact'),
               phone: String(c.phone),
+              ...(c.storeNumber ? { storeNumber: String(c.storeNumber) } : {}),
               contactScope: c.contactScope === 'internal' ? ('internal' as const) : ('external' as const),
             })),
         )
@@ -311,9 +313,15 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
           contacts={contacts}
           requirePhone={false}
           label="Pick the client from contacts"
-          description="Fills the client name and mobile number."
+          description="Fills the client name, mobile number and store number."
           onPick={(picked) => {
-            if (picked) setForm((prev) => ({ ...prev, clientName: picked.name || prev.clientName, clientPhone: picked.phone || prev.clientPhone }))
+            if (picked)
+              setForm((prev) => ({
+                ...prev,
+                clientName: picked.name || prev.clientName,
+                clientPhone: picked.phone || prev.clientPhone,
+                ...(picked.storeNumber ? { storeNumber: picked.storeNumber } : {}),
+              }))
           }}
         />
         <Group grow>

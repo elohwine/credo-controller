@@ -27,12 +27,34 @@ import {
   type FieldJobCategory,
 } from '../config/fieldJobCategory'
 import { failedVisitReasonLabel, failedVisitsOf, openFailedVisit } from '../config/failedVisit'
+import { fieldJobSourceOf, type FieldJobSource } from '../config/fieldJobSource'
 import { getWorkflowTypeForWorkflow, normalizeWorkflowTypeAlias } from './workflow/initiation'
 import { OrganizationService } from './OrganizationService'
 import { payrollService } from './PayrollService'
 
 export type VanStatus = 'active' | 'off_road' | 'retired'
-export type VanEventKind = 'allocated' | 'service' | 'mot' | 'accident'
+export type VanEventKind = 'allocated' | 'service' | 'mot' | 'accident' | 'daily_check'
+
+/** What a driver checks before the van goes out. */
+export const VAN_DAILY_CHECKS = [
+  'Tyres and wheels',
+  'Lights and indicators',
+  'Brakes',
+  'Oil, water and fuel',
+  'Mirrors and windscreen',
+  'Load secured',
+  'First aid kit and fire extinguisher',
+] as const
+
+export interface VanPhotoInput {
+  filename: string
+  mediaType: string
+  contentBase64: string
+}
+
+const VAN_PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const VAN_PHOTO_MAX_BYTES = 5 * 1024 * 1024
+const VAN_PHOTO_LIMIT = 6
 
 export interface JobSummary {
   runId: string
@@ -47,7 +69,14 @@ export interface JobSummary {
   assigneeId?: string
   vanId?: string
   vehicle?: string
+  /** Email, added by the office, or booked by the client. */
+  source: FieldJobSource
+  clientName?: string
+  problemType?: string
+  amount?: number
+  currency?: string
   createdAt: string
+  completedAt?: string
   /** The visit waiting to be re-booked. */
   failedVisit?: { reason: string; label: string; note?: string; at: string; workerId?: string }
   /** Everyone who had a failed visit on this job, even after it was re-booked to someone else. */
@@ -64,6 +93,8 @@ export interface BillSummary {
   status: string
   jobRunId?: string
   createdAt: string
+  /** The page the client pays the bill on. */
+  payUrl?: string
 }
 
 export interface PendingIntakeSummary {
@@ -71,9 +102,14 @@ export interface PendingIntakeSummary {
   reference: string
   description: string
   scheduledDate?: string
-  source: 'manual' | 'email'
+  source: 'manual' | 'email' | 'import'
   duplicateOf?: string
   createdAt: string
+  clientName?: string
+  location?: string
+  poNumber?: string
+  callOut?: boolean
+  status?: string
 }
 
 export interface StoreSummary {
@@ -120,6 +156,10 @@ export interface VanEvent {
   userName?: string
   eventDate: string
   notes?: string
+  outcome?: 'ok' | 'defect'
+  checklist?: Array<{ item: string; ok: boolean; note?: string }>
+  mileage?: number
+  photos?: Array<{ id: string; filename: string; mediaType: string; sizeBytes: number }>
   createdAt: string
 }
 
@@ -158,6 +198,7 @@ export interface VanFile {
   mots: VanEvent[]
   accidents: VanEvent[]
   drivers: VanEvent[]
+  dailyChecks: VanEvent[]
   jobs: JobSummary[]
 }
 
@@ -207,7 +248,8 @@ export class OperationsRegisterService {
   public listJobs(orgTenantId: string): JobSummary[] {
     const rows = this.db
       .prepare(
-        `SELECT r.id, r.workflow_id AS workflowId, w.category, r.status, r.input, r.output, r.created_at AS createdAt
+        `SELECT r.id, r.workflow_id AS workflowId, w.category, r.status, r.input, r.output, r.created_at AS createdAt,
+                r.completed_at AS completedAt
            FROM workflow_runs r LEFT JOIN workflows w ON w.id = r.workflow_id
           WHERE r.tenant_id = ?
           ORDER BY r.created_at DESC
@@ -221,6 +263,7 @@ export class OperationsRegisterService {
       input?: string
       output?: string
       createdAt: string
+      completedAt?: string
     }>
     const storeNumbers = new Set(
       listContacts(orgTenantId)
@@ -255,7 +298,13 @@ export class OperationsRegisterService {
         assigneeId: fieldJobAssigneeId(run) || undefined,
         vanId: vanId || undefined,
         vehicle: (vanId && vans.get(vanId)?.registration) || clean(input.vehicleReference, 120) || undefined,
+        source: fieldJobSourceOf(input),
+        clientName: clean(input.clientName, 240) || undefined,
+        problemType: clean(input.problemType, 120) || undefined,
+        amount: Number.isFinite(Number(input.amount)) ? Number(input.amount) : undefined,
+        currency: clean(input.currency, 3) || undefined,
         createdAt: row.createdAt,
+        completedAt: row.completedAt || undefined,
         ...(open
           ? {
               failedVisit: {
@@ -273,7 +322,7 @@ export class OperationsRegisterService {
     return jobs
   }
 
-  private billsForRuns(orgTenantId: string, jobRunIds: string[]): BillSummary[] {
+  public billsForRuns(orgTenantId: string, jobRunIds: string[]): BillSummary[] {
     if (jobRunIds.length === 0) return []
     const ids = new Set(jobRunIds)
     const owner = new Map<string, string>(jobRunIds.map((id) => [id, id]))
@@ -289,7 +338,8 @@ export class OperationsRegisterService {
     }
     const links = this.db
       .prepare(
-        `SELECT id, description, amount, currency, status, invoice_ref AS reference, metadata, created_at AS createdAt
+        `SELECT id, description, amount, currency, status, invoice_ref AS reference, metadata, created_at AS createdAt,
+                shortlink_url AS payUrl
            FROM payment_links WHERE merchant_id = ? ORDER BY created_at DESC LIMIT 2000`,
       )
       .all(orgTenantId) as Array<{
@@ -301,6 +351,7 @@ export class OperationsRegisterService {
       reference?: string
       metadata?: string
       createdAt: string
+      payUrl?: string
     }>
     const bills: BillSummary[] = []
     for (const link of links) {
@@ -317,18 +368,20 @@ export class OperationsRegisterService {
         status: link.status,
         jobRunId: runId,
         createdAt: link.createdAt,
+        ...(link.payUrl ? { payUrl: link.payUrl } : {}),
       })
     }
     return bills
   }
 
-  private pendingIntakes(orgTenantId: string): Array<PendingIntakeSummary & { storeNumber?: string }> {
+  /** Jobs in intake that are not booked yet: from the jobs mailbox or written down by the office. */
+  public pendingIntakes(orgTenantId: string): Array<PendingIntakeSummary & { storeNumber?: string }> {
     const rows = this.db
       .prepare(
-        `SELECT id, payload_json AS payloadJson, duplicate_of AS duplicateOf, created_at AS createdAt
+        `SELECT id, status, payload_json AS payloadJson, duplicate_of AS duplicateOf, created_at AS createdAt
            FROM job_intakes WHERE tenant_id = ? AND status <> 'assigned' ORDER BY created_at DESC LIMIT 500`,
       )
-      .all(orgTenantId) as Array<{ id: string; payloadJson: string; duplicateOf?: string; createdAt: string }>
+      .all(orgTenantId) as Array<{ id: string; status: string; payloadJson: string; duplicateOf?: string; createdAt: string }>
     return rows.map((row) => {
       const payload = parse(row.payloadJson) || {}
       return {
@@ -336,10 +389,15 @@ export class OperationsRegisterService {
         reference: clean(payload.reference || row.id, 120),
         description: clean(payload.description, 500),
         scheduledDate: clean(payload.scheduledDate, 20) || undefined,
-        source: payload.sourceType === 'email' ? 'email' : 'manual',
+        source: payload.sourceType === 'email' ? 'email' : payload.sourceType === 'import' ? 'import' : 'manual',
         duplicateOf: row.duplicateOf || undefined,
         createdAt: row.createdAt,
         storeNumber: normalizeStoreNumber(payload.storeNumber) || undefined,
+        clientName: clean(payload.clientName, 240) || undefined,
+        location: clean(payload.location, 500) || undefined,
+        poNumber: clean(payload.poNumber, 120) || undefined,
+        callOut: payload.callOut === true,
+        status: row.status,
       }
     })
   }
@@ -542,7 +600,7 @@ export class OperationsRegisterService {
   }
 
   /** Van lists are read inside job lists, so a missing member table must not break them. */
-  private memberNamesSafe(orgTenantId: string): Map<string, string> {
+  public memberNamesSafe(orgTenantId: string): Map<string, string> {
     try {
       return this.memberNames(orgTenantId)
     } catch {
@@ -668,15 +726,37 @@ export class OperationsRegisterService {
   private insertEvent(
     orgTenantId: string,
     actorId: string,
-    input: { vanId: string; kind: VanEventKind; userId?: string; eventDate: string; notes?: string },
+    input: {
+      vanId: string
+      kind: VanEventKind
+      userId?: string
+      eventDate: string
+      notes?: string
+      outcome?: 'ok' | 'defect'
+      checklist?: unknown
+      mileage?: number
+    },
   ): string {
     const id = randomUUID()
     this.db
       .prepare(
-        `INSERT INTO org_van_events (id, org_tenant_id, van_id, kind, user_id, event_date, notes, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO org_van_events
+           (id, org_tenant_id, van_id, kind, user_id, event_date, notes, outcome, checklist_json, mileage, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, orgTenantId, input.vanId, input.kind, input.userId || null, input.eventDate, input.notes || null, actorId)
+      .run(
+        id,
+        orgTenantId,
+        input.vanId,
+        input.kind,
+        input.userId || null,
+        input.eventDate,
+        input.notes || null,
+        input.outcome || null,
+        input.checklist ? JSON.stringify(input.checklist) : null,
+        input.mileage ?? null,
+        actorId,
+      )
     return id
   }
 
@@ -699,18 +779,138 @@ export class OperationsRegisterService {
     const rows = this.db
       .prepare(
         `SELECT e.id, e.van_id AS vanId, v.registration, e.kind, e.user_id AS userId, e.event_date AS eventDate,
-                e.notes, e.created_at AS createdAt
+                e.notes, e.outcome, e.checklist_json AS checklistJson, e.mileage, e.created_at AS createdAt
            FROM org_van_events e JOIN org_vans v ON v.id = e.van_id
           WHERE ${clauses.join(' AND ')}
           ORDER BY e.event_date DESC, e.created_at DESC LIMIT 500`,
       )
-      .all(...params) as Array<VanEvent>
-    return rows.map((row) => ({
+      .all(...params) as Array<VanEvent & { checklistJson?: string | null }>
+    const photos = this.db
+      .prepare(
+        `SELECT id, event_id AS eventId, filename, media_type AS mediaType, size_bytes AS sizeBytes
+           FROM org_van_event_photos WHERE org_tenant_id = ? ORDER BY created_at`,
+      )
+      .all(orgTenantId) as Array<{ id: string; eventId: string; filename: string; mediaType: string; sizeBytes: number }>
+    const photosOf = new Map<string, NonNullable<VanEvent['photos']>>()
+    for (const { eventId, ...photo } of photos) photosOf.set(eventId, [...(photosOf.get(eventId) || []), photo])
+    return rows.map(({ checklistJson, ...row }) => ({
       ...row,
       userId: row.userId || undefined,
       userName: row.userId ? names.get(row.userId) : undefined,
       notes: row.notes || undefined,
+      outcome: row.outcome || undefined,
+      mileage: row.mileage ?? undefined,
+      ...(checklistJson ? { checklist: parse(checklistJson) || undefined } : {}),
+      ...(photosOf.has(row.id) ? { photos: photosOf.get(row.id) } : {}),
     }))
+  }
+
+  /**
+   * The driver's check before the van goes out. Any item not ok marks the check as a defect and
+   * needs a note; a defect is kept in the van's file for the office to act on.
+   */
+  public recordDailyCheck(
+    orgTenantId: string,
+    actorId: string,
+    vanId: string,
+    input: { checks?: Array<{ item?: string; ok?: boolean; note?: string }>; mileage?: number; notes?: string; photos?: VanPhotoInput[] },
+  ): VanEvent {
+    const van = this.getVan(orgTenantId, vanId)
+    if (!van) throw new Error('Van not found')
+    if (van.status === 'retired') throw new Error('This van is retired')
+    const given = new Map((input.checks || []).map((check) => [clean(check.item, 120), check]))
+    const checklist = VAN_DAILY_CHECKS.map((item) => {
+      const check = given.get(item)
+      if (!check || typeof check.ok !== 'boolean') throw new Error(`Say whether "${item}" is ok`)
+      const note = clean(check.note, 300)
+      if (!check.ok && !note) throw new Error(`Say what is wrong with "${item}"`)
+      return { item, ok: check.ok, ...(note ? { note } : {}) }
+    })
+    const mileage = input.mileage === undefined || input.mileage === null ? undefined : Number(input.mileage)
+    if (mileage !== undefined && (!Number.isInteger(mileage) || mileage < 0)) throw new Error('Mileage must be a whole number')
+    const today = new Date().toISOString().slice(0, 10)
+    const already = this.db
+      .prepare(
+        `SELECT id FROM org_van_events WHERE org_tenant_id = ? AND van_id = ? AND kind = 'daily_check'
+            AND event_date = ? AND user_id = ?`,
+      )
+      .get(orgTenantId, vanId, today, actorId) as { id: string } | undefined
+    if (already) throw new Error('You already checked this van today')
+    const photos = this.decodePhotos(input.photos)
+    const id = this.db.transaction(() => {
+      const eventId = this.insertEvent(orgTenantId, actorId, {
+        vanId,
+        kind: 'daily_check',
+        userId: actorId,
+        eventDate: today,
+        notes: clean(input.notes, 1000) || undefined,
+        outcome: checklist.every((check) => check.ok) ? 'ok' : 'defect',
+        checklist,
+        mileage,
+      })
+      this.insertPhotos(orgTenantId, eventId, photos)
+      return eventId
+    })()
+    return this.events(orgTenantId, { vanId }).find((item) => item.id === id)!
+  }
+
+  /** A driver reports an accident with the van, with photos. The office sees it in the van's file. */
+  public reportAccident(
+    orgTenantId: string,
+    actorId: string,
+    vanId: string,
+    input: { eventDate?: string; notes?: string; photos?: VanPhotoInput[] },
+  ): VanEvent {
+    const van = this.getVan(orgTenantId, vanId)
+    if (!van) throw new Error('Van not found')
+    const notes = clean(input.notes, 1000)
+    if (!notes) throw new Error('Say what happened')
+    const eventDate = cleanDate(input.eventDate, 'Date') || new Date().toISOString().slice(0, 10)
+    const photos = this.decodePhotos(input.photos)
+    const id = this.db.transaction(() => {
+      const eventId = this.insertEvent(orgTenantId, actorId, { vanId, kind: 'accident', userId: actorId, eventDate, notes })
+      this.insertPhotos(orgTenantId, eventId, photos)
+      return eventId
+    })()
+    return this.events(orgTenantId, { vanId }).find((item) => item.id === id)!
+  }
+
+  public vanEventPhoto(orgTenantId: string, vanId: string, eventId: string, photoId: string) {
+    return this.db
+      .prepare(
+        `SELECT p.filename, p.media_type AS mediaType, p.content
+           FROM org_van_event_photos p JOIN org_van_events e ON e.id = p.event_id
+          WHERE p.id = ? AND p.event_id = ? AND e.van_id = ? AND p.org_tenant_id = ?`,
+      )
+      .get(photoId, eventId, vanId, orgTenantId) as { filename: string; mediaType: string; content: Buffer } | undefined
+  }
+
+  private decodePhotos(photos: VanPhotoInput[] | undefined): Array<VanPhotoInput & { bytes: Buffer }> {
+    const list = Array.isArray(photos) ? photos : []
+    if (list.length > VAN_PHOTO_LIMIT) throw new Error(`Add at most ${VAN_PHOTO_LIMIT} photos`)
+    return list.map((photo) => {
+      const type = clean(photo?.mediaType, 40).toLowerCase()
+      if (!VAN_PHOTO_TYPES.has(type)) throw new Error('Photos must be JPEG, PNG or WebP')
+      const bytes = Buffer.from(String(photo.contentBase64 || ''), 'base64')
+      if (!bytes.length || bytes.length > VAN_PHOTO_MAX_BYTES) throw new Error('Each photo must be smaller than 5 MB')
+      const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8
+      const png = bytes[0] === 0x89 && bytes[1] === 0x50
+      const webp = bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP'
+      if (!(type === 'image/jpeg' ? jpeg : type === 'image/png' ? png : webp)) {
+        throw new Error('A photo does not match its file type')
+      }
+      return { filename: clean(photo.filename, 200) || 'photo', mediaType: type, contentBase64: '', bytes }
+    })
+  }
+
+  private insertPhotos(orgTenantId: string, eventId: string, photos: Array<VanPhotoInput & { bytes: Buffer }>): void {
+    const insert = this.db.prepare(
+      `INSERT INTO org_van_event_photos (id, org_tenant_id, event_id, filename, media_type, size_bytes, content)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    for (const photo of photos) {
+      insert.run(randomUUID(), orgTenantId, eventId, photo.filename, photo.mediaType, photo.bytes.length, photo.bytes)
+    }
   }
 
   public vanFile(orgTenantId: string, vanId: string): VanFile | undefined {
@@ -723,6 +923,7 @@ export class OperationsRegisterService {
       mots: events.filter((event) => event.kind === 'mot'),
       accidents: events.filter((event) => event.kind === 'accident'),
       drivers: events.filter((event) => event.kind === 'allocated'),
+      dailyChecks: events.filter((event) => event.kind === 'daily_check'),
       jobs: this.listJobs(orgTenantId).filter((job) => job.vanId === vanId),
     }
   }

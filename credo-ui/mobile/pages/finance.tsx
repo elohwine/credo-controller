@@ -201,6 +201,9 @@ import JobPaymentPlanFields, { jobPaymentPlanBody } from '@/components/shared/Jo
 import { usePhoneOperations } from '@/lib/operations'
 import { JobScheduleFields } from '../../shared/operations/JobScheduleFields'
 import { FailedVisitPanel } from '../../shared/operations/FailedVisitPanel'
+import { JobBoard } from '../../shared/operations/JobBoard'
+import { IncomingJobs } from '../../shared/operations/IncomingJobs'
+import { JobOnSite } from '../../shared/operations/JobOnSite'
 import { operationsApi } from '../../shared/operations/operationsApi'
 import JobPriceSheet from '@/components/shared/JobPriceSheet'
 import { detailTabsFor, type DetailTabKey } from '../../shared/detailTabs'
@@ -243,6 +246,7 @@ interface OrgContact {
   phone?: string
   email?: string
   contactScope?: 'internal' | 'external'
+  storeNumber?: string
 }
 
 type AssigneeResolution = {
@@ -1144,7 +1148,9 @@ function ContactSelectField({
       description={description}
       data={contacts.map((contact) => ({
         value: contact.id,
-        label: `${contact.name}${contact.phone ? ` — ${contact.phone}` : ''}`,
+        label: `${contact.storeNumber ? `Store ${contact.storeNumber} · ` : ''}${contact.name}${
+          contact.phone ? ` — ${contact.phone}` : contact.storeNumber ? ' — no phone' : ''
+        }`,
       }))}
       leftSection={<IconUsers size={16} />}
       searchable
@@ -1851,7 +1857,7 @@ export default function FinancePage() {
         orgMembers.filter((member) => member.status === 'active'),
         contacts
           .filter((contact) => contact.phone)
-          .map((contact) => ({ name: contact.name, phone: contact.phone || '', contactScope: contact.contactScope })),
+          .map((contact) => ({ name: contact.name, phone: contact.phone || '', contactScope: contact.contactScope, storeNumber: contact.storeNumber })),
       ),
     [orgMembers, contacts],
   )
@@ -2210,6 +2216,7 @@ export default function FinancePage() {
           name: c.name ?? 'Unknown',
           phone: c.phone,
           email: c.email,
+          storeNumber: c.storeNumber || undefined,
           contactScope: c.contactScope === 'internal' ? ('internal' as const) : ('external' as const),
         })),
       )
@@ -5262,18 +5269,24 @@ export default function FinancePage() {
             )}
           </Group>
         )}
-        {area === 'operations' &&
-          hasFieldExecution &&
-          ['owner', 'admin', 'manager', 'dispatcher', 'supervisor'].includes(String(getOrgRoleClaim() || '').toLowerCase()) && (
+        {area === 'operations' && hasFieldExecution && (() => {
+          const orgRole = String(getOrgRoleClaim() || '').toLowerCase()
+          const canBookWaiting = ['owner', 'admin', 'manager', 'dispatcher', 'supervisor'].includes(orgRole)
+          const canOpenVans = canBookWaiting || orgRole === 'field_worker'
+          if (!canOpenVans) return null
+          return (
             <Group grow>
-              <Button variant="light" size="md" radius="xl" leftSection={<IconInbox size={18} />} onClick={() => router.push('/intake')}>
-                Waiting to be booked
-              </Button>
+              {canBookWaiting && (
+                <Button variant="light" size="md" radius="xl" leftSection={<IconInbox size={18} />} onClick={() => router.push('/intake')}>
+                  Waiting to be booked
+                </Button>
+              )}
               <Button variant="light" size="md" radius="xl" leftSection={<IconTruck size={18} />} onClick={() => router.push('/registers')}>
                 Stores & vans
               </Button>
             </Group>
-          )}
+          )
+        })()}
 
         <Tabs value={tab} onChange={setTab}>
           <Tabs.List grow>
@@ -5534,26 +5547,50 @@ export default function FinancePage() {
                 />
               </Group>
 
-              <FinanceListRows
-                rows={fieldListRows}
-                view={listView}
-                noteLabel="Reference and place"
-                loading={fieldRunsLoading}
-                empty={
-                  <Center py="xl">
-                    <Stack align="center" gap="sm">
-                      <ThemeIcon size={56} radius="xl" variant="light" color="teal">
-                        <IconReceipt size={28} />
-                      </ThemeIcon>
-                      <Text fw={600} c="dimmed">
-                        No jobs yet
-                      </Text>
-                      <Text size="sm" c="dimmed" ta="center">
-                        Jobs assigned to you, or created by your organization, will show up here.
-                      </Text>
-                    </Stack>
-                  </Center>
-                }
+              {['owner', 'admin', 'manager', 'dispatcher'].includes(String(getOrgRoleClaim() || '').toLowerCase()) && (
+                <Paper withBorder radius="md" p="sm" mb="sm">
+                  <Text fw={500} mb={4}>Jobs mailbox</Text>
+                  <IncomingJobs
+                    api={phoneOperations}
+                    surface="phone"
+                    members={orgMembers
+                      .filter((member) => member.userId)
+                      .map((member) => ({
+                        userId: member.userId,
+                        role: member.role || 'member',
+                        displayName: member.displayName,
+                        phone: member.phone,
+                        status: member.status,
+                      }))}
+                    notify={phoneNotify}
+                    mailboxOnly
+                  />
+                </Paper>
+              )}
+
+              <JobBoard
+                api={phoneOperations}
+                surface="phone"
+                names={Object.fromEntries(orgMembers.map((member) => [member.userId, member.displayName || member.phone || 'Team member']))}
+                members={orgMembers
+                  .filter((member) => member.userId)
+                  .map((member) => ({
+                    userId: member.userId,
+                    role: member.role || 'member',
+                    displayName: member.displayName,
+                    phone: member.phone,
+                    status: member.status,
+                  }))}
+                canBook={['owner', 'admin', 'manager', 'dispatcher'].includes(String(getOrgRoleClaim() || '').toLowerCase())}
+                canExport={['owner', 'admin', 'manager', 'dispatcher'].includes(String(getOrgRoleClaim() || '').toLowerCase())}
+                notify={phoneNotify}
+                refreshKey={fieldRuns.length}
+                onOpenJob={(runId) => {
+                  void api.get(`/workflows/runs/${encodeURIComponent(runId)}`).then((fresh) => {
+                    setFieldJobTab('details')
+                    setSelectedFieldRun(fresh.data)
+                  }).catch(() => phoneNotify('That job could not be opened.', 'error'))
+                }}
               />
             </Tabs.Panel>
           )}
@@ -6411,6 +6448,7 @@ export default function FinancePage() {
           <ContactPickerSelect
             contacts={contacts}
             requirePhone={false}
+            hideStores
             label="Pick the supplier from contacts"
             description="Fills the supplier name. Leave blank to type a new one."
             onPick={(picked) => {
@@ -6878,7 +6916,9 @@ export default function FinancePage() {
                 requirePhone={false}
                 label="Pick the customer from contacts"
                 onPick={(picked) => {
-                  if (picked) setForm({ ...form, payerName: picked.name || form.payerName, payerPhone: picked.phone || form.payerPhone })
+                  if (!picked) return
+                  setSelectedContact(picked)
+                  setForm({ ...form, payerName: picked.name || form.payerName, payerPhone: picked.phone || form.payerPhone })
                 }}
               />
               <TextInput
@@ -7281,6 +7321,7 @@ export default function FinancePage() {
               <ContactPickerSelect
                 contacts={contacts}
                 requirePhone={false}
+                hideStores
                 label="Pick the supplier from contacts"
                 onPick={(picked) => {
                   if (picked) setRequisitionForm({ ...requisitionForm, vendor: picked.name || requisitionForm.vendor })
@@ -7377,9 +7418,15 @@ export default function FinancePage() {
             contacts={contacts}
             requirePhone={false}
             label="Pick the client from contacts"
-            description="Fills the client name and mobile number."
+            description="Fills the client name, mobile number and store number."
             onPick={(picked) => {
-              if (picked) setFieldRunForm({ ...fieldRunForm, clientName: picked.name || fieldRunForm.clientName, clientPhone: picked.phone || fieldRunForm.clientPhone })
+              if (picked)
+                setFieldRunForm({
+                  ...fieldRunForm,
+                  clientName: picked.name || fieldRunForm.clientName,
+                  clientPhone: picked.phone || fieldRunForm.clientPhone,
+                  ...(picked.storeNumber ? { storeNumber: picked.storeNumber } : {}),
+                })
             }}
           />
 
@@ -7972,6 +8019,15 @@ export default function FinancePage() {
                               </Alert>
                             )}
                             <Box mb="sm">
+                              <JobOnSite
+                                api={fieldJobApi}
+                                surface="phone"
+                                job={run}
+                                canFill={isWorker || isOrgAdmin || isChosenFor('dispatch_job')}
+                                canShare={isOrgAdmin || isChosenFor('dispatch_job')}
+                                notify={phoneNotify}
+                                onChanged={() => void refreshSelectedFieldRun()}
+                              />
                               <FailedVisitPanel
                                 api={fieldJobApi}
                                 surface="phone"

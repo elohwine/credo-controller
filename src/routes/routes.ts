@@ -156,6 +156,8 @@ import { PartnerDiscoveryController } from './../controllers/partner/PartnerDisc
 // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
 import { OperationsRegisterController } from './../controllers/platform/OperationsRegisterController';
 // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+import { PublicJobStatusController } from './../controllers/public/PublicJobStatusController';
+// WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
 import { PortalController } from './../controllers/PortalController';
 import { expressAuthentication } from './../authentication';
 // @ts-ignore - no great way to install types from subpackage
@@ -3735,6 +3737,72 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "JobSheetItemKind": {
+        "dataType": "refAlias",
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["check"]},{"dataType":"enum","enums":["measure"]},{"dataType":"enum","enums":["text"]}],"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "JobSheetItem": {
+        "dataType": "refObject",
+        "properties": {
+            "id": {"dataType":"string","required":true},
+            "label": {"dataType":"string","required":true},
+            "kind": {"ref":"JobSheetItemKind","required":true},
+            "unit": {"dataType":"string"},
+            "required": {"dataType":"boolean"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "JobSheetAnswer": {
+        "dataType": "refObject",
+        "properties": {
+            "ok": {"dataType":"boolean"},
+            "value": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "Record_string.JobSheetAnswer_": {
+        "dataType": "refAlias",
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{},"additionalProperties":{"ref":"JobSheetAnswer"},"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "JobSheetMaterial": {
+        "dataType": "refObject",
+        "properties": {
+            "name": {"dataType":"string","required":true},
+            "quantity": {"dataType":"double","required":true},
+            "unit": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "JobSheetRecord": {
+        "dataType": "refObject",
+        "properties": {
+            "problemType": {"dataType":"string"},
+            "items": {"dataType":"array","array":{"dataType":"refObject","ref":"JobSheetItem"},"required":true},
+            "answers": {"ref":"Record_string.JobSheetAnswer_","required":true},
+            "materials": {"dataType":"array","array":{"dataType":"refObject","ref":"JobSheetMaterial"},"required":true},
+            "savedAt": {"dataType":"string","required":true},
+            "savedBy": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "StoreSignature": {
+        "dataType": "refObject",
+        "properties": {
+            "signerName": {"dataType":"string","required":true},
+            "signerRole": {"dataType":"string"},
+            "imageDataUrl": {"dataType":"string","required":true},
+            "signedAt": {"dataType":"string","required":true},
+            "by": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "HandoffInputField": {
         "dataType": "refObject",
         "properties": {
@@ -5344,7 +5412,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "ReconciliationEventType": {
         "dataType": "refAlias",
-        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["QUOTE_ISSUED"]},{"dataType":"enum","enums":["INVOICE_ISSUED"]},{"dataType":"enum","enums":["PAYMENT_SUCCESS"]},{"dataType":"enum","enums":["RECEIPT_ISSUED"]},{"dataType":"enum","enums":["DELIVERY_VERIFIED"]},{"dataType":"enum","enums":["ESCROW_RELEASED"]},{"dataType":"enum","enums":["PAYOUT_FAILED"]},{"dataType":"enum","enums":["SETTLEMENT_CONFIRMED"]},{"dataType":"enum","enums":["REFUNDED"]},{"dataType":"enum","enums":["DISPUTED"]},{"dataType":"enum","enums":["REQUISITION_CREATED"]},{"dataType":"enum","enums":["REQUISITION_APPROVED"]},{"dataType":"enum","enums":["REQUISITION_MANAGER_APPROVED"]},{"dataType":"enum","enums":["REQUISITION_FINANCE_APPROVED"]},{"dataType":"enum","enums":["REQUISITION_RELEASED"]},{"dataType":"enum","enums":["EXECUTION_ACKNOWLEDGED"]},{"dataType":"enum","enums":["WORK_EVIDENCE_BEFORE"]},{"dataType":"enum","enums":["WORK_EVIDENCE_CONCEALED"]},{"dataType":"enum","enums":["WORK_EVIDENCE_AFTER"]},{"dataType":"enum","enums":["WORK_EVIDENCE_RECEIPT"]},{"dataType":"enum","enums":["AGENT_ASSIGNED"]},{"dataType":"enum","enums":["SITE_INSPECTION_COMPLETED"]},{"dataType":"enum","enums":["RISK_ASSESSMENT_COMPLETED"]},{"dataType":"enum","enums":["RISK_ASSESSMENT_HOLD_RAISED"]},{"dataType":"enum","enums":["RISK_ASSESSMENT_HOLD_RESOLVED"]},{"dataType":"enum","enums":["FAILED_VISIT_REPORTED"]},{"dataType":"enum","enums":["FAILED_VISIT_REBOOKED"]},{"dataType":"enum","enums":["ARRIVAL_CONFIRMED"]},{"dataType":"enum","enums":["COMPLETION_REVIEWED"]},{"dataType":"enum","enums":["JOB_STARTED"]},{"dataType":"enum","enums":["JOB_CLOSED"]}],"validators":{}},
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["QUOTE_ISSUED"]},{"dataType":"enum","enums":["INVOICE_ISSUED"]},{"dataType":"enum","enums":["PAYMENT_SUCCESS"]},{"dataType":"enum","enums":["RECEIPT_ISSUED"]},{"dataType":"enum","enums":["DELIVERY_VERIFIED"]},{"dataType":"enum","enums":["ESCROW_RELEASED"]},{"dataType":"enum","enums":["PAYOUT_FAILED"]},{"dataType":"enum","enums":["SETTLEMENT_CONFIRMED"]},{"dataType":"enum","enums":["REFUNDED"]},{"dataType":"enum","enums":["DISPUTED"]},{"dataType":"enum","enums":["REQUISITION_CREATED"]},{"dataType":"enum","enums":["REQUISITION_APPROVED"]},{"dataType":"enum","enums":["REQUISITION_MANAGER_APPROVED"]},{"dataType":"enum","enums":["REQUISITION_FINANCE_APPROVED"]},{"dataType":"enum","enums":["REQUISITION_RELEASED"]},{"dataType":"enum","enums":["EXECUTION_ACKNOWLEDGED"]},{"dataType":"enum","enums":["WORK_EVIDENCE_BEFORE"]},{"dataType":"enum","enums":["WORK_EVIDENCE_CONCEALED"]},{"dataType":"enum","enums":["WORK_EVIDENCE_AFTER"]},{"dataType":"enum","enums":["WORK_EVIDENCE_RECEIPT"]},{"dataType":"enum","enums":["AGENT_ASSIGNED"]},{"dataType":"enum","enums":["SITE_INSPECTION_COMPLETED"]},{"dataType":"enum","enums":["RISK_ASSESSMENT_COMPLETED"]},{"dataType":"enum","enums":["RISK_ASSESSMENT_HOLD_RAISED"]},{"dataType":"enum","enums":["RISK_ASSESSMENT_HOLD_RESOLVED"]},{"dataType":"enum","enums":["FAILED_VISIT_REPORTED"]},{"dataType":"enum","enums":["FAILED_VISIT_REBOOKED"]},{"dataType":"enum","enums":["JOB_SHEET_SAVED"]},{"dataType":"enum","enums":["STORE_SIGNED"]},{"dataType":"enum","enums":["ARRIVAL_CONFIRMED"]},{"dataType":"enum","enums":["COMPLETION_REVIEWED"]},{"dataType":"enum","enums":["JOB_STARTED"]},{"dataType":"enum","enums":["JOB_CLOSED"]}],"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "ReconciliationEvent": {
@@ -5789,7 +5857,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Pick_JobIntakeInput.Exclude_keyofJobIntakeInput.attachments__": {
         "dataType": "refAlias",
-        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"description":{"dataType":"string","required":true},"amount":{"dataType":"double","required":true},"currency":{"dataType":"string","required":true},"reference":{"dataType":"string"},"storeNumber":{"dataType":"string"},"poNumber":{"dataType":"string"},"problemType":{"dataType":"string"},"clientName":{"dataType":"string"},"clientPhone":{"dataType":"string"},"location":{"dataType":"string"},"scheduledDate":{"dataType":"string"},"payoutAmount":{"dataType":"double"},"vehicleReference":{"dataType":"string"},"vanId":{"dataType":"string"},"callOut":{"dataType":"boolean"},"requireConcealedWorkPhoto":{"dataType":"boolean"},"sourceType":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["manual"]}]},"sourceMessageId":{"dataType":"string"},"sourceSender":{"dataType":"string"},"sourceSubject":{"dataType":"string"}},"validators":{}},
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"description":{"dataType":"string","required":true},"problemType":{"dataType":"string"},"amount":{"dataType":"double","required":true},"currency":{"dataType":"string","required":true},"reference":{"dataType":"string"},"storeNumber":{"dataType":"string"},"poNumber":{"dataType":"string"},"clientName":{"dataType":"string"},"clientPhone":{"dataType":"string"},"location":{"dataType":"string"},"scheduledDate":{"dataType":"string"},"payoutAmount":{"dataType":"double"},"vehicleReference":{"dataType":"string"},"vanId":{"dataType":"string"},"callOut":{"dataType":"boolean"},"requireConcealedWorkPhoto":{"dataType":"boolean"},"sourceType":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["manual"]},{"dataType":"enum","enums":["import"]}]},"importedWorkerName":{"dataType":"string"},"sourceMessageId":{"dataType":"string"},"sourceSender":{"dataType":"string"},"sourceSubject":{"dataType":"string"},"sourceConversationId":{"dataType":"string"}},"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Omit_JobIntakeInput.attachments_": {
@@ -5845,10 +5913,12 @@ const models: TsoaRoute.Models = {
             "vanId": {"dataType":"string"},
             "callOut": {"dataType":"boolean"},
             "requireConcealedWorkPhoto": {"dataType":"boolean"},
-            "sourceType": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["manual"]},{"dataType":"enum","enums":["email"]}]},
+            "sourceType": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["manual"]},{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["import"]}]},
+            "importedWorkerName": {"dataType":"string"},
             "sourceMessageId": {"dataType":"string"},
             "sourceSender": {"dataType":"string"},
             "sourceSubject": {"dataType":"string"},
+            "sourceConversationId": {"dataType":"string"},
             "attachments": {"dataType":"array","array":{"dataType":"refObject","ref":"JobIntakeAttachmentInput"}},
         },
         "additionalProperties": false,
@@ -5859,10 +5929,25 @@ const models: TsoaRoute.Models = {
         "properties": {
             "imported": {"dataType":"double","required":true},
             "repeats": {"dataType":"double","required":true},
+            "replies": {"dataType":"double","required":true},
             "alreadySaved": {"dataType":"double","required":true},
             "skipped": {"dataType":"double","required":true},
             "failed": {"dataType":"double","required":true},
             "error": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "JobMailMessage": {
+        "dataType": "refObject",
+        "properties": {
+            "id": {"dataType":"string","required":true},
+            "direction": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["in"]},{"dataType":"enum","enums":["out"]}],"required":true},
+            "sender": {"dataType":"string"},
+            "subject": {"dataType":"string"},
+            "bodyText": {"dataType":"string"},
+            "receivedAt": {"dataType":"string","required":true},
+            "webLink": {"dataType":"string"},
         },
         "additionalProperties": false,
     },
@@ -5956,6 +6041,11 @@ const models: TsoaRoute.Models = {
         "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["pending"]},{"dataType":"enum","enums":["assigned"]},{"dataType":"enum","enums":["active"]},{"dataType":"enum","enums":["on_hold"]},{"dataType":"enum","enums":["failed"]},{"dataType":"enum","enums":["completed"]},{"dataType":"enum","enums":["reconciled"]},{"dataType":"enum","enums":["cancelled"]}],"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "FieldJobSource": {
+        "dataType": "refAlias",
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["office"]},{"dataType":"enum","enums":["import"]},{"dataType":"enum","enums":["booking"]}],"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "JobSummary": {
         "dataType": "refObject",
         "properties": {
@@ -5971,7 +6061,13 @@ const models: TsoaRoute.Models = {
             "assigneeId": {"dataType":"string"},
             "vanId": {"dataType":"string"},
             "vehicle": {"dataType":"string"},
+            "source": {"ref":"FieldJobSource","required":true},
+            "clientName": {"dataType":"string"},
+            "problemType": {"dataType":"string"},
+            "amount": {"dataType":"double"},
+            "currency": {"dataType":"string"},
             "createdAt": {"dataType":"string","required":true},
+            "completedAt": {"dataType":"string"},
             "failedVisit": {"dataType":"nestedObjectLiteral","nestedProperties":{"workerId":{"dataType":"string"},"at":{"dataType":"string","required":true},"note":{"dataType":"string"},"label":{"dataType":"string","required":true},"reason":{"dataType":"string","required":true}}},
             "failedVisitWorkers": {"dataType":"array","array":{"dataType":"string"}},
         },
@@ -5990,6 +6086,7 @@ const models: TsoaRoute.Models = {
             "status": {"dataType":"string","required":true},
             "jobRunId": {"dataType":"string"},
             "createdAt": {"dataType":"string","required":true},
+            "payUrl": {"dataType":"string"},
         },
         "additionalProperties": false,
     },
@@ -6001,9 +6098,14 @@ const models: TsoaRoute.Models = {
             "reference": {"dataType":"string","required":true},
             "description": {"dataType":"string","required":true},
             "scheduledDate": {"dataType":"string"},
-            "source": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["manual"]},{"dataType":"enum","enums":["email"]}],"required":true},
+            "source": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["manual"]},{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["import"]}],"required":true},
             "duplicateOf": {"dataType":"string"},
             "createdAt": {"dataType":"string","required":true},
+            "clientName": {"dataType":"string"},
+            "location": {"dataType":"string"},
+            "poNumber": {"dataType":"string"},
+            "callOut": {"dataType":"boolean"},
+            "status": {"dataType":"string"},
         },
         "additionalProperties": false,
     },
@@ -6053,7 +6155,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "VanEventKind": {
         "dataType": "refAlias",
-        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["allocated"]},{"dataType":"enum","enums":["service"]},{"dataType":"enum","enums":["mot"]},{"dataType":"enum","enums":["accident"]}],"validators":{}},
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["allocated"]},{"dataType":"enum","enums":["service"]},{"dataType":"enum","enums":["mot"]},{"dataType":"enum","enums":["accident"]},{"dataType":"enum","enums":["daily_check"]}],"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "VanEvent": {
@@ -6067,6 +6169,10 @@ const models: TsoaRoute.Models = {
             "userName": {"dataType":"string"},
             "eventDate": {"dataType":"string","required":true},
             "notes": {"dataType":"string"},
+            "outcome": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["ok"]},{"dataType":"enum","enums":["defect"]}]},
+            "checklist": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"note":{"dataType":"string"},"ok":{"dataType":"boolean","required":true},"item":{"dataType":"string","required":true}}}},
+            "mileage": {"dataType":"double"},
+            "photos": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"sizeBytes":{"dataType":"double","required":true},"mediaType":{"dataType":"string","required":true},"filename":{"dataType":"string","required":true},"id":{"dataType":"string","required":true}}}},
             "createdAt": {"dataType":"string","required":true},
         },
         "additionalProperties": false,
@@ -6082,6 +6188,58 @@ const models: TsoaRoute.Models = {
             "holidays": {"dataType":"array","array":{"dataType":"refObject","ref":"LeaveSummary"},"required":true},
             "offSick": {"dataType":"array","array":{"dataType":"refObject","ref":"LeaveSummary"},"required":true},
             "accidents": {"dataType":"array","array":{"dataType":"refObject","ref":"VanEvent"},"required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "FieldImportKind": {
+        "dataType": "refAlias",
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["stores"]},{"dataType":"enum","enums":["jobs"]},{"dataType":"enum","enums":["vans"]},{"dataType":"enum","enums":["rates"]}],"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "FieldImportRowStatus": {
+        "dataType": "refAlias",
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["new"]},{"dataType":"enum","enums":["exists"]},{"dataType":"enum","enums":["problem"]}],"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "FieldImportRowPreview": {
+        "dataType": "refObject",
+        "properties": {
+            "row": {"dataType":"double","required":true},
+            "status": {"ref":"FieldImportRowStatus","required":true},
+            "summary": {"dataType":"string","required":true},
+            "goesTo": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["waiting"]},{"dataType":"enum","enums":["history"]}]},
+            "problem": {"dataType":"string"},
+            "note": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "FieldImportPreview": {
+        "dataType": "refObject",
+        "properties": {
+            "kind": {"ref":"FieldImportKind","required":true},
+            "label": {"dataType":"string","required":true},
+            "understood": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"meaning":{"dataType":"string","required":true},"column":{"dataType":"string","required":true}}},"required":true},
+            "ignored": {"dataType":"array","array":{"dataType":"string"},"required":true},
+            "missing": {"dataType":"array","array":{"dataType":"string"},"required":true},
+            "counts": {"dataType":"nestedObjectLiteral","nestedProperties":{"history":{"dataType":"double"},"waiting":{"dataType":"double"},"problem":{"dataType":"double","required":true},"exists":{"dataType":"double","required":true},"new":{"dataType":"double","required":true},"total":{"dataType":"double","required":true}},"required":true},
+            "rows": {"dataType":"array","array":{"dataType":"refObject","ref":"FieldImportRowPreview"},"required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "FieldImportResult": {
+        "dataType": "refObject",
+        "properties": {
+            "kind": {"ref":"FieldImportKind","required":true},
+            "label": {"dataType":"string","required":true},
+            "added": {"dataType":"double","required":true},
+            "alreadyThere": {"dataType":"double","required":true},
+            "problems": {"dataType":"double","required":true},
+            "waiting": {"dataType":"double"},
+            "history": {"dataType":"double"},
+            "rows": {"dataType":"array","array":{"dataType":"refObject","ref":"FieldImportRowPreview"},"required":true},
         },
         "additionalProperties": false,
     },
@@ -6116,6 +6274,7 @@ const models: TsoaRoute.Models = {
             "mots": {"dataType":"array","array":{"dataType":"refObject","ref":"VanEvent"},"required":true},
             "accidents": {"dataType":"array","array":{"dataType":"refObject","ref":"VanEvent"},"required":true},
             "drivers": {"dataType":"array","array":{"dataType":"refObject","ref":"VanEvent"},"required":true},
+            "dailyChecks": {"dataType":"array","array":{"dataType":"refObject","ref":"VanEvent"},"required":true},
             "jobs": {"dataType":"array","array":{"dataType":"refObject","ref":"JobSummary"},"required":true},
         },
         "additionalProperties": false,
@@ -6154,6 +6313,102 @@ const models: TsoaRoute.Models = {
             "workerSameDay": {"dataType":"array","array":{"dataType":"refObject","ref":"JobSummary"},"required":true},
             "vanSameDay": {"dataType":"array","array":{"dataType":"refObject","ref":"JobSummary"},"required":true},
             "vanWarning": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "JobRegisterCategory": {
+        "dataType": "refAlias",
+        "type": {"dataType":"union","subSchemas":[{"ref":"FieldJobCategory"},{"dataType":"enum","enums":["not_booked"]}],"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "JobRegisterRow": {
+        "dataType": "refObject",
+        "properties": {
+            "kind": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["job"]},{"dataType":"enum","enums":["intake"]},{"dataType":"enum","enums":["history"]}],"required":true},
+            "id": {"dataType":"string","required":true},
+            "reference": {"dataType":"string","required":true},
+            "source": {"ref":"FieldJobSource","required":true},
+            "category": {"ref":"JobRegisterCategory","required":true},
+            "storeNumber": {"dataType":"string"},
+            "poNumber": {"dataType":"string"},
+            "clientName": {"dataType":"string"},
+            "description": {"dataType":"string","required":true},
+            "location": {"dataType":"string"},
+            "problemType": {"dataType":"string"},
+            "scheduledDate": {"dataType":"string"},
+            "assigneeId": {"dataType":"string"},
+            "vehicle": {"dataType":"string"},
+            "callOut": {"dataType":"boolean","required":true},
+            "amount": {"dataType":"double"},
+            "currency": {"dataType":"string"},
+            "createdAt": {"dataType":"string","required":true},
+            "completedAt": {"dataType":"string"},
+            "possibleRepeat": {"dataType":"boolean"},
+            "workerName": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "Record_JobRegisterCategory.number_": {
+        "dataType": "refAlias",
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"completed":{"dataType":"double","required":true},"pending":{"dataType":"double","required":true},"failed":{"dataType":"double","required":true},"cancelled":{"dataType":"double","required":true},"assigned":{"dataType":"double","required":true},"active":{"dataType":"double","required":true},"on_hold":{"dataType":"double","required":true},"reconciled":{"dataType":"double","required":true},"not_booked":{"dataType":"double","required":true}},"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "JobReport": {
+        "dataType": "refObject",
+        "properties": {
+            "from": {"dataType":"string"},
+            "to": {"dataType":"string"},
+            "total": {"dataType":"double","required":true},
+            "counts": {"ref":"Record_JobRegisterCategory.number_","required":true},
+            "bySource": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"count":{"dataType":"double","required":true},"label":{"dataType":"string","required":true},"source":{"ref":"FieldJobSource","required":true}}},"required":true},
+            "byStore": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"total":{"dataType":"double","required":true},"completed":{"dataType":"double","required":true},"open":{"dataType":"double","required":true},"storeNumber":{"dataType":"string","required":true}}},"required":true},
+            "byWorker": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"failed":{"dataType":"double","required":true},"completed":{"dataType":"double","required":true},"open":{"dataType":"double","required":true},"name":{"dataType":"string","required":true},"userId":{"dataType":"string","required":true}}},"required":true},
+            "averageDaysToComplete": {"dataType":"double"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "VanPhotoInput": {
+        "dataType": "refObject",
+        "properties": {
+            "filename": {"dataType":"string","required":true},
+            "mediaType": {"dataType":"string","required":true},
+            "contentBase64": {"dataType":"string","required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "RateCard": {
+        "dataType": "refObject",
+        "properties": {
+            "id": {"dataType":"string","required":true},
+            "name": {"dataType":"string","required":true},
+            "unit": {"dataType":"string","required":true},
+            "unitPrice": {"dataType":"double","required":true},
+            "currency": {"dataType":"string","required":true},
+            "problemType": {"dataType":"string"},
+            "active": {"dataType":"boolean","required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "PublicJobView": {
+        "dataType": "refObject",
+        "properties": {
+            "organisation": {"dataType":"string","required":true},
+            "reference": {"dataType":"string","required":true},
+            "storeNumber": {"dataType":"string"},
+            "description": {"dataType":"string","required":true},
+            "location": {"dataType":"string"},
+            "scheduledDate": {"dataType":"string"},
+            "status": {"dataType":"string","required":true},
+            "steps": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"at":{"dataType":"string"},"done":{"dataType":"boolean","required":true},"label":{"dataType":"string","required":true}}},"required":true},
+            "workerName": {"dataType":"string"},
+            "photos": {"dataType":"nestedObjectLiteral","nestedProperties":{"after":{"dataType":"array","array":{"dataType":"string"},"required":true},"before":{"dataType":"array","array":{"dataType":"string"},"required":true}},"required":true},
+            "signature": {"dataType":"nestedObjectLiteral","nestedProperties":{"imageDataUrl":{"dataType":"string","required":true},"signedAt":{"dataType":"string","required":true},"signerRole":{"dataType":"string"},"signerName":{"dataType":"string","required":true}}},
+            "bills": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"payUrl":{"dataType":"string"},"status":{"dataType":"string","required":true},"currency":{"dataType":"string","required":true},"amount":{"dataType":"double","required":true},"kind":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["quote"]},{"dataType":"enum","enums":["invoice"]}],"required":true}}},"required":true},
         },
         "additionalProperties": false,
     },
@@ -17425,6 +17680,193 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWorkflowController_getJobSheet: Record<string, TsoaRoute.ParameterSchema> = {
+                runId: {"in":"path","name":"runId","required":true,"dataType":"string"},
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.get('/workflows/runs/:runId/job-sheet',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController)),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController.prototype.getJobSheet)),
+
+            async function WorkflowController_getJobSheet(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWorkflowController_getJobSheet, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WorkflowController>(WorkflowController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'getJobSheet',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWorkflowController_saveJobSheet: Record<string, TsoaRoute.ParameterSchema> = {
+                runId: {"in":"path","name":"runId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"materials":{"dataType":"array","array":{"dataType":"refObject","ref":"JobSheetMaterial"}},"answers":{"ref":"Record_string.JobSheetAnswer_"}}},
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.post('/workflows/runs/:runId/job-sheet',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController)),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController.prototype.saveJobSheet)),
+
+            async function WorkflowController_saveJobSheet(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWorkflowController_saveJobSheet, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WorkflowController>(WorkflowController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'saveJobSheet',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWorkflowController_saveStoreSignature: Record<string, TsoaRoute.ParameterSchema> = {
+                runId: {"in":"path","name":"runId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"imageDataUrl":{"dataType":"string","required":true},"signerRole":{"dataType":"string"},"signerName":{"dataType":"string","required":true}}},
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.post('/workflows/runs/:runId/store-signature',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController)),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController.prototype.saveStoreSignature)),
+
+            async function WorkflowController_saveStoreSignature(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWorkflowController_saveStoreSignature, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WorkflowController>(WorkflowController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'saveStoreSignature',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWorkflowController_createStatusLink: Record<string, TsoaRoute.ParameterSchema> = {
+                runId: {"in":"path","name":"runId","required":true,"dataType":"string"},
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.post('/workflows/runs/:runId/status-link',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController)),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController.prototype.createStatusLink)),
+
+            async function WorkflowController_createStatusLink(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWorkflowController_createStatusLink, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WorkflowController>(WorkflowController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'createStatusLink',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWorkflowController_revokeStatusLinks: Record<string, TsoaRoute.ParameterSchema> = {
+                runId: {"in":"path","name":"runId","required":true,"dataType":"string"},
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.delete('/workflows/runs/:runId/status-link',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController)),
+            ...(fetchMiddlewares<RequestHandler>(WorkflowController.prototype.revokeStatusLinks)),
+
+            async function WorkflowController_revokeStatusLinks(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWorkflowController_revokeStatusLinks, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WorkflowController>(WorkflowController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'revokeStatusLinks',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsWorkflowController_getRunHandoffs: Record<string, TsoaRoute.ParameterSchema> = {
                 runId: {"in":"path","name":"runId","required":true,"dataType":"string"},
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
@@ -25574,6 +26016,43 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsJobIntakeController_thread: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                intakeId: {"in":"path","name":"intakeId","required":true,"dataType":"string"},
+        };
+        app.get('/api/platform/job-intake/:intakeId/thread',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(JobIntakeController)),
+            ...(fetchMiddlewares<RequestHandler>(JobIntakeController.prototype.thread)),
+
+            async function JobIntakeController_thread(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsJobIntakeController_thread, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<JobIntakeController>(JobIntakeController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'thread',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsPublicOrgBrandController_getBrand: Record<string, TsoaRoute.ParameterSchema> = {
                 orgTenantId: {"in":"path","name":"orgTenantId","required":true,"dataType":"string"},
                 at: {"in":"query","name":"at","dataType":"string"},
@@ -26460,6 +26939,80 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_previewImport: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"format":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["csv"]},{"dataType":"enum","enums":["json"]}]},"content":{"dataType":"string","required":true},"kind":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["stores"]},{"dataType":"enum","enums":["jobs"]},{"dataType":"enum","enums":["vans"]},{"dataType":"enum","enums":["rates"]}],"required":true}}},
+        };
+        app.post('/api/platform/operations/import/preview',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.previewImport)),
+
+            async function OperationsRegisterController_previewImport(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_previewImport, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'previewImport',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_runImport: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"format":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["csv"]},{"dataType":"enum","enums":["json"]}]},"content":{"dataType":"string","required":true},"kind":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["stores"]},{"dataType":"enum","enums":["jobs"]},{"dataType":"enum","enums":["vans"]},{"dataType":"enum","enums":["rates"]}],"required":true}}},
+        };
+        app.post('/api/platform/operations/import',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.runImport)),
+
+            async function OperationsRegisterController_runImport(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_runImport, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'runImport',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsOperationsRegisterController_vans: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
         };
@@ -26713,6 +27266,502 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'scheduleCheck',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_jobs: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                source: {"in":"query","name":"source","dataType":"string"},
+                category: {"in":"query","name":"category","dataType":"string"},
+                storeNumber: {"in":"query","name":"storeNumber","dataType":"string"},
+                assigneeId: {"in":"query","name":"assigneeId","dataType":"string"},
+                from: {"in":"query","name":"from","dataType":"string"},
+                to: {"in":"query","name":"to","dataType":"string"},
+                q: {"in":"query","name":"q","dataType":"string"},
+        };
+        app.get('/api/platform/operations/jobs',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.jobs)),
+
+            async function OperationsRegisterController_jobs(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_jobs, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'jobs',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_exportJobs: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                source: {"in":"query","name":"source","dataType":"string"},
+                category: {"in":"query","name":"category","dataType":"string"},
+                storeNumber: {"in":"query","name":"storeNumber","dataType":"string"},
+                assigneeId: {"in":"query","name":"assigneeId","dataType":"string"},
+                from: {"in":"query","name":"from","dataType":"string"},
+                to: {"in":"query","name":"to","dataType":"string"},
+                q: {"in":"query","name":"q","dataType":"string"},
+        };
+        app.get('/api/platform/operations/jobs/export',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.exportJobs)),
+
+            async function OperationsRegisterController_exportJobs(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_exportJobs, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'exportJobs',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_reports: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                from: {"in":"query","name":"from","dataType":"string"},
+                to: {"in":"query","name":"to","dataType":"string"},
+                source: {"in":"query","name":"source","dataType":"string"},
+        };
+        app.get('/api/platform/operations/reports',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.reports)),
+
+            async function OperationsRegisterController_reports(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_reports, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'reports',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_vanCheckItems: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.get('/api/platform/operations/van-checks',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.vanCheckItems)),
+
+            async function OperationsRegisterController_vanCheckItems(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_vanCheckItems, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'vanCheckItems',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_addDailyCheck: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                vanId: {"in":"path","name":"vanId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"photos":{"dataType":"array","array":{"dataType":"refObject","ref":"VanPhotoInput"}},"notes":{"dataType":"string"},"mileage":{"dataType":"double"},"checks":{"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"note":{"dataType":"string"},"ok":{"dataType":"boolean","required":true},"item":{"dataType":"string","required":true}}},"required":true}}},
+        };
+        app.post('/api/platform/operations/vans/:vanId/checks',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.addDailyCheck)),
+
+            async function OperationsRegisterController_addDailyCheck(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_addDailyCheck, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'addDailyCheck',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_reportAccident: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                vanId: {"in":"path","name":"vanId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"photos":{"dataType":"array","array":{"dataType":"refObject","ref":"VanPhotoInput"}},"notes":{"dataType":"string","required":true},"eventDate":{"dataType":"string"}}},
+        };
+        app.post('/api/platform/operations/vans/:vanId/accidents',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.reportAccident)),
+
+            async function OperationsRegisterController_reportAccident(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_reportAccident, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'reportAccident',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_vanEventPhoto: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                vanId: {"in":"path","name":"vanId","required":true,"dataType":"string"},
+                eventId: {"in":"path","name":"eventId","required":true,"dataType":"string"},
+                photoId: {"in":"path","name":"photoId","required":true,"dataType":"string"},
+        };
+        app.get('/api/platform/operations/vans/:vanId/events/:eventId/photos/:photoId',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.vanEventPhoto)),
+
+            async function OperationsRegisterController_vanEventPhoto(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_vanEventPhoto, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'vanEventPhoto',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_rateCards: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                archived: {"in":"query","name":"archived","dataType":"boolean"},
+        };
+        app.get('/api/platform/operations/rate-cards',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.rateCards)),
+
+            async function OperationsRegisterController_rateCards(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_rateCards, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'rateCards',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_addRateCard: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"problemType":{"dataType":"string"},"currency":{"dataType":"string"},"unitPrice":{"dataType":"double","required":true},"unit":{"dataType":"string"},"name":{"dataType":"string","required":true}}},
+        };
+        app.post('/api/platform/operations/rate-cards',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.addRateCard)),
+
+            async function OperationsRegisterController_addRateCard(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_addRateCard, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'addRateCard',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_updateRateCard: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                rateCardId: {"in":"path","name":"rateCardId","required":true,"dataType":"string"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"active":{"dataType":"boolean"},"problemType":{"dataType":"string"},"currency":{"dataType":"string"},"unitPrice":{"dataType":"double"},"unit":{"dataType":"string"},"name":{"dataType":"string"}}},
+        };
+        app.put('/api/platform/operations/rate-cards/:rateCardId',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.updateRateCard)),
+
+            async function OperationsRegisterController_updateRateCard(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_updateRateCard, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'updateRateCard',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_jobSheets: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.get('/api/platform/operations/job-sheets',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.jobSheets)),
+
+            async function OperationsRegisterController_jobSheets(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_jobSheets, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'jobSheets',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_saveJobSheet: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"items":{"dataType":"array","array":{"dataType":"refObject","ref":"JobSheetItem"},"required":true},"problemType":{"dataType":"string","required":true}}},
+        };
+        app.put('/api/platform/operations/job-sheets',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.saveJobSheet)),
+
+            async function OperationsRegisterController_saveJobSheet(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_saveJobSheet, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'saveJobSheet',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsPublicJobStatusController_view: Record<string, TsoaRoute.ParameterSchema> = {
+                code: {"in":"path","name":"code","required":true,"dataType":"string"},
+        };
+        app.get('/api/public/job/:code',
+            ...(fetchMiddlewares<RequestHandler>(PublicJobStatusController)),
+            ...(fetchMiddlewares<RequestHandler>(PublicJobStatusController.prototype.view)),
+
+            async function PublicJobStatusController_view(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsPublicJobStatusController_view, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<PublicJobStatusController>(PublicJobStatusController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'view',
                 controller,
                 response,
                 next,

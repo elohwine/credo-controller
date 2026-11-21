@@ -16,6 +16,7 @@
 import type { WorkflowActionContext } from '../ActionRegistry'
 
 import { DatabaseManager } from '../../../persistence/DatabaseManager'
+import { findContactByStoreNumber } from '../../../persistence/ContactRepository'
 import { getTenantById } from '../../../persistence/TenantRepository'
 import { workflowRunRepository } from '../../../persistence/WorkflowRunRepository'
 import { rootLogger } from '../../../utils/pinoLogger'
@@ -47,7 +48,11 @@ function documentMetadata(context: WorkflowActionContext): Record<string, unknow
   const priced = context.state.finance?.lineItems
   const items = Array.isArray(priced) && priced.length ? priced : context.input?.items
   const tax = taxFromFinance(context.state.finance)
-  return { ...(items ? { items } : {}), ...(tax ? { tax } : {}) }
+  // A job at a saved store stays on that store's bills, even when the number was typed 0772… or +263….
+  const contactId = text(context.input?.storeNumber)
+    ? findContactByStoreNumber(context.tenantId, text(context.input?.storeNumber))?.id
+    : undefined
+  return { ...(items ? { items } : {}), ...(tax ? { tax } : {}), ...(contactId ? { contactId } : {}) }
 }
 
 function itemsLine(items: unknown): string {

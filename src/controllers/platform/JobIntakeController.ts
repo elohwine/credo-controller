@@ -325,4 +325,16 @@ export class JobIntakeController {
       dataBase64: attachment.content.toString('base64'),
     }
   }
+
+  /** The emails kept on a job: the one that asked for it, the store's replies and the office's answers. */
+  @Get('/{intakeId}/thread')
+  public thread(@Request() request: ExRequest, @Path() intakeId: string) {
+    const principal = principalOf(request, false)
+    const intake = jobIntakeRepository.getForTenant(intakeId, principal.tenantId)
+    if (!intake) throw new StatusException('Job intake not found', 404)
+    if (!['owner', 'admin', 'dispatcher', 'manager'].includes(principal.role) && intake.assignedTo !== principal.subjectId) {
+      throw new StatusException('Only the assigned field worker or an intake manager can read these emails.', 403)
+    }
+    return { messages: jobIntakeRepository.mailThread(principal.tenantId, intakeId) }
+  }
 }

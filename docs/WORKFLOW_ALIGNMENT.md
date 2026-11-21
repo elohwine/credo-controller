@@ -1,3 +1,18 @@
+## 2026-11-21 — Bring in stores, jobs, vans and rates from a file; bills stay on the store
+
+Field jobs and the organisation's contacts only. Purchases, school fees, counter sales, collection plans and payroll are unchanged, except that a store (a contact with a store number) no longer appears as someone who can go out on a job, and no longer appears in a supplier list.
+
+- Stores & vans → Import, on the portal and the phone, reads a CSV (or a JSON list) saved from the old system. Stores and clients become outside contacts, one per store number. Open jobs wait to be booked. Finished and cancelled jobs are history: they show in the Jobs list and the report, and they never start a job, send a bill or pay anyone. Vans and rates join the registers that already exist. The same file again adds nothing. A row with a problem is skipped and the reason is shown.
+- Picking a store fills the job's store number as well as the client name and phone. The job's bill is stored against that store contact, so Money in and the store's open bills find it whether the number was typed `0772…` or `+263…`. A store with no phone is labelled as such, because a text cannot be sent. Money out leaves stores out of the supplier list.
+
+## 2026-11-21 — Field jobs: one list, the mailbox thread, and what is filled in on site
+
+Field jobs only. Purchases, school fees, counter sales, collection plans and payroll are unchanged.
+
+- The Jobs list on the portal and the phone reads one register: booked jobs and jobs still waiting in intake (mailbox or written down by the office), filtered by source, status, store, worker and dates. The day or week calendar, the report and the spreadsheet export use that same list.
+- A reply in the mail conversation that started a job, including the office's answer in Sent Items, stays on that job. It does not become a second job.
+- The job sheet, the store signature, the client link, the rate card and the daily van check are stored for field jobs. They do not move a workflow step, so a job that skips them follows the same steps as before. On the phone, the person doing the job can open Stores & vans to record the daily check. Booking a job that is waiting stays with the office.
+
 ## Organisation setup: progressive disclosure
 
 - Portal and mobile share the same next-step overview: one suggested action,

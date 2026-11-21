@@ -50,6 +50,7 @@ import { OrganizationService } from '../../services/OrganizationService'
 import { outboxService } from '../../services/OutboxService'
 import { paymentLinkService } from '../../services/PaymentLinkService'
 import { ShortlinkService } from '../../services/ShortlinkService'
+import { paymentLinkMatchesContact } from '../../services/openBillMatch'
 import { shouldAllowWholeCardType } from '../../services/ssi/proofModeMatrix'
 import { defaultVerifierOf } from '../../services/ssi/siteVerifier'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
@@ -384,27 +385,29 @@ export class ContactController extends Controller {
       this.setStatus(404)
       throw new StatusException('Contact not found', 404)
     }
-    const phone = String(contact.phone || '').replace(/[^\d]/g, '')
-    const rows = DatabaseManager.getDatabase()
-      .prepare(
-        `SELECT id, description, amount, currency, invoice_ref, status, expiry, payer_phone, metadata
-           FROM payment_links
-          WHERE merchant_id = ? AND status IN ('active', 'expired')
-            AND ((json_valid(metadata) AND json_extract(metadata, '$.contactId') = ?)
-              OR (? <> '' AND REPLACE(REPLACE(COALESCE(payer_phone, ''), '+', ''), ' ', '') = ?))
-          ORDER BY created_at DESC LIMIT 20`,
-      )
-      .all(tenantId, contactId, phone, phone) as Array<{
-      id: string
-      description: string
-      amount: number
-      currency: string
-      invoice_ref?: string | null
-      status: string
-      expiry: string
-      payer_phone?: string | null
-      metadata?: string | null
-    }>
+    // "0772…" and "+263772…" are the same person, so a bill typed either way still reaches the contact.
+    const rows = (
+      DatabaseManager.getDatabase()
+        .prepare(
+          `SELECT id, description, amount, currency, invoice_ref, status, expiry, payer_phone, metadata
+             FROM payment_links
+            WHERE merchant_id = ? AND status IN ('active', 'expired')
+            ORDER BY created_at DESC LIMIT 500`,
+        )
+        .all(tenantId) as Array<{
+        id: string
+        description: string
+        amount: number
+        currency: string
+        invoice_ref?: string | null
+        status: string
+        expiry: string
+        payer_phone?: string | null
+        metadata?: string | null
+      }>
+    )
+      .filter((row) => paymentLinkMatchesContact(row, contact))
+      .slice(0, 20)
     return rows.map((row) => {
       let metadata: Record<string, any> = {}
       try {

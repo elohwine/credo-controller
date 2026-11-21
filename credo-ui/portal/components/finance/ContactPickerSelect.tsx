@@ -8,6 +8,8 @@ export interface PickerContact {
   phone?: string
   email?: string
   contactScope?: 'internal' | 'external'
+  /** Set when the contact is a store (a client with a store number). */
+  storeNumber?: string
 }
 
 /**
@@ -23,6 +25,7 @@ export function ContactPickerSelect({
   placeholder = 'Search name or number',
   disabled,
   requirePhone = true,
+  hideStores = false,
 }: {
   contacts: PickerContact[]
   value?: string | null
@@ -33,16 +36,25 @@ export function ContactPickerSelect({
   disabled?: boolean
   /** Only offer contacts that have a mobile number (for anything sent by text or WhatsApp). */
   requirePhone?: boolean
+  /** Money out: a store is a client we bill, never a supplier we pay, so it is left out of the list. */
+  hideStores?: boolean
 }) {
-  const usable = contacts.filter((contact) => contact.id && (!requirePhone || contact.phone))
+  const usable = contacts.filter(
+    (contact) => contact.id && (!requirePhone || contact.phone) && !(hideStores && contact.storeNumber),
+  )
   if (usable.length === 0) return null
   const option = (contact: PickerContact) => ({
     value: contact.id,
-    label: `${contact.name}${contact.phone ? ` · ${contact.phone}` : ''}`,
+    label: `${contact.storeNumber ? `Store ${contact.storeNumber} · ` : ''}${contact.name}${
+      contact.phone ? ` · ${contact.phone}` : contact.storeNumber ? ' · no phone' : ''
+    }`,
   })
-  const external = usable.filter((contact) => contact.contactScope !== 'internal').map(option)
+  const isStore = (contact: PickerContact) => contact.contactScope !== 'internal' && Boolean(contact.storeNumber)
+  const stores = usable.filter(isStore).map(option)
+  const external = usable.filter((contact) => contact.contactScope !== 'internal' && !isStore(contact)).map(option)
   const internal = usable.filter((contact) => contact.contactScope === 'internal').map(option)
   const data = [
+    ...(stores.length ? [{ group: 'Stores', items: stores }] : []),
     ...(external.length ? [{ group: 'Clients and contacts', items: external }] : []),
     ...(internal.length ? [{ group: 'Team', items: internal }] : []),
   ]

@@ -26,6 +26,10 @@ export function IncomingJobs({
   notify,
   onStarted,
   refreshKey,
+  /** Mailbox status only: the jobs themselves are listed with the other jobs. */
+  mailboxOnly,
+  /** Open the booking form for this one waiting job. */
+  focusId,
 }: {
   api: OperationsApi | null
   surface: 'portal' | 'phone'
@@ -33,6 +37,8 @@ export function IncomingJobs({
   notify: (message: string, tone: 'success' | 'error' | 'info') => void
   onStarted?: (runId: string) => void
   refreshKey?: number
+  mailboxOnly?: boolean
+  focusId?: string | null
 }) {
   const [items, setItems] = useState<IntakeItem[]>([])
   const [mail, setMail] = useState<MailStatus | null>(null)
@@ -87,6 +93,10 @@ export function IncomingJobs({
   useEffect(() => {
     void load()
   }, [load, refreshKey])
+
+  useEffect(() => {
+    if (focusId) setOpen(focusId)
+  }, [focusId])
 
   const readMailbox = async () => {
     if (!api) return
@@ -149,7 +159,7 @@ export function IncomingJobs({
 
   return (
     <Stack gap="sm">
-      <Group justify="space-between" wrap="nowrap" align="center">
+      {!focusId && <Group justify="space-between" wrap="nowrap" align="center">
         <Text size="sm" c="dimmed" style={{ flex: 1 }}>
           {mail?.connected
             ? `Jobs mailbox ${mail.mailbox}: read ${mail.lastReadAt ? readableDate(mail.lastReadAt) : 'not yet'}`
@@ -165,13 +175,13 @@ export function IncomingJobs({
             Refresh
           </Button>
         </Group>
-      </Group>
-      {mail?.lastError && (
+      </Group>}
+      {!focusId && mail?.lastError && (
         <Alert color="orange" variant="light" title="The mailbox could not be read">
           {mail.lastError}
         </Alert>
       )}
-      {items.map((item) => {
+      {(mailboxOnly ? [] : items.filter((item) => !focusId || item.id === focusId)).map((item) => {
         const payload = item.payload
         const needsAmount = !(Number(payload.amount) > 0)
         const isOpen = open === item.id
@@ -308,7 +318,7 @@ export function IncomingJobs({
           </Paper>
         )
       })}
-      {loaded && !loading && items.length === 0 && (
+      {loaded && !loading && !mailboxOnly && !focusId && items.length === 0 && (
         <Paper withBorder radius="md" p="lg" ta="center">
           <Text c="dimmed">No jobs are waiting to be booked.</Text>
         </Paper>

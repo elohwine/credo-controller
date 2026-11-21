@@ -5,6 +5,8 @@ import api from '@/lib/api'
 import BottomSheet from '@/components/shared/BottomSheet'
 import { PhoneField } from '../../../shared/PhoneField'
 import JobPaymentPlanFields, { jobPaymentPlanBody, type JobPaymentPlan } from './JobPaymentPlanFields'
+import { usePhoneOperations } from '@/lib/operations'
+import { RateCardPicker } from '../../../shared/operations/RateCardPicker'
 
 interface JobPriceSheetProps {
   run: any
@@ -19,6 +21,7 @@ interface JobPriceSheetProps {
  * the job is already signed off).
  */
 export default function JobPriceSheet({ run, opened, onClose, onSaved }: JobPriceSheetProps) {
+  const { api: operations } = usePhoneOperations()
   const input = run?.input || {}
   const [noCharge, setNoCharge] = useState(false)
   const [amount, setAmount] = useState('')
@@ -106,6 +109,13 @@ export default function JobPriceSheet({ run, opened, onClose, onSaved }: JobPric
         />
         {!noCharge && (
           <>
+            <RateCardPicker
+              api={operations}
+              onUse={(next, nextCurrency) => {
+                setAmount(String(next))
+                setCurrency(nextCurrency)
+              }}
+            />
             <Grid gutter="sm">
               <Grid.Col span={8}>
                 <TextInput

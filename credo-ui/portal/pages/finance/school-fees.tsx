@@ -502,6 +502,7 @@ export default function SchoolFeesPage() {
                 name: String(c.name || 'Unknown'),
                 phone: c.phone || undefined,
                 email: c.email || undefined,
+                storeNumber: c.storeNumber || undefined,
                 contactScope,
               })) as PickerContact[]
             }),

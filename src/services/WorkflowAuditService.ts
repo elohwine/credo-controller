@@ -45,6 +45,8 @@ const EVENT_LABELS: Record<string, string> = {
   RISK_ASSESSMENT_HOLD_RESOLVED: 'Safety hold resolved',
   FAILED_VISIT_REPORTED: 'Visit failed',
   FAILED_VISIT_REBOOKED: 'Job re-booked',
+  JOB_SHEET_SAVED: 'Job sheet filled in',
+  STORE_SIGNED: 'Signed by the store',
   ARRIVAL_CONFIRMED: 'Arrival confirmed',
   WORK_EVIDENCE_BEFORE: 'Before-work evidence recorded',
   WORK_EVIDENCE_AFTER: 'After-work evidence recorded',

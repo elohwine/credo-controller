@@ -25,7 +25,7 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@/styles/globals.css';
 
-const PUBLIC_ROUTES = ['/login', '/login/', '/device-login', '/pay/[code]', '/demo/gate'];
+const PUBLIC_ROUTES = ['/login', '/login/', '/device-login', '/pay/[code]', '/job/[code]', '/demo/gate'];
 const ORG_ONLY_ROUTE_PREFIXES = ['/finance', '/workflows', '/field-jobs', '/intake', '/registers', '/credential-operations', '/connected-systems', '/requests'];
 // /proofs is not here: with an organisation open it shows the organisation's own records.
 const PERSONAL_ONLY_ROUTE_PREFIXES = ['/shop', '/my-requests'];

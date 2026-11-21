@@ -47,6 +47,9 @@ import {
 } from '../../services/workflow/WorkflowHandoffService'
 import { FieldExecutionActions } from '../../services/workflow/actions/FieldExecutionActions'
 import type { FailedVisit } from '../../config/failedVisit'
+import type { JobSheetAnswer, JobSheetMaterial, JobSheetRecord, StoreSignature } from '../../config/jobSheet'
+import { fieldJobSheetService } from '../../services/FieldJobSheetService'
+import { jobStatusLinkService } from '../../services/JobStatusLinkService'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 import { requireDeviceTrust } from '../../services/deviceAssertion'
 
@@ -764,6 +767,104 @@ export class WorkflowController extends Controller {
         },
         callerUserId,
       )
+    } catch (error: any) {
+      this.setStatus(this.statusOf(error))
+      return { error: error.message }
+    }
+  }
+
+  /** The worker on the job, or whoever books jobs; the run must be in the caller's organisation. */
+  private onJobOrBooks(request: ExRequest, runId: string, what: string) {
+    const user = (request as any).user || {}
+    const callerUserId = String(user.id || '')
+    const run = workflowRunRepository.findRunById(runId)
+    if (!run || !canAccessRun(user, run)) throw new StatusException(`Run not found: ${runId}`, 404)
+    const state = (run.output && typeof run.output === 'object' ? run.output : {}) as Record<string, any>
+    const assigneeId = String(state.assignment?.assigneeId || (run.input as any)?.assigneeId || '')
+    if (!callerUserId || (assigneeId !== callerUserId && !this.mayBookJob(run, callerUserId))) {
+      throw new StatusException(`Only the worker on this job or the person who books jobs can ${what}.`, 403)
+    }
+    return { run, callerUserId }
+  }
+
+  /** The sheet for this job's problem type: checks, measurements and notes, plus what is saved. */
+  @Get('runs/{runId}/job-sheet')
+  @Security('jwt', ['tenant'])
+  public async getJobSheet(@Path() runId: string, @Request() request: ExRequest) {
+    try {
+      const { run } = this.onJobOrBooks(request, runId, 'open the job sheet')
+      const state = (run.output && typeof run.output === 'object' ? run.output : {}) as Record<string, any>
+      const input = (state.workflowInput || run.input || {}) as Record<string, any>
+      return { sheet: fieldJobSheetService.sheetFor(run.tenantId, input.problemType), saved: state.jobSheet || null }
+    } catch (error: any) {
+      this.setStatus(this.statusOf(error))
+      return { error: error.message }
+    }
+  }
+
+  @Post('runs/{runId}/job-sheet')
+  @Security('jwt', ['tenant'])
+  public async saveJobSheet(
+    @Path() runId: string,
+    @Body() body: { answers?: Record<string, JobSheetAnswer>; materials?: JobSheetMaterial[] },
+    @Request() request: ExRequest,
+  ): Promise<JobSheetRecord | { error: string }> {
+    try {
+      const { run, callerUserId } = this.onJobOrBooks(request, runId, 'fill in the job sheet')
+      return fieldJobSheetService.saveJobSheet(run.tenantId, runId, body || {}, callerUserId)
+    } catch (error: any) {
+      this.setStatus(this.statusOf(error))
+      return { error: error.message }
+    }
+  }
+
+  /** The store person signs on the worker's phone to say the work was done. */
+  @Post('runs/{runId}/store-signature')
+  @Security('jwt', ['tenant'])
+  public async saveStoreSignature(
+    @Path() runId: string,
+    @Body() body: { signerName: string; signerRole?: string; imageDataUrl: string },
+    @Request() request: ExRequest,
+  ): Promise<StoreSignature | { error: string }> {
+    try {
+      const { run, callerUserId } = this.onJobOrBooks(request, runId, 'take the store signature')
+      return fieldJobSheetService.saveStoreSignature(run.tenantId, runId, body || ({} as any), callerUserId)
+    } catch (error: any) {
+      this.setStatus(this.statusOf(error))
+      return { error: error.message }
+    }
+  }
+
+  /** A link the client opens to follow this job without an account. */
+  @Post('runs/{runId}/status-link')
+  @Security('jwt', ['tenant'])
+  public async createStatusLink(@Path() runId: string, @Request() request: ExRequest) {
+    try {
+      const user = (request as any).user || {}
+      const run = workflowRunRepository.findRunById(runId)
+      if (!run || !user.tenantId || run.tenantId !== user.tenantId) throw new StatusException(`Run not found: ${runId}`, 404)
+      if (!this.mayBookJob(run, String(user.id || ''))) {
+        throw new StatusException('Only the person who books jobs, or an organization admin, can share a job.', 403)
+      }
+      return jobStatusLinkService.create(run.tenantId, runId, String(user.id))
+    } catch (error: any) {
+      this.setStatus(this.statusOf(error))
+      return { error: error.message }
+    }
+  }
+
+  /** Switch off every link sent for this job. */
+  @Delete('runs/{runId}/status-link')
+  @Security('jwt', ['tenant'])
+  public async revokeStatusLinks(@Path() runId: string, @Request() request: ExRequest) {
+    try {
+      const user = (request as any).user || {}
+      const run = workflowRunRepository.findRunById(runId)
+      if (!run || !user.tenantId || run.tenantId !== user.tenantId) throw new StatusException(`Run not found: ${runId}`, 404)
+      if (!this.mayBookJob(run, String(user.id || ''))) {
+        throw new StatusException('Only the person who books jobs, or an organization admin, can switch off a link.', 403)
+      }
+      return { revoked: jobStatusLinkService.revokeAll(run.tenantId, runId) }
     } catch (error: any) {
       this.setStatus(this.statusOf(error))
       return { error: error.message }

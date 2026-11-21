@@ -52,11 +52,11 @@ describe('Stores, attendants and vans', () => {
       );
       CREATE TABLE workflows (id TEXT PRIMARY KEY, tenant_id TEXT, name TEXT, category TEXT);
       CREATE TABLE workflow_runs (
-        id TEXT PRIMARY KEY, workflow_id TEXT, tenant_id TEXT, status TEXT, input TEXT, output TEXT, created_at TEXT
+        id TEXT PRIMARY KEY, workflow_id TEXT, tenant_id TEXT, status TEXT, input TEXT, output TEXT, created_at TEXT, completed_at TEXT
       );
       CREATE TABLE payment_links (
         id TEXT PRIMARY KEY, merchant_id TEXT, description TEXT, amount REAL, currency TEXT, invoice_ref TEXT,
-        status TEXT, metadata TEXT, created_at TEXT
+        status TEXT, metadata TEXT, created_at TEXT, shortlink_url TEXT
       );
       CREATE TABLE organizations (id TEXT PRIMARY KEY, tenant_id TEXT);
       CREATE TABLE people (id TEXT PRIMARY KEY, organization_id TEXT, subject_ref TEXT);
@@ -69,6 +69,7 @@ describe('Stores, attendants and vans', () => {
     db.exec(migration('129_job_intake.sql'))
     db.exec(migration('152_stores_staff_vans_mail_intake.sql'))
     db.exec(migration('153_employee_staff_link.sql'))
+    db.exec(migration('155_job_mail_checks_rates_links.sql'))
     db.prepare(`INSERT INTO workflows (id, tenant_id, name, category) VALUES ('tpl-fept-field-execution-org', ?, 'Field job', 'field_execution_fept')`).run(ORG)
     restores.push(jest.spyOn(DatabaseManager, 'getDatabase').mockReturnValue(db))
     restores.push(
@@ -94,11 +95,11 @@ describe('Stores, attendants and vans', () => {
       ORG,
       JSON.stringify({ parentRunId: 'RUN-CALLOUT' }),
     )
-    db.prepare(`INSERT INTO payment_links VALUES ('L1', ?, 'Invoice for burst pipe', 120, 'USD', 'INV-1', 'paid', ?, '2026-11-21')`).run(
+    db.prepare(`INSERT INTO payment_links VALUES ('L1', ?, 'Invoice for burst pipe', 120, 'USD', 'INV-1', 'paid', ?, '2026-11-21', NULL)`).run(
       ORG,
       JSON.stringify({ kind: 'invoice', workflowRunId: 'BILL-RUN' }),
     )
-    db.prepare(`INSERT INTO payment_links VALUES ('L2', ?, 'Extra work quote', 40, 'USD', 'Q-1', 'active', ?, '2026-11-21')`).run(
+    db.prepare(`INSERT INTO payment_links VALUES ('L2', ?, 'Extra work quote', 40, 'USD', 'Q-1', 'active', ?, '2026-11-21', NULL)`).run(
       ORG,
       JSON.stringify({ kind: 'quote', workflowRunId: 'RUN-OPEN' }),
     )
@@ -252,6 +253,7 @@ describe('Stores, attendants and vans', () => {
       folder: 'inbox',
       pollSeconds: 120,
       firstSyncDays: 14,
+      readSent: false,
     }
     const message = (id: string, subject: string, content: string) => ({
       id,
@@ -302,6 +304,44 @@ describe('Stores, attendants and vans', () => {
         sourceType: 'email',
       })
       expect(service.status(ORG)).toMatchObject({ connected: true, imported: 1, lastError: undefined })
+    })
+
+    it('keeps a reply in the same conversation, and the office answer from Sent Items, on the job instead of a new job', async () => {
+      const calls: string[] = []
+      const inThread = (id: string, subject: string, content: string, from = 'maintenance@spar.test') => ({
+        ...message(id, subject, content),
+        conversationId: 'conv-1',
+        from: { emailAddress: { address: from } },
+        receivedDateTime: `2026-11-2${id.slice(-1)}T08:00:00Z`,
+        webLink: id === 'r1' ? 'https://outlook.office.com/mail/r1' : 'https://evil.example/r1',
+      })
+      const service = new MicrosoftGraphMailIntakeService(
+        () => ({ ...config, readSent: true }),
+        graphFetch(
+          [
+            {
+              value: [inThread('r1', 'Job PO 9001', 'Description: Fix the fridge door'), inThread('r2', 'RE: Job PO 9001', 'Also the light is out')],
+              '@odata.deltaLink': `${GRAPH_DELTA}?token=5`,
+            },
+            { value: [inThread('r3', 'RE: Job PO 9001', 'We will come on Tuesday', 'jobs@sgk.test'), { ...message('x9', 'Other', 'not ours'), conversationId: 'conv-other' }], '@odata.deltaLink': `${GRAPH_DELTA}?sent=1` },
+          ],
+          calls,
+        ),
+      )
+      const result = await service.syncNow()
+      expect(result).toMatchObject({ imported: 1, replies: 2, failed: 0 })
+      expect(calls.some((url) => url.includes('/mailFolders/sentitems/'))).toBe(true)
+      const intakes = jobIntakeRepository.listForTenant(ORG)
+      expect(intakes).toHaveLength(1)
+      const thread = jobIntakeRepository.mailThread(ORG, intakes[0].id)
+      expect(thread.map((entry) => [entry.direction, entry.bodyText])).toEqual([
+        ['in', 'Description: Fix the fridge door'],
+        ['in', 'Also the light is out'],
+        ['out', 'We will come on Tuesday'],
+      ])
+      expect(thread[0].webLink).toBe('https://outlook.office.com/mail/r1')
+      expect(thread[1].webLink).toBeUndefined()
+      expect(db.prepare('SELECT COUNT(*) AS n FROM mail_intake_state').get()).toEqual({ n: 2 })
     })
 
     it('does not move past a page it could not save, so the email is read again', async () => {

@@ -143,6 +143,7 @@ export default function FinanceModulesPage() {
     description: '',
     payerName: '',
     payerPhone: '',
+    contactId: '',
     totalAmount: 0 as number | string,
     collectionType: 'one_time',
     instalments: 2 as number | string,
@@ -321,7 +322,7 @@ export default function FinanceModulesPage() {
       },
       { headers: { ...headers, 'x-idempotency-key': `portal-ar-${Date.now()}` } },
     )
-    setArForm((current) => ({ ...current, description: '', payerName: '', payerPhone: '', totalAmount: 0 }))
+    setArForm((current) => ({ ...current, description: '', payerName: '', payerPhone: '', contactId: '', totalAmount: 0 }))
     await load()
     return true
   }
@@ -407,6 +408,7 @@ export default function FinanceModulesPage() {
             name: String(c.name || 'Unknown'),
             phone: c.phone || undefined,
             email: c.email || undefined,
+            storeNumber: c.storeNumber || undefined,
             contactScope,
           })) as PickerContact[]
         }),
@@ -984,6 +986,7 @@ export default function FinanceModulesPage() {
                     if (picked)
                       setArForm({
                         ...arForm,
+                        contactId: picked.id,
                         payerName: picked.name || arForm.payerName,
                         payerPhone: picked.phone || arForm.payerPhone,
                       })
@@ -1168,6 +1171,7 @@ export default function FinanceModulesPage() {
                 <ContactPickerSelect
                   contacts={contacts}
                   requirePhone={false}
+                  hideStores
                   label="Pick the supplier from contacts"
                   description="Fills the supplier name. Leave blank to type a new one."
                   onPick={(picked) => {

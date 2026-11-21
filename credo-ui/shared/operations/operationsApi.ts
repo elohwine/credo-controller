@@ -13,6 +13,7 @@ import {
 } from '../orgOnboarding'
 import { SETUP_PROFILE_PATH } from '../orgProfile'
 import type { FailedVisit } from '../../../src/config/failedVisit'
+import type { FieldImportKind, FieldImportPreview, FieldImportResult } from '../../../src/config/fieldDataImport'
 
 export type JobCategory = 'pending' | 'assigned' | 'active' | 'on_hold' | 'failed' | 'completed' | 'reconciled' | 'cancelled'
 
@@ -49,7 +50,7 @@ export interface PendingIntakeSummary {
   reference: string
   description: string
   scheduledDate?: string
-  source: 'manual' | 'email'
+  source: 'manual' | 'email' | 'import'
   duplicateOf?: string
   createdAt: string
 }
@@ -76,6 +77,74 @@ export interface StoreFile {
   waitingToBook: PendingIntakeSummary[]
 }
 
+export type JobSource = 'email' | 'office' | 'booking' | 'import'
+export type JobRegisterCategory = JobCategory | 'not_booked'
+
+export interface JobRegisterRow {
+  /** `history` is a finished job brought in from a file: shown and counted, never opened or billed. */
+  kind: 'job' | 'intake' | 'history'
+  id: string
+  reference: string
+  source: JobSource
+  category: JobRegisterCategory
+  storeNumber?: string
+  poNumber?: string
+  clientName?: string
+  description: string
+  location?: string
+  problemType?: string
+  scheduledDate?: string
+  assigneeId?: string
+  vehicle?: string
+  callOut: boolean
+  amount?: number
+  currency?: string
+  createdAt: string
+  completedAt?: string
+  possibleRepeat?: boolean
+  /** Who did the job, as the old system named them (history only). */
+  workerName?: string
+}
+
+export interface JobReport {
+  from?: string
+  to?: string
+  total: number
+  counts: Record<JobRegisterCategory, number>
+  bySource: Array<{ source: JobSource; label: string; count: number }>
+  byStore: Array<{ storeNumber: string; open: number; completed: number; total: number }>
+  byWorker: Array<{ userId: string; name: string; open: number; completed: number; failed: number }>
+  averageDaysToComplete?: number
+}
+
+export interface MailMessage {
+  id: string
+  direction: 'in' | 'out'
+  sender?: string
+  subject?: string
+  bodyText?: string
+  receivedAt: string
+  webLink?: string
+}
+
+export interface RateCard {
+  id: string
+  name: string
+  unit: string
+  unitPrice: number
+  currency: string
+  problemType?: string
+  active: boolean
+}
+
+export interface JobSheetItem {
+  id: string
+  label: string
+  kind: 'check' | 'measure' | 'text'
+  unit?: string
+  required?: boolean
+}
+
 export type VanStatus = 'active' | 'off_road' | 'retired'
 
 export interface VanRecord {
@@ -93,11 +162,15 @@ export interface VanEvent {
   id: string
   vanId: string
   registration?: string
-  kind: 'allocated' | 'service' | 'mot' | 'accident'
+  kind: 'allocated' | 'service' | 'mot' | 'accident' | 'daily_check'
   userId?: string
   userName?: string
   eventDate: string
   notes?: string
+  outcome?: 'ok' | 'defect'
+  checklist?: Array<{ item: string; ok: boolean; note?: string }>
+  mileage?: number
+  photos?: Array<{ id: string; filename: string; mediaType: string; sizeBytes: number }>
 }
 
 export interface AttendantSummary {
@@ -135,6 +208,7 @@ export interface VanFile {
   mots: VanEvent[]
   accidents: VanEvent[]
   drivers: VanEvent[]
+  dailyChecks: VanEvent[]
   jobs: JobSummary[]
 }
 
@@ -407,6 +481,63 @@ export function operationsApi(backend: string, token: string | null | undefined)
           body: Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined && value !== '')),
         },
       ),
+    jobs: (filter: Record<string, string | undefined> = {}) =>
+      call<{ items: JobRegisterRow[] }>(`${base}/jobs${query(filter)}`).then((data) => data.items),
+    jobReport: (filter: Record<string, string | undefined> = {}) => call<JobReport>(`${base}/reports${query(filter)}`),
+    exportJobs: async (filter: Record<string, string | undefined> = {}) => {
+      if (!token) throw new OperationsApiError('Sign in to the organisation first.', 401)
+      const response = await fetch(`${backend.replace(/\/$/, '')}${base}/jobs/export${query(filter)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const raw = await response.text()
+      const text = raw.trim().startsWith('"') ? String(JSON.parse(raw)) : raw
+      if (!response.ok) {
+        let message = 'The job list could not be exported.'
+        try {
+          message = String(JSON.parse(text)?.message || JSON.parse(text)?.error || message)
+        } catch {
+          /* the body is not JSON */
+        }
+        throw new OperationsApiError(message, response.status)
+      }
+      return text.charCodeAt(0) === 0xfeff || text.startsWith('Job,') ? text : text
+    },
+    intakeThread: (intakeId: string) =>
+      call<{ messages: MailMessage[] }>(`/api/platform/job-intake/${encodeURIComponent(intakeId)}/thread`).then((data) => data.messages),
+    jobSheet: (runId: string) =>
+      call<{ sheet: { problemType?: string; items: JobSheetItem[]; general: boolean }; saved: { answers: Record<string, { ok?: boolean; value?: string }>; materials: Array<{ name: string; quantity: number; unit?: string }> } | null }>(
+        `/workflows/runs/${encodeURIComponent(runId)}/job-sheet`,
+      ),
+    saveJobSheet: (
+      runId: string,
+      body: { answers: Record<string, { ok?: boolean; value?: string }>; materials: Array<{ name: string; quantity: number; unit?: string }> },
+    ) => call(`/workflows/runs/${encodeURIComponent(runId)}/job-sheet`, { method: 'POST', body }),
+    saveStoreSignature: (runId: string, body: { signerName: string; signerRole?: string; imageDataUrl: string }) =>
+      call(`/workflows/runs/${encodeURIComponent(runId)}/store-signature`, { method: 'POST', body }),
+    createStatusLink: (runId: string) =>
+      call<{ url: string; code: string }>(`/workflows/runs/${encodeURIComponent(runId)}/status-link`, { method: 'POST' }),
+    revokeStatusLink: (runId: string) =>
+      call<{ revoked: number }>(`/workflows/runs/${encodeURIComponent(runId)}/status-link`, { method: 'DELETE' }),
+    rateCards: () => call<{ items: RateCard[] }>(`${base}/rate-cards`).then((data) => data.items),
+    saveJobSheetTemplate: (problemType: string, items: JobSheetItem[]) =>
+      call(`${base}/job-sheets`, { method: 'PUT', body: { problemType, items } }),
+    saveRateCard: (input: { id?: string; name: string; unit?: string; unitPrice: number; currency?: string; problemType?: string; active?: boolean }) =>
+      input.id
+        ? call<RateCard>(`${base}/rate-cards/${encodeURIComponent(input.id)}`, { method: 'PUT', body: input })
+        : call<RateCard>(`${base}/rate-cards`, { method: 'POST', body: input }),
+    previewImport: (kind: FieldImportKind, content: string) =>
+      call<FieldImportPreview>(`${base}/import/preview`, { method: 'POST', body: { kind, content } }),
+    runImport: (kind: FieldImportKind, content: string) =>
+      call<FieldImportResult>(`${base}/import`, { method: 'POST', body: { kind, content } }),
+    vanCheckItems: () => call<{ items: string[] }>(`${base}/van-checks`).then((data) => data.items),
+    dailyCheck: (
+      vanId: string,
+      body: { checks: Array<{ item: string; ok: boolean; note?: string }>; mileage?: number; notes?: string; photos?: Array<{ filename: string; mediaType: string; contentBase64: string }> },
+    ) => call<VanEvent>(`${base}/vans/${encodeURIComponent(vanId)}/checks`, { method: 'POST', body }),
+    reportVanAccident: (
+      vanId: string,
+      body: { eventDate?: string; notes: string; photos?: Array<{ filename: string; mediaType: string; contentBase64: string }> },
+    ) => call<VanEvent>(`${base}/vans/${encodeURIComponent(vanId)}/accidents`, { method: 'POST', body }),
     mailStatus: () => call<MailStatus>('/api/platform/job-intake/mail'),
     mailSync: () =>
       call<{ imported: number; repeats: number; alreadySaved: number; skipped: number; failed: number; error?: string }>(

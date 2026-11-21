@@ -33,11 +33,25 @@ export interface JobIntakeInput {
   /** Unplanned work the store called in. */
   callOut?: boolean
   requireConcealedWorkPhoto?: boolean
-  sourceType?: 'manual' | 'email'
+  sourceType?: 'manual' | 'email' | 'import'
+  /** Name of the worker in the old system, for a job brought in from a file. Not a team member. */
+  importedWorkerName?: string
   sourceMessageId?: string
   sourceSender?: string
   sourceSubject?: string
+  /** The mail conversation: later replies in it are kept on this job instead of becoming new jobs. */
+  sourceConversationId?: string
   attachments?: JobIntakeAttachmentInput[]
+}
+
+export interface JobMailMessage {
+  id: string
+  direction: 'in' | 'out'
+  sender?: string
+  subject?: string
+  bodyText?: string
+  receivedAt: string
+  webLink?: string
 }
 
 export interface JobIntakeRecord {
@@ -128,8 +142,9 @@ export class JobIntakeRepository {
         : undefined
       db.prepare(
         `INSERT INTO job_intakes
-          (id, tenant_id, created_by, payload_json, idempotency_key, source_message_id, dedupe_key, duplicate_of)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, tenant_id, created_by, payload_json, idempotency_key, source_message_id, dedupe_key, duplicate_of,
+           source_conversation_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         tenantId,
@@ -139,6 +154,7 @@ export class JobIntakeRepository {
         input.sourceMessageId || null,
         dedupeKey || null,
         repeat?.id || null,
+        input.sourceConversationId || null,
       )
 
       const insertAttachment = db.prepare(
@@ -252,6 +268,66 @@ export class JobIntakeRepository {
          WHERE id = ? AND tenant_id = ? AND status = 'pending'`,
       )
       .run(JSON.stringify(payload), intakeDedupeKey(payload.storeNumber, payload.poNumber) || null, id, tenantId)
+  }
+
+  /** The job that started a mail conversation, so replies in it stay on that job. */
+  public findByConversation(tenantId: string, conversationId: string): { id: string } | undefined {
+    if (!conversationId) return undefined
+    return DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT id FROM job_intakes WHERE tenant_id = ? AND source_conversation_id = ?
+          ORDER BY created_at ASC LIMIT 1`,
+      )
+      .get(tenantId, conversationId) as { id: string } | undefined
+  }
+
+  /** Keeps one email on a job's thread. False when that email is already there. */
+  public addMailMessage(
+    tenantId: string,
+    intakeId: string,
+    message: Omit<JobMailMessage, 'id'> & { internetMessageId: string; conversationId?: string },
+  ): boolean {
+    const result = DatabaseManager.getDatabase()
+      .prepare(
+        `INSERT INTO job_mail_messages
+           (id, org_tenant_id, intake_id, conversation_id, internet_message_id, direction, sender, subject, body_text,
+            received_at, web_link)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (org_tenant_id, internet_message_id) DO NOTHING`,
+      )
+      .run(
+        randomUUID(),
+        tenantId,
+        intakeId,
+        message.conversationId || null,
+        message.internetMessageId.slice(0, 500),
+        message.direction,
+        message.sender?.slice(0, 320) || null,
+        message.subject?.slice(0, 500) || null,
+        message.bodyText?.slice(0, 8000) || null,
+        message.receivedAt,
+        message.webLink || null,
+      )
+    return result.changes === 1
+  }
+
+  public mailThread(tenantId: string, intakeId: string): JobMailMessage[] {
+    const rows = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT id, direction, sender, subject, body_text AS bodyText, received_at AS receivedAt, web_link AS webLink
+           FROM job_mail_messages WHERE org_tenant_id = ? AND intake_id = ?
+          ORDER BY received_at ASC LIMIT 200`,
+      )
+      .all(tenantId, intakeId) as Array<Record<string, string | null>>
+    return rows.map((row) => ({
+      id: String(row.id),
+      direction: row.direction === 'out' ? 'out' : 'in',
+      sender: row.sender || undefined,
+      subject: row.subject || undefined,
+      bodyText: row.bodyText || undefined,
+      receivedAt: String(row.receivedAt),
+      webLink: row.webLink || undefined,
+    }))
   }
 
   public resetAssignment(id: string, tenantId: string): void {

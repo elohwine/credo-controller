@@ -28,6 +28,7 @@ export function JobScheduleFields({
   assigneeId,
   names = {},
   excludeIntakeId,
+  excludeRunId,
   showStore = true,
   showCallOut = true,
 }: {
@@ -44,6 +45,7 @@ export function JobScheduleFields({
   assigneeId?: string | null
   names?: Record<string, string>
   excludeIntakeId?: string
+  excludeRunId?: string
   showStore?: boolean
   showCallOut?: boolean
 }) {
@@ -70,12 +72,13 @@ export function JobScheduleFields({
           assigneeId: assigneeId || undefined,
           vanId: vanId || undefined,
           excludeIntakeId,
+          excludeRunId,
         })
         .then(setCheck)
         .catch(() => setCheck(null))
     }, 400)
     return () => clearTimeout(timer)
-  }, [api, storeNumber, date, assigneeId, vanId, excludeIntakeId])
+  }, [api, storeNumber, date, assigneeId, vanId, excludeIntakeId, excludeRunId])
 
   const storeByNumber = useMemo(() => new Map(stores.map((store) => [store.storeNumber, store])), [stores])
   const warnings = scheduleWarnings(check, names)

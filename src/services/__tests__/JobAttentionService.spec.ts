@@ -75,7 +75,7 @@ describe('Stuck job alerts', () => {
       CREATE TABLE workflow_steps (id TEXT PRIMARY KEY, run_id TEXT, started_at TEXT, completed_at TEXT, created_at TEXT);
       CREATE TABLE payment_links (
         id TEXT PRIMARY KEY, merchant_id TEXT, description TEXT, amount REAL, currency TEXT, invoice_ref TEXT,
-        status TEXT, metadata TEXT, created_at TEXT
+        status TEXT, metadata TEXT, created_at TEXT, shortlink_url TEXT
       );
       CREATE TABLE organizations (id TEXT PRIMARY KEY, tenant_id TEXT, name TEXT);
       CREATE TABLE wallet_pending_offers (
@@ -88,6 +88,7 @@ describe('Stuck job alerts', () => {
     db.exec(migration('129_job_intake.sql'))
     db.exec(migration('152_stores_staff_vans_mail_intake.sql'))
     db.exec(migration('153_employee_staff_link.sql'))
+    db.exec(migration('155_job_mail_checks_rates_links.sql'))
     db.exec(migration('154_job_attention_log.sql'))
     db.prepare(`INSERT INTO organizations (id, tenant_id, name) VALUES ('o1', ?, 'SGK')`).run(ORG)
     db.prepare(`INSERT INTO workflows (id, tenant_id, name, category) VALUES ('tpl-fept-field-execution-org', ?, 'Field job', 'field_execution_fept')`).run(ORG)

@@ -73,6 +73,7 @@ import {
 import { jobStatusColor as getStatusColor, jobStatusLabel as getStatusLabel } from '../finance/financeStages'
 import { detailTabsFor, type DetailTabKey } from '../../../shared/detailTabs'
 import { FailedVisitPanel } from '../../../shared/operations/FailedVisitPanel'
+import { JobOnSite } from '../../../shared/operations/JobOnSite'
 import { jobPeopleOptions } from '../../../shared/jobPeople'
 import { usePortalOperations } from '@/lib/operations'
 
@@ -802,6 +803,18 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                 refreshKey={`${job?.status}:${pauseReason}:${String(job?.updatedAt || '')}`}
                 onChanged={onRefresh}
                 onHoldChange={setHeld}
+              />
+            )}
+
+            {job?.id && (
+              <JobOnSite
+                api={operations}
+                surface="portal"
+                job={job}
+                canFill={Boolean(currentUserId) && (assigneeId === currentUserId || mayBookJobs)}
+                canShare={mayBookJobs}
+                notify={notify}
+                onChanged={onRefresh}
               />
             )}
 

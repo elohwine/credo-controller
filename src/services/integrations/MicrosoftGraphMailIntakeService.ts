@@ -12,12 +12,17 @@
  * LDK is told about new mail by Graph webhooks; here the mailbox is read on a timer with a
  * delta link, which needs no public address and gives the same guarantees.
  *
+ * Like LDK's lead activity, a conversation stays on one record: a reply in the conversation that
+ * started a job (from the store, or the office's answer in Sent Items) is kept on that job's mail
+ * thread instead of becoming a second job. Sent Items never create jobs.
+ *
  * Configuration (all required to switch it on). The names are LDK's; the older MS_GRAPH_* names still work:
  *   MICROSOFT_GRAPH_TENANT_ID, MICROSOFT_GRAPH_CLIENT_ID, MICROSOFT_GRAPH_CLIENT_SECRET  app registration
  *   MICROSOFT_GRAPH_PRIMARY_MAILBOX   the jobs mailbox, e.g. jobs@sgk.co.za
  *   MICROSOFT_GRAPH_ORG_TENANT_ID     the organisation that receives the jobs
  * Optional: MICROSOFT_GRAPH_MAIL_FOLDER (inbox), MICROSOFT_GRAPH_POLL_SECONDS (120),
- *   MICROSOFT_GRAPH_FIRST_SYNC_DAYS (14) how far back the first read goes.
+ *   MICROSOFT_GRAPH_FIRST_SYNC_DAYS (14) how far back the first read goes,
+ *   MICROSOFT_GRAPH_READ_SENT (true) keep the office's replies from Sent Items on the job.
  */
 
 import { randomUUID } from 'crypto'
@@ -42,23 +47,29 @@ export interface MailIntakeConfig {
   folder: string
   pollSeconds: number
   firstSyncDays: number
+  readSent: boolean
 }
 
 export interface GraphMessage {
   id: string
   internetMessageId?: string
+  conversationId?: string
   subject?: string
   from?: { emailAddress?: { address?: string; name?: string } }
   receivedDateTime?: string
+  sentDateTime?: string
   hasAttachments?: boolean
   isDraft?: boolean
   body?: { contentType?: string; content?: string }
+  webLink?: string
   '@removed'?: unknown
 }
 
 export interface MailSyncResult {
   imported: number
   repeats: number
+  /** Replies kept on the mail thread of a job that is already saved. */
+  replies: number
   alreadySaved: number
   /** Drafts and no-reply or bounce mail: read, but not turned into jobs. */
   skipped: number
@@ -86,6 +97,7 @@ const SETTING_KEYS = {
   folder: ['MICROSOFT_GRAPH_MAIL_FOLDER', 'MS_GRAPH_MAIL_FOLDER'],
   pollSeconds: ['MICROSOFT_GRAPH_POLL_SECONDS', 'MS_GRAPH_POLL_SECONDS'],
   firstSyncDays: ['MICROSOFT_GRAPH_FIRST_SYNC_DAYS', 'MS_GRAPH_FIRST_SYNC_DAYS'],
+  readSent: ['MICROSOFT_GRAPH_READ_SENT', 'MS_GRAPH_READ_SENT'],
 } as const
 
 const REQUIRED_SETTINGS = ['tenantId', 'clientId', 'clientSecret', 'mailbox', 'orgTenantId'] as const
@@ -106,6 +118,7 @@ export function readMailIntakeConfig(env: NodeJS.ProcessEnv = process.env): Mail
     folder: value('folder') || 'inbox',
     pollSeconds: Math.max(30, Number(value('pollSeconds')) || 120),
     firstSyncDays: Math.max(1, Number(value('firstSyncDays')) || 14),
+    readSent: !/^(false|0|no|off)$/i.test(value('readSent')),
   }
   return missingMailIntakeSettings(env).length === 0 ? config : undefined
 }
@@ -132,6 +145,20 @@ export function isAutomatedMessage(message: Pick<GraphMessage, 'isDraft' | 'from
   const sender = String(message.from?.emailAddress?.address || '').trim().toLowerCase()
   return Boolean(message.isDraft) || /^(no-?reply|do-?not-?reply|postmaster|mailer-daemon)@/.test(sender)
 }
+
+/** Only a link that opens the email in Outlook on the web is kept (LDK's rule). */
+export function safeOutlookMessageUrl(value: unknown): string | undefined {
+  try {
+    const url = new URL(String(value || ''))
+    return url.protocol === 'https:' && ['outlook.office.com', 'outlook.office365.com', 'outlook.live.com'].includes(url.hostname)
+      ? url.toString()
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+const SELECT = 'id,internetMessageId,conversationId,subject,from,receivedDateTime,sentDateTime,hasAttachments,isDraft,body,webLink'
 
 export class MicrosoftGraphMailIntakeService {
   private token?: { value: string; expiresAt: number }
@@ -185,29 +212,15 @@ export class MicrosoftGraphMailIntakeService {
 
   private async sync(): Promise<MailSyncResult> {
     const config = this.configOf()
-    const result: MailSyncResult = { imported: 0, repeats: 0, alreadySaved: 0, skipped: 0, failed: 0 }
+    const result: MailSyncResult = { imported: 0, repeats: 0, replies: 0, alreadySaved: 0, skipped: 0, failed: 0 }
     if (!config) return { ...result, error: 'The jobs mailbox is not connected.' }
     try {
-      const since = new Date(Date.now() - config.firstSyncDays * 86_400_000).toISOString()
-      let url: string | undefined =
-        this.state(config)?.deltaLink ||
-        `${GRAPH}/users/${encodeURIComponent(config.mailbox)}/mailFolders/${encodeURIComponent(config.folder)}/messages/delta` +
-          `?$select=id,internetMessageId,subject,from,receivedDateTime,hasAttachments,isDraft,body` +
-          `&$filter=${encodeURIComponent(`receivedDateTime ge ${since}`)}`
-      while (url) {
-        const page = (await this.graph(config, url)) as {
-          value?: GraphMessage[]
-          '@odata.nextLink'?: string
-          '@odata.deltaLink'?: string
-        }
-        for (const message of page.value || []) {
-          if (message['@removed']) continue
-          const outcome = await this.importMessage(config, message)
-          result[outcome] += 1
-        }
-        if (result.failed > 0) throw new Error(`${result.failed} email(s) could not be saved; they will be read again.`)
-        url = page['@odata.nextLink']
-        if (!url && page['@odata.deltaLink']) this.saveState(config, { deltaLink: page['@odata.deltaLink'] })
+      await this.readFolder(config, config.folder, config.mailbox, result, (message) => this.importMessage(config, message))
+      if (config.readSent) {
+        // The office's own answers: kept on the job they reply to, never turned into jobs.
+        await this.readFolder(config, 'sentitems', `${config.mailbox}#sent`, result, (message) =>
+          Promise.resolve(this.keepReply(config, message, 'out')),
+        )
       }
       this.saveState(config, { error: null, imported: result.imported, repeats: result.repeats })
       return result
@@ -218,10 +231,67 @@ export class MicrosoftGraphMailIntakeService {
     }
   }
 
+  private async readFolder(
+    config: MailIntakeConfig,
+    folder: string,
+    stateKey: string,
+    result: MailSyncResult,
+    handle: (message: GraphMessage) => Promise<keyof Omit<MailSyncResult, 'error'>>,
+  ): Promise<void> {
+    const since = new Date(Date.now() - config.firstSyncDays * 86_400_000).toISOString()
+    let url: string | undefined =
+      this.state(config, stateKey)?.deltaLink ||
+      `${GRAPH}/users/${encodeURIComponent(config.mailbox)}/mailFolders/${encodeURIComponent(folder)}/messages/delta` +
+        `?$select=${SELECT}` +
+        `&$filter=${encodeURIComponent(`receivedDateTime ge ${since}`)}`
+    while (url) {
+      const page = (await this.graph(config, url, stateKey)) as {
+        value?: GraphMessage[]
+        '@odata.nextLink'?: string
+        '@odata.deltaLink'?: string
+      }
+      for (const message of page.value || []) {
+        if (message['@removed']) continue
+        result[await handle(message)] += 1
+      }
+      if (result.failed > 0) throw new Error(`${result.failed} email(s) could not be saved; they will be read again.`)
+      url = page['@odata.nextLink']
+      if (!url && page['@odata.deltaLink']) this.saveState(config, { deltaLink: page['@odata.deltaLink'] }, stateKey)
+    }
+  }
+
+  /** A message in a conversation that already has a job goes on that job's thread. */
+  private keepReply(
+    config: MailIntakeConfig,
+    message: GraphMessage,
+    direction: 'in' | 'out',
+  ): 'replies' | 'alreadySaved' | 'skipped' {
+    if (message.isDraft) return 'skipped'
+    const intake = jobIntakeRepository.findByConversation(config.orgTenantId, String(message.conversationId || ''))
+    if (!intake) return 'skipped'
+    const added = jobIntakeRepository.addMailMessage(config.orgTenantId, intake.id, {
+      ...this.threadEntry(message, direction),
+    })
+    return added ? 'replies' : 'alreadySaved'
+  }
+
+  private threadEntry(message: GraphMessage, direction: 'in' | 'out') {
+    return {
+      internetMessageId: String(message.internetMessageId || message.id),
+      conversationId: message.conversationId || undefined,
+      direction,
+      sender: String(message.from?.emailAddress?.address || '').toLowerCase() || undefined,
+      subject: message.subject || undefined,
+      bodyText: String(message.body?.content || '').replace(/\s+\n/g, '\n').trim() || undefined,
+      receivedAt: message.receivedDateTime || message.sentDateTime || new Date().toISOString(),
+      webLink: safeOutlookMessageUrl(message.webLink),
+    }
+  }
+
   public async importMessage(
     config: MailIntakeConfig,
     message: GraphMessage,
-  ): Promise<'imported' | 'repeats' | 'alreadySaved' | 'skipped' | 'failed'> {
+  ): Promise<'imported' | 'repeats' | 'replies' | 'alreadySaved' | 'skipped' | 'failed'> {
     if (isAutomatedMessage(message)) return 'skipped'
     const sourceMessageId = String(message.internetMessageId || message.id).slice(0, 500)
     const db = DatabaseManager.getDatabase()
@@ -229,6 +299,9 @@ export class MicrosoftGraphMailIntakeService {
       .prepare('SELECT id FROM job_intakes WHERE tenant_id = ? AND source_message_id = ?')
       .get(config.orgTenantId, sourceMessageId)
     if (known) return 'alreadySaved'
+    if (message.conversationId && jobIntakeRepository.findByConversation(config.orgTenantId, message.conversationId)) {
+      return this.keepReply(config, message, 'in')
+    }
     try {
       const subject = String(message.subject || '').slice(0, 500)
       const sender = String(message.from?.emailAddress?.address || '').slice(0, 320)
@@ -261,6 +334,7 @@ export class MicrosoftGraphMailIntakeService {
         sourceMessageId,
         sourceSender: sender || undefined,
         sourceSubject: subject || undefined,
+        sourceConversationId: message.conversationId ? String(message.conversationId).slice(0, 500) : undefined,
       }
       let saved
       try {
@@ -273,6 +347,7 @@ export class MicrosoftGraphMailIntakeService {
           description: `${input.description}\n\n(The email's attachments could not be kept.)`.slice(0, 4000),
         })
       }
+      jobIntakeRepository.addMailMessage(config.orgTenantId, saved.id, this.threadEntry(message, 'in'))
       return saved.duplicateOf ? 'repeats' : 'imported'
     } catch {
       return 'failed'
@@ -305,7 +380,7 @@ export class MicrosoftGraphMailIntakeService {
     return { attachments: kept, left }
   }
 
-  private async graph(config: MailIntakeConfig, url: string): Promise<unknown> {
+  private async graph(config: MailIntakeConfig, url: string, stateKey = config.mailbox): Promise<unknown> {
     const response = await this.http(assertGraphUrl(url), {
       headers: {
         Authorization: `Bearer ${await this.accessToken(config)}`,
@@ -315,7 +390,7 @@ export class MicrosoftGraphMailIntakeService {
     })
     if (response.status === 410) {
       // The delta link expired: start again from the first-sync window; message ids stop repeats.
-      this.saveState(config, { deltaLink: null })
+      this.saveState(config, { deltaLink: null }, stateKey)
       throw new Error('The mailbox position expired and was reset; the next read starts again.')
     }
     if (!response.ok) throw new Error(`Microsoft Graph answered ${response.status}`)
@@ -341,14 +416,14 @@ export class MicrosoftGraphMailIntakeService {
     return this.token.value
   }
 
-  private state(config: MailIntakeConfig) {
+  private state(config: MailIntakeConfig, key = config.mailbox) {
     return DatabaseManager.getDatabase()
       .prepare(
         `SELECT delta_link AS deltaLink, last_polled_at AS lastPolledAt, last_error AS lastError,
                 imported_count AS importedCount, repeat_count AS repeatCount
            FROM mail_intake_state WHERE org_tenant_id = ? AND mailbox = ?`,
       )
-      .get(config.orgTenantId, config.mailbox) as
+      .get(config.orgTenantId, key) as
       | { deltaLink?: string; lastPolledAt?: string; lastError?: string; importedCount: number; repeatCount: number }
       | undefined
   }
@@ -356,17 +431,18 @@ export class MicrosoftGraphMailIntakeService {
   private saveState(
     config: MailIntakeConfig,
     changes: { deltaLink?: string | null; error?: string | null; imported?: number; repeats?: number },
+    key = config.mailbox,
   ): void {
     const db = DatabaseManager.getDatabase()
     db.prepare(
       `INSERT INTO mail_intake_state (org_tenant_id, mailbox) VALUES (?, ?)
        ON CONFLICT (org_tenant_id, mailbox) DO NOTHING`,
-    ).run(config.orgTenantId, config.mailbox)
+    ).run(config.orgTenantId, key)
     if (changes.deltaLink !== undefined) {
       db.prepare('UPDATE mail_intake_state SET delta_link = ? WHERE org_tenant_id = ? AND mailbox = ?').run(
         changes.deltaLink,
         config.orgTenantId,
-        config.mailbox,
+        key,
       )
     }
     if (changes.error !== undefined) {
@@ -380,7 +456,7 @@ export class MicrosoftGraphMailIntakeService {
         changes.imported || 0,
         changes.repeats || 0,
         config.orgTenantId,
-        config.mailbox,
+        key,
       )
     }
   }

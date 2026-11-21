@@ -8,6 +8,8 @@ export type JobContact = {
   name: string
   phone: string
   contactScope?: 'internal' | 'external'
+  /** A store is a client we serve, never someone who goes out on a job. */
+  storeNumber?: string
 }
 
 export function jobContactOption(contact: JobContact): { value: string; label: string } {
@@ -145,7 +147,7 @@ export function jobPeopleOptions(
   const onTeam = new Set(members.map((member) => phoneKey(member.phone)).filter(Boolean))
   return [
     ...members.map((member) => ({ value: member.userId, label: orgMemberLabel(member) })),
-    ...contacts.filter((contact) => !onTeam.has(phoneKey(contact.phone))).map(jobContactOption),
+    ...contacts.filter((contact) => !contact.storeNumber && !onTeam.has(phoneKey(contact.phone))).map(jobContactOption),
   ]
 }
 

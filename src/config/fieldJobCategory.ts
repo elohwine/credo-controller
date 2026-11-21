@@ -14,6 +14,18 @@ export type FieldJobCategory =
   | 'reconciled'
   | 'cancelled'
 
+/** The words the Jobs board, the export and the reports use for each category. */
+export const FIELD_JOB_CATEGORY_LABELS: Record<FieldJobCategory, string> = {
+  pending: 'Pending / unassigned',
+  assigned: 'Assigned',
+  active: 'In progress',
+  on_hold: 'On hold',
+  failed: 'Needs attention',
+  completed: 'Completed',
+  reconciled: 'Closed',
+  cancelled: 'Cancelled',
+}
+
 export interface FieldJobRunLike {
   status?: string
   input?: any

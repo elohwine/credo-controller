@@ -4,8 +4,18 @@ import { Body, Get, Path, Post, Put, Query, Request, Route, Security, Tags } fro
 
 import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
+import { isFieldImportKind } from '../../config/fieldDataImport'
+import type { JobSheetItem } from '../../config/jobSheet'
+import { fieldDataImportService } from '../../services/FieldDataImportService'
+import { fieldJobSheetService } from '../../services/FieldJobSheetService'
 import { jobAttentionService } from '../../services/JobAttentionService'
-import { operationsRegisterService, type VanStatus } from '../../services/OperationsRegisterService'
+import { jobRegisterService } from '../../services/JobRegisterService'
+import {
+  VAN_DAILY_CHECKS,
+  operationsRegisterService,
+  type VanPhotoInput,
+  type VanStatus,
+} from '../../services/OperationsRegisterService'
 
 const MANAGERS = ['owner', 'admin', 'dispatcher', 'manager']
 
@@ -84,6 +94,35 @@ export class OperationsRegisterController {
   ) {
     const principal = principalOf(request, true)
     return asBadRequest(() => operationsRegisterService.saveAttendantProfile(principal.tenantId, userId, body || {}))
+  }
+
+  /**
+   * Check a file exported from the old job system (stores and clients, jobs, vans or rates) and say
+   * what would be added, what is already here and which rows have a problem. Saves nothing.
+   */
+  @Post('/import/preview')
+  public previewImport(
+    @Request() request: ExRequest,
+    @Body() body: { kind: 'stores' | 'jobs' | 'vans' | 'rates'; content: string; format?: 'csv' | 'json' },
+  ) {
+    const principal = principalOf(request, true)
+    return asBadRequest(() => {
+      if (!isFieldImportKind(body?.kind)) throw new Error('Choose what the file holds: stores, jobs, vans or rates')
+      return fieldDataImportService.preview(principal.tenantId, body.kind, body.content, body.format)
+    })
+  }
+
+  /** Save the rows of a checked file. The same file again adds nothing. */
+  @Post('/import')
+  public runImport(
+    @Request() request: ExRequest,
+    @Body() body: { kind: 'stores' | 'jobs' | 'vans' | 'rates'; content: string; format?: 'csv' | 'json' },
+  ) {
+    const principal = principalOf(request, true)
+    return asBadRequest(() => {
+      if (!isFieldImportKind(body?.kind)) throw new Error('Choose what the file holds: stores, jobs, vans or rates')
+      return fieldDataImportService.commit(principal.tenantId, principal.subjectId, body.kind, body.content, body.format)
+    })
   }
 
   @Get('/vans')
@@ -174,5 +213,151 @@ export class OperationsRegisterController {
       excludeRunId,
       excludeIntakeId,
     })
+  }
+
+  /**
+   * Every job in one list: booked jobs and jobs waiting in intake (from the mailbox or added by
+   * the office), with the same filters on both apps. Anyone who is not office sees their own jobs.
+   */
+  @Get('/jobs')
+  public jobs(
+    @Request() request: ExRequest,
+    @Query() source?: string,
+    @Query() category?: string,
+    @Query() storeNumber?: string,
+    @Query() assigneeId?: string,
+    @Query() from?: string,
+    @Query() to?: string,
+    @Query() q?: string,
+  ) {
+    const principal = principalOf(request, false)
+    const manager = MANAGERS.includes(principal.role)
+    return {
+      items: asBadRequest(() =>
+        jobRegisterService.rows(principal.tenantId, {
+          source,
+          category,
+          storeNumber,
+          assigneeId: manager ? assigneeId : principal.subjectId,
+          from,
+          to,
+          q,
+        }),
+      ),
+    }
+  }
+
+  /** The same list as a spreadsheet (CSV), with the same filters. */
+  @Get('/jobs/export')
+  public exportJobs(
+    @Request() request: ExRequest,
+    @Query() source?: string,
+    @Query() category?: string,
+    @Query() storeNumber?: string,
+    @Query() assigneeId?: string,
+    @Query() from?: string,
+    @Query() to?: string,
+    @Query() q?: string,
+  ) {
+    const principal = principalOf(request, true)
+    const csv = asBadRequest(() =>
+      jobRegisterService.csv(principal.tenantId, { source, category, storeNumber, assigneeId, from, to, q }),
+    )
+    const res = (request as any).res
+    if (res) {
+      res.status(200)
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+      res.setHeader('Content-Disposition', `attachment; filename="jobs-${new Date().toISOString().slice(0, 10)}.csv"`)
+      res.send(csv)
+    }
+    return csv
+  }
+
+  /** Active, completed, waiting and on-hold jobs, by source, store and worker. */
+  @Get('/reports')
+  public reports(@Request() request: ExRequest, @Query() from?: string, @Query() to?: string, @Query() source?: string) {
+    const principal = principalOf(request, true)
+    return asBadRequest(() => jobRegisterService.report(principal.tenantId, { from, to, source }))
+  }
+
+  /** The items a driver checks every day before the van goes out. */
+  @Get('/van-checks')
+  public vanCheckItems(@Request() request: ExRequest) {
+    principalOf(request, false)
+    return { items: [...VAN_DAILY_CHECKS] }
+  }
+
+  /** The driver's daily check: anyone on the team may record one for a van they take out. */
+  @Post('/vans/{vanId}/checks')
+  public addDailyCheck(
+    @Request() request: ExRequest,
+    @Path() vanId: string,
+    @Body()
+    body: {
+      checks: Array<{ item: string; ok: boolean; note?: string }>
+      mileage?: number
+      notes?: string
+      photos?: VanPhotoInput[]
+    },
+  ) {
+    const principal = principalOf(request, false)
+    return asBadRequest(() => operationsRegisterService.recordDailyCheck(principal.tenantId, principal.subjectId, vanId, body || {}))
+  }
+
+  /** A driver reports an accident with photos. */
+  @Post('/vans/{vanId}/accidents')
+  public reportAccident(
+    @Request() request: ExRequest,
+    @Path() vanId: string,
+    @Body() body: { eventDate?: string; notes: string; photos?: VanPhotoInput[] },
+  ) {
+    const principal = principalOf(request, false)
+    return asBadRequest(() => operationsRegisterService.reportAccident(principal.tenantId, principal.subjectId, vanId, body || ({} as any)))
+  }
+
+  @Get('/vans/{vanId}/events/{eventId}/photos/{photoId}')
+  public vanEventPhoto(@Request() request: ExRequest, @Path() vanId: string, @Path() eventId: string, @Path() photoId: string) {
+    const principal = principalOf(request, false)
+    const photo = operationsRegisterService.vanEventPhoto(principal.tenantId, vanId, eventId, photoId)
+    if (!photo) throw new StatusException('Photo not found', 404)
+    return { filename: photo.filename, mediaType: photo.mediaType, dataBase64: photo.content.toString('base64') }
+  }
+
+  @Get('/rate-cards')
+  public rateCards(@Request() request: ExRequest, @Query() archived?: boolean) {
+    const principal = principalOf(request, false)
+    return { items: fieldJobSheetService.listRateCards(principal.tenantId, archived === true) }
+  }
+
+  @Post('/rate-cards')
+  public addRateCard(
+    @Request() request: ExRequest,
+    @Body() body: { name: string; unit?: string; unitPrice: number; currency?: string; problemType?: string },
+  ) {
+    const principal = principalOf(request, true)
+    return asBadRequest(() => fieldJobSheetService.saveRateCard(principal.tenantId, { ...body, id: undefined }))
+  }
+
+  @Put('/rate-cards/{rateCardId}')
+  public updateRateCard(
+    @Request() request: ExRequest,
+    @Path() rateCardId: string,
+    @Body() body: { name?: string; unit?: string; unitPrice?: number; currency?: string; problemType?: string; active?: boolean },
+  ) {
+    const principal = principalOf(request, true)
+    return asBadRequest(() => fieldJobSheetService.saveRateCard(principal.tenantId, { ...body, id: rateCardId }))
+  }
+
+  /** Job sheets per problem type; a job with no matching sheet uses the general one. */
+  @Get('/job-sheets')
+  public jobSheets(@Request() request: ExRequest) {
+    const principal = principalOf(request, false)
+    return { items: fieldJobSheetService.listSheets(principal.tenantId), general: fieldJobSheetService.sheetFor(principal.tenantId).items }
+  }
+
+  @Put('/job-sheets')
+  public saveJobSheet(@Request() request: ExRequest, @Body() body: { problemType: string; items: JobSheetItem[] }) {
+    const principal = principalOf(request, true)
+    return asBadRequest(() => fieldJobSheetService.saveSheet(principal.tenantId, body?.problemType, body?.items))
   }
 }

@@ -47,6 +47,7 @@ export default function NewRequisitionPage() {
                         name: String(c.name || 'Unknown'),
                         phone: c.phone || undefined,
                         email: c.email || undefined,
+                        storeNumber: c.storeNumber || undefined,
                         contactScope,
                     })) as PickerContact[];
                 }),
@@ -186,6 +187,7 @@ export default function NewRequisitionPage() {
                                 <ContactPickerSelect
                                     contacts={contacts}
                                     requirePhone={false}
+                                    hideStores
                                     label="Pick the supplier from contacts"
                                     onPick={(picked) => {
                                         if (picked) setForm((prev) => ({ ...prev, vendor: picked.name || prev.vendor }));

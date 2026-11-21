@@ -419,7 +419,7 @@ SGK uses MyMobileWorkers (Asolvi) today. The client login is https://live.mymobi
 Already in this branch, on both apps unless noted:
 
 - A job card from a written job or from mail, with store number, PO, description and the client's documents.
-- Before and after photos from the live camera, sealed with time and location. Writing that time and location into the image file itself is still open.
+- Before and after photos from the live camera, sealed with time and location, and with that time and place written onto the photo itself.
 - A safety hold with a reason and a photo, sorted by the office, then redone by the worker.
 - Colour-coded states: unassigned, assigned, in progress, on hold, needs attention, completed, closed, cancelled.
 - One store file (jobs, quotes, invoices, call-outs, cancelled) and one attendant file (jobs, failed, completed, holidays, off sick, van, accidents).
@@ -429,20 +429,41 @@ Already in this branch, on both apps unless noted:
 
 Closed in this change: a failed visit. The worker says why the visit could not be finished, the job waits, and the office re-books it with a new date (and, if needed, another worker or van). The reason stays on that person's file.
 
-Still open for a first prototype, besides connecting the jobs mailbox:
+Closed on 2026-11-21, on both apps unless noted. The Jobs list (portal job cards and the phone Jobs tab) shows mailbox jobs, jobs added by the office and jobs brought in from a file together, including ones not booked yet, and filters by source (email, office, client booking, imported from a file), status, store, worker and dates. The same list has a day or week calendar, a report (active, completed, waiting, on hold, by store and worker) and a spreadsheet export.
 
-1. A calendar of who is out on which day. Clash warnings exist; there is no day or week view.
-2. The client's own view of the job: status, photos and the invoice, without a staff account. They can pay a link today. They cannot browse the job.
-3. A signature from the person at the store, taken on the worker's phone. Sign-off today is a staff card held by someone in the organisation.
-4. A daily check the driver completes for the van, and an accident report with photos. The van file records service, MOT and a written accident.
-5. A checklist, measurements and items used on the job sheet, chosen per job type.
-6. Rate cards, so a quote is priced from agreed rates instead of a typed amount.
-7. Export of the job list. One job already has a history export; the board does not.
-8. The mail thread kept on the job card after the job is booked. Intake keeps the sender, subject and attachments.
-9. A reports page (active, completed, pending, on hold) beyond the job board and Needs attention.
-10. Time and location stamped into the photo file, and photo quality held to the same bar as Site Audit Pro.
+1. Day or week calendar of who is out, on the Jobs list.
+2. A link the office sends the client. They open it on the phone, with no account, and see the status, photos, signature and the bill. The page is the phone app (`/job/[code]`), the same way a pay link is.
+3. The store person signs on the worker's phone. The signature stays on the job.
+4. A daily van check (a defect needs a note) and an accident report with photos, on the van's file. On the phone, the person doing the job opens Stores & vans to record it. Booking a waiting job stays with the office.
+5. A job sheet per problem type: checks, measurements and items used, filled in on the job. A job with no sheet uses a general one.
+6. A rate card (Stores & vans → Rates). The price screen can build the client amount from it.
+7. Export of the filtered job list.
+8. The mail thread stays on the job: the email that asked for it, later replies, and the office's answers from Sent Items.
+9. The report on the Jobs list.
+10. Time and location stamped onto the photo file. The camera keeps a sharper image so the stamp stays readable.
 
-Not needed for the first prototype, from the wider MyMobileWorkers list: a live map, lone-worker alerts, near-miss reports, a full risk-assessment library, branches, a customer disclaimer on the device, digital timesheets, and scheduled email reports.
+The jobs mailbox follows the LDK website's Graph app: the same setting names, client-credentials sign-in, immutable message ids, and a conversation kept on one record. LDK is told about mail by a webhook; this mailbox is read on a timer, which needs no public address. Sent Items are read so the office's replies stay on the job. Nothing is booked until someone books it.
+
+Still to supply, and nothing else, before the mailbox reads real mail:
+
+- `MICROSOFT_GRAPH_TENANT_ID`, `MICROSOFT_GRAPH_CLIENT_ID`, `MICROSOFT_GRAPH_CLIENT_SECRET` (the app registration, application permission `Mail.Read`, admin consent)
+- `MICROSOFT_GRAPH_PRIMARY_MAILBOX` (the jobs mailbox)
+- `MICROSOFT_GRAPH_ORG_TENANT_ID` (the organisation that receives the jobs)
+
+Payment and SMS provider keys stay the existing settings for those providers. They are not part of this jobs list.
+
+Bringing the old lists across does not need a login to MyMobileWorkers. On Stores & vans → Import (both apps) the office chooses a CSV saved from that system, or from a spreadsheet. Excel is saved as CSV first; there is no spreadsheet library here.
+
+- Stores and clients become outside contacts, one contact per store number. The address and the contact person are kept in the notes. A store with no phone is saved, and the screen says a bill cannot be texted to it.
+- Jobs still open wait in the Jobs list, source "Imported from a file", ready to book. The store's saved phone is used when the file has none, so the bill can be texted later.
+- Finished and cancelled jobs are history. They appear in the Jobs list, the calendar, the report and the export, with the worker's name as the old system wrote it. They never start a workflow, send a bill or pay anyone, so an old file cannot charge a client twice.
+- Vans join the van register (registration, description, service day, MOT date). Rates join the rate list.
+- The same file imported again adds nothing. A bad row is named and skipped; the rest still go in. Up to 2,000 rows, 2 MB.
+- People are not imported. A worker named on an old job is not added to the team. Staff stay on payroll, as before.
+
+A store is the client on the money screens. Picking one on a new job fills the store number, the name and the phone. The bill for that job is kept on the store, so Money in and the store's open bills find it whether the number was written `0772…` or `+263…`. Money out does not offer a store as a supplier. A store is not offered as someone who goes out on a job.
+
+Not needed for the first prototype, from the wider MyMobileWorkers list: a live map, lone-worker alerts, near-miss reports, a full risk-assessment library, branches, a customer disclaimer on the device, digital timesheets, and scheduled email reports. The mailbox itself is still waiting on the five Graph settings above.
 
 ## Reference docs
 

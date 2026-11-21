@@ -6,6 +6,8 @@ import { getOrgScopedToken } from '@/utils/organizationContext'
 import { getPreferredTenantToken } from '@/utils/portalTenant'
 import { PhoneField } from '../../../shared/PhoneField'
 import JobPaymentPlanFields, { DEFAULT_JOB_PAYMENT_PLAN, jobPaymentPlanBody, type JobPaymentPlan } from './JobPaymentPlanFields'
+import { usePortalOperations } from '@/lib/operations'
+import { RateCardPicker } from '../../../shared/operations/RateCardPicker'
 
 function backendUrl(): string {
   return ((window as any).__ENV?.NEXT_PUBLIC_VC_REPO as string) || 'http://localhost:3000'
@@ -24,6 +26,7 @@ interface JobPriceModalProps {
  * the job is already signed off).
  */
 export default function JobPriceModal({ job, opened, onClose, onSaved }: JobPriceModalProps) {
+  const { api: operations } = usePortalOperations()
   const input = job?.input || {}
   const [noCharge, setNoCharge] = useState(false)
   const [amount, setAmount] = useState<number | string>('')
@@ -111,6 +114,13 @@ export default function JobPriceModal({ job, opened, onClose, onSaved }: JobPric
         />
         {!noCharge && (
           <>
+            <RateCardPicker
+              api={operations}
+              onUse={(next, nextCurrency) => {
+                setAmount(next)
+                setCurrency(nextCurrency)
+              }}
+            />
             <Group grow>
               <NumberInput label="Amount to invoice the client" min={0} value={amount} onChange={setAmount} />
               <Select

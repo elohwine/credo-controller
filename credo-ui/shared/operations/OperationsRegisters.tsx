@@ -20,6 +20,10 @@ import {
 } from '@mantine/core'
 import { IconBuildingStore, IconPlus, IconSearch, IconTruck } from '@tabler/icons-react'
 
+import { ImportData } from './ImportData'
+import { OfficeRates } from './OfficeRates'
+import { VanDayCheck } from './VanDayCheck'
+
 import {
   JOB_CATEGORY_WORDS,
   LEAVE_WORDS,
@@ -180,7 +184,7 @@ function EventRows({ events, surface, showVan }: { events: VanEvent[]; surface: 
           key={event.id}
           surface={surface}
           title={`${readableDate(event.eventDate)}${showVan && event.registration ? ` · ${event.registration}` : ''}${event.userName ? ` · ${event.userName}` : ''}`}
-          detail={event.notes}
+          detail={[event.outcome === 'defect' ? 'Defect' : event.outcome === 'ok' ? 'All ok' : '', event.notes].filter(Boolean).join(' · ') || undefined}
         />
       ))}
     </Stack>
@@ -276,9 +280,11 @@ export function OperationsRegisters({
           <Tabs.Tab value="vans" leftSection={<IconTruck size={18} />}>
             Vans
           </Tabs.Tab>
+          <Tabs.Tab value="rates">Rates</Tabs.Tab>
+          {canEdit && <Tabs.Tab value="import">Import</Tabs.Tab>}
         </Tabs.List>
       </Tabs>
-      <Group gap="sm" wrap="nowrap">
+      {(tab === 'stores' || tab === 'vans') && <Group gap="sm" wrap="nowrap">
         <TextInput
           size={size}
           style={{ flex: 1 }}
@@ -292,7 +298,9 @@ export function OperationsRegisters({
             {tab === 'stores' ? 'Add store' : 'Add van'}
           </Button>
         )}
-      </Group>
+      </Group>}
+      {tab === 'rates' && <OfficeRates api={api} surface={surface} canEdit={canEdit} notify={notify} />}
+      {tab === 'import' && canEdit && <ImportData api={api} surface={surface} notify={notify} onDone={() => void load()} />}
       {loading && <Loader size="sm" />}
 
       {tab === 'stores' && (
@@ -814,10 +822,16 @@ function VanFileView({
         <Section value="accidents" label="Accidents" count={file.accidents.length}>
           <EventRows events={file.accidents} surface={surface} />
         </Section>
+        <Section value="checks" label="Daily checks" count={file.dailyChecks?.length || 0}>
+          <EventRows events={file.dailyChecks || []} surface={surface} />
+        </Section>
         <Section value="jobs" label="Jobs" count={file.jobs.length}>
           <JobRows jobs={file.jobs} names={names} onOpenJob={onOpenJob} surface={surface} />
         </Section>
       </Accordion>
+      <Paper withBorder radius="md" p="md">
+        <VanDayCheck api={api} vanId={vanId} surface={surface} notify={notify} onSaved={load} />
+      </Paper>
     </Stack>
   )
 }
