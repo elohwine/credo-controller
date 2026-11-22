@@ -403,3 +403,8 @@ a:active,
     animation: none;
   }
 }
+
+/* Mantine 9 sizes a badge a pixel or two short for some words; in a table cell the whole word must show. */
+.mantine-datatable .mantine-Badge-label {
+  overflow: visible;
+}

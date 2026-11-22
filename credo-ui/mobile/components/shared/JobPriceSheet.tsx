@@ -119,7 +119,7 @@ export default function JobPriceSheet({ run, opened, onClose, onSaved }: JobPric
                 setCurrency(nextCurrency)
               }}
             />
-            <Grid gutter="sm">
+            <Grid gap="sm">
               <Grid.Col span={8}>
                 <TextInput
                   label="Amount to invoice the client"

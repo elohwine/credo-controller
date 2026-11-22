@@ -580,7 +580,7 @@ function SetupQuestions() {
                     variant={brandConfigured === false ? 'light' : 'filled'}
                     rightSection={<IconArrowRight size={16} />}
                     component={Link}
-                    href="/payroll?tab=employees"
+                    href="/hr?tab=team"
                   >
                     Add your people
                   </Button>
@@ -659,7 +659,7 @@ function SetupQuestions() {
                 {review.roles.map((role) => (role.status === 'new' ? `${role.name} (new)` : role.name)).join(', ')}
               </Text>
               <Text size="xs" c="dimmed" mt={4}>
-                Add people into these roles under People & payroll.
+                Add people into these roles under HR operations.
               </Text>
             </Card>
 
@@ -856,7 +856,7 @@ function SetupQuestions() {
                     <Text size="xs" c="dimmed" ml={4}>{isLockedModule(option.id, operatingModel) ? LOCKED_MODULE_NOTE : modulePlanNote(option.id, plan)}</Text>
                   </Box>
                 ))}
-                <Text size="xs" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas are needed. Your organisation keeps its SSI identity. After setup, connect your own software under Connected systems to sign people in or send your records to their wallets.' : 'Jobs and People & payroll are always on. Untick anything else that is handled elsewhere.'}</Text>
+                <Text size="xs" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas are needed. Your organisation keeps its SSI identity. After setup, connect your own software under Connected systems to sign people in or send your records to their wallets.' : 'Jobs and HR operations are always on. Untick anything else that is handled elsewhere.'}</Text>
               </Stack>
             </Chip.Group>
             </Stack>

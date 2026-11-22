@@ -40,6 +40,7 @@ const BRAND = {
     viking: "#6FB4DC",
     cornflower: "#88C4E3",
     dark: "#0A3D5C",
+    text: 'var(--brand-text)',
 };
 
 interface ConsentDetails {

@@ -109,7 +109,7 @@ function JobRows({ jobs, names, onOpenJob, surface }: { jobs: JobSummary[]; name
           title={`${job.reference}${job.callOut ? ' · Call-out' : ''}`}
           detail={`${job.description || 'No description'} — ${jobLine(job, names)}`}
           trailing={
-            <Badge variant="light" color={JOB_CATEGORY_WORDS[job.category].color}>
+            <Badge variant="filled" color={JOB_CATEGORY_WORDS[job.category].color} c="black">
               {JOB_CATEGORY_WORDS[job.category].label}
             </Badge>
           }

@@ -31,7 +31,7 @@ interface CatalogItem {
 
 const CategorySection: React.FC<{ title: string, items: CatalogItem[], viewMode: 'grid' | 'list' }> = ({ title, items, viewMode }) => (
     <div className="mb-10">
-        <h2 className="text-xl font-bold mb-4 flex items-center gap-2" style={{ color: BRAND.dark }}>
+        <h2 className="text-xl font-bold mb-4 flex items-center gap-2" style={{ color: BRAND.text }}>
             <span className="w-1.5 h-6 rounded-full" style={{ backgroundColor: BRAND.curious }}></span>
             {title}
             <span className="text-sm font-normal text-gray-400 ml-2">({items.length})</span>
@@ -50,13 +50,13 @@ const CategorySection: React.FC<{ title: string, items: CatalogItem[], viewMode:
                                 </div>
                             )}
                             <div className="absolute top-2 right-2">
-                                <span className="bg-white/90 backdrop-blur text-xs font-bold px-2 py-1 rounded-md shadow-sm" style={{ color: BRAND.dark }}>
+                                <span className="bg-white/90 backdrop-blur text-xs font-bold px-2 py-1 rounded-md shadow-sm" style={{ color: BRAND.text }}>
                                     {formatCurrency(item.price, item.currency)}
                                 </span>
                             </div>
                         </div>
                         <div className="p-4 flex-1 flex flex-col">
-                            <h3 className="font-semibold text-lg mb-1 line-clamp-1" style={{ color: BRAND.dark }}>{item.title}</h3>
+                            <h3 className="font-semibold text-lg mb-1 line-clamp-1" style={{ color: BRAND.text }}>{item.title}</h3>
                             <p className="text-sm text-gray-500 line-clamp-2 mb-3 flex-1">{item.description || 'No description'}</p>
 
                             <div className="flex items-center justify-between text-xs text-gray-400 mt-auto pt-3 border-t border-gray-50">
@@ -250,7 +250,7 @@ export default function CatalogPage() {
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-8 gap-4">
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight" style={{ color: BRAND.dark }}>Catalog</h1>
+                        <h1 className="text-3xl font-bold tracking-tight" style={{ color: BRAND.text }}>Catalog</h1>
                         <p className="mt-1 text-gray-500">Manage products, prices, and categories</p>
                     </div>
 
@@ -344,7 +344,7 @@ export default function CatalogPage() {
                                     <CubeIcon className="h-8 w-8" />
                                 </div>
                                 <div>
-                                    <h3 className="text-2xl font-bold" style={{ color: BRAND.dark }}>Add Product</h3>
+                                    <h3 className="text-2xl font-bold" style={{ color: BRAND.text }}>Add Product</h3>
                                     <p className="text-sm text-gray-500">Create a new item in your catalog</p>
                                 </div>
                             </div>

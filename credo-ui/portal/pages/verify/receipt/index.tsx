@@ -53,7 +53,7 @@ export default function ReceiptVerificationIndex() {
           >
             <IconTruck size={40} className="text-white" />
           </div>
-          <h1 className="text-3xl font-bold" style={{ color: BRAND.dark }}>Delivery Verification</h1>
+          <h1 className="text-3xl font-bold" style={{ color: BRAND.text }}>Delivery Verification</h1>
           <p className="mt-2" style={{ color: BRAND.viking }}>Verify payment before releasing goods</p>
         </div>
 

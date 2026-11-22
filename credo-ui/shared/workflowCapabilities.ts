@@ -51,7 +51,7 @@ const CAPABILITY_TOKENS: Record<WorkflowCapability, string[]> = {
   field_execution: ['tpl-fept-field-execution'],
   cash_counter: ['tpl-cash-counter'],
   ecommerce: ['tpl-quote-invoice-receipt', 'tpl-delivery-escrow'],
-  // `hr-requests` is the request type the People & payroll setup answer opens (leave, expense claims).
+  // `hr-requests` is the request type the HR operations setup answer opens (leave, expense claims).
   hr_ops: ['hr-requests', 'tpl-employee-onboarding', 'tpl-payslip-issuance', 'tpl-payroll-reporting'],
 }
 
@@ -287,7 +287,7 @@ export function inboxTabConfigured(tab: InboxTabKey, flags: WorkflowCapabilityFl
     case 'requisitions':
       return flags.internalRequisitions
     case 'people':
-      // People & payroll module: leave and expense claims. Off unless the organisation switched it on.
+      // HR operations module: leave and expense claims. Off unless the organisation switched it on.
       return flags.hrOps
     case 'school_fees':
       return flags.educationFees || kinds.includes('school')
@@ -306,7 +306,7 @@ export function inboxTabConfigured(tab: InboxTabKey, flags: WorkflowCapabilityFl
   }
 }
 
-/** Request types that belong to the Staff requests tab (People & payroll module). */
+/** Request types that belong to the Staff requests tab (HR operations module). */
 export function isPeopleRequestType(value: unknown): boolean {
   const type = String(value || '')
     .trim()

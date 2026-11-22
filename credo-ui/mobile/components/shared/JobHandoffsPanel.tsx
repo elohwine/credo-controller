@@ -294,7 +294,7 @@ export default function JobHandoffsPanel({ runId, refreshKey, onChanged, onHoldC
             </Group>
           </UnstyledButton>
         )}
-        <Collapse in={moreOpen || Boolean(openKey)}>
+        <Collapse expanded={moreOpen || Boolean(openKey)}>
         {view.available.map((item) =>
           openKey === item.key ? (
             <Paper key={item.key} p="xs" radius="sm" withBorder>

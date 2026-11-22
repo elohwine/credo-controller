@@ -25,7 +25,7 @@ export default function OperationsPage() {
         </Title>
         <Text c="dimmed" mb="md">
           Each store keeps its jobs, quotes and invoices. Each van keeps its service day, MOT, drivers and accidents. People, their
-          staff number and their work are under People & payroll.
+          staff number and their work are under HR operations.
         </Text>
         <OperationsRegisters
           key={`${tab}|${store}`}

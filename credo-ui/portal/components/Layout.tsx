@@ -63,6 +63,7 @@ const BRAND = {
     viking: '#6FB4DC',
     cornflower: '#88C4E3',
     dark: '#0A3D5C',
+    text: 'var(--brand-text)',
 };
 
 /** Pages a signed-out visitor may open: sign-in itself, and links sent to clients (pay, check a receipt, accept an offer). */
@@ -148,7 +149,7 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
         return (
             <>
                 <Head>
-                    <title>{title} | {PRODUCT_NAME}</title>
+                    <title>{`${title} | ${PRODUCT_NAME}`}</title>
                     <meta charSet="utf-8" />
                     <meta name="viewport" content="initial-scale=1.0, width=device-width" />
                 </Head>
@@ -208,11 +209,12 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
                 { label: 'Reports', href: '/finance/reports', icon: <IconReportMoney size={18} /> },
             ],
         }, ...(hasPeople ? [{
-            label: 'People',
+            label: 'HR operations',
             items: [
-                { label: 'People & HR', href: '/hr', icon: <IconUsers size={18} /> },
+                { label: 'Team & employee records', href: '/hr?tab=team', icon: <IconUsers size={18} /> },
+                { label: 'Payroll', href: '/payroll', icon: <IconReceipt size={18} /> },
+                { label: 'Time off & expenses', href: '/hr/operations', icon: <IconReceipt size={18} /> },
                 { label: 'Staff requests', href: '/requests?tab=people', icon: <IconChecklist size={18} /> },
-                { label: 'People & payroll', href: '/payroll?tab=employees', icon: <IconReceipt size={18} /> },
             ],
         }] : [])] : []),
         {
@@ -269,7 +271,7 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
             }}
         >
             <Head>
-                <title>{title} | {PRODUCT_NAME}</title>
+                <title>{`${title} | ${PRODUCT_NAME}`}</title>
                 <meta charSet="utf-8" />
                 <meta name="viewport" content="initial-scale=1.0, width=device-width" />
             </Head>

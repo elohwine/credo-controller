@@ -441,7 +441,7 @@ export default function ActionCenter({
                             labelPosition="center"
                         />
 
-                        <Grid gutter="md">
+                        <Grid gap="md">
                             {canUseFeptUi && assignedFieldTaskCount > 0 && (
                                 <Grid.Col span={6}>
                                     <UnstyledButton onClick={() => router.push('/finance?tab=field')} style={{ width: '100%', height: '100%' }}>

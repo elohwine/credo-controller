@@ -2,7 +2,7 @@ import { useState, useEffect, useContext } from 'react'
 import { useRouter } from 'next/router'
 import axios from 'axios'
 import { EnvContext } from '@/pages/_app'
-import nextConfig from '@/next.config'
+import { appUrls } from '@/lib/appUrls'
 import Layout from '@/components/Layout'
 import { BRAND } from '@/lib/theme'
 import { formatTxnTime } from '@/lib/inboxAttention'
@@ -49,7 +49,7 @@ export default function ReceiptVerification() {
   const [result, setResult] = useState<ReceiptVerificationResult | null>(null)
   const [deliveryConfirmed, setDeliveryConfirmed] = useState(false)
 
-  const backendUrl = (env?.NEXT_PUBLIC_ISSUER || nextConfig.publicRuntimeConfig?.NEXT_PUBLIC_ISSUER || 'http://localhost:3000')
+  const backendUrl = (env?.NEXT_PUBLIC_ISSUER || appUrls.NEXT_PUBLIC_ISSUER || 'http://localhost:3000')
     .replace('/oidc/issuer', '')
 
   useEffect(() => {
@@ -149,7 +149,7 @@ export default function ReceiptVerification() {
         {loading && (
           <div className="text-center">
             <div className="animate-spin w-16 h-16 border-4 rounded-full mx-auto mb-4" style={{ borderColor: BRAND.linkWater, borderTopColor: BRAND.curious }}></div>
-            <p className="text-xl" style={{ color: BRAND.dark }}>Verifying payment...</p>
+            <p className="text-xl" style={{ color: BRAND.text }}>Verifying payment...</p>
           </div>
         )}
 

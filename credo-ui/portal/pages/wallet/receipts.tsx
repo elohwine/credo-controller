@@ -49,6 +49,7 @@ interface Credential {
 const BRAND = {
     curious: '#2188CA',
     dark: '#0A3D5C',
+    text: 'var(--brand-text)',
 };
 
 const getCredentialIcon = (type: string) => {
@@ -248,7 +249,7 @@ export default function MyReceiptsPage() {
             <Container size="md" py="xl">
                 <Group justify="space-between" mb="xl">
                     <div>
-                        <Title order={2} style={{ color: BRAND.dark }}>
+                        <Title order={2} style={{ color: BRAND.text }}>
                             <IconReceipt size={28} style={{ marginRight: 8, verticalAlign: 'middle' }} />
                             My Receipts &amp; Credentials
                         </Title>

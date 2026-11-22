@@ -11,7 +11,9 @@ export const BRAND = {
   linkWater: '#D0E6F3', // Light blue background
   viking: '#6FB4DC', // Accent blue
   cornflower: '#88C4E3', // Soft blue
-  dark: '#0A3D5C', // Dark blue for text/headings
+  dark: '#0A3D5C', // Dark blue for backgrounds and gradients
+  /** Headings and brand text: the dark blue in light mode, the soft blue in dark mode (see globals.css). */
+  text: 'var(--brand-text)',
 } as const
 
 // Status badge configurations

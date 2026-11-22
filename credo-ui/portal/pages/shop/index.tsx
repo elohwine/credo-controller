@@ -371,7 +371,7 @@ export default function ShopPage() {
                 {/* Header */}
                 <div className="flex justify-between items-center mb-8 sticky top-0 z-20 bg-white/80 backdrop-blur py-4 -mx-4 px-4 border-b border-gray-100">
                     <div>
-                        <h1 className="text-2xl font-bold" style={{ color: BRAND.dark }}>{PRODUCT_NAME} Shop</h1>
+                        <h1 className="text-2xl font-bold" style={{ color: BRAND.text }}>{PRODUCT_NAME} Shop</h1>
                         <p className="text-sm text-gray-500">Verified Merchant Store</p>
                     </div>
                     <button
@@ -394,7 +394,7 @@ export default function ShopPage() {
                     <div className="space-y-12">
                         {categories.map(category => (
                             <div key={category}>
-                                <h2 className="text-xl font-bold mb-6 flex items-center gap-2" style={{ color: BRAND.dark }}>
+                                <h2 className="text-xl font-bold mb-6 flex items-center gap-2" style={{ color: BRAND.text }}>
                                     {category}
                                 </h2>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">

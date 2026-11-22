@@ -423,7 +423,7 @@ Already in this branch, on both apps unless noted:
 - A job card from a written job or from mail, with store number, PO, description and the client's documents.
 - Before and after photos from the live camera, sealed with time and location, and with that time and place written onto the photo itself.
 - A safety hold with a reason and a photo, sorted by the office, then redone by the worker.
-- Colour-coded states: unassigned, assigned, in progress, on hold, needs attention, completed, closed, cancelled.
+- Colour-coded states, each its own colour on the Jobs list (badge, row edge and the Status filter): not booked yet (grape), unassigned (yellow), assigned (indigo), in progress (blue), arrived (cyan: arrival proof or before photos recorded after any rebooking, before after photos), on hold (orange), needs attention (red), completed (green), closed (teal), cancelled (gray). Arrived records a checkpoint, not a live location. An unassigned or unbooked job waiting 7 days or more carries a red "Waiting N days" flag, and the report counts unassigned and arrived jobs.
 - One store file (jobs, quotes, invoices, call-outs, cancelled) and one attendant file (jobs, failed, completed, holidays, off sick, van, accidents).
 - A van register, the van on the job, and a warning when the store, the worker or the van is already booked that day.
 - A quote and an invoice the client pays by link, and a payout after sign-off.

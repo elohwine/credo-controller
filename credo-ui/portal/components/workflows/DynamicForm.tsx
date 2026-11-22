@@ -23,7 +23,7 @@ const DynamicForm: React.FC<DynamicFormProps> = ({ schema, onSubmit, isLoading }
     if (!schema || !schema.properties) {
         return (
             <div className="text-center py-8 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
-                <p style={{ color: BRAND.dark }}>No schema definition found.</p>
+                <p style={{ color: BRAND.text }}>No schema definition found.</p>
             </div>
         );
     }
@@ -35,7 +35,7 @@ const DynamicForm: React.FC<DynamicFormProps> = ({ schema, onSubmit, isLoading }
 
                 return (
                     <div key={key}>
-                        <label htmlFor={key} className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>
+                        <label htmlFor={key} className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>
                             {field.title || key} {isRequired && <span className="text-red-500">*</span>}
                         </label>
                         <div className="mt-1">

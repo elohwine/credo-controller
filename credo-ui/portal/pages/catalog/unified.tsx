@@ -79,7 +79,7 @@ export default function UnifiedCatalog() {
     return (
         <Layout title="Unified Catalog">
             <Head>
-                <title>Unified Catalog - {PRODUCT_NAME} Portal</title>
+                <title>{`Unified Catalog - ${PRODUCT_NAME} Portal`}</title>
             </Head>
             <div className="p-8">
                 <div className="flex justify-between items-start mb-8">

@@ -57,7 +57,7 @@ export default function DeviceLoginApproval() {
           <Title order={1} size="h2">{done ? 'Sign-in approved' : 'Approve a website sign-in'}</Title>
           {done ? <Text>Return to the browser where you started. You can close this screen.</Text> : <>
             <Text>Only approve a request you started yourself. Your device screen lock protects access to your {PRODUCT_NAME} account.</Text>
-            {accounts.length > 1 && <Select label="Your enrolled account" data={accounts} value={walletId} onChange={setWalletId} allowDeselect={false} />}
+            {accounts.length > 1 && <Select<string> label="Your enrolled account" data={accounts} value={walletId} onChange={setWalletId} allowDeselect={false} />}
             {!accounts.length && <Text>First sign in with your PIN in the Android app, accept your identity card, then turn on sign-in with this phone in Settings, Sign-in and security.</Text>}
             {challenge && <>
               <Text fw={700}>Who is asking: {challenge.requester}</Text>

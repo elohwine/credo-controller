@@ -43,7 +43,7 @@ const Aurora: React.FC<AuroraProps> = ({
   opacity = 0.6,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationRef = useRef<number>();
+  const animationRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const canvas = canvasRef.current;

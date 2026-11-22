@@ -129,7 +129,7 @@ export default function TrustPage() {
                 {/* Header */}
                 <div className="sm:flex sm:items-center sm:justify-between mb-8">
                     <div>
-                        <h1 className="text-3xl font-bold" style={{ color: BRAND.dark }}>Trust & Compliance</h1>
+                        <h1 className="text-3xl font-bold" style={{ color: BRAND.text }}>Trust & Compliance</h1>
                         <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>Monitor merchant trust scores and manage regulatory escalations</p>
                     </div>
                     <div className="mt-4 sm:mt-0">
@@ -151,10 +151,10 @@ export default function TrustPage() {
                                 <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}>
                                     <span className="text-white">{stat.icon}</span>
                                 </div>
-                                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.dark }}>{stat.label}</p>
+                                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.text }}>{stat.label}</p>
                             </dt>
                             <dd className="ml-16 flex items-baseline">
-                                <p className="text-2xl font-semibold" style={{ color: BRAND.dark }}>{stat.value}</p>
+                                <p className="text-2xl font-semibold" style={{ color: BRAND.text }}>{stat.value}</p>
                             </dd>
                         </div>
                     ))}
@@ -164,11 +164,11 @@ export default function TrustPage() {
                     {/* Trust Score Card */}
                     <div className="rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'white' }}>
                         <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
-                            <h3 className="text-lg font-semibold" style={{ color: BRAND.dark }}>Trust Score Lookup</h3>
+                            <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>Trust Score Lookup</h3>
                         </div>
                         <div className="p-6">
                             <div className="mb-4">
-                                <label className="block text-sm font-medium mb-2" style={{ color: BRAND.dark }}>Merchant ID</label>
+                                <label className="block text-sm font-medium mb-2" style={{ color: BRAND.text }}>Merchant ID</label>
                                 <div className="flex gap-2">
                                     <input
                                         type="text"
@@ -206,7 +206,7 @@ export default function TrustPage() {
                                         {trustScore.drivers.map((driver, idx) => (
                                             <div key={idx}>
                                                 <div className="flex justify-between text-sm mb-1">
-                                                    <span style={{ color: BRAND.dark }}>{driver.name}</span>
+                                                    <span style={{ color: BRAND.text }}>{driver.name}</span>
                                                     <span style={{ color: BRAND.curious }}>{driver.score}%</span>
                                                 </div>
                                                 <div className="w-full rounded-full h-2" style={{ backgroundColor: BRAND.linkWater }}>
@@ -226,7 +226,7 @@ export default function TrustPage() {
                     {/* Recent Escalations */}
                     <div className="rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'white' }}>
                         <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: BRAND.linkWater }}>
-                            <h3 className="text-lg font-semibold" style={{ color: BRAND.dark }}>Recent Escalations</h3>
+                            <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>Recent Escalations</h3>
                         </div>
                         <div className="p-6">
                             {escalations.length === 0 ? (
@@ -237,7 +237,7 @@ export default function TrustPage() {
                                         <div key={esc.id} className="border-l-4 rounded-r-lg p-4" style={{ borderColor: BRAND.curious, backgroundColor: BRAND.linkWater }}>
                                             <div className="flex justify-between items-start">
                                                 <div>
-                                                    <p className="text-sm font-medium" style={{ color: BRAND.dark }}>{esc.merchantId}</p>
+                                                    <p className="text-sm font-medium" style={{ color: BRAND.text }}>{esc.merchantId}</p>
                                                     <p className="text-xs mt-1" style={{ color: BRAND.curious }}>{esc.reason}</p>
                                                 </div>
                                                 <StatusBadge status={esc.status} />
@@ -259,15 +259,15 @@ export default function TrustPage() {
                                 <div className="p-2 rounded-lg bg-red-100">
                                     <ExclamationTriangleIcon className="h-6 w-6 text-red-600" />
                                 </div>
-                                <h3 className="text-xl font-semibold" style={{ color: BRAND.dark }}>Report Escalation</h3>
+                                <h3 className="text-xl font-semibold" style={{ color: BRAND.text }}>Report Escalation</h3>
                             </div>
                             <form onSubmit={handleCreateEscalation} className="space-y-4">
                                 <div>
-                                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Merchant ID</label>
+                                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Merchant ID</label>
                                     <input type="text" required value={newEscalation.merchantId} onChange={e => setNewEscalation({ ...newEscalation, merchantId: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm" />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Reason</label>
+                                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Reason</label>
                                     <select value={newEscalation.reason} onChange={e => setNewEscalation({ ...newEscalation, reason: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm">
                                         <option value="fraud">Fraud</option>
                                         <option value="non_delivery">Non-Delivery</option>
@@ -276,7 +276,7 @@ export default function TrustPage() {
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Description</label>
+                                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Description</label>
                                     <textarea required value={newEscalation.description} onChange={e => setNewEscalation({ ...newEscalation, description: e.target.value })} rows={4} className="w-full rounded-lg border-gray-300 shadow-sm" />
                                 </div>
                                 <div className="p-4 rounded-lg bg-red-50">

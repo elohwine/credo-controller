@@ -1,6 +1,7 @@
 import { feedback } from '@/lib/feedback';
 import { PhoneField } from '../../../shared/PhoneField';
-import { useState, useEffect, useContext, useCallback } from 'react';
+import { useState, useEffect, useContext, useCallback, useMemo } from 'react';
+import { DataTable, useClientList, useListState } from '../../../shared/DataTable';
 import { useRouter } from 'next/router';
 import Layout from '../../components/Layout';
 import axios from 'axios';
@@ -11,10 +12,11 @@ import { getPreferredTenantToken } from '@/utils/portalTenant';
 import { readActiveOrganization } from '@/utils/organizationContext';
 import { TEAM_ROLE_FALLBACK, teamRolesFromCatalog } from '@/utils/orgProfile';
 import { contactAppLabel, contactAppStatus, contactInviteUrl } from '@/lib/contactAvailability';
+import { CONTACT_SCOPE_FILTERS, contactScopeDescription, contactScopeLabel } from '../../../shared/contactScope';
 import QRCode from 'react-qr-code';
 import {
   Container, Title, Text, Paper, Group, Stack, Button, Badge,
-  Table, Modal, TextInput, Textarea, ActionIcon, Tooltip,
+  Modal, TextInput, Textarea, ActionIcon, Tooltip,
   Loader, Center, Alert, Divider, CopyButton, Box, Select,
   JsonInput,
   Checkbox,
@@ -69,6 +71,14 @@ interface PaymentLinkResult {
   currency: string;
   expiresAt: string;
 }
+
+const CONTACT_SORTERS: Record<string, (c: Contact) => string> = {
+  name: (c) => c.name.toLowerCase(),
+  phone: (c) => c.phone || '',
+  email: (c) => (c.email || '').toLowerCase(),
+  scope: (c) => c.contactScope || '',
+  app: (c) => contactAppLabel(c.appStatus),
+};
 
 interface ContactInviteResult {
   contactId: string;
@@ -194,9 +204,11 @@ export default function ContactsPage() {
     }
   }, [baseUrl, isOrg]);
 
-  const displayedContacts = contacts.filter((contact) => (
+  const displayedContacts = useMemo(() => contacts.filter((contact) => (
     scopeFilter === 'all' ? true : contact.contactScope === scopeFilter
-  ));
+  )), [contacts, scopeFilter]);
+  const contactList = useListState({ initialSort: { key: 'name', dir: 'asc' }, resetKey: scopeFilter });
+  const contactPage = useClientList(displayedContacts, CONTACT_SORTERS, contactList);
 
   useEffect(() => { fetchContacts(); }, [fetchContacts]);
 
@@ -502,19 +514,15 @@ export default function ContactsPage() {
       <Container size="lg" py="md">
         <Group justify="space-between" mb="md">
           <Stack gap={0}>
-            <Title order={3}>Trusted Network</Title>
+            <Title order={3}>Network</Title>
             <Text c="dimmed" size="sm">
-              Manage trusted people and services, and send offers, payments, or verifiable requests with context.
+              Keep your team contacts separate from clients, customers, suppliers and other external contacts. Staff details and app access are managed in HR operations.
             </Text>
           </Stack>
           <Group gap="xs">
             <Select
               size="xs"
-              data={[
-                { value: 'all', label: 'All contacts' },
-                { value: 'internal', label: 'On the team' },
-                { value: 'external', label: 'Outside' },
-              ]}
+              data={CONTACT_SCOPE_FILTERS.map((item) => ({ ...item }))}
               value={scopeFilter}
               onChange={(value) => setScopeFilter((value as 'all' | 'internal' | 'external') || 'all')}
             />
@@ -544,101 +552,133 @@ export default function ContactsPage() {
             </Button>
           </Paper>
         ) : (
-          <Paper withBorder>
-            <Table striped highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Name</Table.Th>
-                  <Table.Th>Phone</Table.Th>
-                  <Table.Th>Email</Table.Th>
-                  <Table.Th>Scope</Table.Th>
-                  <Table.Th>App</Table.Th>
-                  <Table.Th style={{ textAlign: 'right' }}>Actions</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {displayedContacts.map((c) => (
-                  <Table.Tr key={c.id}>
-                    <Table.Td>
-                      <Group gap="xs">
-                        <IconUser size={14} style={{ opacity: 0.5 }} />
-                        <Text size="sm" fw={500}>{c.name}</Text>
-                      </Group>
-                      {c.notes && <Text size="xs" c="dimmed" truncate maw={220}>{c.notes}</Text>}
-                    </Table.Td>
-                    <Table.Td>
-                      {c.phone
-                        ? <Text size="sm">{c.phone}</Text>
-                        : <Text size="xs" c="dimmed">—</Text>}
-                    </Table.Td>
-                    <Table.Td>
-                      {c.email
-                        ? <Text size="sm">{c.email}</Text>
-                        : <Text size="xs" c="dimmed">—</Text>}
-                    </Table.Td>
-                    <Table.Td>
-                      <Badge size="xs" variant="outline" color={c.contactScope === 'internal' ? 'blue' : 'gray'}>
-                        {c.contactScope === 'internal' ? 'On the team' : 'Outside'}
-                      </Badge>
-                    </Table.Td>
-                    <Table.Td>
-                      {contactAppStatus(c.appStatus) === 'in_app' ? (
-                        <Badge variant="light" color="green" size="xs">In the app</Badge>
-                      ) : contactAppStatus(c.appStatus) === 'invite' && c.phone ? (
-                        <Button
-                          size="compact-xs"
-                          variant="light"
-                          color="green"
-                          leftSection={<IconBrandWhatsapp size={12} />}
-                          component="a"
-                          href={contactInviteUrl(c.phone, c.name)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Invite
-                        </Button>
-                      ) : (
-                        <Text size="xs" c="dimmed">{contactAppLabel(c.appStatus)}</Text>
+          <DataTable
+            rows={contactPage.items}
+            rowKey={(c) => c.id}
+            sort={contactList.sort}
+            onSortChange={contactList.setSort}
+            paging={contactPage.paging}
+            itemWord="contact"
+            columns={[
+              {
+                key: 'name',
+                title: 'Name',
+                sortable: true,
+                render: (c) => (
+                  <>
+                    <Group gap="xs">
+                      <IconUser size={14} style={{ opacity: 0.5 }} />
+                      <Text size="sm" fw={500}>{c.name}</Text>
+                    </Group>
+                    {c.notes && <Text size="xs" c="dimmed" truncate maw={220}>{c.notes}</Text>}
+                  </>
+                ),
+              },
+              {
+                key: 'phone',
+                title: 'Phone',
+                sortable: true,
+                render: (c) => (
+                  <>
+                    {c.phone
+                      ? <Text size="sm">{c.phone}</Text>
+                      : <Text size="xs" c="dimmed">—</Text>}
+                  </>
+                ),
+              },
+              {
+                key: 'email',
+                title: 'Email',
+                sortable: true,
+                render: (c) => (
+                  <>
+                    {c.email
+                      ? <Text size="sm">{c.email}</Text>
+                      : <Text size="xs" c="dimmed">—</Text>}
+                  </>
+                ),
+              },
+              {
+                key: 'scope',
+                title: 'Relationship',
+                sortable: true,
+                render: (c) => (
+                  <>
+                    <Badge size="xs" variant="outline" color={c.contactScope === 'internal' ? 'blue' : 'gray'}>
+                      {contactScopeLabel(c.contactScope)}
+                    </Badge>
+                  </>
+                ),
+              },
+              {
+                key: 'app',
+                title: 'App',
+                sortable: true,
+                render: (c) => (
+                  <>
+                    {contactAppStatus(c.appStatus) === 'in_app' ? (
+                      <Badge variant="light" color="green" size="xs">In the app</Badge>
+                    ) : contactAppStatus(c.appStatus) === 'invite' && c.phone ? (
+                      <Button
+                        size="compact-xs"
+                        variant="light"
+                        color="green"
+                        leftSection={<IconBrandWhatsapp size={12} />}
+                        component="a"
+                        href={contactInviteUrl(c.phone, c.name)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Invite
+                      </Button>
+                    ) : (
+                      <Text size="xs" c="dimmed">{contactAppLabel(c.appStatus)}</Text>
+                    )}
+                  </>
+                ),
+              },
+              {
+                key: 'actions',
+                title: 'Actions',
+                align: 'right',
+                render: (c) => (
+                  <>
+                    <Group gap={4} justify="flex-end">
+                      {contactAppStatus(c.appStatus) === 'in_app' && (
+                        <Tooltip label="Ask them to share a record">
+                          <ActionIcon variant="light" color="violet" size="sm" onClick={() => openRequestProof(c)}>
+                            <IconShieldCheck size={14} />
+                          </ActionIcon>
+                        </Tooltip>
                       )}
-                    </Table.Td>
-                    <Table.Td>
-                      <Group gap={4} justify="flex-end">
-                        {contactAppStatus(c.appStatus) === 'in_app' && (
-                          <Tooltip label="Ask them to share a record">
-                            <ActionIcon variant="light" color="violet" size="sm" onClick={() => openRequestProof(c)}>
-                              <IconShieldCheck size={14} />
-                            </ActionIcon>
-                          </Tooltip>
-                        )}
-                        <Tooltip label="Request Payment">
-                          <ActionIcon variant="light" color="teal" size="sm" onClick={() => openPaymentLink(c)}>
-                            <IconCurrencyDollar size={14} />
+                      <Tooltip label="Request Payment">
+                        <ActionIcon variant="light" color="teal" size="sm" onClick={() => openPaymentLink(c)}>
+                          <IconCurrencyDollar size={14} />
+                        </ActionIcon>
+                      </Tooltip>
+                      {c.contactScope === 'internal' && contactAppStatus(c.appStatus) === 'in_app' && (
+                        <Tooltip label="Send a card">
+                          <ActionIcon variant="light" color="blue" size="sm" onClick={() => openOffer(c)}>
+                            <IconSend size={14} />
                           </ActionIcon>
                         </Tooltip>
-                        {c.contactScope === 'internal' && contactAppStatus(c.appStatus) === 'in_app' && (
-                          <Tooltip label="Send a card">
-                            <ActionIcon variant="light" color="blue" size="sm" onClick={() => openOffer(c)}>
-                              <IconSend size={14} />
-                            </ActionIcon>
-                          </Tooltip>
-                        )}
-                        <Tooltip label="Edit">
-                          <ActionIcon variant="subtle" size="sm" onClick={() => openEdit(c)}>
-                            <IconEdit size={14} />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Remove">
-                          <ActionIcon variant="subtle" color="red" size="sm" onClick={() => handleDelete(c)}>
-                            <IconTrash size={14} />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Group>
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </Paper>
+                      )}
+                      <Tooltip label="Edit">
+                        <ActionIcon variant="subtle" size="sm" onClick={() => openEdit(c)}>
+                          <IconEdit size={14} />
+                        </ActionIcon>
+                      </Tooltip>
+                      <Tooltip label="Remove">
+                        <ActionIcon variant="subtle" color="red" size="sm" onClick={() => handleDelete(c)}>
+                          <IconTrash size={14} />
+                        </ActionIcon>
+                      </Tooltip>
+                    </Group>
+                  </>
+                ),
+              },
+            ]}
+          />
         )}
       </Container>
 
@@ -810,24 +850,27 @@ export default function ContactsPage() {
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
           />
           <Select
-            label="Contact Scope"
+            label="Relationship"
             data={[
-              { value: 'external', label: 'Outside contact' },
-              { value: 'internal', label: 'On the team' },
+              { value: 'external', label: 'Client, customer, supplier or other external contact' },
+              { value: 'internal', label: 'Team member' },
             ]}
             value={form.contactScope}
             onChange={(value) => setForm({ ...form, contactScope: (value as 'internal' | 'external') || 'external' })}
           />
           {form.contactScope === 'internal' ? (
-            <Select
-              label="Role"
-              description="Taken from the answers you gave at setup. They get a staff card if they already have the app."
-              data={teamRoleChoices}
-              value={teamRoleChoices.some((choice) => choice.value === form.teamRole) ? form.teamRole : teamRoleChoices[0]?.value}
-              onChange={(value) => setForm({ ...form, teamRole: value || teamRoleChoices[0]?.value || 'field_worker' })}
-            />
+            <>
+              <Text size="xs" c="dimmed">{contactScopeDescription('internal')}</Text>
+              <Select
+                label="Team role"
+                description="Taken from the answers you gave at setup. They get a staff card if they already have the app."
+                data={teamRoleChoices}
+                value={teamRoleChoices.some((choice) => choice.value === form.teamRole) ? form.teamRole : teamRoleChoices[0]?.value}
+                onChange={(value) => setForm({ ...form, teamRole: value || teamRoleChoices[0]?.value || 'field_worker' })}
+              />
+            </>
           ) : (
-            <Text size="xs" c="dimmed">They stay off the team. You can still send them one job, and they get the job assignment record if they already have the app.</Text>
+            <Text size="xs" c="dimmed">{contactScopeDescription('external')} You can still send them one job, and they get the job assignment record if they already have the app.</Text>
           )}
           {!editContact && (
             <>

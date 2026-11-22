@@ -1,5 +1,5 @@
 # BUILD
-FROM node:20-alpine AS build
+FROM node:24.22.3-alpine AS build
 # Mirror the repo layout so ../shared and ../../src/config resolve (see docker-compose.full.yml).
 WORKDIR /repo/credo-ui/portal
 COPY --from=shared . /repo/credo-ui/shared
@@ -11,7 +11,7 @@ COPY . .
 RUN npm run build
 
 # RUN
-FROM node:20-alpine
+FROM node:24.22.3-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=5000

@@ -107,7 +107,7 @@ export default function WorkflowsPage() {
                 {/* Header */}
                 <div className="sm:flex sm:items-center sm:justify-between mb-8">
                     <div>
-                        <h1 className="text-3xl font-bold" style={{ color: BRAND.dark }}>Issuance Workflows</h1>
+                        <h1 className="text-3xl font-bold" style={{ color: BRAND.text }}>Issuance Workflows</h1>
                         <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>Execute credential issuance workflows and automate verification processes</p>
                     </div>
                 </div>
@@ -124,10 +124,10 @@ export default function WorkflowsPage() {
                                 <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}>
                                     <span className="text-white">{stat.icon}</span>
                                 </div>
-                                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.dark }}>{stat.label}</p>
+                                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.text }}>{stat.label}</p>
                             </dt>
                             <dd className="ml-16 flex items-baseline">
-                                <p className="text-2xl font-semibold" style={{ color: BRAND.dark }}>{stat.value}</p>
+                                <p className="text-2xl font-semibold" style={{ color: BRAND.text }}>{stat.value}</p>
                             </dd>
                         </div>
                     ))}
@@ -146,14 +146,14 @@ export default function WorkflowsPage() {
                                 <div className="flex items-center gap-3">
                                     <CogIcon className="h-6 w-6" style={{ color: BRAND.curious }} />
                                     <div>
-                                        <h2 className="text-xl font-bold" style={{ color: BRAND.dark }}>{selectedWorkflow.name}</h2>
+                                        <h2 className="text-xl font-bold" style={{ color: BRAND.text }}>{selectedWorkflow.name}</h2>
                                         <p className="text-sm text-gray-600">{selectedWorkflow.description}</p>
                                     </div>
                                 </div>
                                 <button
                                     onClick={() => { setSelectedWorkflow(null); setResult(null); setError(null); }}
                                     className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium border transition-colors hover:bg-gray-50"
-                                    style={{ borderColor: BRAND.viking, color: BRAND.dark }}
+                                    style={{ borderColor: BRAND.viking, color: BRAND.text }}
                                 >
                                     <ArrowLeftIcon className="h-4 w-4" />
                                     Back to List
@@ -173,7 +173,7 @@ export default function WorkflowsPage() {
                                     <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4" style={{ backgroundColor: BRAND.linkWater }}>
                                         <CheckCircleIcon className="h-8 w-8 text-green-600" />
                                     </div>
-                                    <h3 className="text-lg font-bold mb-4" style={{ color: BRAND.dark }}>Workflow Executed Successfully!</h3>
+                                    <h3 className="text-lg font-bold mb-4" style={{ color: BRAND.text }}>Workflow Executed Successfully!</h3>
 
                                     {result.offer && (
                                         <CredentialOfferCard
@@ -190,7 +190,7 @@ export default function WorkflowsPage() {
                                         <div className="rounded-xl overflow-hidden max-w-md mx-auto" style={{ backgroundColor: BRAND.linkWater }}>
                                             <div className="px-4 py-3 flex items-center gap-2" style={{ backgroundColor: BRAND.linkWater }}>
                                                 <CurrencyDollarIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                                                <span className="font-semibold" style={{ color: BRAND.dark }}>Calculation Result</span>
+                                                <span className="font-semibold" style={{ color: BRAND.text }}>Calculation Result</span>
                                             </div>
                                             <div className="p-6 bg-white">
                                                 <div className="grid grid-cols-2 gap-3 text-sm">
@@ -198,7 +198,7 @@ export default function WorkflowsPage() {
                                                     <span className="font-mono text-right">{result.finance.subtotal}</span>
                                                     <span className="text-gray-600">Tax:</span>
                                                     <span className="font-mono text-right">{result.finance.taxAmount}</span>
-                                                    <span className="font-bold pt-2 border-t" style={{ color: BRAND.dark }}>Total:</span>
+                                                    <span className="font-bold pt-2 border-t" style={{ color: BRAND.text }}>Total:</span>
                                                     <span className="font-bold font-mono text-right pt-2 border-t" style={{ color: BRAND.curious }}>{result.finance.grandTotal}</span>
                                                 </div>
                                             </div>

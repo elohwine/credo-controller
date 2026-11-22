@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { AppProps } from 'next/app';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
-import { Center, Loader, MantineProvider, localStorageColorSchemeManager } from '@mantine/core';
+import { Center, Loader, MantineProvider, localStorageColorSchemeManager, v8CssVariablesResolver } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { MilestoneHost } from '@/components/feedback/Milestone';
 import { credentisTheme } from '@/lib/theme/credentis-theme';
@@ -23,6 +23,7 @@ import { bindSyncStore, useSyncStore } from '@/lib/state/sync';
 import { BlockingOverlay } from '@/components/feedback/BlockingOverlay';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
+import 'mantine-datatable/styles.css';
 import '@/styles/globals.css';
 
 const PUBLIC_ROUTES = ['/login', '/login/', '/device-login', '/pay/[code]', '/job/[code]', '/demo/gate'];
@@ -522,6 +523,8 @@ export default function App({ Component, pageProps, router }: AppProps) {
   return (
     <MantineProvider
       theme={credentisTheme}
+      // Keeps the light-variant colours the apps were designed with in Mantine 8.
+      cssVariablesResolver={v8CssVariablesResolver}
       defaultColorScheme="light"
       colorSchemeManager={localStorageColorSchemeManager({ key: 'credentis-color-scheme' })}
     >
@@ -534,7 +537,7 @@ export default function App({ Component, pageProps, router }: AppProps) {
           dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },
         }}
       >
-        <Notifications position="bottom-center" limit={2} autoClose={3000} zIndex={9999} style={{ marginBottom: 'calc(88px + var(--app-safe-bottom))' }} />
+        <Notifications position="bottom-center" limit={2} pauseResetOnHover="notification" autoClose={3000} zIndex={9999} style={{ marginBottom: 'calc(88px + var(--app-safe-bottom))' }} />
         {mounted ? (
           <Component {...pageProps} />
         ) : (

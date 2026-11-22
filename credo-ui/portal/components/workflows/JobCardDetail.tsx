@@ -77,7 +77,7 @@ import { JobOnSite } from '../../../shared/operations/JobOnSite'
 import { jobPeopleOptions } from '../../../shared/jobPeople'
 import { usePortalOperations } from '@/lib/operations'
 
-const DETAIL_TAB_ICONS: Record<DetailTabKey, JSX.Element> = {
+const DETAIL_TAB_ICONS: Record<DetailTabKey, React.JSX.Element> = {
   details: <IconFileText size={16} />,
   photos: <IconPhoto size={16} />,
   receipts: <IconReceipt2 size={16} />,
@@ -616,7 +616,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
         return (
           <Stack gap={2}>
             <Group gap="sm" wrap="nowrap" align="flex-start">
-              <Text fw={700} size="lg" style={{ color: BRAND.dark }} lineClamp={2}>
+              <Text fw={700} size="lg" style={{ color: BRAND.text }} lineClamp={2}>
                 {heading.title}
               </Text>
               <Badge

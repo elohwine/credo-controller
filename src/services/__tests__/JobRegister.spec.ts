@@ -96,6 +96,22 @@ describe('Jobs list, export, reports and what is filled in on site', () => {
     expect(fieldJobSourceOf({ description: 'New job form' })).toBe('office')
   })
 
+  it('filters and counts arrivals as open jobs and sorts statuses in lifecycle order', () => {
+    addJob('RUN-ARRIVED', { assigneeId: FARAI }, 'paused', {
+      workflowStage: 'IN_PROGRESS',
+      assignment: { assigneeId: FARAI },
+      checkpoints: { arrival: { status: 'completed' } },
+    })
+    addJob('RUN-PENDING', {}, 'paused', { workflowStage: 'REQUEST_CREATED' })
+    addJob('RUN-DONE', {}, 'completed', { workflowStage: 'COMPLETED' })
+
+    expect(register.rows(ORG, { category: 'arrived' }).map((row) => row.id)).toEqual(['RUN-ARRIVED'])
+    expect(register.report(ORG).counts.arrived).toBe(1)
+    expect(register.report(ORG).byWorker.find((worker) => worker.userId === FARAI)?.open).toBe(1)
+    expect(register.page(ORG, {}, { sort: 'status', dir: 'asc' }).items.map((row) => row.id))
+      .toEqual(['RUN-PENDING', 'RUN-ARRIVED', 'RUN-DONE'])
+  })
+
   it('lists booked jobs and jobs waiting in intake together, and filters them by source, status, store, worker and date', () => {
     addJob(
       'RUN-MAIL',

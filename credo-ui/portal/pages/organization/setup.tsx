@@ -120,14 +120,14 @@ function plainRequestName(workflow: { name?: string; workflowType: string }): st
 }
 
 const ACTION_LINKS: Record<string, { href: string; label: string }> = {
-  active_members: { href: '/payroll?tab=employees', label: 'Add people' },
-  primary_admin: { href: '/payroll?tab=employees', label: 'Open people' },
+  active_members: { href: '/hr?tab=team', label: 'Add people' },
+  primary_admin: { href: '/hr?tab=team', label: 'Open people' },
   roles: { href: '/organization/roles', label: 'Roles' },
   workflow_configuration: { href: '/organization/onboarding', label: 'Answer setup questions' },
   request_types_ready: { href: '/organization/actors', label: 'Choose people' },
   ssi_identity: { href: '/organization/setup', label: 'Set up' },
   verifier_registration: { href: '/organization/authorities', label: 'Partners' },
-  people_records: { href: '/payroll?tab=employees', label: 'Add people' },
+  people_records: { href: '/hr?tab=team', label: 'Add people' },
   authorities: { href: '/organization/authorities', label: 'Approvals' },
   departments: { href: '/organization/departments', label: 'Add departments' },
   delegations: { href: '/organization/delegations', label: 'Set up stand-ins' },
@@ -149,7 +149,7 @@ function actionLinkFor(item: { key: string; actionPath?: string }): { href: stri
 /** Where each checklist step opens. Question steps chain to the next unfinished one. */
 function stepHref(step: SetupStep, steps: SetupStep[]): string {
   if (step.id === 'kinds' && !step.done) return '/organization/onboarding'
-  if (step.id === 'team') return '/payroll?tab=employees'
+  if (step.id === 'team') return '/hr?tab=team'
   if (step.id === 'brand') return '/organization/brand'
   const setting = editionHasPresetSetup() ? PRESET_STEP_SETTING[step.id] : undefined
   if (setting) return visibleOrgSettings(true).flatMap((group) => group.items).find((item) => item.id === setting)?.href || '/organization/setup'

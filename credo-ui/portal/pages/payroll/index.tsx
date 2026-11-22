@@ -19,10 +19,8 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { EnvContext } from '@/pages/_app';
-import { getOrgScopedToken, readActiveOrganization } from '@/utils/organizationContext';
+import { getOrgScopedToken } from '@/utils/organizationContext';
 import { useRequireOrgContext } from '@/lib/portalContext';
-import { usePortalOperations } from '@/lib/operations';
-import { PeopleDirectory } from '../../../shared/people/PeopleDirectory';
 
 // Credentis brand colors
 const BRAND = {
@@ -31,6 +29,7 @@ const BRAND = {
     viking: '#6FB4DC',
     cornflower: '#88C4E3',
     dark: '#0A3D5C',
+    text: 'var(--brand-text)',
 };
 
 interface PayrollRun {
@@ -97,19 +96,20 @@ export default function PayrollPage() {
     const [showRunModal, setShowRunModal] = useState(false);
     const [showReofferModal, setShowReofferModal] = useState(false);
     const [reofferUri, setReofferUri] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState<'runs' | 'employees' | 'compliance'>('runs');
+    const [activeTab, setActiveTab] = useState<'runs' | 'compliance'>('runs');
     const [isLoading, setIsLoading] = useState(false);
     const [newRun, setNewRun] = useState({
         period: new Date().toISOString().slice(0, 7)
     });
-    const { api: operationsApi, notify } = usePortalOperations();
-
     useRequireOrgContext('/inbox');
     const router = useRouter();
-    // The People & HR page links straight to a tab (?tab=employees).
     useEffect(() => {
         const wanted = String(router.query.tab || '');
-        if (wanted === 'runs' || wanted === 'employees' || wanted === 'compliance') setActiveTab(wanted);
+        if (wanted === 'employees' || wanted === 'people') {
+            void router.replace('/hr?tab=team');
+            return;
+        }
+        if (wanted === 'runs' || wanted === 'compliance') setActiveTab(wanted);
     }, [router.query.tab]);
     const env = useContext(EnvContext);
     const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
@@ -248,13 +248,13 @@ export default function PayrollPage() {
     ];
 
     return (
-        <Layout title="People & payroll">
+        <Layout title="Payroll">
             <div className="px-4 sm:px-6 lg:px-8 py-6">
                 {/* Header */}
                 <div className="sm:flex sm:items-center sm:justify-between mb-8">
                     <div>
-                        <h1 className="text-3xl font-bold" style={{ color: 'var(--mantine-color-text)' }}>People & payroll</h1>
-                        <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>Your people in one list, with their app access, staff numbers and pay. Run payroll and give everyone a payslip.</p>
+                        <h1 className="text-3xl font-bold" style={{ color: 'var(--mantine-color-text)' }}>Payroll</h1>
+                        <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>Run payroll, issue payslips and manage tax filings. Employee records and staff access are managed in <Link href="/hr?tab=team" className="font-medium underline">HR operations</Link>.</p>
                     </div>
                     <div className="mt-4 sm:mt-0 flex gap-3">
                         <button onClick={() => setShowRunModal(true)} className="inline-flex items-center rounded-lg px-4 py-2 text-sm font-medium text-white transition-all hover:shadow-md" style={{ backgroundColor: BRAND.curious }}>
@@ -270,9 +270,9 @@ export default function PayrollPage() {
                         <div key={idx} className="relative overflow-hidden rounded-xl p-6 shadow-sm hover:shadow-md transition-all" style={{ backgroundColor: BRAND.linkWater }}>
                             <dt>
                                 <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}><span className="text-white">{stat.icon}</span></div>
-                                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.dark }}>{stat.label}</p>
+                                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.text }}>{stat.label}</p>
                             </dt>
-                            <dd className="ml-16 flex items-baseline"><p className="text-2xl font-semibold" style={{ color: BRAND.dark }}>{stat.value}</p></dd>
+                            <dd className="ml-16 flex items-baseline"><p className="text-2xl font-semibold" style={{ color: BRAND.text }}>{stat.value}</p></dd>
                         </div>
                     ))}
                 </div>
@@ -280,7 +280,7 @@ export default function PayrollPage() {
                 {/* Tabs */}
                 <div className="border-b border-gray-200 mb-6">
                     <nav className="-mb-px flex space-x-8">
-                        {[{ id: 'runs', label: 'Payroll Runs', icon: <DocumentTextIcon className="h-5 w-5" /> }, { id: 'employees', label: 'People', icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> }, { id: 'compliance', label: 'Tax Compliance', icon: <BuildingLibraryIcon className="h-5 w-5" /> }].map((tab) => (
+                        {[{ id: 'runs', label: 'Payroll Runs', icon: <DocumentTextIcon className="h-5 w-5" /> }, { id: 'compliance', label: 'Tax Compliance', icon: <BuildingLibraryIcon className="h-5 w-5" /> }].map((tab) => (
                             <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`group inline-flex items-center border-b-2 py-4 px-1 text-sm font-medium transition-colors ${activeTab === tab.id ? 'border-current' : 'border-transparent hover:border-gray-300'}`} style={{ color: activeTab === tab.id ? BRAND.curious : '#6B7280', borderColor: activeTab === tab.id ? BRAND.curious : undefined }}>
                                 {tab.icon}<span className="ml-2">{tab.label}</span>
                             </button>
@@ -294,13 +294,13 @@ export default function PayrollPage() {
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead style={{ backgroundColor: BRAND.linkWater }}>
                                 <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Period</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Status</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Gross</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Net</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Deductions</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>RunVC</th>
-                                    <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Actions</th>
+                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Period</th>
+                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Status</th>
+                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Gross</th>
+                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Net</th>
+                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Deductions</th>
+                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>RunVC</th>
+                                    <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 bg-white">
@@ -308,7 +308,7 @@ export default function PayrollPage() {
                                     <tr><td colSpan={7} className="px-6 py-12 text-center text-sm text-gray-500">No payroll runs yet. Click "Run Payroll" to create one.</td></tr>
                                 ) : runs.map((run) => (
                                     <tr key={run.id} className="hover:bg-gray-50">
-                                        <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.dark }}>{run.period}</td>
+                                        <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.text }}>{run.period}</td>
                                         <td className="px-6 py-4 text-sm"><StatusBadge status={run.status} /></td>
                                         <td className="px-6 py-4 text-sm text-gray-700">{formatCurrency(run.totalGross)}</td>
                                         <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.curious }}>{formatCurrency(run.totalNet)}</td>
@@ -344,31 +344,18 @@ export default function PayrollPage() {
                     </div>
                 )}
 
-                {/* Employees tab: the one list of people (details, app access, staff number, skills, their work) */}
-                {activeTab === 'employees' && (
-                    <PeopleDirectory
-                        api={operationsApi}
-                        orgTenantId={readActiveOrganization()?.orgTenantId || ''}
-                        surface="portal"
-                        role={String(readActiveOrganization()?.role || '').toLowerCase()}
-                        notify={notify}
-                        onOpenJob={(runId) => { window.location.href = `/finance/job-cards?runId=${encodeURIComponent(runId)}`; }}
-                        onChanged={fetchEmployees}
-                    />
-                )}
-
                 {/* Tax Compliance Tab */}
                 {activeTab === 'compliance' && (
                     <div className="overflow-hidden rounded-xl shadow ring-1 ring-black ring-opacity-5">
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead style={{ backgroundColor: BRAND.linkWater }}>
                                 <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Tax Type</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Period</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Amount</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Reference</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Status</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>ComplianceVC</th>
+                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Tax Type</th>
+                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Period</th>
+                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Amount</th>
+                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Reference</th>
+                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Status</th>
+                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>ComplianceVC</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 bg-white">
@@ -376,7 +363,7 @@ export default function PayrollPage() {
                                     <tr><td colSpan={6} className="px-6 py-12 text-center text-sm text-gray-500">No tax compliance records. Issue tax compliance VCs from completed payroll runs.</td></tr>
                                 ) : taxRecords.map((tax) => (
                                     <tr key={tax.id} className="hover:bg-gray-50">
-                                        <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.dark }}><BuildingLibraryIcon className="h-4 w-4 inline mr-1" style={{ color: BRAND.curious }} />{tax.taxType}</td>
+                                        <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.text }}><BuildingLibraryIcon className="h-4 w-4 inline mr-1" style={{ color: BRAND.curious }} />{tax.taxType}</td>
                                         <td className="px-6 py-4 text-sm text-gray-700">{tax.period}</td>
                                         <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.curious }}>{formatCurrency(tax.amount, tax.currency)}</td>
                                         <td className="px-6 py-4 text-sm text-gray-500 font-mono">{tax.referenceNumber || '—'}</td>
@@ -395,15 +382,15 @@ export default function PayrollPage() {
                         <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
                             <div className="flex items-center gap-3 mb-6">
                                 <div className="p-2 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}><PlayIcon className="h-6 w-6" style={{ color: BRAND.curious }} /></div>
-                                <h3 className="text-xl font-semibold" style={{ color: BRAND.dark }}>Run Payroll</h3>
+                                <h3 className="text-xl font-semibold" style={{ color: BRAND.text }}>Run Payroll</h3>
                             </div>
                             <form onSubmit={handleRunPayroll} className="space-y-4">
                                 <div>
-                                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Pay Period (YYYY-MM)</label>
+                                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Pay Period (YYYY-MM)</label>
                                     <input type="month" required value={newRun.period} onChange={e => setNewRun({ ...newRun, period: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm focus:ring-2 focus:border-transparent" />
                                 </div>
                                 <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
-                                    <p className="text-sm" style={{ color: BRAND.dark }}><strong>Note:</strong> This will calculate payroll for all active employees, including NSSA (4.5%), PAYE, and AIDS Levy deductions.</p>
+                                    <p className="text-sm" style={{ color: BRAND.text }}><strong>Note:</strong> This will calculate payroll for all active employees, including NSSA (4.5%), PAYE, and AIDS Levy deductions.</p>
                                 </div>
                                 <div className="flex justify-end gap-3 pt-4">
                                     <button type="button" onClick={() => setShowRunModal(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
@@ -420,7 +407,7 @@ export default function PayrollPage() {
                         <div className="flex min-h-full items-center justify-center p-4">
                             <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={() => setShowReofferModal(false)}></div>
                             <div className="relative bg-white rounded-xl shadow-2xl p-8 max-w-md w-full">
-                                <h2 className="text-2xl font-bold mb-6" style={{ color: BRAND.dark }}>
+                                <h2 className="text-2xl font-bold mb-6" style={{ color: BRAND.text }}>
                                     Scan to Claim Credential
                                 </h2>
                                 <div className="bg-white p-6 rounded-lg border-2 mb-6" style={{ borderColor: BRAND.linkWater }}>

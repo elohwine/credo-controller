@@ -110,7 +110,7 @@ export function VanDayCheck({
           </Button>
         </Group>
       ))}
-      <NumberInput size={size} label="Mileage" min={0} value={mileage} onChange={setMileage} />
+      <NumberInput<number> size={size} label="Mileage" min={0} value={mileage} onChange={setMileage} />
       <Textarea size={size} label="Notes" value={notes} onChange={(event) => setNotes(event.currentTarget.value)} />
       <Button size={size} radius="xl" loading={saving} onClick={() => void submitCheck()} style={{ minHeight: 48 }}>
         Save today's check

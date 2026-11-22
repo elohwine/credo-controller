@@ -556,7 +556,7 @@ export default function MobilePayPage() {
                 No payment methods are currently available for this invoice. Pull to refresh or try again shortly.
               </Alert>
             )}
-            <Radio.Group value={selectedMethod} onChange={setSelectedMethod}>
+            <Radio.Group<string> value={selectedMethod} onChange={setSelectedMethod}>
               <Stack gap={8}>
                 {orderedMethods(payment.availableMethods).map((method) => (
                   <Radio

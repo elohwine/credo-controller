@@ -75,9 +75,23 @@ export interface JobReport {
 }
 
 const DONE = new Set<JobRegisterCategory>(['completed', 'reconciled'])
-const OPEN = new Set<JobRegisterCategory>(['pending', 'assigned', 'active', 'on_hold', 'failed'])
+const OPEN = new Set<JobRegisterCategory>(['pending', 'assigned', 'active', 'arrived', 'on_hold', 'failed'])
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/** Status sorts in the order a job moves through, so the colours group together. */
+const CATEGORY_ORDER: JobRegisterCategory[] = [
+  'not_booked',
+  'pending',
+  'assigned',
+  'active',
+  'arrived',
+  'on_hold',
+  'failed',
+  'completed',
+  'reconciled',
+  'cancelled',
+]
 
 function dayOf(row: Pick<JobRegisterRow, 'scheduledDate' | 'createdAt'>): string {
   const scheduled = String(row.scheduledDate || '').slice(0, 10)
@@ -91,7 +105,7 @@ export const JOB_REGISTER_SORTS: Record<string, SortValue<JobRegisterRow>> = {
   reference: (row) => row.reference,
   store: (row) => row.storeNumber,
   client: (row) => row.clientName,
-  status: (row) => jobRegisterCategoryLabel(row.category),
+  status: (row) => CATEGORY_ORDER.indexOf(row.category),
   amount: (row) => row.amount,
 }
 
@@ -282,6 +296,7 @@ export class JobRegisterService {
       pending: 0,
       assigned: 0,
       active: 0,
+      arrived: 0,
       on_hold: 0,
       failed: 0,
       completed: 0,

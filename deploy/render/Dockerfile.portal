@@ -1,7 +1,7 @@
 # Render portal image. Context is the repo root so shared screens and src/config resolve.
 # The phone app is not copied. NEXT_PUBLIC_* are fixed at build time (Render passes them as build args).
 
-FROM node:20-alpine AS build
+FROM node:24.22.3-alpine AS build
 WORKDIR /repo
 COPY src/config /repo/src/config
 COPY src/services/workflow/actions/fieldCheckpoints.ts /repo/src/services/workflow/actions/fieldCheckpoints.ts
@@ -24,7 +24,7 @@ ENV NEXT_PUBLIC_VC_REPO=$NEXT_PUBLIC_VC_REPO \
     NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-FROM node:20-alpine
+FROM node:24.22.3-alpine
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=5000 \

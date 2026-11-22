@@ -201,13 +201,13 @@ const InventoryDashboard = () => {
   return (
     <Layout>
       <Head>
-        <title>Inventory | {PRODUCT_NAME} Portal</title>
+        <title>{`Inventory | ${PRODUCT_NAME} Portal`}</title>
       </Head>
       <div className="px-4 sm:px-6 lg:px-8 py-6">
         {/* Header */}
         <div className="sm:flex sm:items-center sm:justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold" style={{ color: BRAND.dark }}>Inventory Management</h1>
+            <h1 className="text-3xl font-bold" style={{ color: BRAND.text }}>Inventory Management</h1>
             <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>Onboard items, scan, track lots & verify inventory VC trails</p>
           </div>
           <div className="mt-4 sm:mt-0">
@@ -235,10 +235,10 @@ const InventoryDashboard = () => {
                 <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}>
                   <span className="text-white">{stat.icon}</span>
                 </div>
-                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.dark }}>{stat.label}</p>
+                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.text }}>{stat.label}</p>
               </dt>
               <dd className="ml-16 flex items-baseline">
-                <p className="text-2xl font-semibold" style={{ color: BRAND.dark }}>{stat.value}</p>
+                <p className="text-2xl font-semibold" style={{ color: BRAND.text }}>{stat.value}</p>
               </dd>
             </div>
           ))}
@@ -279,18 +279,18 @@ const InventoryDashboard = () => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead style={{ backgroundColor: BRAND.linkWater }}>
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Item</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Location</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>On Hand</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Reserved</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Available</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Total Cost</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Item</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Location</th>
+                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>On Hand</th>
+                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Reserved</th>
+                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Available</th>
+                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Total Cost</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 bg-white">
                 {stockLevels.map((level, idx) => (
                   <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.dark }}>{level.catalogItemId}</td>
+                    <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.text }}>{level.catalogItemId}</td>
                     <td className="px-6 py-4 text-sm text-gray-500">{level.locationId}</td>
                     <td className="px-6 py-4 text-sm text-right">{level.quantityOnHand}</td>
                     <td className="px-6 py-4 text-sm text-right text-yellow-600">{level.quantityReserved}</td>
@@ -313,17 +313,17 @@ const InventoryDashboard = () => {
               <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
                 <div className="flex items-center gap-3">
                   <MapPinIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                  <h3 className="text-lg font-semibold" style={{ color: BRAND.dark }}>Create Location</h3>
+                  <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>Create Location</h3>
                 </div>
               </div>
               <div className="p-6">
                 <form onSubmit={handleCreateLocation} className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Location Name</label>
+                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Location Name</label>
                     <input className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="e.g. Main Warehouse" value={createLocation.name} onChange={(e) => setCreateLocation({ ...createLocation, name: e.target.value })} required />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Type</label>
+                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Type</label>
                     <select className="w-full rounded-lg border-gray-300 shadow-sm" value={createLocation.type} onChange={(e) => setCreateLocation({ ...createLocation, type: e.target.value })}>
                       <option value="warehouse">Warehouse</option>
                       <option value="shop">Shop</option>
@@ -332,19 +332,19 @@ const InventoryDashboard = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Address</label>
+                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Address</label>
                     <input className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="Physical address" value={createLocation.address} onChange={(e) => setCreateLocation({ ...createLocation, address: e.target.value })} />
                   </div>
                   <button type="submit" className="w-full rounded-lg px-4 py-2 text-sm font-medium text-white" style={{ backgroundColor: BRAND.curious }}>Create Location</button>
                 </form>
 
                 <div className="mt-6 pt-6 border-t">
-                  <h4 className="text-sm font-semibold mb-3" style={{ color: BRAND.dark }}>Existing Locations</h4>
+                  <h4 className="text-sm font-semibold mb-3" style={{ color: BRAND.text }}>Existing Locations</h4>
                   <ul className="space-y-2">
                     {locations.map((loc) => (
                       <li key={loc.id} className="flex items-center gap-2 text-sm p-2 rounded" style={{ backgroundColor: BRAND.linkWater }}>
                         <MapPinIcon className="h-4 w-4" style={{ color: BRAND.curious }} />
-                        <span style={{ color: BRAND.dark }}>{loc.name}</span>
+                        <span style={{ color: BRAND.text }}>{loc.name}</span>
                         <span className="text-xs text-gray-500">· {loc.type}</span>
                       </li>
                     ))}
@@ -359,18 +359,18 @@ const InventoryDashboard = () => {
               <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
                 <div className="flex items-center gap-3">
                   <CubeIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                  <h3 className="text-lg font-semibold" style={{ color: BRAND.dark }}>Receive Goods (Onboard)</h3>
+                  <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>Receive Goods (Onboard)</h3>
                 </div>
               </div>
               <div className="p-6">
                 <form onSubmit={handleReceiveGoods} className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Catalog Item ID</label>
+                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Catalog Item ID</label>
                       <input className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="Item ID" value={receiveGoods.catalogItemId} onChange={(e) => setReceiveGoods({ ...receiveGoods, catalogItemId: e.target.value })} required />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Location</label>
+                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Location</label>
                       <select className="w-full rounded-lg border-gray-300 shadow-sm" value={receiveGoods.locationId} onChange={(e) => setReceiveGoods({ ...receiveGoods, locationId: e.target.value })} required>
                         <option value="">Select Location</option>
                         {locations.map((loc) => (
@@ -379,24 +379,24 @@ const InventoryDashboard = () => {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Quantity</label>
+                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Quantity</label>
                       <input className="w-full rounded-lg border-gray-300 shadow-sm" type="number" placeholder="Qty" value={receiveGoods.quantity} onChange={(e) => setReceiveGoods({ ...receiveGoods, quantity: Number(e.target.value) })} required />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Unit Cost</label>
+                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Unit Cost</label>
                       <input className="w-full rounded-lg border-gray-300 shadow-sm" type="number" placeholder="Cost" value={receiveGoods.unitCost} onChange={(e) => setReceiveGoods({ ...receiveGoods, unitCost: Number(e.target.value) })} />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Lot Number</label>
+                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Lot Number</label>
                       <input className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="LOT-XXX" value={receiveGoods.lotNumber} onChange={(e) => setReceiveGoods({ ...receiveGoods, lotNumber: e.target.value })} />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Barcode</label>
+                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Barcode</label>
                       <input className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="Barcode" value={receiveGoods.barcode} onChange={(e) => setReceiveGoods({ ...receiveGoods, barcode: e.target.value })} />
                     </div>
                   </div>
                   <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
-                    <label className="flex items-center gap-2 text-sm" style={{ color: BRAND.dark }}>
+                    <label className="flex items-center gap-2 text-sm" style={{ color: BRAND.text }}>
                       <input type="checkbox" checked={receiveGoods.issueVC} onChange={(e) => setReceiveGoods({ ...receiveGoods, issueVC: e.target.checked })} className="rounded" />
                       <span className="font-medium">Issue GoodsReceivedVC on receipt</span>
                     </label>
@@ -413,17 +413,17 @@ const InventoryDashboard = () => {
             <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
               <div className="flex items-center gap-3">
                 <QrCodeIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                <h3 className="text-lg font-semibold" style={{ color: BRAND.dark }}>Scan Barcode / SKU</h3>
+                <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>Scan Barcode / SKU</h3>
               </div>
             </div>
             <div className="p-6">
               <div className="flex gap-3 items-end mb-6 flex-wrap">
                 <div>
-                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Barcode or SKU</label>
+                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Barcode or SKU</label>
                   <input className="rounded-lg border-gray-300 shadow-sm" placeholder="Enter barcode" value={scanBarcode} onChange={(e) => setScanBarcode(e.target.value)} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Location (optional)</label>
+                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Location (optional)</label>
                   <input className="rounded-lg border-gray-300 shadow-sm" placeholder="Location ID" value={scanLocationId} onChange={(e) => setScanLocationId(e.target.value)} />
                 </div>
                 <button onClick={handleScan} className="rounded-lg px-4 py-2 text-sm font-medium text-white" style={{ backgroundColor: BRAND.curious }}>
@@ -434,7 +434,7 @@ const InventoryDashboard = () => {
               {scanResult && (
                 <div className="space-y-4">
                   <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
-                    <p className="text-sm font-medium mb-2" style={{ color: BRAND.dark }}>Catalog Item</p>
+                    <p className="text-sm font-medium mb-2" style={{ color: BRAND.text }}>Catalog Item</p>
                     <div className="grid grid-cols-2 gap-4 bg-white p-4 rounded-xl shadow-sm border border-blue-50">
                       <div>
                         <p className="text-xs text-gray-500 uppercase font-black">Title</p>
@@ -486,7 +486,7 @@ const InventoryDashboard = () => {
                   </div>
 
                   <div className="rounded-xl overflow-hidden border" style={{ borderColor: BRAND.viking }}>
-                    <div className="px-4 py-3 font-medium text-sm" style={{ backgroundColor: BRAND.linkWater, color: BRAND.dark }}>Available Lots</div>
+                    <div className="px-4 py-3 font-medium text-sm" style={{ backgroundColor: BRAND.linkWater, color: BRAND.text }}>Available Lots</div>
                     <ul className="divide-y">
                       {scanResult.lots?.map((lot: any) => (
                         <li key={lot.id} className="p-4 text-sm flex justify-between items-center group">
@@ -519,17 +519,17 @@ const InventoryDashboard = () => {
             <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
               <div className="flex items-center gap-3">
                 <ClipboardDocumentListIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                <h3 className="text-lg font-semibold" style={{ color: BRAND.dark }}>Event Chain & VC Trail</h3>
+                <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>Event Chain & VC Trail</h3>
               </div>
             </div>
             <div className="p-6">
               <div className="flex gap-3 items-end flex-wrap mb-6">
                 <div>
-                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Catalog Item ID</label>
+                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Catalog Item ID</label>
                   <input className="rounded-lg border-gray-300 shadow-sm" placeholder="Item ID" value={eventsQuery.catalogItemId} onChange={(e) => setEventsQuery({ ...eventsQuery, catalogItemId: e.target.value })} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Location ID</label>
+                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Location ID</label>
                   <input className="rounded-lg border-gray-300 shadow-sm" placeholder="Location" value={eventsQuery.locationId} onChange={(e) => setEventsQuery({ ...eventsQuery, locationId: e.target.value })} />
                 </div>
                 <button onClick={handleFetchEvents} className="rounded-lg px-4 py-2 text-sm font-medium text-white" style={{ backgroundColor: BRAND.curious }}>
@@ -550,16 +550,16 @@ const InventoryDashboard = () => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead style={{ backgroundColor: BRAND.linkWater }}>
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Type</th>
-                      <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Qty</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>VC</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Hash</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Type</th>
+                      <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Qty</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>VC</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Hash</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 bg-white">
                     {events.map((ev) => (
                       <tr key={ev.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.dark }}>{ev.eventType}</td>
+                        <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.text }}>{ev.eventType}</td>
                         <td className="px-6 py-4 text-sm text-right">{ev.quantity}</td>
                         <td className="px-6 py-4 text-sm">{ev.vcId ? <span className="inline-flex items-center gap-1 text-green-600"><CheckCircleIcon className="h-4 w-4" /><span className="text-xs font-mono">{ev.vcId.slice(0, 8)}...</span></span> : <span className="text-gray-400">—</span>}</td>
                         <td className="px-6 py-4 text-xs text-gray-400 font-mono">{ev.eventHash?.slice(0, 18)}...</td>
@@ -580,13 +580,13 @@ const InventoryDashboard = () => {
             <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
               <div className="flex items-center gap-3">
                 <DocumentMagnifyingGlassIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                <h3 className="text-lg font-semibold" style={{ color: BRAND.dark }}>Trace Receipt to Lots</h3>
+                <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>Trace Receipt to Lots</h3>
               </div>
             </div>
             <div className="p-6">
               <div className="flex gap-3 items-end flex-wrap mb-6">
                 <div>
-                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Receipt ID</label>
+                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Receipt ID</label>
                   <input className="rounded-lg border-gray-300 shadow-sm" placeholder="Receipt ID" value={traceReceiptId} onChange={(e) => setTraceReceiptId(e.target.value)} />
                 </div>
                 <button onClick={handleTraceReceipt} className="rounded-lg px-4 py-2 text-sm font-medium text-white" style={{ backgroundColor: BRAND.curious }}>Trace</button>
@@ -596,13 +596,13 @@ const InventoryDashboard = () => {
                 <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
                   <div className="flex items-center gap-2 mb-4">
                     {traceResult.chainValid ? <ShieldCheckIcon className="h-5 w-5 text-green-600" /> : <ExclamationTriangleIcon className="h-5 w-5 text-red-600" />}
-                    <span className="font-medium" style={{ color: BRAND.dark }}>Receipt: {traceResult.receiptId}</span>
+                    <span className="font-medium" style={{ color: BRAND.text }}>Receipt: {traceResult.receiptId}</span>
                     <span className={traceResult.chainValid ? 'text-green-600' : 'text-red-600'}>· Chain {traceResult.chainValid ? 'Valid' : 'Invalid'}</span>
                   </div>
                   <ul className="divide-y bg-white rounded-lg overflow-hidden">
                     {traceResult.fulfillments?.map((f: any, idx: number) => (
                       <li key={idx} className="p-3 flex justify-between items-center text-sm">
-                        <span style={{ color: BRAND.dark }}>Lot {f.lotId}</span>
+                        <span style={{ color: BRAND.text }}>Lot {f.lotId}</span>
                         <span className="text-gray-500">Qty {f.quantity}</span>
                         {f.grnVcId && <span className="inline-flex items-center gap-1 text-green-600 text-xs"><CheckCircleIcon className="h-4 w-4" />GRN VC</span>}
                       </li>
@@ -621,7 +621,7 @@ const InventoryDashboard = () => {
                 <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}>
                   <CurrencyDollarIcon className="h-6 w-6 text-white" />
                 </div>
-                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.dark }}>Total Inventory Value</p>
+                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.text }}>Total Inventory Value</p>
               </dt>
               <dd className="ml-16">
                 <p className="text-3xl font-bold text-green-600">{formatCurrency(valuation?.totalValue || 0)}</p>
@@ -630,12 +630,12 @@ const InventoryDashboard = () => {
             </div>
             <div className="col-span-2 rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'white' }}>
               <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
-                <h3 className="font-semibold" style={{ color: BRAND.dark }}>Value by Location</h3>
+                <h3 className="font-semibold" style={{ color: BRAND.text }}>Value by Location</h3>
               </div>
               <div className="p-6">
                 {valuation?.byLocation?.map((loc: any, idx: number) => (
                   <div key={idx} className="flex justify-between py-3 border-b last:border-b-0">
-                    <span style={{ color: BRAND.dark }}>{loc.location_id}</span>
+                    <span style={{ color: BRAND.text }}>{loc.location_id}</span>
                     <span className="font-medium" style={{ color: BRAND.curious }}>{formatCurrency(loc.value || 0, loc.currency)}</span>
                   </div>
                 ))}
@@ -650,15 +650,15 @@ const InventoryDashboard = () => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead style={{ backgroundColor: BRAND.linkWater }}>
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Age Bucket</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Lot Count</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Value</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Age Bucket</th>
+                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Lot Count</th>
+                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Value</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 bg-white">
                 {aging.map((bucket, idx) => (
                   <tr key={idx} className={`hover:bg-gray-50 ${bucket.age_bucket === '90+ days' ? 'bg-red-50' : ''}`}>
-                    <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.dark }}>
+                    <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.text }}>
                       {bucket.age_bucket === '90+ days' && <ExclamationTriangleIcon className="h-4 w-4 inline mr-2 text-red-500" />}
                       {bucket.age_bucket}
                     </td>

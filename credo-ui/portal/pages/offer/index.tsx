@@ -77,7 +77,7 @@ export default function OfferPage() {
   return (
     <>
       <Head>
-        <title>Credential offer | {PRODUCT_NAME}</title>
+        <title>{`Credential offer | ${PRODUCT_NAME}`}</title>
       </Head>
       <div className="min-h-screen bg-white px-4 py-10">
         <div className="flex justify-center mb-8">

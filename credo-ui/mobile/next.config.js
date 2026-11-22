@@ -10,7 +10,6 @@ const nextConfig = {
   reactStrictMode: false,
   // Shared org configuration lives in credo-ui/shared and src/config (one mapping for API and both apps).
   experimental: { externalDir: true },
-  eslint: { ignoreDuringBuilds: true },
   webpack: (config, { isServer }) => {
     const path = require('path')
     // Shared screens live outside this app, so their imports resolve here.

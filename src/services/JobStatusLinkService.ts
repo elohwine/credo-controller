@@ -15,6 +15,7 @@ const CLIENT_STATUS: Record<FieldJobCategory, string> = {
   pending: 'Not booked yet',
   assigned: 'Worker booked',
   active: 'In progress',
+  arrived: 'Arrival recorded',
   on_hold: 'On hold',
   failed: 'Being re-booked',
   completed: 'Finished',

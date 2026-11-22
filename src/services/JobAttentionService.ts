@@ -255,7 +255,7 @@ export class JobAttentionService {
         `It has been booked for ${age(now - created)} and no worker has been chosen.`,
       )
     }
-    if (job.assigneeId && ['assigned', 'active', 'on_hold'].includes(job.category) && now - last >= ATTENTION.stalledHours * HOUR) {
+    if (job.assigneeId && ['assigned', 'active', 'arrived', 'on_hold'].includes(job.category) && now - last >= ATTENTION.stalledHours * HOUR) {
       return make(
         'stalled',
         last,

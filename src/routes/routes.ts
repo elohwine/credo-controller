@@ -6041,7 +6041,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "FieldJobCategory": {
         "dataType": "refAlias",
-        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["pending"]},{"dataType":"enum","enums":["assigned"]},{"dataType":"enum","enums":["active"]},{"dataType":"enum","enums":["on_hold"]},{"dataType":"enum","enums":["failed"]},{"dataType":"enum","enums":["completed"]},{"dataType":"enum","enums":["reconciled"]},{"dataType":"enum","enums":["cancelled"]}],"validators":{}},
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["pending"]},{"dataType":"enum","enums":["assigned"]},{"dataType":"enum","enums":["active"]},{"dataType":"enum","enums":["arrived"]},{"dataType":"enum","enums":["on_hold"]},{"dataType":"enum","enums":["failed"]},{"dataType":"enum","enums":["completed"]},{"dataType":"enum","enums":["reconciled"]},{"dataType":"enum","enums":["cancelled"]}],"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "FieldJobSource": {
@@ -6366,7 +6366,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Record_JobRegisterCategory.number_": {
         "dataType": "refAlias",
-        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"completed":{"dataType":"double","required":true},"pending":{"dataType":"double","required":true},"failed":{"dataType":"double","required":true},"cancelled":{"dataType":"double","required":true},"assigned":{"dataType":"double","required":true},"active":{"dataType":"double","required":true},"on_hold":{"dataType":"double","required":true},"reconciled":{"dataType":"double","required":true},"not_booked":{"dataType":"double","required":true}},"validators":{}},
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"completed":{"dataType":"double","required":true},"pending":{"dataType":"double","required":true},"failed":{"dataType":"double","required":true},"cancelled":{"dataType":"double","required":true},"assigned":{"dataType":"double","required":true},"active":{"dataType":"double","required":true},"arrived":{"dataType":"double","required":true},"on_hold":{"dataType":"double","required":true},"reconciled":{"dataType":"double","required":true},"not_booked":{"dataType":"double","required":true}},"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "JobReport": {

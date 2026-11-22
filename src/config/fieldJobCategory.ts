@@ -2,12 +2,13 @@
  * Where a field job stands, from its run status and state. One answer for the job board,
  * the store file, the attendant file and the schedule check.
  */
-import { openFailedVisit } from './failedVisit'
+import { failedVisitsOf, openFailedVisit } from './failedVisit'
 
 export type FieldJobCategory =
   | 'pending'
   | 'assigned'
   | 'active'
+  | 'arrived'
   | 'on_hold'
   | 'failed'
   | 'completed'
@@ -19,6 +20,7 @@ export const FIELD_JOB_CATEGORY_LABELS: Record<FieldJobCategory, string> = {
   pending: 'Pending / unassigned',
   assigned: 'Assigned',
   active: 'In progress',
+  arrived: 'Arrived',
   on_hold: 'On hold',
   failed: 'Needs attention',
   completed: 'Completed',
@@ -32,7 +34,7 @@ export interface FieldJobRunLike {
   output?: any
 }
 
-export const OPEN_FIELD_JOB_CATEGORIES: ReadonlySet<FieldJobCategory> = new Set(['pending', 'assigned', 'active', 'on_hold'])
+export const OPEN_FIELD_JOB_CATEGORIES: ReadonlySet<FieldJobCategory> = new Set(['pending', 'assigned', 'active', 'arrived', 'on_hold'])
 
 export function fieldJobInput(job: FieldJobRunLike): Record<string, any> {
   return job.output?.workflowInput || job.input || {}
@@ -46,6 +48,25 @@ export function fieldJobAssigneeId(job: FieldJobRunLike): string {
 
 function holdIsLive(status: unknown): boolean {
   return status === 'open' || status === 'resolved'
+}
+
+function hasCurrentArrival(state: Record<string, any>): boolean {
+  const checkpoint = state.checkpoints?.arrival
+  const before = [state.evidenceBefore, state.evidence?.before].filter((evidence) => evidence?.evidenceHash)
+  const arrivalTimes = [
+    checkpoint?.status === 'completed' ? checkpoint.completedAt : undefined,
+    ...before.map((evidence) => evidence.capturedAt),
+  ]
+  const arrived = checkpoint?.status === 'completed' || before.length > 0
+  const finished = Boolean(state.evidenceAfter?.evidenceHash || state.evidence?.after?.evidenceHash)
+  if (!arrived || finished) return false
+
+  const rebookings = failedVisitsOf(state).filter((visit) => visit.status === 'rebooked')
+  if (!rebookings.length) return true
+  const rebookedAt = rebookings.map((visit) => Date.parse(visit.rebookedAt || ''))
+  if (rebookedAt.some((time) => !Number.isFinite(time))) return false
+  const latestRebooking = Math.max(...rebookedAt)
+  return arrivalTimes.some((time) => typeof time === 'string' && Date.parse(time) > latestRebooking)
 }
 
 export function fieldJobCategory(job: FieldJobRunLike): FieldJobCategory {
@@ -66,6 +87,7 @@ export function fieldJobCategory(job: FieldJobRunLike): FieldJobCategory {
   )
     return 'on_hold'
   if (!fieldJobAssigneeId(job)) return 'pending'
+  if (['running', 'paused'].includes(status) && hasCurrentArrival(state)) return 'arrived'
   if (stage === 'ASSIGNED') return 'assigned'
   if (
     ['running', 'paused'].includes(status) ||

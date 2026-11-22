@@ -368,7 +368,7 @@ export default function OrganizationAuthoritiesPage() {
                             .map((m) => ({ value: m.userId, label: orgMemberLabel(m) }))}
                         value={grantUserId || null}
                         onChange={(value) => setGrantUserId(value || '')}
-                        nothingFoundMessage="Add them under People & payroll first"
+                        nothingFoundMessage="Add them under HR operations first"
                         required
                     />
                     <TextInput

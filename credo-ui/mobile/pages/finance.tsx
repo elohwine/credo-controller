@@ -3003,7 +3003,7 @@ export default function FinancePage() {
       if (orgTenantId) {
         const switched = await ensureOrgContextForRequisition(orgTenantId, 'requisition', [requisitionIdFromQuery, requestId])
         if (!switched && !cancelled) {
-          feedback.warn('Sign in to your wallet and organization profile to action this requisition.', { title: 'Context switch required' })
+          feedback.warn('Sign in and switch to your organisation to act on this purchase request.', { title: 'Context switch required' })
         }
       }
 
@@ -7451,7 +7451,7 @@ export default function FinancePage() {
           />
           </details>
 
-          <Grid gutter="sm">
+          <Grid gap="sm">
             <Grid.Col span={8}>
               <TextInput
                 label="Amount to invoice the client"
@@ -9002,7 +9002,7 @@ export default function FinancePage() {
                       />
                     </Group>
                   </UnstyledButton>
-                  <Collapse in={proofMoreOpen}>
+                  <Collapse expanded={proofMoreOpen}>
                     <Stack w="100%" gap="xs">
                       {buildWalletInteropQrValue(requestUrl).length <= MAX_QR_LINK_LENGTH ? (
                         <>

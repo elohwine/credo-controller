@@ -1819,7 +1819,7 @@ export default function OrgSettingsPage() {
                             <Text size="xs" c="dimmed">{isLockedModule(option.id, operatingModel) ? LOCKED_MODULE_NOTE : modulePlanNote(option.id, serverProfile?.plan)}</Text>
                           </Box>
                         ))}
-                        <Text size="xs" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas needed. SSI remains available; external-client APIs are a later delivery.' : 'Jobs and People & payroll are always on. Untick anything else that is handled elsewhere.'}</Text>
+                        <Text size="xs" c="dimmed">{operatingModel === 'integration' ? 'No internal work areas needed. SSI remains available; external-client APIs are a later delivery.' : 'Jobs and HR operations are always on. Untick anything else that is handled elsewhere.'}</Text>
                       </Stack>
                     </Chip.Group>
                     </Stack>
@@ -1865,7 +1865,7 @@ export default function OrgSettingsPage() {
                   {orgQuestion === 4 && (
                     <Stack gap={6}>
                       <Text size="sm" c="dimmed">{SETUP_QUESTION_HELP[4]}</Text>
-                      <Radio.Group label="Money approval arrangement" value={orgQuestionPreset} onChange={setOrgQuestionPreset}>
+                      <Radio.Group<string> label="Money approval arrangement" value={orgQuestionPreset} onChange={setOrgQuestionPreset}>
                       <Stack gap={6}>
                       {hasMoneySetup && (
                         <Radio.Card
@@ -2477,7 +2477,7 @@ export default function OrgSettingsPage() {
                         ))
                       )}
                       <Group gap="xs" wrap="nowrap">
-                        <Select
+                        <Select<string>
                           style={{ flex: 1 }}
                           size="xs"
                           placeholder="Add a backup"

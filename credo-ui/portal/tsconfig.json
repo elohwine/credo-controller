@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "es5",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -12,17 +16,41 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "downlevelIteration": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
     "paths": {
-      "react": ["./node_modules/@types/react/index.d.ts"],
-      "@/*": ["./*"],
-      "country-flag-icons/react/3x2": ["./node_modules/country-flag-icons/react/3x2/index.js"],
-      "libphonenumber-js/min/metadata": ["./node_modules/libphonenumber-js/metadata.min.json.js"],
-      "@mantine/core": ["./node_modules/@mantine/core"],
-      "@tabler/icons-react": ["./node_modules/@tabler/icons-react"]
+      "react": [
+        "./node_modules/@types/react/index.d.ts"
+      ],
+      "react/*": [
+        "./node_modules/@types/react/*"
+      ],
+      "@/*": [
+        "./*"
+      ],
+      "country-flag-icons/react/3x2": [
+        "./node_modules/country-flag-icons/react/3x2/index.js"
+      ],
+      "libphonenumber-js/min/metadata": [
+        "./node_modules/libphonenumber-js/metadata.min.json.js"
+      ],
+      "@mantine/core": [
+        "./node_modules/@mantine/core"
+      ],
+      "@tabler/icons-react": [
+        "./node_modules/@tabler/icons-react"
+      ],
+      "mantine-datatable": [
+        "./node_modules/mantine-datatable"
+      ]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules"]
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

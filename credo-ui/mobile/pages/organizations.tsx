@@ -744,8 +744,8 @@ export default function OrganizationsPage() {
                   </Box>
                   <TextInput label="Need" placeholder="A plumber for a leaking geyser" value={need} onChange={(e) => setNeed(e.target.value)} />
                   <TextInput label="Place" placeholder="Borrowdale" value={area} onChange={(e) => setArea(e.target.value)} />
-                  <Select label="Pay with" placeholder="Any" clearable data={PAYMENT_CHOICES} value={payment} onChange={setPayment} />
-                  <Select label="How" placeholder="Any" clearable data={FULFILMENT_CHOICES} value={fulfilment} onChange={setFulfilment} />
+                  <Select<string> label="Pay with" placeholder="Any" clearable data={PAYMENT_CHOICES} value={payment} onChange={setPayment} />
+                  <Select<string> label="How" placeholder="Any" clearable data={FULFILMENT_CHOICES} value={fulfilment} onChange={setFulfilment} />
                   <Button h={48} radius="xl" loading={matching} onClick={() => void findProviders()}>Find businesses</Button>
                 </Stack>
               </Paper>

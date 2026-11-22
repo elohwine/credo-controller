@@ -30,7 +30,7 @@ const WorkflowList: React.FC<WorkflowListProps> = ({ workflows = [], onSelect })
         return (
             <div className="text-center py-12 rounded-xl" style={{ backgroundColor: BRAND.linkWater }}>
                 <CogIcon className="h-12 w-12 mx-auto mb-3" style={{ color: BRAND.viking }} />
-                <p className="text-lg" style={{ color: BRAND.dark }}>No workflows available.</p>
+                <p className="text-lg" style={{ color: BRAND.text }}>No workflows available.</p>
                 <p className="text-sm text-gray-500 mt-1">Workflows will appear here once configured.</p>
             </div>
         );
@@ -42,7 +42,7 @@ const WorkflowList: React.FC<WorkflowListProps> = ({ workflows = [], onSelect })
                 <div key={category} className="space-y-4">
                     <div className="flex items-center gap-3 border-b pb-3" style={{ borderColor: BRAND.linkWater }}>
                         <FolderIcon className="h-6 w-6" style={{ color: BRAND.curious }} />
-                        <h2 className="text-xl font-bold" style={{ color: BRAND.dark }}>{category}</h2>
+                        <h2 className="text-xl font-bold" style={{ color: BRAND.text }}>{category}</h2>
                         <span className="text-sm text-gray-500">({items.length} workflows)</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -58,7 +58,7 @@ const WorkflowList: React.FC<WorkflowListProps> = ({ workflows = [], onSelect })
                                                 <CogIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
                                             </div>
                                             <div>
-                                                <h3 className="text-lg font-semibold" style={{ color: BRAND.dark }}>{wf.name}</h3>
+                                                <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>{wf.name}</h3>
                                                 <span
                                                     className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium mt-1"
                                                     style={{ backgroundColor: BRAND.linkWater, color: BRAND.curious }}

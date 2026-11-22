@@ -99,7 +99,7 @@ export default function StageProofModal({
                                 <IconChevronDown size={16} style={{ transform: moreOpen ? 'rotate(180deg)' : undefined }} />
                             </Group>
                         </UnstyledButton>
-                        <Collapse in={moreOpen}>
+                        <Collapse expanded={moreOpen}>
                             <Stack align="center" gap="xs" w="100%">
                                 {canShowQr ? (
                                     <>

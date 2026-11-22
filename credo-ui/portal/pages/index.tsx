@@ -61,6 +61,7 @@ const BRAND = {
     linkWater: '#D0E6F3',
     viking: '#6FB4DC',
     dark: '#0A3D5C',
+    text: 'var(--brand-text)',
 }
 
 interface KpiTile {
@@ -368,7 +369,7 @@ export default function DashboardPage() {
                         { label: 'Waiting for you', value: offerRows.length + inboundRows.length, href: '/inbox' },
                         { label: 'Jobs in progress', value: openJobs, href: '/finance/job-cards' },
                         { label: 'Records to keep', value: offerRows.length, href: '/inbox' },
-                        { label: 'People', value: memberCount, href: '/payroll?tab=employees' },
+                        { label: 'People', value: memberCount, href: '/hr?tab=team' },
                     ])
                     setRecords(offerRows.slice(0, 4).map((row: any) => ({
                         id: String(row.id || row.offerId || row.title),
@@ -521,7 +522,7 @@ export default function DashboardPage() {
                             { label: 'Waiting for you', value: dashboardLoading ? '…' : 0, href: '/inbox' },
                             { label: orgName ? 'Jobs in progress' : 'My records', value: dashboardLoading ? '…' : 'Open', href: orgName ? '/finance/job-cards' : '/wallet' },
                             { label: orgName ? 'Records to keep' : 'Organisations', value: dashboardLoading ? '…' : 'Open', href: orgName ? '/inbox' : '/' },
-                            { label: orgName ? 'People' : 'Your shares', value: dashboardLoading ? '…' : 0, href: orgName ? '/payroll?tab=employees' : '/activity' },
+                            { label: orgName ? 'People' : 'Your shares', value: dashboardLoading ? '…' : 0, href: orgName ? '/hr?tab=team' : '/activity' },
                         ]).map((tile) => (
                             <Paper key={tile.label} component={Link} href={tile.href} withBorder radius="md" p="md" style={{ textDecoration: 'none', color: 'inherit' }}>
                                 <Text size="xs" c="dimmed" tt="uppercase" fw={700}>{tile.label}</Text>

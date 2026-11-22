@@ -35,7 +35,7 @@ export function taskRefs(...values: Array<string | null | undefined>): string[] 
  */
 export async function openOrganizationForTask(input: OpenOrganizationForTaskInput): Promise<OpenOrganizationForTaskResult> {
   const holderToken = getPersonalWalletToken() || getWalletToken()
-  if (!holderToken) throw new Error('Sign in to your wallet first.')
+  if (!holderToken) throw new Error('Sign in first.')
   const refs = taskRefs(...input.refs)
   if (refs.length === 0) throw new Error('This item is not ready yet. Refresh your inbox and try again.')
 

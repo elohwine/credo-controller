@@ -2,7 +2,7 @@
 # Data stays on the Render disk at /data. The phone app is not in this image.
 # Local compose and Fly keep their own Dockerfiles.
 
-FROM node:24.12.0 AS base
+FROM node:24.22.3 AS base
 
 RUN apt-get update && apt-get install -y \
     build-essential \
@@ -38,7 +38,7 @@ COPY bin ./bin
 RUN yarn build
 RUN test -f build/index.js && test -f src/routes/routes.ts && test -f src/routes/swagger.json
 
-FROM node:24.12.0-slim AS production
+FROM node:24.22.3-slim AS production
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \

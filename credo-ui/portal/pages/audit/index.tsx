@@ -98,13 +98,13 @@ export default function AuditLogsPage() {
   return (
     <Layout>
       <Head>
-        <title>Audit Logs | {PRODUCT_NAME} Portal</title>
+        <title>{`Audit Logs | ${PRODUCT_NAME} Portal`}</title>
       </Head>
       <div className="px-4 sm:px-6 lg:px-8 py-6">
         {/* Header */}
         <div className="sm:flex sm:items-center sm:justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold" style={{ color: BRAND.dark }}>Audit Logs</h1>
+            <h1 className="text-3xl font-bold" style={{ color: BRAND.text }}>Audit Logs</h1>
             <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>Tamper-aware operational trail across platform actions</p>
           </div>
         </div>
@@ -117,10 +117,10 @@ export default function AuditLogsPage() {
                 <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}>
                   <span className="text-white">{stat.icon}</span>
                 </div>
-                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.dark }}>{stat.label}</p>
+                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.text }}>{stat.label}</p>
               </dt>
               <dd className="ml-16 flex items-baseline">
-                <p className="text-2xl font-semibold" style={{ color: BRAND.dark }}>{stat.value}</p>
+                <p className="text-2xl font-semibold" style={{ color: BRAND.text }}>{stat.value}</p>
               </dd>
             </div>
           ))}
@@ -130,11 +130,11 @@ export default function AuditLogsPage() {
         <div className="rounded-xl shadow-sm p-6 mb-6 bg-white border" style={{ borderColor: BRAND.viking }}>
           <div className="flex items-center gap-2 mb-4">
             <FunnelIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-            <h3 className="font-semibold" style={{ color: BRAND.dark }}>Filter Logs</h3>
+            <h3 className="font-semibold" style={{ color: BRAND.text }}>Filter Logs</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Resource ID (optional)</label>
+              <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Resource ID (optional)</label>
               <input
                 value={resourceId}
                 onChange={(e) => setResourceId(e.target.value)}
@@ -144,7 +144,7 @@ export default function AuditLogsPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Limit</label>
+              <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Limit</label>
               <input
                 type="number"
                 value={limit}
@@ -178,11 +178,11 @@ export default function AuditLogsPage() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead style={{ backgroundColor: BRAND.linkWater }}>
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Time</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Action</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Resource</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Actor</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>IP</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Time</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Action</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Resource</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Actor</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>IP</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">
@@ -190,7 +190,7 @@ export default function AuditLogsPage() {
                 <tr key={log.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 text-xs text-gray-500">{new Date(log.createdAt).toLocaleString()}</td>
                   <td className="px-6 py-4 text-sm"><ActionBadge action={log.actionType} /></td>
-                  <td className="px-6 py-4 text-sm font-mono" style={{ color: BRAND.dark }}>{log.resourceId || '—'}</td>
+                  <td className="px-6 py-4 text-sm font-mono" style={{ color: BRAND.text }}>{log.resourceId || '—'}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">{log.actorDid ? `${log.actorDid.substring(0, 20)}...` : '—'}</td>
                   <td className="px-6 py-4 text-xs text-gray-400">{log.ipAddress || '—'}</td>
                 </tr>

@@ -32,7 +32,7 @@ export function WalletOnboarding({
         </div>
         <button type="button" className={styles.skipButton} onClick={onSkip}>Skip intro</button>
       </div>
-      <div key={step} className={styles.scene} data-step={step} data-complete={complete}>
+      <div key={`scene-${step}`} className={styles.scene} data-step={step} data-complete={complete}>
         <svg className={styles.scenery} viewBox="0 0 360 320" fill="none" aria-hidden="true">
           <ellipse cx="180" cy="158" rx="150" ry="126" fill="currentColor" opacity=".05" />
           <ellipse cx="180" cy="292" rx="104" ry="10" fill="currentColor" opacity=".07" />
@@ -99,7 +99,7 @@ export function WalletOnboarding({
           {receiving ? (complete ? 'Sample card accepted' : 'Try accepting the card') : (complete ? 'Job started' : 'Try starting the job')}
         </button>
       </div>
-      <div key={step} className={styles.introduction}>
+      <div key={`intro-${step}`} className={styles.introduction}>
         <h2 ref={heading} tabIndex={-1} className={styles.heading}>{receiving ? 'Your staff card' : 'Your first job card'}</h2>
         <p className={styles.description}>
           {receiving

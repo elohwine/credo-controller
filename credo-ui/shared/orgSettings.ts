@@ -57,9 +57,9 @@ export const ORG_SETTINGS_GROUPS: OrgSettingsGroup[] = [
     items: [
       {
         id: 'team',
-        label: 'People & payroll',
-        summary: 'Add people, give them the app, staff numbers and pay',
-        href: '/payroll?tab=employees',
+        label: 'HR operations',
+        summary: 'Manage your team, employee records, app access and pay',
+        href: '/hr?tab=team',
         mobileHref: '/people',
       },
       {

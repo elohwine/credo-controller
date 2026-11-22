@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Box, Text, Title } from '@mantine/core'
+import { Box, Button, Text, Title } from '@mantine/core'
 import { useRouter } from 'next/router'
 
 import AppShellMobile from '@/components/layout/AppShellMobile'
@@ -8,8 +8,8 @@ import { usePhoneOperations } from '@/lib/operations'
 import { PeopleDirectory } from '../../shared/people/PeopleDirectory'
 
 /**
- * The one list of people on the phone: everyone on the team, their app access, staff number, skills,
- * van and work. The website shows the same list under People & payroll (pay is set there).
+ * The same team directory is used in the portal and app. Employee details and team app access
+ * are managed here; payroll runs and filings remain a portal workflow.
  */
 export default function PeoplePage() {
   const router = useRouter()
@@ -25,11 +25,10 @@ export default function PeoplePage() {
     <AppShellMobile>
       <Box p="md">
         <Title order={3} fw={500}>
-          People
+          HR operations
         </Title>
         <Text size="sm" c="dimmed" mb="md">
-          Everyone on your team in one list. Add people, give them the app, and see their staff number, van and work. Pay is set on
-          the website under People & payroll.
+          One list for your team. Add people, manage app access, and see their staff number, van and work.
         </Text>
         {orgTenantId ? (
           <PeopleDirectory
@@ -41,9 +40,14 @@ export default function PeoplePage() {
             onOpenJob={(runId) => void router.push(`/finance?tab=field&runId=${encodeURIComponent(runId)}`)}
           />
         ) : (
-          <Text size="sm" c="dimmed">
-            Open your organisation to see its people.
-          </Text>
+          <Box>
+            <Text size="sm" c="dimmed">
+              Open your organisation to see its people.
+            </Text>
+            <Button mt="md" variant="light" onClick={() => void router.push('/organizations')}>
+              Choose organisation
+            </Button>
+          </Box>
         )}
       </Box>
     </AppShellMobile>

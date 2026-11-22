@@ -165,7 +165,7 @@ export default function OrgPermissionsSettings({
         {loading && <Text size="sm">Loading settings…</Text>}
         {!loading && section === 'roles' && (
           <>
-            <Collapse in={formOpen}>
+            <Collapse expanded={formOpen}>
               <Stack gap="sm" mb="md">
                 <Text fw={600}>New role</Text>
                 <TextInput label="Role name" value={name} onChange={(event) => setName(event.currentTarget.value)} />
@@ -256,7 +256,7 @@ export default function OrgPermissionsSettings({
         )}
         {!loading && section === 'authorities' && (
           <>
-            <Collapse in={formOpen}>
+            <Collapse expanded={formOpen}>
               <Stack gap="sm" mb="md">
                 <Text fw={600}>New approval authority</Text>
                 <Select
@@ -271,7 +271,7 @@ export default function OrgPermissionsSettings({
                     setRole(members.find((member) => member.userId === value)?.role || null)
                   }}
                 />
-                <Select
+                <Select<string>
                   label="Authority role"
                   data={Array.from(
                     new Map(
@@ -283,7 +283,7 @@ export default function OrgPermissionsSettings({
                   value={role}
                   onChange={setRole}
                 />
-                <Select
+                <Select<string>
                   label="Approval area"
                   data={[
                     { value: 'finance', label: 'Finance' },
@@ -296,7 +296,7 @@ export default function OrgPermissionsSettings({
                   value={domain}
                   onChange={setDomain}
                 />
-                <NumberInput
+                <NumberInput<number>
                   label="Approval limit (optional)"
                   description="Leave empty for no amount limit."
                   min={0}

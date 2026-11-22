@@ -11,7 +11,6 @@ import {
   Paper,
   Select,
   Stack,
-  Table,
   Tabs,
   Text,
   TextInput,
@@ -40,6 +39,7 @@ import { assertRequestDetail, requestExperienceForRow, requestStageNames } from 
 import { actorsForWorkflow, type WorkflowActorReport } from '@/lib/uxCopy'
 import type { AuditPerson } from '@/lib/jobAuditTrail'
 import { detailTabsFor } from '../../shared/detailTabs'
+import { DataTable, useClientList, useListState } from '../../shared/DataTable'
 import { requestDecisionBlockText, STAFF_CARD_APPROVE_LABEL, type RequestDecisionView } from '../../shared/requestDecision'
 import { decidePlatformRequest, staffCardApprovalRoute } from '@/lib/platformRequestDecision'
 import { feedback } from '@/lib/feedback'
@@ -81,6 +81,12 @@ interface RequestPage {
   rows: RequestRow[]
   platformCursor: string | null
   contactOffset: number | null
+}
+
+const REQUEST_TABLE_SORTERS: Record<string, (row: RequestRow) => string> = {
+  request: (row) => (row.title || requestKindLabel(row.request_type || row.requestType)).toLowerCase(),
+  status: (row) => requestStatusWords(row.status).label,
+  received: (row) => row.created_at || row.createdAt || '',
 }
 
 export default function OrganisationRequests() {
@@ -249,6 +255,8 @@ export default function OrganisationRequests() {
         .sort((a, b) => (b.created_at || b.createdAt || '').localeCompare(a.created_at || a.createdAt || '')),
     [allRows, status, search, kind, assignee],
   )
+  const requestList = useListState({ initialSort: { key: 'received', dir: 'desc' }, resetKey: `${scope}|${status}|${search}|${kind}|${assignee}` })
+  const requestPage = useClientList(rows, REQUEST_TABLE_SORTERS, requestList)
   const statuses = Array.from(new Set(allRows.map((row) => row.status)))
   const kinds = Array.from(
     new Set(allRows.map((row) => row.request_type || row.requestType).filter((value): value is string => !!value)),
@@ -353,16 +361,16 @@ export default function OrganisationRequests() {
             Filters{kind || assignee ? ` (${Number(!!kind) + Number(!!assignee)})` : ''}
           </Button>
         </Group>
-        <Collapse in={filtersOpen}>
+        <Collapse expanded={filtersOpen}>
           <Stack gap="sm">
-            <Select
+            <Select<string>
               clearable
               label="Request type"
               value={kind}
               onChange={setKind}
               data={kinds.map((value) => ({ value, label: requestKindLabel(value) }))}
             />
-            <Select
+            <Select<string>
               clearable
               label="Assigned role"
               value={assignee}
@@ -411,42 +419,51 @@ export default function OrganisationRequests() {
             </Paper>
           ))
         ) : (
-          <Table.ScrollContainer minWidth={450}>
-            <Table highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Request</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th>Received</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {rows.map((row) => (
-                  <Table.Tr key={`${row.source}:${row.id}`}>
-                    <Table.Td>
-                      <Button
-                        variant="subtle"
-                        size="compact-sm"
-                        onClick={() => {
-                          setSelectionScope(scope)
-                          setSelected(row)
-                        }}
-                      >
-                        {row.title || requestKindLabel(row.request_type || row.requestType)}
-                      </Button>
-                      <Text size="xs" c="dimmed">
-                        {row.source === 'contact' ? 'Contact request' : 'Organisation request'}
-                      </Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Badge color={requestStatusWords(row.status).color}>{requestStatusWords(row.status).label}</Badge>
-                    </Table.Td>
-                    <Table.Td>{new Date(row.created_at || row.createdAt || '').toLocaleString()}</Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
+          <DataTable
+            rows={requestPage.items}
+            rowKey={(row) => `${row.source}:${row.id}`}
+            sort={requestList.sort}
+            onSortChange={requestList.setSort}
+            paging={requestPage.paging}
+            itemWord="request"
+            minWidth={450}
+            onRowClick={(row) => {
+              setSelectionScope(scope)
+              setSelected(row)
+            }}
+            rowLabel={(row) => `Open ${row.title || requestKindLabel(row.request_type || row.requestType)}`}
+            columns={[
+              {
+                key: 'request',
+                title: 'Request',
+                sortable: true,
+                render: (row) => (
+                  <>
+                    <Text size="sm" fw={500} c="blue">
+                      {row.title || requestKindLabel(row.request_type || row.requestType)}
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      {row.source === 'contact' ? 'Contact request' : 'Organisation request'}
+                    </Text>
+                  </>
+                ),
+              },
+              {
+                key: 'status',
+                nowrap: true,
+                title: 'Status',
+                sortable: true,
+                render: (row) => <Badge color={requestStatusWords(row.status).color}>{requestStatusWords(row.status).label}</Badge>,
+              },
+              {
+                key: 'received',
+                title: 'Received',
+                sortable: true,
+                firstDir: 'desc',
+                render: (row) => new Date(row.created_at || row.createdAt || '').toLocaleString(),
+              },
+            ]}
+          />
         )}
         {list.hasNextPage && (
           <Box>

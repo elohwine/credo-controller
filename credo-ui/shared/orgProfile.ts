@@ -45,7 +45,7 @@ export const ORG_KIND_OPTIONS: OrgKindOption[] = ([
 ] as OrgKindOption[]).filter((option) => editionAllowsKind(option.id))
 
 /**
- * Modules an organisation switches on by its own question. People & payroll is not assumed:
+ * Modules an organisation switches on by its own question. HR operations is not assumed:
  * not every organisation manages staff here, and it is part of the paid plan once plans are
  * charged. Mirrors `OrgModule` on the server (`OrgSetupProfileService`).
  */

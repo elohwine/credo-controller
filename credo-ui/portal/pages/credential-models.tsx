@@ -90,7 +90,7 @@ export default function CredentialModelsPage() {
   return (
     <>
       <Head>
-        <title>Credential Models - {PRODUCT_NAME} Portal</title>
+        <title>{`Credential Models - ${PRODUCT_NAME} Portal`}</title>
         <meta name="description" content="Browse and manage credential definition models" />
       </Head>
 

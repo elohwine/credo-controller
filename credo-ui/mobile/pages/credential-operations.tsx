@@ -250,7 +250,7 @@ export default function CredentialOperationsPage() {
                   value={walletTenantId}
                   onChange={(event) => setWalletTenantId(event.currentTarget.value)}
                 />
-                <Select label="Credential type" data={directTypes} value={credentialType} onChange={setCredentialType} />
+                <Select<string> label="Credential type" data={directTypes} value={credentialType} onChange={setCredentialType} />
                 <Textarea label="Claims JSON" minRows={5} value={claims} onChange={(event) => setClaims(event.currentTarget.value)} />
               </FormCard>
             </BottomSheet>

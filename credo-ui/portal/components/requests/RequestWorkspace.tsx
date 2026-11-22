@@ -27,7 +27,6 @@ import {
   Select,
   Stack,
   Tabs,
-  Table,
   Text,
   TextInput,
   Textarea,
@@ -47,6 +46,7 @@ import { beginPortalTask, endPortalTask, getPortalTask, openOrgSwitcher, readPor
 import { captureOrganizationSwitchContext } from '../../../shared/taskContext'
 import { PRICE_CURRENCIES, acceptPriceBody, acceptPriceNeed, type AcceptPriceNeed } from '../../../shared/acceptPrice'
 import { announceInboxChanged } from '../../../shared/guides'
+import { DataTable, useClientList, useListState } from '../../../shared/DataTable'
 import { UnreadCount } from '../../../shared/UnreadCount'
 import { detailTabsFor, requestMovesMoney } from '../../../shared/detailTabs'
 import { CARD_TARGET_ATTR, celebrateSaved } from '../../../shared/cardMotion'
@@ -271,7 +271,7 @@ function matchesRequestTypeFilter(row: RequestRow, requestTypeFilter: string): b
   }
 }
 
-/** Leave, expense claims and their records: the People & payroll module (same rule as the phone inbox). */
+/** Leave, expense claims and their records: the HR operations module (same rule as the phone inbox). */
 function isPeopleLikeRequest(row: RequestRow): boolean {
   return isPeopleRequestType(normalizeRequestType(row))
 }
@@ -968,6 +968,13 @@ function stagesForInboxRow(row: RequestRow): { stages: FinanceStageView[]; hints
   return { stages: experience.stages, hints: [experience.workflowType] }
 }
 
+const REQUEST_TABLE_SORTERS: Record<string, (row: RequestRow) => string> = {
+  title: (row) => (row.title || '').toLowerCase(),
+  type: (row) => requestKindLabel(normalizeRequestType(row)),
+  status: (row) => statusLabel(normalizeStatus(row.status)),
+  created: (row) => normalizeCreatedAt(row) || '',
+}
+
 export default function RequestWorkspace({ mode, category }: RequestWorkspaceProps) {
   const router = useRouter()
   const openRelatedWork = useRelatedWorkNavigation()
@@ -1195,6 +1202,8 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
       return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime)
     })
   }, [items, mode, category, requestCategoryTab, statusFilter, linkedOnly, attention, openedIds, router.query])
+  const requestList = useListState({ initialSort: { key: 'created', dir: 'desc' }, resetKey: `${mode}|${category}|${statusFilter}|${linkedOnly}` })
+  const requestPage = useClientList(visibleItems, REQUEST_TABLE_SORTERS, requestList)
 
   const requestCategoryCounts = useMemo(() => {
     const counts: Record<RequestCategoryTab, number> = {
@@ -2441,31 +2450,40 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
             )}
           </Stack>
         ) : mode === 'requests' && requestView === 'table' ? (
-          <Table.ScrollContainer minWidth={740}>
-            <Table striped highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  {['Request', 'Type', 'Status', 'Current step', 'Created', ''].map((label) => <Table.Th key={label}>{label}</Table.Th>)}
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {visibleItems.map((row) => {
-                  const progress = stagesForInboxRow(row)
-                  const current = progress.stages.find((stage) => stage.status === 'active' || stage.status === 'held')
-                  return (
-                    <Table.Tr key={row.id}>
-                      <Table.Td>{row.title || 'Request'}</Table.Td>
-                      <Table.Td>{requestKindLabel(normalizeRequestType(row))}</Table.Td>
-                      <Table.Td><Badge variant="light" color={statusColor(normalizeStatus(row.status))}>{statusLabel(normalizeStatus(row.status))}</Badge></Table.Td>
-                      <Table.Td>{current?.label || 'No pending step'}</Table.Td>
-                      <Table.Td>{formatTxnTime(normalizeCreatedAt(row)) || 'Not recorded'}</Table.Td>
-                      <Table.Td><Button size="compact-sm" variant="subtle" onClick={() => openRequestDetails(row)}>Open</Button></Table.Td>
-                    </Table.Tr>
-                  )
-                })}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
+          <DataTable
+            rows={requestPage.items}
+            rowKey={(row) => row.id}
+            sort={requestList.sort}
+            onSortChange={requestList.setSort}
+            paging={requestPage.paging}
+            itemWord="request"
+            minWidth={740}
+            onRowClick={openRequestDetails}
+            rowLabel={(row) => `Open ${row.title || 'request'}`}
+            columns={[
+              { key: 'title', title: 'Request', sortable: true, render: (row) => row.title || 'Request' },
+              { key: 'type', title: 'Type', sortable: true, render: (row) => requestKindLabel(normalizeRequestType(row)) },
+              {
+                key: 'status',
+                nowrap: true,
+                title: 'Status',
+                sortable: true,
+                render: (row) => <Badge variant="light" color={statusColor(normalizeStatus(row.status))}>{statusLabel(normalizeStatus(row.status))}</Badge>,
+              },
+              {
+                key: 'step',
+                title: 'Current step',
+                render: (row) => stagesForInboxRow(row).stages.find((stage) => stage.status === 'active' || stage.status === 'held')?.label || 'No pending step',
+              },
+              { key: 'created', title: 'Created', sortable: true, firstDir: 'desc', nowrap: true, render: (row) => formatTxnTime(normalizeCreatedAt(row)) || 'Not recorded' },
+              {
+                key: 'open',
+                title: '',
+                align: 'right',
+                render: (row) => <Button size="compact-sm" variant="subtle" onClick={(event) => { event.stopPropagation(); openRequestDetails(row) }}>Open</Button>,
+              },
+            ]}
+          />
         ) : (
           <Stack gap="sm">
             {mode === 'inbox' && newInboxRows.length > 0 && (

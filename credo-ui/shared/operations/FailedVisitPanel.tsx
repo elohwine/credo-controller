@@ -127,7 +127,7 @@ export function FailedVisitPanel({
       <Text size="sm" c="dimmed">
         The job stops here until the office gives it a new date. Nothing you already recorded is lost.
       </Text>
-      <Select
+      <Select<string>
         size={size}
         label="Why could the visit not be finished?"
         placeholder="Choose a reason"
@@ -193,7 +193,7 @@ export function FailedVisitPanel({
               onChange={(event) => setDate(event.currentTarget.value)}
             />
             {people.length > 0 && (
-              <Select
+              <Select<string>
                 size={size}
                 label="Who goes"
                 data={people}

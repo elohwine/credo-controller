@@ -97,7 +97,7 @@ export function OfficeRates({
           <Stack gap="sm" mt="sm">
             <TextInput size={size} label="Name" value={name} onChange={(event) => setName(event.currentTarget.value)} />
             <Group grow>
-              <NumberInput size={size} label="Price" min={0} value={price} onChange={setPrice} />
+              <NumberInput<number> size={size} label="Price" min={0} value={price} onChange={setPrice} />
               <TextInput size={size} label="Per" value={unit} onChange={(event) => setUnit(event.currentTarget.value)} />
             </Group>
             <TextInput size={size} label="Problem type (optional)" value={problem} onChange={(event) => setProblem(event.currentTarget.value)} />

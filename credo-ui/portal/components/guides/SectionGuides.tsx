@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useState, type CSSProperties, type JSX } from 'react'
 import { useRouter } from 'next/router'
 import { notifications } from '@mantine/notifications'
 import { LottiePlayer } from '@/components/feedback/LottiePlayer'

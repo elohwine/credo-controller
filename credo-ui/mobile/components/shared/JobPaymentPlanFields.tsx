@@ -46,7 +46,7 @@ export default function JobPaymentPlanFields({
         onChange={(paymentTerms) => onChange({ ...value, paymentTerms: paymentTerms || 'one_time' })}
       />
       {value.paymentTerms !== 'one_time' && (
-        <Grid gutter="sm">
+        <Grid gap="sm">
           <Grid.Col span={4}>
             <TextInput
               label="Payments"

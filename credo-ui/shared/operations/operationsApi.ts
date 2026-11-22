@@ -16,7 +16,7 @@ import type { FailedVisit } from '../../../src/config/failedVisit'
 import type { FieldImportKind, FieldImportPreview, FieldImportResult } from '../../../src/config/fieldDataImport'
 import type { ListPage } from '../../../src/config/listPage'
 
-export type JobCategory = 'pending' | 'assigned' | 'active' | 'on_hold' | 'failed' | 'completed' | 'reconciled' | 'cancelled'
+export type JobCategory = 'pending' | 'assigned' | 'active' | 'arrived' | 'on_hold' | 'failed' | 'completed' | 'reconciled' | 'cancelled'
 
 export interface JobSummary {
   runId: string
@@ -550,17 +550,36 @@ export function operationsApi(backend: string, token: string | null | undefined)
 
 export type OperationsApi = ReturnType<typeof operationsApi>
 
-/** Job state, colour-coded the way the office asked: completed, arrived/in progress, failed, waiting. */
-/** Job state, colour-coded as on the job board. */
-export const JOB_CATEGORY_WORDS: Record<JobCategory, { label: string; color: string }> = {
-  pending: { label: 'Unassigned', color: 'gray' },
+/**
+ * Job state, colour-coded the way the office asked (SGK meeting): completed, arrived and failed
+ * stand out, and no two states share a colour. Used by the job board, the registers and the reports.
+ */
+export const JOB_CATEGORY_WORDS: Record<JobRegisterCategory, { label: string; color: string }> = {
+  not_booked: { label: 'Not booked yet', color: 'grape' },
+  pending: { label: 'Unassigned', color: 'yellow' },
   assigned: { label: 'Assigned', color: 'indigo' },
   active: { label: 'In progress', color: 'blue' },
+  arrived: { label: 'Arrived', color: 'cyan' },
   on_hold: { label: 'On hold', color: 'orange' },
   failed: { label: 'Needs attention', color: 'red' },
-  completed: { label: 'Completed', color: 'teal' },
-  reconciled: { label: 'Closed', color: 'green' },
-  cancelled: { label: 'Cancelled', color: 'dark' },
+  completed: { label: 'Completed', color: 'green' },
+  reconciled: { label: 'Closed', color: 'teal' },
+  cancelled: { label: 'Cancelled', color: 'gray' },
+}
+
+/** An unassigned or unbooked job older than this is flagged on the list (gap map: "waiting over a week"). */
+export const JOB_WAITING_FLAG_DAYS = 7
+
+/** Whole days a job has waited for a worker, or 0 when it is not waiting. */
+export function jobWaitingDays(row: Pick<JobRegisterRow, 'category' | 'createdAt'>, now = Date.now()): number {
+  if (row.category !== 'pending' && row.category !== 'not_booked') return 0
+  const value = String(row.createdAt || '').trim()
+  if (!value) return 0
+  const timestamp = /[zZ]|[+-]\d{2}:?\d{2}$/.test(value)
+    ? value
+    : `${value.replace(' ', 'T')}${value.length === 10 ? 'T00:00:00' : ''}Z`
+  const created = Date.parse(timestamp)
+  return Number.isFinite(created) ? Math.max(0, Math.floor((now - created) / 86_400_000)) : 0
 }
 
 export const SERVICE_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => ({

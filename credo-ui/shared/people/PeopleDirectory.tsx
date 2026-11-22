@@ -41,9 +41,9 @@ import { TEAM_ROLE_FALLBACK, defaultInviteRole, teamRolesFromCatalog } from '../
 import { PhoneField } from '../PhoneField'
 
 /**
- * The one list of people, for both apps. A person is a payroll employee; their app access (role,
+ * The one list of people, for both apps. A person is an employee or team member; their app access (role,
  * invite, staff card), staff number, skills, van and work all hang off that one record. Portal:
- * Payroll → Employees. Phone: People. There is no separate members list or user management.
+ * HR operations. Phone: HR operations. There is no separate members list or user management.
  */
 
 type Surface = 'portal' | 'phone'

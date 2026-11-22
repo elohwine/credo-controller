@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Badge, Button, Group, Paper, SegmentedControl, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core'
+import { Badge, Button, ColorSwatch, Group, Paper, SegmentedControl, Select, SimpleGrid, Stack, Text, TextInput } from '@mantine/core'
 import { IconCalendar, IconDownload, IconMail, IconSearch } from '@tabler/icons-react'
 
 import { FIELD_JOB_CATEGORY_LABELS } from '../../../src/config/fieldJobCategory'
 import { FIELD_JOB_SOURCE_OPTIONS, fieldJobSourceLabel } from '../../../src/config/fieldJobSource'
 import type { ListSort } from '../../../src/config/listPage'
-import { DataTable, useListState, type DataColumn } from '../DataTable'
+import { DataTable, useClientList, useListState, type DataColumn } from '../DataTable'
 
 import { IncomingJobs, type IncomingJobsMember } from './IncomingJobs'
 import {
   JOB_CATEGORY_WORDS,
+  JOB_WAITING_FLAG_DAYS,
+  jobWaitingDays,
   readableDate,
+  type JobRegisterCategory,
   type JobRegisterRow,
   type JobReport,
   type OperationsApi,
@@ -47,8 +50,22 @@ function dayOf(row: JobRegisterRow): string {
 }
 
 function statusWord(row: JobRegisterRow): { label: string; color: string } {
-  if (row.category === 'not_booked') return { label: 'Not booked yet', color: 'gray' }
   return JOB_CATEGORY_WORDS[row.category]
+}
+
+/** The status colour as a CSS colour, for the edge of a row or card. */
+function statusEdge(row: JobRegisterRow): string {
+  return `var(--mantine-color-${statusWord(row).color}-6)`
+}
+
+function StatusOption({ value, label }: { value: string; label: string }) {
+  const color = JOB_CATEGORY_WORDS[value as JobRegisterCategory]?.color
+  return (
+    <Group gap="xs" wrap="nowrap">
+      {color ? <ColorSwatch color={`var(--mantine-color-${color}-6)`} size={12} withShadow={false} /> : null}
+      <span>{label}</span>
+    </Group>
+  )
 }
 
 /** The API's sort keys (`JOB_REGISTER_SORTS`), in words. */
@@ -251,13 +268,19 @@ export function JobBoard({
 
   const badges = (row: JobRegisterRow) => {
     const status = statusWord(row)
+    const waiting = jobWaitingDays(row)
     return (
       <Group gap={6}>
-        <Badge variant="light" color={row.source === 'email' ? 'blue' : row.source === 'booking' ? 'teal' : 'gray'} leftSection={row.source === 'email' ? <IconMail size={12} /> : undefined}>
-          {fieldJobSourceLabel(row.source)}
-        </Badge>
-        <Badge variant="light" color={status.color}>
+        <Badge variant="filled" color={status.color} c="black">
           {status.label}
+        </Badge>
+        {waiting >= JOB_WAITING_FLAG_DAYS && (
+          <Badge variant="outline" color="red">
+            Waiting {waiting} days
+          </Badge>
+        )}
+        <Badge variant="default" leftSection={row.source === 'email' ? <IconMail size={12} /> : undefined}>
+          {fieldJobSourceLabel(row.source)}
         </Badge>
         {row.callOut && (
           <Badge variant="light" color="orange">
@@ -301,7 +324,7 @@ export function JobBoard({
   ]
 
   const card = (row: JobRegisterRow) => (
-    <Paper withBorder radius="md" p="sm">
+    <Paper withBorder radius="md" p="sm" style={{ borderLeft: `4px solid ${statusEdge(row)}` }}>
       <Group justify="space-between" wrap="nowrap" align="flex-start">
         <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
           {badges(row)}
@@ -342,9 +365,17 @@ export function JobBoard({
   return (
     <Stack gap="sm">
       <Group gap="sm" align="flex-end" grow={surface === 'phone'}>
-        <Select size={size} label="Source" data={FIELD_JOB_SOURCE_OPTIONS} value={source} onChange={setSource} style={{ flex: 1, minWidth: 140 }} />
-        <Select size={size} label="Status" data={STATUSES} value={category} onChange={setCategory} style={{ flex: 1, minWidth: 140 }} />
-        <Select
+        <Select<string> size={size} label="Source" data={FIELD_JOB_SOURCE_OPTIONS} value={source} onChange={setSource} style={{ flex: 1, minWidth: 140 }} />
+        <Select<string>
+          size={size}
+          label="Status"
+          data={STATUSES}
+          value={category}
+          onChange={setCategory}
+          renderOption={({ option }) => <StatusOption value={option.value} label={option.label} />}
+          style={{ flex: 1, minWidth: 140 }}
+        />
+        <Select<string>
           size={size}
           label="Store"
           data={[{ value: 'all', label: 'All stores' }, ...stores]}
@@ -354,7 +385,7 @@ export function JobBoard({
           style={{ flex: 1, minWidth: 140 }}
         />
         {canBook && (
-          <Select
+          <Select<string>
             size={size}
             label="Worker"
             data={[
@@ -389,7 +420,7 @@ export function JobBoard({
         <TextInput size={size} type="date" label="From" value={from} onChange={(event) => setFrom(event.currentTarget.value)} />
         <TextInput size={size} type="date" label="To" value={to} onChange={(event) => setTo(event.currentTarget.value)} />
       </Group>
-      <SegmentedControl
+      <SegmentedControl<string>
         fullWidth={surface === 'phone'}
         value={view}
         onChange={setView}
@@ -419,6 +450,7 @@ export function JobBoard({
             rows={rows}
             columns={columns}
             rowKey={(row) => `${row.kind}-${row.id}`}
+            rowAccent={statusEdge}
             view={surface === 'phone' ? 'cards' : 'table'}
             renderCard={card}
             onRowClick={(row) => (row.kind === 'job' ? onOpenJob(row.id) : undefined)}
@@ -553,7 +585,9 @@ export function JobBoard({
               [
                 ['Jobs', report.total],
                 ['Not booked', report.counts.not_booked],
+                ['Unassigned', report.counts.pending],
                 ['In progress', report.counts.active + report.counts.assigned],
+                ['Arrived', report.counts.arrived],
                 ['On hold', report.counts.on_hold],
                 ['Needs attention', report.counts.failed],
                 ['Completed', report.counts.completed + report.counts.reconciled],
@@ -579,49 +613,63 @@ export function JobBoard({
             </Text>
           ))}
           {report.byStore.length > 0 && (
-            <Table striped>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Store</Table.Th>
-                  <Table.Th>Open</Table.Th>
-                  <Table.Th>Completed</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {report.byStore.map((store) => (
-                  <Table.Tr key={store.storeNumber}>
-                    <Table.Td>{store.storeNumber}</Table.Td>
-                    <Table.Td>{store.open}</Table.Td>
-                    <Table.Td>{store.completed}</Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
+            <SummaryTable rows={report.byStore} rowKey={(store) => store.storeNumber} name={{ key: 'storeNumber', title: 'Store' }} counts={STORE_COUNTS} itemWord="store" />
           )}
           {report.byWorker.length > 0 && (
-            <Table striped>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Worker</Table.Th>
-                  <Table.Th>Open</Table.Th>
-                  <Table.Th>Completed</Table.Th>
-                  <Table.Th>Failed visits</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {report.byWorker.map((worker) => (
-                  <Table.Tr key={worker.userId}>
-                    <Table.Td>{worker.name}</Table.Td>
-                    <Table.Td>{worker.open}</Table.Td>
-                    <Table.Td>{worker.completed}</Table.Td>
-                    <Table.Td>{worker.failed}</Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
+            <SummaryTable rows={report.byWorker} rowKey={(worker) => worker.userId} name={{ key: 'name', title: 'Worker' }} counts={WORKER_COUNTS} itemWord="worker" />
           )}
         </Stack>
       )}
     </Stack>
+  )
+}
+
+type StoreSummary = JobReport['byStore'][number]
+type WorkerSummary = JobReport['byWorker'][number]
+
+const STORE_COUNTS: Array<{ key: keyof StoreSummary & string; title: string }> = [
+  { key: 'open', title: 'Open' },
+  { key: 'completed', title: 'Completed' },
+]
+const WORKER_COUNTS: Array<{ key: keyof WorkerSummary & string; title: string }> = [
+  { key: 'open', title: 'Open' },
+  { key: 'completed', title: 'Completed' },
+  { key: 'failed', title: 'Failed visits' },
+]
+
+/** A report breakdown (by store, by worker): a name column and counts, sortable, busiest first. */
+function SummaryTable<T extends Record<string, string | number>>({
+  rows,
+  rowKey,
+  name,
+  counts,
+  itemWord,
+}: {
+  rows: T[]
+  rowKey: (row: T) => string
+  name: { key: keyof T & string; title: string }
+  counts: Array<{ key: keyof T & string; title: string }>
+  itemWord: string
+}) {
+  const list = useListState({ initialSort: { key: counts[0].key, dir: 'desc' } })
+  const sorters = useMemo(() => {
+    const byKey: Record<string, (row: T) => string | number> = { [name.key]: (row) => String(row[name.key]).toLowerCase() }
+    for (const count of counts) byKey[count.key] = (row) => Number(row[count.key])
+    return byKey
+  }, [name.key, counts])
+  const { items, paging } = useClientList(rows, sorters, list)
+  const columns: Array<DataColumn<T>> = [
+    { key: name.key, title: name.title, sortable: true, render: (row) => String(row[name.key]) },
+    ...counts.map((count) => ({
+      key: count.key,
+      title: count.title,
+      sortable: true,
+      firstDir: 'desc' as const,
+      align: 'right' as const,
+      render: (row: T) => Number(row[count.key]).toLocaleString(),
+    })),
+  ]
+  return (
+    <DataTable rows={items} columns={columns} rowKey={rowKey} sort={list.sort} onSortChange={list.setSort} paging={paging} itemWord={itemWord} minWidth={360} />
   )
 }

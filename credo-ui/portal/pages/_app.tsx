@@ -4,9 +4,10 @@ import "@/styles/globals.css";
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@mantine/dates/styles.css';
+import 'mantine-datatable/styles.css';
 import type { AppProps } from "next/app";
 import { AvailableCredential } from "@/types/credentials";
-import { MantineProvider, localStorageColorSchemeManager } from '@mantine/core';
+import { MantineProvider, localStorageColorSchemeManager, v8CssVariablesResolver } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { MilestoneHost } from '@/components/feedback/Milestone';
 import { credentisTheme } from '@/lib/theme/credentis-theme';
@@ -176,10 +177,12 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <MantineProvider
       theme={credentisTheme}
+      // Keeps the light-variant colours the apps were designed with in Mantine 8.
+      cssVariablesResolver={v8CssVariablesResolver}
       defaultColorScheme="light"
       colorSchemeManager={localStorageColorSchemeManager({ key: 'credentis-color-scheme' })}
     >
-      <Notifications position="top-right" limit={3} />
+      <Notifications position="top-right" limit={3} pauseResetOnHover="notification" />
       <MilestoneHost />
       <EnvContext.Provider value={env}>
         <CredentialsContext.Provider

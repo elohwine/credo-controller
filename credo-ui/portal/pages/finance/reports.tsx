@@ -116,7 +116,7 @@ const FinanceReports = () => {
       <div className="px-6 py-4 flex justify-between items-center" style={{ backgroundColor: BRAND.linkWater }}>
         <div className="flex items-center gap-3">
           <ChartBarIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-          <h2 className="text-lg font-semibold" style={{ color: BRAND.dark }}>Income Statement</h2>
+          <h2 className="text-lg font-semibold" style={{ color: BRAND.text }}>Income Statement</h2>
         </div>
         <span className="text-xs font-mono px-2 py-1 rounded" style={{ backgroundColor: 'white', color: BRAND.curious }}>{report.statementId}</span>
       </div>
@@ -129,7 +129,7 @@ const FinanceReports = () => {
           {/* Revenue Section */}
           <div className="p-3 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
             <div className="flex justify-between text-lg">
-              <span className="font-medium" style={{ color: BRAND.dark }}>Revenue</span>
+              <span className="font-medium" style={{ color: BRAND.text }}>Revenue</span>
               <span className="font-bold text-green-700">{formatCurrency(report.revenue)}</span>
             </div>
           </div>
@@ -142,7 +142,7 @@ const FinanceReports = () => {
 
           {/* Gross Profit */}
           <div className="flex justify-between border-t pt-2">
-            <span className="font-medium" style={{ color: BRAND.dark }}>Gross Profit</span>
+            <span className="font-medium" style={{ color: BRAND.text }}>Gross Profit</span>
             <span className="font-semibold">{formatCurrency(report.grossProfit)}</span>
           </div>
 
@@ -160,7 +160,7 @@ const FinanceReports = () => {
 
           {/* Operating Income */}
           <div className="flex justify-between border-t pt-2">
-            <span className="font-medium" style={{ color: BRAND.dark }}>Operating Income</span>
+            <span className="font-medium" style={{ color: BRAND.text }}>Operating Income</span>
             <span className="font-semibold">{formatCurrency(report.operatingIncome)}</span>
           </div>
 
@@ -183,7 +183,7 @@ const FinanceReports = () => {
       <div className="px-6 py-4 flex justify-between items-center" style={{ backgroundColor: BRAND.linkWater }}>
         <div className="flex items-center gap-3">
           <ClipboardDocumentListIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-          <h2 className="text-lg font-semibold" style={{ color: BRAND.dark }}>Balance Sheet</h2>
+          <h2 className="text-lg font-semibold" style={{ color: BRAND.text }}>Balance Sheet</h2>
         </div>
         <span className="text-xs font-mono px-2 py-1 rounded" style={{ backgroundColor: 'white', color: BRAND.curious }}>{report.statementId}</span>
       </div>
@@ -193,7 +193,7 @@ const FinanceReports = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Assets */}
           <div>
-            <h3 className="font-bold text-lg mb-3 pb-2 border-b" style={{ color: BRAND.dark, borderColor: BRAND.viking }}>ASSETS</h3>
+            <h3 className="font-bold text-lg mb-3 pb-2 border-b" style={{ color: BRAND.text, borderColor: BRAND.viking }}>ASSETS</h3>
 
             <div className="mb-4">
               <h4 className="font-medium text-gray-600 mb-2">Current Assets</h4>
@@ -221,7 +221,7 @@ const FinanceReports = () => {
 
             <div className="p-3 rounded-lg font-bold text-lg" style={{ backgroundColor: BRAND.linkWater }}>
               <div className="flex justify-between">
-                <span style={{ color: BRAND.dark }}>TOTAL ASSETS</span>
+                <span style={{ color: BRAND.text }}>TOTAL ASSETS</span>
                 <span style={{ color: BRAND.curious }}>{formatCurrency(report.totalAssets)}</span>
               </div>
             </div>
@@ -229,7 +229,7 @@ const FinanceReports = () => {
 
           {/* Liabilities & Equity */}
           <div>
-            <h3 className="font-bold text-lg mb-3 pb-2 border-b" style={{ color: BRAND.dark, borderColor: BRAND.viking }}>LIABILITIES & EQUITY</h3>
+            <h3 className="font-bold text-lg mb-3 pb-2 border-b" style={{ color: BRAND.text, borderColor: BRAND.viking }}>LIABILITIES & EQUITY</h3>
 
             <div className="mb-4">
               <h4 className="font-medium text-gray-600 mb-2">Current Liabilities</h4>
@@ -268,7 +268,7 @@ const FinanceReports = () => {
 
             <div className="p-3 rounded-lg font-bold text-lg" style={{ backgroundColor: BRAND.linkWater }}>
               <div className="flex justify-between">
-                <span style={{ color: BRAND.dark }}>TOTAL L + E</span>
+                <span style={{ color: BRAND.text }}>TOTAL L + E</span>
                 <span style={{ color: BRAND.curious }}>{formatCurrency(report.totalLiabilities + report.totalEquity)}</span>
               </div>
             </div>
@@ -283,7 +283,7 @@ const FinanceReports = () => {
       <div className="px-6 py-4 flex justify-between items-center" style={{ backgroundColor: BRAND.linkWater }}>
         <div className="flex items-center gap-3">
           <BanknotesIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-          <h2 className="text-lg font-semibold" style={{ color: BRAND.dark }}>Cash Flow Statement</h2>
+          <h2 className="text-lg font-semibold" style={{ color: BRAND.text }}>Cash Flow Statement</h2>
         </div>
         <span className="text-xs font-mono px-2 py-1 rounded" style={{ backgroundColor: 'white', color: BRAND.curious }}>{report.statementId}</span>
       </div>
@@ -295,7 +295,7 @@ const FinanceReports = () => {
         <div className="space-y-6">
           {/* Operating Activities */}
           <div>
-            <h3 className="font-bold mb-2" style={{ color: BRAND.dark }}>Operating Activities</h3>
+            <h3 className="font-bold mb-2" style={{ color: BRAND.text }}>Operating Activities</h3>
             <div className="pl-4 space-y-1 text-sm">
               <div className="flex justify-between"><span>Net Income</span><span>{formatCurrency(report.netIncome)}</span></div>
               <div className="flex justify-between"><span>Add: Depreciation</span><span>{formatCurrency(report.depreciation)}</span></div>
@@ -309,7 +309,7 @@ const FinanceReports = () => {
 
           {/* Investing Activities */}
           <div>
-            <h3 className="font-bold mb-2" style={{ color: BRAND.dark }}>Investing Activities</h3>
+            <h3 className="font-bold mb-2" style={{ color: BRAND.text }}>Investing Activities</h3>
             <div className="pl-4 space-y-1 text-sm">
               <div className="flex justify-between"><span>Capital Expenditures</span><span className="text-red-600">({formatCurrency(Math.abs(report.capitalExpenditures))})</span></div>
               <div className="flex justify-between"><span>Asset Sales</span><span>{formatCurrency(report.assetSales)}</span></div>
@@ -322,7 +322,7 @@ const FinanceReports = () => {
 
           {/* Financing Activities */}
           <div>
-            <h3 className="font-bold mb-2" style={{ color: BRAND.dark }}>Financing Activities</h3>
+            <h3 className="font-bold mb-2" style={{ color: BRAND.text }}>Financing Activities</h3>
             <div className="pl-4 space-y-1 text-sm">
               <div className="flex justify-between"><span>Debt Proceeds</span><span>{formatCurrency(report.debtProceeds)}</span></div>
               <div className="flex justify-between"><span>Debt Repayments</span><span className="text-red-600">({formatCurrency(Math.abs(report.debtRepayments))})</span></div>
@@ -337,7 +337,7 @@ const FinanceReports = () => {
           {/* Summary */}
           <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
             <div className="flex justify-between mb-2">
-              <span className="font-medium" style={{ color: BRAND.dark }}>Beginning Cash</span>
+              <span className="font-medium" style={{ color: BRAND.text }}>Beginning Cash</span>
               <span>{formatCurrency(report.beginningCash)}</span>
             </div>
             <div className="flex justify-between mb-2 text-lg" style={{ color: report.netCashFlow >= 0 ? 'green' : 'red' }}>
@@ -345,7 +345,7 @@ const FinanceReports = () => {
               <span className="font-bold">{formatCurrency(report.netCashFlow)}</span>
             </div>
             <div className="flex justify-between text-xl pt-2 border-t" style={{ borderColor: BRAND.curious }}>
-              <span className="font-bold" style={{ color: BRAND.dark }}>Ending Cash</span>
+              <span className="font-bold" style={{ color: BRAND.text }}>Ending Cash</span>
               <span className="font-bold" style={{ color: BRAND.curious }}>{formatCurrency(report.endingCash)}</span>
             </div>
           </div>
@@ -357,13 +357,13 @@ const FinanceReports = () => {
   return (
     <Layout>
       <Head>
-        <title>Financial Statements | {PRODUCT_NAME} Portal</title>
+        <title>{`Financial Statements | ${PRODUCT_NAME} Portal`}</title>
       </Head>
       <div className="px-4 sm:px-6 lg:px-8 py-6">
         {/* Header */}
         <div className="sm:flex sm:items-center sm:justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold" style={{ color: BRAND.dark }}>Financial Statements</h1>
+            <h1 className="text-3xl font-bold" style={{ color: BRAND.text }}>Financial Statements</h1>
             <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>Generate verifiable financial reports with SSI credentials</p>
           </div>
         </div>
@@ -380,7 +380,7 @@ const FinanceReports = () => {
                 <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}>
                   <span className="text-white">{stat.icon}</span>
                 </div>
-                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.dark }}>{stat.label}</p>
+                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.text }}>{stat.label}</p>
               </dt>
               <dd className="ml-16 flex items-baseline">
                 <p className="text-sm text-gray-500">{stat.desc}</p>
@@ -417,7 +417,7 @@ const FinanceReports = () => {
           <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
             <div className="flex items-center gap-3">
               <CalendarIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-              <h2 className="text-lg font-semibold" style={{ color: BRAND.dark }}>
+              <h2 className="text-lg font-semibold" style={{ color: BRAND.text }}>
                 {activeTab === 'balance' ? 'Select Date' : 'Select Period'}
               </h2>
             </div>
@@ -427,7 +427,7 @@ const FinanceReports = () => {
               {activeTab !== 'balance' && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>Start Date</label>
+                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Start Date</label>
                     <input
                       type="date"
                       value={startDate}
@@ -437,7 +437,7 @@ const FinanceReports = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>End Date</label>
+                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>End Date</label>
                     <input
                       type="date"
                       value={endDate}
@@ -450,7 +450,7 @@ const FinanceReports = () => {
               )}
               {activeTab === 'balance' && (
                 <div>
-                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.dark }}>As of Date</label>
+                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>As of Date</label>
                   <input
                     type="date"
                     value={asOfDate}
@@ -486,7 +486,7 @@ const FinanceReports = () => {
               <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
                 <div className="flex items-center gap-3">
                   <TicketIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                  <h3 className="text-lg font-semibold" style={{ color: BRAND.dark }}>Issue Verifiable Credential</h3>
+                  <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>Issue Verifiable Credential</h3>
                 </div>
               </div>
               <div className="p-6">

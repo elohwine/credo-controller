@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Box, Center, Group, Loader, Pagination, Select, Stack, Table, Text, UnstyledButton } from '@mantine/core'
-import { IconArrowDown, IconArrowUp, IconSelector } from '@tabler/icons-react'
+import { Box, Center, Group, Loader, Pagination, Select, Stack, Text } from '@mantine/core'
+import { DataTable as MantineDataTable, type DataTableSortStatus } from 'mantine-datatable'
 
 import {
   DEFAULT_PAGE_SIZE,
@@ -13,7 +13,7 @@ import {
 } from '../../src/config/listPage'
 
 /**
- * One list component for both apps: a table on a wide screen, cards on a phone, with sorting,
+ * One list component for both apps, built on mantine-datatable: a table on a wide screen, cards on a phone, with sorting,
  * pages and a count of everything that matched. Long lists (imports, the jobs mailbox) are paged
  * by the API and only one page is on screen; short lists already loaded are paged here with
  * `useClientList`, through the same helpers the API uses.
@@ -92,30 +92,6 @@ export function useClientList<T>(rows: T[], sorters: Record<string, SortValue<T>
   }
 }
 
-const stickyCell: React.CSSProperties = {
-  position: 'sticky',
-  left: 0,
-  zIndex: 1,
-  background: 'var(--mantine-color-body)',
-  boxShadow: '1px 0 0 var(--mantine-color-default-border)',
-}
-
-function SortHeader({ column, sort, onSortChange }: { column: DataColumn<any>; sort?: ListSort | null; onSortChange?: (sort: ListSort) => void }) {
-  if (!column.sortable || !onSortChange) return <>{column.title}</>
-  const active = sort?.key === column.key
-  const Icon = !active ? IconSelector : sort?.dir === 'asc' ? IconArrowUp : IconArrowDown
-  const next: SortDirection = active ? (sort?.dir === 'asc' ? 'desc' : 'asc') : column.firstDir || 'asc'
-  return (
-    <UnstyledButton
-      onClick={() => onSortChange({ key: column.key, dir: next })}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, font: 'inherit', fontWeight: 'inherit', minHeight: 32 }}
-    >
-      <span>{column.title}</span>
-      <Icon size={14} stroke={1.5} style={{ opacity: active ? 1 : 0.45, flexShrink: 0 }} />
-    </UnstyledButton>
-  )
-}
-
 /** "1–50 of 1,234 jobs" with page buttons and a page size. Hidden when everything fits on one page. */
 export function DataPager({ paging, itemWord = 'item', compact = false }: { paging: DataPaging; itemWord?: string; compact?: boolean }) {
   const { offset, limit, total, onChange } = paging
@@ -162,6 +138,7 @@ export function DataTable<T>({
   rows,
   columns,
   rowKey,
+  rowAccent,
   view = 'table',
   renderCard,
   onRowClick,
@@ -178,6 +155,8 @@ export function DataTable<T>({
   rows: T[]
   columns: Array<DataColumn<T>>
   rowKey: (row: T) => string
+  /** A CSS colour drawn as a bar on the row's left edge (for example the status colour). */
+  rowAccent?: (row: T) => string | undefined
   /** Cards suit a phone and short lists; the table suits a wide screen and many rows. */
   view?: 'table' | 'cards'
   renderCard?: (row: T) => React.ReactNode
@@ -199,81 +178,99 @@ export function DataTable<T>({
   if (loading && rows.length === 0) return <Center py="xl"><Loader /></Center>
   if (total === 0 && rows.length === 0) return typeof empty === 'string' ? <Text c="dimmed" size="sm">{empty}</Text> : <Box>{empty}</Box>
 
-  const pager = paging ? <DataPager paging={paging} itemWord={itemWord} compact={compact} /> : null
-
   if (view === 'cards' && renderCard) {
     return (
       <Stack gap="sm">
         {rows.map((row) => (
           <React.Fragment key={rowKey(row)}>{renderCard(row)}</React.Fragment>
         ))}
-        {pager}
+        {paging ? <DataPager paging={paging} itemWord={itemWord} compact={compact} /> : null}
       </Stack>
     )
   }
 
-  const onKey = (row: T) => (event: React.KeyboardEvent) => {
-    if (!onRowClick) return
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      onRowClick(row)
-    }
-  }
+  const word = (count: number) => (itemWord ? ` ${count === 1 ? itemWord : `${itemWord}s`}` : '')
+  const sortProps = onSortChange
+    ? {
+        sortStatus: { columnAccessor: sort?.key ?? '', direction: sort?.dir ?? 'asc' } as DataTableSortStatus<T>,
+        onSortStatusChange: (status: DataTableSortStatus<T>) => {
+          const key = String(status.columnAccessor)
+          const column = columns.find((c) => c.key === key)
+          // A newly chosen column opens in its own first direction (dates and amounts newest first).
+          onSortChange({ key, dir: key === sort?.key ? status.direction : column?.firstDir || 'asc' })
+        },
+      }
+    : {}
+  const pagingProps = paging
+    ? {
+        page: Math.floor(paging.offset / paging.limit) + 1,
+        onPageChange: (page: number) => paging.onChange((page - 1) * paging.limit, paging.limit),
+        totalRecords: paging.total,
+        recordsPerPage: paging.limit,
+        recordsPerPageOptions: [...LIST_PAGE_SIZES],
+        onRecordsPerPageChange: (size: number) => paging.onChange(0, size),
+        recordsPerPageLabel: 'Rows per page',
+        paginationText: ({ from, to, totalRecords }: { from: number; to: number; totalRecords: number }) =>
+          totalRecords <= paging.limit
+            ? `${totalRecords.toLocaleString()}${word(totalRecords)}`
+            : `${from.toLocaleString()}–${to.toLocaleString()} of ${totalRecords.toLocaleString()}${word(totalRecords)}`,
+        paginationSize: (compact ? 'md' : 'sm') as 'md' | 'sm',
+      }
+    : {}
 
   return (
-    <Box>
-      <Table.ScrollContainer minWidth={minWidth} type="native">
-        <Table striped highlightOnHover withTableBorder stickyHeader verticalSpacing="xs" horizontalSpacing="sm" fz="sm">
-          <Table.Thead>
-            <Table.Tr>
-              {columns.map((column) => (
-                <Table.Th
-                  key={column.key}
-                  ta={column.align}
-                  aria-sort={sort?.key === column.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
-                  style={{
-                    ...(column.sticky ? { ...stickyCell, zIndex: 2, maxWidth: column.maxWidth ?? 200 } : {}),
-                    minWidth: column.minWidth,
-                    whiteSpace: column.nowrap ? 'nowrap' : undefined,
-                  }}
-                >
-                  <SortHeader column={column} sort={sort} onSortChange={onSortChange} />
-                </Table.Th>
-              ))}
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {rows.map((row) => (
-              <Table.Tr
-                key={rowKey(row)}
-                role={onRowClick ? 'button' : undefined}
-                tabIndex={onRowClick ? 0 : undefined}
-                aria-label={rowLabel?.(row)}
-                onClick={onRowClick ? () => onRowClick(row) : undefined}
-                onKeyDown={onKey(row)}
-                style={{ cursor: onRowClick ? 'pointer' : 'default', opacity: loading ? 0.6 : 1 }}
-              >
-                {columns.map((column) => (
-                  <Table.Td
-                    key={column.key}
-                    ta={column.align}
-                    style={{
-                      ...(column.sticky ? { ...stickyCell, maxWidth: column.maxWidth ?? 200 } : {}),
-                      minWidth: column.minWidth,
-                      maxWidth: column.sticky ? undefined : column.maxWidth,
-                      whiteSpace: column.nowrap ? 'nowrap' : undefined,
-                      fontVariantNumeric: column.align === 'right' ? 'tabular-nums' : undefined,
-                    }}
-                  >
-                    {column.render(row)}
-                  </Table.Td>
-                ))}
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-      </Table.ScrollContainer>
-      {pager}
-    </Box>
+    <MantineDataTable<T>
+      records={rows}
+      idAccessor={(row: T) => rowKey(row)}
+      columns={columns.map((column, index) => ({
+        accessor: column.key,
+        title: column.title,
+        render: (row: T) => column.render(row),
+        sortable: Boolean(column.sortable && onSortChange),
+        textAlign: column.align,
+        // mantine-datatable's noWrap clips with an ellipsis; nowrap here keeps the whole value and widens the column.
+        titleStyle: { minWidth: column.minWidth, whiteSpace: column.nowrap ? 'nowrap' : undefined },
+        cellsStyle: (row: T) => {
+          // An inset shadow on the first cell stays put when that column is pinned; a row border would not.
+          const accent = index === 0 ? rowAccent?.(row) : undefined
+          return {
+            minWidth: column.minWidth,
+            whiteSpace: column.nowrap ? 'nowrap' : undefined,
+            maxWidth: column.maxWidth ?? (column.sticky ? 200 : undefined),
+            fontVariantNumeric: column.align === 'right' ? 'tabular-nums' : undefined,
+            boxShadow: accent ? `inset 4px 0 0 ${accent}` : undefined,
+          }
+        },
+      }))}
+      pinFirstColumn={Boolean(columns[0]?.sticky)}
+      fetching={loading}
+      striped
+      highlightOnHover
+      withTableBorder
+      borderRadius="sm"
+      verticalSpacing="xs"
+      horizontalSpacing="sm"
+      fz="sm"
+      minHeight={rows.length ? undefined : 120}
+      styles={{ table: { minWidth } }}
+      onRowClick={onRowClick ? ({ record }) => onRowClick(record) : undefined}
+      customRowAttributes={
+        onRowClick
+          ? (row: T) => ({
+              role: 'button',
+              tabIndex: 0,
+              'aria-label': rowLabel?.(row),
+              onKeyDown: (event: React.KeyboardEvent) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  onRowClick(row)
+                }
+              },
+            })
+          : undefined
+      }
+      {...(sortProps as Record<string, unknown>)}
+      {...(pagingProps as Record<string, unknown>)}
+    />
   )
 }

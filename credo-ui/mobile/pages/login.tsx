@@ -226,7 +226,7 @@ export default function LoginPage() {
         <Stack gap="lg" className="login-main">
           {!guiding && <Stack gap={6} ta="center">
             <Title order={1} size="h2">{tab === 'login' ? 'Welcome back' : 'Create your account'}</Title>
-            {tab === 'login' && <Text c="dimmed" size="sm">Sign in to your wallet.</Text>}
+            {tab === 'login' && <Text c="dimmed" size="sm">Sign in to see your jobs.</Text>}
           </Stack>}
             {error && <ErrorAlert message={error} />}
 

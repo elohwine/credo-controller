@@ -21,6 +21,7 @@ const BRAND = {
     viking: '#6FB4DC',
     cornflower: '#88C4E3',
     dark: '#0A3D5C',
+    text: 'var(--brand-text)',
 };
 
 interface Payslip {
@@ -168,7 +169,7 @@ export default function PayrollRunDetailPage() {
                     </Link>
                     <div className="sm:flex sm:items-center sm:justify-between">
                         <div>
-                            <h1 className="text-3xl font-bold flex items-center gap-3" style={{ color: BRAND.dark }}>
+                            <h1 className="text-3xl font-bold flex items-center gap-3" style={{ color: BRAND.text }}>
                                 Payroll Run: {run.period}
                                 <StatusBadge status={run.status} />
                             </h1>
@@ -199,7 +200,7 @@ export default function PayrollRunDetailPage() {
                                 <CurrencyDollarIcon className="h-6 w-6 text-white" />
                             </div>
                             <div>
-                                <p className="text-sm font-medium" style={{ color: BRAND.dark }}>Total Gross</p>
+                                <p className="text-sm font-medium" style={{ color: BRAND.text }}>Total Gross</p>
                                 <p className="text-2xl font-bold" style={{ color: BRAND.curious }}>{formatCurrency(run.totalGross)}</p>
                             </div>
                         </div>
@@ -212,7 +213,7 @@ export default function PayrollRunDetailPage() {
                                 <CurrencyDollarIcon className="h-6 w-6 text-white" />
                             </div>
                             <div>
-                                <p className="text-sm font-medium" style={{ color: BRAND.dark }}>Total Net</p>
+                                <p className="text-sm font-medium" style={{ color: BRAND.text }}>Total Net</p>
                                 <p className="text-2xl font-bold text-green-600">{formatCurrency(run.totalNet)}</p>
                             </div>
                         </div>
@@ -225,7 +226,7 @@ export default function PayrollRunDetailPage() {
                                 <BuildingLibraryIcon className="h-6 w-6 text-white" />
                             </div>
                             <div>
-                                <p className="text-sm font-medium" style={{ color: BRAND.dark }}>Total Deductions</p>
+                                <p className="text-sm font-medium" style={{ color: BRAND.text }}>Total Deductions</p>
                                 <p className="text-2xl font-bold text-orange-600">{formatCurrency(totalDeductions)}</p>
                             </div>
                         </div>
@@ -238,8 +239,8 @@ export default function PayrollRunDetailPage() {
                                 <UserIcon className="h-6 w-6 text-white" />
                             </div>
                             <div>
-                                <p className="text-sm font-medium" style={{ color: BRAND.dark }}>Employees</p>
-                                <p className="text-2xl font-bold" style={{ color: BRAND.dark }}>{payslips.length}</p>
+                                <p className="text-sm font-medium" style={{ color: BRAND.text }}>Employees</p>
+                                <p className="text-2xl font-bold" style={{ color: BRAND.text }}>{payslips.length}</p>
                             </div>
                         </div>
                     </div>
@@ -247,23 +248,23 @@ export default function PayrollRunDetailPage() {
 
                 {/* Statutory Breakdown */}
                 <div className="rounded-xl shadow-sm p-6 mb-8 bg-white border border-gray-200">
-                    <h2 className="text-lg font-semibold mb-4" style={{ color: BRAND.dark }}>Statutory Deductions Breakdown</h2>
+                    <h2 className="text-lg font-semibold mb-4" style={{ color: BRAND.text }}>Statutory Deductions Breakdown</h2>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
                             <div className="flex justify-between items-center">
-                                <span className="text-sm font-medium" style={{ color: BRAND.dark }}>NSSA (4.5%)</span>
+                                <span className="text-sm font-medium" style={{ color: BRAND.text }}>NSSA (4.5%)</span>
                                 <span className="font-semibold" style={{ color: BRAND.curious }}>{formatCurrency(run.totalNssa || 0)}</span>
                             </div>
                         </div>
                         <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
                             <div className="flex justify-between items-center">
-                                <span className="text-sm font-medium" style={{ color: BRAND.dark }}>PAYE (Tax)</span>
+                                <span className="text-sm font-medium" style={{ color: BRAND.text }}>PAYE (Tax)</span>
                                 <span className="font-semibold" style={{ color: BRAND.curious }}>{formatCurrency(run.totalPaye || 0)}</span>
                             </div>
                         </div>
                         <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
                             <div className="flex justify-between items-center">
-                                <span className="text-sm font-medium" style={{ color: BRAND.dark }}>AIDS Levy (3%)</span>
+                                <span className="text-sm font-medium" style={{ color: BRAND.text }}>AIDS Levy (3%)</span>
                                 <span className="font-semibold" style={{ color: BRAND.curious }}>{formatCurrency(run.totalAidsLevy || 0)}</span>
                             </div>
                         </div>
@@ -278,7 +279,7 @@ export default function PayrollRunDetailPage() {
                                 <DocumentCheckIcon className="h-6 w-6 text-white" />
                             </div>
                             <div>
-                                <h3 className="font-semibold" style={{ color: BRAND.dark }}>PayrollRunVC Issued</h3>
+                                <h3 className="font-semibold" style={{ color: BRAND.text }}>PayrollRunVC Issued</h3>
                                 <p className="text-sm font-mono text-gray-500">{run.runVcId}</p>
                             </div>
                             <CheckCircleIcon className="h-8 w-8 text-green-500 ml-auto" />
@@ -289,7 +290,7 @@ export default function PayrollRunDetailPage() {
                 {/* Payslips Table */}
                 <div className="rounded-xl shadow ring-1 ring-black ring-opacity-5 overflow-hidden">
                     <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
-                        <h2 className="text-lg font-semibold" style={{ color: BRAND.dark }}>Individual Payslips</h2>
+                        <h2 className="text-lg font-semibold" style={{ color: BRAND.text }}>Individual Payslips</h2>
                     </div>
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">

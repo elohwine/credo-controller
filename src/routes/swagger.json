@@ -17909,6 +17909,7 @@
           "pending",
           "assigned",
           "active",
+          "arrived",
           "on_hold",
           "failed",
           "completed",
@@ -19018,6 +19019,10 @@
             "type": "number",
             "format": "double"
           },
+          "arrived": {
+            "type": "number",
+            "format": "double"
+          },
           "on_hold": {
             "type": "number",
             "format": "double"
@@ -19038,6 +19043,7 @@
           "cancelled",
           "assigned",
           "active",
+          "arrived",
           "on_hold",
           "reconciled",
           "not_booked"

@@ -61,7 +61,7 @@ export default function RevocationPage() {
             <div className="px-4 sm:px-6 lg:px-8 py-6">
                 <div className="sm:flex sm:items-center sm:justify-between mb-8">
                     <div>
-                        <h1 className="text-3xl font-bold" style={{ color: BRAND.dark }}>Credential Revocation</h1>
+                        <h1 className="text-3xl font-bold" style={{ color: BRAND.text }}>Credential Revocation</h1>
                         <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>
                             Manage and revoke issued credentials
                         </p>
@@ -80,10 +80,10 @@ export default function RevocationPage() {
                                 <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}>
                                     <span className="text-white">{stat.icon}</span>
                                 </div>
-                                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.dark }}>{stat.label}</p>
+                                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.text }}>{stat.label}</p>
                             </dt>
                             <dd className="ml-16 flex items-baseline">
-                                <p className="text-2xl font-semibold" style={{ color: BRAND.dark }}>{stat.value}</p>
+                                <p className="text-2xl font-semibold" style={{ color: BRAND.text }}>{stat.value}</p>
                             </dd>
                         </div>
                     ))}
@@ -105,18 +105,18 @@ export default function RevocationPage() {
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead style={{ backgroundColor: BRAND.linkWater }}>
                             <tr>
-                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Credential ID</th>
-                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Type</th>
-                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Subject</th>
-                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Issued At</th>
-                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Status</th>
-                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.dark }}>Actions</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Credential ID</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Type</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Subject</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Issued At</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Status</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200 bg-white">
                             {filteredCredentials.map((cred) => (
                                 <tr key={cred.id} className="hover:bg-gray-50 transition-colors">
-                                    <td className="px-6 py-4 text-sm font-mono" style={{ color: BRAND.dark }}>{cred.id.substring(0, 16)}...</td>
+                                    <td className="px-6 py-4 text-sm font-mono" style={{ color: BRAND.text }}>{cred.id.substring(0, 16)}...</td>
                                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{cred.type}</td>
                                     <td className="px-6 py-4 text-sm text-gray-500">{cred.subjectId}</td>
                                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{new Date(cred.issuedAt).toLocaleDateString()}</td>

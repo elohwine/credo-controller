@@ -88,7 +88,7 @@ export default function CredentialOfferCard({
             {/* Finance Result (for Quote/Invoice/Receipt) */}
             {financeResult && (
                 <div className="rounded-lg p-4 mb-6" style={{ backgroundColor: BRAND.linkWater }}>
-                    <h4 className="text-sm font-semibold mb-2" style={{ color: BRAND.dark }}>Calculation</h4>
+                    <h4 className="text-sm font-semibold mb-2" style={{ color: BRAND.text }}>Calculation</h4>
                     <dl className="space-y-1 text-sm">
                         {financeResult.subtotal && (
                             <div className="flex justify-between">
@@ -110,8 +110,8 @@ export default function CredentialOfferCard({
                         )}
                         {financeResult.grandTotal && (
                             <div className="flex justify-between font-bold border-t pt-2 mt-2">
-                                <dt style={{ color: BRAND.dark }}>Total:</dt>
-                                <dd className="font-mono" style={{ color: BRAND.dark }}>{financeResult.grandTotal}</dd>
+                                <dt style={{ color: BRAND.text }}>Total:</dt>
+                                <dd className="font-mono" style={{ color: BRAND.text }}>{financeResult.grandTotal}</dd>
                             </div>
                         )}
                     </dl>

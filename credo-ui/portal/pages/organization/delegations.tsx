@@ -266,7 +266,7 @@ export default function OrganizationDelegationsPage() {
             onChange={(v) => setDelegatorUserId(v || '')}
             searchable
             required
-            nothingFoundMessage="No team members yet. Invite them under People first."
+            nothingFoundMessage="No team members yet. Invite them under HR operations."
           />
           <Select
             label="Who stands in for them?"
@@ -276,7 +276,7 @@ export default function OrganizationDelegationsPage() {
             onChange={(v) => setDelegateUserId(v || '')}
             searchable
             required
-            nothingFoundMessage="No team members yet. Invite them under People first."
+            nothingFoundMessage="No team members yet. Invite them under HR operations."
           />
           <MultiSelect
             label="What can they do on their behalf?"

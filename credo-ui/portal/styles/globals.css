@@ -101,3 +101,16 @@ body {
   font-size: 13px;
   font-weight: 600;
 }
+
+/* Brand heading colour: dark blue on light, soft blue on dark (BRAND.text). */
+:root {
+  --brand-text: #0A3D5C;
+}
+[data-mantine-color-scheme='dark'] {
+  --brand-text: #88C4E3;
+}
+
+/* Mantine 9 sizes a badge a pixel or two short for some words; in a table cell the whole word must show. */
+.mantine-datatable .mantine-Badge-label {
+  overflow: visible;
+}

@@ -19,6 +19,7 @@ import api, { safeArray } from '@/lib/api';
 import { appHref } from '@/lib/appPath';
 import { getActiveOrgLabel, getContextMode, getPreferredToken, getUserRole } from '@/lib/auth';
 import { contactAppLabel, contactAppStatus, contactInviteUrl } from '@/lib/contactAvailability';
+import { CONTACT_SCOPE_FILTERS, contactScopeDescription, contactScopeLabel } from '../../shared/contactScope';
 
 interface Contact {
   id: string;
@@ -332,7 +333,7 @@ export default function ContactsPage() {
         {/* Header */}
         <Box px="md" pt="md" pb="sm">
           <Group justify="space-between" align="center" mb="sm">
-            <Title order={1} fw={700} style={{ fontSize: 36, lineHeight: 1.05 }}>Trusted network</Title>
+            <Title order={1} fw={700} style={{ fontSize: 36, lineHeight: 1.05 }}>Network</Title>
             <ActionIcon variant="subtle" color="gray" size="lg" onClick={fetchContacts} loading={loading}>
               <IconRefresh size={18} />
             </ActionIcon>
@@ -341,11 +342,20 @@ export default function ContactsPage() {
           <Group gap={8} mb="sm">
             <Badge variant="light" color={isOrgContext ? 'teal' : 'indigo'}>
               {mounted
-                ? (isOrgContext ? `Org: ${activeOrgLabel || 'Current org'}` : 'Trusted people and services')
-                : 'Trusted network'}
+                ? (isOrgContext ? `Org: ${activeOrgLabel || 'Current org'}` : 'People and services you work with')
+                : 'Network'}
             </Badge>
             <Badge variant="outline" color="gray">{contacts.length} total</Badge>
           </Group>
+
+          <Text size="xs" c="dimmed" mb="sm">
+            Team contacts are separate from clients, customers, suppliers and other external contacts. Manage employee details and staff access under HR operations.
+          </Text>
+          {isOrgContext && (
+            <Button size="xs" variant="light" mb="sm" onClick={() => void router.push('/people')}>
+              Manage team in HR operations
+            </Button>
+          )}
 
           <SegmentedControl
             fullWidth
@@ -353,11 +363,7 @@ export default function ContactsPage() {
             radius="md"
             value={scopeFilter}
             onChange={(value) => setScopeFilter(value as 'all' | 'internal' | 'external')}
-            data={[
-              { label: 'All', value: 'all' },
-              { label: 'On the team', value: 'internal' },
-              { label: 'Outside', value: 'external' },
-            ]}
+            data={CONTACT_SCOPE_FILTERS.map((item) => ({ label: item.label, value: item.value }))}
             mb="sm"
           />
 
@@ -392,7 +398,7 @@ export default function ContactsPage() {
                     <Group gap={6} mb={2} wrap="nowrap">
                       <Text fw={600} size="sm" truncate>{contact.name}</Text>
                       <Badge size="xs" color={contact.contactScope === 'internal' ? 'indigo' : 'teal'} variant="light">
-                        {contact.contactScope === 'internal' ? 'On the team' : 'Outside'}
+                        {contactScopeLabel(contact.contactScope)}
                       </Badge>
                       {contact.sourceType !== 'membership-org' && contactAppStatus(contact.appStatus) === 'in_app' && (
                         <Badge size="xs" color="green" variant="light">In the app</Badge>
@@ -622,22 +628,24 @@ export default function ContactsPage() {
       {/* Create Contact Drawer */}
       <BottomSheet
         opened={showCreate} onClose={() => setShowCreate(false)}
-        title="Add Contact"
+        title="Add network contact"
       >
         <Stack gap="md" pb="lg">
           <TextInput label="Name" required value={createForm.name} onChange={e => setCreateForm({ ...createForm, name: e.currentTarget.value })} />
           <PhoneField surface="phone" label="Phone" value={createForm.phone} onChange={(phone) => setCreateForm({ ...createForm, phone })} />
           <TextInput label="Email" value={createForm.email} onChange={e => setCreateForm({ ...createForm, email: e.currentTarget.value })} />
           <Select
-            label="Who they are"
+            label="Relationship"
             value={createForm.contactScope}
             onChange={(value) => setCreateForm({ ...createForm, contactScope: (value as 'internal' | 'external') || 'external' })}
             data={[
-              { value: 'external', label: 'Outside contact' },
-              { value: 'internal', label: 'On the team' },
+              { value: 'external', label: 'Client, customer, supplier or other external contact' },
+              { value: 'internal', label: 'Team member' },
             ]}
           />
-          <Text size="xs" c="dimmed">Saving them does not put them in the app. If this phone has not signed up, the list shows Invite.</Text>
+          <Text size="xs" c="dimmed">
+            {contactScopeDescription(createForm.contactScope)} Saving a contact does not create employee details. If this phone has not signed up, the list shows Invite.
+          </Text>
           <Button fullWidth onClick={handleCreateContact} loading={creating} disabled={!createForm.name}>Save Contact</Button>
         </Stack>
       </BottomSheet>
