@@ -1,0 +1,72 @@
+# SGK on Render. Drawn from fly.toml (API) and credo-ui/portal/fly.toml (portal).
+# The phone app is not here. It ships as an APK pointed at these two addresses.
+# Sign in as kelvin.mupungu@ldkgroup.co.uk before applying this file.
+# Render has no Johannesburg region; Frankfurt is the closest.
+# The API disk attaches to one instance, so the API stays at one instance.
+
+services:
+  - type: web
+    name: ldk-sgk-api
+    runtime: docker
+    repo: https://github.com/elohwine/credo-controller
+    branch: sgk-jobs
+    region: frankfurt
+    plan: 1c-2g
+    numInstances: 1
+    dockerfilePath: ./deploy/render/Dockerfile.api
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    disk:
+      name: sgk-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUBLIC_BASE_URL
+        value: https://ldk-sgk-api.onrender.com
+      - key: PORTAL_UI_URL
+        value: https://ldk-sgk-portal.onrender.com
+      - key: PERSISTENCE_DB_PATH
+        value: /data/persistence.db
+      - key: TENANT_DB_PATH
+        value: /data/tenants.db
+      - key: OIDC_DB_PATH
+        value: /data/oidc.db
+      - key: ASKAR_STORAGE_PATH
+        value: /data/askar
+      - key: WALLET_ID
+        value: sgk-controller-agent
+      - key: WALLET_KEY
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+      - key: WHATSAPP_DELIVERY_ENABLED
+        value: "false"
+
+  - type: web
+    name: ldk-sgk-portal
+    runtime: docker
+    repo: https://github.com/elohwine/credo-controller
+    branch: sgk-jobs
+    region: frankfurt
+    plan: 0.5c-512mb
+    numInstances: 1
+    dockerfilePath: ./deploy/render/Dockerfile.portal
+    dockerContext: .
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_VC_REPO
+        value: https://ldk-sgk-api.onrender.com
+      - key: NEXT_PUBLIC_BACKEND_URL
+        value: https://ldk-sgk-api.onrender.com
+      - key: NEXT_PUBLIC_ISSUER_API_BASE
+        value: https://ldk-sgk-api.onrender.com/oidc/issuer
+      - key: NEXT_PUBLIC_VERIFIER_API_BASE
+        value: https://ldk-sgk-api.onrender.com/oidc/verifier
+      - key: NEXT_PUBLIC_CREDO_API_KEY
+        value: test-api-key-12345

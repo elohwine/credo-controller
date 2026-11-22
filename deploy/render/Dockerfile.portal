@@ -1,0 +1,38 @@
+# Render portal image. Context is the repo root so shared screens and src/config resolve.
+# The phone app is not copied. NEXT_PUBLIC_* are fixed at build time (Render passes them as build args).
+
+FROM node:20-alpine AS build
+WORKDIR /repo
+COPY src/config /repo/src/config
+COPY credo-ui/shared /repo/credo-ui/shared
+WORKDIR /repo/credo-ui/portal
+COPY credo-ui/portal/package.json credo-ui/portal/package-lock.json ./
+RUN npm ci --legacy-peer-deps
+COPY credo-ui/portal ./
+
+ARG NEXT_PUBLIC_VC_REPO
+ARG NEXT_PUBLIC_BACKEND_URL
+ARG NEXT_PUBLIC_ISSUER_API_BASE
+ARG NEXT_PUBLIC_VERIFIER_API_BASE
+ARG NEXT_PUBLIC_CREDO_API_KEY=test-api-key-12345
+ENV NEXT_PUBLIC_VC_REPO=$NEXT_PUBLIC_VC_REPO \
+    NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL \
+    NEXT_PUBLIC_ISSUER_API_BASE=$NEXT_PUBLIC_ISSUER_API_BASE \
+    NEXT_PUBLIC_VERIFIER_API_BASE=$NEXT_PUBLIC_VERIFIER_API_BASE \
+    NEXT_PUBLIC_CREDO_API_KEY=$NEXT_PUBLIC_CREDO_API_KEY \
+    NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production \
+    PORT=5000 \
+    HOSTNAME=0.0.0.0
+COPY --from=build /repo/credo-ui/portal/.next/standalone ./
+# Next emits server.js at the standalone root, or under credo-ui/portal when the build traces files outside the app.
+COPY --from=build /repo/credo-ui/portal/public ./public
+COPY --from=build /repo/credo-ui/portal/.next/static ./.next/static
+COPY --from=build /repo/credo-ui/portal/public ./credo-ui/portal/public
+COPY --from=build /repo/credo-ui/portal/.next/static ./credo-ui/portal/.next/static
+EXPOSE 5000
+CMD ["sh", "-c", "if [ -f server.js ]; then exec node server.js; else exec node credo-ui/portal/server.js; fi"]

@@ -1,0 +1,68 @@
+# Render API image. Same compile as Dockerfile, then one process on $PORT.
+# Data stays on the Render disk at /data. The phone app is not in this image.
+# Local compose and Fly keep their own Dockerfiles.
+
+FROM node:24.12.0 AS base
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    python3 \
+    python3-pip \
+    pkg-config \
+    libssl-dev \
+    cmake \
+    git \
+    curl \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+FROM base AS dependencies
+
+COPY package.json yarn.lock ./
+COPY patches ./patches
+RUN yarn install --frozen-lockfile --network-timeout 600000
+RUN yarn postinstall
+RUN node -e "try { const { askarNodeJS } = require('@openwallet-foundation/askar-nodejs'); console.log('Askar loaded:', !!askarNodeJS); } catch (e) { console.error(e.message); process.exit(1); }"
+
+FROM dependencies AS builder
+
+COPY tsconfig.json tsconfig.build.json tsconfig.eslint.json ./
+COPY tsoa.json ./
+COPY scripts ./scripts
+COPY src ./src
+COPY migrations ./migrations
+COPY samples ./samples
+COPY bin ./bin
+RUN yarn build
+RUN test -f build/index.js && test -f src/routes/routes.ts && test -f src/routes/swagger.json
+
+FROM node:24.12.0-slim AS production
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl3 \
+    sqlite3 \
+    ca-certificates \
+    tini \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN groupadd -r credo && useradd -r -g credo -m -d /home/credo credo && \
+    mkdir -p /home/credo /data && chown -R credo:credo /home/credo /data
+
+COPY --from=builder --chown=credo:credo /app/build ./build
+COPY --from=builder --chown=credo:credo /app/bin ./bin
+COPY --from=builder --chown=credo:credo /app/src/routes ./src/routes
+COPY --from=builder --chown=credo:credo /app/migrations ./migrations
+COPY --from=builder --chown=credo:credo /app/samples ./samples
+COPY --chown=credo:credo assets/whatsapp ./assets/whatsapp
+COPY --from=builder --chown=credo:credo /app/package.json ./
+COPY --from=builder --chown=credo:credo /app/node_modules ./node_modules
+COPY deploy/render/api-entrypoint.sh /entrypoint.sh
+RUN chmod 755 /entrypoint.sh
+
+EXPOSE 10000
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]

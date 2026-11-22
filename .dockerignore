@@ -76,6 +76,12 @@ deploy/fly/vclogin-src/node_modules/
 deploy/fly/vclogin-src/.next/
 
 # Misc
-credo-ui/
+# The portal image copies credo-ui. Leave the source in the context and drop the heavy generated trees.
+credo-ui/mobile/android
+credo-ui/mobile/ios
+credo-ui/**/.next
 scripts/taskdef/
 logs.txt
+.pitch
+demo-site
+presentations

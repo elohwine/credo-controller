@@ -91,6 +91,14 @@ database on `/data`, keep ownership with `credo`, and verify organisation lookup
 workflow readiness after deployment. Do not recreate tenant identities, memberships
 or jobs to hide a missing metadata store.
 
+## Render
+
+The SGK API and portal also have a Render blueprint, `render.yaml`, for
+kelvin.mupungu@ldkgroup.co.uk. It is the API (`deploy/render/Dockerfile.api`,
+disk at `/data`, one instance) and the portal (`deploy/render/Dockerfile.portal`).
+The phone app is not a Render service. `./scripts/render-deploy.sh` refuses any
+other Render account. This Fly app is unchanged.
+
 ## Android release
 
 From `credo-ui/mobile`, run `npm run android:release`. The signed release defaults
