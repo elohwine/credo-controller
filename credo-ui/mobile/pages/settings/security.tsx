@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/lib/orgProfile'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
 import { Badge, Button, Group, Paper, PasswordInput, Stack, Text, TextInput, ThemeIcon } from '@mantine/core'
@@ -208,7 +209,7 @@ export default function AccountSecurity() {
           detail="Use your fingerprint, face or screen lock instead of typing your PIN. It also signs you in on the website when you scan its code."
           on={signInOn}
           available={signInSupported}
-          unavailable="Needs the Credentis Android app on a phone with a screen lock (Android 11 or later)."
+          unavailable={`Needs the ${PRODUCT_NAME} Android app on a phone with a screen lock (Android 11 or later).`}
           highlighted={turnOn === 'signin'}
           busy={busy === 'signin'}
           onTurnOn={turnOnSignIn}
@@ -220,7 +221,7 @@ export default function AccountSecurity() {
           detail="Before money is released, paid out or recorded, this phone asks for your fingerprint or face. Someone who only knows your PIN cannot do it."
           on={moneyOn}
           available={moneySupported}
-          unavailable="Needs the Credentis Android app on a phone with a fingerprint or face unlock."
+          unavailable={`Needs the ${PRODUCT_NAME} Android app on a phone with a fingerprint or face unlock.`}
           highlighted={turnOn === 'money'}
           busy={busy === 'money'}
           onTurnOn={turnOnMoney}
@@ -233,7 +234,7 @@ export default function AccountSecurity() {
                 <ThemeIcon size={40} radius="xl" variant="light" color="credentis"><IconKey size={22} /></ThemeIcon>
                 <Stack gap={2} style={{ flex: 1 }}>
                   <Text fw={500}>Forgot your PIN?</Text>
-                  <Text size="sm" c="dimmed">A phone that already signs you in can set a new PIN. This is your Credentis PIN, not your phone&apos;s screen lock.</Text>
+                  <Text size="sm" c="dimmed">A phone that already signs you in can set a new PIN. This is your {PRODUCT_NAME} PIN, not your phone&apos;s screen lock.</Text>
                 </Stack>
               </Group>
               <PasswordInput label="New PIN" inputMode="numeric" autoComplete="new-password" value={newPin} onChange={(event) => setNewPin(event.currentTarget.value)} />

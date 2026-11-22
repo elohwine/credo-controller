@@ -11,6 +11,7 @@
  */
 
 import { APPROVAL_PERMISSIONS, scopeForApprovalArea } from '../config/authorityAreas'
+import { editionHasPresetSetup } from '../config/productEdition'
 import { REQUEST_FAMILIES } from '../config/requestExperience'
 import { authorizationService } from './AuthorizationService'
 import type { SectorType, WorkflowTemplateDefinition } from '../types/WorkflowTemplate'
@@ -995,8 +996,19 @@ export class OrganizationService {
       logger.info({ orgTenantId }, 'Org tenant synchronized across databases')
     }
 
-    this.ensurePlatformOrganizationRecord(orgTenantId, req.name)
-    if (!existingOrg) orgSetupProfileService.initializeNew(orgTenantId)
+    const platformOrg = this.ensurePlatformOrganizationRecord(orgTenantId, req.name)
+    if (!existingOrg) {
+      orgSetupProfileService.initializeNew(orgTenantId)
+      // A preset edition is never asked the setup questions, so the roles and main people they fill come now.
+      if (editionHasPresetSetup()) {
+        try {
+          ensureStarterRoles(orgTenantId, platformOrg.id)
+          orgWorkflowActorService.fillMainPeopleFromAnswers(orgTenantId, orgSetupProfileService.get(orgTenantId))
+        } catch (error: any) {
+          logger.warn({ error: error?.message, orgTenantId }, 'Could not fill starter roles for the preset setup')
+        }
+      }
+    }
 
     // Create ownership membership if one doesn't exist
     const existingMembership = db

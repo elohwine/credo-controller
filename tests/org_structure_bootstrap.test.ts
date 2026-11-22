@@ -19,7 +19,7 @@ import { ensureDefaultDepartment, ensureDepartments, planDepartments } from '../
 import { orgWorkflowActorService } from '../src/services/OrgWorkflowActorService'
 import { workflowReadinessService } from '../src/services/WorkflowReadinessService'
 
-import { addMember, initTestDatabases, seedOrganization, type TestDatabases } from './utils/orgReadinessFixture'
+import { addMember, initTestDatabases, seedOrganization, withoutEditionPreset, type TestDatabases } from './utils/orgReadinessFixture'
 
 let databases: TestDatabases
 
@@ -119,7 +119,9 @@ describe('Setup bootstrap', () => {
     paymentChoice: 'simulated',
   })
 
-  test('a dry run previews the structure and saves nothing', async () => {
+  // Checks the platform's unanswered setup, which the SGK preset never leaves.
+  test('a dry run previews the structure and saves nothing', () =>
+    withoutEditionPreset(async () => {
     const org = seedOrganization({ name: 'Preview Ltd', setup: 'new' })
     const before = orgSetupProfileService.get(org.orgTenantId)
     const plan = await bootstrap(org, {
@@ -159,7 +161,7 @@ describe('Setup bootstrap', () => {
     expect(orgSetupProfileService.get(org.orgTenantId).access.mode).toBe('unconfigured')
     expect(activeDepartments(org.organizationId)).toEqual([])
     expect(roleSlugs(org.organizationId)).not.toContain('director')
-  })
+    }))
 
   test('applying sets up answers, teams, roles, money people and payments in one call; repeating is safe', async () => {
     const org = seedOrganization({ name: 'Bootstrap Ltd', setup: 'new' })
@@ -238,7 +240,9 @@ describe('Setup bootstrap', () => {
     })
   })
 
-  test('keep_current leaves Who does what alone and unknown choices are refused before writing', async () => {
+  // Checks the platform's unanswered setup, which the SGK preset never leaves.
+  test('keep_current leaves Who does what alone and unknown choices are refused before writing', () =>
+    withoutEditionPreset(async () => {
     const org = seedOrganization({ name: 'Keep Ltd', setup: 'new' })
     const revision = orgSetupProfileService.get(org.orgTenantId).access.revision
     await expect(
@@ -263,7 +267,7 @@ describe('Setup bootstrap', () => {
     expect(result.money.keepCurrent).toBe(true)
     expect(result.profile?.approvalPresetId).toBeUndefined()
     expect(activeDepartments(org.organizationId)).toEqual(['General'])
-  })
+    }))
 
   test('the staff card answer sets the large-amount limit, and is left alone when not asked', async () => {
     const org = seedOrganization({ name: 'Staff Card Ltd', setup: 'new' })

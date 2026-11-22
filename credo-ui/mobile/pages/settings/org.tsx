@@ -39,7 +39,7 @@ import api, { safeArray } from '@/lib/api';
 import BrandEditor from '@/components/org/BrandEditor';
 import { getActiveOrgLabel, getActiveOrgId, getWalletToken, getPreferredToken, applyOrgContext, getOrgRoleClaim, decodeJwtPayload } from '@/lib/auth';
 import { MY_SUMMARY_LABEL, ONBOARDING_PATH, SUMMARY_COLOR, myOnboardingSteps, type MemberOnboarding } from '@/lib/orgOnboarding';
-import { MONEY_CHOICES, OPERATING_MODEL_NOTE, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, kindsFromRequestTypes, markOrgSetupLater, modulePlanNote, isLockedModule, withLockedModules, LOCKED_MODULE_NOTE, orgSetupLater, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, openedWorkAreas, setupChecklist, startingModules, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
+import { MONEY_CHOICES, OPERATING_MODEL_NOTE, PRESET_STEP_SETTING, editionHasPresetSetup, ORG_KIND_OPTIONS, ORG_MODULE_OPTIONS, PAYMENT_CHOICES, SETUP_PROFILE_PATH, kindsFromRequestTypes, markOrgSetupLater, modulePlanNote, isLockedModule, withLockedModules, LOCKED_MODULE_NOTE, orgSetupLater, persistOrgProfile, profileFromServer, profileToServer, readOrgProfile, openedWorkAreas, setupChecklist, startingModules, type OrgKind, type OrgModule, type OrgProfile, type PaymentChoice, type SetupStepId } from '@/lib/orgProfile';
 import { SETUP_BOOTSTRAP_PATH, bootstrapRequest, cleanDepartmentNames, mainPeopleLine, staffCardLimitFor, suggestedDepartmentsFor, suggestedOrgModules, type OrgOperatingModel, type OrgSetupPlan } from '@/lib/orgProfile';
 
 // ── Org list types ──
@@ -1126,7 +1126,7 @@ export default function OrgSettingsPage() {
     if (!canManageOrgSetup || !activeId) return;
     // A cached profile alone does not mean answered: the server returns one for new organisations too.
     const draft = readOrgSetupDraft(activeId);
-    if (readOrgProfile()?.completedAt || orgSetupLater(activeId)) {
+    if (editionHasPresetSetup() || readOrgProfile()?.completedAt || orgSetupLater(activeId)) {
       setOrgQuestion(0);
       setDraftQuestion(draft?.question ?? null);
       return;
@@ -1283,6 +1283,11 @@ export default function OrgSettingsPage() {
     }
     if (id === 'brand') {
       setSection(id);
+      return;
+    }
+    const setting = editionHasPresetSetup() ? PRESET_STEP_SETTING[id] : undefined;
+    if (setting) {
+      setSection(setting);
       return;
     }
     const question = QUESTION_FOR_STEP[id];

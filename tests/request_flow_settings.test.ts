@@ -17,7 +17,7 @@ import { resolveAcceptedProofVcTypes } from '../src/services/ProofVcPolicyServic
 import { stageProofModeFor } from '../src/services/ssi/proofModeMatrix'
 import { requestFlowSettingsService } from '../src/services/RequestFlowSettingsService'
 import { requestHandoffService } from '../src/services/RequestHandoffService'
-import { addMember, initTestDatabases, seedOrganization, type TestDatabases } from './utils/orgReadinessFixture'
+import { addMember, initTestDatabases, seedOrganization, withoutEditionPreset, type TestDatabases } from './utils/orgReadinessFixture'
 
 let databases: TestDatabases
 
@@ -53,14 +53,15 @@ describe('Request flow settings', () => {
     expect(advance.then.map((entry) => entry.label)).toContain('Advance payment')
   })
 
-  test('payroll flows are hidden when payroll is not switched on', () => {
-    const org = seedOrganization({ name: 'No payroll', setup: 'new' })
-    const types = requestFlowSettingsService.list(org.orgTenantId).map((flow) => flow.requestType)
-    expect(types).not.toContain('hr.salary_advance')
-    expect(() => requestFlowSettingsService.saveSteps(org.orgTenantId, 'hr.salary_advance', [{ kind: 'review' }])).toThrow(
-      expect.objectContaining({ status: 403 }) as any,
-    )
-  })
+  test('payroll flows are hidden when payroll is not switched on', () =>
+    withoutEditionPreset(() => {
+      const org = seedOrganization({ name: 'No payroll', setup: 'new' })
+      const types = requestFlowSettingsService.list(org.orgTenantId).map((flow) => flow.requestType)
+      expect(types).not.toContain('hr.salary_advance')
+      expect(() => requestFlowSettingsService.saveSteps(org.orgTenantId, 'hr.salary_advance', [{ kind: 'review' }])).toThrow(
+        expect.objectContaining({ status: 403 }) as any,
+      )
+    }))
 
   test('adding finance from an amount up changes which approvals a request needs', () => {
     const org = payrollOrg()

@@ -8,7 +8,19 @@
 
 import { createHash, randomBytes } from 'crypto'
 
-import { fieldJobCategory, fieldJobInput, FIELD_JOB_CATEGORY_LABELS } from '../config/fieldJobCategory'
+import { fieldJobCategory, fieldJobInput, type FieldJobCategory } from '../config/fieldJobCategory'
+
+/** What a client reads on the job link. The Jobs list keeps its own labels. */
+const CLIENT_STATUS: Record<FieldJobCategory, string> = {
+  pending: 'Not booked yet',
+  assigned: 'Worker booked',
+  active: 'In progress',
+  on_hold: 'On hold',
+  failed: 'Being re-booked',
+  completed: 'Finished',
+  reconciled: 'Closed',
+  cancelled: 'Cancelled',
+}
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { workflowRunRepository } from '../persistence/WorkflowRunRepository'
 
@@ -122,13 +134,14 @@ export class JobStatusLinkService {
       description: String(input.description || '').slice(0, 500),
       location: input.location ? String(input.location).slice(0, 300) : undefined,
       scheduledDate: input.scheduledDate ? String(input.scheduledDate).slice(0, 10) : undefined,
-      status: category === 'failed' ? 'Being re-booked' : FIELD_JOB_CATEGORY_LABELS[category],
+      status: CLIENT_STATUS[category],
       steps: [
         { label: 'Job booked', done: true, at: run.createdAt ? new Date(run.createdAt).toISOString() : undefined },
         { label: 'Worker on site', done: arrived || Boolean(before?.evidenceHash), at: state.checkpoints?.arrival?.completedAt },
         { label: 'Before photos taken', done: Boolean(before?.evidenceHash), at: before?.capturedAt },
         { label: 'Work finished', done: Boolean(after?.evidenceHash), at: after?.capturedAt },
-        { label: 'Signed off', done: signedOff || Boolean(signature), at: signature?.signedAt },
+        // The store signature is shown on its own. Sign-off is the office step that follows it.
+        { label: 'Signed off', done: signedOff, at: signedOff ? signature?.signedAt : undefined },
         { label: 'Closed', done: category === 'completed' || category === 'reconciled', at: run.completedAt ? new Date(run.completedAt).toISOString() : undefined },
       ],
       ...(worker && !/^team$/i.test(worker) ? { workerName: worker } : {}),

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="48" viewBox="0 0 220 48" fill="none" role="img" aria-label="LDK iFacilities">
+  <rect x="3" y="3" width="42" height="42" rx="11" fill="#2188CA"/>
+  <path d="M13 37 V19 L24 12 L35 19 V37 Z" fill="#FFFFFF"/>
+  <g fill="#2188CA">
+    <rect x="17" y="21" width="4" height="4" rx="1"/><rect x="27" y="21" width="4" height="4" rx="1"/>
+    <rect x="17" y="28" width="4" height="4" rx="1"/><rect x="27" y="28" width="4" height="4" rx="1"/>
+    <rect x="22" y="30" width="4" height="7" rx="1"/>
+  </g>
+  <text x="56" y="32" font-family="Inter, Segoe UI, Roboto, Arial, sans-serif" font-size="22" font-weight="800" fill="#0A3D5C">LDK</text>
+  <text x="104" y="32" font-family="Inter, Segoe UI, Roboto, Arial, sans-serif" font-size="22" font-weight="500" fill="#2188CA">iFacilities</text>
+</svg>

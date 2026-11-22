@@ -41,7 +41,7 @@ import {
 } from '@tabler/icons-react';
 import OrgSwitcher from '@/components/OrgSwitcher';
 import { endPortalTask, usePortalContext, usePortalTaskGuard } from '@/lib/portalContext';
-import { getOrgScopedToken, getPersonalToken } from '@/utils/organizationContext';
+import { getOrgScopedToken, getPersonalToken, hasSignedInSession } from '@/utils/organizationContext';
 import { PRODUCT_NAME, editionAllowsKind, editionAllowsModule, readOrgProfile } from '@/utils/orgProfile';
 import { getWorkflowCapabilityFlags } from '@/lib/workflowCapabilities';
 import { openInboxOffers } from '@/lib/inboxAttention';
@@ -64,6 +64,13 @@ const BRAND = {
     cornflower: '#88C4E3',
     dark: '#0A3D5C',
 };
+
+/** Pages a signed-out visitor may open: sign-in itself, and links sent to clients (pay, check a receipt, accept an offer). */
+const OPEN_WITHOUT_SIGN_IN = ['/auth', '/pay', '/verify', '/offer', '/success', '/failed', '/consent'];
+
+function isOpenWithoutSignIn(pathname: string): boolean {
+    return OPEN_WITHOUT_SIGN_IN.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+}
 
 const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => {
     const isNested = useContext(LayoutNestingContext);
@@ -91,6 +98,16 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
     const canManageOrg = ['owner', 'admin'].includes(String(activeOrg?.role || '').toLowerCase());
     // Sign-in pages and signed-out visitors get the header only: the app menu and account picker need a session.
     const publicPage = router.pathname.startsWith('/auth') || (mounted && !getPersonalToken() && !getOrgScopedToken());
+    // Everything else needs a sign-in. Until the browser session is read, nothing private is drawn.
+    const openWithoutSignIn = isOpenWithoutSignIn(router.pathname);
+    const signedIn = mounted && hasSignedInSession();
+    const needsSignIn = !isNested && !openWithoutSignIn && !signedIn;
+
+    useEffect(() => {
+        if (!mounted || isNested || openWithoutSignIn || signedIn) return;
+        const back = router.asPath && router.asPath !== '/' ? `?returnUrl=${encodeURIComponent(router.asPath)}` : '';
+        void router.replace(`/auth/login${back}`);
+    }, [mounted, signedIn, isNested, openWithoutSignIn, router, router.asPath]);
 
     useEffect(() => {
         setNavOpened(false);
@@ -328,7 +345,7 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
                                 </Group>
                             </Alert>
                         )}
-                        {children}
+                        {needsSignIn ? null : children}
                     </div>
                 </LayoutNestingContext.Provider>
             </AppShell.Main>

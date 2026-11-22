@@ -212,6 +212,7 @@ describe('Jobs list, export, reports and what is filled in on site', () => {
         checkpoints: { arrival: { status: 'completed' } },
         evidenceBefore: { evidenceHash: 'h1', photoUri: `data:image/png;base64,${TINY_PNG}` },
         evidenceAfter: { evidenceHash: 'h2', photoUri: 'https://elsewhere.example/p.png' },
+        storeSignature: { signerName: 'Mrs Moyo', signerRole: 'Store manager', signedAt: '2026-11-21T10:00:00Z', imageDataUrl: 'data:image/png;base64,abc' },
       },
     )
     db.prepare(`INSERT INTO payment_links VALUES ('L1', ?, 'Invoice', 80, 'USD', 'INV-1', 'active', ?, '2026-11-21', 'https://pay.example/p/ABC')`).run(
@@ -222,6 +223,8 @@ describe('Jobs list, export, reports and what is filled in on site', () => {
     expect(url).toMatch(new RegExp(`/job/${code}$`))
     const view = links.view(code)!
     expect(view).toMatchObject({ organisation: 'SGK Maintenance', reference: 'FR-2', status: 'In progress', workerName: 'Farai' })
+    expect(view.steps.find((step) => step.label === 'Signed off')?.done).toBe(false)
+    expect(view.signature?.signerName).toBe('Mrs Moyo')
     expect(view.photos.before).toHaveLength(1)
     expect(view.photos.after).toHaveLength(0)
     expect(view.bills).toEqual([{ kind: 'invoice', amount: 80, currency: 'USD', status: 'active', payUrl: 'https://pay.example/p/ABC' }])

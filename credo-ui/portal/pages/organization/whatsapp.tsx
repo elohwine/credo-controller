@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import React, { useCallback, useEffect, useState } from 'react'
 import axios from 'axios'
 import { Alert, Badge, Button, Container, Group, Paper, Stack, Switch, Table, Text, Title } from '@mantine/core'
@@ -115,7 +116,7 @@ export default function OrganizationWhatsAppPage() {
           <div>
             <Title order={2}>WhatsApp alerts</Title>
             <Text c="dimmed" size="sm" mt={4}>
-              Short WhatsApp messages that point people to their Credentis inbox. Nothing is approved or paid from WhatsApp.
+              Short WhatsApp messages that point people to their {PRODUCT_NAME} inbox. Nothing is approved or paid from WhatsApp.
             </Text>
           </div>
           {error && <Alert color="red">{error}</Alert>}
@@ -131,12 +132,12 @@ export default function OrganizationWhatsAppPage() {
                 {!readiness.productionEnabled && <Badge color="yellow" variant="light">Test numbers only</Badge>}
               </Group>
               {!readiness.platformConfigured && (
-                <Alert color="yellow" mb="sm">The Credentis WhatsApp number is not set up on the server yet.</Alert>
+                <Alert color="yellow" mb="sm">The {PRODUCT_NAME} WhatsApp number is not set up on the server yet.</Alert>
               )}
               {!readiness.walletLinkConfigured && (
                 <Alert color="yellow" mb="sm">The server has no HTTPS inbox link (WALLET_PUBLIC_URL).</Alert>
               )}
-              <Text size="sm" mb="sm">Messages come from the shared Credentis WhatsApp number.</Text>
+              <Text size="sm" mb="sm">Messages come from the shared {PRODUCT_NAME} WhatsApp number.</Text>
               <Group>
                 <Button loading={busy === 'sender'} disabled={!readiness.platformConfigured} onClick={() => void turnOn(true)}>
                   {on ? 'Check connection again' : 'Turn on'}

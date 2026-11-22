@@ -1,3 +1,4 @@
+import { editionHasPresetSetup } from '../config/productEdition'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { ROLE_FALLBACK_BY_STAGE_ACTION } from './OrgWorkflowActorService'
 
@@ -281,6 +282,8 @@ export class GettingStartedService {
   }
 
   private setupToFinish(ownerTenantId: string): GettingStartedOrg | null {
+    // A preset edition has no setup questions to finish.
+    if (editionHasPresetSetup()) return null
     try {
       const row = DatabaseManager.getDatabase()
         .prepare(

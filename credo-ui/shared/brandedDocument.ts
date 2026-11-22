@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '../../src/config/productEdition'
 /**
  * Quotes, invoices and receipts laid out with the issuing organisation's brand.
  * Shared by the phone app and the portal: `documentFromClaims` reads a card or bill,
@@ -441,7 +442,7 @@ export function documentFooterLines(model: DocumentModel): string[] {
       v.verifyUrl ? `Check it at ${v.verifyUrl}` : '',
     ].filter(Boolean)
   }
-  if (model.kind === 'receipt') return ['Payment confirmation. The signed receipt is kept in the payer\'s Credentis wallet.']
+  if (model.kind === 'receipt') return [`Payment confirmation. The signed receipt is kept in the payer's ${PRODUCT_NAME} account.`]
   return ['Copy of the bill. A signed receipt is issued once it is paid.']
 }
 

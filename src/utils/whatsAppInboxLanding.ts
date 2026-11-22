@@ -1,6 +1,7 @@
 import type { Express, NextFunction, Request, Response } from 'express'
 
 import path from 'path'
+import { PRODUCT_NAME } from '../config/productEdition'
 
 const SAFE_ID = /^[A-Za-z0-9._:-]{1,200}$/
 
@@ -52,18 +53,18 @@ interface LandingCopy {
 
 const INBOX_COPY: LandingCopy = {
   host: 'inbox',
-  title: 'Credentis inbox',
+  title: `${PRODUCT_NAME} inbox`,
   heading: 'You have an update',
-  body: 'Open the Credentis app and sign in to see it in your inbox.',
-  hint: 'If nothing happens, open the Credentis app yourself and go to Inbox.',
+  body: `Open the ${PRODUCT_NAME} app and sign in to see it in your inbox.`,
+  hint: `If nothing happens, open the ${PRODUCT_NAME} app yourself and go to Inbox.`,
 }
 
 const JOIN_COPY: LandingCopy = {
   host: 'join',
-  title: 'Join on Credentis',
+  title: `Join on ${PRODUCT_NAME}`,
   heading: 'You were invited',
-  body: 'Open the Credentis app to confirm your name and choose your own PIN.',
-  hint: 'If nothing happens, install the Credentis app and tap this link again. The link works once and expires after 7 days.',
+  body: `Open the ${PRODUCT_NAME} app to confirm your name and choose your own PIN.`,
+  hint: `If nothing happens, install the ${PRODUCT_NAME} app and tap this link again. The link works once and expires after 7 days.`,
 }
 
 function landingHtml(params: URLSearchParams, packageName: string, copy: LandingCopy = INBOX_COPY): string {
@@ -79,7 +80,7 @@ a.btn{display:block;margin-top:20px;padding:14px;border-radius:10px;background:#
 p{line-height:1.5}small{color:#5a7184}</style></head>
 <body><main><h2>${copy.heading}</h2>
 <p>${copy.body}</p>
-<a class="btn" id="open" href="${appLink}">Open in Credentis</a>
+<a class="btn" id="open" href="${appLink}">Open in ${PRODUCT_NAME}</a>
 <p><small>${copy.hint}</small></p></main>
 <script>if(/Android/i.test(navigator.userAgent)){document.getElementById('open').href=${JSON.stringify(intentLink)}}</script>
 </body></html>`

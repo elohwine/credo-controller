@@ -4,6 +4,7 @@
 
 'use client';
 
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import { Paper, Text, Image, Box } from '@mantine/core';
 
 type Props = {
@@ -50,8 +51,8 @@ export default function Credential({
     >
       <Box>
         <Image
-          src="/credentis-logo.png"
-          alt="Credentis"
+          src="/brand-logo.svg"
+          alt={PRODUCT_NAME}
           h={35}
           w="auto"
           fit="contain"

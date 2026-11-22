@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
+import { PRODUCT_NAME, editionHasPresetSetup } from '../../src/config/productEdition'
 
 /**
  * First-run guidance that follows the person, not the phone: progress is stored on the server per
@@ -73,16 +74,21 @@ export const TIP_COPY: Record<TipKey, { title: string; body: string }> = {
   },
   tip_scan: {
     title: 'Scan to receive or share',
-    body: 'Point the camera at a Credentis QR code. You will always see who is asking before anything is shared.',
+    body: `Point the camera at a QR code from ${PRODUCT_NAME}. You will always see who is asking before anything is shared.`,
   },
   tip_operations: {
     title: 'Work in progress',
     body: 'Quotes, invoices, payments and jobs for the account in use are kept together here.',
   },
-  tip_org_settings: {
-    title: 'Set up your organisation',
-    body: 'Answer a few short questions and we prepare the rest. The checklist shows what is left.',
-  },
+  tip_org_settings: editionHasPresetSetup()
+    ? {
+        title: 'Your organisation settings',
+        body: 'Jobs, the team and money are already set up. The checklist shows what is left.',
+      }
+    : {
+        title: 'Set up your organisation',
+        body: 'Answer a few short questions and we prepare the rest. The checklist shows what is left.',
+      },
 }
 
 const FIELD_ROLES = new Set(['field_worker', 'technician', 'driver', 'worker'])

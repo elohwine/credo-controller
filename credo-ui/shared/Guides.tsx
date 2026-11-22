@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '../../src/config/productEdition'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import styles from './Guides.module.css'
 import {
@@ -198,12 +199,12 @@ export function IdentityCardArt({ name }: { name?: string | null }) {
         <rect width="300" height="186" rx="20" fill="url(#credentis-card-bg)" />
         <circle cx="262" cy="-6" r="92" fill="#fff" opacity=".07" />
         <circle cx="300" cy="170" r="70" fill="#fff" opacity=".05" />
-        <text x="22" y="34" fill="#fff" opacity=".85" fontSize="11" fontWeight="700" letterSpacing="2">CREDENTIS</text>
+        <text x="22" y="34" fill="#fff" opacity=".85" fontSize="11" fontWeight="700" letterSpacing="2">{PRODUCT_NAME.toUpperCase()}</text>
         <text x="22" y="52" fill="#fff" opacity=".7" fontSize="11">Identity card</text>
         <rect x="22" y="70" width="38" height="28" rx="6" fill="url(#credentis-card-chip)" />
         <path d="M22 84h38M41 70v28M31 70v8M51 90v8" stroke="#a88a3c" strokeWidth="1" opacity=".6" />
         <text x="22" y="134" fill="#fff" fontSize="19" fontWeight="700">{display.length > 22 ? `${display.slice(0, 21)}…` : display}</text>
-        <text x="22" y="156" fill="#fff" opacity=".75" fontSize="11">Issued by Credentis · Zimbabwe</text>
+        <text x="22" y="156" fill="#fff" opacity=".75" fontSize="11">Issued by {PRODUCT_NAME}</text>
         <g className={styles.cardSeal}>
           <circle cx="262" cy="148" r="18" fill="#fff" />
           <path d="M254 148.5l5.5 5.5 10-11" fill="none" stroke="#1fb87e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
@@ -259,7 +260,7 @@ export function WelcomeScreen({
           <span aria-hidden="true" /> Waiting for you in Inbox
         </p>
         <h2 id="welcome-title" ref={heading} tabIndex={-1} className={styles.stage} style={{ ['--i' as string]: 2 }}>
-          {first ? `Welcome, ${first}` : 'Welcome to Credentis'}
+          {first ? `Welcome, ${first}` : `Welcome to ${PRODUCT_NAME}`}
         </h2>
         <p className={`${styles.lead} ${styles.stage}`} style={{ ['--i' as string]: 3 }}>Your account is ready. Here is how it works.</p>
         <ul className={styles.points}>
@@ -280,7 +281,7 @@ export function WelcomeScreen({
             {surface === 'phone' ? (
               <span><strong>Lock it to this phone</strong><span>The checklist helps you turn on fingerprint sign-in, so only you can open your account here.</span></span>
             ) : (
-              <span><strong>Sign in with your phone</strong><span>Turn on fingerprint sign-in in the Credentis phone app, then scan the code on this website instead of typing your PIN.</span></span>
+              <span><strong>Sign in with your phone</strong><span>Turn on fingerprint sign-in in the {PRODUCT_NAME} phone app, then scan the code on this website instead of typing your PIN.</span></span>
             )}
           </li>
         </ul>

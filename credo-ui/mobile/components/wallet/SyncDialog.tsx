@@ -3,6 +3,7 @@
  * Mirrors portal's components/recovery/SyncDialog but uses Mantine only (no Tailwind).
  * Calls the same /api/ssi/auth/sync endpoint as the portal.
  */
+import { PRODUCT_NAME } from '@/lib/orgProfile'
 import React, { useState } from 'react';
 import {
   Modal,
@@ -128,10 +129,10 @@ export const SyncDialog: React.FC<SyncDialogProps> = ({ opened, onClose, onSyncC
             {status === 'complete'
               ? 'Your credentials are securely stored and can be recovered on any device using your phone number and PIN.'
               : status === 'syncing'
-              ? 'Securely linking your wallet to the Credentis custodial backup…'
+              ? `Saving a backup of your account to ${PRODUCT_NAME}…`
               : status === 'error'
               ? errorMsg
-              : 'Sync your wallet to the Credentis secure backup. This lets you recover all credentials if you switch devices.'}
+              : `Back up your account to ${PRODUCT_NAME} so your records come back if you change phones.`}
           </Text>
         </Stack>
 

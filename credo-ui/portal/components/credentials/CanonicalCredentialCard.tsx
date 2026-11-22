@@ -12,6 +12,7 @@
  * Variants: Identity, Diploma, Invoice, Quote
  */
 
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import React from 'react';
 import { Paper, Text, Group, Stack, Badge, Divider, Image, Box } from '@mantine/core';
 
@@ -105,14 +106,14 @@ export function CanonicalCredentialCard(props: CredentialCardProps) {
         <Group justify="space-between" align="center">
           <Group gap="sm">
             <Image
-              src="/credentis-logo.png"
-              alt="Credentis"
+              src="/brand-logo.svg"
+              alt={PRODUCT_NAME}
               w={40}
               h={40}
               fit="contain"
             />
             <Text fw={600} size="md" c="dark.7">
-              Credentis
+              {PRODUCT_NAME}
             </Text>
           </Group>
           {verified && (

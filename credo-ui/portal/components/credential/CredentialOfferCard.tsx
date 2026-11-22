@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import React, { useState } from 'react';
 import QRCode from 'react-qr-code';
 import { DevicePhoneMobileIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline';
@@ -149,8 +150,8 @@ export default function CredentialOfferCard({
             {/* Credentis Footer */}
             <div className="flex flex-col items-center pt-6 border-t">
                 <div className="flex flex-row gap-2 items-center text-sm" style={{ color: '#7B8794' }}>
-                    <p>Secured by Credentis</p>
-                    <img src="/credentis-logo.png" alt="Credentis" style={{ height: 15, width: 'auto' }} />
+                    <p>Secured by {PRODUCT_NAME}</p>
+                    <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 15, width: 'auto' }} />
                 </div>
             </div>
         </div>

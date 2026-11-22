@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/lib/orgProfile'
 import React, { useEffect, useState } from 'react';
 import {
   Box, Stack, Text, Title, Group, Button, Badge, Paper, ThemeIcon, Divider, Avatar, Modal, TextInput, Textarea, Skeleton, Alert, Select
@@ -540,7 +541,7 @@ export default function OrganizationDetailPage() {
               </Badge>
               {memberSince && !Number.isNaN(memberSince.getTime()) && (
                 <Text size="xs" c="dimmed" mt={4}>
-                  On Credentis since {memberSince.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
+                  On {PRODUCT_NAME} since {memberSince.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
                 </Text>
               )}
               {workAreas.length > 0 && (

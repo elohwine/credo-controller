@@ -18,6 +18,7 @@ import {
   IconRefresh,
   IconTruck
 } from '@tabler/icons-react'
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 
 interface ReceiptVerificationResult {
   verified: boolean
@@ -288,7 +289,7 @@ export default function ReceiptVerification() {
         {/* Footer */}
         <div className="mt-8 text-center">
           <p className="text-xs" style={{ color: BRAND.viking }}>
-            Secured by <span className="font-semibold" style={{ color: BRAND.curious }}>Credentis</span>
+            Secured by <span className="font-semibold" style={{ color: BRAND.curious }}>{PRODUCT_NAME}</span>
           </p>
           <p className="text-xs text-gray-400 mt-1">{new Date().toLocaleString()}</p>
         </div>

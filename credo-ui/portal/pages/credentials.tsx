@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import {useRouter} from "next/router";
 import {ViewfinderCircleIcon} from "@heroicons/react/24/outline";
 import {useEffect, useState} from "react";
@@ -75,7 +76,7 @@ export default function Credentials() {
         className="mt-10 flex flex-row justify-center cursor-pointer"
         onClick={() => router.push('/')}
       >
-        <img src="/credentis-logo.png" alt="Credentis" style={{ height: 35, width: 'auto' }} />
+        <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 35, width: 'auto' }} />
       </div>
       <div className="mt-10 bg-gray-100 rounded-lg py-2.5 px-5">
         <div className="flex flex-row gap-5">

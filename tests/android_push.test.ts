@@ -6,7 +6,7 @@ describe('Android popup notifications', () => {
   test('a waiting job uses a plain banner and opens the inbox', () => {
     expect(popupForOffer({ sourceType: 'field_job', tenantId: 'person-1' })).toEqual({
       title: 'A job is waiting',
-      body: 'Open Credentis to see what to do next.',
+      body: 'Open LDK iFacilities to see what to do next.',
       path: '/inbox',
     })
   })

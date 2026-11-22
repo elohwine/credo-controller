@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '../../src/config/productEdition'
 /**
  * Card motion shared by the mobile app and the portal.
  *
@@ -163,7 +164,7 @@ function miniCard(title: string, detail: string): HTMLElement {
     justifyContent: 'space-between',
     overflow: 'hidden',
   })
-  card.appendChild(el('div', { fontSize: '11px', letterSpacing: '.12em', fontWeight: '700', opacity: '.85' }, 'CREDENTIS'))
+  card.appendChild(el('div', { fontSize: '11px', letterSpacing: '.12em', fontWeight: '700', opacity: '.85' }, `${PRODUCT_NAME.toUpperCase()}`))
   const text = el('div', {})
   text.appendChild(el('div', { fontSize: '18px', fontWeight: '700', lineHeight: '1.2' }, title))
   text.appendChild(el('div', { fontSize: '13px', opacity: '.85', marginTop: '2px' }, detail))

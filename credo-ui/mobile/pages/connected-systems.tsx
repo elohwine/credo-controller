@@ -2,6 +2,7 @@
  * Read-only view of what the organisation's own software sends to people's wallets: the record
  * types it may send and the records sent recently. Types and systems are set up on the website.
  */
+import { PRODUCT_NAME } from '@/lib/orgProfile'
 import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Badge, Button, Group, Loader, Paper, SegmentedControl, Stack, Text, Title } from '@mantine/core'
 import { IconPlugConnected, IconRefresh } from '@tabler/icons-react'
@@ -161,7 +162,7 @@ export default function ConnectedSystemsPage() {
               style={{ cursor: 'pointer', minHeight: 56 }}
             >
               <Text fw={600} size="sm">Books and tax receipts</Text>
-              <Text size="xs" c="dimmed" mt={2}>Connect Zoho Books and fiscalise invoices on Credentis.</Text>
+              <Text size="xs" c="dimmed" mt={2}>Connect Zoho Books and fiscalise invoices on {PRODUCT_NAME}.</Text>
             </Paper>
             {loading ? (
               <Group justify="center" py="xl">
@@ -193,7 +194,7 @@ export default function ConnectedSystemsPage() {
               )
             ) : types.length === 0 ? (
               <Text size="sm" c="dimmed" ta="center" py="lg">
-                No record types yet. Add one on the Credentis website under Connected systems.
+                No record types yet. Add one on the {PRODUCT_NAME} website under Connected systems.
               </Text>
             ) : (
               <Stack gap="xs">
@@ -220,7 +221,7 @@ export default function ConnectedSystemsPage() {
               </Stack>
             )}
             <Text size="xs" c="dimmed">
-              To add a record type or connect a system, use the Credentis website.
+              To add a record type or connect a system, use the {PRODUCT_NAME} website.
             </Text>
           </>
         )}

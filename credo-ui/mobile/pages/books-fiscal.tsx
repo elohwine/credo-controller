@@ -10,6 +10,7 @@ import AppShellMobile from '@/components/layout/AppShellMobile'
 import BottomSheet from '@/components/shared/BottomSheet'
 import api from '@/lib/api'
 import { getContextMode, getOrgRoleClaim } from '@/lib/auth'
+import { PRODUCT_NAME } from '@/lib/orgProfile'
 
 type Status = {
   books: { configured: boolean; status: string | null; organisationName: string | null }
@@ -66,7 +67,7 @@ export default function BooksFiscalPage() {
       <Stack gap="md" p="md">
         <div>
           <Title order={3}>Books and tax receipts</Title>
-          <Text size="sm" c="dimmed">Zoho Books and fiscal receipts for this organisation, on Credentis.</Text>
+          <Text size="sm" c="dimmed">Zoho Books and fiscal receipts for this organisation, on {PRODUCT_NAME}.</Text>
         </div>
         {!allowed ? (
           <Alert color="gray">Only owners and admins can connect books or a fiscal device.</Alert>

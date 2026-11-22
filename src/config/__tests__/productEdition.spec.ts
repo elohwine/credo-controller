@@ -1,11 +1,19 @@
 import { describe, expect, it } from '@jest/globals'
 
 import { suggestOrgSetup } from '../orgModules'
-import { editionAllowsKind, editionAllowsModule, editionAlwaysOn, PRODUCT_NAME, withEditionModules } from '../productEdition'
+import {
+  editionAllowsKind,
+  editionAllowsModule,
+  editionAlwaysOn,
+  editionHasPresetSetup,
+  editionPresetSetup,
+  PRODUCT_NAME,
+  withEditionModules,
+} from '../productEdition'
 
 describe('SGK product edition', () => {
   it('offers jobs, the team, and the modules a job uses', () => {
-    expect(PRODUCT_NAME).toBe('SGK')
+    expect(PRODUCT_NAME).toBe('LDK iFacilities')
     expect(editionAllowsKind('field')).toBe(true)
     expect(editionAllowsModule('field_jobs')).toBe(true)
     expect(editionAllowsModule('purchases')).toBe(true)
@@ -27,6 +35,14 @@ describe('SGK product edition', () => {
       'collections',
       'people_payroll',
     ])
+  })
+
+  it('runs a preset setup, so nobody answers the setup questions', () => {
+    expect(editionHasPresetSetup()).toBe(true)
+    expect(editionPresetSetup()).toEqual({
+      kinds: ['field'],
+      modules: ['field_jobs', 'purchases', 'payables', 'collections', 'people_payroll'],
+    })
   })
 
   it('always keeps jobs and the team on, even if an older setup left them off', () => {

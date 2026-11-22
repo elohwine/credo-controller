@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import { useEffect, useState } from 'react'
 import { Button, CopyButton, Group, Paper, Stack, Text, TextInput } from '@mantine/core'
 import { ContactPickerSelect, type PickerContact } from './ContactPickerSelect'
@@ -72,7 +73,7 @@ export function ClientBillingDetails({ run, link, canManage, busy, onSend, onSav
         <Paper withBorder p="md" style={{ borderColor: 'var(--mantine-color-teal-5)' }}>
           <Text fw={600}>Client details saved</Text>
           <Text size="sm" mt={4}>
-            Send the bill to {offerSend.payerName} ({offerSend.payerPhone}) now? It goes to their WhatsApp and, if they use Credentis, their inbox.
+            Send the bill to {offerSend.payerName} ({offerSend.payerPhone}) now? It goes to their WhatsApp and, if they use {PRODUCT_NAME}, their inbox.
             {offerSend.renew ? ' The old link has expired, so a new one is made first.' : ''}
           </Text>
           <Group mt="sm">

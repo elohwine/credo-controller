@@ -1,3 +1,5 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
+import { BrandMark } from '../../../shared/BrandMark'
 import React, { useState, useContext, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '@/components/Layout';
@@ -27,7 +29,6 @@ import {
     IconLock,
     IconLogin,
     IconUserPlus,
-    IconWallet,
     IconCheck,
     IconAlertCircle,
 } from '@tabler/icons-react';
@@ -66,7 +67,7 @@ export default function AuthPage() {
         );
 
         if (hasPersonalSession) {
-            router.replace('/wallet');
+            router.replace('/');
             return;
         }
 
@@ -101,7 +102,7 @@ export default function AuthPage() {
                 icon: <IconCheck size={18} />,
             });
 
-            router.push('/wallet');
+            router.push('/');
         } catch (err: any) {
             const message = err.response?.data?.message || err.message || 'Login failed';
             setError(message);
@@ -179,10 +180,10 @@ export default function AuthPage() {
             <Container size="xs" py="xl">
                 <Paper shadow="md" p="xl" radius="md" withBorder>
                     <Stack align="center" mb="lg">
-                        <IconWallet size={48} color="#2188CA" />
-                        <Title order={2}>Credentis Wallet</Title>
-                        <Text size="sm" c="dimmed">
-                            Your embedded verifiable credentials wallet
+                        <span style={{ color: '#2188CA', display: 'flex' }}><BrandMark size={48} /></span>
+                        <Title order={2}>{PRODUCT_NAME}</Title>
+                        <Text size="sm" c="dimmed" ta="center">
+                            Jobs, your team and client payments in one place.
                         </Text>
                     </Stack>
 
@@ -254,7 +255,7 @@ export default function AuthPage() {
                                     <PhoneField
                                         surface="portal"
                                         label="Phone number"
-                                        description="Required to link records from EcoCash payments"
+                                        description="Used to sign in and to match your payments"
                                         required
                                         value={regPhone}
                                         onChange={setRegPhone}
@@ -286,10 +287,9 @@ export default function AuthPage() {
 
                                     <RegistrySignupChoice value={askRegistry} onChange={setAskRegistry} />
 
-                                    <Alert color="blue" variant="light" icon={<IconWallet size={16} />}>
+                                    <Alert color="blue" variant="light" icon={<IconUser size={16} />}>
                                         <Text size="sm">
-                                            Registration creates a secure embedded wallet for storing your verifiable credentials.
-                                            No app install required!
+                                            Your account works on this website and in the phone app. Joining a team? Use the invite link your manager sent instead.
                                         </Text>
                                     </Alert>
 

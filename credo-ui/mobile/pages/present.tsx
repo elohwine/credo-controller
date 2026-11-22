@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/lib/orgProfile'
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import {
@@ -271,13 +272,13 @@ const isPlatformIdentity = (type: unknown) =>
     (Array.isArray(type) ? type : [type]).some((value) => String(value || '').includes('PlatformIdentity'));
 
 function parseCredentialSummary(match: any): { type: unknown; issuer: string } {
-    if (match?.type) return { type: match.type, issuer: isPlatformIdentity(match.type) ? 'Credentis' : 'Your organization' };
+    if (match?.type) return { type: match.type, issuer: isPlatformIdentity(match.type) ? PRODUCT_NAME : 'Your organization' };
     const document = credentialDocument(match);
     if (!document) return { type: 'Record', issuer: 'Your organization' };
     const type = document.type || document.vct || 'Record';
     return {
         type,
-        issuer: isPlatformIdentity(type) ? 'Credentis' : issuerLabel(document.issuer || document.issuerDid),
+        issuer: isPlatformIdentity(type) ? PRODUCT_NAME : issuerLabel(document.issuer || document.issuerDid),
     };
 }
 

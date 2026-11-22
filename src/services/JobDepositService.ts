@@ -10,6 +10,7 @@ import { StatusException } from '../errors/StatusException'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { workflowRequestRepository, type WorkflowRequest } from '../persistence/WorkflowRequestRepository'
 import type { CreatedPaymentLink, NewPaymentLink } from './PaymentLinkService'
+import { PRODUCT_NAME } from '../config/productEdition'
 
 export type DepositStatus = 'not_opened' | 'awaiting_payment' | 'paid' | 'disputed' | 'acknowledged'
 
@@ -38,8 +39,8 @@ export const jobDepositLinks: { create: (input: NewPaymentLink) => CreatedPaymen
 }
 
 const NOTE: Record<DepositStatus, string> = {
-  not_opened: 'You can pay the business the price they set. The payment goes to them. Credentis does not hold it.',
-  awaiting_payment: 'This payment goes to the business when it is paid. Credentis does not hold it.',
+  not_opened: `You can pay the business the price they set. The payment goes to them. ${PRODUCT_NAME} does not hold it.`,
+  awaiting_payment: `This payment goes to the business when it is paid. ${PRODUCT_NAME} does not hold it.`,
   paid: 'The business has the payment. Say if the work was not done.',
   disputed: 'The work was marked not done. The business cannot mark the job done until this is settled.',
   acknowledged: 'The business marked the job done.',

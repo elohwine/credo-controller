@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import axios from 'axios'
 import Head from 'next/head'
 import Link from 'next/link'
@@ -76,12 +77,12 @@ export default function OfferPage() {
   return (
     <>
       <Head>
-        <title>Credential offer | Credentis</title>
+        <title>Credential offer | {PRODUCT_NAME}</title>
       </Head>
       <div className="min-h-screen bg-white px-4 py-10">
         <div className="flex justify-center mb-8">
           <Link href="/organization/credential-operations">
-            <img src="/credentis-logo.png" alt="Credentis" style={{ height: 35, width: 'auto' }} />
+            <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 35, width: 'auto' }} />
           </Link>
         </div>
         <div className="max-w-md mx-auto">

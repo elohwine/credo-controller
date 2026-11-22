@@ -136,7 +136,7 @@ describe('Verified device protocol', () => {
     const unknown = service.start({ deviceKeyId: 'unknown-key', purpose: 'device_login' })
     expect(Object.keys(unknown)).toEqual(Object.keys(known))
     expect(unknown.payload).not.toContain('wallet-a')
-    expect(unknown.requester).toBe('Credentis')
+    expect(unknown.requester).toBe('LDK iFacilities')
     expect(unknown.requestedClaims).toEqual([])
     await expect(
       service.finish(request, { challengeId: unknown.challengeId, signature: signature(unknown) }),

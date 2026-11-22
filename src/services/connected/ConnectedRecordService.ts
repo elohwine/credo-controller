@@ -312,7 +312,7 @@ export class ConnectedRecordService {
     if (!allowed) {
       throw new StatusException(
         client.policy.recipientScope === 'any_registered'
-          ? 'No Credentis wallet is registered for this phone number'
+          ? `No account is registered for this phone number`
           : 'This phone number does not belong to an active member of the organisation',
         422,
       )

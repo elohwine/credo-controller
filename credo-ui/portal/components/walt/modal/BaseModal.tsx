@@ -2,6 +2,7 @@
  * BaseModal - Mantine-based modal with Credentis branding
  */
 
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import { ReactNode } from 'react';
 import { Modal, Group, ActionIcon, Text, Image, Box } from '@mantine/core';
 import { IconChevronLeft } from '@tabler/icons-react';
@@ -66,14 +67,14 @@ export default function BaseModal({
       {securedByWalt && (
         <Group justify="center" mt="lg" gap="xs">
           <Image
-            src="/credentis-logo.png"
-            alt="Credentis"
+            src="/brand-logo.svg"
+            alt={PRODUCT_NAME}
             h={20}
             w="auto"
             fit="contain"
           />
           <Text size="xs" c="dimmed">
-            Secured by Credentis
+            Secured by {PRODUCT_NAME}
           </Text>
         </Group>
       )}

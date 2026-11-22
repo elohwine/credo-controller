@@ -6,8 +6,8 @@ import {
   type OrgOperatingModel,
   type OrgConfigurationAccess,
 } from '../../src/config/orgModules'
-import { PRODUCT_NAME, editionAllowsKind, editionAllowsModule, editionAlwaysOn, withEditionModules } from '../../src/config/productEdition'
-export { PRODUCT_NAME, editionAllowsKind, editionAllowsModule, editionAlwaysOn, withEditionModules } from '../../src/config/productEdition'
+import { PRODUCT_NAME, editionAllowsKind, editionAllowsModule, editionAlwaysOn, editionHasPresetSetup, withEditionModules } from '../../src/config/productEdition'
+export { PRODUCT_NAME, editionAllowsKind, editionAllowsModule, editionAlwaysOn, editionHasPresetSetup, withEditionModules } from '../../src/config/productEdition'
 export type { OrgModule, OrgOperatingModel, OrgConfigurationAccess } from '../../src/config/orgModules'
 export { suggestedOrgModules, suggestOrgSetup } from '../../src/config/orgModules'
 export { DEFAULT_DEPARTMENT_NAME, cleanDepartmentNames, suggestedDepartmentsFor } from '../../src/config/orgStructure'
@@ -509,6 +509,15 @@ export type SetupStepId = 'kinds' | 'people' | 'money' | 'payments' | 'brand' | 
 
 export type SetupStep = { id: SetupStepId; label: string; done: boolean; note?: string }
 
+/**
+ * With a preset edition there are no setup questions, so these steps open the organisation
+ * setting that holds the answer (ids from `orgSettings.ts`) instead of a question screen.
+ */
+export const PRESET_STEP_SETTING: Partial<Record<SetupStepId, 'actors' | 'payments'>> = {
+  money: 'actors',
+  payments: 'payments',
+}
+
 export const SETUP_QUESTION_HELP = {
   1: 'Pick the activities that apply. We will suggest work areas from your answers.',
   2: 'Suggested areas are already selected. Jobs and staff tools come with every organisation.',
@@ -542,10 +551,16 @@ export function setupChecklist(input: {
   const moneyDone = choiceSaved || !moneyMissing
   const moneyNote =
     moneyDone && moneyMissing ? moneyInviteNote(input.profile?.approvalPresetId || '', input.roles || []) : undefined
+  // A preset edition already knows what the organisation does and uses; those questions are not asked.
+  const questions: SetupStep[] = editionHasPresetSetup()
+    ? []
+    : [
+        { id: 'kinds', label: 'Say what your organisation does', done: Boolean(input.profile?.completedAt) },
+        // Answered together with "what you do"; the same saved answers tick both.
+        { id: 'people', label: 'Choose what you will use', done: Boolean(input.profile?.completedAt) },
+      ]
   return [
-    { id: 'kinds', label: 'Say what your organisation does', done: Boolean(input.profile?.completedAt) },
-    // Answered together with "what you do"; the same saved answers tick both.
-    { id: 'people', label: 'Choose what you will use', done: Boolean(input.profile?.completedAt) },
+    ...questions,
     { id: 'money', label: 'Choose who handles money', done: moneyDone, note: moneyNote },
     { id: 'payments', label: 'Pick how you take payments', done: !paymentMissing },
     { id: 'brand', label: 'Add your logo and document details', done: Boolean(input.brandConfigured) },

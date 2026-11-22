@@ -9,6 +9,7 @@ import {
   PLATFORM_IDENTITY_VC_TYPE,
   PLATFORM_IDENTITY_CREDENTIAL_DEFINITION,
 } from '../config/credentials/PlatformIdentityVC'
+import { PRODUCT_NAME } from '../config/productEdition'
 
 interface SeedParams {
   tenantId: string
@@ -98,7 +99,7 @@ export async function seedPlatformCredentialDefinitions(rootIssuerDid: string): 
         displayName: 'Platform User',
         registeredAt: new Date().toISOString(),
         platformTenantId: 'tenant-id',
-        platformName: 'IdenEx Credentis',
+        platformName: PRODUCT_NAME,
         verificationLevel: 'phone_verified',
       },
     },
@@ -123,7 +124,7 @@ export async function seedPlatformCredentialDefinitions(rootIssuerDid: string): 
         assignmentMode: 'configured_user',
         assignedAt: new Date().toISOString(),
         issuedAt: new Date().toISOString(),
-        platformName: 'IdenEx Credentis',
+        platformName: PRODUCT_NAME,
         fingerprint: 'sha256',
       },
     },
@@ -140,7 +141,7 @@ export async function seedPlatformCredentialDefinitions(rootIssuerDid: string): 
       employmentStatus: 'active',
       source: 'membership',
       issuedAt: new Date().toISOString(),
-      platformName: 'IdenEx Credentis',
+      platformName: PRODUCT_NAME,
       fingerprint: 'sha256',
     },
   })
@@ -156,7 +157,7 @@ export async function seedPlatformCredentialDefinitions(rootIssuerDid: string): 
       permissions: ['request.approve'],
       validFrom: new Date().toISOString(),
       issuedAt: new Date().toISOString(),
-      platformName: 'IdenEx Credentis',
+      platformName: PRODUCT_NAME,
       fingerprint: 'sha256',
     },
   })

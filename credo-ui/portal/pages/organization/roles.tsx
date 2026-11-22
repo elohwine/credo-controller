@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { editionHasPresetSetup } from '@/utils/orgProfile'
 import axios from 'axios'
 import Layout from '@/components/Layout'
 import { getOrgScopedToken, readActiveOrganization, getPersonalToken } from '@/utils/organizationContext'
@@ -165,7 +166,7 @@ export default function OrganizationRolesPage() {
               ) : roles.length === 0 ? (
                 <Stack align="center" py="xl" gap="xs">
                   <IconUserShield size={40} color="var(--mantine-color-gray-4)" />
-                  <Text c="dimmed">No roles yet. Finish the setup questions and they appear here.</Text>
+                  <Text c="dimmed">{editionHasPresetSetup() ? 'No roles yet. Refresh in a moment; they are added when the organisation is created.' : 'No roles yet. Finish the setup questions and they appear here.'}</Text>
                   <Button size="sm" leftSection={<IconPlus size={14} />} onClick={() => setCreateOpen(true)}>Add Role</Button>
                 </Stack>
               ) : (

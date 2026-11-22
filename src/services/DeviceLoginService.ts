@@ -12,6 +12,7 @@ import { devicePolicyHash, requireDeviceLoginApproval } from './PersonalSessionP
 import { loginAudience } from './SSIAuthService'
 import { WalletLoginService } from './WalletLoginService'
 import { stageProofService } from './ssi/StageProofService'
+import { PRODUCT_NAME } from '../config/productEdition'
 
 export type DeviceLoginPurpose = 'device_login' | 'web_login' | 'change_pin'
 export interface DeviceLoginStart {
@@ -74,7 +75,7 @@ export class DeviceLoginService {
         challengeId,
         deviceKeyId: input.deviceKeyId,
         purpose: input.purpose,
-        requester: 'Credentis',
+        requester: PRODUCT_NAME,
         expiresAt,
         operationHash: createHash('sha256').update('{}').digest('base64url'),
       })
@@ -88,14 +89,14 @@ export class DeviceLoginService {
         JSON.stringify({ signed: payload, operation: {} }),
         expiresAt,
       )
-      return { challengeId, payload, expiresAt, requester: 'Credentis', requestedClaims: [] }
+      return { challengeId, payload, expiresAt, requester: PRODUCT_NAME, requestedClaims: [] }
     }
     const operation: Operation = {}
-    let requester = 'Credentis'
+    let requester = PRODUCT_NAME
     let requestedClaims = ['Platform account identity']
     if (input.purpose === 'web_login') {
       if (!input.authorizationRequest || input.authorizationRequest.length > 12000) {
-        throw new StatusException('Open a valid Credentis sign-in request.', 400)
+        throw new StatusException(`Open a valid ${PRODUCT_NAME} sign-in request.`, 400)
       }
       const login = db
         .prepare(
@@ -115,7 +116,7 @@ export class DeviceLoginService {
       if (!session) throw new StatusException('This sign-in request is unavailable or expired.', 410)
       operation.verificationId = session.id
       operation.authorizationRequest = input.authorizationRequest
-      requester = partner?.name || 'Credentis'
+      requester = partner?.name || PRODUCT_NAME
       if (partner) {
         const policy = JSON.parse(partner.policy) as { releaseClaims: string[]; audience: string }
         requestedClaims = [

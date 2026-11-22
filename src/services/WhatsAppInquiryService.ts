@@ -15,6 +15,7 @@ import { orgOfferingsService } from './OrgOfferingsService'
 import { describeRequest, readRequest } from './providerMatch'
 import { phoneHashCandidates } from './ssi/contactHash'
 import { normalizeNotificationPhone, whatsAppSenderService } from './WhatsAppSenderService'
+import { PRODUCT_NAME } from '../config/productEdition'
 
 const logger = rootLogger.child({ module: 'WhatsAppInquiry' })
 
@@ -67,13 +68,13 @@ export function statusReply(
   requests: Array<{ title: string; business: string; status: string; price?: string }>,
 ): string {
   if (!requests.length) {
-    return 'No requests found for this number. Requests you send in the Credentis app show here.'
+    return `No requests found for this number. Requests you send in the ${PRODUCT_NAME} app show here.`
   }
   const lines = requests.map((request) => {
     const word = STATUS_WORDS[request.status] || 'in progress'
     return `${request.title} with ${request.business}: ${word}${request.price ? `, ${request.price}` : ''}.`
   })
-  return ['Your latest requests:', ...lines, 'Open My requests in the Credentis app for the details.'].join('\n')
+  return ['Your latest requests:', ...lines, `Open My requests in the ${PRODUCT_NAME} app for the details.`].join('\n')
 }
 
 /** The latest requests of the account whose phone sent the message. Empty when no account has it. */

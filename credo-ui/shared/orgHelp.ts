@@ -1,3 +1,4 @@
+import { PRODUCT_NAME, editionHasPresetSetup } from '../../src/config/productEdition'
 import type { OrgSettingsItemId } from './orgSettings'
 
 export type HelpTopic = {
@@ -11,7 +12,7 @@ export type HelpTopic = {
 }
 
 /** Most-asked setup questions first (Android help pattern: common topics at the top). */
-export const HELP_TOPICS: HelpTopic[] = [
+const ALL_HELP_TOPICS: HelpTopic[] = [
   {
     id: 'finish-now',
     question: 'Do I have to finish setup before I can work?',
@@ -52,6 +53,11 @@ export const HELP_TOPICS: HelpTopic[] = [
   },
 ]
 
+/** A preset edition has no setup answers to keep, so the "stop halfway" topic is left out. */
+export function helpTopics(): HelpTopic[] {
+  return editionHasPresetSetup() ? ALL_HELP_TOPICS.filter((topic) => topic.id !== 'progress') : ALL_HELP_TOPICS
+}
+
 export type FeedbackChannel = { id: 'email' | 'whatsapp'; label: string; href: string }
 
 /** Feedback destinations come from deployment settings, so no contact details are hard-coded. */
@@ -64,7 +70,7 @@ export function feedbackChannels(context: string): FeedbackChannel[] {
     channels.push({
       id: 'email',
       label: 'Email feedback',
-      href: `mailto:${email}?subject=${encodeURIComponent('Credentis feedback')}&body=${encodeURIComponent(body)}`,
+      href: `mailto:${email}?subject=${encodeURIComponent(`${PRODUCT_NAME} feedback`)}&body=${encodeURIComponent(body)}`,
     })
   }
   if (whatsapp) {

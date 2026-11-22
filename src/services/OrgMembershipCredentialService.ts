@@ -37,6 +37,7 @@ import {
 import { outboxService } from './OutboxService'
 import { credentialLifecycleService } from './ssi/CredentialLifecycleService'
 import { findWalletTenantByContact } from './ssi/walletLookup'
+import { PRODUCT_NAME } from '../config/productEdition'
 
 const logger = rootLogger.child({ module: 'OrgMembershipCredentialService' })
 
@@ -373,7 +374,7 @@ export class OrgMembershipCredentialService {
       // Added without changing the fingerprint, so existing cards are not re-sent for it.
       ...(employeePermissionsForRole(role) ? { permissions: employeePermissionsForRole(role) } : {}),
       issuedAt: new Date().toISOString(),
-      platformName: process.env.PLATFORM_NAME || 'IdenEx Credentis',
+      platformName: process.env.PLATFORM_NAME || PRODUCT_NAME,
       fingerprint,
     }
 
@@ -622,7 +623,7 @@ export class OrgMembershipCredentialService {
         ? { workflowType: params.workflowType, stageAction: params.stageAction, stageTitle: params.stageTitle }
         : {}),
       issuedAt: new Date().toISOString(),
-      platformName: process.env.PLATFORM_NAME || 'IdenEx Credentis',
+      platformName: process.env.PLATFORM_NAME || PRODUCT_NAME,
       fingerprint,
     }
     const until = params.validUntil ? new Date(params.validUntil).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : undefined
@@ -766,7 +767,7 @@ export class OrgMembershipCredentialService {
       offerUri: toCredentialOfferDeeplink(params.offerUri),
       title,
       body,
-      metadata: { platformName: process.env.PLATFORM_NAME || 'IdenEx Credentis', displayName: params.displayName },
+      metadata: { platformName: process.env.PLATFORM_NAME || PRODUCT_NAME, displayName: params.displayName },
       fingerprint,
     })
   }

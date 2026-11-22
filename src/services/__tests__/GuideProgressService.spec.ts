@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import { readFileSync } from 'fs'
 
+import { EDITION_PRESET_SETUP, setEditionPresetSetup } from '../../config/productEdition'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { GettingStartedService, GuideProgressService, HolderSettingsService } from '../GuideProgressService'
 
@@ -181,8 +182,19 @@ describe('GettingStartedService', () => {
     it('asks an owner to finish setup until the setup questions are answered', () => {
       db.exec(`INSERT INTO org_memberships VALUES ('u1', 'org-1', 'active', 'owner', '2026-01-01');
         INSERT INTO org_setup_profiles VALUES ('org-1', NULL);`)
-      expect(service.status('wallet-1').setupToFinish).toEqual({ orgTenantId: 'org-1', orgName: 'Harare Field Co' })
-      db.exec(`UPDATE org_setup_profiles SET answered_at = '2026-01-02'`)
+      setEditionPresetSetup(null)
+      try {
+        expect(service.status('wallet-1').setupToFinish).toEqual({ orgTenantId: 'org-1', orgName: 'Harare Field Co' })
+        db.exec(`UPDATE org_setup_profiles SET answered_at = '2026-01-02'`)
+        expect(service.status('wallet-1').setupToFinish).toBeNull()
+      } finally {
+        setEditionPresetSetup(EDITION_PRESET_SETUP)
+      }
+    })
+
+    it('never asks an SGK owner to finish setup: there are no questions', () => {
+      db.exec(`INSERT INTO org_memberships VALUES ('u1', 'org-1', 'active', 'owner', '2026-01-01');
+        INSERT INTO org_setup_profiles VALUES ('org-1', NULL);`)
       expect(service.status('wallet-1').setupToFinish).toBeNull()
     })
   })

@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/lib/orgProfile'
 import React, { useCallback, useEffect, useState } from 'react'
 import { Badge, Button, Group, Paper, Stack, Switch, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
@@ -105,7 +106,7 @@ export default function WhatsAppAlertsCard({
       <Stack gap="sm">
         <Text fw={700}>{personal ? 'WhatsApp alerts from any organisation' : 'WhatsApp alerts for this organisation'}</Text>
         <Text size="xs" c="dimmed">
-          A short WhatsApp message tells you something is waiting in your Credentis inbox. Nothing is approved or paid from WhatsApp.
+          A short WhatsApp message tells you something is waiting in your {PRODUCT_NAME} inbox. Nothing is approved or paid from WhatsApp.
           Reply STOP at any time to turn all alerts off.
         </Text>
         <Text size="xs" c="dimmed">
@@ -120,7 +121,7 @@ export default function WhatsAppAlertsCard({
               <div>
                 <Text size="sm" fw={600}>Send alerts for this organisation</Text>
                 <Text size="xs" c="dimmed">
-                  {readiness.platformConfigured ? 'From the Credentis WhatsApp number.' : 'The Credentis WhatsApp number is not set up yet.'}
+                  {readiness.platformConfigured ? `From the ${PRODUCT_NAME} WhatsApp number.` : `The ${PRODUCT_NAME} WhatsApp number is not set up yet.`}
                 </Text>
               </div>
               <Switch

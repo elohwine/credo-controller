@@ -13,6 +13,9 @@
  * selection and plan entitlement, including on legacy organisations.
  *
  * The kind → request type mapping is mirrored in `credo-ui/{portal/utils,mobile/lib}/orgProfile.ts`.
+ *
+ * An edition with a preset setup (`editionPresetSetup()`, the SGK pilot) is never asked: a new or
+ * unanswered organisation is saved with the preset, and its kinds and work areas stay the preset.
  */
 
 import {
@@ -24,7 +27,7 @@ import {
   type OrgOperatingModel,
   type OrgConfigurationAccess,
 } from '../config/orgModules'
-import { editionKinds, editionModules, withEditionModules } from '../config/productEdition'
+import { editionKinds, editionPresetSetup, editionModules, withEditionModules } from '../config/productEdition'
 import { MEMBER_REQUEST_FLOWS } from '../config/requestFlows'
 import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
@@ -178,8 +181,13 @@ export class OrgSetupProfileService {
           payment_choice?: string
           staff_card_change?: string
           answered_at?: string
+          created_at?: string
         }
       | undefined
+    if (editionPresetSetup() && (!row || row.configuration_mode === 'unconfigured')) {
+      this.saveEditionPreset(orgTenantId)
+      return this.get(orgTenantId)
+    }
     const parseSelection = <T extends string>(raw: string, allowed: readonly T[]): T[] => {
       const value: unknown = JSON.parse(raw)
       if (!Array.isArray(value) || value.some((item) => !allowed.includes(item))) {
@@ -187,9 +195,10 @@ export class OrgSetupProfileService {
       }
       return Array.from(new Set<T>(value))
     }
-    const kinds = editionKinds(row ? parseSelection(row.kinds, ORG_KINDS) : [])
-    let modules = editionModules(row ? parseSelection(row.modules, ORG_MODULES) : [])
     const mode = row?.configuration_mode ?? 'unconfigured'
+    const preset = mode === 'explicit' ? editionPresetSetup() : null
+    const kinds = editionKinds(preset ? cleanKinds(preset.kinds) : row ? parseSelection(row.kinds, ORG_KINDS) : [])
+    let modules = editionModules(preset ? cleanModules(preset.modules) : row ? parseSelection(row.modules, ORG_MODULES) : [])
     if (mode === 'legacy') {
       modules = legacyModules(kinds, modules)
     }
@@ -268,7 +277,7 @@ export class OrgSetupProfileService {
       approvalTitle: row?.approval_title || undefined,
       paymentChoice: row?.payment_choice || undefined,
       staffCardChange: cleanStaffCardChange(row?.staff_card_change) || DEFAULT_STAFF_CARD_CHANGE,
-      answeredAt: row?.answered_at || undefined,
+      answeredAt: row?.answered_at || (preset ? row?.created_at : undefined) || undefined,
       requestTypes:
         mode === 'legacy'
           ? requestTypesFor(kinds, usableModules)
@@ -277,11 +286,46 @@ export class OrgSetupProfileService {
   }
 
   public initializeNew(orgTenantId: string): void {
+    if (editionPresetSetup()) {
+      this.saveEditionPreset(orgTenantId)
+      return
+    }
     this.db
       .prepare(
         `INSERT OR IGNORE INTO org_setup_profiles (org_tenant_id, configuration_mode) VALUES (?, 'unconfigured')`,
       )
       .run(orgTenantId)
+  }
+
+  /** Save the edition's fixed setup on a new or unanswered organisation. Answered ones are left alone. */
+  private saveEditionPreset(orgTenantId: string): void {
+    const preset = editionPresetSetup()
+    if (!preset) return
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        `INSERT INTO org_setup_profiles (
+           org_tenant_id, kinds, modules, answered_at, created_at, updated_at,
+           configuration_mode, operating_model, configuration_revision
+         ) VALUES (?, ?, ?, ?, ?, ?, 'explicit', 'internal', 1)
+         ON CONFLICT(org_tenant_id) DO UPDATE SET
+           kinds = excluded.kinds,
+           modules = excluded.modules,
+           answered_at = excluded.answered_at,
+           configuration_mode = 'explicit',
+           operating_model = 'internal',
+           configuration_revision = org_setup_profiles.configuration_revision + 1,
+           updated_at = excluded.updated_at
+         WHERE org_setup_profiles.configuration_mode = 'unconfigured'`,
+      )
+      .run(
+        orgTenantId,
+        JSON.stringify(cleanKinds(preset.kinds)),
+        JSON.stringify(cleanModules(preset.modules)),
+        now,
+        now,
+        now,
+      )
   }
 
   public moduleForOperation(operation: string): OrgModule | undefined {
@@ -370,10 +414,15 @@ export class OrgSetupProfileService {
     ) {
       throw new StatusException('Answer the organisation setup questions before saving work areas.', 400)
     }
-    const kinds = editionKinds(input.kinds !== undefined ? cleanKinds(input.kinds) : current.kinds)
-    const modules = editionModules(input.modules !== undefined ? cleanModules(input.modules) : current.modules)
-    const mode = configure ? 'explicit' : current.access.mode
-    const operatingModel = input.operatingModel ?? current.access.operatingModel
+    const preset = current.access.mode !== 'legacy' ? editionPresetSetup() : null
+    const kinds = editionKinds(
+      preset ? cleanKinds(preset.kinds) : input.kinds !== undefined ? cleanKinds(input.kinds) : current.kinds,
+    )
+    const modules = editionModules(
+      preset ? cleanModules(preset.modules) : input.modules !== undefined ? cleanModules(input.modules) : current.modules,
+    )
+    const mode = configure || preset ? 'explicit' : current.access.mode
+    const operatingModel = preset ? 'internal' : (input.operatingModel ?? current.access.operatingModel)
     if (mode === 'explicit' && operatingModel === 'integration' && modules.length > 0) {
       throw new StatusException(
         'When you connect your own systems only, no internal work areas may be enabled. Choose hybrid to use both.',

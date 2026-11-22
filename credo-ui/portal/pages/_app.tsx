@@ -13,6 +13,9 @@ import { credentisTheme } from '@/lib/theme/credentis-theme';
 import { useActiveTabInView } from '@/lib/tabs';
 
 import Layout from "@/components/Layout";
+import { clearCurrentSession } from "@/lib/savedAccounts";
+import { clearStoredOrganizationContext, hasSignedInSession } from "@/utils/organizationContext";
+import { CONTEXT_UPDATED_EVENT } from "@/lib/portalContext";
 
 // A missing connection should fail at once and leave the last screen in place.
 // Waiting for the browser to time out is what makes the app feel stuck.
@@ -61,7 +64,6 @@ export default function App({ Component, pageProps }: AppProps) {
         setEnv(envRes.data);
 
         const apiBaseUrl = envRes.data.NEXT_PUBLIC_VC_REPO;
-        const apiKey = envRes.data.NEXT_PUBLIC_CREDO_API_KEY || 'test-api-key-12345';
 
         // 2. Check for cached tenant
         let tenantId = localStorage.getItem('credoTenantId');
@@ -81,15 +83,22 @@ export default function App({ Component, pageProps }: AppProps) {
         // separately so the org session isn't overwritten.
         const isOrgContext = localStorage.getItem('credoContextMode') === 'org';
         const walletToken = localStorage.getItem('walletToken');
+
+        // Only a real sign-in leaves a wallet, auth or organisation token. A guest tenant token
+        // (shop checkout, or the old anonymous start-up) is kept for register to claim, but is not a session.
+        const signedIn = hasSignedInSession();
+        if (!signedIn) {
+          tenantId = null;
+          tenantToken = null;
+        }
         if (isOrgContext && walletToken && walletToken !== tenantToken) {
           // Use the personal wallet token for app-level validation, but don't overwrite org token.
           tenantToken = walletToken;
           tenantId = null; // Let validation proceed with wallet token
         }
 
-        // 3. Validate existing tenant (single check)
-        let needsNewTenant = !isOrgContext && (!tenantId || !tenantToken);
-
+        // 3. Validate the signed-in session (single check). Signed-out visitors get no session;
+        // Layout sends them to sign in.
         if (tenantToken) {
           try {
             await axios.get(`${apiBaseUrl}/agent`, {
@@ -110,64 +119,17 @@ export default function App({ Component, pageProps }: AppProps) {
               // The API was unreachable or had a hiccup (for example a restart). Keep the
               // organization session; dropping it here would silently log the operator out.
               console.warn('[App] Could not validate session right now; keeping organization context');
-            } else if (isOrgContext) {
-              // Org token expired — clear org context gracefully
-              localStorage.removeItem('credoOrgToken');
-              localStorage.removeItem('credoActiveOrg');
-              localStorage.setItem('credoContextMode', 'personal');
-              needsNewTenant = true;
+            } else if (sessionRejected) {
+              // The session expired or was revoked: sign out fully so Layout sends the person to sign in.
+              console.warn('[App] Session rejected; signing out');
+              clearCurrentSession();
+              clearStoredOrganizationContext();
+              tenantToken = null;
+              window.dispatchEvent(new Event(CONTEXT_UPDATED_EVENT));
             } else {
-              console.warn('[App] Cached tenant invalid, will re-provision');
-              localStorage.removeItem('credoTenantToken');
-              localStorage.removeItem('tenantToken');
-              localStorage.removeItem('credoTenantId');
-              localStorage.removeItem('tenantId');
-              needsNewTenant = true;
+              console.warn('[App] Could not validate session right now; keeping it');
             }
           }
-        }
-
-        // 4. Create new tenant if needed (only ONE token call)
-        if (needsNewTenant) {
-          console.log('[App] Initializing new portal tenant...');
-
-          const rootTokenRes = await axios.post(
-            `${apiBaseUrl}/agent/token`,
-            {},
-            { headers: { Authorization: apiKey } }
-          );
-          const rootToken = rootTokenRes.data.token;
-
-          const createRes = await axios.post(
-            `${apiBaseUrl}/multi-tenancy/create-tenant`,
-            {
-              config: {
-                label: 'Portal Default Tenant',
-                tenantType: 'USER',
-                connectionImageUrl: `${window.location.origin}/favicon.ico`,
-              },
-              baseUrl: apiBaseUrl
-            },
-            { headers: { Authorization: `Bearer ${rootToken}` } }
-          );
-
-          tenantId = createRes.data.tenantId || createRes.data.id;
-          tenantToken = createRes.data.token;
-
-          if (tenantId && !isOrgContext) {
-            localStorage.setItem('credoTenantId', tenantId);
-            localStorage.setItem('tenantId', tenantId);
-          }
-          if (tenantToken && !isOrgContext) {
-            localStorage.setItem('credoTenantToken', tenantToken);
-            localStorage.setItem('tenantToken', tenantToken);
-          }
-          // Keep any existing personal wallet token, but do not overwrite it
-          // with an anonymous bootstrap tenant token.
-          if (walletToken) {
-            localStorage.setItem('walletToken', walletToken);
-          }
-          console.log('[App] New portal tenant initialized:', tenantId);
         }
 
         // 5. Fetch credentials (only if we have valid token)

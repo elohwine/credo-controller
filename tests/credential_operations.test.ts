@@ -12,7 +12,7 @@ import { OrganizationService } from '../src/services/OrganizationService'
 import { orgSetupProfileService } from '../src/services/OrgSetupProfileService'
 import { credentialDefinitionStore } from '../src/utils/credentialDefinitionStore'
 import { schemaStore } from '../src/utils/schemaStore'
-import { initTestDatabases, seedOrganization, type TestDatabases } from './utils/orgReadinessFixture'
+import { initTestDatabases, seedOrganization, withoutEditionPreset, type TestDatabases } from './utils/orgReadinessFixture'
 
 let databases: TestDatabases
 beforeAll(() => {
@@ -67,12 +67,13 @@ describe('organization credential operations', () => {
     ).rejects.toMatchObject({ status: 409 })
   })
 
-  test('unanswered setup exposes no credential catalogue', async () => {
-    const org = seedOrganization({ setup: 'new' })
-    expect(
-      await new CredentialOperationsController().getCatalogue(requestFor(org.orgTenantId, org.ownerUserId)),
-    ).toEqual({ items: [] })
-  })
+  test('unanswered setup exposes no credential catalogue', () =>
+    withoutEditionPreset(async () => {
+      const org = seedOrganization({ setup: 'new' })
+      expect(
+        await new CredentialOperationsController().getCatalogue(requestFor(org.orgTenantId, org.ownerUserId)),
+      ).toEqual({ items: [] })
+    }))
 
   test('offer link is issuer-scoped, read-only, non-cacheable and available only while pending', async () => {
     const issuer = seedOrganization()

@@ -32,6 +32,7 @@ import { randomUUID } from 'crypto'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { csvCell } from '../WorkflowAuditService'
 import { rootLogger } from '../../utils/pinoLogger'
+import { PRODUCT_NAME } from '../../config/productEdition'
 
 const logger = rootLogger.child({ service: 'HolderActivityService' })
 
@@ -176,7 +177,7 @@ export function cardIssuerOf(
   meta: Record<string, any>,
 ): { orgTenantId?: string; orgName?: string } {
   if (sourceType === 'platform_identity') {
-    return { orgTenantId: undefined, orgName: String(meta.platformName || 'Credentis').trim() || 'Credentis' }
+    return { orgTenantId: undefined, orgName: String(meta.platformName || PRODUCT_NAME).trim() || PRODUCT_NAME }
   }
   return {
     orgTenantId: String(issuerTenantId || meta.orgTenantId || '').trim() || undefined,

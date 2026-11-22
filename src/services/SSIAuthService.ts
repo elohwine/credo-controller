@@ -44,6 +44,7 @@ import {
   phoneHashCandidates,
 } from './ssi/contactHash'
 import { hashPin, needsRehash, verifyPin } from './ssi/pinHash'
+import { PRODUCT_NAME } from '../config/productEdition'
 
 const logger = rootLogger.child({ module: 'SSIAuthService' })
 
@@ -282,7 +283,7 @@ export class SSIAuthService {
       email: claims.email,
       registeredAt: new Date().toISOString(),
       platformTenantId: tenantId!,
-      platformName: process.env.PLATFORM_NAME || 'Credentis',
+      platformName: process.env.PLATFORM_NAME || PRODUCT_NAME,
       verificationLevel: 'unverified',
     })
 
@@ -964,7 +965,7 @@ export class SSIAuthService {
       ...(phone ? { phone } : {}),
       registeredAt: new Date().toISOString(),
       platformTenantId: walletTenantId,
-      platformName: process.env.PLATFORM_NAME || 'Credentis',
+      platformName: process.env.PLATFORM_NAME || PRODUCT_NAME,
       verificationLevel: 'unverified',
     })
     if (!offerUri) return undefined
@@ -1007,7 +1008,7 @@ export class SSIAuthService {
         ...(phone ? { phone } : {}),
         registeredAt: new Date().toISOString(),
         platformTenantId: walletTenantId,
-        platformName: process.env.PLATFORM_NAME || 'Credentis',
+        platformName: process.env.PLATFORM_NAME || PRODUCT_NAME,
         verificationLevel: source === 'registry_confirmed' ? 'kyc_verified' : 'phone_verified',
         dateOfBirth,
         over18,

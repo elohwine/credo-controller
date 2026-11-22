@@ -6,6 +6,7 @@ import { createPublicKey, X509Certificate } from 'crypto'
 
 import { StatusException } from '../errors'
 import { rootLogger } from '../utils/pinoLogger'
+import { PRODUCT_NAME } from '../config/productEdition'
 
 type RevocationList = { entries: Record<string, { status: string }> }
 let rootsCache: { until: number; values: X509Certificate[] } | undefined
@@ -194,6 +195,6 @@ export async function verifyAndroidKeyAttestation(input: {
     !children(appFields[0]).some((node) => bytes(children(node)[0]).toString('utf8') === packageName) ||
     !children(appFields[1]).some((node) => bytes(node).toString('hex') === digest)
   ) {
-    throw new StatusException('This key was not created by the trusted Credentis application.', 403)
+    throw new StatusException(`This key was not created by the trusted ${PRODUCT_NAME} application.`, 403)
   }
 }

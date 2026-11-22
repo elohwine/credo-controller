@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/lib/orgProfile'
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Stack, Title, Text, Box, Divider, Center, ThemeIcon, Loader, Alert, Group,
@@ -524,7 +525,7 @@ export default function ProofsPage() {
 
   const handleShare = (cred: WalletCredential) => {
     const typeName = recordCardTitle(primaryType(cred.type), cred.parsedDocument?.credentialSubject) || formatCredentialType(primaryType(cred.type));
-    const msg = encodeURIComponent(`Authentic ${typeName} - Credentis`);
+    const msg = encodeURIComponent(`Authentic ${typeName} - ${PRODUCT_NAME}`);
     window.open(`https://wa.me/?text=${msg}`, '_blank');
   };
 

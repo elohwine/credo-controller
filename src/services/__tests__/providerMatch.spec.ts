@@ -128,7 +128,7 @@ describe('judgeProvider', () => {
       { need: 'plumber', area: 'Borrowdale' },
     )
     expect(proven.score).toBeGreaterThan(fresh.score)
-    expect(proven.reasons).toContain('3 paid or finished jobs on Credentis')
+    expect(proven.reasons).toContain('3 paid or finished jobs on LDK iFacilities')
     const poorlyRated = judgeProvider(
       candidate({ track: { finished: 0, reviewAverage: 1, reviewCount: 5 } }),
       { need: 'plumber', area: 'Borrowdale' },

@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { schemaStore } from '../../utils/schemaStore'
+import { PRODUCT_NAME } from '../../config/productEdition'
 
 export const RECORD_FIELD_TYPES = ['text', 'number', 'date', 'yes_no'] as const
 export type RecordFieldType = (typeof RECORD_FIELD_TYPES)[number]
@@ -175,7 +176,7 @@ export class OrgRecordTypeService {
       throw new StatusException('Name the record type (3 to 60 characters)', 400)
     if (RESERVED_LABEL_WORDS.test(label)) {
       throw new StatusException(
-        'That name describes something Credentis issues itself (identity, authority, payments, receipts or tax). Choose another name.',
+        `That name describes something ${PRODUCT_NAME} issues itself (identity, authority, payments, receipts or tax). Choose another name.`,
         400,
       )
     }

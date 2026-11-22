@@ -44,6 +44,7 @@ import { cardIssuerOf, holderActivityService } from '../../services/ssi/HolderAc
 import { classifyOfferFailure, isCommercialDocumentOffer } from '../../services/ssi/offerClassification'
 import { redeemOfferIntoWallet, withTenantHolder } from '../../services/ssi/TenantHolder'
 import { rootLogger } from '../../utils/pinoLogger'
+import { PRODUCT_NAME } from '../../config/productEdition'
 
 const logger = rootLogger.child({ module: 'WalletCredentialsController' })
 
@@ -51,7 +52,7 @@ type WalletAuthContext = AuthContext | 'unknown'
 
 /** Who a card is from, the same before and after it is accepted. Cards with no organisation come from Credentis. */
 function offerIssuerName(claims: Record<string, any>, row: { org_name?: string | null }): string {
-  return String(claims.orgName || row.org_name || '').trim() || 'Credentis'
+  return String(claims.orgName || row.org_name || '').trim() || PRODUCT_NAME
 }
 
 interface PendingOffer {

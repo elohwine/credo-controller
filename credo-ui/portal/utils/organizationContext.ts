@@ -23,8 +23,22 @@ function decodeJwtPayload(token: string): Record<string, any> | null {
   }
 }
 
+/**
+ * True only after a real sign-in. Guest flows (shop, consent) may still leave a tenant token,
+ * and that must never open the signed-in app.
+ */
+export function hasSignedInSession(): boolean {
+  if (typeof window === 'undefined') return false
+  const storage = window.localStorage
+  return ['walletToken', 'authToken', 'auth.token', 'credoOrgToken'].some((key) => {
+    const value = storage.getItem(key)
+    return Boolean(value && value !== 'undefined' && value !== 'null')
+  })
+}
+
 export function getOrgScopedToken(): string | null {
   if (typeof window === 'undefined') return null
+  if (!hasSignedInSession()) return null
   return (
     window.localStorage.getItem('credoOrgToken') ||
     window.localStorage.getItem('credoTenantToken') ||
@@ -44,6 +58,7 @@ export function readCurrentUserId(): string {
 
 export function getPersonalToken(): string | null {
   if (typeof window === 'undefined') return null
+  if (!hasSignedInSession()) return null
 
   const authToken =
     window.localStorage.getItem('authToken') ||

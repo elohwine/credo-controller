@@ -24,9 +24,16 @@ import {
     ActionIcon,
     Tooltip,
 } from '@mantine/core';
-import { IconLogin, IconAlertCircle, IconCheck, IconWallet, IconCopy, IconQrcode } from '@tabler/icons-react';
+import { IconAlertCircle, IconCheck, IconWallet, IconCopy, IconQrcode } from '@tabler/icons-react';
 import QRCode from 'react-qr-code';
 import { applyPersonalLogin } from '@/lib/personalSession';
+import { PRODUCT_NAME } from '@/utils/orgProfile';
+import { BrandMark } from '../../../shared/BrandMark';
+
+/** Only a path inside this site; anything else (another site, `//host`) goes home. */
+function safeReturnUrl(value: unknown): string {
+    return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.startsWith('/\\') ? value : '/';
+}
 
 export default function LoginPage() {
     const router = useRouter();
@@ -65,7 +72,7 @@ export default function LoginPage() {
         );
 
         if (hasPersonalSession) {
-            router.replace('/wallet');
+            router.replace('/');
             return;
         }
 
@@ -106,7 +113,7 @@ export default function LoginPage() {
             applyPersonalLogin(response.data, identifier);
 
             // Redirect to shop or dashboard
-            const returnUrl = router.query.returnUrl as string || '/wallet';
+            const returnUrl = safeReturnUrl(router.query.returnUrl);
             setTimeout(() => {
                 router.push(returnUrl);
             }, 1000);
@@ -135,7 +142,7 @@ export default function LoginPage() {
         } catch (err: any) {
             if (attempt !== walletAttempt.current) return;
             console.error('[SSI Login] Error:', err);
-            setError(err.response?.data?.message || 'Failed to initiate wallet login');
+            setError(err.response?.data?.message || 'Could not start phone sign-in. Please try again.');
         } finally {
             setSsiLoading(false);
         }
@@ -167,14 +174,14 @@ export default function LoginPage() {
                     setSuccess(true);
                     setSsiModalOpen(false);
 
-                    const returnUrl = router.query.returnUrl as string || '/wallet';
+                    const returnUrl = safeReturnUrl(router.query.returnUrl);
                     setTimeout(() => router.push(returnUrl), 1000);
                     return;
                 }
             } catch (err: any) {
                 if (attempt !== walletAttempt.current) return;
                 // A rejected, used or expired sign-in will not recover by polling.
-                setError(err.response?.data?.details || err.response?.data?.message || 'Wallet sign-in failed. Please try again.');
+                setError(err.response?.data?.details || err.response?.data?.message || 'Phone sign-in failed. Please try again.');
                 setSsiModalOpen(false);
                 return;
             }
@@ -190,10 +197,11 @@ export default function LoginPage() {
         <Layout title="Login">
             <Container size="xs" py="xl">
                 <Paper shadow="md" p="xl" radius="md" withBorder>
-                    <Title order={2} ta="center" mb="lg">
-                        <IconLogin size={28} style={{ marginRight: 8, verticalAlign: 'middle' }} />
-                        Sign In
-                    </Title>
+                    <Stack align="center" gap={4} mb="lg">
+                        <span style={{ color: '#2188CA', display: 'flex' }}><BrandMark size={48} /></span>
+                        <Title order={2} ta="center">Sign in to {PRODUCT_NAME}</Title>
+                        <Text size="sm" c="dimmed" ta="center">Jobs, your team and client payments in one place.</Text>
+                    </Stack>
 
                     {success ? (
                         <Alert icon={<IconCheck size={16} />} title="Login Successful!" color="green">
@@ -204,7 +212,7 @@ export default function LoginPage() {
                             <Stack gap="md">
                                 {router.query.sessionExpired === '1' && (
                                     <Alert icon={<IconAlertCircle size={16} />} title="Please sign in again" color="yellow">
-                                        Your previous session is no longer valid. Sign in with your wallet or PIN to continue.
+                                        Your previous session has ended. Sign in with your phone or PIN to continue.
                                     </Alert>
                                 )}
                                 {error && (
@@ -252,14 +260,17 @@ export default function LoginPage() {
                                     loading={ssiLoading}
                                     onClick={handleWalletLogin}
                                 >
-                                    Sign in with Identity Credential
+                                    Sign in with your phone
                                 </Button>
 
                                 <Text ta="center" size="sm" c="dimmed">
-                                    Don&apos;t have an account?{' '}
+                                    New here?{' '}
                                     <Anchor component={Link} href="/auth/register">
-                                        Register
+                                        Create an account
                                     </Anchor>
+                                </Text>
+                                <Text ta="center" size="xs" c="dimmed">
+                                    Joining a team? Open the invite link your manager sent you.
                                 </Text>
                             </Stack>
                         </form>
@@ -278,7 +289,7 @@ export default function LoginPage() {
                 title={
                     <Group gap="xs">
                         <IconWallet size={24} />
-                        <Text fw={600}>Sign in with Wallet</Text>
+                        <Text fw={600}>Sign in with your phone</Text>
                     </Group>
                 }
                 centered
@@ -286,7 +297,7 @@ export default function LoginPage() {
             >
                 <Stack align="center" gap="lg">
                     <Text ta="center" size="sm" c="dimmed">
-                        Scan this QR code with your wallet app to sign in
+                        {`Scan this code with the ${PRODUCT_NAME} phone app to sign in.`}
                     </Text>
                     
                     {authRequest && (
@@ -295,11 +306,11 @@ export default function LoginPage() {
                                 <QRCode value={`credentis://device-login?request=${encodeURIComponent(authRequest)}`} size={200} />
                             </Paper>
                             <Button component="a" href={`credentis://device-login?request=${encodeURIComponent(authRequest)}`}>
-                                Open SGK on this device
+                                Open {PRODUCT_NAME} on this device
                             </Button>
                             
                             <Text ta="center" size="xs" c="dimmed">
-                                Or copy the link to open in your wallet
+                                Or copy the link and open it on your phone
                             </Text>
                             
                             <Group gap="xs" wrap="nowrap" style={{ maxWidth: '100%' }}>
@@ -328,7 +339,7 @@ export default function LoginPage() {
                     )}
                     
                     <Text ta="center" size="sm" c="blue">
-                        Waiting for wallet response...
+                        Waiting for your phone...
                     </Text>
                 </Stack>
             </Modal>

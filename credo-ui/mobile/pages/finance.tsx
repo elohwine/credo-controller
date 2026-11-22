@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/lib/orgProfile'
 import { feedback } from '@/lib/feedback';
 import { PhoneField } from '../../shared/PhoneField';
 import { milestone } from '@/components/feedback/Milestone';
@@ -1646,7 +1647,7 @@ function describeRequisitionEvent(event: NonNullable<RequisitionDetail['events']
 function billSentMessage(contact: { payerName: string }, notification: any, renew: boolean) {
   const queued = notification?.channels?.some((channel: any) => channel.status === 'queued')
   if (notification?.accepted || queued)
-    return { color: 'teal', message: `${renew ? 'New link sent' : 'Bill sent'} to ${contact.payerName}. It is also in their Credentis inbox if they use the app.` }
+    return { color: 'teal', message: `${renew ? 'New link sent' : 'Bill sent'} to ${contact.payerName}. It is also in their ${PRODUCT_NAME} inbox if they use the app.` }
   return { color: 'orange', message: `Saved, but no message went out to ${contact.payerName} (${(notification?.channels || []).map((channel: any) => `${channel.channel}: ${channel.status}`).join(', ') || 'no channel'}). Copy the payment link and share it directly.` }
 }
 
@@ -5939,7 +5940,7 @@ export default function FinancePage() {
                         </Group>
 
                         <Text size="xs" c="dimmed">
-                          Secured by Credentis Trust Layer · Instant receipt
+                          Secured by {PRODUCT_NAME} · Instant receipt
                         </Text>
                       </>
                     ) : (

@@ -9,6 +9,7 @@ import {
   IconShieldCheck,
   IconTruck
 } from '@tabler/icons-react'
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 
 export default function ReceiptVerificationIndex() {
   const router = useRouter()
@@ -118,7 +119,7 @@ export default function ReceiptVerificationIndex() {
         {/* Trust Badge */}
         <div className="mt-10 flex items-center gap-2 text-sm" style={{ color: BRAND.viking }}>
           <IconShieldCheck size={18} style={{ color: BRAND.curious }} />
-          <span>Secured by <span className="font-semibold" style={{ color: BRAND.curious }}>Credentis</span></span>
+          <span>Secured by <span className="font-semibold" style={{ color: BRAND.curious }}>{PRODUCT_NAME}</span></span>
         </div>
       </div>
     </Layout>

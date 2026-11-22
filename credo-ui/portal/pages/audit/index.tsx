@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import { useEffect, useState, useContext } from 'react';
 import Head from 'next/head';
 import Layout from '@/components/Layout';
@@ -97,7 +98,7 @@ export default function AuditLogsPage() {
   return (
     <Layout>
       <Head>
-        <title>Audit Logs | Credentis Portal</title>
+        <title>Audit Logs | {PRODUCT_NAME} Portal</title>
       </Head>
       <div className="px-4 sm:px-6 lg:px-8 py-6">
         {/* Header */}

@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 import { Alert, Badge, Button, FileInput, Group, Modal, Paper, SegmentedControl, Stack, Table, Text } from '@mantine/core'
@@ -181,7 +182,7 @@ export default function RecordFileUpload({
               }}
               data={[
                 { value: 'org_members', label: 'Members of the organisation' },
-                { value: 'any_registered', label: 'Anyone with Credentis' },
+                { value: 'any_registered', label: `Anyone with an account on ${PRODUCT_NAME}` },
               ]}
             />
           </div>

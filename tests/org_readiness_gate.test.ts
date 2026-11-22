@@ -10,6 +10,7 @@ import 'reflect-metadata'
 import { afterAll, beforeAll, describe, expect, test } from '@jest/globals'
 import { randomUUID } from 'crypto'
 
+import { EDITION_PRESET_SETUP, setEditionPresetSetup } from '../src/config/productEdition'
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
 import { workflowRepository } from '../src/persistence/WorkflowRepository'
 import { workflowRunRepository } from '../src/persistence/WorkflowRunRepository'
@@ -55,6 +56,8 @@ ActionRegistry.register('external.ecocash_payment', async (context) => {
 ActionRegistry.register('trust.update_score', async () => undefined)
 
 beforeAll(() => {
+  // These cover the setup questions the platform asks; the SGK edition's preset skips them.
+  setEditionPresetSetup(null)
   databases = initTestDatabases('credo-readiness-gate-')
   // Stage routing may refresh a staff card; keep that side effect inside this fixture.
   orgMembershipCredentialService.setOfferFactory(async () => ({
@@ -65,6 +68,7 @@ beforeAll(() => {
 })
 
 afterAll(() => {
+  setEditionPresetSetup(EDITION_PRESET_SETUP)
   databases.cleanup()
 })
 

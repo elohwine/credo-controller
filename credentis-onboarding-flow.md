@@ -17,6 +17,15 @@
 
 Design references: [Android layout basics](https://developer.android.com/design/ui/mobile/guides/layout-and-content/layout-basics) and [Android accessibility guidance](https://developer.android.com/guide/topics/ui/accessibility/apps). Browser viewport checks do not replace TalkBack and physical-device testing.
 
+## 2026-11-22 — The SGK branch has no setup questions
+
+SGK runs a fixed set of work, so its owners are never asked what they do or what they will use. The rest of this spec describes the multi-organisation platform, which keeps the questions.
+
+- A new SGK organisation is saved as already set up (`editionPresetSetup()` in `src/config/productEdition.ts`): it sends people out to do jobs and uses jobs, the team (people, leave, payroll), materials, supplier bills and client payments. Its starter roles and main people are filled when it is created.
+- An older SGK organisation that never answered is given the same setup the first time it is read. One that answered differently runs the SGK areas anyway. Saving setup cannot add or remove an area; the money choice, payment choice and staff-card rule still save.
+- The website address `/organization/onboarding` opens Organisation setup. Creating an organisation stays on Organisation setup.
+- The checklist on both apps starts at **Choose who handles money**. It opens Who does what, and **Pick how you take payments** opens Payments. Then come brand and team. There is no "Resume setup", no "What happens to my answers if I stop halfway?" help topic and no "finish your setup" prompt on Home.
+
 ## 2026-10-06 — One staff card for each person
 
 A person accepts one staff card. It shows they work here, their role, and the steps they confirm. The team list on the website and the phone shows those steps on that card. There is no extra card per kind of request.

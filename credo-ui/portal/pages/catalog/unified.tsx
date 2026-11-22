@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Layout from '@/components/Layout';
@@ -78,7 +79,7 @@ export default function UnifiedCatalog() {
     return (
         <Layout title="Unified Catalog">
             <Head>
-                <title>Unified Catalog - Credentis Portal</title>
+                <title>Unified Catalog - {PRODUCT_NAME} Portal</title>
             </Head>
             <div className="p-8">
                 <div className="flex justify-between items-start mb-8">

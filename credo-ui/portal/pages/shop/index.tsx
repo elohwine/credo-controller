@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import React, { useState, useEffect, useContext } from 'react';
 import Layout from '@/components/Layout';
 import {
@@ -370,7 +371,7 @@ export default function ShopPage() {
                 {/* Header */}
                 <div className="flex justify-between items-center mb-8 sticky top-0 z-20 bg-white/80 backdrop-blur py-4 -mx-4 px-4 border-b border-gray-100">
                     <div>
-                        <h1 className="text-2xl font-bold" style={{ color: BRAND.dark }}>Credentis Shop</h1>
+                        <h1 className="text-2xl font-bold" style={{ color: BRAND.dark }}>{PRODUCT_NAME} Shop</h1>
                         <p className="text-sm text-gray-500">Verified Merchant Store</p>
                     </div>
                     <button
@@ -606,7 +607,7 @@ export default function ShopPage() {
                             </div>
                             <h3 className="text-2xl font-bold mb-2">{refunded ? 'Refund recorded' : 'Payment Successful!'}</h3>
                             {refunded ? (
-                                <p className="text-gray-600 mb-6">The business pays you back. Credentis does not move the money.</p>
+                                <p className="text-gray-600 mb-6">The business pays you back. {PRODUCT_NAME} does not move the money.</p>
                             ) : null}
 
                             {/* CAET TEMS RESTORED */}

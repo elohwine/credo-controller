@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import React, { useContext, useEffect, useState } from 'react';
 import axios from 'axios';
 import Head from 'next/head';
@@ -89,7 +90,7 @@ export default function CredentialModelsPage() {
   return (
     <>
       <Head>
-        <title>Credential Models - Credentis Portal</title>
+        <title>Credential Models - {PRODUCT_NAME} Portal</title>
         <meta name="description" content="Browse and manage credential definition models" />
       </Head>
 

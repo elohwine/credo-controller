@@ -20,6 +20,13 @@ interface PublicJob {
   bills: Array<{ kind: 'quote' | 'invoice'; amount: number; currency: string; status: string; payUrl?: string }>
 }
 
+function writtenDate(value?: string): string {
+  if (!value) return ''
+  const date = new Date(value.length === 10 ? `${value}T12:00:00` : value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
 /** A client follows one job from the link the office sent. No account. */
 export default function PublicJobPage() {
   const router = useRouter()
@@ -46,12 +53,14 @@ export default function PublicJobPage() {
           <>
             <div>
               <Text size="sm" c="dimmed">{job.organisation}</Text>
-              <Title order={3} fw={500}>{job.reference}</Title>
-              <Badge mt={6} variant="light">{job.status}</Badge>
+              <Title order={3} fw={500}>{job.description || 'Your job'}</Title>
+              {job.reference && job.reference !== 'Job' && (
+                <Text size="sm" c="dimmed">Job number {job.reference}</Text>
+              )}
+              <Badge mt={6} variant="light" styles={{ label: { textTransform: 'none' } }}>{job.status}</Badge>
             </div>
-            <Text>{job.description}</Text>
             <Text size="sm" c="dimmed">
-              {[job.storeNumber ? `Store ${job.storeNumber}` : '', job.location, job.scheduledDate, job.workerName ? `Worker: ${job.workerName}` : '']
+              {[job.storeNumber ? `Store ${job.storeNumber}` : '', job.location, writtenDate(job.scheduledDate), job.workerName ? `Worker: ${job.workerName}` : '']
                 .filter(Boolean)
                 .join(' · ')}
             </Text>

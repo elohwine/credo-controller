@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import { useState, useEffect, useContext } from 'react';
 import Head from 'next/head';
 import Layout from '../../components/Layout';
@@ -200,7 +201,7 @@ const InventoryDashboard = () => {
   return (
     <Layout>
       <Head>
-        <title>Inventory | Credentis Portal</title>
+        <title>Inventory | {PRODUCT_NAME} Portal</title>
       </Head>
       <div className="px-4 sm:px-6 lg:px-8 py-6">
         {/* Header */}

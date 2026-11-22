@@ -5,7 +5,13 @@ import { platformRequestService } from '../src/services/PlatformRequestService'
 import { requestKindsFor as mobileKinds } from '../credo-ui/mobile/lib/requestCatalog'
 import { requestKindsFor as portalKinds } from '../credo-ui/portal/lib/requestCatalog'
 import { getWorkflowCapabilityFlags } from '../credo-ui/shared/workflowCapabilities'
-import { addMember, initTestDatabases, seedOrganization, type TestDatabases } from './utils/orgReadinessFixture'
+import {
+  addMember,
+  initTestDatabases,
+  seedOrganization,
+  withoutEditionPreset,
+  type TestDatabases,
+} from './utils/orgReadinessFixture'
 
 let databases: TestDatabases
 beforeAll(() => {
@@ -98,21 +104,22 @@ describe('contextual request entry on both clients', () => {
     )
   })
 
-  test('a disabled purchase option is hidden and cannot be raised by bypassing the menu', () => {
-    const org = organization([])
-    const options = platformRequestService.optionsForSubject(org.ownerUserId)
-    expect(options.memberships[0].kinds).not.toContain('procurement.requisition')
-    expect(() =>
-      platformRequestService.raiseForSubject({
-        orgTenantId: org.orgTenantId,
-        subjectRef: org.ownerUserId,
-        requestType: 'procurement.requisition',
-        title: 'Boots',
-        amount: 20,
-        currency: 'USD',
-      }),
-    ).toThrow(/setup answers|unavailable/i)
-  })
+  test('a disabled purchase option is hidden and cannot be raised by bypassing the menu', () =>
+    withoutEditionPreset(() => {
+      const org = organization([])
+      const options = platformRequestService.optionsForSubject(org.ownerUserId)
+      expect(options.memberships[0].kinds).not.toContain('procurement.requisition')
+      expect(() =>
+        platformRequestService.raiseForSubject({
+          orgTenantId: org.orgTenantId,
+          subjectRef: org.ownerUserId,
+          requestType: 'procurement.requisition',
+          title: 'Boots',
+          amount: 20,
+          currency: 'USD',
+        }),
+      ).toThrow(/setup answers|unavailable/i)
+    }))
 
   test('invalid item amounts are explicit client errors', () => {
     const org = organization(['purchases'])

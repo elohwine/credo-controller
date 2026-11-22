@@ -1,7 +1,8 @@
 import { useId, useState } from 'react'
-import { HELP_TOPICS, feedbackChannels, type HelpTopic } from './orgHelp'
+import { feedbackChannels, helpTopics, type HelpTopic } from './orgHelp'
 import { ORG_SETTINGS_GROUPS, type OrgSettingsItemId } from './orgSettings'
 import styles from './OrgSetupOverview.module.css'
+import { PRODUCT_NAME } from '../../src/config/productEdition'
 
 const settingLabel = (id: OrgSettingsItemId) =>
   ORG_SETTINGS_GROUPS.flatMap((group) => group.items).find((item) => item.id === id)?.label ?? 'Settings'
@@ -48,7 +49,7 @@ export function HelpAndFeedback({
   const copyNote = async () => {
     try {
       await navigator.clipboard.writeText(
-        `Credentis feedback\nWhere: ${context}\n\nWhat happened or what would help?\n`,
+        `${PRODUCT_NAME} feedback\nWhere: ${context}\n\nWhat happened or what would help?\n`,
       )
       setCopied(true)
     } catch {
@@ -63,7 +64,7 @@ export function HelpAndFeedback({
           Common questions
         </h3>
         <ul className={styles.list}>
-          {HELP_TOPICS.map((topic) => (
+          {helpTopics().map((topic) => (
             <li key={topic.id}>
               <details className={styles.details}>
                 <summary>{topic.question}</summary>
@@ -97,8 +98,8 @@ export function HelpAndFeedback({
             </button>
             <p className={styles.muted} role="status">
               {copied
-                ? 'Copied. Paste it into a message to your Credentis contact.'
-                : 'Paste it into a message to your Credentis contact.'}
+                ? `Copied. Paste it into a message to your ${PRODUCT_NAME} contact.`
+                : `Paste it into a message to your ${PRODUCT_NAME} contact.`}
             </p>
           </>
         )}

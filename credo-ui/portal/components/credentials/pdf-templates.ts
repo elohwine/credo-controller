@@ -9,6 +9,7 @@
  * Embed PDF hash (sha256) into VC for tamper-proof verification.
  */
 
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import type { VerifiableCredential } from './CanonicalCredentialCard'
 
 // Credentis brand colors
@@ -121,7 +122,7 @@ const commonStyles = `
 // Helper to safely access nested properties
 const getIssuerName = (vc: VerifiableCredential): string => {
   if (typeof vc.issuer === 'string') return vc.issuer
-  return vc.issuer?.name || 'Credentis'
+  return vc.issuer?.name || PRODUCT_NAME
 }
 
 const getHolderName = (vc: VerifiableCredential): string => {

@@ -4,6 +4,7 @@ import { createHash } from 'crypto'
 
 import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
+import { PRODUCT_NAME } from '../config/productEdition'
 
 export function personalSessionVersion(userId: string): number {
   const row = DatabaseManager.getDatabase()
@@ -55,7 +56,7 @@ export function requireDeviceLoginApproval(
     | { device_key_id: string; policy_hash: string | null }
     | undefined
   if (!row || (policyHash && row.policy_hash !== policyHash)) {
-    throw new StatusException('Approve this sign-in on your enrolled Credentis device.', 401)
+    throw new StatusException(`Approve this sign-in on your enrolled ${PRODUCT_NAME} device.`, 401)
   }
   return { deviceKeyId: row.device_key_id }
 }

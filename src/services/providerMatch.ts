@@ -8,6 +8,8 @@
  * Finished work and ratings only change the order of businesses that already fit.
  */
 
+import { PRODUCT_NAME } from '../config/productEdition'
+
 export const FULFILMENT_OPTIONS = ['call_out', 'delivery', 'collection'] as const
 export type FulfilmentOption = (typeof FULFILMENT_OPTIONS)[number]
 
@@ -349,7 +351,7 @@ export function judgeProvider(candidate: MatchCandidate, request: MatchNeed): Ma
   const finished = Math.max(0, Math.floor(Number(candidate.track?.finished) || 0))
   if (finished > 0) {
     score += Math.min(finished, 10) * 0.2
-    reasons.push(`${finished} paid or finished ${finished === 1 ? 'job' : 'jobs'} on Credentis`)
+    reasons.push(`${finished} paid or finished ${finished === 1 ? 'job' : 'jobs'} on ${PRODUCT_NAME}`)
   }
   const reviewCount = Math.max(0, Number(candidate.track?.reviewCount) || 0)
   const reviewAverage = Number(candidate.track?.reviewAverage)

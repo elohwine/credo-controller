@@ -16,6 +16,7 @@
 
 'use client';
 
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import React, { useRef, useState, ReactNode } from 'react';
 import { motion, useMotionValue, useSpring } from 'framer-motion';
 
@@ -30,7 +31,7 @@ interface SpotlightCardProps {
 const SpotlightCard: React.FC<SpotlightCardProps> = ({
   children,
   className = '',
-  spotlightColor = 'rgba(33, 136, 202, 0.15)', // Credentis Curious Blue
+  spotlightColor = 'rgba(33, 136, 202, 0.15)', // brand Curious Blue
   spotlightSize = 300,
   borderRadius = '16px',
 }) => {

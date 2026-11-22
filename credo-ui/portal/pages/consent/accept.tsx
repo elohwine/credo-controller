@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import { useRouter } from "next/router";
 import { useContext, useEffect, useState } from "react";
 import { EnvContext } from "@/pages/_app";
@@ -79,7 +80,7 @@ export default function AcceptCredential() {
                 setDetails({
                     credentialType: offer.credentialType || type || "Credential",
                     credentialId: offer.credentialId || (offerId as string),
-                    issuer: offer.issuer || "Credentis Merchant",
+                    issuer: offer.issuer || "Merchant",
                     claims: offer.claims || {},
                     expiresAt: offer.expiresAt,
                 });
@@ -89,7 +90,7 @@ export default function AcceptCredential() {
                 setDetails({
                     credentialType: (type as string) || "PaymentReceipt",
                     credentialId: offerId as string,
-                    issuer: "Credentis Demo Merchant",
+                    issuer: "Demo Merchant",
                     claims: {
                         transactionId: "MP260131.0127.A12345",
                         amount: "$25.00",
@@ -321,7 +322,7 @@ export default function AcceptCredential() {
                         <Group justify="center" mt="xl" gap={4}>
                             <IconShieldCheck size={14} color={BRAND.curious} />
                             <Text size="xs" c="dimmed">
-                                Secured by Credentis Trust Infrastructure
+                                Secured by {PRODUCT_NAME}
                             </Text>
                         </Group>
                     </Box>

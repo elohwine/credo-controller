@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import RowCredential from "@/components/walt/credential/RowCredential";
 import Dropdown from "@/components/walt/forms/Dropdown";
 import {AuthenticationMethods, AvailableCredential, VpProfiles} from "@/types/credentials";
@@ -236,7 +237,7 @@ export default function IssueSection() {
       <div className="flex flex-col items-center mt-12">
         <div className="flex flex-row gap-2 items-center content-center text-sm text-center text-gray-500">
           <p className="">Secured by IdenEx</p>
-          <img src="/credentis-logo.png" alt="Credentis" style={{ height: 15, width: 'auto' }} />
+          <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 15, width: 'auto' }} />
         </div>
       </div>
     </>

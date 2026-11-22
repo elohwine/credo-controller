@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import React, { useState, useEffect, useContext } from 'react';
 import Layout from '@/components/Layout';
 import QRCode from 'react-qr-code';
@@ -455,7 +456,7 @@ export default function PayrollPage() {
                                     </button>
                                 </div>
                                 <div className="mt-6 pt-6 border-t border-gray-200 text-center">
-                                    <p className="text-xs text-gray-500">Powered by <span className="font-semibold" style={{ color: BRAND.curious }}>Credentis</span></p>
+                                    <p className="text-xs text-gray-500">Powered by <span className="font-semibold" style={{ color: BRAND.curious }}>{PRODUCT_NAME}</span></p>
                                 </div>
                             </div>
                         </div>

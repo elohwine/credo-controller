@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 import {
@@ -203,9 +204,9 @@ export default function SignInPartnersPage() {
             <div>
               <Title order={2}>Connected systems</Title>
               <Text c="dimmed" size="sm" mt={4}>
-                Connect the software you already use. A system can sign people in with their Credentis wallet, send
+                Connect the software you already use. A system can sign people in with their {PRODUCT_NAME} account, send
                 your records into people&apos;s wallets, or both. Keep running your accounts, HR or school system as
-                it is; Credentis carries the trusted record.
+                it is; {PRODUCT_NAME} carries the trusted record.
               </Text>
             </div>
             <Button leftSection={<IconPlus size={16} />} onClick={() => setDraft({ ...EMPTY_DRAFT })}>
@@ -287,7 +288,7 @@ export default function SignInPartnersPage() {
                     <Text size="sm">
                       Sends records to:{' '}
                       {client.policy.recipientScope === 'any_registered'
-                        ? 'anyone with a Credentis wallet'
+                        ? `anyone with an account on ${PRODUCT_NAME}`
                         : 'members of this organisation'}
                     </Text>
                   )}
@@ -342,7 +343,7 @@ export default function SignInPartnersPage() {
               >
                 <Stack gap={6} mt={6}>
                   <Radio value="org_members" label="Only members of this organisation" />
-                  <Radio value="any_registered" label="Anyone with a Credentis wallet (customers, students, patients)" />
+                  <Radio value="any_registered" label={`Anyone with an account on ${PRODUCT_NAME}`} />
                 </Stack>
               </Radio.Group>
             )}

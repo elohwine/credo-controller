@@ -3,7 +3,8 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-import { HELP_TOPICS, feedbackChannels } from '../credo-ui/shared/orgHelp'
+import { feedbackChannels, helpTopics } from '../credo-ui/shared/orgHelp'
+import { EDITION_PRESET_SETUP, setEditionPresetSetup } from '../src/config/productEdition'
 import {
   clearOrgSetupDraft,
   readOrgSetupDraft,
@@ -29,12 +30,23 @@ const profile: OrgProfile = {
 
 describe('Organisation setup journey', () => {
   test('keeps the existing checklist and suggests only the first unfinished step', () => {
+    setEditionPresetSetup(null)
+    try {
+      const steps = setupChecklist({ profile: null, items: [], memberCount: 1 })
+      expect(steps.map((step) => step.id)).toEqual(['kinds', 'people', 'money', 'payments', 'brand', 'team'])
+      expect(steps.find((step) => !step.done)?.id).toBe('kinds')
+      const answered = setupChecklist({ profile, items: [], memberCount: 1 })
+      expect(answered.find((step) => !step.done)?.id).toBe('brand')
+      expect(answered.find((step) => step.id === 'team')?.done).toBe(false)
+    } finally {
+      setEditionPresetSetup(EDITION_PRESET_SETUP)
+    }
+  })
+
+  test('SGK has no setup questions: the checklist starts at who handles money', () => {
     const steps = setupChecklist({ profile: null, items: [], memberCount: 1 })
-    expect(steps.map((step) => step.id)).toEqual(['kinds', 'people', 'money', 'payments', 'brand', 'team'])
-    expect(steps.find((step) => !step.done)?.id).toBe('kinds')
-    const answered = setupChecklist({ profile, items: [], memberCount: 1 })
-    expect(answered.find((step) => !step.done)?.id).toBe('brand')
-    expect(answered.find((step) => step.id === 'team')?.done).toBe(false)
+    expect(steps.map((step) => step.id)).toEqual(['money', 'payments', 'brand', 'team'])
+    expect(steps.find((step) => !step.done)?.id).toBe('brand')
   })
 
   test('does not turn a saved money choice into a blocker when invitations are still needed', () => {
@@ -213,8 +225,14 @@ describe('Setup draft on this device', () => {
 describe('Help & Feedback', () => {
   test('answers the progress question and links help topics to real settings', () => {
     const ids = new Set(ORG_SETTINGS_GROUPS.flatMap((group) => group.items.map((item) => item.id)))
-    expect(HELP_TOPICS.map((topic) => topic.id)).toContain('progress')
-    for (const topic of HELP_TOPICS) {
+    expect(helpTopics().map((topic) => topic.id)).not.toContain('progress')
+    setEditionPresetSetup(null)
+    try {
+      expect(helpTopics().map((topic) => topic.id)).toContain('progress')
+    } finally {
+      setEditionPresetSetup(EDITION_PRESET_SETUP)
+    }
+    for (const topic of helpTopics()) {
       if (topic.setting) expect(ids.has(topic.setting)).toBe(true)
     }
   })

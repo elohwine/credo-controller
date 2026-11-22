@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from '@jest/globals'
 import { randomUUID } from 'crypto'
 
 import { suggestedOrgModules } from '../src/config/orgModules'
+import { EDITION_PRESET_SETUP, setEditionPresetSetup } from '../src/config/productEdition'
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
 import { workflowRepository } from '../src/persistence/WorkflowRepository'
 import { workflowRunRepository } from '../src/persistence/WorkflowRunRepository'
@@ -22,10 +23,13 @@ import { initTestDatabases, seedOrganization, type TestDatabases } from './utils
 let databases: TestDatabases
 
 beforeAll(() => {
+  // These cover the setup questions the platform asks; the SGK edition's preset skips them.
+  setEditionPresetSetup(null)
   databases = initTestDatabases('credo-org-config-')
 })
 
 afterAll(() => {
+  setEditionPresetSetup(EDITION_PRESET_SETUP)
   databases.cleanup()
 })
 
@@ -311,5 +315,62 @@ describe('Answer-driven organisation configuration', () => {
     expect(orgSetupProfileService.moduleForWorkflow({ id: 'custom', category: 'accounts_payable' })).toBe('payables')
     expect(orgSetupProfileService.moduleForWorkflow({ id: 'custom', category: 'finance' })).toBeUndefined()
     expect(orgSetupProfileService.moduleForOperation('tpl-ar-collection')).toBeUndefined()
+  })
+})
+
+describe('SGK edition: the setup is preset, nobody answers questions', () => {
+  beforeAll(() => setEditionPresetSetup(EDITION_PRESET_SETUP))
+  afterAll(() => setEditionPresetSetup(null))
+
+  const SGK_AREAS = ['field_jobs', 'purchases', 'payables', 'collections', 'people_payroll']
+
+  test('a new organisation is already set up with jobs, the team and the money areas', () => {
+    const org = seedOrganization({ setup: 'new' })
+    const profile = orgSetupProfileService.get(org.orgTenantId)
+    expect(profile.access.mode).toBe('explicit')
+    expect(profile.answeredAt).toBeTruthy()
+    expect(profile.kinds).toEqual(['field'])
+    expect(profile.modules).toEqual(SGK_AREAS)
+    expect(profile.access.modules.filter((item) => item.available).map((item) => item.id).sort()).toEqual([...SGK_AREAS].sort())
+    expect(raise(org.orgTenantId, org.ownerUserId, 'field_job')).toBeTruthy()
+  })
+
+  test('initializeNew saves the preset straight away', () => {
+    const orgTenantId = `org-${randomUUID()}`
+    orgSetupProfileService.initializeNew(orgTenantId)
+    const row = DatabaseManager.getDatabase()
+      .prepare('SELECT configuration_mode, modules, answered_at FROM org_setup_profiles WHERE org_tenant_id = ?')
+      .get(orgTenantId) as { configuration_mode: string; modules: string; answered_at: string | null }
+    expect(row.configuration_mode).toBe('explicit')
+    expect(JSON.parse(row.modules)).toEqual(SGK_AREAS)
+    expect(row.answered_at).toBeTruthy()
+  })
+
+  test('saved answers cannot narrow or widen the preset; settings still save', () => {
+    const org = seedOrganization({ setup: 'new' })
+    const current = orgSetupProfileService.get(org.orgTenantId)
+    const saved = orgSetupProfileService.save(org.orgTenantId, {
+      operatingModel: 'integration',
+      kinds: ['school'],
+      modules: ['school_fees'],
+      paymentChoice: 'simulated',
+      expectedRevision: current.access.revision,
+    })
+    expect(saved.access.operatingModel).toBe('internal')
+    expect(saved.modules).toEqual(SGK_AREAS)
+    expect(saved.paymentChoice).toBe('simulated')
+  })
+
+  test('an organisation that answered differently earlier runs the preset areas', () => {
+    const org = seedOrganization({ setup: 'new' })
+    DatabaseManager.getDatabase()
+      .prepare(`UPDATE org_setup_profiles SET kinds = '["office"]', modules = '["purchases"]' WHERE org_tenant_id = ?`)
+      .run(org.orgTenantId)
+    expect(orgSetupProfileService.get(org.orgTenantId).modules).toEqual(SGK_AREAS)
+  })
+
+  test('a legacy organisation keeps its legacy setup', () => {
+    const org = seedOrganization({ setup: 'legacy' })
+    expect(orgSetupProfileService.get(org.orgTenantId).access.mode).toBe('legacy')
   })
 })

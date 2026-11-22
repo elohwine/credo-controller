@@ -15,6 +15,7 @@ import { shouldUseUnsignedLocalOid4vpRequest, stageProofService, verifierModuleO
 import { shouldAllowWholeCardType } from '../ssi/proofModeMatrix'
 
 import { hashSecret, partnerClientService, sameHash } from './PartnerClientService'
+import { PRODUCT_NAME } from '../../config/productEdition'
 
 const SESSION_TTL_MS = 5 * 60 * 1000
 const MIN_BINDING_REF = 16
@@ -109,7 +110,7 @@ export class PartnerVerificationService {
           input_descriptors: [
             {
               id: 'platform-identity',
-              name: 'Credentis identity',
+              name: `${PRODUCT_NAME} identity`,
               purpose: `Sign in to ${client.name}`,
               constraints: {
                 fields: [

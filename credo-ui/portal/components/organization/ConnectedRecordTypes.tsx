@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 import {
@@ -198,7 +199,7 @@ export default function ConnectedRecordTypes({
         <div>
           <Title order={3}>Record types</Title>
           <Text c="dimmed" size="sm" mt={4}>
-            The records your systems send, such as certificates, results or service reports. Credentis keeps identity,
+            The records your systems send, such as certificates, results or service reports. {PRODUCT_NAME} keeps identity,
             authority, payments and receipts itself.
           </Text>
         </div>

@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/lib/orgProfile'
 import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { Button, List, Paper, Select, Stack, Text, Title } from '@mantine/core'
@@ -55,7 +56,7 @@ export default function DeviceLoginApproval() {
         <Stack gap="lg">
           <Title order={1} size="h2">{done ? 'Sign-in approved' : 'Approve a website sign-in'}</Title>
           {done ? <Text>Return to the browser where you started. You can close this screen.</Text> : <>
-            <Text>Only approve a request you started yourself. Your device screen lock protects access to your server-hosted Credentis wallet.</Text>
+            <Text>Only approve a request you started yourself. Your device screen lock protects access to your {PRODUCT_NAME} account.</Text>
             {accounts.length > 1 && <Select label="Your enrolled account" data={accounts} value={walletId} onChange={setWalletId} allowDeselect={false} />}
             {!accounts.length && <Text>First sign in with your PIN in the Android app, accept your identity card, then turn on sign-in with this phone in Settings, Sign-in and security.</Text>}
             {challenge && <>

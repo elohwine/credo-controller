@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import { useState, useEffect, useContext } from 'react';
 import Head from 'next/head';
 import Layout from '../../components/Layout';
@@ -356,7 +357,7 @@ const FinanceReports = () => {
   return (
     <Layout>
       <Head>
-        <title>Financial Statements | Credentis Portal</title>
+        <title>Financial Statements | {PRODUCT_NAME} Portal</title>
       </Head>
       <div className="px-4 sm:px-6 lg:px-8 py-6">
         {/* Header */}
@@ -538,8 +539,8 @@ const FinanceReports = () => {
                       </div>
                       <div className="flex flex-col items-center mt-8 pt-6 border-t">
                         <div className="flex flex-row gap-2 items-center text-sm" style={{ color: '#7B8794' }}>
-                          <p>Secured by Credentis</p>
-                          <img src="/credentis-logo.png" alt="Credentis" style={{ height: 15, width: 'auto' }} />
+                          <p>Secured by {PRODUCT_NAME}</p>
+                          <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 15, width: 'auto' }} />
                         </div>
                       </div>
                     </div>

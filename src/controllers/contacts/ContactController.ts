@@ -54,6 +54,7 @@ import { paymentLinkMatchesContact } from '../../services/openBillMatch'
 import { shouldAllowWholeCardType } from '../../services/ssi/proofModeMatrix'
 import { defaultVerifierOf } from '../../services/ssi/siteVerifier'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
+import { PRODUCT_NAME } from '../../config/productEdition'
 
 // ─── Request / Response shapes ────────────────────────────────────────────
 
@@ -249,7 +250,7 @@ export class ContactController extends Controller {
           contact: { name: contact.name, phone: contact.phone, email: contact.email },
           type: 'vc_offer',
           url: claimUrl,
-          issuerName: 'Credentis Wallet Link',
+          issuerName: PRODUCT_NAME,
         })
         .catch(() => {
           /* logged inside service */
@@ -477,7 +478,7 @@ export class ContactController extends Controller {
         contact: { name: contact.name, phone: contact.phone, email: contact.email },
         type: 'vc_offer',
         url: claimUrl,
-        issuerName: 'Credentis Wallet Link',
+        issuerName: PRODUCT_NAME,
       })
       .catch(() => {
         /* logged inside service */

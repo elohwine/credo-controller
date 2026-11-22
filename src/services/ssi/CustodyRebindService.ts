@@ -6,6 +6,7 @@ import { IssuedCredentialRepository } from '../../persistence/IssuedCredentialRe
 import { rootLogger } from '../../utils/pinoLogger'
 
 import { redeemOfferIntoWallet, withTenantHolder, type TenantHolderAgent } from './TenantHolder'
+import { PRODUCT_NAME } from '../../config/productEdition'
 
 const logger = rootLogger.child({ module: 'CustodyRebindService' })
 
@@ -167,7 +168,7 @@ export class CustodyRebindService {
         displayName: String(claims.displayName || 'Member'),
         registeredAt: String(claims.registeredAt || new Date().toISOString()),
         platformTenantId: walletTenantId,
-        platformName: String(claims.platformName || process.env.PLATFORM_NAME || 'Credentis'),
+        platformName: String(claims.platformName || process.env.PLATFORM_NAME || PRODUCT_NAME),
         verificationLevel: claims.verificationLevel || 'unverified',
         ...(claims.phone ? { phone: String(claims.phone) } : {}),
         ...(claims.email ? { email: String(claims.email) } : {}),

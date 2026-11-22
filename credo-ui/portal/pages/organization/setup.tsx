@@ -16,8 +16,10 @@ import {
   switchOrganizationContext,
 } from '@/utils/organizationContext'
 import {
+  PRESET_STEP_SETTING,
   SETUP_PROFILE_PATH,
   describeOrgProfile,
+  editionHasPresetSetup,
   persistOrgProfile,
   clearOrgSetupDraft,
   readOrgSetupDraft,
@@ -149,6 +151,8 @@ function stepHref(step: SetupStep, steps: SetupStep[]): string {
   if (step.id === 'kinds' && !step.done) return '/organization/onboarding'
   if (step.id === 'team') return '/payroll?tab=employees'
   if (step.id === 'brand') return '/organization/brand'
+  const setting = editionHasPresetSetup() ? PRESET_STEP_SETTING[step.id] : undefined
+  if (setting) return visibleOrgSettings(true).flatMap((group) => group.items).find((item) => item.id === setting)?.href || '/organization/setup'
   const rest = steps
     .filter((other) => !other.done && other.id !== step.id && other.id !== 'team' && other.id !== 'brand')
     .map((other) => other.id)
@@ -320,8 +324,8 @@ export default function OrganizationSetupPage() {
       setReadiness(null)
       setError(null)
 
-      // Redirect to first-run onboarding screen after org creation
-      void router.push('/organization/onboarding')
+      // A preset edition is already set up; otherwise the setup questions come next.
+      if (!editionHasPresetSetup()) void router.push('/organization/onboarding')
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Failed to create organisation')
     } finally {
@@ -428,12 +432,20 @@ export default function OrganizationSetupPage() {
             <Group gap="sm">
               <StepHelp
                 title="Setup"
-                points={[
-                  'These answers decide which work this organisation runs.',
-                  'Jobs, purchases and school fees follow from what you do.',
-                  'Who handles money is asked here. Other steps are asked the first time they are used.',
-                  'You can change an answer later.',
-                ]}
+                points={
+                  editionHasPresetSetup()
+                    ? [
+                        'Jobs, the team, materials, supplier bills and client payments are already on.',
+                        'Choose who handles money and how clients pay. Other steps are asked the first time they are used.',
+                        'You can change these settings later.',
+                      ]
+                    : [
+                        'These answers decide which work this organisation runs.',
+                        'Jobs, purchases and school fees follow from what you do.',
+                        'Who handles money is asked here. Other steps are asked the first time they are used.',
+                        'You can change an answer later.',
+                      ]
+                }
               />
               {orgTenantId && (
                 <Button variant="subtle" size="xs" leftSection={<IconRefresh size={14} />} onClick={loadReadiness} loading={loading}>
@@ -477,7 +489,7 @@ export default function OrganizationSetupPage() {
                     <Title order={4}>Create organisation</Title>
                   </Group>
                   <Text size="sm" c="dimmed">
-                    Give it a name. A few questions come next.
+                    {editionHasPresetSetup() ? 'Give it a name. Jobs, the team and money are set up for you.' : 'Give it a name. A few questions come next.'}
                   </Text>
                 </Box>
                 <Group align="end" wrap="wrap">

@@ -78,7 +78,7 @@ import {
 } from '@/components/finance/jobAuditTrail'
 import { EnvContext } from '@/pages/_app'
 import { getOrgScopedToken, readActiveOrganization } from '@/utils/organizationContext'
-import { readOrgProfile } from '@/utils/orgProfile'
+import { PRODUCT_NAME, readOrgProfile } from '@/utils/orgProfile'
 
 import { endPortalTask, getPortalTask, useRequireOrgContext } from '@/lib/portalContext'
 type FinanceTab = 'ar' | 'invoices' | 'requisitions' | 'field' | 'ap'
@@ -101,7 +101,7 @@ function includesAny(value: string, hints: string[]): boolean {
 function billSentMessage(contact: { payerName: string }, notification: any, renew: boolean) {
   const queued = notification?.channels?.some((channel: any) => channel.status === 'queued')
   if (notification?.accepted || queued)
-    return { color: 'teal', message: `${renew ? 'New link sent' : 'Bill sent'} to ${contact.payerName}. It is also in their Credentis inbox if they use the app.` }
+    return { color: 'teal', message: `${renew ? 'New link sent' : 'Bill sent'} to ${contact.payerName}. It is also in their ${PRODUCT_NAME} inbox if they use the app.` }
   return { color: 'orange', message: `Saved, but no message went out to ${contact.payerName} (${(notification?.channels || []).map((channel: any) => `${channel.channel}: ${channel.status}`).join(', ') || 'no channel'}). Copy the payment link and share it directly.` }
 }
 

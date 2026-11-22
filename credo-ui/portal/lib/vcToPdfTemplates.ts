@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 /**
  * VC to PDF Template Mapping
  *
@@ -142,7 +143,7 @@ export function renderInvoiceHtml(vc: VerifiableCredential): string {
 </head>
 <body>
   <div class="logo">
-    <img src="/credentis-logo.png" alt="Credentis" style="height: 48px; width: auto;" />
+    <img src="/brand-logo.svg" alt="${PRODUCT_NAME}" style="height: 48px; width: auto;" />
   </div>
   
   <div class="header">
@@ -278,7 +279,7 @@ export function renderQuoteHtml(vc: VerifiableCredential): string {
 </head>
 <body>
   <div class="logo">
-    <img src="/credentis-logo.png" alt="Credentis" style="height: 48px; width: auto;" />
+    <img src="/brand-logo.svg" alt="${PRODUCT_NAME}" style="height: 48px; width: auto;" />
   </div>
   
   <div class="header">

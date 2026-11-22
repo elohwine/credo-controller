@@ -38,6 +38,7 @@ import {
   templateText,
   type RichTemplateEvent,
 } from './whatsAppTemplates'
+import { PRODUCT_NAME } from '../config/productEdition'
 
 const logger = rootLogger.child({ module: 'NotificationService' })
 
@@ -325,7 +326,7 @@ export class NotificationService {
     const orgName = getTenantById(invite.org_tenant_id)?.label || 'your organisation'
     const sms = await this.sendSms(
       phone,
-      `${orgName} invited you to Credentis. Confirm your name and choose your own PIN here: ${link} (valid 7 days)`,
+      `${orgName} invited you to ${PRODUCT_NAME}. Confirm your name and choose your own PIN here: ${link} (valid 7 days)`,
     )
     return sms.success
   }
@@ -386,7 +387,7 @@ export class NotificationService {
       if (base.protocol !== 'https:' || base.username || base.password)
         throw new DispatchError('HTTPS wallet URL required', 'permanent')
       let action = new URL('/inbox', base.origin)
-      let bodyText = 'There is an update in your Credentis inbox. Sign in to view it.'
+      let bodyText = `There is an update in your ${PRODUCT_NAME} inbox. Sign in to view it.`
       const orgName = templateText(getTenantById(payload.tenantId)?.label, 40, 'Your organisation')
       // Values for the branded per-event template; left unset when this alert has no item to link to.
       let richValues: { body: string[]; link: string } | undefined
@@ -825,7 +826,7 @@ export class NotificationService {
     amount?: number
     currency?: string
   }): Promise<ContactNotificationResult> {
-    const { contact, type, url, issuerName = 'IdenEx Credentis', amount, currency } = opts
+    const { contact, type, url, issuerName = PRODUCT_NAME, amount, currency } = opts
     const inboxItemId =
       opts.inboxItemId && opts.tenantId && contact.phone
         ? this.recipientOwnsInboxItem(opts.tenantId, type, contact.phone, opts.inboxItemId)

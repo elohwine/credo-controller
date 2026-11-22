@@ -4,6 +4,7 @@ import { Body, Controller, Get, Path, Post, Route, Tags, Query, Produces, Respon
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { ReconciliationService } from '../../services/ReconciliationService'
 import { ShortlinkService } from '../../services/ShortlinkService'
+import { PRODUCT_NAME } from '../../config/productEdition'
 
 interface CreateShortlinkRequest {
   type: 'credential' | 'receipt' | 'verification'
@@ -206,7 +207,7 @@ export class VerificationPageController extends Controller {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verification Failed - Credentis</title>
+    <title>Verification Failed - ${PRODUCT_NAME}</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F0F4F8; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -237,7 +238,7 @@ export class VerificationPageController extends Controller {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>✅ Verified Receipt - Credentis</title>
+    <title>✅ Verified Receipt - ${PRODUCT_NAME}</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #0F3F5E, #2188CA); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -276,7 +277,7 @@ export class VerificationPageController extends Controller {
             </div>
             <div class="field">
                 <div class="field-label">Merchant</div>
-                <div class="field-value">${receipt.merchant || 'Credentis Merchant'}</div>
+                <div class="field-value">${receipt.merchant || 'Merchant'}</div>
             </div>
             <div class="field">
                 <div class="field-label">Status</div>
@@ -288,7 +289,7 @@ export class VerificationPageController extends Controller {
             </button>
         </div>
         <div class="footer">
-            Powered by <strong>Credentis</strong> Verifiable Commerce
+            Powered by <strong>${PRODUCT_NAME}</strong>
         </div>
     </div>
     <script>

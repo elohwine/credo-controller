@@ -10,6 +10,7 @@
 // ============================================
 // BLUR TEXT - For hero headings
 // ============================================
+import { PRODUCT_NAME } from '@/utils/orgProfile'
 import React, { useRef, useEffect, useMemo } from 'react';
 import { motion, useInView, Variants } from 'framer-motion';
 
@@ -88,7 +89,7 @@ interface GradientTextProps {
 
 export const GradientText: React.FC<GradientTextProps> = ({
   children,
-  colors = ['#2188CA', '#6FB4DC', '#88C4E3', '#2188CA'], // Credentis palette
+  colors = ['#2188CA', '#6FB4DC', '#88C4E3', '#2188CA'], // brand palette
   animationSpeed = 8,
   direction = 'horizontal',
   className = '',
@@ -369,7 +370,7 @@ interface SpotlightCardProps {
 
 export const SpotlightCard: React.FC<SpotlightCardProps> = ({
   children,
-  spotlightColor = 'rgba(33, 136, 202, 0.15)', // Credentis Curious Blue
+  spotlightColor = 'rgba(33, 136, 202, 0.15)', // brand Curious Blue
   className = '',
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);

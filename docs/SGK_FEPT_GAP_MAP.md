@@ -264,6 +264,8 @@ One project. The first setup question offers buys-and-pays, jobs, school fees, a
 
 What SGK answers at setup: both kinds of work (jobs plus supplier purchases); who approves and releases money (owner handles money, or manager then finance); a payment method (Click n Pay or EcoCash, Practice payments for a dry run); then invite the office staff and the field staff from Team. Who goes out and who checks the work is asked on each job. Do not reuse the Harare trial organisation for SGK; create SGK's own.
 
+2026-11-22: on the SGK branch, SGK no longer answers the setup questions. Its organisation is created already set up: jobs, people and payroll, purchases, supplier bills and client payments. The owner then only chooses who handles money (Who does what), the payment method (Payments), the brand, and invites the team. See `credentis-onboarding-flow.md` (2026-11-22). The multi-organisation platform keeps the questions.
+
 ## 2026-10-10 — Materials bought for a job come back as the job's receipts
 
 When the worker needs materials, Buy materials (Related work on the job) raises a purchase. With no supplier it is a cash purchase request; with a supplier it is a purchase order, then a supplier payment. By default the job waits until the purchase is bought (or delivered and paid) with its receipt or bill number, not just approved; the owner can change that under What happens next. The receipt and bill numbers show on the job, and the worker's receipt step on the phone can use them instead of a photo. Details in `docs/WORKFLOW_ALIGNMENT.md` under the same date.

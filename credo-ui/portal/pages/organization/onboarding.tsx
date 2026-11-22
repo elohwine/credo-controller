@@ -36,6 +36,7 @@ import {
   profileFromServer,
   profileToServer,
   readOrgProfile,
+  editionHasPresetSetup,
   type OrgKind,
   type OrgModule,
   type OrgProfile,
@@ -121,7 +122,18 @@ function isSingleStep(value: unknown): value is SingleStep {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+/** A preset edition is never asked the setup questions; its owners go straight to Organisation setup. */
 export default function OnboardingPage() {
+  const router = useRouter()
+  const preset = editionHasPresetSetup()
+  useEffect(() => {
+    if (preset) void router.replace('/organization/setup')
+  }, [preset, router])
+  if (preset) return null
+  return <SetupQuestions />
+}
+
+function SetupQuestions() {
   const router = useRouter()
   const [orgName, setOrgName] = useState('')
   const [orgTenantId, setOrgTenantId] = useState('')

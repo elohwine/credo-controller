@@ -19,6 +19,7 @@ import jwt from 'jsonwebtoken'
 
 import { deleteDevicePushTokenValue, listDevicePushTokens } from '../persistence/DevicePushRepository'
 import { rootLogger } from '../utils/pinoLogger'
+import { PRODUCT_NAME } from '../config/productEdition'
 
 const logger = rootLogger.child({ module: 'AndroidPushService' })
 
@@ -44,13 +45,13 @@ export function popupForOffer(payload: Record<string, unknown>): AndroidPopup {
   if (job) {
     return {
       title: 'A job is waiting',
-      body: 'Open Credentis to see what to do next.',
+      body: `Open ${PRODUCT_NAME} to see what to do next.`,
       path: '/inbox',
     }
   }
   return {
     title: 'Something needs you',
-    body: 'Open Credentis to see it.',
+    body: `Open ${PRODUCT_NAME} to see it.`,
     path: '/inbox',
   }
 }

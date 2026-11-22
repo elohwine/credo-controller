@@ -20,6 +20,7 @@ import { randomUUID } from 'crypto'
 
 import { rootLogger } from '../../../utils/pinoLogger'
 import { notificationService } from '../../NotificationService'
+import { PRODUCT_NAME } from '../../../config/productEdition'
 
 const logger = rootLogger.child({ module: 'ExternalActions' })
 
@@ -341,7 +342,7 @@ export class ExternalActions {
       if (ctaUrl) {
         providerResponse = await notificationService.sendWhatsAppCta({
           to: recipient,
-          headerText: ctaHeader || 'Credentis',
+          headerText: ctaHeader || PRODUCT_NAME,
           bodyText: ctaBody || resolvedMessage || 'Tap below to continue',
           buttonText: ctaText || 'Open',
           url: ctaUrl,
@@ -409,7 +410,7 @@ export class ExternalActions {
 <html>
   <body style="font-family: Arial, sans-serif; line-height: 1.4; color: #1f2937;">
     <div style="max-width: 640px; margin: 0 auto; padding: 16px;">
-      <h2 style="color: #0f766e;">IdenEx Credentis</h2>
+      <h2 style="color: #0f766e;">${PRODUCT_NAME}</h2>
       <div>${content}</div>
       <p style="margin-top: 24px; font-size: 12px; color: #6b7280;">
         Verifiable Trust Infrastructure for Africa's Digital Economy

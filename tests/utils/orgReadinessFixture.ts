@@ -17,6 +17,7 @@ import { randomUUID } from 'crypto'
 import { mkdirSync, mkdtempSync, rmSync } from 'fs'
 import path from 'path'
 
+import { EDITION_PRESET_SETUP, setEditionPresetSetup } from '../../src/config/productEdition'
 import { DatabaseManager } from '../../src/persistence/DatabaseManager'
 import { initTenantStore, upsertTenant } from '../../src/persistence/TenantRepository'
 import { WorkflowTemplateRepository } from '../../src/persistence/WorkflowTemplateRepository'
@@ -316,4 +317,17 @@ export function configureQuoteTemplate(
   )
   workflowTemplateRepository.save(definition)
   return workflowTemplateRepository.findById(definition.id) || definition
+}
+
+/**
+ * Run a check of the platform's setup questions (unanswered setup, a work area switched off)
+ * with the SGK preset off, then put the preset back.
+ */
+export async function withoutEditionPreset<T>(run: () => T | Promise<T>): Promise<T> {
+  setEditionPresetSetup(null)
+  try {
+    return await run()
+  } finally {
+    setEditionPresetSetup(EDITION_PRESET_SETUP)
+  }
 }
