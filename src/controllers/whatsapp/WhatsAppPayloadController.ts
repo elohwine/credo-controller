@@ -90,7 +90,7 @@ export interface CheckoutResponse {
  * WhatsApp Business Cloud API Message Service
  * Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages
  */
-class WhatsAppMessageService {
+export class WhatsAppMessageService {
   private phoneNumberId: string
   private accessToken: string
   private apiVersion: string = 'v21.0'
@@ -104,14 +104,25 @@ class WhatsAppMessageService {
     return !!(this.phoneNumberId && this.accessToken)
   }
 
-  /**
-   * Send a text message to a WhatsApp user
-   */
-  async sendTextMessage(to: string, body: string, previewUrl: boolean = false): Promise<any> {
+  /** WhatsApp stays off unless WHATSAPP_DELIVERY_ENABLED is exactly "true". */
+  private skipReason(): { skipped: true; reason: string } | undefined {
+    if (process.env.WHATSAPP_DELIVERY_ENABLED !== 'true') {
+      logger.info('WhatsApp delivery is turned off, skipping message send')
+      return { skipped: true, reason: 'delivery_disabled' }
+    }
     if (!this.isConfigured) {
       logger.warn('WhatsApp Business API not configured, skipping message send')
       return { skipped: true, reason: 'not_configured' }
     }
+    return undefined
+  }
+
+  /**
+   * Send a text message to a WhatsApp user
+   */
+  async sendTextMessage(to: string, body: string, previewUrl: boolean = false): Promise<any> {
+    const skipped = this.skipReason()
+    if (skipped) return skipped
 
     try {
       const response = await axios.post(
@@ -152,10 +163,8 @@ class WhatsAppMessageService {
     buttonText: string,
     url: string,
   ): Promise<any> {
-    if (!this.isConfigured) {
-      logger.warn('WhatsApp Business API not configured, skipping message send')
-      return { skipped: true, reason: 'not_configured' }
-    }
+    const skipped = this.skipReason()
+    if (skipped) return skipped
 
     try {
       const response = await axios.post(
@@ -208,10 +217,8 @@ class WhatsAppMessageService {
     buttons: Array<{ id: string; title: string }>,
     headerText?: string,
   ): Promise<any> {
-    if (!this.isConfigured) {
-      logger.warn('WhatsApp Business API not configured, skipping message send')
-      return { skipped: true, reason: 'not_configured' }
-    }
+    const skipped = this.skipReason()
+    if (skipped) return skipped
 
     try {
       const response = await axios.post(
