@@ -1,6 +1,5 @@
 import { Head, Html, Main, NextScript } from "next/document";
 import { ColorSchemeScript } from '@mantine/core';
-import Footer from "@/components/sections/Footer";
 import { PRODUCT_NAME } from "@/utils/orgProfile";
 
 export default function Document() {
@@ -18,7 +17,6 @@ export default function Document() {
         <Main />
         <NextScript />
       </body>
-      <Footer />
     </Html>
   );
 }

@@ -54,3 +54,14 @@ export const PERSONAL_DATA_SECRETS = ['CONTACT_HASH_PEPPER', 'PIN_SALT', 'PII_EN
 export function missingPersonalDataSecrets(): string[] {
   return PERSONAL_DATA_SECRETS.filter((name) => !process.env[name]?.trim())
 }
+
+export function assertPersonalDataSecretsConfigured(): void {
+  if (!isProduction()) return
+  const missing = missingPersonalDataSecrets()
+  if (missing.length > 0) {
+    throw new Error(
+      `Required deployment secrets are not set: ${missing.join(', ')}. ` +
+        `Set them in the deployment secret store before starting the API. See docs/SECRETS_ROTATION.md.`,
+    )
+  }
+}

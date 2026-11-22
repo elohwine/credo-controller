@@ -23,5 +23,5 @@ COMMIT="${1:-$(git rev-parse origin/sgk-jobs)}"
 
 render deploys create "$API_SERVICE" --commit "$COMMIT" --wait --confirm -o text
 render deploys create "$PORTAL_SERVICE" --commit "$COMMIT" --wait --confirm -o text
-echo "API:    https://ldk-sgk-api.onrender.com"
-echo "Portal: https://ldk-sgk-portal.onrender.com"
+echo "API:    https://ldk-ifacilities-api.onrender.com"
+echo "Portal: https://ldk-ifacilities-portal.onrender.com"

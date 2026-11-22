@@ -39,6 +39,7 @@ import { SecurityMiddleware } from './securityMiddleware'
 import { orgBrandService } from './services/OrgBrandService'
 import { ShortlinkService } from './services/ShortlinkService'
 import { triggerService } from './services/TriggerService'
+import { assertPersonalDataSecretsConfigured } from './utils/deploymentSecret'
 import { startNgrokTunnel, getNgrokUrl } from './utils/ngrokTunnel'
 import { rootLogger } from './utils/pinoLogger'
 import { registerPrivacyPolicy } from './utils/privacyPolicy'
@@ -51,6 +52,8 @@ import { registerWhatsAppInboxLanding } from './utils/whatsAppInboxLanding'
 dotenv.config()
 
 export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: string) => {
+  assertPersonalDataSecretsConfigured()
+
   // Start ngrok tunnel for webhook support in dev (only on main server port 3000)
   const enableNgrok = process.env.ENABLE_NGROK !== 'false' && process.env.NODE_ENV !== 'production'
   if (enableNgrok && config.port === 3000 && !getNgrokUrl()) {

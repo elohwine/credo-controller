@@ -40,6 +40,7 @@ import {
     IconTruck,
 } from '@tabler/icons-react';
 import OrgSwitcher from '@/components/OrgSwitcher';
+import Footer from '@/components/sections/Footer';
 import { endPortalTask, usePortalContext, usePortalTaskGuard } from '@/lib/portalContext';
 import { getOrgScopedToken, getPersonalToken, hasSignedInSession } from '@/utils/organizationContext';
 import { PRODUCT_NAME, editionAllowsKind, editionAllowsModule, readOrgProfile } from '@/utils/orgProfile';
@@ -350,6 +351,7 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
                         {needsSignIn ? null : children}
                     </div>
                 </LayoutNestingContext.Provider>
+                <Footer />
             </AppShell.Main>
         </AppShell>
     );

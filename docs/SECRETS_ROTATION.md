@@ -36,6 +36,41 @@ as public and rotated.
 Never rely on the development fallback API key (`test-api-key-12345`) outside local
 development.
 
+## Render registration and LDK iFacilities cutover
+
+The API requires `CONTACT_HASH_PEPPER`, `PIN_SALT`, and `PII_ENCRYPTION_KEY` (plus
+`JWT_SECRET`) in production. Startup refuses to run when any of the three personal-data
+secrets is missing; registration must never fall back to a published development pepper.
+
+For the existing API service, use Render's **Environment** secret store:
+
+1. Restore any previously used secret from the deployment's secure backup. Do not
+   replace an existing pepper, legacy PIN salt, encryption key, or wallet key.
+2. For a secret that has genuinely never been configured, generate a cryptographically
+   random value (at least 32 bytes) directly in the secret store. Never paste it into
+   source control or chat. Save and redeploy the API.
+3. Verify registration and sign-in with a synthetic account, including any existing
+   accounts that use legacy hashes. Confirm the API starts without missing-secret errors.
+
+The Blueprint now declares the three previously omitted personal-data secrets with
+`generateValue: true`. [Render generates a value only when the variable does not already
+exist](https://render.com/docs/blueprint-spec#generating-random-secrets). This does not
+repair a running service until its configuration is applied and the API redeployed.
+
+The services are `ldk-ifacilities-api` (`https://ldk-ifacilities-api.onrender.com`)
+and `ldk-ifacilities-portal` (`https://ldk-ifacilities-portal.onrender.com`). Render cannot
+change a service's `onrender.com` hostname, so they replaced the earlier `ldk-sgk-*`
+services before any real data existed. If a hostname ever changes again:
+
+- Update API `PUBLIC_BASE_URL` and `PORTAL_UI_URL`, and portal `NEXT_PUBLIC_VC_REPO`,
+  `NEXT_PUBLIC_BACKEND_URL`, `NEXT_PUBLIC_ISSUER_API_BASE`, and
+  `NEXT_PUBLIC_VERIFIER_API_BASE` together, then rebuild the portal (public Next.js
+  variables are baked into its bundle).
+- Rebuild the mobile APK with the new `NEXT_PUBLIC_API_URL`.
+- Replacing the API service discards its `/data` disk (database and wallet). Back it up
+  and restore it first once real data exists; payment links, shortlinks, and issued
+  credentials also embed the old origin.
+
 ## Keeping it clean
 
 - Keep real values in untracked `.env` / `.env.local` files or the deployment secret store.

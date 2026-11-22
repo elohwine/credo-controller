@@ -22,8 +22,11 @@ const { OpenId4VcModule } = require('@credo-ts/openid4vc')
 const { agentDependencies, DidCommHttpInboundTransport } = require('@credo-ts/node')
 const { askarNodeJS } = require('@openwallet-foundation/askar-nodejs')
 const { TsLogger } = require('../build/utils/logger')
+const { assertPersonalDataSecretsConfigured } = require('../build/utils/deploymentSecret')
 
 async function run() {
+  assertPersonalDataSecretsConfigured()
+
   // Credo's enum is LogLevel.Info; the old lowercase LogLevel.info was undefined and logged everything at trace.
   const logger = new TsLogger(LogLevel[process.env.CREDO_LOG_LEVEL || 'Info'] ?? LogLevel.Info)
   const walletId = process.env.WALLET_ID || 'shared-controller-agent'
