@@ -34,6 +34,7 @@ export default function JobPriceModal({ job, opened, onClose, onSaved }: JobPric
   const [plan, setPlan] = useState<JobPaymentPlan>(DEFAULT_JOB_PAYMENT_PLAN)
   const [clientName, setClientName] = useState('')
   const [clientPhone, setClientPhone] = useState('')
+  const [clientEmail, setClientEmail] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState('')
@@ -53,6 +54,7 @@ export default function JobPriceModal({ job, opened, onClose, onSaved }: JobPric
     })
     setClientName(String(input.clientName || input.payerName || ''))
     setClientPhone(String(input.customerMsisdn || input.payerPhone || ''))
+    setClientEmail(String(input.clientEmail || input.payerEmail || ''))
     setError(null)
     setNonce(`${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
   }, [opened, job?.id])
@@ -71,6 +73,7 @@ export default function JobPriceModal({ job, opened, onClose, onSaved }: JobPric
           ...jobPaymentPlanBody(plan),
           ...(clientName.trim() ? { clientName: clientName.trim() } : {}),
           ...(clientPhone.trim() ? { clientPhone: clientPhone.trim() } : {}),
+          ...(clientEmail.trim() ? { clientEmail: clientEmail.trim() } : {}),
         }
     setSaving(true)
     setError(null)
@@ -105,7 +108,7 @@ export default function JobPriceModal({ job, opened, onClose, onSaved }: JobPric
     <Modal opened={opened} onClose={onClose} centered size="lg" title="Price and payment">
       <Stack gap="sm">
         <Text size="sm" c="dimmed">
-          What the client pays for this job and how. The bill goes to them by text with a pay link.
+          What the client pays for this job and how. The bill goes to their inbox if they have an account, and to their mobile or email with a pay link.
         </Text>
         <Checkbox
           label="No charge for this job"
@@ -138,6 +141,13 @@ export default function JobPriceModal({ job, opened, onClose, onSaved }: JobPric
               description="The bill goes to this number."
               value={clientPhone}
               onChange={setClientPhone}
+            />
+            <TextInput
+              label="Client email"
+              type="email"
+              description="Optional. The bill also goes here."
+              value={clientEmail}
+              onChange={(e) => setClientEmail(e.currentTarget.value)}
             />
           </>
         )}

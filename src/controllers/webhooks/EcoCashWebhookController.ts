@@ -298,6 +298,7 @@ export class EcoCashWebhookController extends Controller {
               await paymentLinkService.settlePaid(paymentLinkId, {
                 reference: payload.transactionId,
                 payerPhone: existingPayment.payer_phone,
+                receiptId: baseReceipt.receiptId,
               })
             } catch (settleErr: any) {
               logger.warn({ paymentLinkId, error: settleErr?.message }, 'Paid link did not continue its job')

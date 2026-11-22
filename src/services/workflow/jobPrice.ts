@@ -24,10 +24,17 @@ function positive(value: unknown): boolean {
   return Number.isFinite(amount) && amount > 0
 }
 
-/** Booked, has a client phone, no price yet, and nobody said "no charge". */
+/** The bill can reach the client: they are onboarded (their inbox), or the job has their mobile or email. */
+export function clientReachable(input: Record<string, any> | undefined): boolean {
+  return ['clientWalletTenantId', 'customerMsisdn', 'payerPhone', 'clientEmail', 'payerEmail'].some((key) =>
+    Boolean(String(input?.[key] || '').trim()),
+  )
+}
+
+/** Booked, the client can be reached, no price yet, and nobody said "no charge". */
 export function needsJobPrice(input: Record<string, any> | undefined): boolean {
   if (!input || positive(input.amount) || input.noCharge === true) return false
-  if (!String(input.customerMsisdn || '').trim()) return false
+  if (!clientReachable(input)) return false
   return Boolean(String(input.bookedVia || '').trim()) || input.priceLater === true
 }
 

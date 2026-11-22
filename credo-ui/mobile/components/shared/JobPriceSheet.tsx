@@ -35,6 +35,7 @@ export default function JobPriceSheet({ run, opened, onClose, onSaved }: JobPric
   })
   const [clientName, setClientName] = useState('')
   const [clientPhone, setClientPhone] = useState('')
+  const [clientEmail, setClientEmail] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState('')
@@ -54,6 +55,7 @@ export default function JobPriceSheet({ run, opened, onClose, onSaved }: JobPric
     })
     setClientName(String(input.clientName || input.payerName || ''))
     setClientPhone(String(input.customerMsisdn || input.payerPhone || ''))
+    setClientEmail(String(input.clientEmail || input.payerEmail || ''))
     setError(null)
     setNonce(`${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
   }, [opened, run?.id])
@@ -67,6 +69,7 @@ export default function JobPriceSheet({ run, opened, onClose, onSaved }: JobPric
           ...jobPaymentPlanBody(plan),
           ...(clientName.trim() ? { clientName: clientName.trim() } : {}),
           ...(clientPhone.trim() ? { clientPhone: clientPhone.trim() } : {}),
+          ...(clientEmail.trim() ? { clientEmail: clientEmail.trim() } : {}),
         }
     setSaving(true)
     setError(null)
@@ -98,7 +101,7 @@ export default function JobPriceSheet({ run, opened, onClose, onSaved }: JobPric
     <BottomSheet opened={opened} onClose={onClose} title="Price and payment">
       <Stack gap="md" pb="md">
         <Text size="sm" c="dimmed">
-          What the client pays for this job and how. The bill goes to them by text with a pay link.
+          What the client pays for this job and how. The bill goes to their inbox if they have an account, and to their mobile or email with a pay link.
         </Text>
         <Checkbox
           size="md"
@@ -139,6 +142,13 @@ export default function JobPriceSheet({ run, opened, onClose, onSaved }: JobPric
               description="The bill goes to this number."
               value={clientPhone}
               onChange={setClientPhone}
+            />
+            <TextInput
+              label="Client email"
+              type="email"
+              description="Optional. The bill also goes here."
+              value={clientEmail}
+              onChange={(e) => setClientEmail(e.currentTarget.value)}
             />
           </>
         )}

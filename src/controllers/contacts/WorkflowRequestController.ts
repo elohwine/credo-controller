@@ -657,8 +657,14 @@ export class WorkflowRequestController extends Controller {
       workflowRequestId: (payload as any).workflowRequestId || request.id,
       actingOrgTenantId: (payload as any).actingOrgTenantId || request.targetOrgTenantId,
     }
-    // A booked job waits for an owner or admin to choose the worker in Jobs.
-    if ((payload as any).awaitAssignment === true) return executionInput
+    // A booked job waits for an owner or admin to choose the worker in Jobs. The person who booked
+    // it is onboarded, so their bill reaches their inbox at sign-off.
+    if ((payload as any).awaitAssignment === true) {
+      if (request.requesterTenantId && !(payload as any).clientWalletTenantId) {
+        executionInput.clientWalletTenantId = request.requesterTenantId
+      }
+      return executionInput
+    }
 
     const stageAction = this.resolveStageActionForExecution(request)
     if (stageAction && !(payload as any).stageAction) {

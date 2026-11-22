@@ -499,6 +499,17 @@ export class ReconciliationService {
     const hasReqFinanceApproved = has('REQUISITION_FINANCE_APPROVED')
     const hasReqReleased = has('REQUISITION_RELEASED')
     const hasExecutionAck = has('EXECUTION_ACKNOWLEDGED')
+    // A client bill on a job (including one sent after the job closed) is open until it is paid and receipted.
+    const clientInvoiceCount = (type: string) =>
+      events.filter((e) => {
+        if (e.event_type !== type || !e.metadata) return false
+        try {
+          return JSON.parse(e.metadata).kind === 'client_invoice'
+        } catch {
+          return false
+        }
+      }).length
+    const clientBillOpen = clientInvoiceCount('INVOICE_ISSUED') > clientInvoiceCount('RECEIPT_ISSUED')
 
     // Determine status using priority rules
     // REFUNDED > DISPUTED > RECONCILED > ACKNOWLEDGED > DELIVERED > RELEASED > APPROVED > MANAGER_APPROVED > PAYOUT_FAILED > RECEIPT_ISSUED > PAID > INVOICE_ISSUED > QUOTE_ISSUED > REQUISITION_CREATED > INITIATED
@@ -513,12 +524,12 @@ export class ReconciliationService {
       // Payout failed and not subsequently released
       status = 'PAYOUT_FAILED'
       mismatchReason = 'Escrow payout failed after receipt revocation'
-    } else if (hasExecutionAck && (hasEscrow || hasSettlement || hasPayment)) {
+    } else if (!clientBillOpen && hasExecutionAck && (hasEscrow || hasSettlement || hasPayment)) {
       // Internal Recon flow complete
       status = 'RECONCILED'
-    } else if (hasPayment && hasReceipt && hasDelivery && (hasEscrow || hasSettlement)) {
+    } else if (!clientBillOpen && hasPayment && hasReceipt && hasDelivery && (hasEscrow || hasSettlement)) {
       status = 'RECONCILED'
-    } else if (!requiresDelivery && hasPayment && hasReceipt) {
+    } else if (!clientBillOpen && !requiresDelivery && hasPayment && hasReceipt) {
       // Education / cash / custom: payment + receipt is the terminal event — no delivery step
       status = 'RECONCILED'
     } else if (hasExecutionAck) {

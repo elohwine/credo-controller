@@ -472,7 +472,7 @@ export class PaymentLinkService {
   /** Money is in: mark the link paid and let the waiting run continue. Safe to call twice. */
   public async settlePaid(
     linkId: string,
-    payment: { reference?: string; payerPhone?: string; paidAt?: string },
+    payment: { reference?: string; payerPhone?: string; paidAt?: string; receiptId?: string },
   ): Promise<void> {
     const paidAt = payment.paidAt || new Date().toISOString()
     DatabaseManager.getDatabase()
@@ -501,13 +501,15 @@ export class PaymentLinkService {
     const waiting = this.waitingRun(linkId)
     if (!waiting) return
     const { workflowService } = await import('./WorkflowService')
-    try {
-      const resumed = await workflowService.resumeWorkflow(waiting.run.id, {
-        clientPayment: { status: 'paid', linkId, reference: payment.reference, paidAt },
-      })
-    } catch (error: any) {
-      throw error
-    }
+    await workflowService.resumeWorkflow(waiting.run.id, {
+      clientPayment: {
+        status: 'paid',
+        linkId,
+        reference: payment.reference,
+        paidAt,
+        ...(payment.receiptId ? { receiptId: payment.receiptId } : {}),
+      },
+    })
   }
 
   /** The client said no to a quote: close the link and end the run that waited on it. */

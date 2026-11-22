@@ -44,7 +44,7 @@ import { triggerFollowOnRequest } from './workflow/actions/RequestTriggerAction'
 import { StageGateActions } from './workflow/actions/StageGateActions'
 import { TrustActions } from './workflow/actions/TrustActions'
 import { createWorkflowStartAction } from './workflow/actions/WorkflowStartAction'
-import { AWAIT_JOB_PRICE, CLIENT_BILL_KEY, priceCardSourceId } from './workflow/jobPrice'
+import { AWAIT_JOB_PRICE, CLIENT_BILL_KEY, clientReachable, priceCardSourceId } from './workflow/jobPrice'
 import { ensureExecutableWorkflow } from './workflow/materialize'
 import { getWorkflowTypeForWorkflow } from './workflow/initiation'
 
@@ -440,6 +440,10 @@ export class WorkflowService {
     if (clientPhone && !/^\+?[1-9]\d{6,14}$/.test(clientPhone)) {
       throw new StatusException('Enter a valid international mobile for the client.', 400)
     }
+    const clientEmail = String(terms.clientEmail || '').trim().toLowerCase()
+    if (clientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail)) {
+      throw new StatusException('Enter a valid email for the client.', 400)
+    }
     const firstPaymentAmount = Number(terms.firstPaymentAmount)
     const billing: Record<string, unknown> = noCharge
       ? { amount: 0, noCharge: true }
@@ -464,10 +468,11 @@ export class WorkflowService {
       ...billing,
       ...(clientName ? { clientName, payerName: clientName } : {}),
       ...(clientPhone ? { customerMsisdn: clientPhone, payerPhone: clientPhone } : {}),
+      ...(clientEmail ? { clientEmail, payerEmail: clientEmail } : {}),
       ...(actedByUserId ? { actedByUserId } : {}),
     }
-    if (!noCharge && !String(input.customerMsisdn || '').trim()) {
-      throw new StatusException('Add the client mobile so the bill can reach them.', 400)
+    if (!noCharge && !clientReachable(input)) {
+      throw new StatusException('Add the client mobile or email so the bill can reach them.', 400)
     }
     const at = new Date().toISOString()
     output.jobPrice = {
@@ -492,6 +497,10 @@ export class WorkflowService {
 
     // A bill that was started but never reached the client (no phone, nothing to charge): price it again.
     if (child && !noCharge && ['completed', 'failed'].includes(child.status)) {
+      // A finished job that is billed again is not settled until the client pays.
+      if (run.status === 'completed' && output.reconciliation?.status !== 'awaiting_payment') {
+        output.reconciliation = { ...(output.reconciliation || {}), status: 'awaiting_payment' }
+      }
       workflowRunRepository.updateRun(runId, { input, output })
       const childStored = workflowRepository.findById(child.workflowId)
       if (!childStored || childStored.tenantId !== run.tenantId) throw new StatusException('Billing workflow not found', 404)
@@ -501,6 +510,7 @@ export class WorkflowService {
         ...billing,
         payerName: input.clientName || child.input?.payerName,
         payerPhone: input.customerMsisdn || child.input?.payerPhone,
+        ...(input.clientEmail ? { clientEmail: input.clientEmail, payerEmail: input.clientEmail } : {}),
         ...(actedByUserId ? { actedByUserId } : {}),
       }
       const childState = { ...(child.output || {}) } as Record<string, any>
@@ -540,8 +550,8 @@ export class WorkflowService {
         409,
       )
     }
-    if (context.state.reconciliation?.status === 'reconciled') {
-      context.state.reconciliation = { ...context.state.reconciliation, status: 'awaiting_payment' }
+    if (run.status === 'completed' && context.state.reconciliation?.status !== 'awaiting_payment') {
+      context.state.reconciliation = { ...(context.state.reconciliation || {}), status: 'awaiting_payment' }
     }
     workflowRunRepository.updateRun(runId, { input, output: context.state })
     return { runId, status: run.status, billing: 'billed', output: context.state }
@@ -910,6 +920,7 @@ export interface JobBillingTerms {
   noCharge?: boolean
   clientName?: string
   clientPhone?: string
+  clientEmail?: string
 }
 
 /** Names already stored on the organisation, so a job screen can say who did a step without a second directory call. */

@@ -1862,7 +1862,8 @@ export class FieldExecutionActions {
 
     if (
       context.state.reconciliation?.status === 'reconciled' ||
-      context.state.reconciliation?.status === 'awaiting_payment'
+      context.state.reconciliation?.status === 'awaiting_payment' ||
+      context.state.reconciliation?.status === 'awaiting_receipt'
     ) {
       if (!hasReachedForwardStage(currentStage, 'RECONCILED')) {
         await FieldExecutionActions.transition(context, { to: 'RECONCILED' })

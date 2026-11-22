@@ -840,17 +840,19 @@ export function jobPriceState(run: any): JobPriceState {
   const amount = Number(input.amount)
   const priced = Number.isFinite(amount) && amount > 0
   const canSet = !billOut && !['cancelled', 'failed'].includes(status)
+  const finished = status === 'completed'
   const terms = JOB_PAYMENT_TERMS[String(input.paymentTerms || 'one_time')] || 'one payment'
   const line = waiting
     ? 'The work is signed off. Set the price and how the client pays, and the bill goes to them.'
     : input.noCharge === true
       ? 'No charge for this job.'
       : priced
-        ? `${String(input.currency || 'USD')} ${amount.toFixed(2)}, ${terms}${billOut ? '. The bill is with the client.' : '. The bill goes to the client at sign-off.'}`
-        : status === 'completed'
-          ? 'This job closed without a price. Set one to bill the client now.'
+        ? `${String(input.currency || 'USD')} ${amount.toFixed(2)}, ${terms}${billOut ? '. The bill is with the client.' : finished ? '. The job is finished and the client has not been billed. Add their details to bill them now.' : '. The bill goes to the client at sign-off.'}`
+        : finished
+          ? 'This job is finished and the client has not been billed. Set the price and client details to bill them now.'
           : 'No price yet. Set it now, or the job waits for it at sign-off.'
-  return { canSet, waiting, line, action: priced || input.noCharge === true ? 'Change price and payment' : 'Set price and payment' }
+  const action = finished && !billOut ? 'Bill the client' : priced || input.noCharge === true ? 'Change price and payment' : 'Set price and payment'
+  return { canSet, waiting, line, action }
 }
 
 export interface StepRequiredInput {

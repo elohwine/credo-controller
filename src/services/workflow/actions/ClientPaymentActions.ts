@@ -25,6 +25,7 @@ import { AWAIT_CLIENT_PAYMENT, paymentLinkService } from '../../PaymentLinkServi
 import { ReconciliationService } from '../../ReconciliationService'
 import { receivablePlanService, type PaymentTerms } from '../../ReceivablePlanService'
 import { jobEventReference } from '../../WorkflowAuditService'
+import { findWalletTenantByContact } from '../../ssi/walletLookup'
 import { taxFromFinance } from '../../documentFacts'
 
 const logger = rootLogger.child({ module: 'ClientPaymentActions' })
@@ -73,15 +74,19 @@ export class ClientPaymentActions {
     const input = context.input || {}
     const kind = config.kind === 'quote' ? 'quote' : 'invoice'
     const phone = text(input.payerPhone) || text(input.customerMsisdn) || text(input.buyerPhone)
+    const email = text(input.payerEmail) || text(input.clientEmail) || text(input.customerEmail)
+    // An onboarded client gets the bill in their inbox even with no phone or email on the job.
+    const clientWallet =
+      text(input.clientWalletTenantId) || (phone || email ? findWalletTenantByContact(phone, email) : undefined)
     const amount = amountOwed(context)
     const currency = text(context.state.finance?.currency) || text(input.currency) || 'USD'
     const reference = text(input.reference)
 
-    if (!phone || amount <= 0) {
+    if ((!phone && !email && !clientWallet) || amount <= 0) {
       context.state.clientBill = {
         status: 'not_sent',
         kind,
-        reason: !phone ? 'No client phone on the job' : 'Nothing to charge',
+        reason: amount <= 0 ? 'Nothing to charge' : 'No way to reach the client yet: add their mobile or email',
       }
       return
     }
@@ -129,7 +134,7 @@ export class ClientPaymentActions {
               amount,
               currency,
               payerName,
-              payerPhone: phone,
+              payerPhone: phone || undefined,
               terms,
               instalments: Number(input.instalments || 0) || undefined,
               cadence: text(input.paymentCadence) || undefined,
@@ -160,13 +165,14 @@ export class ClientPaymentActions {
           amount,
           currency,
           invoiceRef: invoiceRef || undefined,
-          payerPhone: phone,
+          payerPhone: phone || undefined,
           ttlHours: kind === 'quote' ? 168 : 336,
           metadata: {
             workflowRunId: context.runId,
             kind,
             reference,
             payerName,
+            ...(email ? { payerEmail: email } : {}),
             items: input.items,
             ...(isFee ? {} : documentMetadata(context)),
           },
@@ -197,7 +203,7 @@ export class ClientPaymentActions {
     noteClientBillOnJob(context, { kind, amount: link.amount, currency, reference: invoiceRef || reference, terms })
     let inboxItemId: string | undefined
     try {
-      inboxItemId = paymentLinkService.offerToPayerInbox(link.id)
+      inboxItemId = paymentLinkService.offerToPayerInbox(link.id, clientWallet ? { walletTenantId: clientWallet } : {})
     } catch (error) {
       logger.warn({ err: error, runId: context.runId, linkId: link.id }, 'Could not put the bill in the client inbox')
     }
@@ -207,7 +213,7 @@ export class ClientPaymentActions {
         tenantId: context.tenantId,
         inboxItemId,
         dedupeKey: `client-payment:${context.runId}:${link.id}`,
-        contact: { name: payerName || 'there', phone },
+        contact: { name: payerName || 'there', ...(phone ? { phone } : {}), ...(email ? { email } : {}) },
         type: 'payment_link',
         url: link.shortlinkUrl,
         issuerName: merchantName,
@@ -216,18 +222,21 @@ export class ClientPaymentActions {
       })
     } catch (error) {
       logger.error({ err: error, runId: context.runId, linkId: link.id }, 'Client payment message failed')
-      const notification = { accepted: false, channels: [], at: new Date().toISOString(), to: phone, renewed: false }
+      const notification = { accepted: false, channels: [], at: new Date().toISOString(), to: phone || email, renewed: false }
       paymentLinkService.recordDelivery(link.id, context.tenantId, notification)
       context.state.clientBill.notification = notification
       throw new Error('WORKFLOW_PAUSE')
     }
-    const notification = { ...result, at: new Date().toISOString(), to: phone, renewed: false }
+    const notification = { ...result, at: new Date().toISOString(), to: phone || email, renewed: false }
     paymentLinkService.recordDelivery(link.id, context.tenantId, notification)
+    // The bill card in an onboarded client's inbox is a delivery on its own.
+    const delivered = result.accepted || Boolean(inboxItemId)
     context.state.clientBill = {
       ...context.state.clientBill,
-      status: result.accepted ? 'sent' : 'delivery_failed',
+      status: delivered ? 'sent' : 'delivery_failed',
       notification,
-      ...(result.accepted ? { sentAt: notification.at } : {}),
+      ...(inboxItemId ? { inboxItemId } : {}),
+      ...(delivered ? { sentAt: notification.at } : {}),
     }
     logger.info(
       { runId: context.runId, linkId: link.id, accepted: result.accepted },
@@ -320,13 +329,20 @@ export class ClientPaymentActions {
     if (paid?.status !== 'paid' || paid.linkId !== bill.linkId) {
       throw new Error('Waiting for the client to pay')
     }
-    context.state.clientBill = { ...bill, status: 'paid', paidAt: paid.paidAt, reference: paid.reference }
+    context.state.clientBill = {
+      ...bill,
+      status: 'paid',
+      paidAt: paid.paidAt,
+      reference: paid.reference,
+      ...(paid.receiptId ? { receiptId: paid.receiptId } : {}),
+    }
     context.state.payment = {
       status: 'completed',
       reference: paid.reference || bill.code || bill.linkId,
       amount: bill.amount,
       currency: bill.currency,
       timestamp: paid.paidAt,
+      ...(paid.receiptId ? { receiptId: paid.receiptId } : {}),
     }
     delete context.state.pauseReason
     noteClientPaymentOnJob(context, bill, paid)
@@ -370,28 +386,33 @@ function noteClientBillOnJob(
 function noteClientPaymentOnJob(
   context: WorkflowActionContext,
   bill: { kind?: string; amount?: number; currency?: string },
-  paid: { reference?: string; paidAt?: string },
+  paid: { reference?: string; paidAt?: string; receiptId?: string },
 ): void {
   if (bill.kind === 'quote') return
   const job = fieldJobOf(context)
   if (!job) return
   const { parent, output, providerRef } = job
   const recon = new ReconciliationService()
-  recon.recordEvent(providerRef, 'PAYMENT_SUCCESS', 'payment_link', {
+  const base = {
     tenantId: parent.tenantId,
     amount: bill.amount,
     currency: bill.currency,
     reference: paid.reference,
     kind: 'client_invoice',
-  })
+  }
+  recon.recordEvent(providerRef, 'PAYMENT_SUCCESS', 'payment_link', base)
+  if (paid.receiptId) {
+    recon.recordEvent(providerRef, 'RECEIPT_ISSUED', 'payment_link', { ...base, receiptId: paid.receiptId })
+  }
   if (output.reconciliation?.status !== 'awaiting_payment') return
-  recon.recordEvent(providerRef, 'SETTLEMENT_CONFIRMED', 'payment_link', {
-    tenantId: parent.tenantId,
-    amount: bill.amount,
-    currency: bill.currency,
-    reference: paid.reference,
-    kind: 'client_invoice',
-  })
+  // The job closes once the client has paid and has their receipt.
+  if (!paid.receiptId) {
+    workflowRunRepository.updateRun(parent.id, {
+      output: { ...output, reconciliation: { ...output.reconciliation, status: 'awaiting_receipt' } },
+    })
+    return
+  }
+  recon.recordEvent(providerRef, 'SETTLEMENT_CONFIRMED', 'payment_link', base)
   workflowRunRepository.updateRun(parent.id, {
     output: {
       ...output,
@@ -399,6 +420,7 @@ function noteClientPaymentOnJob(
         ...(output.reconciliation || {}),
         status: 'reconciled',
         settledAt: paid.paidAt || new Date().toISOString(),
+        receiptId: paid.receiptId,
       },
     },
   })

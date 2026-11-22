@@ -650,21 +650,27 @@ export class PublicPaymentController extends Controller {
     // already show a paid transaction for this link, mark it paid and stop checkout.
     const paidAck = db
       .prepare(
-        `SELECT provider_ref, payer_phone, updated_at
+        `SELECT id, provider_ref, payer_phone, updated_at
              FROM ack_payments
              WHERE state IN ('paid', 'delivered')
                AND idempotency_key LIKE ?
              ORDER BY updated_at DESC
              LIMIT 1`,
       )
-      .get(`paylink-${row.id}-%`) as { provider_ref?: string; payer_phone?: string; updated_at?: string } | undefined
+      .get(`paylink-${row.id}-%`) as
+      | { id: string; provider_ref?: string; payer_phone?: string; updated_at?: string }
+      | undefined
 
     if (paidAck && row.status === 'active') {
       const now = new Date().toISOString()
+      const receipt = db
+        .prepare(`SELECT id FROM ack_payment_receipts WHERE payment_id = ? LIMIT 1`)
+        .get(paidAck.id) as { id: string } | undefined
       await paymentLinkService.settlePaid(row.id, {
         paidAt: paidAck.updated_at || now,
         reference: paidAck.provider_ref,
         payerPhone: paidAck.payer_phone,
+        receiptId: receipt?.id,
       })
 
       row.status = 'paid'
