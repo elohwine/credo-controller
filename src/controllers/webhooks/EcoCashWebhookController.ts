@@ -294,15 +294,11 @@ export class EcoCashWebhookController extends Controller {
 
           const paymentLinkId = paymentMetadata(existingPayment.metadata).paymentLinkId
           if (typeof paymentLinkId === 'string') {
-            try {
-              await paymentLinkService.settlePaid(paymentLinkId, {
-                reference: payload.transactionId,
-                payerPhone: existingPayment.payer_phone,
-                receiptId: baseReceipt.receiptId,
-              })
-            } catch (settleErr: any) {
-              logger.warn({ paymentLinkId, error: settleErr?.message }, 'Paid link did not continue its job')
-            }
+            await paymentLinkService.settlePaidOrQueue(paymentLinkId, {
+              reference: payload.transactionId,
+              payerPhone: existingPayment.payer_phone,
+              receiptId: baseReceipt.receiptId,
+            })
           }
 
           // Update cart status to 'paid' if associated

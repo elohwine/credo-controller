@@ -801,7 +801,7 @@ describe('AR and client delivery are separate facts', () => {
       runId: `bill-${org.orgTenantId}`,
       input: {
         parentRunId: `job-${org.orgTenantId}`,
-        payerPhone: '263771000099',
+        payerPhone: '263771000098',
         amount: 50,
         currency: 'USD',
         reference: 'FR-BILL',

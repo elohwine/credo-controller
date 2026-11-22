@@ -22,6 +22,7 @@ import { workflowRunRepository } from '../../../persistence/WorkflowRunRepositor
 import { rootLogger } from '../../../utils/pinoLogger'
 import { notificationService, type ContactNotificationResult } from '../../NotificationService'
 import { AWAIT_CLIENT_PAYMENT, paymentLinkService } from '../../PaymentLinkService'
+import { billDeliveryStatus } from '../../billDelivery'
 import { ReconciliationService } from '../../ReconciliationService'
 import { receivablePlanService, type PaymentTerms } from '../../ReceivablePlanService'
 import { jobEventReference } from '../../WorkflowAuditService'
@@ -222,21 +223,39 @@ export class ClientPaymentActions {
       })
     } catch (error) {
       logger.error({ err: error, runId: context.runId, linkId: link.id }, 'Client payment message failed')
-      const notification = { accepted: false, channels: [], at: new Date().toISOString(), to: phone || email, renewed: false }
+      const notification = {
+        accepted: false,
+        channels: [],
+        at: new Date().toISOString(),
+        to: phone || email,
+        renewed: false,
+        ...(inboxItemId ? { inboxItemId } : {}),
+      }
       paymentLinkService.recordDelivery(link.id, context.tenantId, notification)
-      context.state.clientBill.notification = notification
+      context.state.clientBill = {
+        ...context.state.clientBill,
+        status: billDeliveryStatus(notification),
+        notification,
+        ...(inboxItemId ? { inboxItemId, sentAt: notification.at } : { reason: 'The bill message could not be sent' }),
+      }
       throw new Error('WORKFLOW_PAUSE')
     }
-    const notification = { ...result, at: new Date().toISOString(), to: phone || email, renewed: false }
+    const notification = {
+      ...result,
+      at: new Date().toISOString(),
+      to: phone || email,
+      renewed: false,
+      ...(inboxItemId ? { inboxItemId } : {}),
+    }
     paymentLinkService.recordDelivery(link.id, context.tenantId, notification)
-    // The bill card in an onboarded client's inbox is a delivery on its own.
-    const delivered = result.accepted || Boolean(inboxItemId)
+    // The bill card in an onboarded client's inbox is a delivery on its own; a message still in the outbox is queued.
+    const status = billDeliveryStatus(notification)
     context.state.clientBill = {
       ...context.state.clientBill,
-      status: delivered ? 'sent' : 'delivery_failed',
+      status,
       notification,
       ...(inboxItemId ? { inboxItemId } : {}),
-      ...(delivered ? { sentAt: notification.at } : {}),
+      ...(status === 'sent' ? { sentAt: notification.at } : {}),
     }
     logger.info(
       { runId: context.runId, linkId: link.id, accepted: result.accepted },

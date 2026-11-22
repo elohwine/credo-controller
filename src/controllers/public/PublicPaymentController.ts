@@ -666,11 +666,17 @@ export class PublicPaymentController extends Controller {
       const receipt = db
         .prepare(`SELECT id FROM ack_payment_receipts WHERE payment_id = ? LIMIT 1`)
         .get(paidAck.id) as { id: string } | undefined
-      await paymentLinkService.settlePaid(row.id, {
+      // The same receipt number the payment webhook gave this payment.
+      const receiptId = receipt
+        ? paidAck.provider_ref
+          ? `RCPT-${paidAck.provider_ref.replace(/[^A-Za-z0-9]/g, '').slice(0, 16).toUpperCase()}`
+          : receipt.id
+        : undefined
+      await paymentLinkService.settlePaidOrQueue(row.id, {
         paidAt: paidAck.updated_at || now,
         reference: paidAck.provider_ref,
         payerPhone: paidAck.payer_phone,
-        receiptId: receipt?.id,
+        receiptId,
       })
 
       row.status = 'paid'

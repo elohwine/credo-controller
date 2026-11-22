@@ -89,7 +89,12 @@ export interface WalletPushPayload {
 
 export interface ContactNotificationResult {
   accepted: boolean
-  channels: Array<{ channel: 'whatsapp' | 'sms' | 'email'; status: 'accepted' | 'queued' | 'skipped' | 'failed' }>
+  channels: Array<{
+    channel: 'whatsapp' | 'sms' | 'email'
+    status: 'accepted' | 'queued' | 'skipped' | 'failed'
+    /** The outbox delivery row of a queued message, so its later outcome can be read. */
+    notificationId?: string
+  }>
 }
 
 export class NotificationService {
@@ -850,6 +855,7 @@ export class NotificationService {
       channel: 'whatsapp' | 'sms' | 'email'
       send: Promise<'accepted' | 'queued' | 'skipped' | 'failed'>
     }> = []
+    let whatsAppId: string | undefined
     if (contact.phone) {
       tasks.push({
         channel: 'whatsapp',
@@ -863,9 +869,10 @@ export class NotificationService {
           eventType: type,
           dedupeKey: opts.dedupeKey,
           ...(inboxItemId ? { inboxItemId } : {}),
-        }).then((result) =>
-          result?.messages?.[0]?.id ? 'accepted' : result?.queued ? 'queued' : result?.skipped ? 'skipped' : 'failed',
-        ),
+        }).then((result) => {
+          whatsAppId = result?.notificationId
+          return result?.messages?.[0]?.id ? 'accepted' : result?.queued ? 'queued' : result?.skipped ? 'skipped' : 'failed'
+        }),
       })
       tasks.push({
         channel: 'sms',
@@ -892,6 +899,7 @@ export class NotificationService {
     const channels: ContactNotificationResult['channels'] = results.map((result, index) => ({
       channel: tasks[index].channel,
       status: result.status === 'rejected' ? 'failed' : result.value,
+      ...(tasks[index].channel === 'whatsapp' && whatsAppId ? { notificationId: whatsAppId } : {}),
     }))
     const accepted = channels.some((channel) => channel.status === 'accepted')
     if (!accepted) logger.warn({ type, channels }, 'Contact notification was not accepted by any delivery provider')

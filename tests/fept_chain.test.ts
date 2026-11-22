@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, jest, test } from '@jest/globals
 import { DatabaseManager } from '../src/persistence/DatabaseManager'
 import { JobIntakeRepository } from '../src/persistence/JobIntakeRepository'
 import { notificationService } from '../src/services/NotificationService'
+import { outboxService } from '../src/services/OutboxService'
 import { orgWorkflowActorCredentialService } from '../src/services/OrgWorkflowActorCredentialService'
 import { paymentLinkService } from '../src/services/PaymentLinkService'
 import { JobIntakeController } from '../src/controllers/platform/JobIntakeController'
@@ -1003,6 +1004,68 @@ describe('FEPT chain — a booked job is priced by the office, then billed', () 
     expect(billOf(noContact)).toMatchObject({ status: 'sent', amount: 70 })
     expect(runState(noContact).reconciliation?.status).toBe('awaiting_payment')
     expect(reconciliationEvents('PO-NOCONTACT')).toContain('INVOICE_ISSUED')
+  })
+
+  test('a payment that cannot move the job on is kept in the outbox and retried until the job closes', async () => {
+    const db = DatabaseManager.getDatabase()
+    const runId = await bookAndFinishWork('BK-PRICE-6')
+    await workflowService.setJobBilling(runId, { amount: 90 })
+    const childId = runState(runId).startedWorkflows?.['tpl-payment-collection']?.runId
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const bill = runState(childId).clientBill
+
+    const resume = jest.spyOn(workflowService, 'resumeWorkflow').mockRejectedValue(new Error('Run is busy'))
+    const outcome = await paymentLinkService.settlePaidOrQueue(bill.linkId, { reference: 'ECO-B6', receiptId: 'RCPT-ECOB6' })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(outcome).toBe('queued')
+    const row = db
+      .prepare(`SELECT id, status, aggregate_key AS tenant FROM integration_outbox WHERE dedupe_key = ?`)
+      .get(`payment_link.settle:${bill.linkId}`) as { id: string; status: string; tenant: string }
+    expect(row.tenant).toBe(org.orgTenantId)
+    expect(['pending', 'retry']).toContain(row.status)
+    // The office sees the money is in and that the job is still being updated.
+    expect((await workflowService.getRunStatus(runId)).output.clientBill).toMatchObject({
+      status: 'paid',
+      settlement: { error: 'Run is busy' },
+    })
+    expect(runState(runId).reconciliation?.status).toBe('awaiting_payment')
+
+    resume.mockRestore()
+    db.prepare(`UPDATE integration_outbox SET available_at = 0 WHERE id = ?`).run(row.id)
+    await outboxService.processPending('payment_link.settle')
+    expect(db.prepare(`SELECT status FROM integration_outbox WHERE id = ?`).get(row.id)).toEqual({ status: 'processed' })
+    expect(runState(runId).reconciliation?.status).toBe('reconciled')
+    expect((await workflowService.getRunStatus(runId)).output.clientBill.settlement).toBeUndefined()
+  })
+
+  test('a bill message still in the outbox shows as queued, then as failed when the outbox gives up', async () => {
+    const db = DatabaseManager.getDatabase()
+    const now = new Date().toISOString()
+    db.prepare(
+      `INSERT INTO notification_deliveries (id, tenant_id, event_type, recipient, status, created_at, updated_at)
+       VALUES ('nd-bk7', ?, 'payment_link', '263770183277', 'queued', ?, ?)`,
+    ).run(org.orgTenantId, now, now)
+    const dispatch = jest.mocked(notificationService.dispatchContactNotification)
+    dispatch.mockResolvedValue({
+      accepted: false,
+      channels: [
+        { channel: 'whatsapp', status: 'queued', notificationId: 'nd-bk7' },
+        { channel: 'sms', status: 'skipped' },
+      ],
+    })
+    try {
+      const runId = await bookAndFinishWork('BK-PRICE-7')
+      await workflowService.setJobBilling(runId, { amount: 30 })
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      const childId = runState(runId).startedWorkflows?.['tpl-payment-collection']?.runId
+      expect(runState(childId).clientBill.status).toBe('queued')
+      expect((await workflowService.getRunStatus(runId)).output.clientBill.status).toBe('queued')
+
+      db.prepare(`UPDATE notification_deliveries SET status = 'failed' WHERE id = 'nd-bk7'`).run()
+      expect((await workflowService.getRunStatus(runId)).output.clientBill.status).toBe('delivery_failed')
+    } finally {
+      dispatch.mockResolvedValue({ accepted: true, channels: [{ channel: 'sms', status: 'accepted' }] })
+    }
   })
 
   test('an office job with its own price never waits for one', async () => {

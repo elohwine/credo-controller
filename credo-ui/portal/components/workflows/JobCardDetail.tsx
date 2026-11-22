@@ -782,10 +782,16 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                 <Text fw={600}>Client billing</Text>
                 <Text size="sm">
                   {state.clientBill.status === 'paid'
-                    ? 'Paid'
+                    ? state.clientBill.settlement
+                      ? `Paid · the job has not been updated yet (${state.clientBill.settlement.status === 'failed' ? 'retries used up' : 'retrying'})`
+                      : 'Paid'
                     : state.clientBill.status === 'sent'
-                      ? 'Payment link accepted by provider · Awaiting payment'
-                      : state.clientBill.reason || 'Invoice delivery needs attention'}
+                      ? state.clientBill.notification?.accepted
+                        ? 'Payment link accepted by provider · Awaiting payment'
+                        : 'Bill is in the client’s inbox · Awaiting payment'
+                      : state.clientBill.status === 'queued'
+                        ? 'Bill message queued for delivery · Awaiting payment'
+                        : state.clientBill.reason || 'Invoice delivery needs attention'}
                 </Text>
                 <Button
                   mt="sm"

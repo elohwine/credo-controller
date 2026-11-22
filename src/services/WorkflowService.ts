@@ -44,6 +44,7 @@ import { triggerFollowOnRequest } from './workflow/actions/RequestTriggerAction'
 import { StageGateActions } from './workflow/actions/StageGateActions'
 import { TrustActions } from './workflow/actions/TrustActions'
 import { createWorkflowStartAction } from './workflow/actions/WorkflowStartAction'
+import { billDeliveryStatus } from './billDelivery'
 import { AWAIT_JOB_PRICE, CLIENT_BILL_KEY, clientReachable, priceCardSourceId } from './workflow/jobPrice'
 import { ensureExecutableWorkflow } from './workflow/materialize'
 import { getWorkflowTypeForWorkflow } from './workflow/initiation'
@@ -574,6 +575,12 @@ export class WorkflowService {
         | undefined
       if (link) {
         const metadata = link.metadata ? JSON.parse(link.metadata) : {}
+        // A paid link whose job has not moved on yet: the outbox is retrying it.
+        const settlement = metadata.settlement?.outboxId
+          ? (DatabaseManager.getDatabase()
+              .prepare(`SELECT status, attempts, error_message AS error FROM integration_outbox WHERE id = ?`)
+              .get(metadata.settlement.outboxId) as { status: string; attempts: number; error: string | null } | undefined)
+          : undefined
         currentBill = {
           ...bill,
           url: link.url,
@@ -581,10 +588,19 @@ export class WorkflowService {
           ...(metadata.notification
             ? {
                 notification: metadata.notification,
-                status: metadata.notification.accepted ? 'sent' : 'delivery_failed',
+                status: billDeliveryStatus(metadata.notification, bill.inboxItemId),
               }
             : {}),
           ...(link.status === 'paid' ? { status: 'paid', paidAt: link.paidAt } : {}),
+          ...(settlement && settlement.status !== 'processed'
+            ? {
+                settlement: {
+                  status: settlement.status,
+                  attempts: settlement.attempts,
+                  error: settlement.error || metadata.settlement.error,
+                },
+              }
+            : {}),
         }
       }
     }

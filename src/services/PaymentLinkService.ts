@@ -33,7 +33,11 @@ export interface PaymentLinkDelivery extends ContactNotificationResult {
   to: string
   renewed: boolean
   actedByUserId?: string
+  /** The bill card put in an onboarded client's inbox by this send. */
+  inboxItemId?: string
 }
+
+export const SETTLE_TOPIC = 'payment_link.settle'
 
 export interface NewPaymentLink {
   merchantId: string
@@ -156,7 +160,13 @@ export class PaymentLinkService {
     const metadata = metadataOf(link.metadata)
     const payerPhone = (contact.payerPhone ?? link.payer_phone ?? '').trim()
     const payerName = (contact.payerName ?? (typeof metadata.payerName === 'string' ? metadata.payerName : '')).trim()
-    assertPayer(payerName, payerPhone)
+    // A bill that went out by email alone is sent again to that email.
+    const payerEmail = !payerPhone && typeof metadata.payerEmail === 'string' ? metadata.payerEmail.trim() : ''
+    if (payerEmail) {
+      if (!payerName) throw new StatusException('Enter the client name', 400)
+    } else {
+      assertPayer(payerName, payerPhone)
+    }
     let url = link.shortlink_url
     db.transaction(() => {
       if (renew) {
@@ -182,7 +192,7 @@ export class PaymentLinkService {
       }
       db.prepare(
         `UPDATE payment_links SET payer_phone = ?, metadata = ?, updated_at = ? WHERE id = ? AND merchant_id = ?`,
-      ).run(payerPhone, JSON.stringify({ ...metadata, payerName }), new Date().toISOString(), linkId, merchantId)
+      ).run(payerPhone || null, JSON.stringify({ ...metadata, payerName }), new Date().toISOString(), linkId, merchantId)
     })()
     // Every send is a new message: a key shared with an earlier send would quietly reuse that send's outcome.
     const sends = Array.isArray(metadata.deliveryHistory) ? metadata.deliveryHistory.length : 0
@@ -199,7 +209,7 @@ export class PaymentLinkService {
         tenantId: merchantId,
         inboxItemId,
         dedupeKey: sendKey,
-        contact: { name: payerName, phone: payerPhone },
+        contact: { name: payerName, ...(payerPhone ? { phone: payerPhone } : {}), ...(payerEmail ? { email: payerEmail } : {}) },
         type: 'payment_link',
         url,
         issuerName: link.merchant_name || getTenantById(merchantId)?.label,
@@ -212,9 +222,10 @@ export class PaymentLinkService {
         accepted: false,
         channels: [],
         at: new Date().toISOString(),
-        to: payerPhone,
+        to: payerPhone || payerEmail,
         renewed: renew,
         actedByUserId,
+        ...(inboxItemId ? { inboxItemId } : {}),
       }
       this.recordDelivery(linkId, merchantId, failed)
       throw error
@@ -222,9 +233,10 @@ export class PaymentLinkService {
     const notification: PaymentLinkDelivery = {
       ...result,
       at: new Date().toISOString(),
-      to: payerPhone,
+      to: payerPhone || payerEmail,
       renewed: renew,
       actedByUserId,
+      ...(inboxItemId ? { inboxItemId } : {}),
     }
     this.recordDelivery(linkId, merchantId, notification)
     return { linkId, url, notification }
@@ -274,7 +286,13 @@ export class PaymentLinkService {
         amount: link.amount,
         currency: link.currency,
       })
-      notification = { ...result, at, to: input.payer.phone || input.payer.email || '', renewed: false }
+      notification = {
+        ...result,
+        at,
+        to: input.payer.phone || input.payer.email || '',
+        renewed: false,
+        ...(inboxItemId ? { inboxItemId } : {}),
+      }
     } catch (error) {
       logger.warn({ err: error, linkId: input.linkId }, 'Bill notification failed')
       notification = { accepted: false, channels: [], at, to: input.payer.phone || input.payer.email || '', renewed: false }
@@ -467,6 +485,44 @@ export class PaymentLinkService {
       await this.settlePaid(linkId, { reference: input.providerRef, payerPhone: input.payerPhone })
     }
     return linkId
+  }
+
+  /**
+   * Settle a link the provider reports paid. The money and its receipt are already recorded, so a
+   * failure to move the job on is not dropped: the outbox retries it and keeps its status and error.
+   */
+  public async settlePaidOrQueue(
+    linkId: string,
+    payment: { reference?: string; payerPhone?: string; paidAt?: string; receiptId?: string },
+  ): Promise<'settled' | 'queued'> {
+    try {
+      await this.settlePaid(linkId, payment)
+      return 'settled'
+    } catch (error: any) {
+      const db = DatabaseManager.getDatabase()
+      const link = db.prepare('SELECT merchant_id, metadata FROM payment_links WHERE id = ?').get(linkId) as
+        | { merchant_id: string; metadata: string | null }
+        | undefined
+      const message = String(error?.message || 'Settlement failed').slice(0, 300)
+      const outboxId = outboxService.enqueue({
+        topic: SETTLE_TOPIC,
+        aggregateKey: link?.merchant_id,
+        dedupeKey: `${SETTLE_TOPIC}:${linkId}`,
+        payload: { linkId, payment },
+      })
+      if (link) {
+        db.prepare('UPDATE payment_links SET metadata = ?, updated_at = ? WHERE id = ?').run(
+          JSON.stringify({
+            ...metadataOf(link.metadata),
+            settlement: { outboxId, error: message, at: new Date().toISOString() },
+          }),
+          new Date().toISOString(),
+          linkId,
+        )
+      }
+      logger.warn({ linkId, outboxId, error: message }, 'Paid link did not settle; queued for retry')
+      return 'queued'
+    }
   }
 
   /** Money is in: mark the link paid and let the waiting run continue. Safe to call twice. */

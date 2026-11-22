@@ -18,17 +18,30 @@ export const CLIENT_BILLING_HELP = {
 export function clientInvoiceOutcome(output: any): FieldStageOutcome {
   const bill = output?.clientBill
   const collection = output?.startedWorkflows?.['tpl-payment-collection']
-  if (bill?.status === 'paid') return { status: 'done', note: 'Client invoice paid' }
+  if (bill?.status === 'paid')
+    return bill.settlement
+      ? {
+          status: 'held',
+          note: `Client paid, but the job has not been updated yet (${bill.settlement.status === 'failed' ? 'retries used up' : 'retrying'}${bill.settlement.error ? `: ${bill.settlement.error}` : ''}).`,
+        }
+      : { status: 'done', note: 'Client invoice paid' }
   if (bill?.status === 'sent')
-    return bill.notification?.accepted
+    return bill.notification?.accepted || bill.inboxItemId || bill.notification?.inboxItemId
       ? {
           status: 'done',
-          note: 'Receivable recorded; client payment message accepted by a delivery provider. Payment is still outstanding.',
+          note: bill.notification?.accepted
+            ? 'Receivable recorded; client payment message accepted by a delivery provider. Payment is still outstanding.'
+            : 'Receivable recorded; the bill is in the client’s inbox. Payment is still outstanding.',
         }
       : {
           status: 'active',
           note: 'Billing recorded the invoice as sent, but provider acceptance was not recorded. Payment is still outstanding.',
         }
+  if (bill?.status === 'queued')
+    return {
+      status: 'active',
+      note: 'Receivable recorded; the client message is queued and will be retried until it is sent or fails.',
+    }
   if (bill?.status === 'delivery_failed')
     return {
       status: 'held',
@@ -135,17 +148,36 @@ export function clientBillingStages(run?: any, link?: any) {
       key: 'NOTIFIED',
       label: 'Client payment message',
       proof: 'Record',
-      status: notification?.accepted ? ('done' as const) : recorded ? ('held' as const) : ('pending' as const),
+      status:
+        notification?.accepted || bill?.status === 'sent' || bill?.status === 'paid'
+          ? ('done' as const)
+          : bill?.status === 'queued'
+            ? ('active' as const)
+            : recorded
+              ? ('held' as const)
+              : ('pending' as const),
       at: notification?.at || bill?.sentAt,
-      note: notification?.accepted ? 'Provider accepted' : 'Not sent / unconfirmed',
+      note: notification?.accepted
+        ? 'Provider accepted'
+        : bill?.inboxItemId || notification?.inboxItemId
+          ? 'In the client’s inbox'
+          : bill?.status === 'queued'
+            ? 'Queued for delivery'
+            : 'Not sent / unconfirmed',
     },
     {
       key: 'PAID',
       label: 'Client payment received',
       proof: 'Record',
-      status: paid ? ('done' as const) : ('pending' as const),
+      status: paid ? (bill?.settlement ? ('held' as const) : ('done' as const)) : ('pending' as const),
       at: link?.paidAt || bill?.paidAt,
-      note: paid ? 'Payment recorded' : recorded ? 'Outstanding' : 'Not invoiced',
+      note: paid
+        ? bill?.settlement
+          ? `Paid; updating the job ${bill.settlement.status === 'failed' ? 'failed' : 'is being retried'}`
+          : 'Payment recorded'
+        : recorded
+          ? 'Outstanding'
+          : 'Not invoiced',
     },
     // A job's bill is matched on the job itself; only a standalone payment carries its own trail.
     ...(link?.reconciliation

@@ -135,7 +135,7 @@ export class OutboxService {
           // Legacy side effects have no provider reconciliation key. Never replay a crashed invocation blindly.
           db.prepare(
             `UPDATE integration_outbox SET status = 'uncertain', error_message = 'Lease expired: reconcile external outcome'
-          WHERE status = 'processing' AND lease_until <= ? AND topic NOT IN ('notification.whatsapp', 'wallet.vc.offered', 'wallet.inbox.whatsapp')`,
+          WHERE status = 'processing' AND lease_until <= ? AND topic NOT IN ('notification.whatsapp', 'wallet.vc.offered', 'wallet.inbox.whatsapp', 'payment_link.settle')`,
           ).run(now)
           const candidates = db
             .prepare(
@@ -186,6 +186,14 @@ export class OutboxService {
           } else if (row.topic === 'wallet.android.popup') {
             const { notifyAndroidPopup } = await import('./AndroidPushService')
             await notifyAndroidPopup(JSON.parse(row.payload || '{}'))
+          } else if (row.topic === 'payment_link.settle') {
+            const { paymentLinkService } = await import('./PaymentLinkService')
+            const payload = JSON.parse(row.payload || '{}')
+            try {
+              await paymentLinkService.settlePaid(String(payload.linkId), payload.payment || {})
+            } catch (error: any) {
+              throw new DispatchError(String(error?.message || 'Settlement failed').slice(0, 300))
+            }
           } else if (RECORDED_TOPICS.includes(row.topic)) {
             logger.info({ topic: row.topic, outboxId: row.id }, 'Recorded outbox event')
           } else {
