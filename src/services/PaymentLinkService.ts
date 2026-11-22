@@ -39,6 +39,11 @@ export interface PaymentLinkDelivery extends ContactNotificationResult {
 
 export const SETTLE_TOPIC = 'payment_link.settle'
 
+/** The receipt number the payment webhook gives a payment (see EcoCashWebhookController). */
+export function receiptNumber(providerRef: string): string {
+  return `RCPT-${providerRef.replace(/[^A-Za-z0-9]/g, '').slice(0, 16).toUpperCase()}`
+}
+
 export interface NewPaymentLink {
   merchantId: string
   merchantName?: string
@@ -510,16 +515,7 @@ export class PaymentLinkService {
         dedupeKey: `${SETTLE_TOPIC}:${linkId}`,
         payload: { linkId, payment },
       })
-      if (link) {
-        db.prepare('UPDATE payment_links SET metadata = ?, updated_at = ? WHERE id = ?').run(
-          JSON.stringify({
-            ...metadataOf(link.metadata),
-            settlement: { outboxId, error: message, at: new Date().toISOString() },
-          }),
-          new Date().toISOString(),
-          linkId,
-        )
-      }
+      this.noteSettlement(linkId, outboxId, message)
       logger.warn({ linkId, outboxId, error: message }, 'Paid link did not settle; queued for retry')
       return 'queued'
     }
@@ -554,18 +550,91 @@ export class PaymentLinkService {
     // The plan history reads the instalment, so it is marked paid here, not when a finance screen opens.
     const { receivablePlanService } = await import('./ReceivablePlanService')
     receivablePlanService.recordLinkPaid(linkId, paidAt)
+    let receiptId = payment.receiptId
     const waiting = this.waitingRun(linkId)
-    if (!waiting) return
-    const { workflowService } = await import('./WorkflowService')
-    await workflowService.resumeWorkflow(waiting.run.id, {
-      clientPayment: {
-        status: 'paid',
+    if (waiting) {
+      receiptId = receiptId || this.receiptIdFor(linkId)
+      const { workflowService } = await import('./WorkflowService')
+      await workflowService.resumeWorkflow(waiting.run.id, {
+        clientPayment: {
+          status: 'paid',
+          linkId,
+          reference: payment.reference,
+          paidAt,
+          ...(receiptId ? { receiptId } : {}),
+        },
+      })
+    }
+    await this.followReceipt(linkId, receiptId, paidAt)
+  }
+
+  /** The receipt already issued for this link's payment, if any. */
+  public receiptIdFor(linkId: string): string | undefined {
+    const row = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT ap.provider_ref AS ref, r.id AS rowId
+           FROM ack_payments ap JOIN ack_payment_receipts r ON r.payment_id = ap.id
+          WHERE ap.state IN ('paid', 'delivered')
+            AND (ap.idempotency_key LIKE ? OR ap.idempotency_key LIKE ?
+                 OR (json_valid(ap.metadata) AND json_extract(ap.metadata, '$.paymentLinkId') = ?))
+          ORDER BY r.rowid DESC LIMIT 1`,
+      )
+      .get(`paylink-${linkId}-%`, `paylink:${linkId}:%`, linkId) as { ref?: string | null; rowId: string } | undefined
+    if (!row) return undefined
+    return row.ref ? receiptNumber(row.ref) : row.rowId
+  }
+
+  /**
+   * A job closes only when its client has paid and has a receipt. A receipt that came late closes
+   * the job now; one still missing is followed in the outbox, so the wait and any failure show.
+   * Returns true while the job is still waiting for the receipt.
+   */
+  public async followReceipt(linkId: string, receiptId?: string, paidAt?: string): Promise<boolean> {
+    const runId = this.find(linkId)?.metadata.workflowRunId
+    if (typeof runId !== 'string') return false
+    const { closeJobOnReceipt, jobWaitingForReceipt } = await import('./workflow/actions/ClientPaymentActions')
+    const id = receiptId || this.receiptIdFor(linkId)
+    if (id) closeJobOnReceipt(runId, id, paidAt)
+    const waiting = jobWaitingForReceipt(runId)
+    if (waiting) {
+      this.noteSettlement(
         linkId,
-        reference: payment.reference,
-        paidAt,
-        ...(payment.receiptId ? { receiptId: payment.receiptId } : {}),
-      },
-    })
+        outboxService.enqueue({
+          topic: SETTLE_TOPIC,
+          aggregateKey: (
+            DatabaseManager.getDatabase().prepare('SELECT merchant_id FROM payment_links WHERE id = ?').get(linkId) as
+              | { merchant_id: string }
+              | undefined
+          )?.merchant_id,
+          dedupeKey: `${SETTLE_TOPIC}:${linkId}:receipt`,
+          payload: { linkId, needsReceipt: true, paidAt },
+        }),
+        'Waiting for the payment receipt',
+      )
+    } else {
+      this.noteSettlement(linkId)
+    }
+    return waiting
+  }
+
+  /** Point the link at the outbox row following its settlement, or clear it once settled. */
+  private noteSettlement(linkId: string, outboxId?: string, error?: string): void {
+    const db = DatabaseManager.getDatabase()
+    const link = db.prepare('SELECT metadata FROM payment_links WHERE id = ?').get(linkId) as
+      | { metadata: string | null }
+      | undefined
+    if (!link) return
+    const metadata = metadataOf(link.metadata)
+    if (!outboxId && !metadata.settlement) return
+    if (outboxId && metadata.settlement?.outboxId === outboxId) return
+    const { settlement: _cleared, ...rest } = metadata
+    db.prepare('UPDATE payment_links SET metadata = ?, updated_at = ? WHERE id = ?').run(
+      JSON.stringify(
+        outboxId ? { ...rest, settlement: { outboxId, error, at: new Date().toISOString() } } : rest,
+      ),
+      new Date().toISOString(),
+      linkId,
+    )
   }
 
   /** The client said no to a quote: close the link and end the run that waited on it. */

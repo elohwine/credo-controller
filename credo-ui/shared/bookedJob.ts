@@ -9,6 +9,8 @@ export interface BookedJobProgress {
   stage?: string
   pauseReason?: string
   assigned: boolean
+  /** The work is done but the job stays open until the bill is paid and receipted. */
+  waitingFor?: 'payment' | 'receipt'
   history: Array<{ stage: string; at?: string }>
   createdAt?: string
 }
@@ -53,6 +55,7 @@ export function readBookedJob(value: unknown): BookedJobProgress | undefined {
     stage: typeof job.stage === 'string' ? job.stage : undefined,
     pauseReason: typeof job.pauseReason === 'string' ? job.pauseReason : undefined,
     assigned: Boolean(job.assigned),
+    waitingFor: job.waitingFor === 'payment' || job.waitingFor === 'receipt' ? job.waitingFor : undefined,
     history: Array.isArray(job.history)
       ? job.history
           .filter((entry: any) => entry && typeof entry.stage === 'string')
@@ -68,6 +71,22 @@ export function bookedJobWords(job: BookedJobProgress, orgName?: string): Booked
   const status = String(job.status || '').toLowerCase()
   if (['CANCELLED', 'REVOKED'].includes(stage) || status === 'cancelled') {
     return { label: 'Cancelled', color: 'gray', line: `${org} cancelled this job.`, done: true }
+  }
+  if (job.waitingFor === 'payment') {
+    return {
+      label: 'Bill to pay',
+      color: 'orange',
+      line: 'The work is finished. Your bill is in your inbox; the job closes once it is paid.',
+      done: false,
+    }
+  }
+  if (job.waitingFor === 'receipt') {
+    return {
+      label: 'Paid',
+      color: 'teal',
+      line: 'Your payment is in. Your receipt is on its way to your inbox; the job closes when it arrives.',
+      done: false,
+    }
   }
   if (status === 'completed' || ['COMPLETED', 'RECONCILED'].includes(stage)) {
     return { label: 'Finished', color: 'green', line: 'The job is finished. Any bill or receipt is in your inbox.', done: true }

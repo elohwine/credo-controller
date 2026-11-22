@@ -373,7 +373,7 @@ export class ClientPaymentActions {
  * Settlement is recorded here only when close left the job waiting for this invoice.
  * School fees, counter sales and quotes have no field-job parent, so they are unchanged.
  */
-function fieldJobOf(context: WorkflowActionContext) {
+function fieldJobOf(context: Pick<WorkflowActionContext, 'tenantId' | 'input'>) {
   const parentRunId = text(context.input?.parentRunId)
   if (!parentRunId) return undefined
   const parent = workflowRunRepository.findRunById(parentRunId)
@@ -427,20 +427,69 @@ function noteClientPaymentOnJob(
   // The job closes once the client has paid and has their receipt.
   if (!paid.receiptId) {
     workflowRunRepository.updateRun(parent.id, {
-      output: { ...output, reconciliation: { ...output.reconciliation, status: 'awaiting_receipt' } },
+      output: {
+        ...output,
+        reconciliation: { ...output.reconciliation, status: 'awaiting_receipt', paidAt: paid.paidAt },
+      },
     })
     return
   }
-  recon.recordEvent(providerRef, 'SETTLEMENT_CONFIRMED', 'payment_link', base)
-  workflowRunRepository.updateRun(parent.id, {
+  closeJob(job, base, paid.receiptId, paid.paidAt)
+}
+
+function closeJob(
+  job: NonNullable<ReturnType<typeof fieldJobOf>>,
+  base: Record<string, unknown>,
+  receiptId: string,
+  paidAt?: string,
+): void {
+  new ReconciliationService().recordEvent(job.providerRef, 'SETTLEMENT_CONFIRMED', 'payment_link', base)
+  workflowRunRepository.updateRun(job.parent.id, {
     output: {
-      ...output,
+      ...job.output,
       reconciliation: {
-        ...(output.reconciliation || {}),
+        ...(job.output.reconciliation || {}),
         status: 'reconciled',
-        settledAt: paid.paidAt || new Date().toISOString(),
-        receiptId: paid.receiptId,
+        settledAt: paidAt || job.output.reconciliation?.paidAt || new Date().toISOString(),
+        receiptId,
       },
     },
   })
+}
+
+/** The field job behind a bill run that was paid but still has no receipt. */
+function jobAwaitingReceipt(billRunId: string) {
+  const run = workflowRunRepository.findRunById(billRunId)
+  if (!run) return undefined
+  const job = fieldJobOf({ tenantId: run.tenantId, input: run.input })
+  return job?.output.reconciliation?.status === 'awaiting_receipt' ? { run, job } : undefined
+}
+
+export function jobWaitingForReceipt(billRunId: string): boolean {
+  return Boolean(jobAwaitingReceipt(billRunId))
+}
+
+/** The receipt for an already-paid bill arrived after its run finished: close the job it belongs to. */
+export function closeJobOnReceipt(billRunId: string, receiptId: string, paidAt?: string): boolean {
+  const found = jobAwaitingReceipt(billRunId)
+  if (!found) return false
+  const { run, job } = found
+  const bill = (run.output?.clientBill || {}) as Record<string, any>
+  const base = {
+    tenantId: job.parent.tenantId,
+    amount: bill.amount,
+    currency: bill.currency,
+    reference: bill.reference,
+    kind: 'client_invoice',
+  }
+  new ReconciliationService().recordEvent(job.providerRef, 'RECEIPT_ISSUED', 'payment_link', { ...base, receiptId })
+  closeJob(job, base, receiptId, paidAt || bill.paidAt)
+  workflowRunRepository.updateRun(run.id, {
+    output: {
+      ...run.output,
+      clientBill: { ...bill, receiptId },
+      ...(run.output?.payment ? { payment: { ...run.output.payment, receiptId } } : {}),
+    },
+  })
+  return true
 }

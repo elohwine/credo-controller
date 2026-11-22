@@ -24,6 +24,8 @@ import { workflowService } from '../src/services/WorkflowService'
 import { ActionRegistry } from '../src/services/workflow/ActionRegistry'
 import { ensureExecutableWorkflow } from '../src/services/workflow/materialize'
 import { workflowHandoffService } from '../src/services/workflow/WorkflowHandoffService'
+import { feptStages as portalStages, jobStatusLabel } from '../credo-ui/portal/components/finance/financeStages'
+import { bookedJobWords } from '../credo-ui/shared/bookedJob'
 
 import {
   addMember,
@@ -1036,6 +1038,57 @@ describe('FEPT chain — a booked job is priced by the office, then billed', () 
     expect(db.prepare(`SELECT status FROM integration_outbox WHERE id = ?`).get(row.id)).toEqual({ status: 'processed' })
     expect(runState(runId).reconciliation?.status).toBe('reconciled')
     expect((await workflowService.getRunStatus(runId)).output.clientBill.settlement).toBeUndefined()
+  })
+
+  test('a paid job without its receipt is never shown closed and closes itself once the receipt is issued', async () => {
+    const db = DatabaseManager.getDatabase()
+    const runId = await bookAndFinishWork('BK-PRICE-8')
+    await workflowService.setJobBilling(runId, { amount: 70 })
+    const childId = runState(runId).startedWorkflows?.['tpl-payment-collection']?.runId
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const bill = runState(childId).clientBill
+    const unpaid = (await workflowService.getRunStatus(runId)).output
+    expect(jobStatusLabel('completed', 'RECONCILED', '', unpaid)).toBe('Waiting: client payment')
+    expect(bookedJobWords({ runId, status: 'completed', stage: 'RECONCILED', assigned: true, history: [], waitingFor: 'payment' })).toMatchObject({
+      label: 'Bill to pay',
+      done: false,
+    })
+
+    await paymentLinkService.settlePaid(bill.linkId, { reference: 'ECO-B8' })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(runState(runId).reconciliation?.status).toBe('awaiting_receipt')
+    const row = db
+      .prepare(`SELECT id, status, aggregate_key AS tenant FROM integration_outbox WHERE dedupe_key = ?`)
+      .get(`payment_link.settle:${bill.linkId}:receipt`) as { id: string; status: string; tenant: string }
+    expect(row.tenant).toBe(org.orgTenantId)
+    expect(['pending', 'retry']).toContain(row.status)
+    const waiting = (await workflowService.getRunStatus(runId)).output
+    expect(jobStatusLabel('completed', 'RECONCILED', '', waiting)).toBe('Waiting: client receipt')
+    expect(portalStages('RECONCILED', waiting).find((step) => step.key === 'RECONCILED')?.status).toBe('active')
+    expect(portalStages('RECONCILED', waiting).find((step) => step.key === 'CLIENT_INVOICE')?.status).toBe('active')
+
+    // Still no receipt: the outbox keeps following it.
+    db.prepare(`UPDATE integration_outbox SET available_at = 0 WHERE id = ?`).run(row.id)
+    await outboxService.processPending('payment_link.settle')
+    expect(db.prepare(`SELECT status, error_message AS error FROM integration_outbox WHERE id = ?`).get(row.id)).toEqual({
+      status: 'retry',
+      error: 'The payment receipt has not been issued yet',
+    })
+
+    // The payment webhook issues the receipt: the next attempt closes the job.
+    db.prepare(
+      `INSERT INTO ack_payments (id, tenant_id, provider_ref, amount, state, idempotency_key)
+       VALUES ('ap-b8', ?, 'ECO-B8', 70, 'paid', ?)`,
+    ).run(org.orgTenantId, `paylink-${bill.linkId}-ecocash`)
+    db.prepare(`INSERT INTO ack_payment_receipts (id, payment_id) VALUES ('rcp-b8', 'ap-b8')`).run()
+    db.prepare(`UPDATE integration_outbox SET available_at = 0 WHERE id = ?`).run(row.id)
+    await outboxService.processPending('payment_link.settle')
+    expect(db.prepare(`SELECT status FROM integration_outbox WHERE id = ?`).get(row.id)).toEqual({ status: 'processed' })
+    expect(runState(runId).reconciliation).toMatchObject({ status: 'reconciled', receiptId: 'RCPT-ECOB8' })
+    const closed = (await workflowService.getRunStatus(runId)).output
+    expect(closed.clientBill.settlement).toBeUndefined()
+    expect(jobStatusLabel('completed', 'RECONCILED', '', closed)).toBe('Closed')
+    expect(portalStages('RECONCILED', closed).find((step) => step.key === 'RECONCILED')?.status).toBe('done')
   })
 
   test('a bill message still in the outbox shows as queued, then as failed when the outbox gives up', async () => {

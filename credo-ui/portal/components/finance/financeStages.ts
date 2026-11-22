@@ -6,7 +6,7 @@
  * by org readiness.
  */
 
-import { fieldStageOutcome } from '../../../shared/fieldJobOutcomes'
+import { fieldStageOutcome, jobClientWait } from '../../../shared/fieldJobOutcomes'
 
 export type StageStatus = 'done' | 'active' | 'pending' | 'skipped' | 'held'
 
@@ -536,7 +536,9 @@ export const JOB_STAGE_LABEL: Record<string, string> = {
 }
 
 /** Badge colour for a job; shared by the job board and the job detail drawer. */
-export function jobStatusColor(status: string, stage?: string): string {
+export function jobStatusColor(status: string, stage?: string, output?: any): string {
+  const wait = jobClientWait(output)
+  if (wait) return wait.failed ? 'red' : 'orange'
   if (stage === 'RECONCILED' || status === 'completed') return 'green'
   if (status === 'failed') return 'red'
   if (status === 'paused') return 'orange' // waiting on a person
@@ -545,7 +547,9 @@ export function jobStatusColor(status: string, stage?: string): string {
 }
 
 /** Plain-language job status; shared by the job board and the job detail drawer. */
-export function jobStatusLabel(status: string, stage?: string, pauseReason?: string): string {
+export function jobStatusLabel(status: string, stage?: string, pauseReason?: string, output?: any): string {
+  const wait = jobClientWait(output)
+  if (wait) return wait.label
   if (status === 'paused' && pauseReason && JOB_WAITING_LABEL[pauseReason])
     return `Waiting: ${JOB_WAITING_LABEL[pauseReason]}`
   if (status === 'failed') return 'Needs attention'

@@ -189,11 +189,15 @@ export class OutboxService {
           } else if (row.topic === 'payment_link.settle') {
             const { paymentLinkService } = await import('./PaymentLinkService')
             const payload = JSON.parse(row.payload || '{}')
+            let waitingForReceipt = false
             try {
-              await paymentLinkService.settlePaid(String(payload.linkId), payload.payment || {})
+              waitingForReceipt = payload.needsReceipt
+                ? await paymentLinkService.followReceipt(String(payload.linkId), undefined, payload.paidAt)
+                : (await paymentLinkService.settlePaid(String(payload.linkId), payload.payment || {}), false)
             } catch (error: any) {
               throw new DispatchError(String(error?.message || 'Settlement failed').slice(0, 300))
             }
+            if (waitingForReceipt) throw new DispatchError('The payment receipt has not been issued yet')
           } else if (RECORDED_TOPICS.includes(row.topic)) {
             logger.info({ topic: row.topic, outboxId: row.id }, 'Recorded outbox event')
           } else {

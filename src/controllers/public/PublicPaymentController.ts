@@ -663,20 +663,11 @@ export class PublicPaymentController extends Controller {
 
     if (paidAck && row.status === 'active') {
       const now = new Date().toISOString()
-      const receipt = db
-        .prepare(`SELECT id FROM ack_payment_receipts WHERE payment_id = ? LIMIT 1`)
-        .get(paidAck.id) as { id: string } | undefined
-      // The same receipt number the payment webhook gave this payment.
-      const receiptId = receipt
-        ? paidAck.provider_ref
-          ? `RCPT-${paidAck.provider_ref.replace(/[^A-Za-z0-9]/g, '').slice(0, 16).toUpperCase()}`
-          : receipt.id
-        : undefined
+      // settlePaid finds the receipt the webhook issued for this payment, or follows it until it is issued.
       await paymentLinkService.settlePaidOrQueue(row.id, {
         paidAt: paidAck.updated_at || now,
         reference: paidAck.provider_ref,
         payerPhone: paidAck.payer_phone,
-        receiptId,
       })
 
       row.status = 'paid'

@@ -102,7 +102,7 @@ import { requestExperienceForRow, requestWhoDid } from '../../shared/requestExpe
 import ReceiptProofField, { receiptProofPayload, type ReceiptProof } from '@/components/shared/ReceiptProofField'
 import { ClientBillingDetails } from '@/components/shared/ClientBillingDetails'
 import { ContactPickerSelect } from '@/components/shared/ContactPickerSelect'
-import { fieldJobBillingExceptions } from '../../shared/fieldJobOutcomes'
+import { fieldJobBillingExceptions, jobClientWait } from '../../shared/fieldJobOutcomes'
 import { assertFieldStepSucceeded } from '../../shared/fieldEvidence'
 import type { FinanceListRow } from '@/components/shared/FinanceListCard'
 import { FINANCE_TABLE_HEADERS, FinanceListRows, financeRowsToCells } from '@/components/shared/FinanceListTable'
@@ -5008,14 +5008,15 @@ export default function FinancePage() {
       CANCELLED: 'gray',
     }
     const input = run.output?.workflowInput || run.input || {}
-    const closed = ['completed', 'reconciled', 'cancelled'].includes(String(run.status || '').toLowerCase())
+    const wait = jobClientWait(run.output)
+    const closed = !wait && ['completed', 'reconciled', 'cancelled'].includes(String(run.status || '').toLowerCase())
     return {
       id: String(run.id),
       title: jobHeading(input).title,
       flowLabel: FINANCE_FLOW_WORDS.job.label,
       flowColor: FINANCE_FLOW_WORDS.job.color,
-      status: fieldJobStatusLabel(run.status, stage, run.output?.pauseReason),
-      statusColor: FEPT_STAGE_COLOR[stage] || 'gray',
+      status: fieldJobStatusLabel(run.status, stage, run.output?.pauseReason, run.output),
+      statusColor: wait ? (wait.failed ? 'red' : 'orange') : FEPT_STAGE_COLOR[stage] || 'gray',
       dateLabel: formatTxnTime(run.updatedAt || run.updated_at || run.createdAt || run.created_at) || undefined,
       note:
         [input.storeNumber ? `Store ${input.storeNumber}` : '', input.reference || input.poNumber, input.callOut ? 'Call-out' : '', input.location]
@@ -7925,7 +7926,7 @@ export default function FinancePage() {
             const run = selectedFieldRun
             const stage = String(run.output?.workflowStage || run.output?.stage || run.status || '').toUpperCase()
             const input = run.output?.workflowInput || run.input || {}
-            const stageLabel = fieldJobStatusLabel(run.status, stage, run.output?.pauseReason)
+            const stageLabel = fieldJobStatusLabel(run.status, stage, run.output?.pauseReason, run.output)
             const runRef = input.poNumber || input.reference || run.id
             const isTerminal = new Set(['COMPLETED', 'CANCELLED', 'REVOKED', 'DISPUTED']).has(stage)
             const pauseReason = getFieldPauseReason(run)

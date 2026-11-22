@@ -26,6 +26,7 @@ import ReceiptProofField, { receiptProofPayload, type ReceiptProof } from '@/com
 import api, { safeArray } from '@/lib/api';
 import { appHref } from '@/lib/appPath';
 import { formatCredentialType } from '@/lib/format';
+import { jobClientWait } from '../../shared/fieldJobOutcomes';
 import { SAFETY_HOLD_COPY, fieldStepExplanation, getInboxDisplayDescription, getInboxDisplayTitle, getInboxPrimaryActionLabel, offerReplacement, stepRequiredLabel, toFeptStageLabel } from '@/lib/uxCopy';
 import { applyOrgContext, beginTaskContext, endTaskContext, getTaskContext, getTaskPass, getActiveOrgId, getWalletToken, getActiveOrgLabel, getOrgRoleClaim, isEmployeeOrgRole, isOrgActionRole, getContextMode, getOrgToken, getPersonalWalletTenantId, getPersonalWalletToken, setPersonalContext } from '@/lib/auth';
 import { openOrganizationForTask, taskRefs } from '@/lib/orgTaskAccess';
@@ -2482,7 +2483,7 @@ export default function InboxPage() {
             workflowStage: stage,
             pauseReason: String(run.output?.pauseReason || ''),
             module: 'field',
-          }) || getFieldRunActionLabel(stage),
+          }) || jobClientWait(run.output)?.label || getFieldRunActionLabel(stage),
           itemType: 'workflow' as const,
           workflowRunId: run.id,
           workflowStage: stage,

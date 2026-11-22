@@ -1,4 +1,4 @@
-import { fieldStageOutcome } from '../../shared/fieldJobOutcomes'
+import { fieldStageOutcome, jobClientWait } from '../../shared/fieldJobOutcomes'
 
 type ActivityDetails = Record<string, any>
 
@@ -134,7 +134,9 @@ export const FEPT_WAITING_LABEL: Record<string, string> = {
  * Badge text for a field job. A paused job says what it is waiting for (so "after photos
  * taken" never reads as "waiting for sign-off" while receipts or the review are still due).
  */
-export function fieldJobStatusLabel(status: unknown, stage: unknown, pauseReason?: unknown): string {
+export function fieldJobStatusLabel(status: unknown, stage: unknown, pauseReason?: unknown, output?: any): string {
+  const wait = jobClientWait(output)
+  if (wait) return wait.label
   const runStatus = String(status || '').toLowerCase()
   const pause = String(pauseReason || '').toLowerCase()
   if (runStatus === 'paused' && FEPT_WAITING_LABEL[pause]) return `Waiting: ${FEPT_WAITING_LABEL[pause]}`

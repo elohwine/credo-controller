@@ -1902,6 +1902,18 @@
       },
       "CreateEmployeeRequest": {
         "properties": {
+          "id": {
+            "type": "string",
+            "description": "Send the id of an existing employee to change that record instead of adding one."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "terminated",
+              "on_leave"
+            ]
+          },
           "firstName": {
             "type": "string"
           },
@@ -10527,6 +10539,9 @@
           },
           "clientPhone": {
             "type": "string"
+          },
+          "clientEmail": {
+            "type": "string"
           }
         },
         "type": "object",
@@ -10679,6 +10694,214 @@
           "requestId",
           "presentationRequestUrl",
           "walletId"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "FailedVisitReason": {
+        "type": "string",
+        "enum": [
+          "other",
+          "no_access",
+          "store_closed",
+          "nobody_on_site",
+          "parts_needed",
+          "more_work",
+          "wrong_details",
+          "weather"
+        ]
+      },
+      "FailedVisit": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/FailedVisitReason"
+          },
+          "note": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          },
+          "by": {
+            "type": "string",
+            "description": "Who reported it: the worker on site, or the office logging a phoned-in failure."
+          },
+          "workerId": {
+            "type": "string",
+            "description": "The worker on the job when the visit failed. Stays with them after a re-booking."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "rebooked"
+            ]
+          },
+          "rebookedAt": {
+            "type": "string"
+          },
+          "rebookedBy": {
+            "type": "string"
+          },
+          "rebookedFor": {
+            "type": "string"
+          },
+          "rebookedTo": {
+            "type": "string"
+          },
+          "rebookNote": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "reason",
+          "at",
+          "status"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "JobSheetItemKind": {
+        "type": "string",
+        "enum": [
+          "check",
+          "measure",
+          "text"
+        ],
+        "description": "The job sheet a worker fills in on site (checks, measurements, items used), the store\nperson's signature, and quote lines priced from the rate card. Read by the server, both apps\nand the client's job page, so every screen shows the same thing."
+      },
+      "JobSheetItem": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/JobSheetItemKind"
+          },
+          "unit": {
+            "type": "string",
+            "description": "For a measurement: m, mm, m², kg, …"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "kind"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "JobSheetAnswer": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "A check: done or not."
+          },
+          "value": {
+            "type": "string",
+            "description": "A measurement or a note."
+          }
+        },
+        "type": "object",
+        "additionalProperties": false
+      },
+      "Record_string.JobSheetAnswer_": {
+        "properties": {},
+        "additionalProperties": {
+          "$ref": "#/components/schemas/JobSheetAnswer"
+        },
+        "type": "object",
+        "description": "Construct a type with a set of properties K of type T"
+      },
+      "JobSheetMaterial": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "quantity"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "JobSheetRecord": {
+        "properties": {
+          "problemType": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobSheetItem"
+            },
+            "type": "array"
+          },
+          "answers": {
+            "$ref": "#/components/schemas/Record_string.JobSheetAnswer_"
+          },
+          "materials": {
+            "items": {
+              "$ref": "#/components/schemas/JobSheetMaterial"
+            },
+            "type": "array"
+          },
+          "savedAt": {
+            "type": "string"
+          },
+          "savedBy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "answers",
+          "materials",
+          "savedAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "StoreSignature": {
+        "properties": {
+          "signerName": {
+            "type": "string"
+          },
+          "signerRole": {
+            "type": "string"
+          },
+          "imageDataUrl": {
+            "type": "string",
+            "description": "A PNG drawn on the worker's phone, as a data URL."
+          },
+          "signedAt": {
+            "type": "string"
+          },
+          "by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "signerName",
+          "imageDataUrl",
+          "signedAt"
         ],
         "type": "object",
         "additionalProperties": false
@@ -12754,6 +12977,14 @@
             "type": "boolean",
             "description": "Someone at the organisation is on the job."
           },
+          "waitingFor": {
+            "type": "string",
+            "enum": [
+              "payment",
+              "receipt"
+            ],
+            "description": "The work is done but the job stays open until the client's bill is paid and receipted."
+          },
           "history": {
             "items": {
               "properties": {
@@ -13776,6 +14007,10 @@
           "channels": {
             "items": {
               "properties": {
+                "notificationId": {
+                  "type": "string",
+                  "description": "The outbox delivery row of a queued message, so its later outcome can be read."
+                },
                 "status": {
                   "type": "string",
                   "enum": [
@@ -13813,6 +14048,10 @@
           },
           "actedByUserId": {
             "type": "string"
+          },
+          "inboxItemId": {
+            "type": "string",
+            "description": "The bill card put in an onboarded client's inbox by this send."
           }
         },
         "required": [
@@ -15318,6 +15557,10 @@
           "RISK_ASSESSMENT_COMPLETED",
           "RISK_ASSESSMENT_HOLD_RAISED",
           "RISK_ASSESSMENT_HOLD_RESOLVED",
+          "FAILED_VISIT_REPORTED",
+          "FAILED_VISIT_REBOOKED",
+          "JOB_SHEET_SAVED",
+          "STORE_SIGNED",
           "ARRIVAL_CONFIRMED",
           "COMPLETION_REVIEWED",
           "JOB_STARTED",
@@ -16847,6 +17090,9 @@
           "description": {
             "type": "string"
           },
+          "problemType": {
+            "type": "string"
+          },
           "amount": {
             "type": "number",
             "format": "double"
@@ -16862,9 +17108,6 @@
             "description": "The client's store number: the job lands in that store's file."
           },
           "poNumber": {
-            "type": "string"
-          },
-          "problemType": {
             "type": "string"
           },
           "clientName": {
@@ -16901,8 +17144,13 @@
             "type": "string",
             "enum": [
               "email",
-              "manual"
+              "manual",
+              "import"
             ]
+          },
+          "importedWorkerName": {
+            "type": "string",
+            "description": "Name of the worker in the old system, for a job brought in from a file. Not a team member."
           },
           "sourceMessageId": {
             "type": "string"
@@ -16912,6 +17160,10 @@
           },
           "sourceSubject": {
             "type": "string"
+          },
+          "sourceConversationId": {
+            "type": "string",
+            "description": "The mail conversation: later replies in it are kept on this job instead of becoming new jobs."
           }
         },
         "required": [
@@ -17092,8 +17344,13 @@
             "type": "string",
             "enum": [
               "manual",
-              "email"
+              "email",
+              "import"
             ]
+          },
+          "importedWorkerName": {
+            "type": "string",
+            "description": "Name of the worker in the old system, for a job brought in from a file. Not a team member."
           },
           "sourceMessageId": {
             "type": "string"
@@ -17103,6 +17360,10 @@
           },
           "sourceSubject": {
             "type": "string"
+          },
+          "sourceConversationId": {
+            "type": "string",
+            "description": "The mail conversation: later replies in it are kept on this job instead of becoming new jobs."
           },
           "attachments": {
             "items": {
@@ -17129,9 +17390,19 @@
             "type": "number",
             "format": "double"
           },
+          "replies": {
+            "type": "number",
+            "format": "double",
+            "description": "Replies kept on the mail thread of a job that is already saved."
+          },
           "alreadySaved": {
             "type": "number",
             "format": "double"
+          },
+          "skipped": {
+            "type": "number",
+            "format": "double",
+            "description": "Drafts and no-reply or bounce mail: read, but not turned into jobs."
           },
           "failed": {
             "type": "number",
@@ -17144,8 +17415,46 @@
         "required": [
           "imported",
           "repeats",
+          "replies",
           "alreadySaved",
+          "skipped",
           "failed"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "JobMailMessage": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out"
+            ]
+          },
+          "sender": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "bodyText": {
+            "type": "string"
+          },
+          "receivedAt": {
+            "type": "string"
+          },
+          "webLink": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "direction",
+          "receivedAt"
         ],
         "type": "object",
         "additionalProperties": false
@@ -17605,8 +17914,16 @@
           "completed",
           "reconciled",
           "cancelled"
-        ],
-        "description": "Where a field job stands, from its run status and state. One answer for the job board,\nthe store file, the attendant file and the schedule check."
+        ]
+      },
+      "FieldJobSource": {
+        "type": "string",
+        "enum": [
+          "email",
+          "office",
+          "import",
+          "booking"
+        ]
       },
       "JobSummary": {
         "properties": {
@@ -17646,8 +17963,61 @@
           "vehicle": {
             "type": "string"
           },
+          "source": {
+            "$ref": "#/components/schemas/FieldJobSource",
+            "description": "Email, added by the office, or booked by the client."
+          },
+          "clientName": {
+            "type": "string"
+          },
+          "problemType": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
           "createdAt": {
             "type": "string"
+          },
+          "completedAt": {
+            "type": "string"
+          },
+          "failedVisit": {
+            "properties": {
+              "workerId": {
+                "type": "string"
+              },
+              "at": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "at",
+              "label",
+              "reason"
+            ],
+            "type": "object",
+            "description": "The visit waiting to be re-booked."
+          },
+          "failedVisitWorkers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Everyone who had a failed visit on this job, even after it was re-booked to someone else."
           }
         },
         "required": [
@@ -17656,6 +18026,7 @@
           "description",
           "category",
           "callOut",
+          "source",
           "createdAt"
         ],
         "type": "object",
@@ -17694,6 +18065,10 @@
           },
           "createdAt": {
             "type": "string"
+          },
+          "payUrl": {
+            "type": "string",
+            "description": "The page the client pays the bill on."
           }
         },
         "required": [
@@ -17726,13 +18101,29 @@
             "type": "string",
             "enum": [
               "manual",
-              "email"
+              "email",
+              "import"
             ]
           },
           "duplicateOf": {
             "type": "string"
           },
           "createdAt": {
+            "type": "string"
+          },
+          "clientName": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "poNumber": {
+            "type": "string"
+          },
+          "callOut": {
+            "type": "boolean"
+          },
+          "status": {
             "type": "string"
           }
         },
@@ -17899,7 +18290,8 @@
           "allocated",
           "service",
           "mot",
-          "accident"
+          "accident",
+          "daily_check"
         ]
       },
       "VanEvent": {
@@ -17927,6 +18319,65 @@
           },
           "notes": {
             "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "defect"
+            ]
+          },
+          "checklist": {
+            "items": {
+              "properties": {
+                "note": {
+                  "type": "string"
+                },
+                "ok": {
+                  "type": "boolean"
+                },
+                "item": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "ok",
+                "item"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "mileage": {
+            "type": "number",
+            "format": "double"
+          },
+          "photos": {
+            "items": {
+              "properties": {
+                "sizeBytes": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "mediaType": {
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "sizeBytes",
+                "mediaType",
+                "filename",
+                "id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "createdAt": {
             "type": "string"
@@ -17992,6 +18443,202 @@
           "holidays",
           "offSick",
           "accidents"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "FieldImportKind": {
+        "type": "string",
+        "enum": [
+          "stores",
+          "jobs",
+          "vans",
+          "rates"
+        ]
+      },
+      "FieldImportRowStatus": {
+        "type": "string",
+        "enum": [
+          "new",
+          "exists",
+          "problem"
+        ]
+      },
+      "FieldImportRowPreview": {
+        "properties": {
+          "row": {
+            "type": "number",
+            "format": "double",
+            "description": "Row number in the file, counting the header as row 1."
+          },
+          "status": {
+            "$ref": "#/components/schemas/FieldImportRowStatus"
+          },
+          "summary": {
+            "type": "string",
+            "description": "The row in a few plain words, for example \"Store 1042 · Greendale Spar\"."
+          },
+          "goesTo": {
+            "type": "string",
+            "enum": [
+              "waiting",
+              "history"
+            ],
+            "description": "Where it will go: only for jobs."
+          },
+          "problem": {
+            "type": "string",
+            "description": "Why a row cannot be brought in, or a note worth reading before saving."
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "row",
+          "status",
+          "summary"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "FieldImportPreview": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/FieldImportKind"
+          },
+          "label": {
+            "type": "string"
+          },
+          "understood": {
+            "items": {
+              "properties": {
+                "meaning": {
+                  "type": "string"
+                },
+                "column": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "meaning",
+                "column"
+              ],
+              "type": "object"
+            },
+            "type": "array",
+            "description": "Columns we understood, as \"File column → what we use it for\"."
+          },
+          "ignored": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Columns in the file we do not use."
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Needed columns the file does not have."
+          },
+          "counts": {
+            "properties": {
+              "history": {
+                "type": "number",
+                "format": "double"
+              },
+              "waiting": {
+                "type": "number",
+                "format": "double"
+              },
+              "problem": {
+                "type": "number",
+                "format": "double"
+              },
+              "exists": {
+                "type": "number",
+                "format": "double"
+              },
+              "new": {
+                "type": "number",
+                "format": "double"
+              },
+              "total": {
+                "type": "number",
+                "format": "double"
+              }
+            },
+            "required": [
+              "problem",
+              "exists",
+              "new",
+              "total"
+            ],
+            "type": "object"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/FieldImportRowPreview"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "understood",
+          "ignored",
+          "missing",
+          "counts",
+          "rows"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "FieldImportResult": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/FieldImportKind"
+          },
+          "label": {
+            "type": "string"
+          },
+          "added": {
+            "type": "number",
+            "format": "double"
+          },
+          "alreadyThere": {
+            "type": "number",
+            "format": "double"
+          },
+          "problems": {
+            "type": "number",
+            "format": "double"
+          },
+          "waiting": {
+            "type": "number",
+            "format": "double"
+          },
+          "history": {
+            "type": "number",
+            "format": "double"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/FieldImportRowPreview"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "added",
+          "alreadyThere",
+          "problems",
+          "rows"
         ],
         "type": "object",
         "additionalProperties": false
@@ -18076,6 +18723,12 @@
             },
             "type": "array"
           },
+          "dailyChecks": {
+            "items": {
+              "$ref": "#/components/schemas/VanEvent"
+            },
+            "type": "array"
+          },
           "jobs": {
             "items": {
               "$ref": "#/components/schemas/JobSummary"
@@ -18089,7 +18742,72 @@
           "mots",
           "accidents",
           "drivers",
+          "dailyChecks",
           "jobs"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "AttentionKind": {
+        "type": "string",
+        "enum": [
+          "failed",
+          "overdue",
+          "unassigned",
+          "stalled",
+          "waiting"
+        ]
+      },
+      "AttentionItem": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/AttentionKind"
+          },
+          "runId": {
+            "type": "string",
+            "description": "The job, when there is one."
+          },
+          "intakeId": {
+            "type": "string",
+            "description": "The job waiting to be booked, when it is not a job yet."
+          },
+          "reference": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "description": "How the job is named in a sentence (\"job PO-77\")."
+          },
+          "storeNumber": {
+            "type": "string"
+          },
+          "assigneeId": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string",
+            "description": "When it started to be stuck."
+          },
+          "days": {
+            "type": "number",
+            "format": "double",
+            "description": "Whole days stuck."
+          },
+          "headline": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "reference",
+          "label",
+          "since",
+          "days",
+          "headline",
+          "detail"
         ],
         "type": "object",
         "additionalProperties": false
@@ -18139,6 +18857,469 @@
           "storeWaiting",
           "workerSameDay",
           "vanSameDay"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "JobRegisterCategory": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/FieldJobCategory"
+          },
+          {
+            "type": "string",
+            "enum": [
+              "not_booked"
+            ]
+          }
+        ]
+      },
+      "JobRegisterRow": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "job",
+              "intake",
+              "history"
+            ],
+            "description": "`history` is a finished job brought in from a file: shown and counted, never opened or billed."
+          },
+          "id": {
+            "type": "string",
+            "description": "The run id for a booked job, the intake id for one waiting to be booked."
+          },
+          "reference": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FieldJobSource"
+          },
+          "category": {
+            "$ref": "#/components/schemas/JobRegisterCategory"
+          },
+          "storeNumber": {
+            "type": "string"
+          },
+          "poNumber": {
+            "type": "string"
+          },
+          "clientName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "problemType": {
+            "type": "string"
+          },
+          "scheduledDate": {
+            "type": "string"
+          },
+          "assigneeId": {
+            "type": "string"
+          },
+          "vehicle": {
+            "type": "string"
+          },
+          "callOut": {
+            "type": "boolean"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "completedAt": {
+            "type": "string"
+          },
+          "possibleRepeat": {
+            "type": "boolean"
+          },
+          "workerName": {
+            "type": "string",
+            "description": "Who did the job, as the old system named them (history only; not a team member)."
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "reference",
+          "source",
+          "category",
+          "description",
+          "callOut",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "Record_JobRegisterCategory.number_": {
+        "properties": {
+          "completed": {
+            "type": "number",
+            "format": "double"
+          },
+          "pending": {
+            "type": "number",
+            "format": "double"
+          },
+          "failed": {
+            "type": "number",
+            "format": "double"
+          },
+          "cancelled": {
+            "type": "number",
+            "format": "double"
+          },
+          "assigned": {
+            "type": "number",
+            "format": "double"
+          },
+          "active": {
+            "type": "number",
+            "format": "double"
+          },
+          "on_hold": {
+            "type": "number",
+            "format": "double"
+          },
+          "reconciled": {
+            "type": "number",
+            "format": "double"
+          },
+          "not_booked": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "completed",
+          "pending",
+          "failed",
+          "cancelled",
+          "assigned",
+          "active",
+          "on_hold",
+          "reconciled",
+          "not_booked"
+        ],
+        "type": "object",
+        "description": "Construct a type with a set of properties K of type T"
+      },
+      "JobReport": {
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number",
+            "format": "double"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/Record_JobRegisterCategory.number_"
+          },
+          "bySource": {
+            "items": {
+              "properties": {
+                "count": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "source": {
+                  "$ref": "#/components/schemas/FieldJobSource"
+                }
+              },
+              "required": [
+                "count",
+                "label",
+                "source"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "byStore": {
+            "items": {
+              "properties": {
+                "total": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "completed": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "open": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "storeNumber": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "total",
+                "completed",
+                "open",
+                "storeNumber"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "byWorker": {
+            "items": {
+              "properties": {
+                "failed": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "completed": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "open": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "userId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "failed",
+                "completed",
+                "open",
+                "name",
+                "userId"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "averageDaysToComplete": {
+            "type": "number",
+            "format": "double",
+            "description": "Days from receiving a job to completing it, over completed jobs."
+          }
+        },
+        "required": [
+          "total",
+          "counts",
+          "bySource",
+          "byStore",
+          "byWorker"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "VanPhotoInput": {
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "contentBase64": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename",
+          "mediaType",
+          "contentBase64"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "RateCard": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "unitPrice": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "problemType": {
+            "type": "string"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "unit",
+          "unitPrice",
+          "currency",
+          "active"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "PublicJobView": {
+        "properties": {
+          "organisation": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "storeNumber": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "scheduledDate": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "properties": {
+                "at": {
+                  "type": "string"
+                },
+                "done": {
+                  "type": "boolean"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "done",
+                "label"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "workerName": {
+            "type": "string"
+          },
+          "photos": {
+            "properties": {
+              "after": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "before": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "after",
+              "before"
+            ],
+            "type": "object"
+          },
+          "signature": {
+            "properties": {
+              "imageDataUrl": {
+                "type": "string"
+              },
+              "signedAt": {
+                "type": "string"
+              },
+              "signerRole": {
+                "type": "string"
+              },
+              "signerName": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "imageDataUrl",
+              "signedAt",
+              "signerName"
+            ],
+            "type": "object"
+          },
+          "bills": {
+            "items": {
+              "properties": {
+                "payUrl": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "quote",
+                    "invoice"
+                  ]
+                }
+              },
+              "required": [
+                "status",
+                "currency",
+                "amount",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "organisation",
+          "reference",
+          "description",
+          "status",
+          "steps",
+          "photos",
+          "bills"
         ],
         "type": "object",
         "additionalProperties": false
@@ -34414,6 +35595,602 @@
         }
       }
     },
+    "/workflows/runs/{runId}/failed-visit": {
+      "post": {
+        "operationId": "ReportFailedVisit",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "created": {
+                          "type": "boolean"
+                        },
+                        "visit": {
+                          "$ref": "#/components/schemas/FailedVisit"
+                        }
+                      },
+                      "required": [
+                        "created",
+                        "visit"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The visit could not be finished (no access, store closed, parts needed…). The job's worker\nreports it from site, or the office logs it for them. The job waits for a re-booking.",
+        "tags": [
+          "Workflow Engine"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "note": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflows/runs/{runId}/failed-visits/{visitId}/rebook": {
+      "post": {
+        "operationId": "RebookFailedVisit",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "scheduledDate": {
+                          "type": "string"
+                        },
+                        "visit": {
+                          "$ref": "#/components/schemas/FailedVisit"
+                        }
+                      },
+                      "required": [
+                        "scheduledDate",
+                        "visit"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Give a failed visit a new date, and optionally another worker or van.",
+        "tags": [
+          "Workflow Engine"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "visitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "note": {
+                    "type": "string"
+                  },
+                  "vanId": {
+                    "type": "string"
+                  },
+                  "assigneeUserId": {
+                    "type": "string"
+                  },
+                  "scheduledDate": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "scheduledDate"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflows/runs/{runId}/job-sheet": {
+      "get": {
+        "operationId": "GetJobSheet",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "error": {},
+                        "saved": {},
+                        "sheet": {
+                          "properties": {
+                            "general": {
+                              "type": "boolean"
+                            },
+                            "items": {
+                              "items": {
+                                "$ref": "#/components/schemas/JobSheetItem"
+                              },
+                              "type": "array"
+                            },
+                            "problemType": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "general",
+                            "items"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "saved",
+                        "sheet"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "saved": {},
+                        "sheet": {},
+                        "error": {}
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The sheet for this job's problem type: checks, measurements and notes, plus what is saved.",
+        "tags": [
+          "Workflow Engine"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "SaveJobSheet",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/JobSheetRecord"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Workflow Engine"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "materials": {
+                    "items": {
+                      "$ref": "#/components/schemas/JobSheetMaterial"
+                    },
+                    "type": "array"
+                  },
+                  "answers": {
+                    "$ref": "#/components/schemas/Record_string.JobSheetAnswer_"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflows/runs/{runId}/store-signature": {
+      "post": {
+        "operationId": "SaveStoreSignature",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/StoreSignature"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The store person signs on the worker's phone to say the work was done.",
+        "tags": [
+          "Workflow Engine"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "imageDataUrl": {
+                    "type": "string"
+                  },
+                  "signerRole": {
+                    "type": "string"
+                  },
+                  "signerName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "imageDataUrl",
+                  "signerName"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflows/runs/{runId}/status-link": {
+      "post": {
+        "operationId": "CreateStatusLink",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "url": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "url"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "error": {}
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "A link the client opens to follow this job without an account.",
+        "tags": [
+          "Workflow Engine"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "RevokeStatusLinks",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "error": {},
+                        "revoked": {
+                          "type": "number",
+                          "format": "double"
+                        }
+                      },
+                      "required": [
+                        "revoked"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "revoked": {},
+                        "error": {}
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Switch off every link sent for this job.",
+        "tags": [
+          "Workflow Engine"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/workflows/runs/{runId}/handoffs": {
       "get": {
         "operationId": "GetRunHandoffs",
@@ -46377,6 +48154,12 @@
                         "lastError": {},
                         "lastReadAt": {},
                         "mailbox": {},
+                        "missing": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
                         "connected": {
                           "type": "boolean",
                           "enum": [
@@ -46386,12 +48169,14 @@
                         }
                       },
                       "required": [
+                        "missing",
                         "connected"
                       ],
                       "type": "object"
                     },
                     {
                       "properties": {
+                        "missing": {},
                         "repeats": {
                           "type": "number",
                           "format": "double"
@@ -46657,6 +48442,63 @@
           {
             "in": "path",
             "name": "attachmentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/platform/job-intake/{intakeId}/thread": {
+      "get": {
+        "operationId": "Thread",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "messages": {
+                      "items": {
+                        "$ref": "#/components/schemas/JobMailMessage"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "messages"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The emails kept on a job: the one that asked for it, the store's replies and the office's answers.",
+        "tags": [
+          "Job Intake"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "intakeId",
             "required": true,
             "schema": {
               "type": "string"
@@ -47943,6 +49785,150 @@
         }
       }
     },
+    "/api/platform/operations/import/preview": {
+      "post": {
+        "operationId": "PreviewImport",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldImportPreview"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Check a file exported from the old job system (stores and clients, jobs, vans or rates) and say\nwhat would be added, what is already here and which rows have a problem. Saves nothing.",
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "csv",
+                      "json"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "stores",
+                      "jobs",
+                      "vans",
+                      "rates"
+                    ]
+                  }
+                },
+                "required": [
+                  "content",
+                  "kind"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/platform/operations/import": {
+      "post": {
+        "operationId": "RunImport",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldImportResult"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Save the rows of a checked file. The same file again adds nothing.",
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "csv",
+                      "json"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "stores",
+                      "jobs",
+                      "vans",
+                      "rates"
+                    ]
+                  }
+                },
+                "required": [
+                  "content",
+                  "kind"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/platform/operations/vans": {
       "get": {
         "operationId": "Vans",
@@ -48255,6 +50241,54 @@
         }
       }
     },
+    "/api/platform/operations/attention": {
+      "get": {
+        "operationId": "Attention",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/AttentionItem"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Jobs that are stopped, late, have nobody on them or are not moving, and jobs nobody has booked.\nThe office sees them all; anyone else sees only the jobs they are on.",
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": []
+      }
+    },
     "/api/platform/operations/schedule-check": {
       "get": {
         "operationId": "ScheduleCheck",
@@ -48333,6 +50367,989 @@
             "in": "query",
             "name": "excludeIntakeId",
             "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/platform/operations/jobs": {
+      "get": {
+        "operationId": "Jobs",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/JobRegisterRow"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every job in one list: booked jobs and jobs waiting in intake (from the mailbox or added by\nthe office), with the same filters on both apps. Anyone who is not office sees their own jobs.",
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "storeNumber",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "assigneeId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/platform/operations/jobs/export": {
+      "get": {
+        "operationId": "ExportJobs",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The same list as a spreadsheet (CSV), with the same filters.",
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "storeNumber",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "assigneeId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/platform/operations/reports": {
+      "get": {
+        "operationId": "Reports",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobReport"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Active, completed, waiting and on-hold jobs, by source, store and worker.",
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/platform/operations/van-checks": {
+      "get": {
+        "operationId": "VanCheckItems",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "Tyres and wheels",
+                          "Lights and indicators",
+                          "Brakes",
+                          "Oil, water and fuel",
+                          "Mirrors and windscreen",
+                          "Load secured",
+                          "First aid kit and fire extinguisher"
+                        ]
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The items a driver checks every day before the van goes out.",
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": []
+      }
+    },
+    "/api/platform/operations/vans/{vanId}/checks": {
+      "post": {
+        "operationId": "AddDailyCheck",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VanEvent"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The driver's daily check: anyone on the team may record one for a van they take out.",
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vanId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "photos": {
+                    "items": {
+                      "$ref": "#/components/schemas/VanPhotoInput"
+                    },
+                    "type": "array"
+                  },
+                  "notes": {
+                    "type": "string"
+                  },
+                  "mileage": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "checks": {
+                    "items": {
+                      "properties": {
+                        "note": {
+                          "type": "string"
+                        },
+                        "ok": {
+                          "type": "boolean"
+                        },
+                        "item": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "ok",
+                        "item"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "checks"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/platform/operations/vans/{vanId}/accidents": {
+      "post": {
+        "operationId": "ReportAccident",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VanEvent"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "A driver reports an accident with photos.",
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vanId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "photos": {
+                    "items": {
+                      "$ref": "#/components/schemas/VanPhotoInput"
+                    },
+                    "type": "array"
+                  },
+                  "notes": {
+                    "type": "string"
+                  },
+                  "eventDate": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "notes"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/platform/operations/vans/{vanId}/events/{eventId}/photos/{photoId}": {
+      "get": {
+        "operationId": "VanEventPhoto",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "dataBase64": {
+                      "type": "string"
+                    },
+                    "mediaType": {
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "dataBase64",
+                    "mediaType",
+                    "filename"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vanId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "eventId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "photoId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/platform/operations/rate-cards": {
+      "get": {
+        "operationId": "RateCards",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/RateCard"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "AddRateCard",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCard"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "problemType": {
+                    "type": "string"
+                  },
+                  "currency": {
+                    "type": "string"
+                  },
+                  "unitPrice": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "unitPrice",
+                  "name"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/platform/operations/rate-cards/{rateCardId}": {
+      "put": {
+        "operationId": "UpdateRateCard",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCard"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rateCardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "active": {
+                    "type": "boolean"
+                  },
+                  "problemType": {
+                    "type": "string"
+                  },
+                  "currency": {
+                    "type": "string"
+                  },
+                  "unitPrice": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/platform/operations/job-sheets": {
+      "get": {
+        "operationId": "JobSheets",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "general": {
+                      "items": {
+                        "$ref": "#/components/schemas/JobSheetItem"
+                      },
+                      "type": "array"
+                    },
+                    "items": {
+                      "items": {
+                        "properties": {
+                          "items": {
+                            "items": {
+                              "$ref": "#/components/schemas/JobSheetItem"
+                            },
+                            "type": "array"
+                          },
+                          "problemType": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "items",
+                          "problemType"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "general",
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Job sheets per problem type; a job with no matching sheet uses the general one.",
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": []
+      },
+      "put": {
+        "operationId": "SaveJobSheet",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/JobSheetItem"
+                      },
+                      "type": "array"
+                    },
+                    "problemType": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "problemType"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "items": {
+                    "items": {
+                      "$ref": "#/components/schemas/JobSheetItem"
+                    },
+                    "type": "array"
+                  },
+                  "problemType": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "items",
+                  "problemType"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/public/job/{code}": {
+      "get": {
+        "operationId": "View",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/PublicJobView"
+                        },
+                        "found": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ],
+                          "nullable": false
+                        }
+                      },
+                      "required": [
+                        "job",
+                        "found"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "found": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ],
+                          "nullable": false
+                        }
+                      },
+                      "required": [
+                        "error",
+                        "found"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Public Job Status"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
             "schema": {
               "type": "string"
             }

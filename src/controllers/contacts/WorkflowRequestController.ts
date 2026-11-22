@@ -68,6 +68,8 @@ interface BookedJobProgress {
   pauseReason?: string
   /** Someone at the organisation is on the job. */
   assigned: boolean
+  /** The work is done but the job stays open until the client's bill is paid and receipted. */
+  waitingFor?: 'payment' | 'receipt'
   history: Array<{ stage: string; at?: string }>
   createdAt?: string
 }
@@ -642,6 +644,11 @@ export class WorkflowRequestController extends Controller {
       stage: typeof state.workflowStage === 'string' ? state.workflowStage : undefined,
       pauseReason: typeof state.pauseReason === 'string' ? state.pauseReason : undefined,
       assigned: Boolean(state.assignment?.assigneeId),
+      ...(state.reconciliation?.status === 'awaiting_payment'
+        ? { waitingFor: 'payment' as const }
+        : state.reconciliation?.status === 'awaiting_receipt'
+          ? { waitingFor: 'receipt' as const }
+          : {}),
       history: history
         .filter((entry: any) => entry && typeof entry.stage === 'string')
         .map((entry: any) => ({ stage: String(entry.stage), at: entry.at ? String(entry.at) : undefined })),

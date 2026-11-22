@@ -614,7 +614,7 @@ export default function FinanceModulesPage() {
           title: jobHeading(input).title,
           flowLabel: FINANCE_FLOW_WORDS.job.label,
           flowColor: FINANCE_FLOW_WORDS.job.color,
-          status: jobStatusLabel(String(run.status || ''), stage, String(run.output?.pauseReason || '')),
+          status: jobStatusLabel(String(run.status || ''), stage, String(run.output?.pauseReason || ''), run.output),
           statusColor: 'teal',
           note: input.location,
           dateLabel: formatTxnTime(run.updatedAt || run.updated_at || run.createdAt || run.created_at) || undefined,
@@ -793,7 +793,7 @@ export default function FinanceModulesPage() {
       const heading = jobHeading(input)
       return {
         title: heading.title,
-        status: jobStatusLabel(String(run.status || ''), stage, String(run.output?.pauseReason || '')),
+        status: jobStatusLabel(String(run.status || ''), stage, String(run.output?.pauseReason || ''), run.output),
         amount: Number(input.amount || input.budget || 0),
         currency: input.currency || 'USD',
         lines: [

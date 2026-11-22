@@ -35,7 +35,7 @@ import {
   IconCash,
   IconWallet,
 } from '@tabler/icons-react'
-import { isOrganisationJobRecord } from '../../../shared/fieldJobOutcomes'
+import { isOrganisationJobRecord, jobClientWait } from '../../../shared/fieldJobOutcomes'
 import { assertFieldStepSucceeded } from '../../../shared/fieldEvidence'
 import { BRAND } from '@/lib/theme'
 import { getPreferredTenantToken } from '@/utils/portalTenant'
@@ -619,8 +619,14 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
               <Text fw={700} size="lg" style={{ color: BRAND.dark }} lineClamp={2}>
                 {heading.title}
               </Text>
-              <Badge color={isCompleted ? 'green' : getStatusColor(String(job?.status || ''), state?.workflowStage)}>
-                {getStatusLabel(String(job?.status || ''), state?.workflowStage, pauseReason)}
+              <Badge
+                color={
+                  isCompleted && !jobClientWait(state)
+                    ? 'green'
+                    : getStatusColor(String(job?.status || ''), state?.workflowStage, state)
+                }
+              >
+                {getStatusLabel(String(job?.status || ''), state?.workflowStage, pauseReason, state)}
               </Badge>
             </Group>
             {heading.detail && (

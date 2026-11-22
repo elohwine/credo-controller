@@ -5,7 +5,7 @@ import { Controller, Post, Route, Tags, Body, Request, Security, Header } from '
 
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { getTenantById } from '../../persistence/TenantRepository'
-import { paymentLinkService } from '../../services/PaymentLinkService'
+import { paymentLinkService, receiptNumber } from '../../services/PaymentLinkService'
 import { notificationService } from '../../services/NotificationService'
 import { ReconciliationService } from '../../services/ReconciliationService'
 import { ShortlinkService } from '../../services/ShortlinkService'
@@ -196,10 +196,7 @@ export class EcoCashWebhookController extends Controller {
           const subjectHash = hashMsisdn(payerPhone)
           const paidAt = new Date().toISOString()
           const baseReceipt = {
-            receiptId: `RCPT-${String(payload.transactionId)
-              .replace(/[^A-Za-z0-9]/g, '')
-              .slice(0, 16)
-              .toUpperCase()}`,
+            receiptId: receiptNumber(String(payload.transactionId)),
             transactionId: payload.transactionId,
             paymentRef: payload.transactionId,
             amount: String(payload.amount || existingPayment?.amount || '0'),

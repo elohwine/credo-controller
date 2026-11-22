@@ -6,6 +6,7 @@ import AppShellMobile from '@/components/layout/AppShellMobile';
 import api from '@/lib/api';
 import { getActiveOrgId, getContextMode, getPreferredToken, getWalletToken, isEmployeeOrgRole } from '@/lib/auth';
 import { openInboxOffers } from '@/lib/inboxAttention';
+import { jobClientWait } from '../../shared/fieldJobOutcomes';
 
 type RunRow = {
   id: string;
@@ -197,7 +198,7 @@ export default function FieldJobsPage() {
 
         {hasAccess && !loading && runs.map((run) => {
           const stage = toStage(run);
-          const stageLabel = FEPT_LABELS[stage] || stage || 'Unknown';
+          const stageLabel = jobClientWait(run.output)?.label || FEPT_LABELS[stage] || stage || 'Unknown';
           const input = run.output?.workflowInput || run.input || {};
           const location = input.location || 'Field site';
           const summary = input.description || input.reference || run.id;

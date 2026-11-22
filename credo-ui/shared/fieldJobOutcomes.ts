@@ -15,9 +15,42 @@ export const CLIENT_BILLING_HELP = {
   ],
 }
 
+/**
+ * A job past sign-off whose client bill is still open. The engine stage reads RECONCILED, but the
+ * job is not closed until the client has paid and has their receipt, so it must not show as closed.
+ */
+export function jobClientWait(
+  output: any,
+): { waitingFor: 'payment' | 'receipt'; label: string; note: string; failed: boolean } | undefined {
+  const status = output?.reconciliation?.status
+  if (status === 'awaiting_payment')
+    return {
+      waitingFor: 'payment',
+      label: 'Waiting: client payment',
+      note: 'Work is finished. The job closes when the client pays the bill and gets their receipt.',
+      failed: false,
+    }
+  if (status === 'awaiting_receipt') {
+    const settlement = output?.clientBill?.settlement
+    const failed = settlement?.status === 'failed'
+    return {
+      waitingFor: 'receipt',
+      label: failed ? 'Receipt not issued' : 'Waiting: client receipt',
+      note: failed
+        ? `The client paid, but their receipt was not issued${settlement?.error ? ` (${settlement.error})` : ''}. Retry it from the outbox; the job closes when the receipt is issued.`
+        : 'The client paid. The job closes when their receipt is issued.',
+      failed,
+    }
+  }
+  return undefined
+}
+
 export function clientInvoiceOutcome(output: any): FieldStageOutcome {
   const bill = output?.clientBill
   const collection = output?.startedWorkflows?.['tpl-payment-collection']
+  const wait = jobClientWait(output)
+  if (bill?.status === 'paid' && wait?.waitingFor === 'receipt')
+    return { status: wait.failed ? 'held' : 'active', note: wait.note }
   if (bill?.status === 'paid')
     return bill.settlement
       ? {
@@ -66,6 +99,10 @@ export function clientInvoiceOutcome(output: any): FieldStageOutcome {
 export function fieldStageOutcome(key: string, output: any): FieldStageOutcome | undefined {
   if (!output) return undefined
   if (key === 'CLIENT_INVOICE') return clientInvoiceOutcome(output)
+  if (key === 'RECONCILED') {
+    const wait = jobClientWait(output)
+    if (wait) return { status: wait.failed ? 'held' : 'active', note: wait.note }
+  }
   if (key === 'RECEIPTS' && output.evidenceReceipt?.skipped)
     return { status: 'skipped', note: 'No materials were bought; no material receipt was issued' }
   if (key === 'PAYMENT_TRIGGERED' && output.payment?.status === 'not_needed')
@@ -169,10 +206,16 @@ export function clientBillingStages(run?: any, link?: any) {
       key: 'PAID',
       label: 'Client payment received',
       proof: 'Record',
-      status: paid ? (bill?.settlement ? ('held' as const) : ('done' as const)) : ('pending' as const),
+      status: paid
+        ? run?.output?.reconciliation?.status !== 'awaiting_receipt' && bill?.settlement
+          ? ('held' as const)
+          : ('done' as const)
+        : ('pending' as const),
       at: link?.paidAt || bill?.paidAt,
       note: paid
-        ? bill?.settlement
+        ? run?.output?.reconciliation?.status === 'awaiting_receipt'
+          ? jobClientWait(run.output)!.note
+          : bill?.settlement
           ? `Paid; updating the job ${bill.settlement.status === 'failed' ? 'failed' : 'is being retried'}`
           : 'Payment recorded'
         : recorded
