@@ -8,6 +8,7 @@ import { Agent } from '@credo-ts/core'
 import { Body, Controller, Path, Post, Request, Route, Tags } from 'tsoa'
 import { container, inject, injectable } from 'tsyringe'
 
+import { PRODUCT_NAME } from '../../config/productEdition'
 import { StatusException } from '../../errors'
 import { canSignIn } from '../../services/partner/PartnerClientService'
 import { PartnerVerificationService } from '../../services/partner/PartnerVerificationService'
@@ -65,7 +66,7 @@ export class PartnerVerificationController extends Controller {
   private requireClient(request: ExRequest) {
     const client = PartnerVerificationService.authenticateCaller(request.headers as Record<string, unknown>)
     if (!client) {
-      this.setHeader('WWW-Authenticate', 'Basic realm="credentis-partner"')
+      this.setHeader('WWW-Authenticate', `Basic realm="${PRODUCT_NAME} partners"`)
       throw new StatusException('Partner client authentication failed', 401)
     }
     if (!canSignIn(client)) throw new StatusException('This client is not registered to sign people in', 403)

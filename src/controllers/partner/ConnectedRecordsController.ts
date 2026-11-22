@@ -4,6 +4,7 @@ import type { Request as ExRequest } from 'express'
 
 import { Body, Controller, Get, Header, Path, Post, Request, Route, Tags } from 'tsoa'
 
+import { PRODUCT_NAME } from '../../config/productEdition'
 import { StatusException } from '../../errors'
 import { authenticateConnectedSystem, connectedRecordService } from '../../services/connected/ConnectedRecordService'
 
@@ -52,7 +53,7 @@ export class ConnectedRecordsController extends Controller {
   private requireClient(request: ExRequest) {
     const client = authenticateConnectedSystem(request.headers.authorization)
     if (!client) {
-      this.setHeader('WWW-Authenticate', 'Basic realm="credentis-connected-system"')
+      this.setHeader('WWW-Authenticate', `Basic realm="${PRODUCT_NAME} connected systems"`)
       throw new StatusException('Connected system authentication failed', 401)
     }
     return client

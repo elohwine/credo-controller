@@ -7,6 +7,7 @@ import type { Request as ExRequest } from 'express'
 
 import { Body, Controller, Post, Request, Route, Tags } from 'tsoa'
 
+import { PRODUCT_NAME } from '../../config/productEdition'
 import { StatusException } from '../../errors/StatusException'
 import { orgOfferingsService, type MatchRequest, type ProviderMatch, type ProviderStanding } from '../../services/OrgOfferingsService'
 import { PartnerVerificationService } from '../../services/partner/PartnerVerificationService'
@@ -49,7 +50,7 @@ export class PartnerDiscoveryController extends Controller {
   public async search(@Request() request: ExRequest, @Body() body: MatchRequest): Promise<PartnerMatch[]> {
     const client = PartnerVerificationService.authenticateCaller(request.headers as Record<string, unknown>)
     if (!client) {
-      this.setHeader('WWW-Authenticate', 'Basic realm="Credentis"')
+      this.setHeader('WWW-Authenticate', `Basic realm="${PRODUCT_NAME}"`)
       throw new StatusException('Sign in with the client id and secret.', 401)
     }
     if (!client.policy.operations.includes('discover')) {
