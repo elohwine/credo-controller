@@ -31,10 +31,8 @@ import { ClientBillingDetails } from '@/components/finance/ClientBillingDetails'
 import { ContactPickerSelect, type PickerContact } from '@/components/finance/ContactPickerSelect'
 import { fieldJobBillingExceptions } from '../../../shared/fieldJobOutcomes'
 import { captureOrganizationSwitchContext, isBoundTaskPath, registerLinkedTaskPath, TASK_CONTEXT_KEY } from '../../../shared/taskContext'
-import type { FinanceListRow } from '@/components/finance/FinanceListCard'
-import { FINANCE_TABLE_HEADERS, FinanceListRows, financeRowsToCells } from '@/components/finance/FinanceListTable'
-import { FinanceViewToggle, useFinanceListView } from '@/components/finance/FinanceViewToggle'
-import { csvFrom, EXPORT_MIME, exportFileName, saveExport } from '@/lib/exportFile'
+import { FINANCE_TABLE_HEADERS, FinanceListRows, FinanceViewToggle, financeRowsToCells, useFinanceListView, type FinanceListRow } from '../../../shared/FinanceList'
+import { canExportReports, csvFrom, EXPORT_MIME, exportFileName, saveExport } from '@/lib/exportFile'
 import RecordActions from '@/components/shared/RecordActions'
 import type { RecordKind } from '../../../shared/recordHistory'
 import { FINANCE_FLOW_WORDS, financeStatusWord, type FinanceFlow } from '../../../shared/financeWords'
@@ -856,7 +854,7 @@ export default function FinanceModulesPage() {
             </Text>
           </div>
           <Group>
-            <FinanceViewToggle view={listView} onChange={setListView} onExport={exportVisible} />
+            <FinanceViewToggle view={listView} onChange={setListView} onExport={exportVisible} canExport={canExportReports} />
             <Button variant="light" leftSection={<IconChartBar size={16} />} component={Link} href="/finance/reports">
               Reports
             </Button>

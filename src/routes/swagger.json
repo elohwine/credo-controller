@@ -18962,6 +18962,36 @@
         "type": "object",
         "additionalProperties": false
       },
+      "ListPage_JobRegisterRow_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobRegisterRow"
+            },
+            "type": "array"
+          },
+          "total": {
+            "type": "number",
+            "format": "double",
+            "description": "Rows matching the filters, before paging."
+          },
+          "offset": {
+            "type": "number",
+            "format": "double"
+          },
+          "limit": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "offset"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
       "Record_JobRegisterCategory.number_": {
         "properties": {
           "completed": {
@@ -50383,18 +50413,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "items": {
-                      "items": {
-                        "$ref": "#/components/schemas/JobRegisterRow"
-                      },
-                      "type": "array"
-                    }
-                  },
-                  "required": [
-                    "items"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/ListPage_JobRegisterRow_"
                 }
               }
             },
@@ -50408,7 +50427,7 @@
             }
           }
         },
-        "description": "Every job in one list: booked jobs and jobs waiting in intake (from the mailbox or added by\nthe office), with the same filters on both apps. Anyone who is not office sees their own jobs.",
+        "description": "Every job in one list: booked jobs and jobs waiting in intake (from the mailbox or added by\nthe office), with the same filters on both apps. Anyone who is not office sees their own jobs.\n`limit` and `offset` page the list (`total` is every match); `sort` is one of received, date,\nreference, store, client, status or amount, with `dir` asc or desc.",
         "tags": [
           "Operations registers"
         ],
@@ -50474,6 +50493,40 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dir",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "format": "double",
+              "type": "number"
             }
           }
         ]

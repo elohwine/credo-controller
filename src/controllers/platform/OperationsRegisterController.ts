@@ -218,6 +218,8 @@ export class OperationsRegisterController {
   /**
    * Every job in one list: booked jobs and jobs waiting in intake (from the mailbox or added by
    * the office), with the same filters on both apps. Anyone who is not office sees their own jobs.
+   * `limit` and `offset` page the list (`total` is every match); `sort` is one of received, date,
+   * reference, store, client, status or amount, with `dir` asc or desc.
    */
   @Get('/jobs')
   public jobs(
@@ -229,22 +231,20 @@ export class OperationsRegisterController {
     @Query() from?: string,
     @Query() to?: string,
     @Query() q?: string,
+    @Query() sort?: string,
+    @Query() dir?: string,
+    @Query() limit?: number,
+    @Query() offset?: number,
   ) {
     const principal = principalOf(request, false)
     const manager = MANAGERS.includes(principal.role)
-    return {
-      items: asBadRequest(() =>
-        jobRegisterService.rows(principal.tenantId, {
-          source,
-          category,
-          storeNumber,
-          assigneeId: manager ? assigneeId : principal.subjectId,
-          from,
-          to,
-          q,
-        }),
+    return asBadRequest(() =>
+      jobRegisterService.page(
+        principal.tenantId,
+        { source, category, storeNumber, assigneeId: manager ? assigneeId : principal.subjectId, from, to, q },
+        { sort, dir, limit, offset },
       ),
-    }
+    )
   }
 
   /** The same list as a spreadsheet (CSV), with the same filters. */

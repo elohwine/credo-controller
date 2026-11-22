@@ -252,8 +252,7 @@ export class OperationsRegisterService {
                 r.completed_at AS completedAt
            FROM workflow_runs r LEFT JOIN workflows w ON w.id = r.workflow_id
           WHERE r.tenant_id = ?
-          ORDER BY r.created_at DESC
-          LIMIT 2000`,
+          ORDER BY r.created_at DESC`,
       )
       .all(orgTenantId) as Array<{
       id: string
@@ -340,7 +339,7 @@ export class OperationsRegisterService {
       .prepare(
         `SELECT id, description, amount, currency, status, invoice_ref AS reference, metadata, created_at AS createdAt,
                 shortlink_url AS payUrl
-           FROM payment_links WHERE merchant_id = ? ORDER BY created_at DESC LIMIT 2000`,
+           FROM payment_links WHERE merchant_id = ? ORDER BY created_at DESC`,
       )
       .all(orgTenantId) as Array<{
       id: string
@@ -379,7 +378,7 @@ export class OperationsRegisterService {
     const rows = this.db
       .prepare(
         `SELECT id, status, payload_json AS payloadJson, duplicate_of AS duplicateOf, created_at AS createdAt
-           FROM job_intakes WHERE tenant_id = ? AND status <> 'assigned' ORDER BY created_at DESC LIMIT 500`,
+           FROM job_intakes WHERE tenant_id = ? AND status <> 'assigned' ORDER BY created_at DESC`,
       )
       .all(orgTenantId) as Array<{ id: string; status: string; payloadJson: string; duplicateOf?: string; createdAt: string }>
     return rows.map((row) => {

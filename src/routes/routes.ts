@@ -6353,6 +6353,17 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "ListPage_JobRegisterRow_": {
+        "dataType": "refObject",
+        "properties": {
+            "items": {"dataType":"array","array":{"dataType":"refObject","ref":"JobRegisterRow"},"required":true},
+            "total": {"dataType":"double","required":true},
+            "offset": {"dataType":"double","required":true},
+            "limit": {"dataType":"double"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Record_JobRegisterCategory.number_": {
         "dataType": "refAlias",
         "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"completed":{"dataType":"double","required":true},"pending":{"dataType":"double","required":true},"failed":{"dataType":"double","required":true},"cancelled":{"dataType":"double","required":true},"assigned":{"dataType":"double","required":true},"active":{"dataType":"double","required":true},"on_hold":{"dataType":"double","required":true},"reconciled":{"dataType":"double","required":true},"not_booked":{"dataType":"double","required":true}},"validators":{}},
@@ -27289,6 +27300,10 @@ export function RegisterRoutes(app: Router) {
                 from: {"in":"query","name":"from","dataType":"string"},
                 to: {"in":"query","name":"to","dataType":"string"},
                 q: {"in":"query","name":"q","dataType":"string"},
+                sort: {"in":"query","name":"sort","dataType":"string"},
+                dir: {"in":"query","name":"dir","dataType":"string"},
+                limit: {"in":"query","name":"limit","dataType":"double"},
+                offset: {"in":"query","name":"offset","dataType":"double"},
         };
         app.get('/api/platform/operations/jobs',
             authenticateMiddleware([{"jwt":["tenant"]}]),

@@ -8,6 +8,7 @@
 
 import { FIELD_JOB_CATEGORY_LABELS, type FieldJobCategory } from '../config/fieldJobCategory'
 import { fieldJobSourceLabel, isFieldJobSource, type FieldJobSource } from '../config/fieldJobSource'
+import { pageLimit, pageOffset, pageRows, sortRows, type ListPage, type SortValue } from '../config/listPage'
 
 import { DatabaseManager } from '../persistence/DatabaseManager'
 
@@ -53,6 +54,14 @@ export interface JobRegisterFilter {
   q?: string
 }
 
+export interface JobRegisterPaging {
+  /** One of `JOB_REGISTER_SORTS`; newest received first when not given. */
+  sort?: string
+  dir?: string
+  limit?: string | number
+  offset?: string | number
+}
+
 export interface JobReport {
   from?: string
   to?: string
@@ -73,6 +82,17 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/
 function dayOf(row: Pick<JobRegisterRow, 'scheduledDate' | 'createdAt'>): string {
   const scheduled = String(row.scheduledDate || '').slice(0, 10)
   return DATE.test(scheduled) ? scheduled : String(row.createdAt || '').slice(0, 10)
+}
+
+/** The columns the Jobs list can be sorted by, the same on both apps. */
+export const JOB_REGISTER_SORTS: Record<string, SortValue<JobRegisterRow>> = {
+  received: (row) => row.createdAt,
+  date: (row) => dayOf(row),
+  reference: (row) => row.reference,
+  store: (row) => row.storeNumber,
+  client: (row) => row.clientName,
+  status: (row) => jobRegisterCategoryLabel(row.category),
+  amount: (row) => row.amount,
 }
 
 export function jobRegisterCategoryLabel(category: JobRegisterCategory): string {
@@ -154,6 +174,19 @@ export class JobRegisterService {
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
   }
 
+  /**
+   * One page of the list in the asked order, with how many rows match in all. Without a page
+   * size every matching row comes back (the calendar asks for one week at a time).
+   */
+  public page(orgTenantId: string, filter: JobRegisterFilter = {}, paging: JobRegisterPaging = {}): ListPage<JobRegisterRow> {
+    const limit = pageLimit(paging.limit)
+    const offset = pageOffset(paging.offset)
+    if (paging.sort && !JOB_REGISTER_SORTS[paging.sort]) throw new Error(`Jobs cannot be sorted by "${paging.sort}"`)
+    const rows = this.rows(orgTenantId, filter)
+    const sorted = paging.sort ? sortRows(rows, JOB_REGISTER_SORTS, { key: paging.sort, dir: paging.dir === 'asc' ? 'asc' : 'desc' }) : rows
+    return pageRows(sorted, offset, limit)
+  }
+
   /** Finished jobs brought in from a file. Read-only: nothing here has a workflow, a bill or a payout. */
   private history(orgTenantId: string): JobRegisterRow[] {
     try {
@@ -163,8 +196,7 @@ export class JobRegisterService {
                   description, location, problem_type AS problemType, po_number AS poNumber,
                   scheduled_date AS scheduledDate, completed_date AS completedDate, outcome,
                   worker_name AS workerName, amount, currency, created_at AS createdAt
-             FROM job_history WHERE org_tenant_id = ? ORDER BY COALESCE(completed_date, scheduled_date, created_at) DESC
-            LIMIT 2000`,
+             FROM job_history WHERE org_tenant_id = ? ORDER BY COALESCE(completed_date, scheduled_date, created_at) DESC`,
         )
         .all(orgTenantId) as Array<Record<string, any>>
       return rows.map((row) => ({

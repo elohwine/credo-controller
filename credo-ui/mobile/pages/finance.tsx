@@ -104,10 +104,8 @@ import { ClientBillingDetails } from '@/components/shared/ClientBillingDetails'
 import { ContactPickerSelect } from '@/components/shared/ContactPickerSelect'
 import { fieldJobBillingExceptions, jobClientWait } from '../../shared/fieldJobOutcomes'
 import { assertFieldStepSucceeded } from '../../shared/fieldEvidence'
-import type { FinanceListRow } from '@/components/shared/FinanceListCard'
-import { FINANCE_TABLE_HEADERS, FinanceListRows, financeRowsToCells } from '@/components/shared/FinanceListTable'
-import { FinanceViewToggle, useFinanceListView } from '@/components/shared/FinanceViewToggle'
-import { csvFrom, EXPORT_MIME, exportFileName, saveExport } from '@/lib/exportFile'
+import { FINANCE_TABLE_HEADERS, FinanceListRows, FinanceViewToggle, financeRowsToCells, useFinanceListView, type FinanceListRow } from '../../shared/FinanceList'
+import { canExportReports, csvFrom, EXPORT_MIME, exportFileName, saveExport } from '@/lib/exportFile'
 import { StepHelp } from '@/components/help/StepHelp'
 import { StageActorTimeline } from '@/components/shared/StageActorTimeline'
 import {
@@ -5187,7 +5185,7 @@ export default function FinancePage() {
             </Text>
           </Box>
           <Group gap={4} wrap="nowrap">
-            <FinanceViewToggle view={listView} onChange={setListView} onExport={exportVisible} />
+            <FinanceViewToggle view={listView} onChange={setListView} onExport={exportVisible} canExport={canExportReports} />
             <ActionIcon variant="subtle" color="gray" size="lg" onClick={fetchLinks} loading={loading}>
               <IconRefresh size={18} />
             </ActionIcon>
@@ -5417,6 +5415,7 @@ export default function FinancePage() {
             )}
 
             <FinanceListRows
+                compact
               rows={arListRows}
               view={listView}
               noteLabel="Reference"
@@ -5464,6 +5463,7 @@ export default function FinancePage() {
               </Group>
 
               <FinanceListRows
+                compact
                 rows={invoiceListRows}
                 view={listView}
                 noteLabel="Next step"
@@ -5499,6 +5499,7 @@ export default function FinancePage() {
               )}
 
               <FinanceListRows
+                compact
                 rows={requisitionListRows}
                 view={listView}
                 noteLabel="Note"
@@ -5721,6 +5722,7 @@ export default function FinancePage() {
                 </Alert>
               ) : (
                 <FinanceListRows
+                compact
                   rows={apListRows}
                   view={listView}
                   noteLabel="Job"

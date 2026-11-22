@@ -14,6 +14,7 @@ import {
 import { SETUP_PROFILE_PATH } from '../orgProfile'
 import type { FailedVisit } from '../../../src/config/failedVisit'
 import type { FieldImportKind, FieldImportPreview, FieldImportResult } from '../../../src/config/fieldDataImport'
+import type { ListPage } from '../../../src/config/listPage'
 
 export type JobCategory = 'pending' | 'assigned' | 'active' | 'on_hold' | 'failed' | 'completed' | 'reconciled' | 'cancelled'
 
@@ -481,8 +482,8 @@ export function operationsApi(backend: string, token: string | null | undefined)
           body: Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined && value !== '')),
         },
       ),
-    jobs: (filter: Record<string, string | undefined> = {}) =>
-      call<{ items: JobRegisterRow[] }>(`${base}/jobs${query(filter)}`).then((data) => data.items),
+    /** One page of the Jobs list and how many matched; without `limit`, every match. */
+    jobs: (filter: Record<string, string | undefined> = {}) => call<ListPage<JobRegisterRow>>(`${base}/jobs${query(filter)}`),
     jobReport: (filter: Record<string, string | undefined> = {}) => call<JobReport>(`${base}/reports${query(filter)}`),
     exportJobs: async (filter: Record<string, string | undefined> = {}) => {
       if (!token) throw new OperationsApiError('Sign in to the organisation first.', 401)

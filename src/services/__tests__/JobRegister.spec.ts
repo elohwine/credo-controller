@@ -138,6 +138,39 @@ describe('Jobs list, export, reports and what is filled in on site', () => {
     expect(report.averageDaysToComplete).toBe(2)
   })
 
+  it('pages a long imported or mailed-in list without losing jobs, with the total and the asked order', () => {
+    for (let index = 0; index < 620; index += 1) {
+      jobIntakeRepository.create(ORG, 'mail:jobs@sgk.test', {
+        reference: `MAIL-${String(index).padStart(4, '0')}`,
+        description: `Mailed job ${index}`,
+        amount: 0,
+        currency: 'USD',
+        sourceType: 'email',
+        ...(index % 2 ? { storeNumber: String(3000 + index) } : {}),
+      })
+    }
+    addJob('RUN-A', { description: 'Booked job', storeNumber: '1001', scheduledDate: '2026-11-24' })
+
+    expect(register.rows(ORG)).toHaveLength(621)
+    const first = register.page(ORG, {}, { limit: 50 })
+    expect(first.items).toHaveLength(50)
+    expect(first).toMatchObject({ total: 621, offset: 0, limit: 50 })
+    const last = register.page(ORG, {}, { limit: 50, offset: 600 })
+    expect(last.items).toHaveLength(21)
+    expect(new Set([...first.items, ...last.items].map((row) => row.id)).size).toBe(71)
+
+    const byStore = register.page(ORG, { source: 'email' }, { sort: 'store', dir: 'asc', limit: 500 })
+    expect(byStore.total).toBe(620)
+    expect(byStore.items[0].storeNumber).toBe('3001')
+    expect(register.page(ORG, { source: 'email' }, { sort: 'store', dir: 'desc', offset: 619 }).items[0].storeNumber).toBeUndefined()
+    expect(register.page(ORG, {}, { sort: 'reference', dir: 'asc', limit: 1 }).items[0].reference).toBe('MAIL-0000')
+    expect(register.page(ORG, { q: 'booked job' }).items.map((row) => row.id)).toEqual(['RUN-A'])
+
+    expect(() => register.page(ORG, {}, { sort: 'password' })).toThrow('cannot be sorted')
+    expect(() => register.page(ORG, {}, { limit: 0 })).toThrow('Page size')
+    expect(register.page(ORG, {}, { limit: 5000 }).limit).toBe(500)
+  })
+
   it('records a daily van check, needs a note for a defect, and keeps photos with an accident report', () => {
     const van = operations.saveVan(ORG, 'owner', { registration: 'AEB 1234' })
     const allOk = VAN_DAILY_CHECKS.map((item) => ({ item, ok: true }))

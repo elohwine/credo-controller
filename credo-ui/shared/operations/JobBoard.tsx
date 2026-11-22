@@ -4,6 +4,8 @@ import { IconCalendar, IconDownload, IconMail, IconSearch } from '@tabler/icons-
 
 import { FIELD_JOB_CATEGORY_LABELS } from '../../../src/config/fieldJobCategory'
 import { FIELD_JOB_SOURCE_OPTIONS, fieldJobSourceLabel } from '../../../src/config/fieldJobSource'
+import type { ListSort } from '../../../src/config/listPage'
+import { DataTable, useListState, type DataColumn } from '../DataTable'
 
 import { IncomingJobs, type IncomingJobsMember } from './IncomingJobs'
 import {
@@ -49,6 +51,27 @@ function statusWord(row: JobRegisterRow): { label: string; color: string } {
   return JOB_CATEGORY_WORDS[row.category]
 }
 
+/** The API's sort keys (`JOB_REGISTER_SORTS`), in words. */
+const SORTS: Array<{ value: string; label: string; sort: ListSort }> = [
+  { value: 'received:desc', label: 'Newest first', sort: { key: 'received', dir: 'desc' } },
+  { value: 'received:asc', label: 'Oldest first', sort: { key: 'received', dir: 'asc' } },
+  { value: 'date:asc', label: 'Booked date, soonest', sort: { key: 'date', dir: 'asc' } },
+  { value: 'date:desc', label: 'Booked date, latest', sort: { key: 'date', dir: 'desc' } },
+  { value: 'reference:asc', label: 'Job number', sort: { key: 'reference', dir: 'asc' } },
+  { value: 'store:asc', label: 'Store', sort: { key: 'store', dir: 'asc' } },
+  { value: 'status:asc', label: 'Status', sort: { key: 'status', dir: 'asc' } },
+]
+
+function sortValue(sort: ListSort | null): string {
+  return sort ? `${sort.key}:${sort.dir}` : 'received:desc'
+}
+
+function workerLine(row: JobRegisterRow, names: Record<string, string>): string {
+  if (row.assigneeId) return names[row.assigneeId] || 'Assigned'
+  if (row.workerName) return row.workerName
+  return row.kind === 'job' ? 'Nobody yet' : ''
+}
+
 /**
  * Booked jobs and jobs still waiting (from the mailbox or written down by the office) in one
  * list, with the same filters, calendar and report on both apps.
@@ -75,6 +98,8 @@ export function JobBoard({
   refreshKey?: number
 }) {
   const [rows, setRows] = useState<JobRegisterRow[]>([])
+  const [total, setTotal] = useState(0)
+  const [calendarRows, setCalendarRows] = useState<JobRegisterRow[]>([])
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [view, setView] = useState('list')
@@ -108,6 +133,7 @@ export function JobBoard({
     }),
     [source, category, storeNumber, workerId, canBook, query, from, to],
   )
+  const list = useListState({ initialSort: { key: 'received', dir: 'desc' }, resetKey: JSON.stringify(filter) })
 
   useEffect(() => {
     if (!api) return
@@ -126,18 +152,27 @@ export function JobBoard({
       .catch(() => setStores([]))
   }, [api])
 
+  // Only one page of the list is fetched: an imported or mailed-in backlog can run to thousands.
   const load = useCallback(async () => {
-    if (!api) return
+    if (!api || view !== 'list') return
     setLoading(true)
     try {
-      setRows(await api.jobs(filter))
+      const page = await api.jobs({
+        ...filter,
+        sort: list.sort?.key,
+        dir: list.sort?.dir,
+        limit: String(list.limit),
+        offset: String(list.offset),
+      })
+      setRows(page.items)
+      setTotal(page.total)
       setLoaded(true)
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Could not load jobs', 'error')
     } finally {
       setLoading(false)
     }
-  }, [api, filter, notify])
+  }, [api, view, filter, list.sort?.key, list.sort?.dir, list.limit, list.offset, notify])
 
   useEffect(() => {
     void load()
@@ -169,13 +204,140 @@ export function JobBoard({
 
   const days = Array.from({ length: 7 }, (_, index) => addDays(week, index))
   const shownDays = span === 'day' ? [focusDay] : days
+  const firstShown = localDay(shownDays[0])
+  const lastShown = localDay(shownDays[shownDays.length - 1])
+
+  // The calendar asks for the days on screen only (within any From/To chosen), whatever page the list is on.
+  const loadCalendar = useCallback(async () => {
+    if (!api || view !== 'calendar') return
+    const rangeFrom = filter.from && filter.from > firstShown ? filter.from : firstShown
+    const rangeTo = filter.to && filter.to < lastShown ? filter.to : lastShown
+    if (rangeFrom > rangeTo) {
+      setCalendarRows([])
+      return
+    }
+    try {
+      setCalendarRows((await api.jobs({ ...filter, from: rangeFrom, to: rangeTo })).items)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Could not load jobs', 'error')
+    }
+  }, [api, view, filter, firstShown, lastShown, notify])
+
+  useEffect(() => {
+    void loadCalendar()
+  }, [loadCalendar, refreshKey])
+
   const byDay = new Map<string, JobRegisterRow[]>()
-  for (const row of rows) {
+  for (const row of calendarRows) {
     const day = dayOf(row)
     if (!day) continue
     byDay.set(day, [...(byDay.get(day) || []), row])
   }
-  const undated = rows.filter((row) => !dayOf(row))
+  // Jobs received in these days with no booked date cannot sit on a day; say how many so nobody thinks they are lost.
+  const undated = calendarRows.filter((row) => !dayOf(row))
+
+  const action = (row: JobRegisterRow) =>
+    row.kind === 'job' ? (
+      <Button size={size} variant="light" radius="xl" style={{ minHeight: surface === 'phone' ? 48 : 36 }} onClick={(event) => { event.stopPropagation(); onOpenJob(row.id) }}>
+        Open
+      </Button>
+    ) : row.kind === 'history' ? null : (
+      canBook && (
+        <Button size={size} radius="xl" style={{ minHeight: surface === 'phone' ? 48 : 36 }} onClick={(event) => { event.stopPropagation(); setBooking(booking === row.id ? null : row.id) }}>
+          Book
+        </Button>
+      )
+    )
+
+  const badges = (row: JobRegisterRow) => {
+    const status = statusWord(row)
+    return (
+      <Group gap={6}>
+        <Badge variant="light" color={row.source === 'email' ? 'blue' : row.source === 'booking' ? 'teal' : 'gray'} leftSection={row.source === 'email' ? <IconMail size={12} /> : undefined}>
+          {fieldJobSourceLabel(row.source)}
+        </Badge>
+        <Badge variant="light" color={status.color}>
+          {status.label}
+        </Badge>
+        {row.callOut && (
+          <Badge variant="light" color="orange">
+            Call-out
+          </Badge>
+        )}
+        {row.possibleRepeat && (
+          <Badge variant="light" color="red">
+            Possible repeat
+          </Badge>
+        )}
+      </Group>
+    )
+  }
+
+  const columns: Array<DataColumn<JobRegisterRow>> = [
+    {
+      key: 'reference',
+      title: 'Job',
+      sortable: true,
+      sticky: true,
+      maxWidth: 260,
+      render: (row) => (
+        <Stack gap={0}>
+          <Text size="sm" fw={600} truncate>
+            {row.reference}
+          </Text>
+          <Text size="xs" c="dimmed" lineClamp={2}>
+            {row.description || 'No description'}
+          </Text>
+        </Stack>
+      ),
+    },
+    { key: 'status', title: 'Status', sortable: true, minWidth: 180, render: badges },
+    { key: 'store', title: 'Store', sortable: true, nowrap: true, render: (row) => row.storeNumber || '—' },
+    { key: 'client', title: 'Client', sortable: true, minWidth: 140, render: (row) => <Text size="sm" lineClamp={2}>{row.clientName || row.location || '—'}</Text> },
+    { key: 'date', title: 'Booked for', sortable: true, nowrap: true, render: (row) => (row.scheduledDate ? readableDate(row.scheduledDate) : 'No date') },
+    { key: 'worker', title: 'Worker', nowrap: true, render: (row) => workerLine(row, names) || '—' },
+    { key: 'received', title: 'Received', sortable: true, firstDir: 'desc', nowrap: true, render: (row) => readableDate(String(row.createdAt).slice(0, 10)) },
+    { key: 'action', title: '', align: 'right', render: action },
+  ]
+
+  const card = (row: JobRegisterRow) => (
+    <Paper withBorder radius="md" p="sm">
+      <Group justify="space-between" wrap="nowrap" align="flex-start">
+        <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
+          {badges(row)}
+          <Text fw={500} lineClamp={2}>
+            {row.reference} · {row.description || 'No description'}
+          </Text>
+          <Text size="sm" c="dimmed" lineClamp={2}>
+            {[
+              row.storeNumber ? `Store ${row.storeNumber}` : '',
+              row.clientName,
+              row.location,
+              row.scheduledDate ? readableDate(row.scheduledDate) : 'No date',
+              workerLine(row, names),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </Text>
+        </Stack>
+        {action(row)}
+      </Group>
+      {booking === row.id && canBook && (
+        <IncomingJobs
+          api={api}
+          surface={surface}
+          members={members}
+          notify={notify}
+          focusId={row.id}
+          onStarted={(runId) => {
+            setBooking(null)
+            void load()
+            onOpenJob(runId)
+          }}
+        />
+      )}
+    </Paper>
+  )
 
   return (
     <Stack gap="sm">
@@ -240,78 +402,53 @@ export function JobBoard({
 
       {view === 'list' && (
         <Stack gap="xs">
-          {rows.map((row) => {
-            const status = statusWord(row)
-            return (
-              <Paper key={`${row.kind}-${row.id}`} withBorder radius="md" p="sm">
-                <Group justify="space-between" wrap="nowrap" align="flex-start">
-                  <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
-                    <Group gap={6}>
-                      <Badge variant="light" color={row.source === 'email' ? 'blue' : row.source === 'booking' ? 'teal' : 'gray'} leftSection={row.source === 'email' ? <IconMail size={12} /> : undefined}>
-                        {fieldJobSourceLabel(row.source)}
-                      </Badge>
-                      <Badge variant="light" color={status.color}>
-                        {status.label}
-                      </Badge>
-                      {row.callOut && (
-                        <Badge variant="light" color="orange">
-                          Call-out
-                        </Badge>
-                      )}
-                      {row.possibleRepeat && (
-                        <Badge variant="light" color="red">
-                          Possible repeat
-                        </Badge>
-                      )}
-                    </Group>
-                    <Text fw={500} lineClamp={2}>
-                      {row.reference} · {row.description || 'No description'}
-                    </Text>
-                    <Text size="sm" c="dimmed" lineClamp={2}>
-                      {[
-                        row.storeNumber ? `Store ${row.storeNumber}` : '',
-                        row.clientName,
-                        row.location,
-                        row.scheduledDate ? readableDate(row.scheduledDate) : 'No date',
-                        row.assigneeId ? names[row.assigneeId] || 'Assigned' : row.workerName ? row.workerName : row.kind === 'job' ? 'Nobody yet' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </Text>
-                  </Stack>
-                  {row.kind === 'job' ? (
-                    <Button size={size} variant="light" radius="xl" style={{ minHeight: 48 }} onClick={() => onOpenJob(row.id)}>
-                      Open
-                    </Button>
-                  ) : row.kind === 'history' ? null : (
-                    canBook && (
-                      <Button size={size} radius="xl" style={{ minHeight: 48 }} onClick={() => setBooking(booking === row.id ? null : row.id)}>
-                        Book
-                      </Button>
-                    )
-                  )}
-                </Group>
-                {booking === row.id && canBook && (
-                  <IncomingJobs
-                    api={api}
-                    surface={surface}
-                    members={members}
-                    notify={notify}
-                    focusId={row.id}
-                    onStarted={(runId) => {
-                      setBooking(null)
-                      void load()
-                      onOpenJob(runId)
-                    }}
-                  />
-                )}
+          <Select
+            size={size}
+            label="Sort by"
+            allowDeselect={false}
+            data={SORTS.map(({ value, label }) => ({ value, label }))}
+            value={SORTS.some((entry) => entry.value === sortValue(list.sort)) ? sortValue(list.sort) : null}
+            placeholder="Column order"
+            onChange={(value) => {
+              const picked = SORTS.find((entry) => entry.value === value)
+              if (picked) list.setSort(picked.sort)
+            }}
+            style={{ maxWidth: surface === 'phone' ? undefined : 260 }}
+          />
+          <DataTable
+            rows={rows}
+            columns={columns}
+            rowKey={(row) => `${row.kind}-${row.id}`}
+            view={surface === 'phone' ? 'cards' : 'table'}
+            renderCard={card}
+            onRowClick={(row) => (row.kind === 'job' ? onOpenJob(row.id) : undefined)}
+            rowLabel={(row) => `${row.reference} ${row.description || ''}`.trim()}
+            sort={list.sort}
+            onSortChange={list.setSort}
+            paging={{ offset: list.offset, limit: list.limit, total, onChange: list.setPage }}
+            loading={loading || !loaded}
+            itemWord="job"
+            minWidth={980}
+            compact={surface === 'phone'}
+            empty={
+              <Paper withBorder radius="md" p="lg" ta="center">
+                <Text c="dimmed">No jobs match these filters.</Text>
               </Paper>
-            )
-          })}
-          {loaded && !loading && rows.length === 0 && (
-            <Paper withBorder radius="md" p="lg" ta="center">
-              <Text c="dimmed">No jobs match these filters.</Text>
-            </Paper>
+            }
+          />
+          {surface !== 'phone' && booking && canBook && (
+            <IncomingJobs
+              api={api}
+              surface={surface}
+              members={members}
+              notify={notify}
+              focusId={booking}
+              onStarted={(runId) => {
+                setBooking(null)
+                void load()
+                onOpenJob(runId)
+              }}
+            />
           )}
         </Stack>
       )}
@@ -389,7 +526,7 @@ export function JobBoard({
           </SimpleGrid>
           {undated.length > 0 && (
             <Text size="sm" c="dimmed">
-              {undated.length} job{undated.length === 1 ? '' : 's'} with no date {undated.length === 1 ? 'is' : 'are'} not on the calendar. Set a date to place {undated.length === 1 ? 'it' : 'them'}.
+              {undated.length} job{undated.length === 1 ? '' : 's'} received in these days {undated.length === 1 ? 'has' : 'have'} no date and {undated.length === 1 ? 'is' : 'are'} not on the calendar. Set a date to place {undated.length === 1 ? 'it' : 'them'}.
             </Text>
           )}
           {booking && canBook && (
@@ -401,7 +538,7 @@ export function JobBoard({
               focusId={booking}
               onStarted={(runId) => {
                 setBooking(null)
-                void load()
+                void loadCalendar()
                 onOpenJob(runId)
               }}
             />
