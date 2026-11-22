@@ -8,7 +8,6 @@ import {
   IconCards,
   IconHelpCircle,
   IconPlugConnected,
-  IconId,
   IconShieldLock,
 } from '@tabler/icons-react'
 import AppShellMobile from '@/components/layout/AppShellMobile'
@@ -41,7 +40,6 @@ export default function SettingsHome() {
       title: 'Account',
       rows: [
         { key: 'security', icon: <IconShieldLock size={20} />, title: 'Sign-in and security', summary: 'Account PIN and this phone', onSelect: go('/settings/security/') },
-        { key: 'identity', icon: <IconId size={20} />, title: 'Date of birth', summary: 'Ask the Central Registry, or add it yourself', onSelect: go('/settings/identity/') },
         { key: 'alerts', icon: <IconBell size={20} />, title: 'Notifications', summary: 'WhatsApp alerts', onSelect: go('/settings/alerts/') },
       ],
     },

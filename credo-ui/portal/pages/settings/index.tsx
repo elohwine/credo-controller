@@ -8,7 +8,6 @@ import {
   IconCertificate,
   IconHelpCircle,
   IconLogin2,
-  IconId,
   IconShieldLock,
 } from '@tabler/icons-react'
 import Layout from '@/components/Layout'
@@ -36,7 +35,6 @@ export default function SettingsHome() {
       title: 'Account',
       rows: [
         { key: 'security', icon: <IconShieldLock size={20} />, title: 'Sign-in and security', summary: 'Devices that can sign in to your account', onSelect: go('/account-security') },
-        { key: 'identity', icon: <IconId size={20} />, title: 'Date of birth', summary: 'Ask the Central Registry, or add it yourself', onSelect: go('/settings/identity') },
       ],
     },
     {
