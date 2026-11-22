@@ -33,7 +33,6 @@ import {
     IconAlertCircle,
 } from '@tabler/icons-react';
 import axios from 'axios';
-import { RegistrySignupChoice } from '../../../shared/IdentityVerification';
 
 export default function AuthPage() {
     const router = useRouter();
@@ -52,7 +51,6 @@ export default function AuthPage() {
     const [regEmail, setRegEmail] = useState('');
     const [regPassword, setRegPassword] = useState('');
     const [regConfirmPassword, setRegConfirmPassword] = useState('');
-    const [askRegistry, setAskRegistry] = useState(false);
     const [authChecked, setAuthChecked] = useState(false);
     const [registrationVcOfferUrl, setRegistrationVcOfferUrl] = useState<string | null>(null);
     const [registrationVcAutoAccepted, setRegistrationVcAutoAccepted] = useState<boolean | null>(null);
@@ -141,7 +139,6 @@ export default function AuthPage() {
                 phone: regPhone,
                 email: regEmail || undefined,
                 pin: regPassword,
-                requestRegistryVerification: askRegistry,
             });
 
             const { walletId, vcOfferUrl, vcOfferAutoAccepted } = response.data;
@@ -284,8 +281,6 @@ export default function AuthPage() {
                                         value={regConfirmPassword}
                                         onChange={(e) => setRegConfirmPassword(e.target.value)}
                                     />
-
-                                    <RegistrySignupChoice value={askRegistry} onChange={setAskRegistry} />
 
                                     <Alert color="blue" variant="light" icon={<IconUser size={16} />}>
                                         <Text size="sm">

@@ -28,7 +28,6 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconUserPlus, IconAlertCircle, IconCheck, IconReceipt, IconMail } from '@tabler/icons-react';
-import { RegistrySignupChoice } from '../../../shared/IdentityVerification';
 
 export default function RegisterPage() {
     const router = useRouter();
@@ -51,7 +50,6 @@ export default function RegisterPage() {
         password: '',
         confirmPassword: '',
     });
-    const [askRegistry, setAskRegistry] = useState(false);
 
     const holderBackend = env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000';
 
@@ -123,7 +121,6 @@ export default function RegisterPage() {
                 phone: form.phone || undefined,
                 pin: form.password, // PIN for Web2 fallback login
                 claimExistingTenantId: localStorage.getItem('credoTenantId') || undefined, // Claim checkout VCs
-                requestRegistryVerification: askRegistry,
             });
 
             const sessionToken = response.data.token as string | undefined;
@@ -273,8 +270,6 @@ export default function RegisterPage() {
                                     value={form.confirmPassword}
                                     onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
                                 />
-
-                                <RegistrySignupChoice value={askRegistry} onChange={setAskRegistry} />
 
                                 <Button 
                                     type="submit" 

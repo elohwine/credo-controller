@@ -25,7 +25,6 @@ import { applyPersonalWalletContext, getPersonalWalletTenantId, syncOrgContextFr
 import { authorizeDevice, deviceLoginWalletId, loginDevices, rememberPhoneWallet, supportsDeviceLogin } from '@/lib/deviceTrust';
 import { friendlyRequestError } from '@/lib/requestError';
 import ErrorAlert from '@/components/shared/ErrorAlert';
-import { RegistrySignupChoice } from '../../shared/IdentityVerification';
 
 interface LoginValues {
   identifier: string;
@@ -47,7 +46,6 @@ export default function LoginPage() {
   const [setupStep, setSetupStep] = useState(1);
   const [layoutHeight, setLayoutHeight] = useState<number>();
   const [canUsePhone, setCanUsePhone] = useState(false);
-  const [askRegistry, setAskRegistry] = useState(false);
   const [welcomeName, setWelcomeName] = useState<string | null>(null);
   const submitting = useRef(false);
 
@@ -186,7 +184,6 @@ export default function LoginPage() {
         username: values.username,
         phone: values.phone,
         pin: values.pin,
-        requestRegistryVerification: askRegistry,
       });
     } catch (err: any) {
       setError(friendlyRequestError(err, 'Could not create your account'));
@@ -316,7 +313,6 @@ export default function LoginPage() {
                     visibilityToggleButtonProps={{ 'aria-label': 'Show or hide confirmation PIN' }}
                     {...registerForm.getInputProps('confirmPin')}
                   />
-                  <RegistrySignupChoice value={askRegistry} onChange={setAskRegistry} />
                   <Button type="submit" size="lg" fullWidth loading={loading} mt="xs">
                     Create account
                   </Button>
