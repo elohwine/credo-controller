@@ -15,6 +15,13 @@ fi
 
 cd "$ROOT"
 render blueprints validate ./render.yaml -o text
-echo "Blueprint is valid for ${EXPECTED_USER}. Apply render.yaml from the Render dashboard (Blueprints) on branch sgk-jobs."
-echo "API:  https://ldk-sgk-api.onrender.com"
+
+# Same deploy command the LDK website uses. The phone app is not a service.
+API_SERVICE="${RENDER_API_SERVICE:-srv-dc1c8656e07s73cvck10}"
+PORTAL_SERVICE="${RENDER_PORTAL_SERVICE:-srv-dc1c8jnf3r2c73ca92r0}"
+COMMIT="${1:-$(git rev-parse origin/sgk-jobs)}"
+
+render deploys create "$API_SERVICE" --commit "$COMMIT" --wait --confirm -o text
+render deploys create "$PORTAL_SERVICE" --commit "$COMMIT" --wait --confirm -o text
+echo "API:    https://ldk-sgk-api.onrender.com"
 echo "Portal: https://ldk-sgk-portal.onrender.com"

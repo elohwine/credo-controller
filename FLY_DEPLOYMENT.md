@@ -93,11 +93,16 @@ or jobs to hide a missing metadata store.
 
 ## Render
 
-The SGK API and portal also have a Render blueprint, `render.yaml`, for
-kelvin.mupungu@ldkgroup.co.uk. It is the API (`deploy/render/Dockerfile.api`,
-disk at `/data`, one instance) and the portal (`deploy/render/Dockerfile.portal`).
-The phone app is not a Render service. `./scripts/render-deploy.sh` refuses any
-other Render account. This Fly app is unchanged.
+The SGK API and portal are Docker web services on Kelvin's Render workspace,
+the same shape as `LDK-Group-Ltd-Website-React`: Frankfurt, GitHub
+`elohwine/credo-controller`, branch `sgk-jobs`. Created with
+`render services create` (API `srv-dc1c8656e07s73cvck10`, portal
+`srv-dc1c8jnf3r2c73ca92r0`). Deploys use the LDK command,
+`render deploys create <service> --commit <sha> --wait --confirm`.
+`./scripts/render-deploy.sh` does that and refuses any account other than
+kelvin.mupungu@ldkgroup.co.uk. The phone app is not a Render service.
+The API Dockerfile is `deploy/render/Dockerfile.api` and the portal
+Dockerfile is `deploy/render/Dockerfile.portal`. This Fly app is unchanged.
 
 ## Android release
 

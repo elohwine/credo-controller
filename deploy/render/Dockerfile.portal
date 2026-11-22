@@ -4,6 +4,7 @@
 FROM node:20-alpine AS build
 WORKDIR /repo
 COPY src/config /repo/src/config
+COPY src/services/workflow/actions/fieldCheckpoints.ts /repo/src/services/workflow/actions/fieldCheckpoints.ts
 COPY credo-ui/shared /repo/credo-ui/shared
 WORKDIR /repo/credo-ui/portal
 COPY credo-ui/portal/package.json credo-ui/portal/package-lock.json ./

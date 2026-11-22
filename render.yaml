@@ -36,6 +36,8 @@ services:
         value: /data/oidc.db
       - key: ASKAR_STORAGE_PATH
         value: /data/askar
+      - key: CONFIG_DATA_DIR
+        value: /data
       - key: WALLET_ID
         value: sgk-controller-agent
       - key: WALLET_KEY
