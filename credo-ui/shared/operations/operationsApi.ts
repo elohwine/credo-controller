@@ -121,9 +121,26 @@ export interface JobReport {
   total: number
   counts: Record<JobRegisterCategory, number>
   bySource: Array<{ source: JobSource; label: string; count: number }>
-  byStore: Array<{ storeNumber: string; open: number; completed: number; total: number }>
-  byWorker: Array<{ userId: string; name: string; open: number; completed: number; failed: number }>
+  /** Busiest stores first: most open jobs, then most jobs overall. */
+  byStore: Array<{ storeNumber: string; name?: string; open: number; completed: number; total: number }>
+  /** Team members, and the people the old system had on imported jobs (`userId` empty, `oldSystem` set). */
+  byWorker: Array<{ userId: string; name: string; open: number; completed: number; failed: number; oldSystem?: boolean }>
+  byProblemType?: Array<{ problemType: string; open: number; total: number }>
   averageDaysToComplete?: number
+  /** Where the work stands today, whatever the date filter (missing from servers older than this screen). */
+  today?: {
+    date: string
+    scheduled: number
+    overdue: number
+    unassigned: number
+    urgent: number
+    receivedLast7Days: number
+    completedLast7Days: number
+    completedLast30Days: number
+    oldestOpenDays?: number
+  }
+  /** The last eight weeks, oldest first (Monday start). */
+  weekly?: Array<{ weekStart: string; received: number; completed: number }>
 }
 
 export interface MailMessage {

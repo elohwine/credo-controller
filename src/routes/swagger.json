@@ -18139,6 +18139,10 @@
           "completedAt": {
             "type": "string"
           },
+          "workerName": {
+            "type": "string",
+            "description": "Who the old system had on an imported job, when they are not on the team here."
+          },
           "failedVisit": {
             "properties": {
               "workerId": {
@@ -19333,6 +19337,9 @@
                   "type": "number",
                   "format": "double"
                 },
+                "name": {
+                  "type": "string"
+                },
                 "storeNumber": {
                   "type": "string"
                 }
@@ -19345,11 +19352,15 @@
               ],
               "type": "object"
             },
-            "type": "array"
+            "type": "array",
+            "description": "Busiest stores first: most open jobs, then most jobs overall."
           },
           "byWorker": {
             "items": {
               "properties": {
+                "oldSystem": {
+                  "type": "boolean"
+                },
                 "failed": {
                   "type": "number",
                   "format": "double"
@@ -19378,12 +19389,112 @@
               ],
               "type": "object"
             },
+            "type": "array",
+            "description": "Team members, and the people the old system had on imported jobs (`userId` empty, `oldSystem` set)."
+          },
+          "byProblemType": {
+            "items": {
+              "properties": {
+                "total": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "open": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "problemType": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "total",
+                "open",
+                "problemType"
+              ],
+              "type": "object"
+            },
             "type": "array"
           },
           "averageDaysToComplete": {
             "type": "number",
             "format": "double",
             "description": "Days from receiving a job to completing it, over completed jobs."
+          },
+          "today": {
+            "properties": {
+              "oldestOpenDays": {
+                "type": "number",
+                "format": "double",
+                "description": "Days since the oldest open job came in."
+              },
+              "completedLast30Days": {
+                "type": "number",
+                "format": "double"
+              },
+              "completedLast7Days": {
+                "type": "number",
+                "format": "double"
+              },
+              "receivedLast7Days": {
+                "type": "number",
+                "format": "double"
+              },
+              "unassigned": {
+                "type": "number",
+                "format": "double",
+                "description": "Open jobs nobody is on yet."
+              },
+              "overdue": {
+                "type": "number",
+                "format": "double",
+                "description": "Open jobs whose booked day has passed."
+              },
+              "scheduled": {
+                "type": "number",
+                "format": "double",
+                "description": "Open jobs booked for today."
+              },
+              "date": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "completedLast30Days",
+              "completedLast7Days",
+              "receivedLast7Days",
+              "unassigned",
+              "overdue",
+              "scheduled",
+              "date"
+            ],
+            "type": "object",
+            "description": "Where the work stands today, whatever the date filter."
+          },
+          "weekly": {
+            "items": {
+              "properties": {
+                "completed": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "received": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "weekStart": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "completed",
+                "received",
+                "weekStart"
+              ],
+              "type": "object"
+            },
+            "type": "array",
+            "description": "The last eight weeks, oldest first: jobs received and jobs completed in each week (Monday start)."
           }
         },
         "required": [
@@ -19391,7 +19502,10 @@
           "counts",
           "bySource",
           "byStore",
-          "byWorker"
+          "byWorker",
+          "byProblemType",
+          "today",
+          "weekly"
         ],
         "type": "object",
         "additionalProperties": false

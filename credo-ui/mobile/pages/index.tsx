@@ -24,7 +24,9 @@ import {
   getPersonalWalletTenantId,
   isAuthenticated,
 } from '@/lib/auth';
-import api from '@/lib/api';
+import api, { API_BASE_URL } from '@/lib/api';
+import { operationsApi } from '../../shared/operations/operationsApi';
+import { JobsDashboard, type JobsDashboardTarget } from '../../shared/operations/JobsDashboard';
 import { friendlyRequestError } from '@/lib/requestError';
 import { getRunningActions, RunningAction } from '@/lib/runningActions';
 import { formatCredentialType } from '@/lib/format';
@@ -684,6 +686,14 @@ export default function HomePage() {
   const isOrgContext = getContextMode() === 'org' && !!getActiveOrgId();
   const setupStep = isOrgContext ? nextStepCard(nextSteps.filter((item) => item.kind === 'setup'), 'phone') : null;
   const isIssuer = ['owner', 'admin', 'issuer'].includes(userRole ?? '');
+  const activeOrgId = isOrgContext ? getActiveOrgId() : null;
+  const orgToken = mounted && activeOrgId ? getOrgToken() : null;
+  const jobsApi = useMemo(() => (orgToken ? operationsApi(API_BASE_URL, orgToken) : null), [orgToken]);
+  const openJobs = useCallback((target: JobsDashboardTarget) => {
+    if (target.kind === 'job') return void router.push(`/finance?tab=field&runId=${encodeURIComponent(target.runId)}`);
+    if (target.kind === 'report') return void router.push('/finance?tab=field&report=1');
+    void router.push(target.kind === 'jobs' && target.filter === 'attention' ? '/finance?tab=field&attention=1' : '/finance?tab=field');
+  }, [router]);
 
   if (!mounted) {
     return (
@@ -747,6 +757,24 @@ export default function HomePage() {
           userAccountId={userAccountId}
           expiringCount={expiringCount}
         />
+
+        {!loading && jobsApi && (
+          <Box>
+            <Group justify="space-between" mb={8} align="center">
+              <Text fw={700} size="sm">Jobs</Text>
+              <Anchor size="xs" c="credentis" onClick={() => router.push('/finance?tab=field')} style={{ cursor: 'pointer' }}>
+                Jobs list →
+              </Anchor>
+            </Group>
+            <JobsDashboard
+              api={jobsApi}
+              surface="phone"
+              onOpen={openJobs}
+              refreshKey={homeQuery.dataUpdatedAt}
+              fallback={<Text size="sm" c="dimmed">Your jobs are on the Jobs list.</Text>}
+            />
+          </Box>
+        )}
 
         {/* ── Zone 3: Credential card stack ─────────────────────────── */}
         {!loading && !isOrgContext && (

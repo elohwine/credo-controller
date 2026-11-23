@@ -11,6 +11,7 @@ import { FIELD_JOB_CATEGORY_LABELS, type FieldJobCategory } from '../config/fiel
 import { fieldJobSourceLabel, isFieldJobSource, type FieldJobSource } from '../config/fieldJobSource'
 import { pageLimit, pageOffset, pageRows, sortRows, type ListPage, type SortValue } from '../config/listPage'
 import { DatabaseManager } from '../persistence/DatabaseManager'
+import { listContacts } from '../persistence/ContactRepository'
 
 import { operationsRegisterService } from './OperationsRegisterService'
 
@@ -70,10 +71,32 @@ export interface JobReport {
   total: number
   counts: Record<JobRegisterCategory, number>
   bySource: Array<{ source: FieldJobSource; label: string; count: number }>
-  byStore: Array<{ storeNumber: string; open: number; completed: number; total: number }>
-  byWorker: Array<{ userId: string; name: string; open: number; completed: number; failed: number }>
+  /** Busiest stores first: most open jobs, then most jobs overall. */
+  byStore: Array<{ storeNumber: string; name?: string; open: number; completed: number; total: number }>
+  /** Team members, and the people the old system had on imported jobs (`userId` empty, `oldSystem` set). */
+  byWorker: Array<{ userId: string; name: string; open: number; completed: number; failed: number; oldSystem?: boolean }>
+  byProblemType: Array<{ problemType: string; open: number; total: number }>
   /** Days from receiving a job to completing it, over completed jobs. */
   averageDaysToComplete?: number
+  /** Where the work stands today, whatever the date filter. */
+  today: {
+    date: string
+    /** Open jobs booked for today. */
+    scheduled: number
+    /** Open jobs whose booked day has passed. */
+    overdue: number
+    /** Open jobs nobody is on yet. */
+    unassigned: number
+    /** Open call-outs. */
+    urgent: number
+    receivedLast7Days: number
+    completedLast7Days: number
+    completedLast30Days: number
+    /** Days since the oldest open job came in. */
+    oldestOpenDays?: number
+  }
+  /** The last eight weeks, oldest first: jobs received and jobs completed in each week (Monday start). */
+  weekly: Array<{ weekStart: string; received: number; completed: number }>
 }
 
 const DONE = new Set<JobRegisterCategory>(['completed', 'reconciled'])
@@ -163,6 +186,7 @@ export class JobRegisterService {
       currency: job.currency,
       createdAt: job.createdAt,
       completedAt: job.completedAt,
+      workerName: job.workerName,
     }))
     const waiting: JobRegisterRow[] = operationsRegisterService.pendingIntakes(orgTenantId).map((intake) => ({
       kind: 'intake',
@@ -325,25 +349,42 @@ export class JobRegisterService {
       cancelled: 0,
     } as Record<JobRegisterCategory, number>
     const sources = new Map<FieldJobSource, number>()
-    const stores = new Map<string, { open: number; completed: number; total: number }>()
-    const workers = new Map<string, { open: number; completed: number; failed: number }>()
+    const stores = new Map<string, { name?: string; open: number; completed: number; total: number }>()
+    const workers = new Map<string, { userId: string; name: string; oldSystem?: boolean; open: number; completed: number; failed: number }>()
+    const problems = new Map<string, { problemType: string; open: number; total: number }>()
     const durations: number[] = []
     for (const row of rows) {
       counts[row.category] += 1
       sources.set(row.source, (sources.get(row.source) || 0) + 1)
+      const open = isOpen(row.category)
       if (row.storeNumber) {
         const store = stores.get(row.storeNumber) || { open: 0, completed: 0, total: 0 }
         store.total += 1
-        if (OPEN.has(row.category) || row.category === 'not_booked') store.open += 1
+        if (open) store.open += 1
         if (DONE.has(row.category)) store.completed += 1
+        if (!store.name && row.clientName) store.name = row.clientName
         stores.set(row.storeNumber, store)
       }
-      if (row.assigneeId) {
-        const worker = workers.get(row.assigneeId) || { open: 0, completed: 0, failed: 0 }
+      const workerName = row.workerName?.trim()
+      const workerKey = row.assigneeId || (workerName ? `old:${workerName.toLowerCase()}` : '')
+      if (workerKey) {
+        const worker =
+          workers.get(workerKey) ||
+          (row.assigneeId
+            ? { userId: row.assigneeId, name: names.get(row.assigneeId) || 'Team member', open: 0, completed: 0, failed: 0 }
+            : { userId: '', name: workerName!, oldSystem: true, open: 0, completed: 0, failed: 0 })
         if (OPEN.has(row.category)) worker.open += 1
         if (DONE.has(row.category)) worker.completed += 1
         if (row.category === 'failed') worker.failed += 1
-        workers.set(row.assigneeId, worker)
+        workers.set(workerKey, worker)
+      }
+      const problemType = row.problemType?.trim()
+      if (problemType) {
+        const key = problemType.toLowerCase()
+        const problem = problems.get(key) || { problemType, open: 0, total: 0 }
+        problem.total += 1
+        if (open) problem.open += 1
+        problems.set(key, problem)
       }
       // An imported job has no "received" day, so it would only pull the average to zero.
       if (DONE.has(row.category) && row.completedAt && row.kind !== 'history') {
@@ -351,6 +392,12 @@ export class JobRegisterService {
         if (Number.isFinite(days) && days >= 0) durations.push(days)
       }
     }
+    const storeNames = new Map(
+      listContacts(orgTenantId)
+        .filter((contact) => contact.storeNumber)
+        .map((contact) => [String(contact.storeNumber), contact.name]),
+    )
+    const filtered = Boolean(filter.from || filter.to)
     return {
       from: filter.from || undefined,
       to: filter.to || undefined,
@@ -360,16 +407,86 @@ export class JobRegisterService {
         .map(([source, count]) => ({ source, label: fieldJobSourceLabel(source), count }))
         .sort((a, b) => b.count - a.count),
       byStore: [...stores.entries()]
-        .map(([storeNumber, value]) => ({ storeNumber, ...value }))
-        .sort((a, b) => b.total - a.total)
+        .map(([storeNumber, { name, open, completed, total }]) => {
+          const storeName = storeNames.get(storeNumber) || name
+          return { storeNumber, ...(storeName ? { name: storeName } : {}), open, completed, total }
+        })
+        .sort((a, b) => b.open - a.open || b.total - a.total)
         .slice(0, 20),
-      byWorker: [...workers.entries()]
-        .map(([userId, value]) => ({ userId, name: names.get(userId) || 'Team member', ...value }))
-        .sort((a, b) => b.open - a.open || b.completed - a.completed),
+      byWorker: [...workers.values()].sort((a, b) => b.open - a.open || b.completed - a.completed),
+      byProblemType: [...problems.values()].sort((a, b) => b.open - a.open || b.total - a.total).slice(0, 10),
       ...(durations.length
         ? { averageDaysToComplete: Math.round((durations.reduce((a, b) => a + b, 0) / durations.length) * 10) / 10 }
         : {}),
+      ...nowFigures(filtered ? this.rows(orgTenantId, { source: filter.source }) : rows),
     }
+  }
+}
+
+function isOpen(category: JobRegisterCategory): boolean {
+  return OPEN.has(category) || category === 'not_booked'
+}
+
+function timeOf(value: string | undefined): number {
+  const text = String(value || '').trim()
+  if (!text) return NaN
+  return Date.parse(/^\d{4}-\d{2}-\d{2} \d/.test(text) ? `${text.replace(' ', 'T')}Z` : text)
+}
+
+/** When a job came in: the old system's received time for an imported one, otherwise when it was made. */
+function receivedAt(row: JobRegisterRow): number {
+  const received = timeOf(row.details?.receivedAt)
+  return Number.isFinite(received) ? received : row.kind === 'history' ? NaN : timeOf(row.createdAt)
+}
+
+function mondayOf(time: number): number {
+  const day = new Date(time)
+  day.setUTCHours(0, 0, 0, 0)
+  day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7))
+  return day.getTime()
+}
+
+/** Today, overdue and the weekly trend, from every row (the date filter does not apply to "now"). */
+function nowFigures(rows: JobRegisterRow[], now = Date.now()): Pick<JobReport, 'today' | 'weekly'> {
+  const DAY = 86_400_000
+  const today = new Date(now).toISOString().slice(0, 10)
+  const thisWeek = mondayOf(now)
+  const weekly = Array.from({ length: 8 }, (_, index) => ({
+    weekStart: new Date(thisWeek - (7 - index) * 7 * DAY).toISOString().slice(0, 10),
+    received: 0,
+    completed: 0,
+  }))
+  const firstWeek = thisWeek - 7 * 7 * DAY
+  const figures = { date: today, scheduled: 0, overdue: 0, unassigned: 0, urgent: 0, receivedLast7Days: 0, completedLast7Days: 0, completedLast30Days: 0 }
+  let oldest = NaN
+  for (const row of rows) {
+    const received = receivedAt(row)
+    const completed = DONE.has(row.category) ? timeOf(row.completedAt) : NaN
+    if (Number.isFinite(received)) {
+      if (now - received <= 7 * DAY) figures.receivedLast7Days += 1
+      if (received >= firstWeek) weekly[Math.min(7, Math.floor((received - firstWeek) / (7 * DAY)))].received += 1
+    }
+    if (Number.isFinite(completed)) {
+      if (now - completed <= 7 * DAY) figures.completedLast7Days += 1
+      if (now - completed <= 30 * DAY) figures.completedLast30Days += 1
+      if (completed >= firstWeek) weekly[Math.min(7, Math.floor((completed - firstWeek) / (7 * DAY)))].completed += 1
+    }
+    if (!isOpen(row.category)) continue
+    if (row.category === 'pending' || row.category === 'not_booked') figures.unassigned += 1
+    if (row.callOut) figures.urgent += 1
+    const booked = String(row.scheduledDate || '').slice(0, 10)
+    if (DATE.test(booked)) {
+      if (booked === today) figures.scheduled += 1
+      else if (booked < today && row.category !== 'failed') figures.overdue += 1
+    }
+    if (Number.isFinite(received) && !(received >= oldest)) oldest = received
+  }
+  return {
+    today: {
+      ...figures,
+      ...(Number.isFinite(oldest) ? { oldestOpenDays: Math.max(0, Math.floor((now - oldest) / DAY)) } : {}),
+    },
+    weekly,
   }
 }
 

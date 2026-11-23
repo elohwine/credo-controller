@@ -1794,6 +1794,7 @@ export default function FinancePage() {
   const [orgContextBundle, setOrgContextBundle] = useState<OrgContextBundleCacheEntry | null>(null)
   const [showFieldRun, setShowFieldRun] = useState(false)
   const [showJobBoard, setShowJobBoard] = useState(false)
+  const [jobBoardView, setJobBoardView] = useState<'list' | 'reports'>('list')
   const [fieldRunsLimit, setFieldRunsLimit] = useState(50)
   const { api: phoneOperations, notify: phoneNotify } = usePhoneOperations()
   // A worker acts on their own job with whichever profile they are in, so not only the org token.
@@ -2414,6 +2415,14 @@ export default function FinancePage() {
   // Stuck jobs are flagged in the jobs list itself, not listed a second time elsewhere.
   const [fieldAttention, setFieldAttention] = useState<Map<string, AttentionItem>>(new Map())
   const [fieldAttentionOnly, setFieldAttentionOnly] = useState(false)
+  useEffect(() => {
+    if (!router.isReady) return
+    if (router.query.attention === '1') setFieldAttentionOnly(true)
+    if (router.query.report === '1') {
+      setJobBoardView('reports')
+      setShowJobBoard(true)
+    }
+  }, [router.isReady, router.query.attention, router.query.report])
   useEffect(() => {
     if (!phoneOperations || !fieldRunsEnabled) return
     let cancelled = false
@@ -5314,7 +5323,7 @@ export default function FinancePage() {
               <Button variant="light" size="md" radius="xl" leftSection={<IconTruck size={18} />} onClick={() => router.push('/registers')}>
                 Stores & vans
               </Button>
-              <Button variant="light" size="md" radius="xl" leftSection={<IconCalendar size={18} />} onClick={() => setShowJobBoard(true)}>
+              <Button variant="light" size="md" radius="xl" leftSection={<IconCalendar size={18} />} onClick={() => { setJobBoardView('list'); setShowJobBoard(true) }}>
                 Calendar
               </Button>
             </Group>
@@ -5648,6 +5657,7 @@ export default function FinancePage() {
                     canExport={['owner', 'admin', 'manager', 'dispatcher'].includes(String(getOrgRoleClaim() || '').toLowerCase())}
                     notify={phoneNotify}
                     refreshKey={fieldRuns.length}
+                    initialView={jobBoardView}
                     onOpenJob={(runId) => {
                       void api.get(`/workflows/runs/${encodeURIComponent(runId)}`).then((fresh) => {
                         setShowJobBoard(false)

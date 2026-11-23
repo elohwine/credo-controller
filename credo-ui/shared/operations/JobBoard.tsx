@@ -104,6 +104,7 @@ export function JobBoard({
   notify,
   onOpenJob,
   refreshKey,
+  initialView = 'list',
 }: {
   api: OperationsApi | null
   surface: 'portal' | 'phone'
@@ -114,13 +115,15 @@ export function JobBoard({
   notify: (message: string, tone: 'success' | 'error' | 'info') => void
   onOpenJob: (runId: string) => void
   refreshKey?: number
+  /** `reports` opens on the report, as the home dashboard's "Full report" link does. */
+  initialView?: 'list' | 'calendar' | 'reports'
 }) {
   const [rows, setRows] = useState<JobRegisterRow[]>([])
   const [total, setTotal] = useState(0)
   const [calendarRows, setCalendarRows] = useState<JobRegisterRow[]>([])
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
-  const [view, setView] = useState('list')
+  const [view, setView] = useState<string>(initialView)
   const [layout, setLayout] = useState<'table' | 'cards'>(surface === 'phone' ? 'cards' : 'table')
   const [source, setSource] = useState<string | null>('all')
   const [category, setCategory] = useState<string | null>('all')
@@ -649,10 +652,28 @@ export function JobBoard({
             </Text>
           ))}
           {report.byStore.length > 0 && (
-            <SummaryTable rows={report.byStore} rowKey={(store) => store.storeNumber} name={{ key: 'storeNumber', title: 'Store' }} counts={STORE_COUNTS} itemWord="store" />
+            <SummaryTable
+              rows={report.byStore.map(({ storeNumber, name, open, completed, total }) => ({ storeNumber, store: name ? `${storeNumber} · ${name}` : storeNumber, open, completed, total }))}
+              rowKey={(store) => store.storeNumber}
+              name={{ key: 'store', title: 'Store' }}
+              counts={STORE_COUNTS}
+              itemWord="store"
+            />
           )}
           {report.byWorker.length > 0 && (
-            <SummaryTable rows={report.byWorker} rowKey={(worker) => worker.userId} name={{ key: 'name', title: 'Worker' }} counts={WORKER_COUNTS} itemWord="worker" />
+            <SummaryTable
+              rows={report.byWorker.map(({ userId, name, oldSystem, open, completed, failed }) => ({
+                key: userId || `old:${name}`,
+                name: oldSystem ? `${name} (old system)` : name,
+                open,
+                completed,
+                failed,
+              }))}
+              rowKey={(worker) => worker.key}
+              name={{ key: 'name', title: 'Worker' }}
+              counts={WORKER_COUNTS}
+              itemWord="worker"
+            />
           )}
         </Stack>
       )}
@@ -681,8 +702,8 @@ export function JobBoard({
   )
 }
 
-type StoreSummary = JobReport['byStore'][number]
-type WorkerSummary = JobReport['byWorker'][number]
+type StoreSummary = { storeNumber: string; store: string; open: number; completed: number; total: number }
+type WorkerSummary = { key: string; name: string; open: number; completed: number; failed: number }
 
 const STORE_COUNTS: Array<{ key: keyof StoreSummary & string; title: string }> = [
   { key: 'open', title: 'Open' },

@@ -85,6 +85,7 @@ export default function JobCardsBoard() {
     const [selectedJob, setSelectedJob] = useState<JobCard | null>(null);
     const [showNewJob, setShowNewJob] = useState(false);
     const [showBoard, setShowBoard] = useState(false);
+    const [boardView, setBoardView] = useState<'list' | 'reports'>('list');
     const [limit, setLimit] = useState(PAGE);
     const [hasMore, setHasMore] = useState(false);
     const [canCreate, setCanCreate] = useState(false);
@@ -241,7 +242,11 @@ export default function JobCardsBoard() {
         if (!router.isReady) return;
         const status = String(router.query.status || '').trim();
         if (status) setStatusFilter(status);
-    }, [router.isReady, router.query.status]);
+        if (router.query.report === '1') {
+            setBoardView('reports');
+            setShowBoard(true);
+        }
+    }, [router.isReady, router.query.status, router.query.report]);
 
     // A stuck job may be older than the 50 runs on the board: load it by itself when it is not there.
     const openJobById = async (runId: string) => {
@@ -416,7 +421,7 @@ export default function JobCardsBoard() {
                             { label: 'Cards', value: 'cards' },
                         ]}
                     />
-                    <Button variant="light" leftSection={<IconCalendarStats size={16} />} onClick={() => setShowBoard(true)}>
+                    <Button variant="light" leftSection={<IconCalendarStats size={16} />} onClick={() => { setBoardView('list'); setShowBoard(true); }}>
                         Calendar & report
                     </Button>
                     <ActionIcon variant="light" size="lg" onClick={fetchJobs} loading={loading}>
@@ -634,6 +639,7 @@ export default function JobCardsBoard() {
                         canExport={canCreate}
                         notify={notify}
                         refreshKey={jobs.length}
+                        initialView={boardView}
                         onOpenJob={(runId) => {
                             setShowBoard(false);
                             void openJobById(runId);

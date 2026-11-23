@@ -156,6 +156,43 @@ describe('Jobs list, export, reports and what is filled in on site', () => {
     expect(report.averageDaysToComplete).toBe(2)
   })
 
+  it('reports where jobs stand today, the weekly trend, problems, store names and old-system workers', () => {
+    restores.push(jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-25T12:00:00Z')))
+    db.prepare(`INSERT INTO org_contacts (id, org_tenant_id, name, store_number) VALUES ('c1', ?, 'Lidl Paignton', '1958')`).run(ORG)
+    addJob('RUN-TODAY', { storeNumber: '1958', problemType: 'Doors', scheduledDate: '2026-11-25', importedWorkerName: 'Gary Old', callOut: true })
+    addJob('RUN-LATE', { storeNumber: '1958', problemType: 'doors', scheduledDate: '2026-11-21', assigneeId: FARAI }, 'paused', {
+      workflowStage: 'ASSIGNED',
+      assignment: { assigneeId: FARAI },
+    })
+    addJob('RUN-DONE', { problemType: 'Roof', scheduledDate: '2026-11-20' }, 'completed', {}, '2026-11-24T08:00:00Z')
+
+    const report = register.report(ORG)
+    expect(report.today).toEqual({
+      date: '2026-11-25',
+      scheduled: 1,
+      overdue: 1,
+      unassigned: 1,
+      urgent: 1,
+      receivedLast7Days: 3,
+      completedLast7Days: 1,
+      completedLast30Days: 1,
+      oldestOpenDays: 5,
+    })
+    expect(report.weekly).toHaveLength(8)
+    expect(report.weekly[6]).toEqual({ weekStart: '2026-11-16', received: 3, completed: 0 })
+    expect(report.weekly[7]).toEqual({ weekStart: '2026-11-23', received: 0, completed: 1 })
+    expect(report.byStore[0]).toEqual({ storeNumber: '1958', name: 'Lidl Paignton', open: 2, completed: 0, total: 2 })
+    expect(report.byProblemType[0]).toEqual({ problemType: 'Doors', open: 2, total: 2 })
+    expect(report.byWorker).toEqual(
+      expect.arrayContaining([
+        { userId: FARAI, name: 'Farai Ncube', open: 1, completed: 0, failed: 0 },
+        { userId: '', name: 'Gary Old', oldSystem: true, open: 1, completed: 0, failed: 0 },
+      ]),
+    )
+    // The date filter narrows the lists but not "today".
+    expect(register.report(ORG, { from: '2026-11-20', to: '2026-11-20' }).today.overdue).toBe(1)
+  })
+
   it('pages a long imported or mailed-in list without losing jobs, with the total and the asked order', () => {
     for (let index = 0; index < 620; index += 1) {
       jobIntakeRepository.create(ORG, 'mail:jobs@sgk.test', {

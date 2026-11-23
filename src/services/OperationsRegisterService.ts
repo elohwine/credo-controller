@@ -79,6 +79,8 @@ export interface JobSummary {
   currency?: string
   createdAt: string
   completedAt?: string
+  /** Who the old system had on an imported job, when they are not on the team here. */
+  workerName?: string
   /** The visit waiting to be re-booked. */
   failedVisit?: { reason: string; label: string; note?: string; at: string; workerId?: string }
   /** Everyone who had a failed visit on this job, even after it was re-booked to someone else. */
@@ -328,6 +330,7 @@ export class OperationsRegisterService {
         currency: clean(input.currency, 3) || undefined,
         createdAt: row.createdAt,
         completedAt: row.completedAt || undefined,
+        workerName: clean(input.importedWorkerName, 160) || undefined,
         ...(open
           ? {
               failedVisit: {

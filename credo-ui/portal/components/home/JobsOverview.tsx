@@ -1,145 +1,41 @@
-import React, { useEffect, useState } from 'react'
-import axios from 'axios'
+import React, { useMemo } from 'react'
 import Link from 'next/link'
-import { Anchor, Badge, Box, Group, Paper, SimpleGrid, Stack, Text, Title, UnstyledButton } from '@mantine/core'
+import { useRouter } from 'next/router'
+import { Anchor, Group, Paper, Text, Title } from '@mantine/core'
 import { IconArrowRight } from '@tabler/icons-react'
-import {
-    OPEN_FIELD_JOB_CATEGORIES,
-    fieldJobCategory,
-    fieldJobInput,
-    fieldJobUrgent,
-    isFieldJobRun,
-    type FieldJobCategory,
-} from '../../../../src/config/fieldJobCategory'
-import { jobStatusColor, jobStatusLabel } from '@/components/finance/financeStages'
-import { jobHeading } from '@/components/finance/jobAuditTrail'
-import { isRequestFlowRun } from '../../../shared/requestDecision'
-
-interface JobRun {
-    id: string
-    status?: string
-    workflowId?: string
-    input?: any
-    output?: any
-    createdAt?: string
-    created_at?: string
-    updatedAt?: string
-    updated_at?: string
-}
+import { operationsApi } from '../../../shared/operations/operationsApi'
+import { JobsDashboard, type JobsDashboardTarget } from '../../../shared/operations/JobsDashboard'
 
 const BOARD = '/finance/job-cards'
 
-function touchedAt(run: JobRun): number {
-    return Date.parse(String(run.updatedAt || run.updated_at || run.createdAt || run.created_at || '')) || 0
+export function portalJobsHref(target: JobsDashboardTarget): string {
+    if (target.kind === 'job') return `${BOARD}?runId=${encodeURIComponent(target.runId)}`
+    if (target.kind === 'report') return `${BOARD}?report=1`
+    if (!target.filter) return BOARD
+    return `${BOARD}?status=${target.filter === 'attention' ? 'failed' : target.filter}`
 }
 
-/** The Jobs board in one glance on the home page: where jobs stand, what is urgent, what came in. */
+/** The jobs dashboard on the home page; every figure opens the Jobs list it counts. */
 export default function JobsOverview({ backendUrl, token }: { backendUrl: string; token: string }) {
-    const [runs, setRuns] = useState<JobRun[] | null>(null)
-    const [waitingToBook, setWaitingToBook] = useState<number | null>(null)
-    // Counts over every job; the runs list only holds the newest ones.
-    const [totals, setTotals] = useState<Record<string, number> | null>(null)
-    const [stuck, setStuck] = useState<Set<string>>(new Set())
-
-    useEffect(() => {
-        let cancelled = false
-        const headers = { Authorization: `Bearer ${token}` }
-        void (async () => {
-            const [runRes, intakeRes, reportRes, attentionRes] = await Promise.all([
-                axios.get(`${backendUrl}/workflows/runs`, { headers, params: { limit: 200 } }).catch(() => ({ data: [] })),
-                axios.get(`${backendUrl}/api/platform/job-intake`, { headers }).catch(() => ({ data: { items: [] } })),
-                axios.get(`${backendUrl}/api/platform/operations/reports`, { headers }).catch(() => ({ data: null })),
-                axios.get(`${backendUrl}/api/platform/operations/attention`, { headers }).catch(() => ({ data: { items: [] } })),
-            ])
-            if (cancelled) return
-            const rows: JobRun[] = (Array.isArray(runRes.data) ? runRes.data : runRes.data?.items || [])
-                .filter((run: any) => !isRequestFlowRun(run) && isFieldJobRun(run))
-            setRuns(rows)
-            const intakes: any[] = Array.isArray(intakeRes.data?.items) ? intakeRes.data.items : []
-            setWaitingToBook(intakes.filter((item) => item?.status === 'pending').length)
-            setTotals(reportRes.data?.counts || null)
-            const attentionItems: any[] = Array.isArray(attentionRes.data?.items) ? attentionRes.data.items : []
-            setStuck(new Set(attentionItems.map((item) => String(item?.runId || '')).filter(Boolean)))
-        })()
-        return () => {
-            cancelled = true
-        }
-    }, [backendUrl, token])
-
-    const loading = runs === null
-    const counts = (runs || []).reduce<Record<FieldJobCategory, number>>(
-        (all, run) => {
-            all[fieldJobCategory(run)] += 1
-            return all
-        },
-        { pending: 0, assigned: 0, active: 0, arrived: 0, on_hold: 0, failed: 0, completed: 0, reconciled: 0, cancelled: 0 },
-    )
-    const open = (runs || []).filter((run) => OPEN_FIELD_JOB_CATEGORIES.has(fieldJobCategory(run)))
-    const urgentOpen = open.filter((run) => fieldJobUrgent(run))
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime()
-    const doneThisMonth = (runs || []).filter((run) => ['completed', 'reconciled'].includes(fieldJobCategory(run)) && touchedAt(run) >= monthStart).length
-
-    const tiles = [
-        { label: 'Possible repeats to check', value: waitingToBook, color: 'gray', href: BOARD },
-        { label: 'Urgent', value: urgentOpen.length, color: 'red', href: `${BOARD}?status=urgent` },
-        { label: 'Unassigned', value: totals ? totals.pending : counts.pending, color: 'gray', href: `${BOARD}?status=pending` },
-        { label: 'Assigned', value: totals ? totals.assigned : counts.assigned, color: 'indigo', href: `${BOARD}?status=assigned` },
-        { label: 'In progress', value: totals ? totals.active + totals.arrived : counts.active + counts.arrived, color: 'blue', href: `${BOARD}?status=active` },
-        { label: 'On hold', value: totals ? totals.on_hold : counts.on_hold, color: 'orange', href: `${BOARD}?status=on_hold` },
-        { label: 'Needs attention', value: new Set([...stuck, ...(runs || []).filter((run) => fieldJobCategory(run) === 'failed').map((run) => run.id)]).size, color: 'red', href: `${BOARD}?status=failed` },
-        { label: 'Done this month', value: doneThisMonth, color: 'teal', href: `${BOARD}?status=completed` },
-    ]
-
-    const latest = [...urgentOpen, ...open.filter((run) => !fieldJobUrgent(run)).sort((a, b) => touchedAt(b) - touchedAt(a))].slice(0, 6)
-
+    const router = useRouter()
+    const api = useMemo(() => operationsApi(backendUrl, token), [backendUrl, token])
     return (
         <Paper withBorder radius="lg" p="lg">
-            <Group justify="space-between" mb="sm">
-                <Title order={3}>Jobs</Title>
+            <Group justify="space-between" mb="md">
+                <div>
+                    <Title order={3}>Jobs</Title>
+                    <Text size="sm" c="dimmed">What is open, late or stuck, and where the work is.</Text>
+                </div>
                 <Anchor component={Link} href={BOARD} size="sm">
                     <Group gap={4}>Open jobs board <IconArrowRight size={14} /></Group>
                 </Anchor>
             </Group>
-            <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm" mb="md">
-                {tiles.map((tile) => (
-                    <Paper key={tile.label} component={Link} href={tile.href} withBorder radius="md" p="sm" style={{ textDecoration: 'none', color: 'inherit' }}>
-                        <Text size="xs" c="dimmed">{tile.label}</Text>
-                        <Text size="xl" fw={700} c={tile.color}>{loading || tile.value === null ? '…' : tile.value}</Text>
-                    </Paper>
-                ))}
-            </SimpleGrid>
-            <Text size="xs" c="dimmed" tt="uppercase" fw={700} mb="xs">Open jobs</Text>
-            {loading && <Text size="sm" c="dimmed">Loading jobs…</Text>}
-            {!loading && latest.length === 0 && <Text size="sm">No open jobs.</Text>}
-            <Stack gap={6}>
-                {latest.map((run) => {
-                    const input = fieldJobInput(run)
-                    const state = run.output || {}
-                    return (
-                        <UnstyledButton
-                            key={run.id}
-                            component={Link}
-                            href={`${BOARD}?runId=${encodeURIComponent(run.id)}`}
-                            style={{ display: 'block', borderRadius: 8, padding: '6px 8px', border: '1px solid var(--mantine-color-default-border)' }}
-                        >
-                            <Group justify="space-between" wrap="nowrap">
-                                <Box style={{ minWidth: 0 }}>
-                                    <Text fw={600} size="sm" truncate>{jobHeading(input).title}</Text>
-                                    <Text size="xs" c="dimmed" truncate>
-                                        {[input.clientName, input.storeNumber ? `Store ${input.storeNumber}` : '', input.reference, input.scheduledDate].filter(Boolean).join(' · ')}
-                                    </Text>
-                                </Box>
-                                <Group gap={4} wrap="nowrap">
-                                    {fieldJobUrgent(run) && <Badge color="red" variant="filled">Urgent</Badge>}
-                                    <Badge color={jobStatusColor(String(run.status || ''), state.workflowStage, state)} variant="light">
-                                        {jobStatusLabel(String(run.status || ''), state.workflowStage, String(state.pauseReason || '').toLowerCase(), state)}
-                                    </Badge>
-                                </Group>
-                            </Group>
-                        </UnstyledButton>
-                    )
-                })}
-            </Stack>
+            <JobsDashboard
+                api={api}
+                surface="portal"
+                onOpen={(target) => void router.push(portalJobsHref(target))}
+                fallback={<Text size="sm">Your jobs are on the <Anchor component={Link} href={BOARD}>jobs board</Anchor>.</Text>}
+            />
         </Paper>
     )
 }
