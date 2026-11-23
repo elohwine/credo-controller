@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Badge, Button, ColorSwatch, Group, Paper, SegmentedControl, Select, SimpleGrid, Stack, Text, TextInput } from '@mantine/core'
+import { Badge, Button, ColorSwatch, Drawer, Group, Paper, SegmentedControl, Select, SimpleGrid, Stack, Text, TextInput } from '@mantine/core'
 import { IconCalendar, IconDownload, IconMail, IconSearch } from '@tabler/icons-react'
 
+import { IMPORTED_JOB_DETAIL_LABELS } from '../../../src/config/fieldDataImport'
 import { FIELD_JOB_CATEGORY_LABELS } from '../../../src/config/fieldJobCategory'
 import { FIELD_JOB_SOURCE_OPTIONS, fieldJobSourceLabel } from '../../../src/config/fieldJobSource'
 import type { ListSort } from '../../../src/config/listPage'
@@ -136,6 +137,7 @@ export function JobBoard({
   })
   const [report, setReport] = useState<JobReport | null>(null)
   const [booking, setBooking] = useState<string | null>(null)
+  const [viewing, setViewing] = useState<JobRegisterRow | null>(null)
   const size = surface === 'phone' ? 'md' : 'sm'
 
   const filter = useMemo(
@@ -258,7 +260,11 @@ export function JobBoard({
       <Button size={size} variant="light" radius="xl" style={{ minHeight: surface === 'phone' ? 48 : 36 }} onClick={(event) => { event.stopPropagation(); onOpenJob(row.id) }}>
         Open
       </Button>
-    ) : row.kind === 'history' ? null : (
+    ) : row.kind === 'history' ? (
+      <Button size={size} variant="default" radius="xl" style={{ minHeight: surface === 'phone' ? 48 : 36 }} onClick={(event) => { event.stopPropagation(); setViewing(row) }}>
+        Details
+      </Button>
+    ) : (
       canBook && (
         <Button size={size} radius="xl" style={{ minHeight: surface === 'phone' ? 48 : 36 }} onClick={(event) => { event.stopPropagation(); setBooking(booking === row.id ? null : row.id) }}>
           Book
@@ -453,7 +459,7 @@ export function JobBoard({
             rowAccent={statusEdge}
             view={surface === 'phone' ? 'cards' : 'table'}
             renderCard={card}
-            onRowClick={(row) => (row.kind === 'job' ? onOpenJob(row.id) : undefined)}
+            onRowClick={(row) => (row.kind === 'job' ? onOpenJob(row.id) : setViewing(row))}
             rowLabel={(row) => `${row.reference} ${row.description || ''}`.trim()}
             sort={list.sort}
             onSortChange={list.setSort}
@@ -537,7 +543,7 @@ export function JobBoard({
                         variant="light"
                         color={row.source === 'email' ? 'blue' : 'gray'}
                         justify="flex-start"
-                        onClick={() => (row.kind === 'job' ? onOpenJob(row.id) : row.kind === 'history' ? undefined : setBooking(row.id))}
+                        onClick={() => (row.kind === 'job' ? onOpenJob(row.id) : setViewing(row))}
                         style={{ minHeight: 48 }}
                       >
                         <Text size="xs" lineClamp={2} ta="left">
@@ -620,6 +626,27 @@ export function JobBoard({
           )}
         </Stack>
       )}
+      <Drawer
+        opened={viewing !== null}
+        onClose={() => setViewing(null)}
+        position={surface === 'phone' ? 'bottom' : 'right'}
+        size={surface === 'phone' ? 'auto' : 'lg'}
+        radius={surface === 'phone' ? 'lg' : 0}
+        styles={surface === 'phone' ? { content: { borderRadius: '16px 16px 0 0', maxHeight: '92dvh' } } : undefined}
+        title={viewing ? `Job ${viewing.reference}` : 'Job'}
+      >
+        {viewing && (
+          <ImportedJobSheet
+            row={viewing}
+            workerName={viewing.assigneeId ? names[viewing.assigneeId] : viewing.workerName}
+            canBook={canBook && viewing.kind === 'intake'}
+            onBook={() => {
+              setBooking(viewing.id)
+              setViewing(null)
+            }}
+          />
+        )}
+      </Drawer>
     </Stack>
   )
 }
@@ -671,5 +698,54 @@ function SummaryTable<T extends Record<string, string | number>>({
   ]
   return (
     <DataTable rows={items} columns={columns} rowKey={rowKey} sort={list.sort} onSortChange={list.setSort} paging={paging} itemWord={itemWord} minWidth={360} />
+  )
+}
+
+/** Everything known about a job that came from the old system or is waiting to be booked. */
+function ImportedJobSheet({ row, workerName, canBook, onBook }: { row: JobRegisterRow; workerName?: string; canBook: boolean; onBook: () => void }) {
+  const details = row.details || {}
+  const facts = [
+    ['Description', row.description || ''] as [string, string],
+    ['Store', row.storeNumber || ''] as [string, string],
+    ['Done by', workerName || ''] as [string, string],
+    ...IMPORTED_JOB_DETAIL_LABELS.map(([key, label]): [string, string] => [label, details[key] || '']),
+  ].filter(([, value]) => value.trim() !== '')
+  const checks = details.checks || []
+  return (
+    <Stack gap="sm">
+      {facts.map(([label, value]) => (
+        <div key={label}>
+          <Text size="xs" c="dimmed">
+            {label}
+          </Text>
+          <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
+            {value}
+          </Text>
+        </div>
+      ))}
+      {checks.length > 0 && (
+        <Paper withBorder radius="md" p="sm">
+          <Text fw={600} size="sm" mb={6}>
+            Checks
+          </Text>
+          <Stack gap={4}>
+            {checks.map((check, index) => (
+              <Group key={`${check.name}-${index}`} justify="space-between" wrap="nowrap" gap="sm">
+                <Text size="sm">{check.name}</Text>
+                <Text size="sm" c="dimmed" ta="right">
+                  {check.result}
+                </Text>
+              </Group>
+            ))}
+          </Stack>
+        </Paper>
+      )}
+      {facts.length === 0 && checks.length === 0 && <Text c="dimmed">Nothing more is known about this job.</Text>}
+      {canBook && (
+        <Button radius="xl" onClick={onBook} style={{ minHeight: 48 }}>
+          Book this job
+        </Button>
+      )}
+    </Stack>
   )
 }

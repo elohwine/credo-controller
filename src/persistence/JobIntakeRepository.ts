@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'crypto'
 
+import type { ImportedJobDetails } from '../config/fieldDataImport'
+
 import { intakeDedupeKey, operationsRegisterService } from '../services/OperationsRegisterService'
 
 import { normalizeStoreNumber } from './ContactRepository'
@@ -36,6 +38,8 @@ export interface JobIntakeInput {
   sourceType?: 'manual' | 'email' | 'import'
   /** Name of the worker in the old system, for a job brought in from a file. Not a team member. */
   importedWorkerName?: string
+  /** What the old system said about the job, kept so nothing in the file is lost. */
+  importedDetails?: ImportedJobDetails
   sourceMessageId?: string
   sourceSender?: string
   sourceSubject?: string

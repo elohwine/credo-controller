@@ -3,9 +3,13 @@ import { Alert, Badge, Button, FileInput, Group, Paper, Select, Stack, Text } fr
 import { IconFileImport } from '@tabler/icons-react'
 
 import {
+  FIELD_IMPORT_COUNTRIES,
+  FIELD_IMPORT_CURRENCIES,
   FIELD_IMPORT_KIND_INFO,
   fieldImportKindInfo,
+  isFieldImportCountry,
   isFieldImportKind,
+  type FieldImportCountry,
   type FieldImportKind,
   type FieldImportPreview,
   type FieldImportResult,
@@ -16,9 +20,12 @@ import type { OperationsApi } from './operationsApi'
 
 const WHERE_IT_WENT: Record<FieldImportKind, string> = {
   stores: 'They are on the Stores tab and in the store pickers on the job, bill and payment forms.',
-  jobs: 'Open ones are in the Jobs list as "Imported from a file", ready to book. Finished ones are in the same list as history.',
-  vans: 'They are on the Vans tab.',
+  people: 'They are on the staff list in HR. Set their pay there; they are linked to their account when they join with the same phone number.',
+  vans: 'They are on the Vans tab. Retired vans are kept for their history.',
+  equipment: 'They are on the Equipment tab.',
   rates: 'They are on the Rates tab and in the rate picker when pricing a job.',
+  jobs: 'Open ones are in the Jobs list as "Imported from a file", ready to book. Finished and failed ones are in the same list as history; open one to see everything the old system had on it.',
+  checks: 'Open a job in the Jobs list to see its check results.',
 }
 
 function RowLine({ row, surface }: { row: FieldImportRowPreview; surface: 'portal' | 'phone' }) {
@@ -40,7 +47,7 @@ function RowLine({ row, surface }: { row: FieldImportRowPreview; surface: 'porta
 }
 
 /**
- * Brings in a file exported from the old job system: stores and clients, jobs, vans, rates. The
+ * Brings in a file exported from the old job system: stores, staff, vans, tools, rates, jobs and job checks. The
  * office checks what will happen first; nothing is saved until they confirm. The same file again
  * adds nothing. Same words and steps on the portal and the phone.
  */
@@ -63,6 +70,8 @@ export function ImportData({
   const [result, setResult] = useState<FieldImportResult | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [country, setCountry] = useState<FieldImportCountry>('ZW')
+  const [currency, setCurrency] = useState<string>('USD')
   const info = fieldImportKindInfo(kind)!
 
   const reset = () => {
@@ -73,13 +82,13 @@ export function ImportData({
     setError('')
   }
 
-  const check = async (nextKind: FieldImportKind, text: string) => {
+  const check = async (nextKind: FieldImportKind, text: string, nextCountry = country, nextCurrency = currency) => {
     if (!api || !text) return
     setBusy(true)
     setError('')
     setResult(null)
     try {
-      setPreview(await api.previewImport(nextKind, text))
+      setPreview(await api.previewImport(nextKind, text, { country: nextCountry, currency: nextCurrency }))
     } catch (cause) {
       setPreview(null)
       setError(cause instanceof Error ? cause.message : 'The file could not be read.')
@@ -111,7 +120,7 @@ export function ImportData({
     setBusy(true)
     setError('')
     try {
-      const done = await api.runImport(kind, content)
+      const done = await api.runImport(kind, content, { country, currency })
       setResult(done)
       setPreview(null)
       setFile(null)
@@ -138,7 +147,8 @@ export function ImportData({
         </Group>
         <Text size="sm" c="dimmed">
           Export a list from MyMobileWorkers or your spreadsheet, save it as CSV, and choose it here. You see what will happen before anything
-          is saved, and choosing the same file twice adds nothing twice. Do stores first so jobs can be linked to them.
+          is saved, and choosing the same file twice adds nothing twice. Go in this order: stores, staff, vans, tools, jobs, then job checks, so
+          each one can be linked to the last.
         </Text>
         <Stack gap="sm" mt="md">
           <Select
@@ -155,6 +165,34 @@ export function ImportData({
               void check(value, content)
             }}
           />
+          <Group grow gap="sm" align="flex-start">
+            <Select
+              size={size}
+              label="Phone numbers are from"
+              description="For numbers that start with 0"
+              allowDeselect={false}
+              data={FIELD_IMPORT_COUNTRIES.map((entry) => ({ value: entry.value, label: entry.label }))}
+              value={country}
+              onChange={(value) => {
+                if (!isFieldImportCountry(value)) return
+                setCountry(value)
+                void check(kind, content, value, currency)
+              }}
+            />
+            <Select
+              size={size}
+              label="Amounts are in"
+              description="When the file has no currency"
+              allowDeselect={false}
+              data={[...FIELD_IMPORT_CURRENCIES]}
+              value={currency}
+              onChange={(value) => {
+                if (!value) return
+                setCurrency(value)
+                void check(kind, content, country, value)
+              }}
+            />
+          </Group>
           <Text size="sm">{info.summary}</Text>
           <Text size="xs" c="dimmed">
             Columns we look for: {info.columns.join(', ')}. Other names for the same thing work too.

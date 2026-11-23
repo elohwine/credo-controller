@@ -9,6 +9,7 @@ import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { findContactByStoreNumber, listContacts } from '../../persistence/ContactRepository'
 import { FieldDataImportService, importDate, importPhone } from '../FieldDataImportService'
 import { JobRegisterService } from '../JobRegisterService'
+import { operationsRegisterService } from '../OperationsRegisterService'
 import { OrganizationService } from '../OrganizationService'
 
 const ORG = 'org-sgk'
@@ -52,6 +53,7 @@ describe('Importing stores, jobs, vans and rates from a file the old system expo
     db.exec(migration('153_employee_staff_link.sql'))
     db.exec(migration('155_job_mail_checks_rates_links.sql'))
     db.exec(migration('156_job_history_imports.sql'))
+    db.exec(migration('157_old_system_import_details.sql'))
     restores.push(jest.spyOn(DatabaseManager, 'getDatabase').mockReturnValue(db))
     restores.push(jest.spyOn(OrganizationService.prototype, 'listOrgMembers').mockReturnValue([] as any))
   })
@@ -73,6 +75,12 @@ describe('Importing stores, jobs, vans and rates from a file the old system expo
     expect(importPhone('+263 77 212 3456')).toBe('+263772123456')
     expect(importPhone('')).toBe('')
     expect(importPhone('123')).toBeNull()
+    // A UK office: local numbers become +44, the first of several is used, and "N/A" is blank.
+    expect(importPhone('07700 900123', 'GB')).toBe('+447700900123')
+    expect(importPhone('01215550000 / 07700900123', 'GB')).toBe('+441215550000')
+    expect(importPhone('+263 77 212 3456', 'GB')).toBe('+263772123456')
+    expect(importPhone('N/A', 'GB')).toBe('')
+    expect(importDate('15/10/26')).toBe('2026-10-15')
   })
 
   it('saves stores and clients as outside contacts with one contact per store number', () => {
@@ -89,14 +97,14 @@ describe('Importing stores, jobs, vans and rates from a file the old system expo
     ].join('\r\n')
 
     const preview = importer.preview(ORG, 'stores', csv)
-    expect(preview.counts).toMatchObject({ total: 7, new: 3, exists: 1, problem: 3 })
+    expect(preview.counts).toMatchObject({ total: 7, new: 4, exists: 2, problem: 1 })
     expect(preview.understood.map((entry) => entry.meaning)).toEqual(
       expect.arrayContaining(['Store number', 'Name', 'Phone', 'Email', 'Address (kept in notes)']),
     )
     expect(listContacts(ORG, 'external')).toHaveLength(0)
 
     const result = importer.commit(ORG, OWNER, 'stores', csv)
-    expect(result).toMatchObject({ added: 3, alreadyThere: 1, problems: 3 })
+    expect(result).toMatchObject({ added: 4, alreadyThere: 2, problems: 1 })
     const greendale = findContactByStoreNumber(ORG, '1042')!
     expect(greendale).toMatchObject({
       name: 'Greendale Spar, Main Rd',
@@ -108,13 +116,17 @@ describe('Importing stores, jobs, vans and rates from a file the old system expo
     expect(greendale.notes).toContain('Contact: Tendai')
     expect(findContactByStoreNumber(ORG, '2001')!.phone).toBeUndefined()
     expect(result.rows.find((row) => row.summary.includes('Store 3003'))!.problem).toMatch(/not an email/)
-    expect(result.rows.find((row) => /already on row/.test(row.problem || ''))).toBeTruthy()
-    expect(listContacts(ORG, 'external')).toHaveLength(3)
+    // A second row for a store keeps the first; a mangled phone is left out instead of losing the store.
+    expect(result.rows.find((row) => /Same store as row 2/.test(row.note || ''))!.status).toBe('exists')
+    expect(findContactByStoreNumber(ORG, '1042')!.name).toBe('Greendale Spar, Main Rd')
+    expect(findContactByStoreNumber(ORG, '4004')!.phone).toBeUndefined()
+    expect(result.rows.find((row) => row.summary.includes('4004'))!.note).toMatch(/"123" is not a phone number/)
+    expect(listContacts(ORG, 'external')).toHaveLength(4)
 
     // Same file again: nothing new, nothing doubled.
     const again = importer.commit(ORG, OWNER, 'stores', csv)
     expect(again.added).toBe(0)
-    expect(listContacts(ORG, 'external')).toHaveLength(3)
+    expect(listContacts(ORG, 'external')).toHaveLength(4)
     // The store with no phone says why a bill cannot reach it.
     expect(preview.rows.find((row) => row.summary.includes('2001'))!.note).toMatch(/cannot be texted/)
   })
@@ -216,10 +228,10 @@ describe('Importing stores, jobs, vans and rates from a file the old system expo
     const result = importer.commit(ORG, OWNER, 'vans', json)
     expect(result.added).toBe(1)
     const van = db.prepare('SELECT registration, description, service_day AS d, mot_due AS m FROM org_vans').get() as any
-    expect(van).toEqual({ registration: 'AE 1234', description: 'Toyota, Hiace', d: 'monday', m: '2027-06-30' })
+    expect(van).toEqual({ registration: 'AE 1234', description: 'Toyota Hiace', d: 'monday', m: '2027-06-30' })
 
     const preview = importer.preview(ORG, 'jobs', 'Foo,Bar\n1,2')
-    expect(preview.missing).toEqual(expect.arrayContaining(['job number', 'what the job is']))
+    expect(preview.missing).toEqual(['job number'])
     expect(preview.ignored).toEqual(['Foo', 'Bar'])
     expect(() => importer.commit(ORG, OWNER, 'jobs', 'Foo,Bar\n1,2')).toThrow(/no job number/)
     expect(() => importer.preview(ORG, 'jobs', '')).toThrow(/empty/)
@@ -259,5 +271,160 @@ describe('Importing stores, jobs, vans and rates from a file the old system expo
     expect(result.added).toBe(2)
     const rows = Array.from({ length: 2001 }, (_, i) => `${i},Shop ${i}`).join('\n')
     expect(() => importer.preview(ORG, 'stores', `Store Number,Name\n${rows}`)).toThrow(/Import up to 2000/)
+  })
+
+  it('brings in a MyMobileWorkers export: staff, vans, tools, jobs with their details and check results', () => {
+    const options = { country: 'GB' as const, currency: 'GBP' }
+    importer.commit(
+      ORG,
+      OWNER,
+      'stores',
+      [
+        'Customer,Contact Name,Address,Postcode,Contact Number,Contact Email,External ID,Store No.',
+        '1007 - Great Bridge,Store Manager,1 High St,dy4 7aa,01215550000,N/A,1007,',
+        '1012 - Oldbury,-,2 Low St,B69 1AA,-,-,1012,1012',
+      ].join('\n'),
+      undefined,
+      options,
+    )
+    const store = findContactByStoreNumber(ORG, '1007')!
+    expect(store).toMatchObject({ name: '1007 - Great Bridge', phone: '+441215550000', postcode: 'DY4 7AA', externalId: '1007' })
+    expect(store.email).toBeUndefined()
+
+    const people = importer.commit(
+      ORG,
+      OWNER,
+      'people',
+      [
+        'External ID,Username,Full name,Email,Contact number,Branch,Archived',
+        'SGK01,GeorgeTavenenhamo,,george@example.com,07700900123,Midlands,',
+        'Jordan Smith,JordanSmith_deleted,,,,Midlands,yes',
+        ',Head Office,Head Office,,,,',
+        'SGK01,GeorgeTavenenhamo,,,,,',
+      ].join('\n'),
+      undefined,
+      options,
+    )
+    expect(people).toMatchObject({ added: 2, alreadyThere: 1, problems: 1 })
+    const staff = db
+      .prepare('SELECT first_name AS f, last_name AS l, phone, status, staff_number AS n, branch, legacy_username AS u, currency FROM employees ORDER BY first_name')
+      .all()
+    expect(staff).toEqual([
+      { f: 'George', l: 'Tavenenhamo', phone: '+447700900123', status: 'active', n: 'SGK01', branch: 'Midlands', u: 'GeorgeTavenenhamo', currency: 'GBP' },
+      // A name in the staff-number column is not a staff number.
+      { f: 'Jordan', l: 'Smith', phone: null, status: 'terminated', n: null, branch: 'Midlands', u: 'JordanSmith', currency: 'GBP' },
+    ])
+
+    const vans = importer.commit(
+      ORG,
+      OWNER,
+      'vans',
+      [
+        'Registration,Make,Model,Branch,Mileage,MOT Expiry,Tax Expiry,Last check,Passed Checks,Vehicle Status,Archived',
+        'ab12 cde,Ford,Transit,Midlands,85000,01/03/2027,-,20/11/2026 07:45,FAIL,Checked Out,',
+        'XY99 ZZZ,Vauxhall,Vivaro,,850000000,,,,,Active,yes',
+      ].join('\n'),
+    )
+    expect(vans).toMatchObject({ added: 2, problems: 0 })
+    expect(vans.rows[1].note).toMatch(/Mileage 850000000 looks wrong/)
+    const [transit, vivaro] = operationsRegisterService.listVans(ORG)
+    expect(transit).toMatchObject({
+      registration: 'AB12 CDE',
+      description: 'Ford Transit',
+      branch: 'Midlands',
+      mileage: 85000,
+      motDue: '2027-03-01',
+      lastCheckDate: '2026-11-20',
+      lastCheckOutcome: 'defect',
+      status: 'active',
+    })
+    expect(transit.taxDue).toBeUndefined()
+    expect(vivaro).toMatchObject({ status: 'retired' })
+    expect(vivaro.mileage).toBeUndefined()
+
+    const tools = importer.commit(
+      ORG,
+      OWNER,
+      'equipment',
+      ['External ID,Name,Product code,Notes,Price,Category', 'T1,Samsung Tablet,SM-T500,Assigned to Jordan on 04/02/22,199,Devices', ',Makita Drill,,,,Tools'].join('\n'),
+      undefined,
+      options,
+    )
+    expect(tools.added).toBe(2)
+    expect(operationsRegisterService.listEquipment(ORG)[0]).toMatchObject({
+      name: 'Samsung Tablet',
+      serialNumber: 'T1',
+      holderName: 'Jordan',
+      value: 199,
+      currency: 'GBP',
+      category: 'Devices',
+    })
+    expect(importer.commit(ORG, OWNER, 'equipment', 'Name,Category\nMakita Drill,Tools')).toMatchObject({ added: 0, alreadyThere: 1 })
+
+    const jobs = [
+      'Job Type,Priority,Job Number,Status,External ID,Failure Type,Assigned to,Planned Vehicles,Secondary Users,Branch,Contact Name,Contact Numbers,Timeslot,Customer,Address,Postcode,Task,Arrived At,Completed At,Created At,Special Instructions,Notes,Invoice Number,Invoice sent to Lidl?',
+      'Job Card v2,Urgent,1007ABC,Viewed,,,GeorgeTavenenhamo,AB12 CDE,JordanSmith_deleted,Midlands,Jane,07700900999,30-11-2026 22:00,1007 - Great Bridge,1 High St,DY4 7AA,,,,23-11-2026 09:15,Freezer not cooling,,Attend on 30/11/26 @ 22:00hrs,',
+      'Job Card v2,Not Set,5739WZYEO7OBL,Failed,1012,Access Denied,GeorgeTavenenhamo,,,Midlands,,,21-11-2026 Any Time,Somewhere Unknown,,,,21-11-2026 10:00,,20-11-2026 08:00,Check door,No one on site,,',
+      'Job Card v2,Normal,1007XYZ,Completed without signature,,,JordanSmith_deleted,,,,,,22-11-2026,1007 - Great Bridge,,,Replace bulb,,22-11-2026 14:30,22-11-2026 08:00,,Done,HSS Attached,15/10/26',
+    ].join('\n')
+    const result = importer.commit(ORG, OWNER, 'jobs', jobs, undefined, options)
+    expect(result).toMatchObject({ added: 3, waiting: 1, history: 2, problems: 0 })
+
+    const byRef = new Map(register.rows(ORG).map((row) => [row.reference, row]))
+    expect(byRef.get('1007ABC')).toMatchObject({
+      kind: 'intake',
+      storeNumber: '1007',
+      description: 'Freezer not cooling',
+      callOut: true,
+      workerName: 'George Tavenenhamo',
+      createdAt: '2026-11-23T09:15:00',
+      details: {
+        oldStatus: 'Viewed',
+        priority: 'Urgent',
+        timeslot: '22:00',
+        jobType: 'Job Card v2',
+        contactName: 'Jane',
+        invoiceNote: 'Attend on 30/11/26 @ 22:00hrs',
+        vehicle: 'AB12 CDE',
+        helpers: 'Jordan Smith',
+      },
+    })
+    expect(byRef.get('1007ABC')!.problemType).toBeUndefined()
+    const intake = JSON.parse((db.prepare('SELECT payload_json AS p FROM job_intakes').get() as { p: string }).p)
+    expect(intake).toMatchObject({ clientPhone: '+447700900999', currency: 'GBP', vehicleReference: 'AB12 CDE' })
+    // A failed visit is history; its store comes from the client reference when the name has no number.
+    expect(byRef.get('5739WZYEO7OBL')).toMatchObject({
+      kind: 'history',
+      category: 'failed',
+      storeNumber: '1012',
+      description: 'Check door',
+      details: { failureType: 'Access Denied', notes: 'No one on site', arrivedAt: '2026-11-21T10:00:00' },
+    })
+    expect(byRef.get('5739WZYEO7OBL')!.details!.priority).toBeUndefined()
+    expect(byRef.get('1007XYZ')).toMatchObject({
+      kind: 'history',
+      category: 'completed',
+      description: 'Replace bulb',
+      workerName: 'Jordan Smith',
+      completedAt: '2026-11-22',
+      details: { oldStatus: 'Completed without signature', invoiceNote: 'HSS Attached', invoiceSentOn: '2026-10-15' },
+    })
+
+    const checks = [
+      'Name,Checklist Result,Job Number,Job Status',
+      'Freezer temperature,Pass,1007ABC,Viewed',
+      'Site safe,Fail,1007XYZ,Completed',
+      'Site safe,Fail,1007XYZ,Completed',
+      'Lights,Pass,NOPE,Completed',
+    ].join('\n')
+    expect(importer.preview(ORG, 'checks', checks).counts).toMatchObject({ new: 2, exists: 1, problem: 1 })
+    expect(importer.commit(ORG, OWNER, 'checks', checks)).toMatchObject({ added: 2, alreadyThere: 1, problems: 1 })
+    expect(importer.commit(ORG, OWNER, 'checks', checks)).toMatchObject({ added: 0, alreadyThere: 3 })
+    const after = new Map(register.rows(ORG).map((row) => [row.reference, row]))
+    expect(after.get('1007ABC')!.details!.checks).toEqual([{ name: 'Freezer temperature', result: 'Pass' }])
+    expect(after.get('1007XYZ')!.details!.checks).toEqual([{ name: 'Site safe', result: 'Fail' }])
+    // Nothing imported starts a job or a bill.
+    expect(db.prepare('SELECT COUNT(*) AS n FROM workflow_runs').get()).toEqual({ n: 0 })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM payment_links').get()).toEqual({ n: 0 })
   })
 })

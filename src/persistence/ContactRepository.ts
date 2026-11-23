@@ -16,6 +16,9 @@ export interface OrgContact {
   notes?: string
   /** The client's own store number; one per store within the organisation. */
   storeNumber?: string
+  postcode?: string
+  /** The client's id in the office's old system, kept from an import. */
+  externalId?: string
   /** Linked holder wallet tenant ID, if the contact has claimed the link */
   walletTenantId?: string
   /** When the holder linked their wallet to this contact */
@@ -39,6 +42,8 @@ interface ContactRow {
   did: string | null
   notes: string | null
   store_number?: string | null
+  postcode?: string | null
+  external_id?: string | null
   wallet_tenant_id: string | null
   linked_at: string | null
   link_token: string | null
@@ -58,6 +63,8 @@ function toContact(row: ContactRow): OrgContact {
     did: row.did ?? undefined,
     notes: row.notes ?? undefined,
     storeNumber: row.store_number ?? undefined,
+    postcode: row.postcode ?? undefined,
+    externalId: row.external_id ?? undefined,
     walletTenantId: row.wallet_tenant_id ?? undefined,
     linkedAt: row.linked_at ?? undefined,
     createdAt: row.created_at,

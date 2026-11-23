@@ -12,6 +12,8 @@
 
 import { randomUUID } from 'crypto'
 
+import type { ImportedJobDetails } from '../config/fieldDataImport'
+
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import {
   findContactByStoreNumber,
@@ -110,6 +112,9 @@ export interface PendingIntakeSummary {
   poNumber?: string
   callOut?: boolean
   status?: string
+  /** Who did it in the old system, for a job brought in from a file. */
+  workerName?: string
+  details?: ImportedJobDetails
 }
 
 export interface StoreSummary {
@@ -140,11 +145,30 @@ export interface VanRecord {
   description?: string
   serviceDay?: string
   motDue?: string
+  taxDue?: string
+  branch?: string
+  mileage?: number
+  lastCheckDate?: string
+  lastCheckOutcome?: 'ok' | 'defect'
   driverUserId?: string
   driverName?: string
   status: VanStatus
   createdAt: string
   updatedAt: string
+}
+
+export interface EquipmentItem {
+  id: string
+  name: string
+  category?: string
+  productCode?: string
+  serialNumber?: string
+  value?: number
+  currency?: string
+  /** Who holds it, as written in the file it came from. */
+  holderName?: string
+  notes?: string
+  createdAt: string
 }
 
 export interface VanEvent {
@@ -397,6 +421,13 @@ export class OperationsRegisterService {
         poNumber: clean(payload.poNumber, 120) || undefined,
         callOut: payload.callOut === true,
         status: row.status,
+        workerName: clean(payload.importedWorkerName, 160) || undefined,
+        details:
+          payload.importedDetails &&
+          typeof payload.importedDetails === 'object' &&
+          !Array.isArray(payload.importedDetails)
+            ? (payload.importedDetails as ImportedJobDetails)
+            : undefined,
       }
     })
   }
@@ -579,11 +610,35 @@ export class OperationsRegisterService {
 
   // ─── Vans ──────────────────────────────────────────────────────────────
 
+  public listEquipment(orgTenantId: string): EquipmentItem[] {
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT id, name, category, product_code AS productCode, serial_number AS serialNumber, value, currency,
+                  holder_name AS holderName, notes, created_at AS createdAt
+             FROM org_equipment WHERE org_tenant_id = ? ORDER BY category, name`,
+        )
+        .all(orgTenantId) as Array<Record<string, any>>
+      return rows.map((row) => {
+        const item: EquipmentItem = { id: String(row.id), name: String(row.name), createdAt: String(row.createdAt) }
+        for (const key of ['category', 'productCode', 'serialNumber', 'currency', 'holderName', 'notes'] as const) {
+          if (row[key]) item[key] = String(row[key])
+        }
+        if (row.value !== null && row.value !== undefined) item.value = Number(row.value)
+        return item
+      })
+    } catch (error) {
+      if (/no such table/i.test(error instanceof Error ? error.message : String(error))) return []
+      throw error
+    }
+  }
+
   public listVans(orgTenantId: string): VanRecord[] {
     const names = this.memberNamesSafe(orgTenantId)
     const rows = this.db
       .prepare(
-        `SELECT id, registration, description, service_day AS serviceDay, mot_due AS motDue,
+        `SELECT id, registration, description, service_day AS serviceDay, mot_due AS motDue, tax_due AS taxDue,
+                branch, mileage, last_check_date AS lastCheckDate, last_check_outcome AS lastCheckOutcome,
                 driver_user_id AS driverUserId, status, created_at AS createdAt, updated_at AS updatedAt
            FROM org_vans WHERE org_tenant_id = ? ORDER BY registration`,
       )
@@ -593,6 +648,11 @@ export class OperationsRegisterService {
       description: row.description || undefined,
       serviceDay: row.serviceDay || undefined,
       motDue: row.motDue || undefined,
+      taxDue: row.taxDue || undefined,
+      branch: row.branch || undefined,
+      mileage: row.mileage ?? undefined,
+      lastCheckDate: row.lastCheckDate || undefined,
+      lastCheckOutcome: row.lastCheckOutcome || undefined,
       driverUserId: row.driverUserId || undefined,
       driverName: row.driverUserId ? names.get(row.driverUserId) : undefined,
     }))
@@ -620,6 +680,11 @@ export class OperationsRegisterService {
       description?: string
       serviceDay?: string
       motDue?: string
+      taxDue?: string
+      branch?: string
+      mileage?: number | null
+      lastCheckDate?: string
+      lastCheckOutcome?: 'ok' | 'defect' | null
       driverUserId?: string | null
       status?: VanStatus
     },
@@ -637,6 +702,17 @@ export class OperationsRegisterService {
     const serviceDay = clean(input.serviceDay ?? existing?.serviceDay, 12).toLowerCase()
     if (serviceDay && !DAY_NAMES.includes(serviceDay)) throw new Error('Service day must be a day of the week')
     const motDue = input.motDue === undefined ? existing?.motDue : cleanDate(input.motDue, 'MOT due date')
+    const taxDue = input.taxDue === undefined ? existing?.taxDue : cleanDate(input.taxDue, 'Tax due date')
+    const lastCheckDate =
+      input.lastCheckDate === undefined ? existing?.lastCheckDate : cleanDate(input.lastCheckDate, 'Last check date')
+    const lastCheckOutcome =
+      input.lastCheckOutcome === undefined ? existing?.lastCheckOutcome : input.lastCheckOutcome || undefined
+    if (lastCheckOutcome && !['ok', 'defect'].includes(lastCheckOutcome)) throw new Error('Unknown check outcome')
+    const mileage = input.mileage === undefined ? existing?.mileage : (input.mileage ?? undefined)
+    if (mileage !== undefined && (!Number.isInteger(mileage) || mileage < 0)) {
+      throw new Error('Mileage must be a whole number')
+    }
+    const branch = clean(input.branch ?? existing?.branch, 80)
     const status: VanStatus = input.status ?? existing?.status ?? 'active'
     if (!['active', 'off_road', 'retired'].includes(status)) throw new Error('Unknown van status')
     const driverUserId =
@@ -659,12 +735,15 @@ export class OperationsRegisterService {
       }
       this.db
         .prepare(
-          `INSERT INTO org_vans (id, org_tenant_id, registration, description, service_day, mot_due, driver_user_id, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO org_vans (id, org_tenant_id, registration, description, service_day, mot_due, driver_user_id, status,
+                                 tax_due, branch, mileage, last_check_date, last_check_outcome)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (id) DO UPDATE SET
              registration = excluded.registration, description = excluded.description,
              service_day = excluded.service_day, mot_due = excluded.mot_due,
              driver_user_id = excluded.driver_user_id, status = excluded.status,
+             tax_due = excluded.tax_due, branch = excluded.branch, mileage = excluded.mileage,
+             last_check_date = excluded.last_check_date, last_check_outcome = excluded.last_check_outcome,
              updated_at = CURRENT_TIMESTAMP`,
         )
         .run(
@@ -676,6 +755,11 @@ export class OperationsRegisterService {
           motDue || null,
           driverUserId || null,
           status,
+          taxDue || null,
+          branch || null,
+          mileage ?? null,
+          lastCheckDate || null,
+          lastCheckOutcome || null,
         )
       if (driverUserId && driverUserId !== existing?.driverUserId) {
         this.insertEvent(orgTenantId, actorId, {

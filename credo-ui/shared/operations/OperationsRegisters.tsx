@@ -18,7 +18,7 @@ import {
   Textarea,
   UnstyledButton,
 } from '@mantine/core'
-import { IconBuildingStore, IconPlus, IconSearch, IconTruck } from '@tabler/icons-react'
+import { IconBuildingStore, IconPlus, IconSearch, IconTool, IconTruck } from '@tabler/icons-react'
 
 import { ImportData } from './ImportData'
 import { OfficeRates } from './OfficeRates'
@@ -41,6 +41,7 @@ import {
   type StoreSummary,
   type VanEvent,
   type VanFile,
+  type EquipmentItem,
   type VanRecord,
 } from './operationsApi'
 
@@ -233,6 +234,7 @@ export function OperationsRegisters({
   const [stores, setStores] = useState<StoreSummary[]>([])
   const [attendants, setAttendants] = useState<AttendantSummary[]>([])
   const [vans, setVans] = useState<VanRecord[]>([])
+  const [equipment, setEquipment] = useState<EquipmentItem[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -246,10 +248,16 @@ export function OperationsRegisters({
     if (!api) return
     setLoading(true)
     try {
-      const [storeRows, attendantRows, vanRows] = await Promise.all([api.stores(), api.attendants(), api.vans()])
+      const [storeRows, attendantRows, vanRows, equipmentRows] = await Promise.all([
+        api.stores(),
+        api.attendants(),
+        api.vans(),
+        api.equipment(),
+      ])
       setStores(storeRows)
       setAttendants(attendantRows)
       setVans(vanRows)
+      setEquipment(equipmentRows)
       setLoaded(true)
     } catch (error) {
       notify(message(error), 'error')
@@ -280,20 +288,23 @@ export function OperationsRegisters({
           <Tabs.Tab value="vans" leftSection={<IconTruck size={18} />}>
             Vans
           </Tabs.Tab>
+          <Tabs.Tab value="equipment" leftSection={<IconTool size={18} />}>
+            Equipment
+          </Tabs.Tab>
           <Tabs.Tab value="rates">Rates</Tabs.Tab>
           {canEdit && <Tabs.Tab value="import">Import</Tabs.Tab>}
         </Tabs.List>
       </Tabs>
-      {(tab === 'stores' || tab === 'vans') && <Group gap="sm" wrap="nowrap">
+      {(tab === 'stores' || tab === 'vans' || tab === 'equipment') && <Group gap="sm" wrap="nowrap">
         <TextInput
           size={size}
           style={{ flex: 1 }}
           leftSection={<IconSearch size={18} />}
-          placeholder={tab === 'stores' ? 'Store number or name' : 'Registration or driver'}
+          placeholder={tab === 'stores' ? 'Store number or name' : tab === 'vans' ? 'Registration, driver or branch' : 'Name, serial number or who has it'}
           value={search}
           onChange={(event) => setSearch(event.currentTarget.value)}
         />
-        {canEdit && (
+        {canEdit && tab !== 'equipment' && (
           <Button size={size} radius="xl" leftSection={<IconPlus size={18} />} onClick={() => setSheet(tab === 'stores' ? { kind: 'store-form' } : { kind: 'van-form' })}>
             {tab === 'stores' ? 'Add store' : 'Add van'}
           </Button>
@@ -324,7 +335,7 @@ export function OperationsRegisters({
       {tab === 'vans' && (
         <Stack gap="xs">
           {vans
-            .filter((van) => match(van.registration, van.driverName, van.description))
+            .filter((van) => match(van.registration, van.driverName, van.description, van.branch))
             .map((van) => {
               const mot = motTone(van.motDue)
               return (
@@ -332,7 +343,14 @@ export function OperationsRegisters({
                   key={van.id}
                   surface={surface}
                   title={`${van.registration}${van.description ? ` · ${van.description}` : ''}`}
-                  detail={[van.driverName ? `Driver: ${van.driverName}` : 'No driver', van.serviceDay ? `service on ${van.serviceDay}s` : ''].filter(Boolean).join(' · ')}
+                  detail={[
+                    van.driverName ? `Driver: ${van.driverName}` : 'No driver',
+                    van.branch || '',
+                    van.serviceDay ? `service on ${van.serviceDay}s` : '',
+                    van.lastCheckOutcome === 'defect' ? `defect found ${van.lastCheckDate ? readableDate(van.lastCheckDate) : ''}`.trim() : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                   trailing={
                     van.status !== 'active' ? (
                       <Badge variant="light" color="red">{van.status === 'off_road' ? 'Off the road' : 'Retired'}</Badge>
@@ -345,6 +363,32 @@ export function OperationsRegisters({
               )
             })}
           {loaded && !loading && vans.length === 0 && <Text c="dimmed">No vans on the register yet.</Text>}
+        </Stack>
+      )}
+
+      {tab === 'equipment' && (
+        <Stack gap="xs">
+          {equipment
+            .filter((item) => match(item.name, item.serialNumber, item.productCode, item.holderName, item.category))
+            .map((item) => (
+              <Row
+                key={item.id}
+                surface={surface}
+                title={item.name}
+                detail={[
+                  item.category || '',
+                  item.serialNumber ? `Serial ${item.serialNumber}` : '',
+                  item.value !== undefined ? `${item.currency || ''} ${item.value.toLocaleString()}`.trim() : '',
+                  item.notes || '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                trailing={item.holderName ? <Badge variant="light">{item.holderName}</Badge> : <Badge variant="light" color="gray">In stock</Badge>}
+              />
+            ))}
+          {loaded && !loading && equipment.length === 0 && (
+            <Text c="dimmed">No tools or equipment yet.{canEdit ? ' Bring them in from the Import tab.' : ''}</Text>
+          )}
         </Stack>
       )}
 
@@ -611,6 +655,9 @@ function VanForm({ api, people, surface, notify, onDone, van }: { api: Operation
     description: van?.description || '',
     serviceDay: van?.serviceDay || '',
     motDue: van?.motDue || '',
+    taxDue: van?.taxDue || '',
+    branch: van?.branch || '',
+    mileage: van?.mileage !== undefined ? String(van.mileage) : '',
     driverUserId: van?.driverUserId || '',
     status: van?.status || 'active',
   })
@@ -621,6 +668,11 @@ function VanForm({ api, people, surface, notify, onDone, van }: { api: Operation
       notify('Add the registration.', 'info')
       return
     }
+    const mileage = form.mileage.trim() ? Number(form.mileage.replace(/[,\s]/g, '')) : undefined
+    if (mileage !== undefined && (!Number.isInteger(mileage) || mileage < 0)) {
+      notify('Mileage must be a whole number.', 'info')
+      return
+    }
     setSaving(true)
     try {
       await api.saveVan({
@@ -629,6 +681,9 @@ function VanForm({ api, people, surface, notify, onDone, van }: { api: Operation
         description: form.description,
         serviceDay: form.serviceDay,
         motDue: form.motDue,
+        taxDue: form.taxDue,
+        branch: form.branch,
+        mileage,
         driverUserId: form.driverUserId || undefined,
         status: form.status as VanRecord['status'],
       })
@@ -648,6 +703,11 @@ function VanForm({ api, people, surface, notify, onDone, van }: { api: Operation
         <Select size={size} label="Service day" clearable data={SERVICE_DAYS} value={form.serviceDay || null} onChange={(value) => setForm({ ...form, serviceDay: value || '' })} />
         <TextInput size={size} type="date" label="MOT due" value={form.motDue} onChange={(event) => setForm({ ...form, motDue: event.currentTarget.value })} />
       </Group>
+      <Group grow>
+        <TextInput size={size} type="date" label="Tax due" value={form.taxDue} onChange={(event) => setForm({ ...form, taxDue: event.currentTarget.value })} />
+        <TextInput size={size} label="Mileage" inputMode="numeric" value={form.mileage} onChange={(event) => setForm({ ...form, mileage: event.currentTarget.value })} />
+      </Group>
+      <TextInput size={size} label="Branch" value={form.branch} onChange={(event) => setForm({ ...form, branch: event.currentTarget.value })} />
       <Select size={size} label="Driver" description="One van per driver: giving this van to someone frees the van they had." clearable searchable data={people} value={form.driverUserId || null} onChange={(value) => setForm({ ...form, driverUserId: value || '' })} />
       {van && (
         <SegmentedControl
@@ -755,6 +815,20 @@ function VanFileView({
           <Text size="sm" c="dimmed">
             {file.van.driverName ? `Driver: ${file.van.driverName}` : 'No driver'} · {file.van.serviceDay ? `Service day: ${file.van.serviceDay}` : 'No service day'}
           </Text>
+          {(file.van.branch || file.van.mileage !== undefined || file.van.taxDue || file.van.lastCheckDate) && (
+            <Text size="sm" c="dimmed">
+              {[
+                file.van.branch || '',
+                file.van.mileage !== undefined ? `${file.van.mileage.toLocaleString()} miles` : '',
+                file.van.taxDue ? `Tax due ${readableDate(file.van.taxDue)}` : '',
+                file.van.lastCheckDate
+                  ? `Last check ${readableDate(file.van.lastCheckDate)}${file.van.lastCheckOutcome === 'defect' ? ', defect found' : file.van.lastCheckOutcome === 'ok' ? ', all fine' : ''}`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </Text>
+          )}
           {mot && (
             <Badge variant="light" color={mot.color} w="fit-content">
               {mot.label}

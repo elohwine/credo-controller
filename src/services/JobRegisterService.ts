@@ -6,10 +6,10 @@
  * It only reads `OperationsRegisterService.listJobs` and `pendingIntakes`; it keeps no copy.
  */
 
+import type { ImportedJobDetails } from '../config/fieldDataImport'
 import { FIELD_JOB_CATEGORY_LABELS, type FieldJobCategory } from '../config/fieldJobCategory'
 import { fieldJobSourceLabel, isFieldJobSource, type FieldJobSource } from '../config/fieldJobSource'
 import { pageLimit, pageOffset, pageRows, sortRows, type ListPage, type SortValue } from '../config/listPage'
-
 import { DatabaseManager } from '../persistence/DatabaseManager'
 
 import { operationsRegisterService } from './OperationsRegisterService'
@@ -39,8 +39,10 @@ export interface JobRegisterRow {
   createdAt: string
   completedAt?: string
   possibleRepeat?: boolean
-  /** Who did the job, as the old system named them (history only; not a team member). */
+  /** Who did the job, as the old system named them (imported jobs only; not a team member). */
   workerName?: string
+  /** What the old system said about an imported job: its status, branch, times, notes and checks. */
+  details?: ImportedJobDetails
 }
 
 export interface JobRegisterFilter {
@@ -127,6 +129,16 @@ function csvCell(value: unknown): string {
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 
+function parseDetails(json: unknown): ImportedJobDetails | undefined {
+  if (typeof json !== 'string' || !json) return undefined
+  try {
+    const parsed = JSON.parse(json)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as ImportedJobDetails) : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export class JobRegisterService {
   public rows(orgTenantId: string, filter: JobRegisterFilter = {}): JobRegisterRow[] {
     const from = checkDate(filter.from, 'From')
@@ -165,8 +177,11 @@ export class JobRegisterService {
       location: intake.location,
       scheduledDate: intake.scheduledDate,
       callOut: intake.callOut === true,
-      createdAt: intake.createdAt,
+      // An imported job sorts by when the old system received it, not when the file was brought in.
+      createdAt: intake.details?.receivedAt || intake.createdAt,
       possibleRepeat: Boolean(intake.duplicateOf),
+      workerName: intake.workerName,
+      details: intake.details,
     }))
     const q = String(filter.q || '').trim().toLowerCase()
     const source = isFieldJobSource(filter.source) ? filter.source : undefined
@@ -209,7 +224,7 @@ export class JobRegisterService {
           `SELECT id, external_reference AS reference, store_number AS storeNumber, client_name AS clientName,
                   description, location, problem_type AS problemType, po_number AS poNumber,
                   scheduled_date AS scheduledDate, completed_date AS completedDate, outcome,
-                  worker_name AS workerName, amount, currency, created_at AS createdAt
+                  worker_name AS workerName, amount, currency, created_at AS createdAt, details_json AS detailsJson
              FROM job_history WHERE org_tenant_id = ? ORDER BY COALESCE(completed_date, scheduled_date, created_at) DESC`,
         )
         .all(orgTenantId) as Array<Record<string, any>>
@@ -218,7 +233,12 @@ export class JobRegisterService {
         id: String(row.id),
         reference: String(row.reference),
         source: 'import' as const,
-        category: row.outcome === 'cancelled' ? ('cancelled' as const) : ('completed' as const),
+        category:
+          row.outcome === 'cancelled'
+            ? ('cancelled' as const)
+            : row.outcome === 'failed'
+              ? ('failed' as const)
+              : ('completed' as const),
         storeNumber: row.storeNumber || undefined,
         poNumber: row.poNumber || undefined,
         clientName: row.clientName || undefined,
@@ -233,6 +253,7 @@ export class JobRegisterService {
         createdAt: String(row.completedDate || row.scheduledDate || row.createdAt),
         completedAt: row.completedDate || undefined,
         workerName: row.workerName || undefined,
+        details: parseDetails(row.detailsJson),
       }))
     } catch (error) {
       const message = error instanceof Error ? error.message : String((error as { message?: unknown } | null)?.message ?? error)

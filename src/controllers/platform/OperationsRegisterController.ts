@@ -4,7 +4,7 @@ import { Body, Get, Path, Post, Put, Query, Request, Route, Security, Tags } fro
 
 import { StatusException } from '../../errors'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
-import { isFieldImportKind } from '../../config/fieldDataImport'
+import { FIELD_IMPORT_KINDS, isFieldImportKind } from '../../config/fieldDataImport'
 import type { JobSheetItem } from '../../config/jobSheet'
 import { fieldDataImportService } from '../../services/FieldDataImportService'
 import { fieldJobSheetService } from '../../services/FieldJobSheetService'
@@ -97,18 +97,30 @@ export class OperationsRegisterController {
   }
 
   /**
-   * Check a file exported from the old job system (stores and clients, jobs, vans or rates) and say
+   * Check a file exported from the old job system (stores, staff, vans, tools, rates, jobs or job
+   * check results) and say
    * what would be added, what is already here and which rows have a problem. Saves nothing.
    */
   @Post('/import/preview')
   public previewImport(
     @Request() request: ExRequest,
-    @Body() body: { kind: 'stores' | 'jobs' | 'vans' | 'rates'; content: string; format?: 'csv' | 'json' },
+    @Body()
+    body: {
+      kind: 'stores' | 'people' | 'vans' | 'equipment' | 'rates' | 'jobs' | 'checks'
+      content: string
+      format?: 'csv' | 'json'
+      /** Where local phone numbers in the file are from. Zimbabwe when not given. */
+      country?: 'ZW' | 'GB' | 'ZA'
+      /** Amounts without a currency column are in this currency. USD when not given. */
+      currency?: string
+    },
   ) {
     const principal = principalOf(request, true)
     return asBadRequest(() => {
-      if (!isFieldImportKind(body?.kind)) throw new Error('Choose what the file holds: stores, jobs, vans or rates')
-      return fieldDataImportService.preview(principal.tenantId, body.kind, body.content, body.format)
+      if (!isFieldImportKind(body?.kind)) {
+        throw new Error(`Choose what the file holds: ${FIELD_IMPORT_KINDS.join(', ')}`)
+      }
+      return fieldDataImportService.preview(principal.tenantId, body.kind, body.content, body.format, body)
     })
   }
 
@@ -116,13 +128,38 @@ export class OperationsRegisterController {
   @Post('/import')
   public runImport(
     @Request() request: ExRequest,
-    @Body() body: { kind: 'stores' | 'jobs' | 'vans' | 'rates'; content: string; format?: 'csv' | 'json' },
+    @Body()
+    body: {
+      kind: 'stores' | 'people' | 'vans' | 'equipment' | 'rates' | 'jobs' | 'checks'
+      content: string
+      format?: 'csv' | 'json'
+      /** Where local phone numbers in the file are from. Zimbabwe when not given. */
+      country?: 'ZW' | 'GB' | 'ZA'
+      /** Amounts without a currency column are in this currency. USD when not given. */
+      currency?: string
+    },
   ) {
     const principal = principalOf(request, true)
     return asBadRequest(() => {
-      if (!isFieldImportKind(body?.kind)) throw new Error('Choose what the file holds: stores, jobs, vans or rates')
-      return fieldDataImportService.commit(principal.tenantId, principal.subjectId, body.kind, body.content, body.format)
+      if (!isFieldImportKind(body?.kind)) {
+        throw new Error(`Choose what the file holds: ${FIELD_IMPORT_KINDS.join(', ')}`)
+      }
+      return fieldDataImportService.commit(
+        principal.tenantId,
+        principal.subjectId,
+        body.kind,
+        body.content,
+        body.format,
+        body,
+      )
     })
+  }
+
+  /** Tools and devices the organisation has issued to its staff. */
+  @Get('/equipment')
+  public equipment(@Request() request: ExRequest) {
+    const principal = principalOf(request, false)
+    return { items: operationsRegisterService.listEquipment(principal.tenantId) }
   }
 
   @Get('/vans')
@@ -135,7 +172,16 @@ export class OperationsRegisterController {
   public addVan(
     @Request() request: ExRequest,
     @Body()
-    body: { registration: string; description?: string; serviceDay?: string; motDue?: string; driverUserId?: string },
+    body: {
+      registration: string
+      description?: string
+      serviceDay?: string
+      motDue?: string
+      taxDue?: string
+      branch?: string
+      mileage?: number
+      driverUserId?: string
+    },
   ) {
     const principal = principalOf(request, true)
     return asBadRequest(() => operationsRegisterService.saveVan(principal.tenantId, principal.subjectId, { ...body, id: undefined }))
@@ -151,6 +197,9 @@ export class OperationsRegisterController {
       description?: string
       serviceDay?: string
       motDue?: string
+      taxDue?: string
+      branch?: string
+      mileage?: number | null
       /** null takes the van off its driver */
       driverUserId?: string | null
       status?: VanStatus

@@ -1875,6 +1875,13 @@
             "type": "string",
             "description": "The team account this employee uses, so their jobs, leave and van can be listed."
           },
+          "branch": {
+            "type": "string"
+          },
+          "legacyUsername": {
+            "type": "string",
+            "description": "Login name in the office's old job system, so imported jobs show who did them."
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -13561,6 +13568,13 @@
             "type": "string",
             "description": "The client's own store number; one per store within the organisation."
           },
+          "postcode": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string",
+            "description": "The client's id in the office's old system, kept from an import."
+          },
           "walletTenantId": {
             "type": "string",
             "description": "Linked holder wallet tenant ID, if the contact has claimed the link"
@@ -17085,6 +17099,98 @@
           "assigned"
         ]
       },
+      "ImportedJobDetails": {
+        "description": "What the old system said about a job, kept on the job so nothing in the file is lost.",
+        "properties": {
+          "externalId": {
+            "type": "string"
+          },
+          "oldStatus": {
+            "type": "string",
+            "description": "The status word the old system used, for example \"Completed without signature\"."
+          },
+          "branch": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "timeslot": {
+            "type": "string",
+            "description": "Time of day or slot, when the old system gave one (\"Any Time\" is left out)."
+          },
+          "jobType": {
+            "type": "string"
+          },
+          "task": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "failureType": {
+            "type": "string"
+          },
+          "contactName": {
+            "type": "string"
+          },
+          "contactPhone": {
+            "type": "string"
+          },
+          "postcode": {
+            "type": "string"
+          },
+          "receivedAt": {
+            "type": "string"
+          },
+          "arrivedAt": {
+            "type": "string"
+          },
+          "completedAt": {
+            "type": "string"
+          },
+          "invoiceNote": {
+            "type": "string",
+            "description": "What the old system's invoice column held: an invoice number or an office note."
+          },
+          "invoiceSentOn": {
+            "type": "string"
+          },
+          "flags": {
+            "type": "string"
+          },
+          "vehicle": {
+            "type": "string"
+          },
+          "helpers": {
+            "type": "string",
+            "description": "Other workers on the job in the old system."
+          },
+          "checks": {
+            "items": {
+              "properties": {
+                "result": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "result",
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "additionalProperties": false
+      },
       "Pick_JobIntakeInput.Exclude_keyofJobIntakeInput.attachments__": {
         "properties": {
           "description": {
@@ -17151,6 +17257,10 @@
           "importedWorkerName": {
             "type": "string",
             "description": "Name of the worker in the old system, for a job brought in from a file. Not a team member."
+          },
+          "importedDetails": {
+            "$ref": "#/components/schemas/ImportedJobDetails",
+            "description": "What the old system said about the job, kept so nothing in the file is lost."
           },
           "sourceMessageId": {
             "type": "string"
@@ -17351,6 +17461,10 @@
           "importedWorkerName": {
             "type": "string",
             "description": "Name of the worker in the old system, for a job brought in from a file. Not a team member."
+          },
+          "importedDetails": {
+            "$ref": "#/components/schemas/ImportedJobDetails",
+            "description": "What the old system said about the job, kept so nothing in the file is lost."
           },
           "sourceMessageId": {
             "type": "string"
@@ -18126,6 +18240,13 @@
           },
           "status": {
             "type": "string"
+          },
+          "workerName": {
+            "type": "string",
+            "description": "Who did it in the old system, for a job brought in from a file."
+          },
+          "details": {
+            "$ref": "#/components/schemas/ImportedJobDetails"
           }
         },
         "required": [
@@ -18451,10 +18572,13 @@
       "FieldImportKind": {
         "type": "string",
         "enum": [
+          "people",
           "stores",
-          "jobs",
           "vans",
-          "rates"
+          "equipment",
+          "rates",
+          "jobs",
+          "checks"
         ]
       },
       "FieldImportRowStatus": {
@@ -18644,6 +18768,49 @@
         "type": "object",
         "additionalProperties": false
       },
+      "EquipmentItem": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "productCode": {
+            "type": "string"
+          },
+          "serialNumber": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "holderName": {
+            "type": "string",
+            "description": "Who holds it, as written in the file it came from."
+          },
+          "notes": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
       "VanStatus": {
         "type": "string",
         "enum": [
@@ -18668,6 +18835,26 @@
           },
           "motDue": {
             "type": "string"
+          },
+          "taxDue": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "mileage": {
+            "type": "number",
+            "format": "double"
+          },
+          "lastCheckDate": {
+            "type": "string"
+          },
+          "lastCheckOutcome": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "defect"
+            ]
           },
           "driverUserId": {
             "type": "string"
@@ -18947,7 +19134,11 @@
           },
           "workerName": {
             "type": "string",
-            "description": "Who did the job, as the old system named them (history only; not a team member)."
+            "description": "Who did the job, as the old system named them (imported jobs only; not a team member)."
+          },
+          "details": {
+            "$ref": "#/components/schemas/ImportedJobDetails",
+            "description": "What the old system said about an imported job: its status, branch, times, notes and checks."
           }
         },
         "required": [
@@ -49844,7 +50035,7 @@
             }
           }
         },
-        "description": "Check a file exported from the old job system (stores and clients, jobs, vans or rates) and say\nwhat would be added, what is already here and which rows have a problem. Saves nothing.",
+        "description": "Check a file exported from the old job system (stores, staff, vans, tools, rates, jobs or job\ncheck results) and say\nwhat would be added, what is already here and which rows have a problem. Saves nothing.",
         "tags": [
           "Operations registers"
         ],
@@ -49862,6 +50053,19 @@
             "application/json": {
               "schema": {
                 "properties": {
+                  "currency": {
+                    "type": "string",
+                    "description": "Amounts without a currency column are in this currency. USD when not given."
+                  },
+                  "country": {
+                    "type": "string",
+                    "enum": [
+                      "ZW",
+                      "GB",
+                      "ZA"
+                    ],
+                    "description": "Where local phone numbers in the file are from. Zimbabwe when not given."
+                  },
                   "format": {
                     "type": "string",
                     "enum": [
@@ -49876,9 +50080,12 @@
                     "type": "string",
                     "enum": [
                       "stores",
-                      "jobs",
+                      "people",
                       "vans",
-                      "rates"
+                      "equipment",
+                      "rates",
+                      "jobs",
+                      "checks"
                     ]
                   }
                 },
@@ -49934,6 +50141,19 @@
             "application/json": {
               "schema": {
                 "properties": {
+                  "currency": {
+                    "type": "string",
+                    "description": "Amounts without a currency column are in this currency. USD when not given."
+                  },
+                  "country": {
+                    "type": "string",
+                    "enum": [
+                      "ZW",
+                      "GB",
+                      "ZA"
+                    ],
+                    "description": "Where local phone numbers in the file are from. Zimbabwe when not given."
+                  },
                   "format": {
                     "type": "string",
                     "enum": [
@@ -49948,9 +50168,12 @@
                     "type": "string",
                     "enum": [
                       "stores",
-                      "jobs",
+                      "people",
                       "vans",
-                      "rates"
+                      "equipment",
+                      "rates",
+                      "jobs",
+                      "checks"
                     ]
                   }
                 },
@@ -49963,6 +50186,54 @@
             }
           }
         }
+      }
+    },
+    "/api/platform/operations/equipment": {
+      "get": {
+        "operationId": "Equipment",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/EquipmentItem"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Tools and devices the organisation has issued to its staff.",
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": []
       }
     },
     "/api/platform/operations/vans": {
@@ -50053,6 +50324,16 @@
                   "driverUserId": {
                     "type": "string"
                   },
+                  "mileage": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "branch": {
+                    "type": "string"
+                  },
+                  "taxDue": {
+                    "type": "string"
+                  },
                   "motDue": {
                     "type": "string"
                   },
@@ -50132,6 +50413,17 @@
                     "type": "string",
                     "nullable": true,
                     "description": "null takes the van off its driver"
+                  },
+                  "mileage": {
+                    "type": "number",
+                    "format": "double",
+                    "nullable": true
+                  },
+                  "branch": {
+                    "type": "string"
+                  },
+                  "taxDue": {
+                    "type": "string"
                   },
                   "motDue": {
                     "type": "string"

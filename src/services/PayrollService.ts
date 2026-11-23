@@ -39,6 +39,8 @@ function employeeFromRow(row: any): Employee {
     staffNumber: row.staff_number || undefined,
     skills,
     userId: row.user_id || undefined,
+    branch: row.branch || undefined,
+    legacyUsername: row.legacy_username || undefined,
     status: row.status,
     createdAt: row.created_at,
   }
@@ -61,6 +63,9 @@ export interface Employee {
   skills?: string[]
   /** The team account this employee uses, so their jobs, leave and van can be listed. */
   userId?: string
+  branch?: string
+  /** Login name in the office's old job system, so imported jobs show who did them. */
+  legacyUsername?: string
   status: 'active' | 'terminated' | 'on_leave'
   createdAt: string
 }

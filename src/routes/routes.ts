@@ -753,6 +753,8 @@ const models: TsoaRoute.Models = {
             "staffNumber": {"dataType":"string"},
             "skills": {"dataType":"array","array":{"dataType":"string"}},
             "userId": {"dataType":"string"},
+            "branch": {"dataType":"string"},
+            "legacyUsername": {"dataType":"string"},
             "status": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["active"]},{"dataType":"enum","enums":["terminated"]},{"dataType":"enum","enums":["on_leave"]}],"required":true},
             "createdAt": {"dataType":"string","required":true},
         },
@@ -4790,6 +4792,8 @@ const models: TsoaRoute.Models = {
             "did": {"dataType":"string"},
             "notes": {"dataType":"string"},
             "storeNumber": {"dataType":"string"},
+            "postcode": {"dataType":"string"},
+            "externalId": {"dataType":"string"},
             "walletTenantId": {"dataType":"string"},
             "linkedAt": {"dataType":"string"},
             "appStatus": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["in_app"]},{"dataType":"enum","enums":["invite"]},{"dataType":"enum","enums":["no_phone"]}]},
@@ -5858,9 +5862,38 @@ const models: TsoaRoute.Models = {
         "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["pending"]},{"dataType":"enum","enums":["assigning"]},{"dataType":"enum","enums":["assigned"]}],"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "ImportedJobDetails": {
+        "dataType": "refObject",
+        "properties": {
+            "externalId": {"dataType":"string"},
+            "oldStatus": {"dataType":"string"},
+            "branch": {"dataType":"string"},
+            "priority": {"dataType":"string"},
+            "timeslot": {"dataType":"string"},
+            "jobType": {"dataType":"string"},
+            "task": {"dataType":"string"},
+            "instructions": {"dataType":"string"},
+            "notes": {"dataType":"string"},
+            "failureType": {"dataType":"string"},
+            "contactName": {"dataType":"string"},
+            "contactPhone": {"dataType":"string"},
+            "postcode": {"dataType":"string"},
+            "receivedAt": {"dataType":"string"},
+            "arrivedAt": {"dataType":"string"},
+            "completedAt": {"dataType":"string"},
+            "invoiceNote": {"dataType":"string"},
+            "invoiceSentOn": {"dataType":"string"},
+            "flags": {"dataType":"string"},
+            "vehicle": {"dataType":"string"},
+            "helpers": {"dataType":"string"},
+            "checks": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"result":{"dataType":"string","required":true},"name":{"dataType":"string","required":true}}}},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Pick_JobIntakeInput.Exclude_keyofJobIntakeInput.attachments__": {
         "dataType": "refAlias",
-        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"description":{"dataType":"string","required":true},"problemType":{"dataType":"string"},"amount":{"dataType":"double","required":true},"currency":{"dataType":"string","required":true},"reference":{"dataType":"string"},"storeNumber":{"dataType":"string"},"poNumber":{"dataType":"string"},"clientName":{"dataType":"string"},"clientPhone":{"dataType":"string"},"location":{"dataType":"string"},"scheduledDate":{"dataType":"string"},"payoutAmount":{"dataType":"double"},"vehicleReference":{"dataType":"string"},"vanId":{"dataType":"string"},"callOut":{"dataType":"boolean"},"requireConcealedWorkPhoto":{"dataType":"boolean"},"sourceType":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["manual"]},{"dataType":"enum","enums":["import"]}]},"importedWorkerName":{"dataType":"string"},"sourceMessageId":{"dataType":"string"},"sourceSender":{"dataType":"string"},"sourceSubject":{"dataType":"string"},"sourceConversationId":{"dataType":"string"}},"validators":{}},
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"description":{"dataType":"string","required":true},"problemType":{"dataType":"string"},"amount":{"dataType":"double","required":true},"currency":{"dataType":"string","required":true},"reference":{"dataType":"string"},"storeNumber":{"dataType":"string"},"poNumber":{"dataType":"string"},"clientName":{"dataType":"string"},"clientPhone":{"dataType":"string"},"location":{"dataType":"string"},"scheduledDate":{"dataType":"string"},"payoutAmount":{"dataType":"double"},"vehicleReference":{"dataType":"string"},"vanId":{"dataType":"string"},"callOut":{"dataType":"boolean"},"requireConcealedWorkPhoto":{"dataType":"boolean"},"sourceType":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["manual"]},{"dataType":"enum","enums":["import"]}]},"importedWorkerName":{"dataType":"string"},"importedDetails":{"ref":"ImportedJobDetails"},"sourceMessageId":{"dataType":"string"},"sourceSender":{"dataType":"string"},"sourceSubject":{"dataType":"string"},"sourceConversationId":{"dataType":"string"}},"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Omit_JobIntakeInput.attachments_": {
@@ -5918,6 +5951,7 @@ const models: TsoaRoute.Models = {
             "requireConcealedWorkPhoto": {"dataType":"boolean"},
             "sourceType": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["manual"]},{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["import"]}]},
             "importedWorkerName": {"dataType":"string"},
+            "importedDetails": {"ref":"ImportedJobDetails"},
             "sourceMessageId": {"dataType":"string"},
             "sourceSender": {"dataType":"string"},
             "sourceSubject": {"dataType":"string"},
@@ -6109,6 +6143,8 @@ const models: TsoaRoute.Models = {
             "poNumber": {"dataType":"string"},
             "callOut": {"dataType":"boolean"},
             "status": {"dataType":"string"},
+            "workerName": {"dataType":"string"},
+            "details": {"ref":"ImportedJobDetails"},
         },
         "additionalProperties": false,
     },
@@ -6197,7 +6233,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "FieldImportKind": {
         "dataType": "refAlias",
-        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["stores"]},{"dataType":"enum","enums":["jobs"]},{"dataType":"enum","enums":["vans"]},{"dataType":"enum","enums":["rates"]}],"validators":{}},
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["people"]},{"dataType":"enum","enums":["stores"]},{"dataType":"enum","enums":["vans"]},{"dataType":"enum","enums":["equipment"]},{"dataType":"enum","enums":["rates"]},{"dataType":"enum","enums":["jobs"]},{"dataType":"enum","enums":["checks"]}],"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "FieldImportRowStatus": {
@@ -6247,6 +6283,23 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "EquipmentItem": {
+        "dataType": "refObject",
+        "properties": {
+            "id": {"dataType":"string","required":true},
+            "name": {"dataType":"string","required":true},
+            "category": {"dataType":"string"},
+            "productCode": {"dataType":"string"},
+            "serialNumber": {"dataType":"string"},
+            "value": {"dataType":"double"},
+            "currency": {"dataType":"string"},
+            "holderName": {"dataType":"string"},
+            "notes": {"dataType":"string"},
+            "createdAt": {"dataType":"string","required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "VanStatus": {
         "dataType": "refAlias",
         "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["active"]},{"dataType":"enum","enums":["off_road"]},{"dataType":"enum","enums":["retired"]}],"validators":{}},
@@ -6260,6 +6313,11 @@ const models: TsoaRoute.Models = {
             "description": {"dataType":"string"},
             "serviceDay": {"dataType":"string"},
             "motDue": {"dataType":"string"},
+            "taxDue": {"dataType":"string"},
+            "branch": {"dataType":"string"},
+            "mileage": {"dataType":"double"},
+            "lastCheckDate": {"dataType":"string"},
+            "lastCheckOutcome": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["ok"]},{"dataType":"enum","enums":["defect"]}]},
             "driverUserId": {"dataType":"string"},
             "driverName": {"dataType":"string"},
             "status": {"ref":"VanStatus","required":true},
@@ -6349,6 +6407,7 @@ const models: TsoaRoute.Models = {
             "completedAt": {"dataType":"string"},
             "possibleRepeat": {"dataType":"boolean"},
             "workerName": {"dataType":"string"},
+            "details": {"ref":"ImportedJobDetails"},
         },
         "additionalProperties": false,
     },
@@ -26955,7 +27014,7 @@ export function RegisterRoutes(app: Router) {
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsOperationsRegisterController_previewImport: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
-                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"format":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["csv"]},{"dataType":"enum","enums":["json"]}]},"content":{"dataType":"string","required":true},"kind":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["stores"]},{"dataType":"enum","enums":["jobs"]},{"dataType":"enum","enums":["vans"]},{"dataType":"enum","enums":["rates"]}],"required":true}}},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"currency":{"dataType":"string"},"country":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["ZW"]},{"dataType":"enum","enums":["GB"]},{"dataType":"enum","enums":["ZA"]}]},"format":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["csv"]},{"dataType":"enum","enums":["json"]}]},"content":{"dataType":"string","required":true},"kind":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["stores"]},{"dataType":"enum","enums":["people"]},{"dataType":"enum","enums":["vans"]},{"dataType":"enum","enums":["equipment"]},{"dataType":"enum","enums":["rates"]},{"dataType":"enum","enums":["jobs"]},{"dataType":"enum","enums":["checks"]}],"required":true}}},
         };
         app.post('/api/platform/operations/import/preview',
             authenticateMiddleware([{"jwt":["tenant"]}]),
@@ -26992,7 +27051,7 @@ export function RegisterRoutes(app: Router) {
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsOperationsRegisterController_runImport: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
-                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"format":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["csv"]},{"dataType":"enum","enums":["json"]}]},"content":{"dataType":"string","required":true},"kind":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["stores"]},{"dataType":"enum","enums":["jobs"]},{"dataType":"enum","enums":["vans"]},{"dataType":"enum","enums":["rates"]}],"required":true}}},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"currency":{"dataType":"string"},"country":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["ZW"]},{"dataType":"enum","enums":["GB"]},{"dataType":"enum","enums":["ZA"]}]},"format":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["csv"]},{"dataType":"enum","enums":["json"]}]},"content":{"dataType":"string","required":true},"kind":{"dataType":"union","subSchemas":[{"dataType":"enum","enums":["stores"]},{"dataType":"enum","enums":["people"]},{"dataType":"enum","enums":["vans"]},{"dataType":"enum","enums":["equipment"]},{"dataType":"enum","enums":["rates"]},{"dataType":"enum","enums":["jobs"]},{"dataType":"enum","enums":["checks"]}],"required":true}}},
         };
         app.post('/api/platform/operations/import',
             authenticateMiddleware([{"jwt":["tenant"]}]),
@@ -27016,6 +27075,42 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'runImport',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_equipment: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.get('/api/platform/operations/equipment',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.equipment)),
+
+            async function OperationsRegisterController_equipment(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_equipment, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'equipment',
                 controller,
                 response,
                 next,
@@ -27065,7 +27160,7 @@ export function RegisterRoutes(app: Router) {
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsOperationsRegisterController_addVan: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
-                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"driverUserId":{"dataType":"string"},"motDue":{"dataType":"string"},"serviceDay":{"dataType":"string"},"description":{"dataType":"string"},"registration":{"dataType":"string","required":true}}},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"driverUserId":{"dataType":"string"},"mileage":{"dataType":"double"},"branch":{"dataType":"string"},"taxDue":{"dataType":"string"},"motDue":{"dataType":"string"},"serviceDay":{"dataType":"string"},"description":{"dataType":"string"},"registration":{"dataType":"string","required":true}}},
         };
         app.post('/api/platform/operations/vans',
             authenticateMiddleware([{"jwt":["tenant"]}]),
@@ -27103,7 +27198,7 @@ export function RegisterRoutes(app: Router) {
         const argsOperationsRegisterController_updateVan: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 vanId: {"in":"path","name":"vanId","required":true,"dataType":"string"},
-                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"status":{"ref":"VanStatus"},"driverUserId":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}]},"motDue":{"dataType":"string"},"serviceDay":{"dataType":"string"},"description":{"dataType":"string"},"registration":{"dataType":"string"}}},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"status":{"ref":"VanStatus"},"driverUserId":{"dataType":"union","subSchemas":[{"dataType":"string"},{"dataType":"enum","enums":[null]}]},"mileage":{"dataType":"union","subSchemas":[{"dataType":"double"},{"dataType":"enum","enums":[null]}]},"branch":{"dataType":"string"},"taxDue":{"dataType":"string"},"motDue":{"dataType":"string"},"serviceDay":{"dataType":"string"},"description":{"dataType":"string"},"registration":{"dataType":"string"}}},
         };
         app.put('/api/platform/operations/vans/:vanId',
             authenticateMiddleware([{"jwt":["tenant"]}]),

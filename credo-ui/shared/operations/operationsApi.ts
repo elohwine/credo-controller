@@ -13,7 +13,13 @@ import {
 } from '../orgOnboarding'
 import { SETUP_PROFILE_PATH } from '../orgProfile'
 import type { FailedVisit } from '../../../src/config/failedVisit'
-import type { FieldImportKind, FieldImportPreview, FieldImportResult } from '../../../src/config/fieldDataImport'
+import type {
+  FieldImportKind,
+  FieldImportOptions,
+  FieldImportPreview,
+  FieldImportResult,
+  ImportedJobDetails,
+} from '../../../src/config/fieldDataImport'
 import type { ListPage } from '../../../src/config/listPage'
 
 export type JobCategory = 'pending' | 'assigned' | 'active' | 'arrived' | 'on_hold' | 'failed' | 'completed' | 'reconciled' | 'cancelled'
@@ -103,8 +109,10 @@ export interface JobRegisterRow {
   createdAt: string
   completedAt?: string
   possibleRepeat?: boolean
-  /** Who did the job, as the old system named them (history only). */
+  /** Who did the job, as the old system named them (imported jobs only). */
   workerName?: string
+  /** What the old system said about an imported job: status, branch, times, notes and checks. */
+  details?: ImportedJobDetails
 }
 
 export interface JobReport {
@@ -154,9 +162,27 @@ export interface VanRecord {
   description?: string
   serviceDay?: string
   motDue?: string
+  taxDue?: string
+  branch?: string
+  mileage?: number
+  lastCheckDate?: string
+  lastCheckOutcome?: 'ok' | 'defect'
   driverUserId?: string
   driverName?: string
   status: VanStatus
+}
+
+export interface EquipmentItem {
+  id: string
+  name: string
+  category?: string
+  productCode?: string
+  serialNumber?: string
+  value?: number
+  currency?: string
+  holderName?: string
+  notes?: string
+  createdAt: string
 }
 
 export interface VanEvent {
@@ -389,6 +415,9 @@ export function operationsApi(backend: string, token: string | null | undefined)
               description: input.description ?? '',
               serviceDay: input.serviceDay ?? '',
               motDue: input.motDue ?? '',
+              taxDue: input.taxDue ?? '',
+              branch: input.branch ?? '',
+              mileage: input.mileage ?? null,
               driverUserId: input.driverUserId ?? null,
               status: input.status,
             },
@@ -400,6 +429,9 @@ export function operationsApi(backend: string, token: string | null | undefined)
               description: input.description || undefined,
               serviceDay: input.serviceDay || undefined,
               motDue: input.motDue || undefined,
+              taxDue: input.taxDue || undefined,
+              branch: input.branch || undefined,
+              mileage: input.mileage ?? undefined,
               driverUserId: input.driverUserId || undefined,
             },
           }),
@@ -526,10 +558,11 @@ export function operationsApi(backend: string, token: string | null | undefined)
       input.id
         ? call<RateCard>(`${base}/rate-cards/${encodeURIComponent(input.id)}`, { method: 'PUT', body: input })
         : call<RateCard>(`${base}/rate-cards`, { method: 'POST', body: input }),
-    previewImport: (kind: FieldImportKind, content: string) =>
-      call<FieldImportPreview>(`${base}/import/preview`, { method: 'POST', body: { kind, content } }),
-    runImport: (kind: FieldImportKind, content: string) =>
-      call<FieldImportResult>(`${base}/import`, { method: 'POST', body: { kind, content } }),
+    previewImport: (kind: FieldImportKind, content: string, options: FieldImportOptions = {}) =>
+      call<FieldImportPreview>(`${base}/import/preview`, { method: 'POST', body: { kind, content, ...options } }),
+    runImport: (kind: FieldImportKind, content: string, options: FieldImportOptions = {}) =>
+      call<FieldImportResult>(`${base}/import`, { method: 'POST', body: { kind, content, ...options } }),
+    equipment: () => call<{ items: EquipmentItem[] }>(`${base}/equipment`).then((data) => data.items),
     vanCheckItems: () => call<{ items: string[] }>(`${base}/van-checks`).then((data) => data.items),
     dailyCheck: (
       vanId: string,
