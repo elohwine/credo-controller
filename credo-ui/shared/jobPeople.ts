@@ -136,6 +136,16 @@ export function orgMemberLabel(member: OrgMemberNameSource): string {
 
 const phoneKey = (value?: string | null) => String(value || '').replace(/\D/g, '').slice(-9)
 
+/** Pickers reject repeated values; imported contacts often share a phone number, so keep the first. */
+export function uniqueOptions<T extends { value: string }>(options: T[]): T[] {
+  const seen = new Set<string>()
+  return options.filter((option) => {
+    if (seen.has(option.value)) return false
+    seen.add(option.value)
+    return true
+  })
+}
+
 /**
  * Who can go out or check the work: team members by name and role, then contacts who are
  * not on the team already (inviting someone also saves them as a team contact).
@@ -145,10 +155,10 @@ export function jobPeopleOptions(
   contacts: JobContact[],
 ): Array<{ value: string; label: string }> {
   const onTeam = new Set(members.map((member) => phoneKey(member.phone)).filter(Boolean))
-  return [
+  return uniqueOptions([
     ...members.map((member) => ({ value: member.userId, label: orgMemberLabel(member) })),
     ...contacts.filter((contact) => !contact.storeNumber && !onTeam.has(phoneKey(contact.phone))).map(jobContactOption),
-  ]
+  ])
 }
 
 export const NOBODY_CHOSEN_YET = 'Nobody chosen yet. Pick someone below.'

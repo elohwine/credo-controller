@@ -4,7 +4,7 @@ import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/router';
 import {
     Title, Text, Group, Paper, Badge, Button,
-    Stack, Select, Grid, Card, ActionIcon, Box, Divider, SegmentedControl, Table, Modal
+    Stack, Select, Grid, Card, ActionIcon, Box, Divider, SegmentedControl, Table, Modal, Tooltip
 } from '@mantine/core';
 import { IconBriefcase, IconMapPin, IconCalendar, IconUser, IconEye, IconRefresh, IconPlus, IconCalendarStats } from '@tabler/icons-react';
 import { BRAND } from '@/lib/theme';
@@ -19,7 +19,7 @@ import { endPortalTask, getPortalTask } from '@/lib/portalContext';
 import { usePortalOperations } from '@/lib/operations';
 import { OPEN_FIELD_JOB_CATEGORIES, fieldJobAssigneeId, fieldJobCategory, fieldJobInput, fieldJobUrgent, isFieldJobRun, type FieldJobCategory as JobCategory } from '../../../../src/config/fieldJobCategory';
 import { IncomingJobs } from '../../../shared/operations/IncomingJobs';
-import { JobAttention } from '../../../shared/operations/JobAttention';
+import { ATTENTION_WORDS, type AttentionItem, type JobReport } from '../../../shared/operations/operationsApi';
 import { JobBoard } from '../../../shared/operations/JobBoard';
 import { DataTable, useClientList, useListState, type DataColumn } from '../../../shared/DataTable';
 import type { SortValue } from '../../../../src/config/listPage';
@@ -91,6 +91,10 @@ export default function JobCardsBoard() {
     const [memberNames, setMemberNames] = useState<Record<string, string>>({});
     const [teamMembers, setTeamMembers] = useState<Array<{ userId: string; role: string; displayName?: string; phone?: string; status?: string }>>([]);
     const { api: operations, notify } = usePortalOperations();
+    // Stuck jobs are rows in the list with a flag, not a second list of the same jobs.
+    const [attention, setAttention] = useState<Map<string, AttentionItem>>(new Map());
+    // Counts for every job, not only the newest ones loaded into the list.
+    const [totals, setTotals] = useState<JobReport['counts'] | null>(null);
 
     useEffect(() => {
         const role = String(readActiveOrganization()?.role || '').toLowerCase();
@@ -135,7 +139,11 @@ export default function JobCardsBoard() {
         }).catch(() => { /* names stay as fallbacks */ });
     }, [env.NEXT_PUBLIC_VC_REPO]);
 
+    // The backend address can change while a load is still running; only the newest load may fill the list.
+    const fetchSeq = useRef(0);
     const fetchJobs = useCallback(async () => {
+        const seq = ++fetchSeq.current;
+        const stale = () => seq !== fetchSeq.current;
         setLoading(true);
         try {
             const credoBackend = env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000';
@@ -167,7 +175,7 @@ export default function JobCardsBoard() {
             });
 
             if (candidates.length === 0) {
-                setJobs([]);
+                if (!stale()) setJobs([]);
                 return;
             }
 
@@ -198,8 +206,8 @@ export default function JobCardsBoard() {
                 byRunId.set(runId, row);
             }
 
+            if (stale()) return;
             const dedupedRows = Array.from(byRunId.values());
-            setHasMore(!taskRunId && responses.some((rows) => rows.length >= limit));
             setHasMore(!taskRunId && responses.some((rows) => rows.length >= limit));
             const feJobs = dedupedRows.filter((job: any) => isFieldJobRun(job));
 
@@ -211,12 +219,13 @@ export default function JobCardsBoard() {
                 return fresh || current;
             });
         } catch (err) {
+            if (stale()) return;
             console.error('Failed to fetch job cards:', err);
             notifications.show({ title: 'Could not load jobs', message: axios.isAxiosError(err)
                 ? String(err.response?.data?.error || err.response?.data?.message || err.message)
                 : 'The job could not be loaded. Try again.', color: 'red' });
         } finally {
-            setLoading(false);
+            if (!stale()) setLoading(false);
         }
     }, [env.NEXT_PUBLIC_VC_REPO, limit]);
 
@@ -269,11 +278,28 @@ export default function JobCardsBoard() {
         void openJobById(runId);
     }, [router.isReady, router.query.runId, jobs, loading]);
 
+    useEffect(() => {
+        if (!operations) return;
+        let cancelled = false;
+        operations.attention()
+            .then((items) => { if (!cancelled) setAttention(new Map(items.filter((item) => item.runId).map((item) => [String(item.runId), item]))); })
+            .catch(() => { /* rows just show no flag */ });
+        if (canCreate) {
+            operations.jobReport()
+                .then((report) => { if (!cancelled) setTotals(report.counts); })
+                .catch(() => { /* the tiles count the loaded jobs */ });
+        }
+        return () => { cancelled = true; };
+    }, [operations, canCreate, jobs]);
+
+    const attentionOf = (job: JobCard) => attention.get(String(job.id));
+    const needsAttention = (job: JobCard) => Boolean(attentionOf(job)) || jobCategory(job) === 'failed';
     const filteredJobs = jobs.filter((job) => {
         if (statusFilter === 'all') return true
         if (statusFilter === 'urgent') return fieldJobUrgent(job) && OPEN_FIELD_JOB_CATEGORIES.has(fieldJobCategory(job))
         if (statusFilter === 'waiting') return isWaitingOverWeek(job)
         if (statusFilter === 'pending') return jobCategory(job) === 'pending'
+        if (statusFilter === 'failed') return needsAttention(job)
         return jobCategory(job) === statusFilter
     })
     const categoryCounts = jobs.reduce<Record<BoardCategory, number>>((counts, job) => {
@@ -292,6 +318,9 @@ export default function JobCardsBoard() {
             workload[assigneeId] = memberWorkload
             return workload
         }, {})
+    const attentionCount = new Set([...attention.keys(), ...jobs.filter((job) => jobCategory(job) === 'failed').map((job) => String(job.id))]).size
+    const tileCount = (category: BoardCategory) =>
+        totals ? (category === 'active' ? totals.active + totals.arrived : totals[category]) : categoryCounts[category]
     const workloadRows = Object.entries(teamWorkload).sort((a, b) => b[1].active - a[1].active || a[0].localeCompare(b[0]))
     const listState = useListState({ resetKey: statusFilter });
     const { items: listItems, paging: listPaging } = useClientList(filteredJobs, JOB_SORTS, listState);
@@ -303,9 +332,18 @@ export default function JobCardsBoard() {
         const state = job.output || {}
         const overdue = isWaitingOverWeek(job)
         const arrived = isArrived(job)
+        const stuck = attentionOf(job)
+        const stuckWords = stuck && stuck.kind !== 'failed' ? ATTENTION_WORDS[stuck.kind] : null
         return (
             <Group gap={4} wrap="nowrap">
                 {fieldJobUrgent(job) && <Badge color="red" variant="filled">Urgent</Badge>}
+                {stuck && stuckWords && (
+                    <Tooltip label={stuck.detail || stuck.headline} withArrow multiline maw={280}>
+                        <Badge color={stuckWords.color} variant="outline">
+                            {stuckWords.label}{stuck.days >= 1 ? ` · ${stuck.days} day${stuck.days === 1 ? '' : 's'}` : ''}
+                        </Badge>
+                    </Tooltip>
+                )}
                 <Badge color={overdue ? 'grape' : arrived ? 'teal' : getStatusColor(job.status, state.workflowStage, state)} variant="light">
                     {overdue
                         ? 'Waiting over a week'
@@ -398,18 +436,6 @@ export default function JobCardsBoard() {
                 onCreated={() => setTimeout(fetchJobs, 800)}
             />
 
-            <Paper withBorder radius="md" p="md" mb="md">
-                <Title order={4} fw={500} mb="xs">Needs attention</Title>
-                <JobAttention
-                    api={operations}
-                    surface="portal"
-                    members={teamMembers}
-                    notify={notify}
-                    refreshKey={jobs.length}
-                    onOpenJob={(runId) => void openJobById(runId)}
-                />
-            </Paper>
-
             {canCreate && (
                 <Paper withBorder radius="md" p="md" mb="md">
                     <Title order={4} fw={500} mb="xs">Jobs mailbox and possible repeats</Title>
@@ -425,13 +451,13 @@ export default function JobCardsBoard() {
 
             <Grid mb="md">
                 {[
-                    { label: 'Pending / unassigned', count: categoryCounts.pending, color: 'gray', filter: 'pending' },
-                    { label: 'Assigned', count: categoryCounts.assigned, color: 'indigo', filter: 'assigned' },
-                    { label: 'In progress', count: categoryCounts.active, color: 'blue', filter: 'active' },
-                    { label: 'On hold', count: categoryCounts.on_hold, color: 'orange', filter: 'on_hold' },
-                    { label: 'Needs attention', count: categoryCounts.failed, color: 'red', filter: 'failed' },
-                    { label: 'Completed', count: categoryCounts.completed, color: 'teal', filter: 'completed' },
-                    { label: 'Closed', count: categoryCounts.reconciled, color: 'green', filter: 'reconciled' },
+                    { label: 'Pending / unassigned', count: tileCount('pending'), color: 'gray', filter: 'pending' },
+                    { label: 'Assigned', count: tileCount('assigned'), color: 'indigo', filter: 'assigned' },
+                    { label: 'In progress', count: tileCount('active'), color: 'blue', filter: 'active' },
+                    { label: 'On hold', count: tileCount('on_hold'), color: 'orange', filter: 'on_hold' },
+                    { label: 'Needs attention', count: attentionCount, color: 'red', filter: 'failed' },
+                    { label: 'Completed', count: tileCount('completed'), color: 'teal', filter: 'completed' },
+                    { label: 'Closed', count: tileCount('reconciled'), color: 'green', filter: 'reconciled' },
                 ].map((item) => (
                     <Grid.Col key={item.filter} span={{ base: 6, sm: 4, lg: 3 }}>
                         <Paper
@@ -455,6 +481,11 @@ export default function JobCardsBoard() {
                     </Grid.Col>
                 ))}
             </Grid>
+            {totals && hasMore && (
+                <Text size="xs" c="dimmed" mt={-8} mb="md">
+                    The counts cover every job. The list has the newest {jobs.length}; Show more jobs at the bottom loads older ones.
+                </Text>
+            )}
 
             {workloadRows.length > 0 && (
                 <Paper p="md" mb="md" withBorder>
@@ -490,7 +521,11 @@ export default function JobCardsBoard() {
                     rows={listItems}
                     columns={jobColumns}
                     rowKey={(job) => String(job.id)}
-                    rowAccent={(job) => (isWaitingOverWeek(job) ? 'var(--mantine-color-grape-6)' : undefined)}
+                    rowAccent={(job) => {
+                        if (isWaitingOverWeek(job)) return 'var(--mantine-color-grape-6)'
+                        const stuck = attentionOf(job)
+                        return stuck ? `var(--mantine-color-${ATTENTION_WORDS[stuck.kind].color}-6)` : undefined
+                    }}
                     onRowClick={(job) => setSelectedJob(job)}
                     rowLabel={(job) => String(jobInput(job).reference || job.id)}
                     sort={listState.sort}

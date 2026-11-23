@@ -37,14 +37,19 @@ function touchedAt(run: JobRun): number {
 export default function JobsOverview({ backendUrl, token }: { backendUrl: string; token: string }) {
     const [runs, setRuns] = useState<JobRun[] | null>(null)
     const [waitingToBook, setWaitingToBook] = useState<number | null>(null)
+    // Counts over every job; the runs list only holds the newest ones.
+    const [totals, setTotals] = useState<Record<string, number> | null>(null)
+    const [stuck, setStuck] = useState<Set<string>>(new Set())
 
     useEffect(() => {
         let cancelled = false
         const headers = { Authorization: `Bearer ${token}` }
         void (async () => {
-            const [runRes, intakeRes] = await Promise.all([
+            const [runRes, intakeRes, reportRes, attentionRes] = await Promise.all([
                 axios.get(`${backendUrl}/workflows/runs`, { headers, params: { limit: 200 } }).catch(() => ({ data: [] })),
                 axios.get(`${backendUrl}/api/platform/job-intake`, { headers }).catch(() => ({ data: { items: [] } })),
+                axios.get(`${backendUrl}/api/platform/operations/reports`, { headers }).catch(() => ({ data: null })),
+                axios.get(`${backendUrl}/api/platform/operations/attention`, { headers }).catch(() => ({ data: { items: [] } })),
             ])
             if (cancelled) return
             const rows: JobRun[] = (Array.isArray(runRes.data) ? runRes.data : runRes.data?.items || [])
@@ -52,6 +57,9 @@ export default function JobsOverview({ backendUrl, token }: { backendUrl: string
             setRuns(rows)
             const intakes: any[] = Array.isArray(intakeRes.data?.items) ? intakeRes.data.items : []
             setWaitingToBook(intakes.filter((item) => item?.status === 'pending').length)
+            setTotals(reportRes.data?.counts || null)
+            const attentionItems: any[] = Array.isArray(attentionRes.data?.items) ? attentionRes.data.items : []
+            setStuck(new Set(attentionItems.map((item) => String(item?.runId || '')).filter(Boolean)))
         })()
         return () => {
             cancelled = true
@@ -74,11 +82,11 @@ export default function JobsOverview({ backendUrl, token }: { backendUrl: string
     const tiles = [
         { label: 'Possible repeats to check', value: waitingToBook, color: 'gray', href: BOARD },
         { label: 'Urgent', value: urgentOpen.length, color: 'red', href: `${BOARD}?status=urgent` },
-        { label: 'Unassigned', value: counts.pending, color: 'gray', href: `${BOARD}?status=pending` },
-        { label: 'Assigned', value: counts.assigned, color: 'indigo', href: `${BOARD}?status=assigned` },
-        { label: 'In progress', value: counts.active + counts.arrived, color: 'blue', href: `${BOARD}?status=active` },
-        { label: 'On hold', value: counts.on_hold, color: 'orange', href: `${BOARD}?status=on_hold` },
-        { label: 'Needs attention', value: counts.failed, color: 'red', href: `${BOARD}?status=failed` },
+        { label: 'Unassigned', value: totals ? totals.pending : counts.pending, color: 'gray', href: `${BOARD}?status=pending` },
+        { label: 'Assigned', value: totals ? totals.assigned : counts.assigned, color: 'indigo', href: `${BOARD}?status=assigned` },
+        { label: 'In progress', value: totals ? totals.active + totals.arrived : counts.active + counts.arrived, color: 'blue', href: `${BOARD}?status=active` },
+        { label: 'On hold', value: totals ? totals.on_hold : counts.on_hold, color: 'orange', href: `${BOARD}?status=on_hold` },
+        { label: 'Needs attention', value: new Set([...stuck, ...(runs || []).filter((run) => fieldJobCategory(run) === 'failed').map((run) => run.id)]).size, color: 'red', href: `${BOARD}?status=failed` },
         { label: 'Done this month', value: doneThisMonth, color: 'teal', href: `${BOARD}?status=completed` },
     ]
 

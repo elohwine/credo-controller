@@ -204,7 +204,7 @@ import { FailedVisitPanel } from '../../shared/operations/FailedVisitPanel'
 import { JobBoard } from '../../shared/operations/JobBoard'
 import { ImportedJobDetails } from '../../shared/operations/ImportedJobDetails'
 import { JobOnSite } from '../../shared/operations/JobOnSite'
-import { operationsApi } from '../../shared/operations/operationsApi'
+import { ATTENTION_WORDS, operationsApi, type AttentionItem } from '../../shared/operations/operationsApi'
 import JobPriceSheet from '@/components/shared/JobPriceSheet'
 import { detailTabsFor, type DetailTabKey } from '../../shared/detailTabs'
 
@@ -2411,6 +2411,24 @@ export default function FinancePage() {
     () => (fieldRunsEnabled ? fieldRunsQuery.data ?? [] : []),
     [fieldRunsEnabled, fieldRunsQuery.data],
   )
+  // Stuck jobs are flagged in the jobs list itself, not listed a second time elsewhere.
+  const [fieldAttention, setFieldAttention] = useState<Map<string, AttentionItem>>(new Map())
+  const [fieldAttentionOnly, setFieldAttentionOnly] = useState(false)
+  useEffect(() => {
+    if (!phoneOperations || !fieldRunsEnabled) return
+    let cancelled = false
+    phoneOperations
+      .attention()
+      .then((items) => {
+        if (!cancelled) setFieldAttention(new Map(items.filter((item) => item.runId).map((item) => [String(item.runId), item])))
+      })
+      .catch(() => {
+        /* rows just show no flag */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [phoneOperations, fieldRunsEnabled, fieldRuns])
   // Only the first load (nothing saved yet) shows as loading in the list; refreshes use the header bar.
   const fieldRunsLoading = fieldRunsEnabled && fieldRunsQuery.isPending && fieldRunsQuery.isFetching
   // Keep the open job sheet on the latest copy of the job whenever the list reloads
@@ -4993,7 +5011,9 @@ export default function FinancePage() {
     })),
   ]
 
-  const fieldListRows: FinanceListRow[] = fieldRuns.map((run: any) => {
+  const fieldRunNeedsAttention = (run: any) =>
+    fieldAttention.has(String(run?.id)) || ['failed', 'disputed'].includes(String(run?.output?.workflowStage || run?.status || '').toLowerCase())
+  const fieldListRows: FinanceListRow[] = (fieldAttentionOnly ? fieldRuns.filter(fieldRunNeedsAttention) : fieldRuns).map((run: any) => {
     const stage = String(run.output?.workflowStage || run.output?.stage || run.status || '').toUpperCase()
     const FEPT_STAGE_COLOR: Record<string, string> = {
       REQUEST_CREATED: 'blue',
@@ -5018,7 +5038,13 @@ export default function FinancePage() {
       flowColor: FINANCE_FLOW_WORDS.job.color,
       status: fieldJobStatusLabel(run.status, stage, run.output?.pauseReason, run.output),
       statusColor: wait ? (wait.failed ? 'red' : 'orange') : FEPT_STAGE_COLOR[stage] || 'gray',
-      flag: fieldJobUrgent(run) && !closed ? { label: 'Urgent', color: 'red' } : undefined,
+      flag: (() => {
+        if (fieldJobUrgent(run) && !closed) return { label: 'Urgent', color: 'red' }
+        const stuck = fieldAttention.get(String(run.id))
+        if (!stuck) return undefined
+        const words = ATTENTION_WORDS[stuck.kind]
+        return { label: `${words.label}${stuck.days >= 1 ? ` · ${stuck.days}d` : ''}`, color: words.color }
+      })(),
       dateLabel: formatTxnTime(run.updatedAt || run.updated_at || run.createdAt || run.created_at) || undefined,
       note:
         [input.storeNumber ? `Store ${input.storeNumber}` : '', input.reference || input.poNumber, input.callOut ? 'Call-out' : '', input.location]
@@ -5557,6 +5583,24 @@ export default function FinancePage() {
                 />
               </Group>
 
+              {fieldAttention.size > 0 && (
+                <Group mb="sm">
+                  <Button
+                    size="sm"
+                    radius="xl"
+                    variant={fieldAttentionOnly ? 'filled' : 'light'}
+                    color="red"
+                    onClick={() => setFieldAttentionOnly((value) => !value)}
+                  >
+                    {fieldAttentionOnly ? 'Showing jobs that need attention' : `Needs attention (${fieldAttention.size})`}
+                  </Button>
+                  {fieldAttentionOnly && (
+                    <Button size="sm" radius="xl" variant="subtle" onClick={() => setFieldAttentionOnly(false)}>
+                      Show all jobs
+                    </Button>
+                  )}
+                </Group>
+              )}
               <FinanceListRows
                 rows={fieldListRows}
                 view={listView}

@@ -24,7 +24,6 @@ import api from '@/lib/api'
 import { getActiveOrgId, getContextMode, getOrgToken, isEmployeeOrgRole } from '@/lib/auth'
 import { usePhoneOperations } from '@/lib/operations'
 import { IncomingJobs } from '../../shared/operations/IncomingJobs'
-import { JobAttention } from '../../shared/operations/JobAttention'
 import { JobScheduleFields } from '../../shared/operations/JobScheduleFields'
 
 interface Member {
@@ -227,18 +226,6 @@ export default function IntakePage() {
                 <Button size="md" radius="xl" onClick={() => setCreating(true)}>Add a job</Button>
                 <Button size="md" radius="xl" variant="light" loading={loading} onClick={() => void router.push('/registers')}>Stores & vans</Button>
               </Group>
-            </Box>
-
-            <Box p="md" pb={0}>
-              <Title order={4} fw={500} mb="xs">Needs attention</Title>
-              <JobAttention
-                api={operations}
-                surface="phone"
-                members={members}
-                notify={notify}
-                refreshKey={refreshKey}
-                onOpenJob={(runId) => void router.push(`/finance?tab=field&runId=${encodeURIComponent(runId)}`)}
-              />
             </Box>
 
             <Box p="md">

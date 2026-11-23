@@ -40,7 +40,7 @@ import { assertFieldStepSucceeded } from '../../../shared/fieldEvidence'
 import { BRAND } from '@/lib/theme'
 import { getPreferredTenantToken } from '@/utils/portalTenant'
 import { getOrgScopedToken, readActiveOrganization, readCurrentUserId } from '@/utils/organizationContext'
-import { jobContactOption, OUTSIDE_CONTACT_NEEDS_APP, parseJobContactSelection } from '@/lib/jobPeople'
+import { jobContactOption, OUTSIDE_CONTACT_NEEDS_APP, parseJobContactSelection, uniqueOptions } from '@/lib/jobPeople'
 import { formatTxnTime } from '@/lib/inboxAttention'
 import { StageActorTimeline } from '@/components/finance/StageActorTimeline'
 import {
@@ -1119,7 +1119,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                         placeholder="Choose a member"
                         value={nextAssignee}
                         onChange={setNextAssignee}
-                        data={[
+                        data={uniqueOptions([
                           ...members.map((member) => {
                             const role = String(member.role || 'member').replace(/_/g, ' ')
                             const stored = String(member.displayName || '').trim()
@@ -1142,7 +1142,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                                 contactScope: contact.contactScope,
                               }),
                             ),
-                        ]}
+                        ])}
                       />
                       <Button
                         size="xs"
