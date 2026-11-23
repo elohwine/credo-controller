@@ -79,33 +79,45 @@ export function JobsDashboard({
   const today = report.today
   const open = STAGES.reduce((sum, stage) => sum + stage.count(counts), 0)
   const stuck = new Set((attention || []).map((item) => item.runId || item.intakeId || item.reference)).size
+  const firstTimeFix = report.firstTimeFix?.percent !== undefined ? report.firstTimeFix : undefined
+  const averageDays = report.averageDaysToComplete !== undefined ? `avg ${report.averageDaysToComplete} days to finish` : undefined
+  const unassigned = `${today?.unassigned ?? counts.pending + counts.not_booked} unassigned`
+  // Six tiles keep the grid even; with a first-time fix figure the timing figures move into the hints.
   const tiles: Array<{ label: string; value: number | string; hint?: string; color?: string; target: JobsDashboardTarget }> = [
-    { label: 'Open jobs', value: open, hint: `${today?.unassigned ?? counts.pending + counts.not_booked} unassigned`, target: { kind: 'jobs' } },
+    {
+      label: 'Open jobs',
+      value: open,
+      hint: firstTimeFix && today?.oldestOpenDays !== undefined ? `${unassigned} · oldest ${today.oldestOpenDays} days` : unassigned,
+      target: { kind: 'jobs' },
+    },
     { label: 'Needs attention', value: stuck || counts.failed, hint: 'Late, stuck or nobody on it', color: stuck || counts.failed ? 'red' : undefined, target: { kind: 'jobs', filter: 'attention' } },
     ...(today
       ? [
           { label: 'Booked for today', value: today.scheduled, hint: today.overdue ? `${today.overdue} past their day` : 'None past their day', color: today.overdue ? 'orange' : undefined, target: { kind: 'jobs' } as JobsDashboardTarget },
           { label: 'Urgent call-outs', value: today.urgent, hint: 'Open call-outs', color: today.urgent ? 'red' : undefined, target: { kind: 'jobs', filter: 'urgent' } as JobsDashboardTarget },
-          { label: 'Done in 7 days', value: today.completedLast7Days, hint: `${today.completedLast30Days} in 30 days · ${today.receivedLast7Days} came in`, color: 'teal', target: { kind: 'jobs', filter: 'completed' } as JobsDashboardTarget },
-        ]
-      : []),
-    ...(report.firstTimeFix && report.firstTimeFix.percent !== undefined
-      ? [
           {
-            label: 'Fixed first visit',
-            value: `${report.firstTimeFix.percent}%`,
-            hint: `${report.firstTimeFix.returnVisits} needed a return visit`,
-            color: report.firstTimeFix.percent >= 85 ? 'teal' : report.firstTimeFix.percent >= 70 ? 'orange' : 'red',
-            target: { kind: 'report' } as JobsDashboardTarget,
+            label: 'Done in 7 days',
+            value: today.completedLast7Days,
+            hint: [`${today.completedLast30Days} in 30 days`, firstTimeFix ? averageDays : `${today.receivedLast7Days} came in`].filter(Boolean).join(' · '),
+            color: 'teal',
+            target: { kind: 'jobs', filter: 'completed' } as JobsDashboardTarget,
           },
         ]
       : []),
-    {
-      label: 'Days to complete',
-      value: report.averageDaysToComplete ?? '–',
-      hint: today?.oldestOpenDays !== undefined ? `Oldest open job: ${today.oldestOpenDays} days` : 'Average, received to done',
-      target: { kind: 'report' },
-    },
+    firstTimeFix
+      ? {
+          label: 'Fixed first visit',
+          value: `${firstTimeFix.percent}%`,
+          hint: `${firstTimeFix.returnVisits} needed a return visit`,
+          color: firstTimeFix.percent! >= 85 ? 'teal' : firstTimeFix.percent! >= 70 ? 'orange' : 'red',
+          target: { kind: 'report' },
+        }
+      : {
+          label: 'Days to complete',
+          value: report.averageDaysToComplete ?? '–',
+          hint: today?.oldestOpenDays !== undefined ? `Oldest open job: ${today.oldestOpenDays} days` : 'Average, received to done',
+          target: { kind: 'report' },
+        },
   ]
 
   const weekly = report.weekly || []
