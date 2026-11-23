@@ -165,28 +165,34 @@ describe('Jobs list, export, reports and what is filled in on site', () => {
       assignment: { assigneeId: FARAI },
     })
     addJob('RUN-DONE', { problemType: 'Roof', scheduledDate: '2026-11-20' }, 'completed', {}, '2026-11-24T08:00:00Z')
+    // Converted from the old system's history: the worker is in `workerName`, and it needed a return visit.
+    addJob('RUN-OLD', { sourceType: 'import', workerName: 'Gary Old', importedDetails: { failureType: 'Requires Return Visit' } }, 'cancelled', {
+      workflowStage: 'CANCELLED',
+    })
+    addJob('RUN-OLD-2', { sourceType: 'import', workerName: 'Gary Old', importedDetails: { failureType: 'Requires Return Visit' } }, 'completed', {}, '2026-11-01T08:00:00Z')
 
     const report = register.report(ORG)
+    expect(report.firstTimeFix).toEqual({ fixed: 1, returnVisits: 1, percent: 50 })
     expect(report.today).toEqual({
       date: '2026-11-25',
       scheduled: 1,
       overdue: 1,
       unassigned: 1,
       urgent: 1,
-      receivedLast7Days: 3,
+      receivedLast7Days: 5,
       completedLast7Days: 1,
-      completedLast30Days: 1,
+      completedLast30Days: 2,
       oldestOpenDays: 5,
     })
     expect(report.weekly).toHaveLength(8)
-    expect(report.weekly[6]).toEqual({ weekStart: '2026-11-16', received: 3, completed: 0 })
+    expect(report.weekly[6]).toEqual({ weekStart: '2026-11-16', received: 5, completed: 0 })
     expect(report.weekly[7]).toEqual({ weekStart: '2026-11-23', received: 0, completed: 1 })
     expect(report.byStore[0]).toEqual({ storeNumber: '1958', name: 'Lidl Paignton', open: 2, completed: 0, total: 2 })
     expect(report.byProblemType[0]).toEqual({ problemType: 'Doors', open: 2, total: 2 })
     expect(report.byWorker).toEqual(
       expect.arrayContaining([
         { userId: FARAI, name: 'Farai Ncube', open: 1, completed: 0, failed: 0 },
-        { userId: '', name: 'Gary Old', oldSystem: true, open: 1, completed: 0, failed: 0 },
+        { userId: '', name: 'Gary Old', oldSystem: true, open: 1, completed: 1, failed: 0 },
       ]),
     )
     // The date filter narrows the lists but not "today".

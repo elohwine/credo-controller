@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Anchor, Badge, Box, Group, Paper, Progress, SimpleGrid, Skeleton, Stack, Text, Title, Tooltip, UnstyledButton } from '@mantine/core'
 
-import { ATTENTION_WORDS, type AttentionItem, type JobReport, type OperationsApi } from './operationsApi'
+import { ATTENTION_WORDS, storeLabel, type AttentionItem, type JobReport, type OperationsApi } from './operationsApi'
 
 /** Where a dashboard click goes. Each app turns it into its own route. */
 export type JobsDashboardTarget =
@@ -87,6 +87,17 @@ export function JobsDashboard({
           { label: 'Booked for today', value: today.scheduled, hint: today.overdue ? `${today.overdue} past their day` : 'None past their day', color: today.overdue ? 'orange' : undefined, target: { kind: 'jobs' } as JobsDashboardTarget },
           { label: 'Urgent call-outs', value: today.urgent, hint: 'Open call-outs', color: today.urgent ? 'red' : undefined, target: { kind: 'jobs', filter: 'urgent' } as JobsDashboardTarget },
           { label: 'Done in 7 days', value: today.completedLast7Days, hint: `${today.completedLast30Days} in 30 days · ${today.receivedLast7Days} came in`, color: 'teal', target: { kind: 'jobs', filter: 'completed' } as JobsDashboardTarget },
+        ]
+      : []),
+    ...(report.firstTimeFix && report.firstTimeFix.percent !== undefined
+      ? [
+          {
+            label: 'Fixed first visit',
+            value: `${report.firstTimeFix.percent}%`,
+            hint: `${report.firstTimeFix.returnVisits} needed a return visit`,
+            color: report.firstTimeFix.percent >= 85 ? 'teal' : report.firstTimeFix.percent >= 70 ? 'orange' : 'red',
+            target: { kind: 'report' } as JobsDashboardTarget,
+          },
         ]
       : []),
     {
@@ -215,13 +226,13 @@ export function JobsDashboard({
         </Section>
       )}
 
-      <SimpleGrid cols={phone ? 1 : { base: 1, md: 3 }} spacing="md">
+      <SimpleGrid cols={phone ? 1 : { base: 1, md: problems.length ? 3 : 2 }} spacing="md">
         <Section title="Busiest stores" action={<Anchor size="xs" onClick={() => onOpen({ kind: 'report' })}>Full report</Anchor>}>
           {stores.length === 0 && <Text size="sm" c="dimmed">No store has an open job.</Text>}
           <RankList
             rows={stores.map((store) => ({
               key: store.storeNumber,
-              label: store.name ? `${store.storeNumber} · ${store.name}` : `Store ${store.storeNumber}`,
+              label: storeLabel(store.storeNumber, store.name),
               value: store.open,
               hint: `${store.completed} done`,
             }))}
@@ -240,13 +251,14 @@ export function JobsDashboard({
             color="blue"
           />
         </Section>
-        <Section title="Common problems" action={<Anchor size="xs" onClick={() => onOpen({ kind: 'report' })}>Full report</Anchor>}>
-          {problems.length === 0 && <Text size="sm" c="dimmed">No open jobs have a problem type.</Text>}
-          <RankList
-            rows={problems.map((problem) => ({ key: problem.problemType, label: problem.problemType, value: problem.open, hint: `${problem.total} in all` }))}
-            color="grape"
-          />
-        </Section>
+        {problems.length > 0 && (
+          <Section title="Common problems" action={<Anchor size="xs" onClick={() => onOpen({ kind: 'report' })}>Full report</Anchor>}>
+            <RankList
+              rows={problems.map((problem) => ({ key: problem.problemType, label: problem.problemType, value: problem.open, hint: `${problem.total} in all` }))}
+              color="grape"
+            />
+          </Section>
+        )}
       </SimpleGrid>
     </Stack>
   )

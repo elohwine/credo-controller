@@ -58,6 +58,8 @@ const VAN_PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const VAN_PHOTO_MAX_BYTES = 5 * 1024 * 1024
 const VAN_PHOTO_LIMIT = 6
 
+const RETURN_VISIT = /return visit|revisit|access denied|no access/i
+
 export interface JobSummary {
   runId: string
   reference: string
@@ -81,6 +83,8 @@ export interface JobSummary {
   completedAt?: string
   /** Who the old system had on an imported job, when they are not on the team here. */
   workerName?: string
+  /** The job needed another visit: a failed visit here, or the old system said so. */
+  returnVisit?: boolean
   /** The visit waiting to be re-booked. */
   failedVisit?: { reason: string; label: string; note?: string; at: string; workerId?: string }
   /** Everyone who had a failed visit on this job, even after it was re-booked to someone else. */
@@ -330,7 +334,8 @@ export class OperationsRegisterService {
         currency: clean(input.currency, 3) || undefined,
         createdAt: row.createdAt,
         completedAt: row.completedAt || undefined,
-        workerName: clean(input.importedWorkerName, 160) || undefined,
+        workerName: clean(input.importedWorkerName || input.workerName, 160) || undefined,
+        ...(visits.length || RETURN_VISIT.test(String(input.importedDetails?.failureType || '')) ? { returnVisit: true } : {}),
         ...(open
           ? {
               failedVisit: {

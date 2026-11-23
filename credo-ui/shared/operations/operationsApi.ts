@@ -127,6 +127,8 @@ export interface JobReport {
   byWorker: Array<{ userId: string; name: string; open: number; completed: number; failed: number; oldSystem?: boolean }>
   byProblemType?: Array<{ problemType: string; open: number; total: number }>
   averageDaysToComplete?: number
+  /** Jobs done on the first visit, out of every job that is done or had to be visited again. */
+  firstTimeFix?: { fixed: number; returnVisits: number; percent?: number }
   /** Where the work stands today, whatever the date filter (missing from servers older than this screen). */
   today?: {
     date: string
@@ -141,6 +143,14 @@ export interface JobReport {
   }
   /** The last eight weeks, oldest first (Monday start). */
   weekly?: Array<{ weekStart: string; received: number; completed: number }>
+}
+
+/** "2035 · Brierley Hill", without repeating a number the saved store name already starts with. */
+export function storeLabel(storeNumber: string, name?: string): string {
+  if (!name) return `Store ${storeNumber}`
+  const number = storeNumber.replace(/^0+/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const rest = name.replace(new RegExp(`^0*${number}(?!\\d)\\s*[-–:]?\\s*`, 'i'), '').trim()
+  return `${storeNumber} · ${rest || name}`
 }
 
 export interface MailMessage {

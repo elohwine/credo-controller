@@ -42,6 +42,8 @@ export interface JobRegisterRow {
   possibleRepeat?: boolean
   /** Who did the job, as the old system named them (imported jobs only; not a team member). */
   workerName?: string
+  /** The job needed another visit: a failed visit here, or the old system said so. */
+  returnVisit?: boolean
   /** What the old system said about an imported job: its status, branch, times, notes and checks. */
   details?: ImportedJobDetails
 }
@@ -78,6 +80,11 @@ export interface JobReport {
   byProblemType: Array<{ problemType: string; open: number; total: number }>
   /** Days from receiving a job to completing it, over completed jobs. */
   averageDaysToComplete?: number
+  /**
+   * Jobs done on the first visit, out of every job that is done or had to be visited again
+   * (`percent` is missing when there is nothing to count yet).
+   */
+  firstTimeFix: { fixed: number; returnVisits: number; percent?: number }
   /** Where the work stands today, whatever the date filter. */
   today: {
     date: string
@@ -103,6 +110,7 @@ const DONE = new Set<JobRegisterCategory>(['completed', 'reconciled'])
 const OPEN = new Set<JobRegisterCategory>(['pending', 'assigned', 'active', 'arrived', 'on_hold', 'failed'])
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/
+const RETURN_VISIT = /return visit|revisit|access denied|no access/i
 
 /** Status sorts in the order a job moves through, so the colours group together. */
 const CATEGORY_ORDER: JobRegisterCategory[] = [
@@ -187,6 +195,7 @@ export class JobRegisterService {
       createdAt: job.createdAt,
       completedAt: job.completedAt,
       workerName: job.workerName,
+      ...(job.returnVisit ? { returnVisit: true } : {}),
     }))
     const waiting: JobRegisterRow[] = operationsRegisterService.pendingIntakes(orgTenantId).map((intake) => ({
       kind: 'intake',
@@ -278,7 +287,7 @@ export class JobRegisterService {
         completedAt: row.completedDate || undefined,
         workerName: row.workerName || undefined,
         details: parseDetails(row.detailsJson),
-      }))
+      })).map((row) => (RETURN_VISIT.test(String(row.details?.failureType || '')) ? { ...row, returnVisit: true } : row))
     } catch (error) {
       const message = error instanceof Error ? error.message : String((error as { message?: unknown } | null)?.message ?? error)
       if (/no such table/i.test(message)) return []
@@ -353,7 +362,11 @@ export class JobRegisterService {
     const workers = new Map<string, { userId: string; name: string; oldSystem?: boolean; open: number; completed: number; failed: number }>()
     const problems = new Map<string, { problemType: string; open: number; total: number }>()
     const durations: number[] = []
+    let fixed = 0
+    let returnVisits = 0
     for (const row of rows) {
+      if (row.returnVisit && row.category !== 'cancelled') returnVisits += 1
+      else if (DONE.has(row.category)) fixed += 1
       counts[row.category] += 1
       sources.set(row.source, (sources.get(row.source) || 0) + 1)
       const open = isOpen(row.category)
@@ -418,6 +431,11 @@ export class JobRegisterService {
       ...(durations.length
         ? { averageDaysToComplete: Math.round((durations.reduce((a, b) => a + b, 0) / durations.length) * 10) / 10 }
         : {}),
+      firstTimeFix: {
+        fixed,
+        returnVisits,
+        ...(fixed + returnVisits ? { percent: Math.round((fixed / (fixed + returnVisits)) * 100) } : {}),
+      },
       ...nowFigures(filtered ? this.rows(orgTenantId, { source: filter.source }) : rows),
     }
   }

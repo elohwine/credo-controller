@@ -17,6 +17,7 @@ import {
   type JobRegisterCategory,
   type JobRegisterRow,
   type JobReport,
+  storeLabel,
   type OperationsApi,
 } from './operationsApi'
 
@@ -653,7 +654,7 @@ export function JobBoard({
           ))}
           {report.byStore.length > 0 && (
             <SummaryTable
-              rows={report.byStore.map(({ storeNumber, name, open, completed, total }) => ({ storeNumber, store: name ? `${storeNumber} · ${name}` : storeNumber, open, completed, total }))}
+              rows={report.byStore.map(({ storeNumber, name, open, completed, total }) => ({ storeNumber, store: storeLabel(storeNumber, name), open, completed, total }))}
               rowKey={(store) => store.storeNumber}
               name={{ key: 'store', title: 'Store' }}
               counts={STORE_COUNTS}

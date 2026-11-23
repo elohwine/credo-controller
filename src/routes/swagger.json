@@ -18143,6 +18143,10 @@
             "type": "string",
             "description": "Who the old system had on an imported job, when they are not on the team here."
           },
+          "returnVisit": {
+            "type": "boolean",
+            "description": "The job needed another visit: a failed visit here, or the old system said so."
+          },
           "failedVisit": {
             "properties": {
               "workerId": {
@@ -19178,6 +19182,10 @@
             "type": "string",
             "description": "Who did the job, as the old system named them (imported jobs only; not a team member)."
           },
+          "returnVisit": {
+            "type": "boolean",
+            "description": "The job needed another visit: a failed visit here, or the old system said so."
+          },
           "details": {
             "$ref": "#/components/schemas/ImportedJobDetails",
             "description": "What the old system said about an imported job: its status, branch, times, notes and checks."
@@ -19421,6 +19429,28 @@
             "format": "double",
             "description": "Days from receiving a job to completing it, over completed jobs."
           },
+          "firstTimeFix": {
+            "properties": {
+              "percent": {
+                "type": "number",
+                "format": "double"
+              },
+              "returnVisits": {
+                "type": "number",
+                "format": "double"
+              },
+              "fixed": {
+                "type": "number",
+                "format": "double"
+              }
+            },
+            "required": [
+              "returnVisits",
+              "fixed"
+            ],
+            "type": "object",
+            "description": "Jobs done on the first visit, out of every job that is done or had to be visited again\n(`percent` is missing when there is nothing to count yet)."
+          },
           "today": {
             "properties": {
               "oldestOpenDays": {
@@ -19439,6 +19469,11 @@
               "receivedLast7Days": {
                 "type": "number",
                 "format": "double"
+              },
+              "urgent": {
+                "type": "number",
+                "format": "double",
+                "description": "Open call-outs."
               },
               "unassigned": {
                 "type": "number",
@@ -19463,6 +19498,7 @@
               "completedLast30Days",
               "completedLast7Days",
               "receivedLast7Days",
+              "urgent",
               "unassigned",
               "overdue",
               "scheduled",
@@ -19504,6 +19540,7 @@
           "byStore",
           "byWorker",
           "byProblemType",
+          "firstTimeFix",
           "today",
           "weekly"
         ],
