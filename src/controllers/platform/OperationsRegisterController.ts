@@ -159,11 +159,17 @@ export class OperationsRegisterController {
     return result
   }
 
-  /** Turn finished jobs already brought in from the old system into ordinary closed jobs on the Jobs list. Safe to run again. */
+  /**
+   * Turn finished jobs already brought in from the old system into ordinary closed jobs on the Jobs list,
+   * and link every imported job to its store and client. Safe to run again.
+   */
   @Post('/import/convert-history')
   public convertImportedHistory(@Request() request: ExRequest) {
     const principal = principalOf(request, true)
-    return asBadRequest(() => jobHistoryPromotionService.promote(principal.tenantId))
+    return asBadRequest(() => {
+      const relinked = fieldDataImportService.relinkImportedJobs(principal.tenantId).updated
+      return { ...jobHistoryPromotionService.promote(principal.tenantId), relinked }
+    })
   }
 
   /** Tools and devices the organisation has issued to its staff. */

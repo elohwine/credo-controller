@@ -190,9 +190,20 @@ export function normalizeStoreNumber(value: unknown): string {
 export function findContactByStoreNumber(orgTenantId: string, storeNumber: string): OrgContact | undefined {
   const normalized = normalizeStoreNumber(storeNumber)
   if (!normalized) return undefined
-  const row = DatabaseManager.getDatabase()
+  const db = DatabaseManager.getDatabase()
+  let row = db
     .prepare('SELECT * FROM org_contacts WHERE org_tenant_id = ? AND store_number = ? LIMIT 1')
     .get(orgTenantId, normalized) as ContactRow | undefined
+  // Old systems pad store numbers ("0035" for store 35).
+  const unpadded = normalized.replace(/^0+(?=\d)/, '')
+  if (!row && /^\d+$/.test(normalized)) {
+    row = db
+      .prepare(
+        `SELECT * FROM org_contacts WHERE org_tenant_id = ? AND store_number GLOB '[0-9]*'
+           AND (CASE WHEN ltrim(store_number, '0') = '' THEN '0' ELSE ltrim(store_number, '0') END) = ? LIMIT 1`,
+      )
+      .get(orgTenantId, unpadded) as ContactRow | undefined
+  }
   return row ? toContact(row) : undefined
 }
 

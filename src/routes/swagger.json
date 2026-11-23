@@ -18806,24 +18806,6 @@
         "type": "object",
         "additionalProperties": false
       },
-      "HistoryPromotionResult": {
-        "properties": {
-          "converted": {
-            "type": "number",
-            "format": "double"
-          },
-          "updated": {
-            "type": "number",
-            "format": "double"
-          }
-        },
-        "required": [
-          "converted",
-          "updated"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
       "EquipmentItem": {
         "properties": {
           "id": {
@@ -50290,7 +50272,26 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HistoryPromotionResult"
+                  "properties": {
+                    "updated": {
+                      "type": "number",
+                      "format": "double"
+                    },
+                    "converted": {
+                      "type": "number",
+                      "format": "double"
+                    },
+                    "relinked": {
+                      "type": "number",
+                      "format": "double"
+                    }
+                  },
+                  "required": [
+                    "updated",
+                    "converted",
+                    "relinked"
+                  ],
+                  "type": "object"
                 }
               }
             },
@@ -50304,7 +50305,7 @@
             }
           }
         },
-        "description": "Turn finished jobs already brought in from the old system into ordinary closed jobs on the Jobs list. Safe to run again.",
+        "description": "Turn finished jobs already brought in from the old system into ordinary closed jobs on the Jobs list,\nand link every imported job to its store and client. Safe to run again.",
         "tags": [
           "Operations registers"
         ],

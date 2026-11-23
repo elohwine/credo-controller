@@ -225,6 +225,40 @@ describe('Importing stores, jobs, vans and rates from a file the old system expo
     expect(payload).toMatchObject({ storeNumber: '1042', clientName: 'Greendale Spar', clientPhone: '+263772123456' })
   })
 
+  it('finds the store and client from the address, even when the old system padded the store number', () => {
+    importer.commit(ORG, OWNER, 'stores', 'Store Number,Name,Phone\n35,35 - Warminster,0772123456')
+    importer.commit(
+      ORG,
+      OWNER,
+      'jobs',
+      'Reference,Description,Location\n' +
+        '"0035 Warminster_Toilets",Toilets not flushing,"035 Lidl Warminster, Station Road, BA12 9BR"\n' +
+        '"1958 Paignton_Bollard",Bollard loose,"1958 Lidl Paignton, Kings Ash Road, TQ3 3XF"',
+    )
+    const payloads = (db.prepare('SELECT payload_json AS p FROM job_intakes ORDER BY created_at').all() as Array<{ p: string }>).map(
+      (row) => JSON.parse(row.p),
+    )
+    expect(payloads.find((p) => p.reference.startsWith('0035'))).toMatchObject({
+      storeNumber: '35',
+      clientName: '35 - Warminster',
+      clientPhone: '+263772123456',
+    })
+    // Not saved as a store yet, but the address still says which store and client it is.
+    expect(payloads.find((p) => p.reference.startsWith('1958'))).toMatchObject({ storeNumber: '1958', clientName: '1958 Lidl Paignton' })
+  })
+
+  it('links jobs imported earlier to their store and client, once', () => {
+    importer.commit(ORG, OWNER, 'stores', 'Store Number,Name\n35,35 - Warminster')
+    db.prepare(
+      `INSERT INTO job_intakes (id, tenant_id, status, payload_json, idempotency_key, created_by, created_at, updated_at)
+       VALUES ('in-1', ?, 'pending', ?, 'import:x', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+    ).run(ORG, JSON.stringify({ sourceType: 'import', reference: '0035 Warminster', description: 'x', location: '035 Lidl Warminster, Station Road' }), OWNER)
+    expect(importer.relinkImportedJobs(ORG)).toEqual({ updated: 1 })
+    const payload = JSON.parse((db.prepare(`SELECT payload_json AS p FROM job_intakes WHERE id = 'in-1'`).get() as { p: string }).p)
+    expect(payload).toMatchObject({ storeNumber: '35', clientName: '35 - Warminster' })
+    expect(importer.relinkImportedJobs(ORG)).toEqual({ updated: 0 })
+  })
+
   it('accepts a JSON list and refuses a file that has not got what a kind needs', () => {
     const json = JSON.stringify([{ Registration: 'ae 1234', Make: 'Toyota', Model: 'Hiace', 'Service Day': 'Monday', 'MOT Due': '30/06/2027' }])
     const result = importer.commit(ORG, OWNER, 'vans', json)

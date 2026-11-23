@@ -754,6 +754,53 @@ function storeNumberInName(name: string): string {
   return match ? normalizeStoreNumber(match[1]) : ''
 }
 
+/** First part of an address: "1958 Lidl Paignton, Kings Ash Road" names the place "1958 Lidl Paignton". */
+function placeName(location: string): string {
+  return cleanText(location).split(',')[0]?.trim() || ''
+}
+
+/** "1958 Lidl Paignton" and "573 - Bilston" both start with their store number. */
+function storeNumberAtStart(place: string): string {
+  const match = cleanText(place).match(/^(\d{2,6})(?:\s*[-–:]\s*|\s+)[A-Za-z]/)
+  return match ? normalizeStoreNumber(match[1]) : ''
+}
+
+type StoreLink = { storeNumber: string; contact?: ReturnType<typeof findContactByStoreNumber>; clientName: string }
+
+/**
+ * Which store and client a job is for: its store column, the number in front of the client's name
+ * or of the address, a saved store with the client's name, then the client reference or job number
+ * when they start with a saved store's number. The client falls back to the saved store, then the address.
+ */
+function linkJobToStore(
+  orgTenantId: string,
+  job: { storeNumber?: string; clientName?: string; location?: string; externalId?: string; reference?: string },
+  byName?: Map<string, ReturnType<typeof listContacts>[number]>,
+): StoreLink {
+  const clientRaw = cleanText(job.clientName || '')
+  const place = placeName(job.location || '')
+  let storeNumber =
+    normalizeStoreNumber(job.storeNumber) || storeNumberInName(clientRaw) || storeNumberAtStart(place)
+  let contact = storeNumber
+    ? findContactByStoreNumber(orgTenantId, storeNumber)
+    : byName?.get(clientRaw.toLowerCase())
+  if (!storeNumber || contact?.storeNumber) storeNumber = contact?.storeNumber || storeNumber
+  if (!storeNumber) {
+    const externalId = String(job.externalId || '')
+    const reference = String(job.reference || '')
+    for (const candidate of [externalId.match(/^\d{2,6}$/)?.[0], reference.match(/^(\d{3,6})(?!\d)/)?.[1]]) {
+      const found = candidate ? findContactByStoreNumber(orgTenantId, candidate) : undefined
+      if (found?.storeNumber) {
+        storeNumber = found.storeNumber
+        contact = found
+        break
+      }
+    }
+  }
+  const clientName = (clientRaw || contact?.name || (PLACEHOLDER.test(place) ? '' : place)).slice(0, 160)
+  return { storeNumber, contact, clientName }
+}
+
 /** A job form name ("Job Card v2") says nothing about the problem. */
 const JOB_FORM = /^job\s*(card|sheet|form)\b/i
 
@@ -1412,25 +1459,12 @@ export class FieldDataImportService {
       // A job with a completion date is finished even when the status column is blank.
       const finished = outcome !== 'open' ? outcome : completed ? 'completed' : 'open'
 
-      // The store: its own column, then the number in front of the client's name, then a saved
-      // store with that name, then the client reference or the job number when they start with a saved store's number.
       const externalId = read(record, 'externalId').slice(0, 80)
-      let storeNumber = normalizeStoreNumber(read(record, 'storeNumber')) || storeNumberInName(clientRaw)
-      let contact = storeNumber
-        ? findContactByStoreNumber(orgTenantId, storeNumber)
-        : byName.get(clientRaw.toLowerCase())
-      if (!storeNumber && contact?.storeNumber) storeNumber = contact.storeNumber
-      if (!storeNumber) {
-        for (const candidate of [externalId.match(/^\d{2,6}$/)?.[0], reference.match(/^(\d{3,6})(?!\d)/)?.[1]]) {
-          const found = candidate ? findContactByStoreNumber(orgTenantId, candidate) : undefined
-          if (found?.storeNumber) {
-            storeNumber = found.storeNumber
-            contact = found
-            break
-          }
-        }
-      }
-      const clientName = (clientRaw || contact?.name || '').slice(0, 160)
+      const { storeNumber, contact, clientName } = linkJobToStore(
+        orgTenantId,
+        { storeNumber: read(record, 'storeNumber'), clientName: clientRaw, location: read(record, 'location'), externalId, reference },
+        byName,
+      )
       const clientPhone = phone || contact?.phone || ''
 
       const key = `import:${reference.toLowerCase()}`
@@ -1629,6 +1663,70 @@ export class FieldDataImportService {
         },
       }
     })
+  }
+
+  /**
+   * Links jobs already brought in to their store and client, for rows imported before the
+   * address and padded store numbers were understood. Safe to run again.
+   */
+  public relinkImportedJobs(orgTenantId: string): { updated: number } {
+    const db = DatabaseManager.getDatabase()
+    let updated = 0
+    const history = db
+      .prepare(
+        `SELECT id, external_reference AS reference, store_number AS storeNumber, client_name AS clientName,
+                location, details_json AS detailsJson
+           FROM job_history WHERE org_tenant_id = ? AND (store_number IS NULL OR client_name IS NULL)`,
+      )
+      .all(orgTenantId) as Array<Record<string, string | null>>
+    const saveHistory = db.prepare('UPDATE job_history SET store_number = ?, client_name = ? WHERE id = ?')
+    const intakes = db
+      .prepare(`SELECT id, payload_json AS json, workflow_run_id AS runId FROM job_intakes WHERE tenant_id = ?`)
+      .all(orgTenantId) as Array<{ id: string; json: string; runId?: string | null }>
+    const saveIntake = db.prepare('UPDATE job_intakes SET payload_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    const readRun = db.prepare('SELECT input, output FROM workflow_runs WHERE id = ?')
+    const saveRun = db.prepare('UPDATE workflow_runs SET input = ?, output = ? WHERE id = ?')
+
+    db.transaction(() => {
+      for (const row of history) {
+        const link = linkJobToStore(orgTenantId, {
+          storeNumber: row.storeNumber || '',
+          clientName: row.clientName || '',
+          location: row.location || '',
+          externalId: parseJson(row.detailsJson).externalId,
+          reference: row.reference || '',
+        })
+        if ((link.storeNumber || null) === row.storeNumber && (link.clientName || null) === row.clientName) continue
+        saveHistory.run(link.storeNumber || null, link.clientName || null, row.id)
+        updated += 1
+      }
+      for (const intake of intakes) {
+        const payload = parseJson(intake.json)
+        if (payload.sourceType !== 'import' || (payload.storeNumber && payload.clientName)) continue
+        const link = linkJobToStore(orgTenantId, {
+          storeNumber: payload.storeNumber,
+          clientName: payload.clientName,
+          location: payload.location,
+          externalId: payload.importedDetails?.externalId,
+          reference: payload.reference,
+        })
+        const patch: Record<string, string> = {
+          ...(link.storeNumber && !payload.storeNumber ? { storeNumber: link.storeNumber } : {}),
+          ...(link.clientName && !payload.clientName ? { clientName: link.clientName } : {}),
+          ...(link.contact?.phone && !payload.clientPhone ? { clientPhone: link.contact.phone } : {}),
+        }
+        if (!Object.keys(patch).length) continue
+        saveIntake.run(JSON.stringify({ ...payload, ...patch }), intake.id)
+        updated += 1
+        const run = intake.runId ? (readRun.get(intake.runId) as { input?: string; output?: string } | undefined) : undefined
+        if (!run || !intake.runId) continue
+        const output = parseJson(run.output)
+        if (output.workflowInput && typeof output.workflowInput === 'object') Object.assign(output.workflowInput, patch)
+        const runPatch = { ...patch, ...(patch.clientPhone ? { customerMsisdn: patch.clientPhone } : {}) }
+        saveRun.run(JSON.stringify({ ...parseJson(run.input), ...runPatch }), JSON.stringify(output), intake.runId)
+      }
+    })()
+    return { updated }
   }
 
   /** An intake already on the Jobs list gets the same details on its job. */
