@@ -258,18 +258,22 @@ interface InviteMemberByPhoneRequest {
   role?: string
   /** The person's name. They confirm or correct it when they open their invite link. */
   name?: string
+  /** Optional. When given, the invite link is emailed here instead of sent to the phone. */
+  email?: string
   /** The inviter confirms the person agreed to get the invite link on WhatsApp. */
   whatsappConsent?: boolean
 }
 
 interface ResendInviteRequest {
+  /** Optional. Email the new link here (it is also saved on their contact). */
+  email?: string
   /** The inviter confirms the person agreed to get the invite link on WhatsApp. */
   whatsappConsent?: boolean
 }
 
 interface InviteDeliveryResult {
   /** How the invite link reached them. `link` means nothing could be sent: pass the link on in person. */
-  channel: 'whatsapp' | 'sms' | 'link' | 'none'
+  channel: 'email' | 'whatsapp' | 'sms' | 'link' | 'none'
   link?: string
 }
 
@@ -1973,12 +1977,13 @@ export class OrganizationController extends Controller {
     try {
       const result = await this.orgService.inviteMemberByPhone(orgTenantId, body.phone, body.role || 'member', user.id, {
         name: body.name,
+        email: body.email,
         whatsappConsent: body.whatsappConsent === true,
       })
       this.setStatus(201)
       return { ...result, message: OrganizationController.inviteMessage(result.invite, result.accountCreated) }
     } catch (error: any) {
-      if (error.message.includes('Enter the person')) {
+      if (error.message.includes('Enter the person') || error.message.includes('valid email')) {
         throw new StatusException(error.message, 400)
       } else if (error.message.includes('Only org owners')) {
         this.setStatus(403)
@@ -1994,6 +1999,8 @@ export class OrganizationController extends Controller {
   }
 
   private static inviteMessage(invite: InviteDeliveryResult, accountCreated: boolean): string {
+    if (invite.channel === 'email')
+      return 'Invite sent by email. They open the link, confirm their name and choose their own PIN.'
     if (invite.channel === 'whatsapp')
       return 'Invite sent on WhatsApp. They open the link, confirm their name and choose their own PIN.'
     if (invite.channel === 'sms')
@@ -2019,6 +2026,7 @@ export class OrganizationController extends Controller {
     if (user.tenantId !== orgTenantId) throw new StatusException('Token scope does not match organization', 403)
     try {
       const invite = await this.orgService.resendMemberInvite(orgTenantId, targetUserId, user.id, {
+        email: body?.email,
         whatsappConsent: body?.whatsappConsent === true,
       })
       return { ...invite, message: OrganizationController.inviteMessage(invite, true) }
@@ -2026,6 +2034,7 @@ export class OrganizationController extends Controller {
       const message = String(error?.message || 'Could not resend the invite')
       if (message.includes('Only org owners')) throw new StatusException(message, 403)
       if (message.includes('not on this team')) throw new StatusException(message, 404)
+      if (message.includes('valid email')) throw new StatusException(message, 400)
       if (/already signed in|No phone/.test(message)) throw new StatusException(message, 409)
       throw error
     }

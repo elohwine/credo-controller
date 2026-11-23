@@ -53,6 +53,14 @@ services:
         generateValue: true
       - key: WHATSAPP_DELIVERY_ENABLED
         value: "false"
+      # Invite emails go through the shared LDK Resend account; only mail.ldkgroup.co.uk is verified there.
+      - key: EMAIL_FROM
+        value: LDK iFacilities <no-reply@mail.ldkgroup.co.uk>
+      - key: RESEND_API_KEY
+        sync: false
+      # The phone app is not hosted yet, so invite links open the portal's join page.
+      - key: INVITE_JOIN_URL
+        value: https://ldk-ifacilities-portal.onrender.com/auth/join
 
   - type: web
     name: ldk-ifacilities-portal

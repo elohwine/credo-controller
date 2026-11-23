@@ -7165,6 +7165,7 @@
           "channel": {
             "type": "string",
             "enum": [
+              "email",
               "whatsapp",
               "sms",
               "link",
@@ -7194,6 +7195,10 @@
             "type": "string",
             "description": "The person's name. They confirm or correct it when they open their invite link."
           },
+          "email": {
+            "type": "string",
+            "description": "Optional. When given, the invite link is emailed here instead of sent to the phone."
+          },
           "whatsappConsent": {
             "type": "boolean",
             "description": "The inviter confirms the person agreed to get the invite link on WhatsApp."
@@ -7207,6 +7212,10 @@
       },
       "ResendInviteRequest": {
         "properties": {
+          "email": {
+            "type": "string",
+            "description": "Optional. Email the new link here (it is also saved on their contact)."
+          },
           "whatsappConsent": {
             "type": "boolean",
             "description": "The inviter confirms the person agreed to get the invite link on WhatsApp."
@@ -17494,6 +17503,35 @@
         "type": "object",
         "additionalProperties": false
       },
+      "IntakeOpenResult": {
+        "properties": {
+          "opened": {
+            "type": "number",
+            "format": "double"
+          },
+          "assigned": {
+            "type": "number",
+            "format": "double"
+          },
+          "skipped": {
+            "type": "number",
+            "format": "double",
+            "description": "Possible repeats of a job already booked: they wait for someone to check them."
+          },
+          "failed": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "opened",
+          "assigned",
+          "skipped",
+          "failed"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
       "MailSyncResult": {
         "properties": {
           "imported": {
@@ -18764,6 +18802,24 @@
           "alreadyThere",
           "problems",
           "rows"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "HistoryPromotionResult": {
+        "properties": {
+          "converted": {
+            "type": "number",
+            "format": "double"
+          },
+          "updated": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "converted",
+          "updated"
         ],
         "type": "object",
         "additionalProperties": false
@@ -48364,6 +48420,43 @@
         }
       }
     },
+    "/api/platform/job-intake/open-pending": {
+      "post": {
+        "operationId": "OpenPending",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntakeOpenResult"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Put every job still waiting in intake (old-system imports, emails, typed-in jobs) onto the Jobs\nlist as ordinary jobs. Possible repeats stay here to be checked. Safe to run again.",
+        "tags": [
+          "Job Intake"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": []
+      }
+    },
     "/api/platform/job-intake/mail": {
       "get": {
         "operationId": "MailStatus",
@@ -50123,7 +50216,7 @@
             }
           }
         },
-        "description": "Save the rows of a checked file. The same file again adds nothing.",
+        "description": "Save the rows of a checked file. The same file again adds nothing. Open jobs go onto the Jobs list.",
         "tags": [
           "Operations registers"
         ],
@@ -50186,6 +50279,43 @@
             }
           }
         }
+      }
+    },
+    "/api/platform/operations/import/convert-history": {
+      "post": {
+        "operationId": "ConvertImportedHistory",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryPromotionResult"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Turn finished jobs already brought in from the old system into ordinary closed jobs on the Jobs list. Safe to run again.",
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": []
       }
     },
     "/api/platform/operations/equipment": {

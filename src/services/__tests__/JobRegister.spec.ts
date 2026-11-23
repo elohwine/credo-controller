@@ -70,6 +70,7 @@ describe('Jobs list, export, reports and what is filled in on site', () => {
     db.exec(migration('155_job_mail_checks_rates_links.sql'))
     db.exec(migration('156_job_history_imports.sql'))
     db.exec(migration('157_old_system_import_details.sql'))
+    db.exec(migration('158_job_history_runs.sql'))
     db.prepare(`INSERT INTO workflows VALUES ('tpl-fept-field-execution-org', ?, 'Field job', 'field_execution_fept')`).run(ORG)
     events.length = 0
     restores.push(jest.spyOn(DatabaseManager, 'getDatabase').mockReturnValue(db))

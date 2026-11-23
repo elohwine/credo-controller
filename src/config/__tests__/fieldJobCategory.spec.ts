@@ -1,4 +1,4 @@
-import { fieldJobCategory } from '../fieldJobCategory'
+import { fieldJobCategory, fieldJobUrgent, isFieldJobRun } from '../fieldJobCategory'
 
 const assigned = { workflowInput: { assigneeId: 'worker-1' } }
 
@@ -43,5 +43,22 @@ describe('fieldJobCategory: arrived on site', () => {
       status: 'paused',
       output: { ...state, failedVisits: [{ status: 'rebooked' }] },
     })).toBe('active')
+  })
+})
+
+describe('isFieldJobRun', () => {
+  it('lists field workflows and runs already on a job stage, not other workflows', () => {
+    expect(isFieldJobRun({ workflowId: 'field-execution' })).toBe(true)
+    expect(isFieldJobRun({ workflowId: 'custom', output: { workflowStage: 'COMPLETED' } })).toBe(true)
+    expect(isFieldJobRun({ workflowId: 'purchase-request', output: { stage: 'SUBMITTED' } })).toBe(false)
+  })
+})
+
+describe('fieldJobUrgent', () => {
+  it('marks call-outs and imported urgent priorities, not normal ones', () => {
+    expect(fieldJobUrgent({ input: { callOut: true } })).toBe(true)
+    expect(fieldJobUrgent({ output: { workflowInput: { importedDetails: { priority: 'Emergency' } } } })).toBe(true)
+    expect(fieldJobUrgent({ input: { importedDetails: { priority: 'Normal' } } })).toBe(false)
+    expect(fieldJobUrgent({ input: {} })).toBe(false)
   })
 })

@@ -3,20 +3,37 @@ import axios from 'axios';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/router';
 import {
-    Title, Text, Group, Paper, Button, ActionIcon, Box
+    Title, Text, Group, Paper, Badge, Button,
+    Stack, Select, Grid, Card, ActionIcon, Box, Divider, SegmentedControl, Table, Modal
 } from '@mantine/core';
-import { IconRefresh, IconPlus } from '@tabler/icons-react';
+import { IconBriefcase, IconMapPin, IconCalendar, IconUser, IconEye, IconRefresh, IconPlus, IconCalendarStats } from '@tabler/icons-react';
 import { BRAND } from '@/lib/theme';
 import JobCardDetail from './JobCardDetail';
 import NewJobModal from './NewJobModal';
 import { EnvContext } from '@/pages/_app';
 import { getPreferredTenantToken } from '@/utils/portalTenant';
 import { readActiveOrganization } from '@/utils/organizationContext';
+import { jobStatusColor as getStatusColor, jobStatusLabel as getStatusLabel } from '../finance/financeStages';
+import { jobHeading } from '../finance/jobAuditTrail';
 import { endPortalTask, getPortalTask } from '@/lib/portalContext';
 import { usePortalOperations } from '@/lib/operations';
+import { OPEN_FIELD_JOB_CATEGORIES, fieldJobAssigneeId, fieldJobCategory, fieldJobInput, fieldJobUrgent, isFieldJobRun, type FieldJobCategory as JobCategory } from '../../../../src/config/fieldJobCategory';
 import { IncomingJobs } from '../../../shared/operations/IncomingJobs';
 import { JobAttention } from '../../../shared/operations/JobAttention';
 import { JobBoard } from '../../../shared/operations/JobBoard';
+import { DataTable, useClientList, useListState, type DataColumn } from '../../../shared/DataTable';
+import type { SortValue } from '../../../../src/config/listPage';
+
+const PAGE = 50
+
+const JOB_SORTS: Record<string, SortValue<JobCard>> = {
+    job: (job) => String(fieldJobInput(job).reference || job.id),
+    customer: (job) => fieldJobInput(job).clientName,
+    address: (job) => fieldJobInput(job).location,
+    assigned: (job) => fieldJobAssigneeId(job),
+    scheduled: (job) => fieldJobInput(job).scheduledDate || job.created_at,
+    status: (job) => fieldJobCategory(job),
+}
 
 interface JobCard {
     id: string;
@@ -30,27 +47,46 @@ interface JobCard {
     authContext?: 'personal' | 'org';
 }
 
-const FEPT_STAGES = new Set([
-    'ASSIGNED',
-    'IN_PROGRESS',
-    'EVIDENCE_CAPTURED',
-    'ACKNOWLEDGED',
-    'PAYMENT_TRIGGERED',
-    'RECEIPT_ISSUED',
-    'RECONCILED',
-    'COMPLETED',
-    'DISPUTED',
-    'CANCELLED',
-    'REVOKED',
-]);
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+
+const jobInput = (job: JobCard) => fieldJobInput(job)
+const jobAssigneeId = (job: JobCard) => fieldJobAssigneeId(job)
+type BoardCategory = Exclude<JobCategory, 'arrived'>
+// The board counts an arrived job as in progress; its badge still says "Arrived on site".
+const jobCategory = (job: JobCard): BoardCategory => {
+    const category = fieldJobCategory(job)
+    return category === 'arrived' ? 'active' : category
+}
+
+function isWaitingOverWeek(job: JobCard, now = Date.now()): boolean {
+    if (jobCategory(job) !== 'pending') return false
+    const createdAt = Date.parse(String(job.created_at || (job as any).createdAt || ''))
+    return Number.isFinite(createdAt) && now - createdAt >= WEEK_MS
+}
+
+function isArrived(job: JobCard): boolean {
+    const output = job.output || {}
+    const stage = String(output.workflowStage || output.stage || '').toUpperCase()
+    return (
+        stage === 'IN_PROGRESS' &&
+        output.checkpoints?.arrival?.status === 'completed' &&
+        !output.evidenceBefore?.evidenceHash
+    )
+}
+
 
 
 export default function JobCardsBoard() {
     const env = useContext(EnvContext);
     const [jobs, setJobs] = useState<JobCard[]>([]);
     const [loading, setLoading] = useState(true);
+    const [statusFilter, setStatusFilter] = useState<string | null>('all');
+    const [viewMode, setViewMode] = useState<'list' | 'cards'>('list');
     const [selectedJob, setSelectedJob] = useState<JobCard | null>(null);
     const [showNewJob, setShowNewJob] = useState(false);
+    const [showBoard, setShowBoard] = useState(false);
+    const [limit, setLimit] = useState(PAGE);
+    const [hasMore, setHasMore] = useState(false);
     const [canCreate, setCanCreate] = useState(false);
     const [memberNames, setMemberNames] = useState<Record<string, string>>({});
     const [teamMembers, setTeamMembers] = useState<Array<{ userId: string; role: string; displayName?: string; phone?: string; status?: string }>>([]);
@@ -139,7 +175,7 @@ export default function JobCardsBoard() {
                 try {
                     const res = await axios.get(taskRunId
                         ? `${credoBackend}/workflows/runs/${encodeURIComponent(taskRunId)}`
-                        : `${credoBackend}/workflows/runs?limit=50`, {
+                        : `${credoBackend}/workflows/runs?limit=${limit}`, {
                         headers: { Authorization: `Bearer ${token}` },
                     });
                     const rows = taskRunId ? [res.data] : Array.isArray(res.data) ? res.data : [];
@@ -163,12 +199,9 @@ export default function JobCardsBoard() {
             }
 
             const dedupedRows = Array.from(byRunId.values());
-            const feJobs = dedupedRows.filter((job: any) => {
-                const workflowId = String(job.workflowId || job.workflow_id || '').toLowerCase();
-                const output = job.output || {};
-                const stage = String(output.workflowStage || output.stage || '').toUpperCase();
-                return workflowId.includes('field') || workflowId.includes('fept') || FEPT_STAGES.has(stage);
-            });
+            setHasMore(!taskRunId && responses.some((rows) => rows.length >= limit));
+            setHasMore(!taskRunId && responses.some((rows) => rows.length >= limit));
+            const feJobs = dedupedRows.filter((job: any) => isFieldJobRun(job));
 
             setJobs(feJobs);
             // Keep the open drawer in step with the refreshed list so actions show their result immediately.
@@ -185,7 +218,7 @@ export default function JobCardsBoard() {
         } finally {
             setLoading(false);
         }
-    }, [env.NEXT_PUBLIC_VC_REPO]);
+    }, [env.NEXT_PUBLIC_VC_REPO, limit]);
 
     useEffect(() => {
         fetchJobs();
@@ -193,6 +226,13 @@ export default function JobCardsBoard() {
 
     const router = useRouter();
     const openedFromQuery = useRef<string | null>(null);
+
+    // Home links straight to a filtered list, e.g. `/finance/job-cards?status=urgent`.
+    useEffect(() => {
+        if (!router.isReady) return;
+        const status = String(router.query.status || '').trim();
+        if (status) setStatusFilter(status);
+    }, [router.isReady, router.query.status]);
 
     // A stuck job may be older than the 50 runs on the board: load it by itself when it is not there.
     const openJobById = async (runId: string) => {
@@ -229,6 +269,77 @@ export default function JobCardsBoard() {
         void openJobById(runId);
     }, [router.isReady, router.query.runId, jobs, loading]);
 
+    const filteredJobs = jobs.filter((job) => {
+        if (statusFilter === 'all') return true
+        if (statusFilter === 'urgent') return fieldJobUrgent(job) && OPEN_FIELD_JOB_CATEGORIES.has(fieldJobCategory(job))
+        if (statusFilter === 'waiting') return isWaitingOverWeek(job)
+        if (statusFilter === 'pending') return jobCategory(job) === 'pending'
+        return jobCategory(job) === statusFilter
+    })
+    const categoryCounts = jobs.reduce<Record<BoardCategory, number>>((counts, job) => {
+        counts[jobCategory(job)] += 1
+        return counts
+    }, { pending: 0, assigned: 0, active: 0, on_hold: 0, failed: 0, completed: 0, reconciled: 0, cancelled: 0 })
+    const teamWorkload = jobs
+        .filter((job) => job.authContext === 'org')
+        .reduce<Record<string, { active: number; completed: number }>>((workload, job) => {
+            const assigneeId = jobAssigneeId(job)
+            if (!assigneeId) return workload
+            const category = jobCategory(job)
+            const memberWorkload = workload[assigneeId] || { active: 0, completed: 0 }
+            if (['assigned', 'active', 'on_hold'].includes(category)) memberWorkload.active += 1
+            if (['completed', 'reconciled'].includes(category)) memberWorkload.completed += 1
+            workload[assigneeId] = memberWorkload
+            return workload
+        }, {})
+    const workloadRows = Object.entries(teamWorkload).sort((a, b) => b[1].active - a[1].active || a[0].localeCompare(b[0]))
+    const listState = useListState({ resetKey: statusFilter });
+    const { items: listItems, paging: listPaging } = useClientList(filteredJobs, JOB_SORTS, listState);
+    const assigneeName = (job: JobCard) => {
+        const assigneeId = jobAssigneeId(job)
+        return assigneeId ? memberNames[assigneeId] || `Team member · ${assigneeId.slice(0, 6)}` : jobInput(job).workerName || 'Nobody yet'
+    }
+    const statusBadge = (job: JobCard) => {
+        const state = job.output || {}
+        const overdue = isWaitingOverWeek(job)
+        const arrived = isArrived(job)
+        return (
+            <Group gap={4} wrap="nowrap">
+                {fieldJobUrgent(job) && <Badge color="red" variant="filled">Urgent</Badge>}
+                <Badge color={overdue ? 'grape' : arrived ? 'teal' : getStatusColor(job.status, state.workflowStage, state)} variant="light">
+                    {overdue
+                        ? 'Waiting over a week'
+                        : arrived
+                            ? 'Arrived on site'
+                            : getStatusLabel(job.status, state.workflowStage, String(state.pauseReason || '').toLowerCase(), state)}
+                </Badge>
+            </Group>
+        )
+    }
+    const jobColumns: Array<DataColumn<JobCard>> = [
+        {
+            key: 'job', title: 'Job / PO', sortable: true, render: (job) => {
+                const input = jobInput(job)
+                return (
+                    <>
+                        <Text size="sm" fw={600}>{input.reference || job.id}</Text>
+                        <Text size="xs" c="dimmed">{[input.storeNumber ? `Store ${input.storeNumber}` : '', input.poNumber ? `PO ${input.poNumber}` : '', input.callOut ? 'Call-out' : ''].filter(Boolean).join(' · ') || 'No store or PO'}</Text>
+                    </>
+                )
+            },
+        },
+        { key: 'customer', title: 'Client', sortable: true, render: (job) => jobInput(job).clientName || 'Unknown client' },
+        { key: 'description', title: 'Description', render: (job) => jobInput(job).description || '—' },
+        { key: 'address', title: 'Location', sortable: true, render: (job) => jobInput(job).location || '—' },
+        { key: 'assigned', title: 'Assigned to', sortable: true, render: (job) => assigneeName(job) },
+        { key: 'scheduled', title: 'Scheduled', sortable: true, firstDir: 'desc', nowrap: true, render: (job) => jobInput(job).scheduledDate || '—' },
+        { key: 'status', title: 'Status', sortable: true, nowrap: true, render: (job) => statusBadge(job) },
+        {
+            key: 'action', title: 'Action', render: (job) => (
+                <Button size="xs" variant="light" onClick={(event) => { event.stopPropagation(); setSelectedJob(job) }}>View details</Button>
+            ),
+        },
+    ];
     const [inboxTask, setInboxTask] = useState(false);
     useEffect(() => { setInboxTask(Boolean(getPortalTask())); }, [router.asPath]);
 
@@ -241,6 +352,35 @@ export default function JobCardsBoard() {
                     <Text size="sm" c="dimmed">Create field jobs, follow progress, sign off and release payment</Text>
                 </div>
                 <Group>
+                    <Select
+                        placeholder="Filter by status"
+                        value={statusFilter}
+                        onChange={setStatusFilter}
+                        data={[
+                            { value: 'all', label: 'All jobs' },
+                            { value: 'urgent', label: 'Urgent (open)' },
+                            { value: 'pending', label: 'Pending / unassigned' },
+                            { value: 'waiting', label: 'Waiting over a week' },
+                            { value: 'assigned', label: 'Assigned' },
+                            { value: 'active', label: 'In progress' },
+                            { value: 'on_hold', label: 'On hold' },
+                            { value: 'failed', label: 'Needs attention' },
+                            { value: 'completed', label: 'Completed' },
+                            { value: 'reconciled', label: 'Closed' },
+                        ]}
+                    />
+                    <SegmentedControl
+                        aria-label="Job list display"
+                        value={viewMode}
+                        onChange={(value) => setViewMode(value as 'list' | 'cards')}
+                        data={[
+                            { label: 'List', value: 'list' },
+                            { label: 'Cards', value: 'cards' },
+                        ]}
+                    />
+                    <Button variant="light" leftSection={<IconCalendarStats size={16} />} onClick={() => setShowBoard(true)}>
+                        Calendar & report
+                    </Button>
                     <ActionIcon variant="light" size="lg" onClick={fetchJobs} loading={loading}>
                         <IconRefresh size={18} />
                     </ActionIcon>
@@ -272,31 +412,200 @@ export default function JobCardsBoard() {
 
             {canCreate && (
                 <Paper withBorder radius="md" p="md" mb="md">
-                    <Title order={4} fw={500} mb="xs">Jobs mailbox</Title>
+                    <Title order={4} fw={500} mb="xs">Jobs mailbox and possible repeats</Title>
                     <IncomingJobs
                         api={operations}
                         surface="portal"
                         members={teamMembers}
                         notify={notify}
-                        mailboxOnly
                         onStarted={() => setTimeout(fetchJobs, 800)}
                     />
                 </Paper>
             )}
 
-            <JobBoard
-                api={operations}
-                surface="portal"
-                names={memberNames}
-                members={teamMembers}
-                canBook={canCreate}
-                canExport={canCreate}
-                notify={notify}
-                refreshKey={jobs.length}
-                onOpenJob={(runId) => void openJobById(runId)}
-            />
+            <Grid mb="md">
+                {[
+                    { label: 'Pending / unassigned', count: categoryCounts.pending, color: 'gray', filter: 'pending' },
+                    { label: 'Assigned', count: categoryCounts.assigned, color: 'indigo', filter: 'assigned' },
+                    { label: 'In progress', count: categoryCounts.active, color: 'blue', filter: 'active' },
+                    { label: 'On hold', count: categoryCounts.on_hold, color: 'orange', filter: 'on_hold' },
+                    { label: 'Needs attention', count: categoryCounts.failed, color: 'red', filter: 'failed' },
+                    { label: 'Completed', count: categoryCounts.completed, color: 'teal', filter: 'completed' },
+                    { label: 'Closed', count: categoryCounts.reconciled, color: 'green', filter: 'reconciled' },
+                ].map((item) => (
+                    <Grid.Col key={item.filter} span={{ base: 6, sm: 4, lg: 3 }}>
+                        <Paper
+                            p="sm"
+                            withBorder
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`${item.label}: ${item.count} jobs. Filter jobs.`}
+                            onClick={() => setStatusFilter(item.filter)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault()
+                                    setStatusFilter(item.filter)
+                                }
+                            }}
+                            style={{ cursor: 'pointer' }}
+                        >
+                            <Text size="xs" c="dimmed">{item.label}</Text>
+                            <Text size="xl" fw={700} c={item.color}>{item.count}</Text>
+                        </Paper>
+                    </Grid.Col>
+                ))}
+            </Grid>
 
+            {workloadRows.length > 0 && (
+                <Paper p="md" mb="md" withBorder>
+                    <Group justify="space-between" mb="sm">
+                        <Text fw={600}>Team workload</Text>
+                        <Text size="xs" c="dimmed">Based on jobs currently loaded on this board</Text>
+                    </Group>
+                    <Table.ScrollContainer minWidth={420}>
+                        <Table striped>
+                            <Table.Thead>
+                                <Table.Tr>
+                                    <Table.Th>Team member</Table.Th>
+                                    <Table.Th>Active jobs</Table.Th>
+                                    <Table.Th>Completed</Table.Th>
+                                </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>
+                                {workloadRows.map(([userId, workload]) => (
+                                    <Table.Tr key={userId}>
+                                        <Table.Td>{memberNames[userId] || `Team member · ${userId.slice(0, 6)}`}</Table.Td>
+                                        <Table.Td>{workload.active}</Table.Td>
+                                        <Table.Td>{workload.completed}</Table.Td>
+                                    </Table.Tr>
+                                ))}
+                            </Table.Tbody>
+                        </Table>
+                    </Table.ScrollContainer>
+                </Paper>
+            )}
+
+            {viewMode === 'list' ? (
+                <DataTable
+                    rows={listItems}
+                    columns={jobColumns}
+                    rowKey={(job) => String(job.id)}
+                    rowAccent={(job) => (isWaitingOverWeek(job) ? 'var(--mantine-color-grape-6)' : undefined)}
+                    onRowClick={(job) => setSelectedJob(job)}
+                    rowLabel={(job) => String(jobInput(job).reference || job.id)}
+                    sort={listState.sort}
+                    onSortChange={listState.setSort}
+                    paging={listPaging}
+                    itemWord="job"
+                    minWidth={900}
+                    empty=""
+                />
+            ) : (
+            <Grid>
+                {filteredJobs.map(job => {
+                    const state = job.output || {};
+                    const input = jobInput(job);
+                    const heading = jobHeading(input);
+                    const client = input.clientName || 'Unknown Client';
+                    const location = input.location || 'Pending Location';
+                    const assigneeId = jobAssigneeId(job);
+                    const assignee = assigneeId
+                        ? memberNames[assigneeId] || `Team member · ${assigneeId.slice(0, 6)}`
+                        : 'Nobody yet';
+                    const overdue = isWaitingOverWeek(job);
+
+                    return (
+                        <Grid.Col key={job.id} span={{ base: 12, md: 6, lg: 4 }}>
+                            <Card
+                                shadow="sm"
+                                padding="lg"
+                                radius="md"
+                                withBorder
+                                style={overdue
+                                    ? { backgroundColor: 'var(--mantine-color-grape-0)', borderLeft: '4px solid var(--mantine-color-grape-6)' }
+                                    : undefined}
+                            >
+                                <Group justify="space-between" mb="xs">
+                                    <Group gap="xs">
+                                        <div style={{ backgroundColor: BRAND.curious, color: 'white', padding: '6px', borderRadius: '50%' }}>
+                                            <IconBriefcase size={16} />
+                                        </div>
+                                        <div>
+                                            <Text fw={600} size="md" style={{ color: BRAND.text }} lineClamp={2}>{heading.title}</Text>
+                                            <Text size="xs" c="dimmed">{[client, input.storeNumber ? `Store ${input.storeNumber}` : '', input.poNumber, input.reference, input.callOut ? 'Call-out' : ''].filter(Boolean).join(' · ')}</Text>
+                                        </div>
+                                    </Group>
+                                    {statusBadge(job)}
+                                </Group>
+
+                                <Divider my="sm" />
+
+                                <Stack gap="xs" mb="lg">
+                                    <Group gap={6} mt="xs">
+                                        <IconMapPin size={14} color={BRAND.viking} />
+                                        <Text size="xs" c="dimmed">{location}</Text>
+                                    </Group>
+
+                                    <Group gap={6}>
+                                        <IconUser size={14} color={BRAND.viking} />
+                                        <Text size="xs" c="dimmed">Assigned to: {assignee}</Text>
+                                    </Group>
+
+                                    <Group gap={6}>
+                                        <IconCalendar size={14} color={BRAND.viking} />
+                                        <Text size="xs" c="dimmed">Scheduled: {input.scheduledDate || new Date(job.created_at || (job as any).createdAt || Date.now()).toLocaleDateString()}</Text>
+                                    </Group>
+                                </Stack>
+
+                                <Group grow>
+                                    <Button
+                                        variant="outline"
+                                        color={BRAND.curious}
+                                        leftSection={<IconEye size={16} />}
+                                        onClick={() => setSelectedJob(job)}
+                                    >
+                                        View details
+                                    </Button>
+                                </Group>
+                            </Card>
+                        </Grid.Col>
+                    );
+                })}
+
+            </Grid>
+            )}
+            {hasMore && (
+                <Group justify="center" mt="md">
+                    <Button variant="default" loading={loading} onClick={() => setLimit((current) => current + PAGE)}>
+                        Show more jobs
+                    </Button>
+                </Group>
+            )}
+            {!loading && filteredJobs.length === 0 && (
+                <Paper p="xl" mt="md" radius="md" withBorder ta="center" style={{ backgroundColor: '#f8fafc' }}>
+                    <Text c="dimmed">No jobs here yet.{canCreate ? ' Use “New job” to create one.' : ''}</Text>
+                </Paper>
+            )}
             </Box>
+
+            <Modal opened={showBoard} onClose={() => setShowBoard(false)} title="Calendar & report" size="90%">
+                {showBoard && (
+                    <JobBoard
+                        api={operations}
+                        surface="portal"
+                        names={memberNames}
+                        members={teamMembers}
+                        canBook={canCreate}
+                        canExport={canCreate}
+                        notify={notify}
+                        refreshKey={jobs.length}
+                        onOpenJob={(runId) => {
+                            setShowBoard(false);
+                            void openJobById(runId);
+                        }}
+                    />
+                )}
+            </Modal>
 
             {selectedJob && (
                 <JobCardDetail

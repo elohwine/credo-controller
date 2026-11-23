@@ -71,8 +71,10 @@ import {
   purchaseReceiptsFromHandoffs,
 } from '@/components/finance/jobAuditTrail'
 import { jobStatusColor as getStatusColor, jobStatusLabel as getStatusLabel } from '../finance/financeStages'
+import { fieldJobUrgent } from '../../../../src/config/fieldJobCategory'
 import { detailTabsFor, type DetailTabKey } from '../../../shared/detailTabs'
 import { FailedVisitPanel } from '../../../shared/operations/FailedVisitPanel'
+import { ImportedJobDetails } from '../../../shared/operations/ImportedJobDetails'
 import { JobOnSite } from '../../../shared/operations/JobOnSite'
 import { jobPeopleOptions } from '../../../shared/jobPeople'
 import { usePortalOperations } from '@/lib/operations'
@@ -628,6 +630,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
               >
                 {getStatusLabel(String(job?.status || ''), state?.workflowStage, pauseReason, state)}
               </Badge>
+              {!isCompleted && fieldJobUrgent(job || {}) && <Badge color="red" variant="filled">Urgent</Badge>}
             </Group>
             {heading.detail && (
               <Text size="xs" c="dimmed">
@@ -819,18 +822,6 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
             )}
 
             {job?.id && (
-              <JobOnSite
-                api={operations}
-                surface="portal"
-                job={job}
-                canFill={Boolean(currentUserId) && (assigneeId === currentUserId || mayBookJobs)}
-                canShare={mayBookJobs}
-                notify={notify}
-                onChanged={onRefresh}
-              />
-            )}
-
-            {job?.id && (
               <FailedVisitPanel
                 api={operations}
                 surface="portal"
@@ -966,6 +957,27 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                 links={stageRelatedWork(auditTrail)}
               />
             </Card>
+
+            {job?.id && (
+              <JobOnSite
+                api={operations}
+                surface="portal"
+                job={job}
+                canFill={Boolean(currentUserId) && (assigneeId === currentUserId || mayBookJobs)}
+                canShare={mayBookJobs}
+                notify={notify}
+                onChanged={onRefresh}
+              />
+            )}
+
+            {input?.importedDetails && (
+              <Card withBorder radius="md">
+                <Text fw={600} mb="xs">
+                  From the old system
+                </Text>
+                <ImportedJobDetails details={input.importedDetails} workerName={input.workerName} />
+              </Card>
+            )}
 
             {(state?.ack || state?.payment) && (
               <Card withBorder radius="md">

@@ -138,8 +138,8 @@ export function JobScheduleFields({
       {showCallOut && onCallOut && (
         <Checkbox
           size={size}
-          label="Call-out"
-          description="Urgent work the store called in, outside the planned jobs."
+          label="Urgent (call-out)"
+          description="Work the store called in that must be done first. It is marked Urgent on the Jobs board."
           checked={Boolean(callOut)}
           onChange={(event) => onCallOut(event.currentTarget.checked)}
         />

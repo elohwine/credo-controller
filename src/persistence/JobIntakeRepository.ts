@@ -230,7 +230,8 @@ export class JobIntakeRepository {
     return result.changes === 1
   }
 
-  public beginAssignment(id: string, tenantId: string, assigneeId: string): number | undefined {
+  /** A null assignee opens the job with nobody on it yet; it waits on the Jobs list to be given out. */
+  public beginAssignment(id: string, tenantId: string, assigneeId: string | null): number | undefined {
     const db = DatabaseManager.getDatabase()
     const begin = db.transaction(() => {
       const result = db

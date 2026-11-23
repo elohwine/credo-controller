@@ -485,7 +485,7 @@ function StoreFileView({
         <Section value="cancelled" label="Cancelled jobs" count={file.cancelled.length}>
           <JobRows jobs={file.cancelled} names={names} onOpenJob={onOpenJob} surface={surface} />
         </Section>
-        <Section value="waiting" label="Waiting to be booked" count={file.waitingToBook.length}>
+        <Section value="waiting" label="Possible repeats to check" count={file.waitingToBook.length}>
           <WaitingRows items={file.waitingToBook} surface={surface} />
         </Section>
       </Accordion>

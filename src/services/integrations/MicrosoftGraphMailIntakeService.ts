@@ -348,7 +348,11 @@ export class MicrosoftGraphMailIntakeService {
         })
       }
       jobIntakeRepository.addMailMessage(config.orgTenantId, saved.id, this.threadEntry(message, 'in'))
-      return saved.duplicateOf ? 'repeats' : 'imported'
+      if (saved.duplicateOf) return 'repeats'
+      // An emailed job goes straight onto the Jobs list as unassigned, like any other new job.
+      const { jobIntakeOpeningService } = await import('../JobIntakeOpeningService')
+      await jobIntakeOpeningService.openQuietly(saved)
+      return 'imported'
     } catch {
       return 'failed'
     }

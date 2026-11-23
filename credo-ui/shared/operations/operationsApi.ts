@@ -274,9 +274,11 @@ export interface IntakeItem {
     vanId?: string
     vehicleReference?: string
     callOut?: boolean
-    sourceType?: 'manual' | 'email'
+    sourceType?: 'manual' | 'email' | 'import'
     sourceSender?: string
     sourceSubject?: string
+    importedWorkerName?: string
+    importedDetails?: { oldStatus?: string; priority?: string }
   }
   assignedTo?: string
   workflowRunId?: string
@@ -474,7 +476,7 @@ export function operationsApi(backend: string, token: string | null | undefined)
     members: (org: string) => call<TeamMember[]>(`${orgBase(org)}/members`),
     memberOnboarding: (org: string) => call<MemberOnboarding[]>(`${orgBase(org)}${ONBOARDING_PATH}`),
     teamRoles: (org: string) => call<Array<{ name?: string; membershipRole?: string }>>(`${orgBase(org)}/roles`),
-    inviteMember: (org: string, input: { phone: string; name: string; role: string; whatsappConsent: boolean }) =>
+    inviteMember: (org: string, input: { phone: string; name: string; role: string; email?: string; whatsappConsent: boolean }) =>
       call<{ targetUserId: string; message?: string; invite?: { channel?: string; link?: string } }>(
         `${orgBase(org)}/members/invite`,
         { method: 'POST', body: input },
@@ -665,7 +667,7 @@ export function scheduleWarnings(check: ScheduleCheck | null, names: Record<stri
     warnings.push({
       tone: 'warning',
       title: 'Waiting for this store',
-      text: `${check.storeWaiting.length} more job${check.storeWaiting.length === 1 ? '' : 's'} for ${store} ${check.storeWaiting.length === 1 ? 'is' : 'are'} waiting to be booked.`,
+      text: `${check.storeWaiting.length} more job${check.storeWaiting.length === 1 ? '' : 's'} for ${store} ${check.storeWaiting.length === 1 ? 'is' : 'are'} still to check.`,
     })
   }
   if (check.workerSameDay.length) {

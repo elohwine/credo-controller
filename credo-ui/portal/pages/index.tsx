@@ -44,6 +44,7 @@ import { describeHolderActivity, type HolderActivityEntry } from '@/lib/holderAc
 import { jobHeading } from '@/components/finance/jobAuditTrail'
 import RequestSheet from '@/components/requests/RequestSheet'
 import RecordCheckPanel from '@/components/records/RecordCheckPanel'
+import JobsOverview from '@/components/home/JobsOverview'
 import { isRequestFlowRun } from '../../shared/requestDecision'
 import {
     REQUEST_GROUP_WORDS,
@@ -222,6 +223,8 @@ export default function DashboardPage() {
     const [requestOpen, setRequestOpen] = useState(false)
     const [checkOpen, setCheckOpen] = useState(false)
     const [requestKindId, setRequestKindId] = useState<string | undefined>(undefined)
+    const [jobsToken, setJobsToken] = useState<string | null>(null)
+    const [today, setToday] = useState('')
 
     const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
 
@@ -268,6 +271,8 @@ export default function DashboardPage() {
         const orgToken = activeOrg?.orgTenantId ? getOrgScopedToken() : null
         const personalToken = getPersonalToken()
         setOrgName(activeOrg?.name || null)
+        setJobsToken(orgToken)
+        setToday(new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }))
 
         // What this person can ask for, from the same payload the Request sheet uses.
         const loadRequestCatalogue = async () => {
@@ -348,7 +353,6 @@ export default function DashboardPage() {
                     const offerRows: any[] = openInboxOffers(offers.data)
                     const inboundRows = Array.isArray(inbound.data) ? inbound.data : []
                     let memberCount = 0
-                    let openJobs = 0
                     try {
                         const [members, runs] = await Promise.all([
                             axios.get(`${backendUrl}/api/organizations/${encodeURIComponent(activeOrg.orgTenantId)}/members`, { headers }),
@@ -356,7 +360,6 @@ export default function DashboardPage() {
                         ])
                         memberCount = Array.isArray(members.data) ? members.data.length : 0
                         const runRows = (Array.isArray(runs.data) ? runs.data : []).filter((run: any) => !isRequestFlowRun(run))
-                        openJobs = runRows.filter((run: any) => !['completed', 'cancelled', 'reconciled'].includes(String(run?.status || '').toLowerCase())).length
                         setActivity(runRows.slice(0, 5).map((run: any) => {
                             const input = run.output?.workflowInput || run.input || {}
                             const at = run.updatedAt || run.updated_at || run.completedAt || run.createdAt || run.created_at
@@ -367,7 +370,7 @@ export default function DashboardPage() {
                     }
                     setTiles([
                         { label: 'Waiting for you', value: offerRows.length + inboundRows.length, href: '/inbox' },
-                        { label: 'Jobs in progress', value: openJobs, href: '/finance/job-cards' },
+                        { label: 'Incoming requests', value: inboundRows.length, href: '/requests' },
                         { label: 'Records to keep', value: offerRows.length, href: '/inbox' },
                         { label: 'People', value: memberCount, href: '/hr?tab=team' },
                     ])
@@ -449,6 +452,7 @@ export default function DashboardPage() {
                 <Stack gap="xl">
                     <Group justify="space-between" align="flex-end" wrap="wrap">
                         <Box>
+                            {today && <Text size="xs" c="dimmed" tt="uppercase" fw={700}>{today}</Text>}
                             <Title order={2}>{orgName ? `Hello, ${orgName}` : 'Hello'}</Title>
                             <Text c="dimmed" size="sm" mt={4}>
                                 {orgName ? 'Here is what needs you in this organisation.' : 'Here is what needs you.'}
@@ -520,7 +524,7 @@ export default function DashboardPage() {
                     <SimpleGrid cols={{ base: 2, md: 4 }} spacing="md">
                         {(tiles.length ? tiles : [
                             { label: 'Waiting for you', value: dashboardLoading ? '…' : 0, href: '/inbox' },
-                            { label: orgName ? 'Jobs in progress' : 'My records', value: dashboardLoading ? '…' : 'Open', href: orgName ? '/finance/job-cards' : '/wallet' },
+                            { label: orgName ? 'Incoming requests' : 'My records', value: dashboardLoading ? '…' : orgName ? 0 : 'Open', href: orgName ? '/requests' : '/wallet' },
                             { label: orgName ? 'Records to keep' : 'Organisations', value: dashboardLoading ? '…' : 'Open', href: orgName ? '/inbox' : '/' },
                             { label: orgName ? 'People' : 'Your shares', value: dashboardLoading ? '…' : 0, href: orgName ? '/hr?tab=team' : '/activity' },
                         ]).map((tile) => (
@@ -530,6 +534,8 @@ export default function DashboardPage() {
                             </Paper>
                         ))}
                     </SimpleGrid>
+
+                    {orgName && jobsToken && <JobsOverview key={`${contextVersion}:${jobsToken.slice(-12)}`} backendUrl={backendUrl} token={jobsToken} />}
 
                     <Paper withBorder radius="lg" p="lg">
                         <Title order={3} mb="sm">Needs you</Title>

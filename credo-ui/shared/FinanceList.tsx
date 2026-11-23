@@ -17,6 +17,8 @@ export interface FinanceListRow {
   flowColor: string
   status: string
   statusColor?: string
+  /** A loud marker next to the status, e.g. an urgent job, in both views. */
+  flag?: { label: string; color: string }
   dateLabel?: string
   /** Sorts the Date column; read from `dateLabel` when not given. */
   dateValue?: string
@@ -75,6 +77,7 @@ export function FinanceListCard({
   flowColor,
   status,
   statusColor = 'gray',
+  flag,
   dateLabel,
   note,
   financeLine,
@@ -90,6 +93,7 @@ export function FinanceListCard({
           <Text fw={600} size="sm" truncate>{title}</Text>
           <Group gap={6} mt={4} wrap="wrap">
             <Badge size="xs" color={flowColor} variant="light">{flowLabel}</Badge>
+            {flag && <Badge size="sm" color={flag.color} variant="filled">{flag.label}</Badge>}
             <Badge size="sm" color={statusColor} variant="light">{status}</Badge>
             {dateLabel && <Text size="xs" c="dimmed">{dateLabel}</Text>}
           </Group>
@@ -133,7 +137,12 @@ function financeColumns(noteLabel: string): Array<DataColumn<FinanceListRow>> {
       sortable: true,
       nowrap: true,
       minWidth: BADGE_MIN,
-      render: (row) => <Badge size="xs" color={row.statusColor || 'gray'} variant="light" styles={badgeStyles}>{row.status}</Badge>,
+      render: (row) => (
+        <Group gap={4} wrap="nowrap">
+          {row.flag && <Badge size="xs" color={row.flag.color} variant="filled" styles={badgeStyles}>{row.flag.label}</Badge>}
+          <Badge size="xs" color={row.statusColor || 'gray'} variant="light" styles={badgeStyles}>{row.status}</Badge>
+        </Group>
+      ),
     },
     { key: 'date', title: 'Date', sortable: true, firstDir: 'desc', nowrap: true, render: (row) => <Text size="xs" c="dimmed">{row.dateLabel || '—'}</Text> },
     {

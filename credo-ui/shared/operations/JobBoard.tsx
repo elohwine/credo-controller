@@ -121,6 +121,7 @@ export function JobBoard({
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [view, setView] = useState('list')
+  const [layout, setLayout] = useState<'table' | 'cards'>(surface === 'phone' ? 'cards' : 'table')
   const [source, setSource] = useState<string | null>('all')
   const [category, setCategory] = useState<string | null>('all')
   const [storeNumber, setStoreNumber] = useState<string | null>('all')
@@ -139,6 +140,22 @@ export function JobBoard({
   const [booking, setBooking] = useState<string | null>(null)
   const [viewing, setViewing] = useState<JobRegisterRow | null>(null)
   const size = surface === 'phone' ? 'md' : 'sm'
+  const layoutKey = `jobBoardLayout:${surface}`
+
+  useEffect(() => {
+    const saved = typeof window === 'undefined' ? null : window.localStorage.getItem(layoutKey)
+    if (saved === 'table' || saved === 'cards') setLayout(saved)
+  }, [layoutKey])
+
+  const pickLayout = (next: string) => {
+    const value = next === 'cards' ? 'cards' : 'table'
+    setLayout(value)
+    try {
+      window.localStorage.setItem(layoutKey, value)
+    } catch {
+      /* private browsing: the choice lasts until the page closes */
+    }
+  }
 
   const filter = useMemo(
     () => ({
@@ -330,7 +347,7 @@ export function JobBoard({
   ]
 
   const card = (row: JobRegisterRow) => (
-    <Paper withBorder radius="md" p="sm" style={{ borderLeft: `4px solid ${statusEdge(row)}` }}>
+    <Paper withBorder radius="md" p="sm" h="100%" style={{ borderLeft: `4px solid ${statusEdge(row)}` }}>
       <Group justify="space-between" wrap="nowrap" align="flex-start">
         <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
           {badges(row)}
@@ -351,7 +368,7 @@ export function JobBoard({
         </Stack>
         {action(row)}
       </Group>
-      {booking === row.id && canBook && (
+      {surface === 'phone' && booking === row.id && canBook && (
         <IncomingJobs
           api={api}
           surface={surface}
@@ -439,25 +456,38 @@ export function JobBoard({
 
       {view === 'list' && (
         <Stack gap="xs">
-          <Select
-            size={size}
-            label="Sort by"
-            allowDeselect={false}
-            data={SORTS.map(({ value, label }) => ({ value, label }))}
-            value={SORTS.some((entry) => entry.value === sortValue(list.sort)) ? sortValue(list.sort) : null}
-            placeholder="Column order"
-            onChange={(value) => {
-              const picked = SORTS.find((entry) => entry.value === value)
-              if (picked) list.setSort(picked.sort)
-            }}
-            style={{ maxWidth: surface === 'phone' ? undefined : 260 }}
-          />
+          <Group gap="sm" align="flex-end" justify="space-between" wrap={surface === 'phone' ? 'wrap' : 'nowrap'}>
+            <Select
+              size={size}
+              label="Sort by"
+              allowDeselect={false}
+              data={SORTS.map(({ value, label }) => ({ value, label }))}
+              value={SORTS.some((entry) => entry.value === sortValue(list.sort)) ? sortValue(list.sort) : null}
+              placeholder="Column order"
+              onChange={(value) => {
+                const picked = SORTS.find((entry) => entry.value === value)
+                if (picked) list.setSort(picked.sort)
+              }}
+              style={{ flex: surface === 'phone' ? 1 : undefined, maxWidth: surface === 'phone' ? undefined : 260 }}
+            />
+            <SegmentedControl<string>
+              size={size}
+              aria-label="Show jobs as"
+              value={layout}
+              onChange={pickLayout}
+              data={[
+                { label: 'Table', value: 'table' },
+                { label: 'Cards', value: 'cards' },
+              ]}
+            />
+          </Group>
           <DataTable
             rows={rows}
             columns={columns}
             rowKey={(row) => `${row.kind}-${row.id}`}
             rowAccent={statusEdge}
-            view={surface === 'phone' ? 'cards' : 'table'}
+            view={layout}
+            cardColumns={surface === 'phone' ? undefined : { base: 1, md: 2, xl: 3 }}
             renderCard={card}
             onRowClick={(row) => (row.kind === 'job' ? onOpenJob(row.id) : setViewing(row))}
             rowLabel={(row) => `${row.reference} ${row.description || ''}`.trim()}

@@ -92,6 +92,7 @@ import { SectionTip } from '@/components/guides/SectionGuides';
 import ErrorAlert from '@/components/shared/ErrorAlert'
 import JobHandoffsPanel, { FamilyStrip, useRelatedWorkNavigation } from '@/components/shared/JobHandoffsPanel'
 import { familyLinks, handoffLinks } from '../../shared/relatedWork'
+import { fieldJobUrgent } from '../../../src/config/fieldJobCategory'
 import { captureOrganizationSwitchContext, isBoundTaskPath } from '../../shared/taskContext'
 import JobAuditTrailPanel from '@/components/shared/JobAuditTrailPanel'
 import RecordActions from '@/components/shared/RecordActions'
@@ -201,7 +202,7 @@ import { usePhoneOperations } from '@/lib/operations'
 import { JobScheduleFields } from '../../shared/operations/JobScheduleFields'
 import { FailedVisitPanel } from '../../shared/operations/FailedVisitPanel'
 import { JobBoard } from '../../shared/operations/JobBoard'
-import { IncomingJobs } from '../../shared/operations/IncomingJobs'
+import { ImportedJobDetails } from '../../shared/operations/ImportedJobDetails'
 import { JobOnSite } from '../../shared/operations/JobOnSite'
 import { operationsApi } from '../../shared/operations/operationsApi'
 import JobPriceSheet from '@/components/shared/JobPriceSheet'
@@ -1792,6 +1793,8 @@ export default function FinancePage() {
   const [requisitionLifecycleNote, setRequisitionLifecycleNote] = useState('Goods/services received and confirmed.')
   const [orgContextBundle, setOrgContextBundle] = useState<OrgContextBundleCacheEntry | null>(null)
   const [showFieldRun, setShowFieldRun] = useState(false)
+  const [showJobBoard, setShowJobBoard] = useState(false)
+  const [fieldRunsLimit, setFieldRunsLimit] = useState(50)
   const { api: phoneOperations, notify: phoneNotify } = usePhoneOperations()
   // A worker acts on their own job with whichever profile they are in, so not only the org token.
   const fieldJobApi = useMemo(() => {
@@ -2360,8 +2363,8 @@ export default function FinancePage() {
   const sessionScope = useSessionStore((state) => state.scope)
   const fieldRunsEnabled = Boolean(canLoadFinance && hasFieldExecution && !(itemTaskActive && !fieldTaskRunId))
   const fieldRunsKey = useMemo(
-    () => (fieldTaskRunId ? queryKeys.fieldRun(sessionScope, fieldTaskRunId) : queryKeys.fieldRuns(sessionScope)),
-    [sessionScope, fieldTaskRunId],
+    () => (fieldTaskRunId ? queryKeys.fieldRun(sessionScope, fieldTaskRunId) : [...queryKeys.fieldRuns(sessionScope), fieldRunsLimit]),
+    [sessionScope, fieldTaskRunId, fieldRunsLimit],
   )
   const fieldRunsQuery = useQuery<any[]>({
     queryKey: fieldRunsKey,
@@ -2373,7 +2376,7 @@ export default function FinancePage() {
       if (!token) return []
       try {
         const res = await api.get(fieldTaskRunId ? `/workflows/runs/${encodeURIComponent(fieldTaskRunId)}` : '/workflows/runs', {
-          params: fieldTaskRunId ? undefined : { limit: 50 },
+          params: fieldTaskRunId ? undefined : { limit: fieldRunsLimit },
           headers: { Authorization: `Bearer ${token}` },
         })
         const raw = fieldTaskRunId ? [res.data] : safeArray(res.data)
@@ -5015,6 +5018,7 @@ export default function FinancePage() {
       flowColor: FINANCE_FLOW_WORDS.job.color,
       status: fieldJobStatusLabel(run.status, stage, run.output?.pauseReason, run.output),
       statusColor: wait ? (wait.failed ? 'red' : 'orange') : FEPT_STAGE_COLOR[stage] || 'gray',
+      flag: fieldJobUrgent(run) && !closed ? { label: 'Urgent', color: 'red' } : undefined,
       dateLabel: formatTxnTime(run.updatedAt || run.updated_at || run.createdAt || run.created_at) || undefined,
       note:
         [input.storeNumber ? `Store ${input.storeNumber}` : '', input.reference || input.poNumber, input.callOut ? 'Call-out' : '', input.location]
@@ -5278,11 +5282,14 @@ export default function FinancePage() {
             <Group grow>
               {canBookWaiting && (
                 <Button variant="light" size="md" radius="xl" leftSection={<IconInbox size={18} />} onClick={() => router.push('/intake')}>
-                  Waiting to be booked
+                  Mailbox & repeats
                 </Button>
               )}
               <Button variant="light" size="md" radius="xl" leftSection={<IconTruck size={18} />} onClick={() => router.push('/registers')}>
                 Stores & vans
+              </Button>
+              <Button variant="light" size="md" radius="xl" leftSection={<IconCalendar size={18} />} onClick={() => setShowJobBoard(true)}>
+                Calendar
               </Button>
             </Group>
           )
@@ -5550,12 +5557,40 @@ export default function FinancePage() {
                 />
               </Group>
 
-              {['owner', 'admin', 'manager', 'dispatcher'].includes(String(getOrgRoleClaim() || '').toLowerCase()) && (
-                <Paper withBorder radius="md" p="sm" mb="sm">
-                  <Text fw={500} mb={4}>Jobs mailbox</Text>
-                  <IncomingJobs
+              <FinanceListRows
+                rows={fieldListRows}
+                view={listView}
+                noteLabel="Reference and place"
+                loading={fieldRunsLoading}
+                empty={
+                  <Center py="xl">
+                    <Stack align="center" gap="sm">
+                      <ThemeIcon size={56} radius="xl" variant="light" color="teal">
+                        <IconReceipt size={28} />
+                      </ThemeIcon>
+                      <Text fw={600} c="dimmed">
+                        No jobs yet
+                      </Text>
+                      <Text size="sm" c="dimmed" ta="center">
+                        Jobs assigned to you, or created by your organization, will show up here.
+                      </Text>
+                    </Stack>
+                  </Center>
+                }
+              />
+              {fieldRuns.length >= fieldRunsLimit && (
+                <Group justify="center" mt="md">
+                  <Button variant="default" loading={fieldRunsQuery.isFetching} onClick={() => setFieldRunsLimit((current) => current + 50)}>
+                    Show more jobs
+                  </Button>
+                </Group>
+              )}
+              <Modal opened={showJobBoard} onClose={() => setShowJobBoard(false)} title="Calendar & report" fullScreen>
+                {showJobBoard && (
+                  <JobBoard
                     api={phoneOperations}
                     surface="phone"
+                    names={Object.fromEntries(orgMembers.map((member) => [member.userId, member.displayName || member.phone || 'Team member']))}
                     members={orgMembers
                       .filter((member) => member.userId)
                       .map((member) => ({
@@ -5565,36 +5600,20 @@ export default function FinancePage() {
                         phone: member.phone,
                         status: member.status,
                       }))}
+                    canBook={['owner', 'admin', 'manager', 'dispatcher'].includes(String(getOrgRoleClaim() || '').toLowerCase())}
+                    canExport={['owner', 'admin', 'manager', 'dispatcher'].includes(String(getOrgRoleClaim() || '').toLowerCase())}
                     notify={phoneNotify}
-                    mailboxOnly
+                    refreshKey={fieldRuns.length}
+                    onOpenJob={(runId) => {
+                      void api.get(`/workflows/runs/${encodeURIComponent(runId)}`).then((fresh) => {
+                        setShowJobBoard(false)
+                        setFieldJobTab('details')
+                        setSelectedFieldRun(fresh.data)
+                      }).catch(() => phoneNotify('That job could not be opened.', 'error'))
+                    }}
                   />
-                </Paper>
-              )}
-
-              <JobBoard
-                api={phoneOperations}
-                surface="phone"
-                names={Object.fromEntries(orgMembers.map((member) => [member.userId, member.displayName || member.phone || 'Team member']))}
-                members={orgMembers
-                  .filter((member) => member.userId)
-                  .map((member) => ({
-                    userId: member.userId,
-                    role: member.role || 'member',
-                    displayName: member.displayName,
-                    phone: member.phone,
-                    status: member.status,
-                  }))}
-                canBook={['owner', 'admin', 'manager', 'dispatcher'].includes(String(getOrgRoleClaim() || '').toLowerCase())}
-                canExport={['owner', 'admin', 'manager', 'dispatcher'].includes(String(getOrgRoleClaim() || '').toLowerCase())}
-                notify={phoneNotify}
-                refreshKey={fieldRuns.length}
-                onOpenJob={(runId) => {
-                  void api.get(`/workflows/runs/${encodeURIComponent(runId)}`).then((fresh) => {
-                    setFieldJobTab('details')
-                    setSelectedFieldRun(fresh.data)
-                  }).catch(() => phoneNotify('That job could not be opened.', 'error'))
-                }}
-              />
+                )}
+              </Modal>
             </Tabs.Panel>
           )}
 
@@ -7985,7 +8004,19 @@ export default function FinancePage() {
             )
             return (
               <WorkflowDetailBody
-                statusCard={<DetailStatusCard status={stageLabel} amount={amount} currency={currency} lines={[]} />}
+                statusCard={
+                  <DetailStatusCard
+                    status={stageLabel}
+                    amount={amount}
+                    currency={currency}
+                    lines={[]}
+                    footer={
+                      fieldJobUrgent(run) && !['completed', 'reconciled', 'cancelled'].includes(String(run.status || '').toLowerCase()) ? (
+                        <Badge color="red" variant="filled" mt="xs">Urgent</Badge>
+                      ) : undefined
+                    }
+                  />
+                }
                 sections={[
                   {
                     title: 'WORKFLOW ACTIONS',
@@ -8023,15 +8054,6 @@ export default function FinancePage() {
                               </Alert>
                             )}
                             <Box mb="sm">
-                              <JobOnSite
-                                api={fieldJobApi}
-                                surface="phone"
-                                job={run}
-                                canFill={isWorker || isOrgAdmin || isChosenFor('dispatch_job')}
-                                canShare={isOrgAdmin || isChosenFor('dispatch_job')}
-                                notify={phoneNotify}
-                                onChanged={() => void refreshSelectedFieldRun()}
-                              />
                               <FailedVisitPanel
                                 api={fieldJobApi}
                                 surface="phone"
@@ -8525,6 +8547,28 @@ export default function FinancePage() {
                       />
                     ),
                   },
+                  {
+                    title: 'ON-SITE SHEET',
+                    content: (
+                      <JobOnSite
+                        api={fieldJobApi}
+                        surface="phone"
+                        job={run}
+                        canFill={isWorker || isOrgAdmin || isChosenFor('dispatch_job')}
+                        canShare={isOrgAdmin || isChosenFor('dispatch_job')}
+                        notify={phoneNotify}
+                        onChanged={() => void refreshSelectedFieldRun()}
+                      />
+                    ),
+                  },
+                  ...(input?.importedDetails
+                    ? [
+                        {
+                          title: 'FROM THE OLD SYSTEM',
+                          content: <ImportedJobDetails details={input.importedDetails} workerName={input.workerName} />,
+                        },
+                      ]
+                    : []),
                 ]}
                 auditItems={[]}
                 auditEmptyText=""

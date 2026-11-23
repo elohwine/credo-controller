@@ -1,13 +1,18 @@
+import { jest } from '@jest/globals'
 import Database from 'better-sqlite3'
 import fs from 'fs'
 
 import { DatabaseManager } from '../../../persistence/DatabaseManager'
 import { JobIntakeRepository } from '../../../persistence/JobIntakeRepository'
+import { operationsRegisterService } from '../../../services/OperationsRegisterService'
+import { workflowService } from '../../../services/WorkflowService'
 import { JobIntakeController } from '../JobIntakeController'
 
 describe('JobIntakeController', () => {
   const controller = new JobIntakeController()
   const repository = new JobIntakeRepository()
+  let executeWorkflow: any
+  let runs = 0
 
   beforeEach(() => {
     const db = new Database(':memory:')
@@ -23,19 +28,28 @@ describe('JobIntakeController', () => {
     `)
     db.exec(fs.readFileSync(`${process.cwd()}/migrations/129_job_intake.sql`, 'utf8'))
     // 152 adds the repeat-booking key the repository writes.
-    db.exec('ALTER TABLE job_intakes ADD COLUMN dedupe_key TEXT; ALTER TABLE job_intakes ADD COLUMN duplicate_of TEXT;')
+    db.exec(
+      'ALTER TABLE job_intakes ADD COLUMN dedupe_key TEXT; ALTER TABLE job_intakes ADD COLUMN duplicate_of TEXT; ALTER TABLE job_intakes ADD COLUMN source_conversation_id TEXT;',
+    )
     DatabaseManager.setDatabase(db)
+    executeWorkflow = jest
+      .spyOn(workflowService, 'executeWorkflow')
+      .mockImplementation(async () => ({ runId: `run-${++runs}`, status: 'paused' }) as any)
+    jest.spyOn(operationsRegisterService, 'memberNamesSafe').mockReturnValue(new Map())
     db.prepare('INSERT INTO org_memberships (id, user_id, org_tenant_id, role, status) VALUES (?, ?, ?, ?, ?)')
       .run('membership-a', 'dispatcher-a', 'org-a', 'dispatcher', 'active')
   })
 
-  afterEach(() => DatabaseManager.close())
+  afterEach(() => {
+    jest.restoreAllMocks()
+    DatabaseManager.close()
+  })
 
   const requestFor = (tenantId: string, id: string, orgRole?: string) =>
     ({ user: { tenantId, id, orgRole }, headers: {} }) as any
 
-  it('creates a server-referenced unassigned intake and retains the client PO separately', () => {
-    const intake = controller.create(requestFor('org-a', 'dispatcher-a', 'dispatcher'), {
+  it('puts a typed-in job straight onto the Jobs list as an unassigned job, keeping the client PO', async () => {
+    const intake = await controller.create(requestFor('org-a', 'dispatcher-a', 'dispatcher'), {
       poNumber: 'CLIENT-PO-41',
       description: 'Fix the leaking basin',
       amount: 60,
@@ -44,10 +58,68 @@ describe('JobIntakeController', () => {
 
     expect(intake).toMatchObject({
       tenantId: 'org-a',
-      status: 'pending',
+      status: 'assigned',
+      workflowRunId: expect.stringMatching(/^run-/),
       payload: { poNumber: 'CLIENT-PO-41', description: 'Fix the leaking basin' },
     })
     expect(intake.payload.reference).toMatch(/^FR-/)
+    const [workflow, input] = executeWorkflow.mock.calls[0]
+    expect(workflow).toBe('field_execution_fept')
+    expect(input).toMatchObject({ awaitAssignment: true, sourceType: 'manual', poNumber: 'CLIENT-PO-41' })
+    expect(input.assigneeId).toBeUndefined()
+  })
+
+  it('opens imported jobs as ordinary jobs, gives one to the team member the old system named, and leaves a possible repeat to check', async () => {
+    DatabaseManager.getDatabase()
+      .prepare('INSERT INTO org_memberships (id, user_id, org_tenant_id, role, status) VALUES (?, ?, ?, ?, ?)')
+      .run('membership-george', 'george', 'org-a', 'field_worker', 'active')
+    jest.spyOn(operationsRegisterService, 'memberNamesSafe').mockReturnValue(new Map([['george', 'George  Tavenenhamo']]))
+    const imported = (reference: string, importedWorkerName?: string) =>
+      repository.create('org-a', 'dispatcher-a', {
+        reference,
+        description: 'Office walls need restoration',
+        amount: 0,
+        currency: 'GBP',
+        callOut: true,
+        sourceType: 'import',
+        ...(importedWorkerName ? { importedWorkerName } : {}),
+        importedDetails: { status: 'New', receivedAt: '2026-11-03T08:00:00' } as any,
+      })
+    const named = imported('MMW-1', 'george tavenenhamo')
+    const nobody = imported('MMW-2', 'Peterborough')
+    const repeat = imported('MMW-3')
+    DatabaseManager.getDatabase().prepare('UPDATE job_intakes SET duplicate_of = ? WHERE id = ?').run(named.id, repeat.id)
+
+    const result = await controller.openPending(requestFor('org-a', 'dispatcher-a', 'dispatcher'))
+
+    expect(result).toEqual({ opened: 1, assigned: 1, skipped: 1, failed: 0 })
+    const inputs = new Map(executeWorkflow.mock.calls.map(([, input]) => [input.reference, input]))
+    expect(inputs.get('MMW-1')).toMatchObject({ assigneeId: 'george', callOut: true, sourceType: 'import' })
+    expect(inputs.get('MMW-1').awaitAssignment).toBeUndefined()
+    expect(inputs.get('MMW-2')).toMatchObject({ awaitAssignment: true, importedDetails: { status: 'New' } })
+    expect(inputs.get('MMW-2').assigneeId).toBeUndefined()
+    expect(repository.getForTenant(nobody.id, 'org-a')).toMatchObject({ status: 'assigned', workflowRunId: expect.any(String) })
+    expect(repository.getForTenant(repeat.id, 'org-a')?.status).toBe('pending')
+
+    await expect(controller.openPending(requestFor('org-a', 'dispatcher-a', 'dispatcher'))).resolves.toEqual({
+      opened: 0,
+      assigned: 0,
+      skipped: 1,
+      failed: 0,
+    })
+    expect(executeWorkflow).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a job that could not start waiting to be booked', async () => {
+    executeWorkflow.mockRejectedValueOnce(new Error('Field jobs are not set up'))
+    const intake = await controller.create(requestFor('org-a', 'dispatcher-a', 'dispatcher'), {
+      description: 'Repair the gate',
+      amount: 100,
+      currency: 'USD',
+    })
+
+    expect(intake).toMatchObject({ status: 'pending' })
+    expect(intake.workflowRunId).toBeFalsy()
   })
 
   it('denies non-dispatch roles and rejects invalid field-worker assignment roles', async () => {

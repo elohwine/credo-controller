@@ -97,3 +97,32 @@ export function fieldJobCategory(job: FieldJobRunLike): FieldJobCategory {
   }
   return 'pending'
 }
+
+const FIELD_JOB_STAGES = new Set([
+  'ASSIGNED',
+  'IN_PROGRESS',
+  'EVIDENCE_CAPTURED',
+  'ACKNOWLEDGED',
+  'PAYMENT_TRIGGERED',
+  'RECEIPT_ISSUED',
+  'RECONCILED',
+  'COMPLETED',
+  'DISPUTED',
+  'CANCELLED',
+  'REVOKED',
+])
+
+/** A workflow run the Jobs board lists: a field job, whether booked here, imported or taken from email. */
+export function isFieldJobRun(job: FieldJobRunLike & { workflowId?: string; workflow_id?: string }): boolean {
+  const workflowId = String(job.workflowId || job.workflow_id || '').toLowerCase()
+  const state = job.output || {}
+  const stage = String(state.workflowStage || state.stage || '').toUpperCase()
+  return workflowId.includes('field') || workflowId.includes('fept') || FIELD_JOB_STAGES.has(stage)
+}
+
+/** Urgent when it was booked as a call-out, or the imported priority says urgent, emergency or high. */
+export function fieldJobUrgent(job: FieldJobRunLike): boolean {
+  const input = fieldJobInput(job)
+  if (input.callOut === true) return true
+  return /\b(urgent|emergency|high|out of hours|p1)\b/i.test(String(input.importedDetails?.priority || input.priority || ''))
+}

@@ -1915,12 +1915,16 @@ export class FieldExecutionActions {
   private static notifyJobNeedsAssignee(context: WorkflowActionContext): void {
     if (!context.runId || !context.tenantId) return
     const input = context.input || {}
+    // Jobs brought in from the old system arrive in bulk; they wait on the Jobs list as unassigned.
+    if (input.sourceType === 'import') return
     const ref = input.reference || input.poNumber || context.runId
     const who = String(input.clientName || '').trim() || 'A customer'
     const where = String(input.location || '').trim()
     const when = String(input.scheduledDate || '').trim()
+    const how =
+      input.sourceType === 'email' ? 'sent this job by email' : input.sourceType === 'manual' ? 'has a new job' : 'booked this job'
     const body = [
-      `${who} booked this job${where ? ` at ${where}` : ''}${when ? ` for ${when}` : ''}.`,
+      `${who} ${how}${where ? ` at ${where}` : ''}${when ? ` for ${when}` : ''}.`,
       'Open it and choose who does it.',
     ].join(' ')
     const admins = orgWorkflowActorService

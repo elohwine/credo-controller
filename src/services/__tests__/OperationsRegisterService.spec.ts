@@ -72,6 +72,7 @@ describe('Stores, attendants and vans', () => {
     db.exec(migration('155_job_mail_checks_rates_links.sql'))
     db.exec(migration('156_job_history_imports.sql'))
     db.exec(migration('157_old_system_import_details.sql'))
+    db.exec(migration('158_job_history_runs.sql'))
     db.prepare(`INSERT INTO workflows (id, tenant_id, name, category) VALUES ('tpl-fept-field-execution-org', ?, 'Field job', 'field_execution_fept')`).run(ORG)
     restores.push(jest.spyOn(DatabaseManager, 'getDatabase').mockReturnValue(db))
     restores.push(

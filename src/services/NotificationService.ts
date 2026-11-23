@@ -42,6 +42,9 @@ import { PRODUCT_NAME } from '../config/productEdition'
 
 const logger = rootLogger.child({ module: 'NotificationService' })
 
+const escapeHtml = (value: string) =>
+  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+
 export interface EmailPayload {
   to: string
   subject: string
@@ -660,7 +663,72 @@ export class NotificationService {
     })()
   }
 
+  /** True when this server can actually send email (Resend API key, or a full SMTP login). */
+  public emailReady(): boolean {
+    if (process.env.RESEND_API_KEY) return true
+    return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
+  }
+
+  /** The invite link by email. Each send replaces the code, so only the newest message works. */
+  public async sendInviteEmail(inviteId: string, email: string): Promise<boolean> {
+    if (!this.emailReady()) return false
+    const { memberInviteService, memberInviteLink } = await import('./MemberInviteService')
+    if (!memberInviteLink('ready')) return false
+    const invite = memberInviteService.get(inviteId)
+    if (!invite || invite.used_at) return false
+    const code = memberInviteService.issueCode(inviteId)
+    const link = code ? memberInviteLink(code) : undefined
+    if (!link) return false
+    const orgName = getTenantById(invite.org_tenant_id)?.label || 'your organisation'
+    const greeting = invite.proposed_name ? `Hello ${invite.proposed_name},` : 'Hello,'
+    const text = [
+      greeting,
+      '',
+      `${orgName} invited you to ${PRODUCT_NAME}, where the team gets jobs, approvals and their staff card.`,
+      'Open this link, confirm your name and choose your own PIN. Nobody else will know it.',
+      '',
+      link,
+      '',
+      'The link works once and expires in 7 days. If you were not expecting this, ignore this email.',
+    ].join('\n')
+    const html = `<p>${escapeHtml(greeting)}</p>
+<p>${escapeHtml(orgName)} invited you to ${escapeHtml(PRODUCT_NAME)}, where the team gets jobs, approvals and their staff card.</p>
+<p>Open this link, confirm your name and choose your own PIN. Nobody else will know it.</p>
+<p><a href="${escapeHtml(link)}" style="display:inline-block;padding:10px 18px;background:#1c7ed6;color:#fff;border-radius:6px;text-decoration:none">Join ${escapeHtml(orgName)}</a></p>
+<p style="color:#666;font-size:13px">Or copy this link: ${escapeHtml(link)}<br/>It works once and expires in 7 days. If you were not expecting this, ignore this email.</p>`
+    try {
+      const sent = await this.sendEmail({ to: email, subject: `${orgName} invited you to ${PRODUCT_NAME}`, text, html })
+      return sent.success
+    } catch (error: any) {
+      logger.warn({ error: error?.message, inviteId }, 'Invite email could not be sent')
+      return false
+    }
+  }
+
   public async sendEmail(payload: EmailPayload): Promise<{ success: boolean; messageId?: string }> {
+    const resendKey = process.env.RESEND_API_KEY
+    if (resendKey) {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: payload.from || process.env.EMAIL_FROM || `${PRODUCT_NAME} <no-reply@mail.ldkgroup.co.uk>`,
+          to: [payload.to],
+          subject: payload.subject,
+          text: payload.text,
+          html: payload.html,
+          reply_to: payload.replyTo,
+        }),
+      })
+      if (!response.ok) {
+        const body = await response.text().catch(() => '')
+        throw new Error(`Resend rejected the email (${response.status}) ${body.slice(0, 200)}`.trim())
+      }
+      const data = (await response.json().catch(() => ({}))) as { id?: string }
+      logger.info({ messageId: data.id }, 'Email sent')
+      return { success: true, messageId: data.id }
+    }
+
     const host = process.env.SMTP_HOST
     const port = Number(process.env.SMTP_PORT || 587)
     const user = process.env.SMTP_USER

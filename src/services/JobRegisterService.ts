@@ -225,7 +225,7 @@ export class JobRegisterService {
                   description, location, problem_type AS problemType, po_number AS poNumber,
                   scheduled_date AS scheduledDate, completed_date AS completedDate, outcome,
                   worker_name AS workerName, amount, currency, created_at AS createdAt, details_json AS detailsJson
-             FROM job_history WHERE org_tenant_id = ? ORDER BY COALESCE(completed_date, scheduled_date, created_at) DESC`,
+             FROM job_history WHERE org_tenant_id = ? AND workflow_run_id IS NULL ORDER BY COALESCE(completed_date, scheduled_date, created_at) DESC`,
         )
         .all(orgTenantId) as Array<Record<string, any>>
       return rows.map((row) => ({

@@ -169,7 +169,7 @@ export default function IntakePage() {
         },
         { headers: { Authorization: `Bearer ${token}` } },
       )
-      notify('Job saved. It waits here until someone books a worker for it.', 'success')
+      notify('Job saved. It is on the Jobs list with nobody on it yet: open it and choose who does it.', 'success')
       setCreating(false)
       setFiles([])
       setForm({
@@ -216,7 +216,7 @@ export default function IntakePage() {
             >
               <Group justify="space-between">
                 <Box>
-                  <Title order={3} fw={500}>Waiting to be booked</Title>
+                  <Title order={3} fw={500}>Mailbox & possible repeats</Title>
                   <Text size="sm" c="dimmed">Jobs from the jobs mailbox and jobs saved by hand, before a worker is booked</Text>
                 </Box>
                 <ThemeIcon size={48} radius="md" variant="light" color="credentis">
@@ -255,7 +255,7 @@ export default function IntakePage() {
             <BottomSheet opened={creating} onClose={() => setCreating(false)} title="Add a job">
               <Stack gap="sm">
                 <Alert color="credentis" icon={<IconShieldCheck size={16} />}>
-                  The job waits under Waiting to be booked. Booking it sends it to the worker you choose.
+                  The job goes onto the Jobs list with nobody on it. Open it there and choose who does it.
                 </Alert>
                 <JobScheduleFields
                   api={operations}

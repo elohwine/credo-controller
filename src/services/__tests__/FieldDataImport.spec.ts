@@ -8,6 +8,7 @@ import { jest } from '@jest/globals'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { findContactByStoreNumber, listContacts } from '../../persistence/ContactRepository'
 import { FieldDataImportService, importDate, importPhone } from '../FieldDataImportService'
+import { JobHistoryPromotionService } from '../JobHistoryPromotionService'
 import { JobRegisterService } from '../JobRegisterService'
 import { operationsRegisterService } from '../OperationsRegisterService'
 import { OrganizationService } from '../OrganizationService'
@@ -54,6 +55,7 @@ describe('Importing stores, jobs, vans and rates from a file the old system expo
     db.exec(migration('155_job_mail_checks_rates_links.sql'))
     db.exec(migration('156_job_history_imports.sql'))
     db.exec(migration('157_old_system_import_details.sql'))
+    db.exec(migration('158_job_history_runs.sql'))
     restores.push(jest.spyOn(DatabaseManager, 'getDatabase').mockReturnValue(db))
     restores.push(jest.spyOn(OrganizationService.prototype, 'listOrgMembers').mockReturnValue([] as any))
   })
@@ -426,5 +428,38 @@ describe('Importing stores, jobs, vans and rates from a file the old system expo
     // Nothing imported starts a job or a bill.
     expect(db.prepare('SELECT COUNT(*) AS n FROM workflow_runs').get()).toEqual({ n: 0 })
     expect(db.prepare('SELECT COUNT(*) AS n FROM payment_links').get()).toEqual({ n: 0 })
+  })
+
+  it('turns finished jobs from the old system into closed jobs on the Jobs list, once', () => {
+    importer.commit(
+      ORG,
+      OWNER,
+      'jobs',
+      'Job Number,Status,Customer,Task,Assigned to,Created At,Completed At,Priority\n' +
+        'MMW-1,Completed,Greendale Spar,Fix door,Tendai Moyo,03/11/2026 08:15,03/11/2026 11:40,High\n' +
+        'MMW-2,Cancelled,Greendale Spar,Paint wall,,04/11/2026 09:00,,\n' +
+        'MMW-3,Scheduled,Greendale Spar,Check lights,,05/11/2026 10:00,,',
+    )
+    const promotion = new JobHistoryPromotionService(() => ({ id: 'wf-field' }) as any)
+    expect(promotion.promote(ORG)).toEqual({ converted: 2, updated: 0 })
+    expect(promotion.promote(ORG)).toEqual({ converted: 0, updated: 2 })
+
+    const runs = db
+      .prepare("SELECT workflow_id, status, input, output, created_at FROM workflow_runs WHERE tenant_id = ? ORDER BY created_at")
+      .all(ORG) as Array<Record<string, string>>
+    expect(runs.map((run) => [run.workflow_id, run.status])).toEqual([
+      ['wf-field', 'completed'],
+      ['wf-field', 'cancelled'],
+    ])
+    expect(runs[0].created_at).toBe('2026-11-03 08:15:00')
+    const input = JSON.parse(runs[0].input)
+    expect(input).toMatchObject({ sourceType: 'import', reference: 'MMW-1', workerName: 'Tendai Moyo' })
+    expect(input.importedDetails).toMatchObject({ priority: 'High' })
+    expect(JSON.parse(runs[0].output)).toMatchObject({ workflowStage: 'COMPLETED', workflowInput: input })
+
+    // Converted jobs are listed as jobs, not a second time as history; the open one still waits to be booked.
+    const rows = register.rows(ORG)
+    expect(rows.filter((row) => row.kind === 'history')).toHaveLength(0)
+    expect(rows.filter((row) => row.kind === 'intake').map((row) => row.reference)).toEqual(['MMW-3'])
   })
 })

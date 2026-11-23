@@ -21,6 +21,13 @@ const hashCode = (code: string) => crypto.createHash('sha256').update(code.trim(
 /** Where the invited person confirms their name and chooses a PIN. Public page in the wallet app. */
 export function memberInviteLink(code: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
   try {
+    // INVITE_JOIN_URL is the full join page address, e.g. the portal's /auth/join when the phone app is not hosted.
+    if (env.INVITE_JOIN_URL) {
+      const join = new URL(env.INVITE_JOIN_URL)
+      if (!/^https?:$/.test(join.protocol)) return undefined
+      join.searchParams.set('code', code)
+      return join.toString()
+    }
     const base = new URL(env.WALLET_PUBLIC_URL || env.MOBILE_APP_URL || '')
     if (!/^https?:$/.test(base.protocol)) return undefined
     // Keep a path such as /app. A bare origin still lands on /login/join.

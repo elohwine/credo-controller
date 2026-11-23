@@ -219,6 +219,7 @@ export class DatabaseManager {
       { version: 155, file: '155_job_mail_checks_rates_links.sql', name: 'job_mail_checks_rates_links' },
       { version: 156, file: '156_job_history_imports.sql', name: 'job_history_imports' },
       { version: 157, file: '157_old_system_import_details.sql', name: 'old_system_import_details' },
+      { version: 158, file: '158_job_history_runs.sql', name: 'job_history_runs' },
     ]
 
     for (const migration of migrationFiles) {

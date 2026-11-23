@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Box, Center, Group, Loader, Pagination, Select, Stack, Text } from '@mantine/core'
+import { Box, Center, Group, Loader, Pagination, Select, SimpleGrid, Stack, Text } from '@mantine/core'
 import { DataTable as MantineDataTable, type DataTableSortStatus } from 'mantine-datatable'
 
 import {
@@ -151,6 +151,7 @@ export function DataTable<T>({
   itemWord,
   minWidth = 680,
   compact = false,
+  cardColumns,
 }: {
   rows: T[]
   columns: Array<DataColumn<T>>
@@ -172,6 +173,8 @@ export function DataTable<T>({
   minWidth?: number
   /** Bigger touch targets for the phone. */
   compact?: boolean
+  /** Lay cards out in a grid on wider screens, for example `{ base: 1, md: 2, xl: 3 }`. */
+  cardColumns?: Record<string, number>
 }) {
   const total = paging ? paging.total : rows.length
   // Rows already on screen stay usable while a refresh runs; the spinner is only for a first load.
@@ -181,9 +184,15 @@ export function DataTable<T>({
   if (view === 'cards' && renderCard) {
     return (
       <Stack gap="sm">
-        {rows.map((row) => (
-          <React.Fragment key={rowKey(row)}>{renderCard(row)}</React.Fragment>
-        ))}
+        {cardColumns ? (
+          <SimpleGrid cols={cardColumns} spacing="sm">
+            {rows.map((row) => (
+              <React.Fragment key={rowKey(row)}>{renderCard(row)}</React.Fragment>
+            ))}
+          </SimpleGrid>
+        ) : (
+          rows.map((row) => <React.Fragment key={rowKey(row)}>{renderCard(row)}</React.Fragment>)
+        )}
         {paging ? <DataPager paging={paging} itemWord={itemWord} compact={compact} /> : null}
       </Stack>
     )

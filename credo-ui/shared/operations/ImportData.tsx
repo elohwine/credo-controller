@@ -236,7 +236,7 @@ export function ImportData({
               )}
               {preview.kind === 'jobs' && (preview.counts.waiting ?? 0) > 0 && (
                 <Badge variant="light" color="blue">
-                  {preview.counts.waiting} waiting to be booked
+                  {preview.counts.waiting} open job{preview.counts.waiting === 1 ? '' : 's'} for the Jobs list
                 </Badge>
               )}
               {preview.kind === 'jobs' && (preview.counts.history ?? 0) > 0 && (
@@ -325,7 +325,7 @@ export function ImportData({
           <Stack gap={4}>
             {result.kind === 'jobs' && (
               <Text size="sm">
-                {result.waiting ?? 0} waiting to be booked, {result.history ?? 0} kept as history.
+                {result.waiting ?? 0} open job(s) added to the Jobs list, {result.history ?? 0} done job(s) kept with their history.
               </Text>
             )}
             {result.alreadyThere > 0 && <Text size="sm">{result.alreadyThere} were already here and were left alone.</Text>}

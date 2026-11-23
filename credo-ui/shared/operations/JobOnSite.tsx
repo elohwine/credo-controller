@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react'
-import { Button, Group, NumberInput, Paper, Stack, Text, Textarea, TextInput } from '@mantine/core'
-import { IconMail } from '@tabler/icons-react'
+import { Button, Collapse, Group, NumberInput, Paper, Stack, Text, Textarea, TextInput } from '@mantine/core'
+import { IconChevronDown, IconChevronUp, IconMail } from '@tabler/icons-react'
 
 import { fieldJobInput } from '../../../src/config/fieldJobCategory'
 
@@ -39,6 +39,8 @@ export function JobOnSite({
   const [signerName, setSignerName] = useState('')
   const [signerRole, setSignerRole] = useState('')
   const [link, setLink] = useState('')
+  // Folded by default so the job's progress timeline stays the first thing seen when a job opens.
+  const [open, setOpen] = useState(false)
   const canvas = useRef<HTMLCanvasElement>(null)
   const drawing = useRef(false)
 
@@ -118,9 +120,39 @@ export function JobOnSite({
   }
 
   const savedSignature = job.output?.storeSignature
+  const checks = items.filter((item) => item.required)
+  const checksDone = checks.filter((item) => answers[item.id]?.ok || String(answers[item.id]?.value || '').trim()).length
+  const summary = [
+    checks.length ? `${checksDone} of ${checks.length} sheet items done` : items.length ? `${items.length} sheet items` : '',
+    savedSignature?.signerName ? `Signed by ${savedSignature.signerName}` : 'Not signed yet',
+    thread.length ? `${thread.length} email${thread.length === 1 ? '' : 's'}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
-    <Stack gap="sm">
+    <Paper withBorder radius="md" p="md">
+      <Group justify="space-between" wrap="nowrap" align="center">
+        <Stack gap={0} style={{ minWidth: 0 }}>
+          <Text fw={500}>On-site sheet</Text>
+          <Text size="sm" c="dimmed" lineClamp={2}>
+            {summary}
+          </Text>
+        </Stack>
+        <Button
+          size={size}
+          variant="light"
+          radius="xl"
+          style={{ minHeight: surface === 'phone' ? 48 : 36, flexShrink: 0 }}
+          rightSection={open ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? 'Hide' : canFill ? 'Fill in' : 'View'}
+        </Button>
+      </Group>
+      <Collapse expanded={open}>
+    <Stack gap="sm" mt="sm">
       {thread.length > 0 && (
         <Paper withBorder radius="md" p="md">
           <Group gap={6} mb="xs">
@@ -329,5 +361,7 @@ export function JobOnSite({
         </Paper>
       )}
     </Stack>
+      </Collapse>
+    </Paper>
   )
 }

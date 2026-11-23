@@ -163,7 +163,7 @@ export function IncomingJobs({
         <Text size="sm" c="dimmed" style={{ flex: 1 }}>
           {mail?.connected
             ? `Jobs mailbox ${mail.mailbox}: read ${mail.lastReadAt ? readableDate(mail.lastReadAt) : 'not yet'}`
-            : 'The jobs mailbox is not connected yet. Jobs added by hand still land here.'}
+            : 'The jobs mailbox is not connected yet. Jobs added by hand go straight onto the Jobs list.'}
         </Text>
         <Group gap="xs" wrap="nowrap">
           {mail?.connected && (
@@ -188,8 +188,8 @@ export function IncomingJobs({
         return (
           <Paper key={item.id} withBorder radius="md" p="md">
             <Group gap={6} mb={6}>
-              <Badge variant="light" color={payload.sourceType === 'email' ? 'blue' : 'gray'} leftSection={payload.sourceType === 'email' ? <IconMail size={12} /> : undefined}>
-                {payload.sourceType === 'email' ? 'From email' : 'Added by hand'}
+              <Badge variant="light" color={payload.sourceType === 'email' ? 'blue' : payload.sourceType === 'import' ? 'cyan' : 'gray'} leftSection={payload.sourceType === 'email' ? <IconMail size={12} /> : undefined}>
+                {payload.sourceType === 'email' ? 'From email' : payload.sourceType === 'import' ? 'From the old system' : 'Added by hand'}
               </Badge>
               {item.duplicateOf && (
                 <Badge variant="light" color="red">
@@ -197,8 +197,8 @@ export function IncomingJobs({
                 </Badge>
               )}
               {payload.callOut && (
-                <Badge variant="light" color="orange">
-                  Call-out
+                <Badge variant="filled" color="red">
+                  Urgent
                 </Badge>
               )}
               {item.status === 'assigning' && (
@@ -217,6 +217,11 @@ export function IncomingJobs({
             <Text size="xs" c="dimmed">
               {[payload.clientName, payload.location, payload.scheduledDate ? `wanted ${readableDate(payload.scheduledDate)}` : ''].filter(Boolean).join(' · ')}
             </Text>
+            {payload.sourceType === 'import' && (payload.importedWorkerName || payload.importedDetails?.oldStatus) && (
+              <Text size="xs" c="dimmed">
+                {[payload.importedDetails?.oldStatus ? `Old system: ${payload.importedDetails.oldStatus}` : '', payload.importedWorkerName ? `worker ${payload.importedWorkerName}` : ''].filter(Boolean).join(' · ')}
+              </Text>
+            )}
             {payload.sourceSubject && (
               <Text size="xs" c="dimmed" lineClamp={1}>
                 Email: {payload.sourceSubject}
@@ -320,7 +325,7 @@ export function IncomingJobs({
       })}
       {loaded && !loading && !mailboxOnly && !focusId && items.length === 0 && (
         <Paper withBorder radius="md" p="lg" ta="center">
-          <Text c="dimmed">No jobs are waiting to be booked.</Text>
+          <Text c="dimmed">Nothing to check. New jobs from email, imports and by hand go straight onto the Jobs list.</Text>
         </Paper>
       )}
     </Stack>

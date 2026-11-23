@@ -2415,7 +2415,7 @@ const models: TsoaRoute.Models = {
     "InviteDeliveryResult": {
         "dataType": "refObject",
         "properties": {
-            "channel": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["whatsapp"]},{"dataType":"enum","enums":["sms"]},{"dataType":"enum","enums":["link"]},{"dataType":"enum","enums":["none"]}],"required":true},
+            "channel": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["whatsapp"]},{"dataType":"enum","enums":["sms"]},{"dataType":"enum","enums":["link"]},{"dataType":"enum","enums":["none"]}],"required":true},
             "link": {"dataType":"string"},
         },
         "additionalProperties": false,
@@ -2427,6 +2427,7 @@ const models: TsoaRoute.Models = {
             "phone": {"dataType":"string","required":true},
             "role": {"dataType":"string"},
             "name": {"dataType":"string"},
+            "email": {"dataType":"string"},
             "whatsappConsent": {"dataType":"boolean"},
         },
         "additionalProperties": false,
@@ -2435,6 +2436,7 @@ const models: TsoaRoute.Models = {
     "ResendInviteRequest": {
         "dataType": "refObject",
         "properties": {
+            "email": {"dataType":"string"},
             "whatsappConsent": {"dataType":"boolean"},
         },
         "additionalProperties": false,
@@ -5961,6 +5963,17 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "IntakeOpenResult": {
+        "dataType": "refObject",
+        "properties": {
+            "opened": {"dataType":"double","required":true},
+            "assigned": {"dataType":"double","required":true},
+            "skipped": {"dataType":"double","required":true},
+            "failed": {"dataType":"double","required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "MailSyncResult": {
         "dataType": "refObject",
         "properties": {
@@ -6279,6 +6292,15 @@ const models: TsoaRoute.Models = {
             "waiting": {"dataType":"double"},
             "history": {"dataType":"double"},
             "rows": {"dataType":"array","array":{"dataType":"refObject","ref":"FieldImportRowPreview"},"required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "HistoryPromotionResult": {
+        "dataType": "refObject",
+        "properties": {
+            "converted": {"dataType":"double","required":true},
+            "updated": {"dataType":"double","required":true},
         },
         "additionalProperties": false,
     },
@@ -25941,6 +25963,42 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsJobIntakeController_openPending: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.post('/api/platform/job-intake/open-pending',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(JobIntakeController)),
+            ...(fetchMiddlewares<RequestHandler>(JobIntakeController.prototype.openPending)),
+
+            async function JobIntakeController_openPending(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsJobIntakeController_openPending, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<JobIntakeController>(JobIntakeController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'openPending',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsJobIntakeController_mailStatus: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
         };
@@ -27075,6 +27133,42 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'runImport',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_convertImportedHistory: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.post('/api/platform/operations/import/convert-history',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.convertImportedHistory)),
+
+            async function OperationsRegisterController_convertImportedHistory(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_convertImportedHistory, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'convertImportedHistory',
                 controller,
                 response,
                 next,

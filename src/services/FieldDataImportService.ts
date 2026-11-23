@@ -42,6 +42,7 @@ import { jobIntakeRepository } from '../persistence/JobIntakeRepository'
 import { parseCsv } from '../utils/parseCsv'
 
 import { fieldJobSheetService } from './FieldJobSheetService'
+import { jobHistoryPromotionService } from './JobHistoryPromotionService'
 import { operationsRegisterService } from './OperationsRegisterService'
 import { normalizeContactPhone } from './ssi/contactHash'
 
@@ -853,6 +854,13 @@ export class FieldDataImportService {
         })
       }
     }
+    if ((kind === 'jobs' && history) || (kind === 'checks' && added)) {
+      try {
+        jobHistoryPromotionService.promote(orgTenantId)
+      } catch {
+        // The history rows are saved; they become jobs on the next import or from the convert action.
+      }
+    }
     const info = FIELD_IMPORT_KIND_INFO.find((entry) => entry.kind === kind)!
     return {
       kind,
@@ -1616,10 +1624,33 @@ export class FieldDataImportService {
               JSON.stringify(payload),
               target.id,
             )
+            this.copyDetailsToRun(target.id, details)
           }
         },
       }
     })
+  }
+
+  /** An intake already on the Jobs list gets the same details on its job. */
+  private copyDetailsToRun(intakeId: string, details: Record<string, any>): void {
+    const db = DatabaseManager.getDatabase()
+    const linked = db.prepare('SELECT workflow_run_id AS runId FROM job_intakes WHERE id = ?').get(intakeId) as
+      | { runId?: string }
+      | undefined
+    if (!linked?.runId) return
+    const run = db.prepare('SELECT input, output FROM workflow_runs WHERE id = ?').get(linked.runId) as
+      | { input?: string; output?: string }
+      | undefined
+    if (!run) return
+    const input = parseJson(run.input)
+    input.importedDetails = details
+    const output = parseJson(run.output)
+    if (output.workflowInput && typeof output.workflowInput === 'object') output.workflowInput.importedDetails = details
+    db.prepare('UPDATE workflow_runs SET input = ?, output = ? WHERE id = ?').run(
+      JSON.stringify(input),
+      JSON.stringify(output),
+      linked.runId,
+    )
   }
 }
 

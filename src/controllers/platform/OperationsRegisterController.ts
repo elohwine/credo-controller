@@ -9,6 +9,8 @@ import type { JobSheetItem } from '../../config/jobSheet'
 import { fieldDataImportService } from '../../services/FieldDataImportService'
 import { fieldJobSheetService } from '../../services/FieldJobSheetService'
 import { jobAttentionService } from '../../services/JobAttentionService'
+import { jobHistoryPromotionService } from '../../services/JobHistoryPromotionService'
+import { jobIntakeOpeningService } from '../../services/JobIntakeOpeningService'
 import { jobRegisterService } from '../../services/JobRegisterService'
 import {
   VAN_DAILY_CHECKS,
@@ -124,9 +126,9 @@ export class OperationsRegisterController {
     })
   }
 
-  /** Save the rows of a checked file. The same file again adds nothing. */
+  /** Save the rows of a checked file. The same file again adds nothing. Open jobs go onto the Jobs list. */
   @Post('/import')
-  public runImport(
+  public async runImport(
     @Request() request: ExRequest,
     @Body()
     body: {
@@ -140,7 +142,7 @@ export class OperationsRegisterController {
     },
   ) {
     const principal = principalOf(request, true)
-    return asBadRequest(() => {
+    const result = asBadRequest(() => {
       if (!isFieldImportKind(body?.kind)) {
         throw new Error(`Choose what the file holds: ${FIELD_IMPORT_KINDS.join(', ')}`)
       }
@@ -153,6 +155,15 @@ export class OperationsRegisterController {
         body,
       )
     })
+    if (body.kind === 'jobs' && result.waiting) await jobIntakeOpeningService.openPending(principal.tenantId)
+    return result
+  }
+
+  /** Turn finished jobs already brought in from the old system into ordinary closed jobs on the Jobs list. Safe to run again. */
+  @Post('/import/convert-history')
+  public convertImportedHistory(@Request() request: ExRequest) {
+    const principal = principalOf(request, true)
+    return asBadRequest(() => jobHistoryPromotionService.promote(principal.tenantId))
   }
 
   /** Tools and devices the organisation has issued to its staff. */

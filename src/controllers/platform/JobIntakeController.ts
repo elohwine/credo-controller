@@ -11,6 +11,7 @@ import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 import { operationsRegisterService } from '../../services/OperationsRegisterService'
 import { microsoftGraphMailIntakeService } from '../../services/integrations/MicrosoftGraphMailIntakeService'
+import { jobIntakeOpeningService } from '../../services/JobIntakeOpeningService'
 
 interface Principal {
   tenantId: string
@@ -107,7 +108,7 @@ export class JobIntakeController {
   }
 
   @Post('/')
-  public create(
+  public async create(
     @Request() request: ExRequest,
     @Body() body: JobIntakeInput,
   ) {
@@ -121,21 +122,35 @@ export class JobIntakeController {
     const action = 'job-intake:create'
     const idempotency = IdempotencyGuard.guard(db, request, principal.tenantId, action)
     if (idempotency.duplicate) return idempotency.response
+    let created
     try {
-      const created = jobIntakeRepository.create(
+      created = jobIntakeRepository.create(
         principal.tenantId,
         principal.subjectId,
         { ...input, sourceType: 'manual' },
         idempotency.key || undefined,
       )
-      if (idempotency.key) IdempotencyGuard.record(db, idempotency.key, principal.tenantId, action, created)
-      return created
     } catch (error) {
       if (error instanceof Error && /Attachment|filename|base64|file type/i.test(error.message)) {
         throw new StatusException(error.message, 400)
       }
       throw error
     }
+    // It goes onto the Jobs list as unassigned straight away; a possible repeat waits to be checked.
+    await jobIntakeOpeningService.openQuietly(created)
+    const saved = jobIntakeRepository.getForTenant(created.id, principal.tenantId) || created
+    if (idempotency.key) IdempotencyGuard.record(db, idempotency.key, principal.tenantId, action, saved)
+    return saved
+  }
+
+  /**
+   * Put every job still waiting in intake (old-system imports, emails, typed-in jobs) onto the Jobs
+   * list as ordinary jobs. Possible repeats stay here to be checked. Safe to run again.
+   */
+  @Post('/open-pending')
+  public async openPending(@Request() request: ExRequest) {
+    const principal = principalOf(request)
+    return jobIntakeOpeningService.openPending(principal.tenantId)
   }
 
   /** Whether the jobs mailbox is connected, when it was last read, and what it found. */

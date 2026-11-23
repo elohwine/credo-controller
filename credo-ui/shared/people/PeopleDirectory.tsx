@@ -321,6 +321,8 @@ export function PeopleDirectory({
   )
 }
 
+const looksLikeEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+
 function inviteNotice(
   result: { message?: string; invite?: { channel?: string; link?: string } } | undefined,
   notify: Notify,
@@ -353,13 +355,14 @@ function AddPerson({
   onDone: () => void | Promise<void>
 }) {
   const size = surface === 'phone' ? 'md' : 'sm'
-  const [form, setForm] = useState({ name: '', phone: '', staffNumber: '', skills: [] as string[], salary: 0, currency: 'USD' })
+  const [form, setForm] = useState({ name: '', phone: '', email: '', staffNumber: '', skills: [] as string[], salary: 0, currency: 'USD' })
   const [giveApp, setGiveApp] = useState(true)
-  const [whatsapp, setWhatsapp] = useState(true)
+  const [whatsapp, setWhatsapp] = useState(false)
   const [inviteRole, setInviteRole] = useState(defaultInviteRole(roleChoices))
   const [saving, setSaving] = useState(false)
   const needsPhone = giveApp
-  const ready = form.name.trim().length >= 2 && (!needsPhone || form.phone.trim().length > 4)
+  const emailError = form.email.trim() && !looksLikeEmail(form.email) ? 'Check the email address' : null
+  const ready = form.name.trim().length >= 2 && (!needsPhone || form.phone.trim().length > 4) && !emailError
 
   const save = async () => {
     if (!api || !ready) return
@@ -371,6 +374,7 @@ function AddPerson({
           phone: form.phone.trim(),
           name: form.name.trim(),
           role: inviteRole,
+          email: form.email.trim() || undefined,
           whatsappConsent: whatsapp,
         })
         userId = invited.targetUserId
@@ -381,6 +385,7 @@ function AddPerson({
         firstName,
         lastName,
         phone: form.phone.trim() || undefined,
+        email: form.email.trim() || undefined,
         baseSalary: showPay ? Number(form.salary) || 0 : 0,
         currency: form.currency,
         staffNumber: form.staffNumber.trim() || undefined,
@@ -407,6 +412,16 @@ function AddPerson({
         onChange={(value) => setForm({ ...form, phone: value })}
         required={giveApp}
       />
+      <TextInput
+        size={size}
+        type="email"
+        label="Email"
+        description={giveApp ? 'Optional. When given, the invite link is emailed here instead.' : 'Optional.'}
+        placeholder="tendai@example.com"
+        value={form.email}
+        error={emailError}
+        onChange={(event) => setForm({ ...form, email: event.currentTarget.value })}
+      />
       <Checkbox size={size} checked={giveApp} onChange={(event) => setGiveApp(event.currentTarget.checked)} label="Give them the app" description="They get jobs, approvals and their staff card on their phone." />
       {giveApp && (
         <>
@@ -419,7 +434,7 @@ function AddPerson({
             onChange={(value) => setInviteRole(value || defaultInviteRole(roleChoices))}
             allowDeselect={false}
           />
-          <Checkbox size={size} checked={whatsapp} onChange={(event) => setWhatsapp(event.currentTarget.checked)} label="They agreed to get the invite on WhatsApp" description="Otherwise we send it by text message, or give you the link to pass on." />
+          <Checkbox size={size} checked={whatsapp} onChange={(event) => setWhatsapp(event.currentTarget.checked)} label="They agreed to get the invite on WhatsApp" description="Without an email, we send it by WhatsApp or text message, or give you the link to pass on." />
         </>
       )}
       <TextInput size={size} label="Staff number" placeholder="e.g. SGK-014" value={form.staffNumber} onChange={(event) => setForm({ ...form, staffNumber: event.currentTarget.value })} />
@@ -484,8 +499,9 @@ function PersonPanel({
 
   // Invite someone who has no app access yet.
   const [phone, setPhone] = useState(employee?.phone || member?.phone || '')
+  const [inviteEmail, setInviteEmail] = useState(employee?.email || '')
   const [inviteRole, setInviteRole] = useState(defaultInviteRole(roleChoices))
-  const [whatsapp, setWhatsapp] = useState(true)
+  const [whatsapp, setWhatsapp] = useState(false)
   // Pay and details.
   const [pay, setPay] = useState({
     name: `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim(),
@@ -502,10 +518,11 @@ function PersonPanel({
   const invite = () =>
     run('invite', async () => {
       if (!api) return
-      const invited = await api.inviteMember(orgTenantId, { phone: phone.trim(), name: row.name, role: inviteRole, whatsappConsent: whatsapp })
+      const email = inviteEmail.trim() || undefined
+      const invited = await api.inviteMember(orgTenantId, { phone: phone.trim(), name: row.name, role: inviteRole, email, whatsappConsent: whatsapp })
       if (employee) {
         const { firstName, lastName } = splitName(pay.name || row.name)
-        await api.saveEmployee({ ...employee, firstName, lastName, phone: phone.trim(), userId: invited.targetUserId })
+        await api.saveEmployee({ ...employee, firstName, lastName, phone: phone.trim(), email: email || employee.email, userId: invited.targetUserId })
       }
       inviteNotice(invited, notify, 'They are on the team.')
       await onChanged()
@@ -664,11 +681,20 @@ function PersonPanel({
               <Text size="sm" c="dimmed">
                 They are not on the app yet, so they cannot get jobs or approvals.
               </Text>
-              <PhoneField surface={surface} label="Phone number" description="We send a one-time link here. They choose their own PIN." value={phone} onChange={setPhone} required />
+              <PhoneField surface={surface} label="Phone number" description="Their sign-in number. They choose their own PIN." value={phone} onChange={setPhone} required />
+              <TextInput
+                size={size}
+                type="email"
+                label="Email"
+                description="Optional. When given, the invite link is emailed here."
+                value={inviteEmail}
+                error={inviteEmail.trim() && !looksLikeEmail(inviteEmail) ? 'Check the email address' : null}
+                onChange={(event) => setInviteEmail(event.currentTarget.value)}
+              />
               <Select size={size} label="Role" data={roleChoices} value={inviteRole} onChange={(value) => setInviteRole(value || defaultInviteRole(roleChoices))} allowDeselect={false} />
-              <Checkbox size={size} checked={whatsapp} onChange={(event) => setWhatsapp(event.currentTarget.checked)} label="They agreed to get the invite on WhatsApp" description="Otherwise we send it by text message, or give you the link to pass on." />
+              <Checkbox size={size} checked={whatsapp} onChange={(event) => setWhatsapp(event.currentTarget.checked)} label="They agreed to get the invite on WhatsApp" description="Without an email, we send it by WhatsApp or text message, or give you the link to pass on." />
               <Group justify="flex-end">
-                <Button size={size} radius="xl" leftSection={<IconUserPlus size={18} />} loading={busy === 'invite'} disabled={phone.trim().length < 5} onClick={() => void invite()}>
+                <Button size={size} radius="xl" leftSection={<IconUserPlus size={18} />} loading={busy === 'invite'} disabled={phone.trim().length < 5 || Boolean(inviteEmail.trim() && !looksLikeEmail(inviteEmail))} onClick={() => void invite()}>
                   Invite to the app
                 </Button>
               </Group>

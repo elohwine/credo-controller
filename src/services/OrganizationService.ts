@@ -622,7 +622,7 @@ function templateOfferedByAnswers(orgTenantId: string, workflowType: string): Wo
 
 /** How an invite link reached the person. `link` is returned only when nothing could be sent. */
 export interface InviteDelivery {
-  channel: 'whatsapp' | 'sms' | 'link' | 'none'
+  channel: 'email' | 'whatsapp' | 'sms' | 'link' | 'none'
   link?: string
 }
 
@@ -1704,7 +1704,7 @@ export class OrganizationService {
     role: string,
     invitedBy: string,
     /** allowUnnamed: phones typed into a job carry no name; the person gives it when they open the link. */
-    options: { name?: string; whatsappConsent?: boolean; allowUnnamed?: boolean } = {},
+    options: { name?: string; email?: string; whatsappConsent?: boolean; allowUnnamed?: boolean } = {},
   ): Promise<{
     membershipId: string
     targetUserId: string
@@ -1714,6 +1714,8 @@ export class OrganizationService {
     invite: InviteDelivery
   }> {
     const normalizedPhone = this.normalizePhone(phone)
+    const email = OrganizationService.cleanEmail(options.email)
+    if (options.email?.trim() && !email) throw new Error('Enter a valid email address, or leave it empty')
     const givenName = OrganizationService.cleanPersonName(options.name)
     const proposedName = givenName || this.contactNameForPhone(orgTenantId, normalizedPhone)
     const known = this.lookupUserByPhone(orgTenantId, normalizedPhone).userId
@@ -1723,17 +1725,18 @@ export class OrganizationService {
       .provisionInvitedHolder(normalizedPhone, proposedName || 'Team member')
     const membershipRole = OrganizationService.normalizeMembershipRole(role)
     const result = await this.inviteMember(orgTenantId, holder.userId, membershipRole, invitedBy)
-    this.rememberMemberPhone(orgTenantId, holder.userId, normalizedPhone, givenName)
+    this.rememberMemberPhone(orgTenantId, holder.userId, normalizedPhone, givenName, email)
     const needsPin = this.userNeedsPin(holder.userId)
     let invite: InviteDelivery = { channel: 'none' }
     if (needsPin) {
       invite = await this.sendMemberInvite(orgTenantId, holder.userId, normalizedPhone, invitedBy, {
         proposedName,
+        email,
         whatsappConsent: options.whatsappConsent,
       })
     }
     const alerted =
-      invite.channel === 'whatsapp' || invite.channel === 'sms'
+      invite.channel === 'whatsapp' || invite.channel === 'sms' || invite.channel === 'email'
         ? true
         : result.alreadyMember
           ? false
@@ -1746,6 +1749,14 @@ export class OrganizationService {
       alerted,
       invite,
     }
+  }
+
+  /** A typed email address, lower-cased, or undefined when it does not look like one. */
+  static cleanEmail(email: unknown): string | undefined {
+    const clean = String(email || '')
+      .trim()
+      .toLowerCase()
+    return clean.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean) ? clean : undefined
   }
 
   /** A person's name as typed by someone: trimmed, single-spaced, never a placeholder. */
@@ -1771,19 +1782,21 @@ export class OrganizationService {
 
   /**
    * Send the one-time link with which the person confirms their name and picks their own PIN.
-   * WhatsApp from the platform number when the inviter confirmed the person agreed and a sender
-   * is actually switched on. Otherwise a text message. When neither can be sent the owner gets
-   * the link to pass on in person. Queuing WhatsApp is not the same as it being sent.
+   * By email when an address was given and email is set up on this server. Otherwise WhatsApp
+   * from the platform number when the inviter confirmed the person agreed and a sender is
+   * actually switched on, then a text message. When nothing can be sent the owner gets the link
+   * to pass on in person. Only one channel is used, because each send replaces the code.
    */
   private async sendMemberInvite(
     orgTenantId: string,
     userId: string,
     phone: string,
     invitedBy: string,
-    options: { proposedName?: string; whatsappConsent?: boolean },
+    options: { proposedName?: string; email?: string; whatsappConsent?: boolean },
   ): Promise<InviteDelivery> {
     const { memberInviteService, memberInviteLink } = await import('./MemberInviteService')
     const inviteId = memberInviteService.create({ userId, orgTenantId, invitedBy, proposedName: options.proposedName })
+    if (options.email && (await notificationService.sendInviteEmail(inviteId, options.email))) return { channel: 'email' }
     if (options.whatsappConsent) {
       try {
         notificationService.recordInviteConsent(orgTenantId, userId, phone)
@@ -1813,7 +1826,7 @@ export class OrganizationService {
     orgTenantId: string,
     targetUserId: string,
     requestedBy: string,
-    options: { whatsappConsent?: boolean } = {},
+    options: { email?: string; whatsappConsent?: boolean } = {},
   ): Promise<InviteDelivery> {
     const db = DatabaseManager.getDatabase()
     const requester = this.getUserOrgRole(requestedBy, orgTenantId)
@@ -1825,11 +1838,15 @@ export class OrganizationService {
     if (!this.userNeedsPin(targetUserId)) throw new Error('They have already signed in and chosen a PIN')
     const contact = getContactById(`${orgTenantId}:member:${targetUserId}`, orgTenantId)
     if (!contact?.phone) throw new Error('No phone number saved for this person')
+    const email = OrganizationService.cleanEmail(options.email)
+    if (options.email?.trim() && !email) throw new Error('Enter a valid email address, or leave it empty')
+    if (email) this.rememberMemberPhone(orgTenantId, targetUserId, this.normalizePhone(contact.phone), undefined, email)
     const { memberInviteService } = await import('./MemberInviteService')
     const previous = memberInviteService.openForMember(targetUserId, orgTenantId)
     const consented = Boolean(notificationService.consentedRecipient(orgTenantId, 'invite', { userId: targetUserId }))
     return this.sendMemberInvite(orgTenantId, targetUserId, this.normalizePhone(contact.phone), requestedBy, {
       proposedName: OrganizationService.cleanPersonName(contact.name) || previous?.proposed_name || undefined,
+      email: email || OrganizationService.cleanEmail(contact.email),
       whatsappConsent: options.whatsappConsent || consented,
     })
   }
@@ -1885,8 +1902,8 @@ export class OrganizationService {
     return name
   }
 
-  /** Keep the phone on the team contact so the list can tell they have an account. */
-  private rememberMemberPhone(orgTenantId: string, userId: string, phone: string, givenName?: string): void {
+  /** Keep the phone (and email, when given) on the team contact so the list can tell they have an account. */
+  private rememberMemberPhone(orgTenantId: string, userId: string, phone: string, givenName?: string, email?: string): void {
     const existing = getContactById(`${orgTenantId}:member:${userId}`, orgTenantId)
     if (!existing) return
     const generic = !existing.name || /^(team member|organization owner)$/i.test(existing.name.trim())
@@ -1896,7 +1913,7 @@ export class OrganizationService {
       contactScope: 'internal',
       name: givenName && generic ? givenName : existing.name,
       phone,
-      email: existing.email,
+      email: email || existing.email,
       did: existing.did,
       notes: existing.notes,
       walletTenantId: existing.walletTenantId,
