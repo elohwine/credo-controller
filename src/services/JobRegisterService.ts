@@ -365,7 +365,8 @@ export class JobRegisterService {
     let fixed = 0
     let returnVisits = 0
     for (const row of rows) {
-      if (row.returnVisit && row.category !== 'cancelled') returnVisits += 1
+      // A visit that failed and needed another one counts against the first-time fix rate, even if the old system closed it as cancelled.
+      if (row.returnVisit) returnVisits += 1
       else if (DONE.has(row.category)) fixed += 1
       counts[row.category] += 1
       sources.set(row.source, (sources.get(row.source) || 0) + 1)

@@ -172,7 +172,7 @@ describe('Jobs list, export, reports and what is filled in on site', () => {
     addJob('RUN-OLD-2', { sourceType: 'import', workerName: 'Gary Old', importedDetails: { failureType: 'Requires Return Visit' } }, 'completed', {}, '2026-11-01T08:00:00Z')
 
     const report = register.report(ORG)
-    expect(report.firstTimeFix).toEqual({ fixed: 1, returnVisits: 1, percent: 50 })
+    expect(report.firstTimeFix).toEqual({ fixed: 1, returnVisits: 2, percent: 33 })
     expect(report.today).toEqual({
       date: '2026-11-25',
       scheduled: 1,
