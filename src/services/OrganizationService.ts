@@ -630,6 +630,17 @@ export interface InviteDelivery {
   link?: string
 }
 
+/** How the latest invite send to a waiting member went, for the team list. */
+export interface MemberInviteDeliveryView {
+  inviteId: string
+  channel: 'email' | 'whatsapp' | 'sms' | 'link'
+  status: 'sending' | 'sent' | 'delivered' | 'failed' | 'not_sent' | 'expired'
+  reason?: string
+  to?: string
+  at?: string
+  expiresAt: string
+}
+
 @injectable()
 export class OrganizationService {
   private agent: Agent<RestMultiTenantAgentModules>
@@ -1799,43 +1810,92 @@ export class OrganizationService {
 
   /**
    * Send the one-time link with which the person confirms their name and picks their own PIN.
-   * By email when an address was given and email is set up on this server. Otherwise WhatsApp
-   * from the platform number when the inviter confirmed the person agreed and a sender is
-   * actually switched on, then a text message. When nothing can be sent the owner gets the link
-   * to pass on in person. Only one channel is used, because each send replaces the code.
+   * By email (through the outbox, retried when the mail service is briefly down) when an address
+   * was given and email is set up. Otherwise WhatsApp from the platform number when the inviter
+   * confirmed the person agreed and a sender is switched on, then a text message. When nothing can
+   * be sent the owner gets the link to pass on in person. Only one channel is used at a time,
+   * because each send replaces the code. `prefer` picks the channel when sending again.
    */
   private async sendMemberInvite(
     orgTenantId: string,
     userId: string,
     phone: string | undefined,
     invitedBy: string,
-    options: { proposedName?: string; email?: string; whatsappConsent?: boolean },
+    options: {
+      proposedName?: string
+      email?: string
+      whatsappConsent?: boolean
+      prefer?: 'email' | 'whatsapp'
+    },
   ): Promise<InviteDelivery> {
     const { memberInviteService, memberInviteLink } = await import('./MemberInviteService')
     const inviteId = memberInviteService.create({ userId, orgTenantId, invitedBy, proposedName: options.proposedName })
-    if (options.email && (await notificationService.sendInviteEmail(inviteId, options.email)))
-      return { channel: 'email' }
+    const problems: string[] = []
+    let whatsappReady = false
     if (phone && options.whatsappConsent) {
       try {
         notificationService.recordInviteConsent(orgTenantId, userId, phone)
-        const senderReady = whatsAppSenderService.selection(orgTenantId)?.enabled === true
-        if (senderReady && notificationService.consentedRecipient(orgTenantId, 'invite', { userId })) {
-          notificationService.queueWhatsApp({
-            tenantId: orgTenantId,
-            to: phone,
-            eventType: 'invite',
-            dedupeKey: `invite:${inviteId}`,
-            inviteId,
-          })
-          return { channel: 'whatsapp' }
-        }
+        whatsappReady =
+          whatsAppSenderService.selection(orgTenantId)?.enabled === true &&
+          Boolean(notificationService.consentedRecipient(orgTenantId, 'invite', { userId }))
+        if (!whatsappReady) problems.push('WhatsApp sending is not switched on for this organisation')
       } catch (err: any) {
-        logger.warn({ error: err?.message, orgTenantId }, 'Invite WhatsApp could not be queued; trying SMS')
+        logger.warn({ error: err?.message, orgTenantId }, 'Invite WhatsApp consent could not be recorded')
+        problems.push('WhatsApp could not be used')
+      }
+    } else if (options.prefer === 'whatsapp') {
+      problems.push(phone ? 'They have not agreed to WhatsApp messages' : 'No phone number saved for WhatsApp')
+    }
+    const queueWhatsApp = (): InviteDelivery | undefined => {
+      if (!phone || !whatsappReady) return undefined
+      try {
+        const notificationId = notificationService.queueWhatsApp({
+          tenantId: orgTenantId,
+          to: phone,
+          eventType: 'invite',
+          dedupeKey: `invite:${inviteId}`,
+          inviteId,
+        })
+        memberInviteService.recordDelivery(inviteId, {
+          channel: 'whatsapp',
+          status: 'sending',
+          ref: notificationId,
+          to: phone,
+        })
+        return { channel: 'whatsapp' }
+      } catch (err: any) {
+        logger.warn({ error: err?.message, orgTenantId }, 'Invite WhatsApp could not be queued')
+        problems.push('WhatsApp could not be queued')
+        return undefined
       }
     }
-    if (phone && (await notificationService.sendInviteFallbackSms(inviteId, phone))) return { channel: 'sms' }
+    const tryEmail = async (): Promise<InviteDelivery | undefined> => {
+      if (!options.email) return undefined
+      const queued = await notificationService.queueInviteEmail({
+        tenantId: orgTenantId,
+        inviteId,
+        email: options.email,
+        whatsappFallback: whatsappReady ? phone : undefined,
+      })
+      if (queued) return { channel: 'email' }
+      problems.push(memberInviteService.get(inviteId)?.delivery_reason || 'Email could not be sent')
+      return undefined
+    }
+    const sent =
+      options.prefer === 'whatsapp' ? queueWhatsApp() || (await tryEmail()) : (await tryEmail()) || queueWhatsApp()
+    if (sent) return sent
+    if (phone && options.prefer !== 'email') {
+      if (await notificationService.sendInviteFallbackSms(inviteId, phone)) return { channel: 'sms' }
+      const afterSms = memberInviteService.get(inviteId)
+      if (afterSms?.delivery_channel === 'sms' && afterSms.delivery_reason) problems.push(afterSms.delivery_reason)
+    }
     const code = memberInviteService.issueCode(inviteId)
     const link = code ? memberInviteLink(code) : undefined
+    memberInviteService.recordDelivery(inviteId, {
+      channel: 'link',
+      status: problems.length ? 'failed' : 'not_sent',
+      reason: problems.length ? problems.join('; ') : undefined,
+    })
     return link ? { channel: 'link', link } : { channel: 'none' }
   }
 
@@ -1844,7 +1904,7 @@ export class OrganizationService {
     orgTenantId: string,
     targetUserId: string,
     requestedBy: string,
-    options: { email?: string; whatsappConsent?: boolean } = {},
+    options: { email?: string; whatsappConsent?: boolean; channel?: 'email' | 'whatsapp' } = {},
   ): Promise<InviteDelivery> {
     const db = DatabaseManager.getDatabase()
     const requester = this.getUserOrgRole(requestedBy, orgTenantId)
@@ -1862,15 +1922,78 @@ export class OrganizationService {
     if (options.email?.trim() && !email) throw new Error('Enter a valid email address, or leave it empty')
     const sendTo = email || OrganizationService.cleanEmail(contact?.email)
     if (!phone && !sendTo) throw new Error('No phone number or email saved for this person')
+    if (options.channel === 'email' && !sendTo) throw new Error('No email saved for this person')
+    if (options.channel === 'whatsapp' && !phone) throw new Error('No phone number saved for this person')
     if (email) this.rememberMemberPhone(orgTenantId, targetUserId, phone, undefined, email)
     const { memberInviteService } = await import('./MemberInviteService')
     const previous = memberInviteService.openForMember(targetUserId, orgTenantId)
     const consented = Boolean(notificationService.consentedRecipient(orgTenantId, 'invite', { userId: targetUserId }))
     return this.sendMemberInvite(orgTenantId, targetUserId, phone, requestedBy, {
       proposedName: OrganizationService.cleanPersonName(contact?.name) || previous?.proposed_name || undefined,
-      email: sendTo,
-      whatsappConsent: options.whatsappConsent || consented,
+      email: options.channel === 'whatsapp' ? undefined : sendTo,
+      whatsappConsent: options.channel === 'email' ? false : options.whatsappConsent || consented,
+      prefer: options.channel,
     })
+  }
+
+  /**
+   * How the latest invite of each waiting member went: still sending, sent, delivered, failed (with
+   * why), or expired. WhatsApp follows the provider status; email bounces come from the mail service.
+   */
+  async inviteDeliveries(orgTenantId: string, userIds: Set<string>): Promise<Map<string, MemberInviteDeliveryView>> {
+    const { memberInviteService } = await import('./MemberInviteService')
+    const latest = memberInviteService.latestUnusedByMember(orgTenantId)
+    const db = DatabaseManager.getDatabase()
+    const now = new Date().toISOString()
+    const views = new Map<string, MemberInviteDeliveryView>()
+    const emailChecks: Array<{ inviteId: string; ref: string; to?: string }> = []
+    for (const [userId, invite] of latest) {
+      if (!userIds.has(userId) || !invite.delivery_channel) continue
+      let status = (invite.delivery_status || 'not_sent') as MemberInviteDeliveryView['status']
+      let reason = invite.delivery_reason || undefined
+      if (invite.delivery_channel === 'whatsapp' && invite.delivery_ref) {
+        const row = db
+          .prepare('SELECT status, reason FROM notification_deliveries WHERE id = ?')
+          .get(invite.delivery_ref) as { status: string; reason?: string | null } | undefined
+        if (row) {
+          if (['failed', 'skipped', 'uncertain'].includes(row.status)) {
+            status = 'failed'
+            reason = [reason, row.reason || 'WhatsApp could not deliver it'].filter(Boolean).join('; ')
+          } else if (['delivered', 'read'].includes(row.status)) status = 'delivered'
+          else if (['accepted', 'sent'].includes(row.status)) status = 'sent'
+          else status = 'sending'
+        }
+      }
+      if (invite.delivery_channel === 'email' && status === 'sent' && invite.delivery_ref)
+        emailChecks.push({ inviteId: invite.id, ref: invite.delivery_ref, to: invite.delivery_to || undefined })
+      views.set(userId, {
+        inviteId: invite.id,
+        channel: invite.delivery_channel,
+        status: invite.expires_at <= now && status !== 'failed' ? 'expired' : status,
+        reason,
+        to: invite.delivery_to || undefined,
+        at: invite.delivery_at || undefined,
+        expiresAt: invite.expires_at,
+      })
+    }
+    const outcomes = await notificationService.emailOutcomes(emailChecks.map((check) => check.ref))
+    for (const check of emailChecks) {
+      const outcome = outcomes.get(check.ref)
+      if (!outcome) continue
+      memberInviteService.recordDelivery(check.inviteId, {
+        channel: 'email',
+        status: outcome.status,
+        reason: outcome.reason,
+        ref: check.ref,
+        to: check.to,
+      })
+      for (const view of views.values())
+        if (view.inviteId === check.inviteId && view.status !== 'expired') {
+          view.status = outcome.status
+          view.reason = outcome.reason
+        }
+    }
+    return views
   }
 
   /** Which members still have to open their invite link (no PIN chosen yet). */

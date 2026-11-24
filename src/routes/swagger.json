@@ -6931,6 +6931,53 @@
         "type": "object",
         "additionalProperties": false
       },
+      "MemberInviteDeliveryItem": {
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "whatsapp",
+              "sms",
+              "link"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "sending",
+              "sent",
+              "delivered",
+              "failed",
+              "not_sent",
+              "expired"
+            ],
+            "description": "`failed` and `expired` can be sent again, by email or WhatsApp"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why it failed, in words"
+          },
+          "to": {
+            "type": "string",
+            "description": "The email address or phone it went to"
+          },
+          "at": {
+            "type": "string",
+            "description": "When it was last sent or last changed"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel",
+          "status",
+          "expiresAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
       "OrgMemberItem": {
         "properties": {
           "userId": {
@@ -6960,6 +7007,10 @@
           "invitePending": {
             "type": "boolean",
             "description": "Invited but has not opened their invite link and chosen a PIN yet"
+          },
+          "inviteDelivery": {
+            "$ref": "#/components/schemas/MemberInviteDeliveryItem",
+            "description": "How the latest invite send went, while they still have to open it"
           }
         },
         "required": [
@@ -7199,10 +7250,9 @@
               "whatsapp",
               "sms",
               "link",
-              "temporary_pin",
               "none"
             ],
-            "description": "How the invite link reached them. `link` means nothing could be sent: pass the link on in\nperson. `temporary_pin` means no link: they sign in with the temporary PIN and choose their own."
+            "description": "How the invite link reached them. `link` means nothing could be sent: pass the link on in person."
           },
           "link": {
             "type": "string"
@@ -7217,7 +7267,8 @@
       "InviteMemberByPhoneRequest": {
         "properties": {
           "phone": {
-            "type": "string"
+            "type": "string",
+            "description": "Their phone number. Give this, an email, or both."
           },
           "role": {
             "type": "string"
@@ -7228,20 +7279,13 @@
           },
           "email": {
             "type": "string",
-            "description": "Optional. When given, the invite link is emailed here instead of sent to the phone."
+            "description": "When given, the invite link is emailed here. On its own, they add their phone when they join."
           },
           "whatsappConsent": {
             "type": "boolean",
             "description": "The inviter confirms the person agreed to get the invite link on WhatsApp."
-          },
-          "temporaryPin": {
-            "type": "string",
-            "description": "Optional, for someone with no email or WhatsApp: 4 to 6 digits the inviter tells them in\nperson. No link is sent. Their first sign-in only opens the screen to choose their own PIN."
           }
         },
-        "required": [
-          "phone"
-        ],
         "type": "object",
         "additionalProperties": false
       },
@@ -7255,9 +7299,13 @@
             "type": "boolean",
             "description": "The inviter confirms the person agreed to get the invite link on WhatsApp."
           },
-          "temporaryPin": {
+          "channel": {
             "type": "string",
-            "description": "Instead of a new link: a temporary PIN they must replace at their first sign-in."
+            "enum": [
+              "email",
+              "whatsapp"
+            ],
+            "description": "Send it this way this time, e.g. after the other way failed."
           }
         },
         "type": "object",
@@ -10063,6 +10111,10 @@
           "phoneHint": {
             "type": "string",
             "description": "Last digits of the invited phone number"
+          },
+          "needsPhone": {
+            "type": "boolean",
+            "description": "Invited by email only: they give the phone number they will sign in with."
           }
         },
         "required": [

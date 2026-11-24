@@ -135,7 +135,7 @@ export class OutboxService {
           // Legacy side effects have no provider reconciliation key. Never replay a crashed invocation blindly.
           db.prepare(
             `UPDATE integration_outbox SET status = 'uncertain', error_message = 'Lease expired: reconcile external outcome'
-          WHERE status = 'processing' AND lease_until <= ? AND topic NOT IN ('notification.whatsapp', 'wallet.vc.offered', 'wallet.inbox.whatsapp', 'payment_link.settle')`,
+          WHERE status = 'processing' AND lease_until <= ? AND topic NOT IN ('notification.whatsapp', 'wallet.vc.offered', 'wallet.inbox.whatsapp', 'payment_link.settle', 'member.invite.email')`,
           ).run(now)
           const candidates = db
             .prepare(
@@ -168,6 +168,9 @@ export class OutboxService {
           } else if (row.topic === 'notification.whatsapp') {
             const { notificationService } = await import('./NotificationService')
             await notificationService.processWhatsAppIntent(row.id, JSON.parse(row.payload))
+          } else if (row.topic === 'member.invite.email') {
+            const { notificationService } = await import('./NotificationService')
+            await notificationService.processInviteEmailIntent(row.id, JSON.parse(row.payload))
           } else if (row.topic === 'workflow.vc.issue') {
             await this.processWorkflowVcIssue(row.id, JSON.parse(row.payload || '{}'))
           } else if (row.topic === 'wallet.inbox.whatsapp') {
@@ -235,6 +238,12 @@ export class OutboxService {
               `UPDATE notification_deliveries SET status = 'failed', reason = 'Dispatch attempts exhausted',
               updated_at = ? WHERE id = ? AND status IN ('queued', 'retry')`,
             ).run(new Date().toISOString(), row.id)
+          }
+          if (row.topic === 'member.invite.email' && status === 'failed') {
+            const { notificationService } = await import('./NotificationService')
+            await notificationService
+              .inviteEmailGaveUp(JSON.parse(row.payload), error instanceof DispatchError ? error.message : 'Email failed')
+              .catch(() => logger.warn({ outboxId: row.id }, 'Invite email failure could not be recorded'))
           }
         }
       }

@@ -383,6 +383,8 @@ export class WalletAuthController extends Controller {
   /** What an invite link is for, before the person accepts it. */
   @Get('/invite/{code}')
   public async describeInvite(@Path() code: string): Promise<InviteSummary> {
+    // A cached answer would outlive a resend that replaced this link.
+    this.setHeader('Cache-Control', 'no-store')
     try {
       return this.ssiAuthService.describeInvite(code)
     } catch (e: any) {

@@ -224,6 +224,7 @@ export class DatabaseManager {
       { version: 160, file: '160_employee_qualifications.sql', name: 'employee_qualifications' },
       { version: 161, file: '161_pin_change_required.sql', name: 'pin_change_required' },
       { version: 162, file: '162_regeocode_job_locations.sql', name: 'regeocode_job_locations' },
+      { version: 163, file: '163_member_invite_delivery.sql', name: 'member_invite_delivery' },
     ]
 
     for (const migration of migrationFiles) {

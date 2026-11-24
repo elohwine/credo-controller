@@ -41,15 +41,29 @@ export default function JoinPage() {
       setLoadError('This invite link is incomplete. Ask the person who invited you to send it again.');
       return;
     }
+    let current = true;
     api
       .get(`/api/wallet/auth/invite/${encodeURIComponent(code)}`)
       .then((res) => {
+        if (!current) return;
+        setLoadError(null);
         setInvite(res.data);
         setName(res.data?.proposedName || '');
       })
-      .catch((err) =>
-        setLoadError(err.response?.data?.message || 'This invite link has expired or was replaced by a newer one.'),
-      );
+      .catch((err) => {
+        if (!current) return;
+        // Only a "no such invite" answer from the server means the link is dead; a dropped connection can be retried.
+        setLoadError(
+          !err?.response
+            ? 'Could not reach the server. Check your connection and open the link again.'
+            : err.response.status === 404
+              ? err.response.data?.message || 'This invite link has expired or was replaced by a newer one.'
+              : 'Could not load the invite right now. Please open the link again in a moment.',
+        );
+      });
+    return () => {
+      current = false;
+    };
   }, [router.isReady, code]);
 
   const pinError = pin && !/^\d{4,6}$/.test(pin) ? 'Use 4 to 6 digits' : null;

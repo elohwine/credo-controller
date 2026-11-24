@@ -31,6 +31,11 @@ export function redactSecrets(value: unknown, depth = 0): unknown {
   return out
 }
 
+/** An invite link's code works like a password until it is used, so it never goes into request logs. */
+export function redactPath(path: string): string {
+  return path.replace(/(\/invite\/)(?!accept\/?$)[^/]+/, '$1REDACTED')
+}
+
 export class TsLogger extends BaseLogger {
   private logger: Logger
 

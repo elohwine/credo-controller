@@ -42,6 +42,9 @@ import { PRODUCT_NAME } from '../config/productEdition'
 
 const logger = rootLogger.child({ module: 'NotificationService' })
 
+/** Outbox topic for an invite email; retried with backoff like WhatsApp alerts. */
+export const INVITE_EMAIL_TOPIC = 'member.invite.email'
+
 const escapeHtml = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 
@@ -335,7 +338,13 @@ export class NotificationService {
     const sms = await this.sendSms(
       phone,
       `${orgName} invited you to ${PRODUCT_NAME}. Confirm your name and choose your own PIN here: ${link} (valid 7 days)`,
-    )
+    ).catch((error: any) => ({ success: false, error: error?.message }) as { success: boolean; error?: string })
+    memberInviteService.recordDelivery(inviteId, {
+      channel: 'sms',
+      status: sms.success ? 'sent' : 'failed',
+      reason: sms.success ? undefined : String((sms as any).error || 'The text message could not be sent'),
+      to: phone,
+    })
     return sms.success
   }
 
@@ -669,22 +678,130 @@ export class NotificationService {
     return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
   }
 
-  /** The invite link by email. Each send replaces the code, so only the newest message works. */
+  /** The invite link by email, sent now. Each send replaces the code, so only the newest message works. */
   public async sendInviteEmail(inviteId: string, email: string): Promise<boolean> {
-    if (!this.emailReady()) {
-      logger.warn({ inviteId }, 'Invite email skipped: no RESEND_API_KEY or SMTP settings')
-      return false
+    const { memberInviteService } = await import('./MemberInviteService')
+    const result = await this.attemptInviteEmail(inviteId, email)
+    if (result.ok) {
+      memberInviteService.recordDelivery(inviteId, { channel: 'email', status: 'sent', ref: result.ref, to: email })
+      return true
     }
+    if (!result.gone)
+      memberInviteService.recordDelivery(inviteId, { channel: 'email', status: 'failed', reason: result.reason, to: email })
+    return false
+  }
+
+  /**
+   * The invite email through the outbox: sent straight away, retried with backoff when the mail
+   * service is briefly unavailable, and marked failed on the invite when it gives up. False when
+   * this server cannot send email at all, so the caller can pick another channel.
+   */
+  public async queueInviteEmail(input: {
+    tenantId: string
+    inviteId: string
+    email: string
+    /** WhatsApp to use when the email finally fails; the person agreed to WhatsApp. */
+    whatsappFallback?: string
+  }): Promise<boolean> {
     const { memberInviteService, memberInviteLink } = await import('./MemberInviteService')
-    if (!memberInviteLink('ready')) {
-      logger.warn({ inviteId }, 'Invite email skipped: set INVITE_JOIN_URL or WALLET_PUBLIC_URL for the join link')
+    const unavailable = !this.emailReady()
+      ? 'Email is not set up on this server'
+      : !memberInviteLink('ready')
+        ? 'The join page address is not set on this server'
+        : undefined
+    if (unavailable) {
+      logger.warn({ inviteId: input.inviteId }, `Invite email skipped: ${unavailable}`)
+      memberInviteService.recordDelivery(input.inviteId, {
+        channel: 'email',
+        status: 'failed',
+        reason: unavailable,
+        to: input.email,
+      })
       return false
     }
+    memberInviteService.recordDelivery(input.inviteId, { channel: 'email', status: 'sending', to: input.email })
+    outboxService.enqueue({
+      topic: INVITE_EMAIL_TOPIC,
+      aggregateKey: input.tenantId,
+      dedupeKey: `member-invite:${input.inviteId}:email`,
+      payload: {
+        tenantId: input.tenantId,
+        inviteId: input.inviteId,
+        email: input.email,
+        ...(input.whatsappFallback ? { whatsappFallback: input.whatsappFallback } : {}),
+      },
+    })
+    return true
+  }
+
+  /** Outbox handler for one invite email attempt. Throws so the outbox retries or gives up. */
+  public async processInviteEmailIntent(_id: string, payload: Record<string, any>): Promise<void> {
+    const { memberInviteService } = await import('./MemberInviteService')
+    const result = await this.attemptInviteEmail(String(payload.inviteId), String(payload.email))
+    if (result.ok) {
+      memberInviteService.recordDelivery(String(payload.inviteId), {
+        channel: 'email',
+        status: 'sent',
+        ref: result.ref,
+        to: payload.email,
+      })
+      return
+    }
+    if (result.gone) return
+    if (result.retry)
+      memberInviteService.recordDelivery(String(payload.inviteId), {
+        channel: 'email',
+        status: 'sending',
+        reason: `Trying again: ${result.reason}`,
+        to: payload.email,
+      })
+    throw new DispatchError(result.reason, result.retry ? 'retry' : 'permanent')
+  }
+
+  /** The outbox gave up on an invite email: mark it failed, or hand it to WhatsApp when the person agreed. */
+  public async inviteEmailGaveUp(payload: Record<string, any>, reason: string): Promise<void> {
+    const { memberInviteService } = await import('./MemberInviteService')
+    const inviteId = String(payload.inviteId || '')
+    const invite = inviteId ? memberInviteService.get(inviteId) : undefined
+    if (!invite || invite.used_at) return
+    memberInviteService.recordDelivery(inviteId, { channel: 'email', status: 'failed', reason, to: payload.email })
+    const phone = payload.whatsappFallback ? String(payload.whatsappFallback) : undefined
+    if (!phone || whatsAppSenderService.selection(invite.org_tenant_id)?.enabled !== true) return
+    if (!this.consentedRecipient(invite.org_tenant_id, 'invite', { userId: invite.user_id })) return
+    try {
+      const notificationId = this.queueWhatsApp({
+        tenantId: invite.org_tenant_id,
+        to: phone,
+        eventType: 'invite',
+        dedupeKey: `invite:${inviteId}`,
+        inviteId,
+      })
+      memberInviteService.recordDelivery(inviteId, {
+        channel: 'whatsapp',
+        status: 'sending',
+        reason: `Email failed: ${reason}`,
+        ref: notificationId,
+        to: phone,
+      })
+    } catch (error: any) {
+      logger.warn({ error: error?.message, inviteId }, 'Invite WhatsApp fallback could not be queued')
+    }
+  }
+
+  /** One try at the invite email. `gone` when the invite was used, replaced or expired meanwhile. */
+  private async attemptInviteEmail(
+    inviteId: string,
+    email: string,
+  ): Promise<{ ok: true; ref?: string } | { ok: false; reason: string; retry: boolean; gone?: boolean }> {
+    if (!this.emailReady()) return { ok: false, reason: 'Email is not set up on this server', retry: false }
+    const { memberInviteService, memberInviteLink } = await import('./MemberInviteService')
+    if (!memberInviteLink('ready'))
+      return { ok: false, reason: 'The join page address is not set on this server', retry: false }
     const invite = memberInviteService.get(inviteId)
-    if (!invite || invite.used_at) return false
+    if (!invite || invite.used_at) return { ok: false, reason: 'Invite already used', retry: false, gone: true }
     const code = memberInviteService.issueCode(inviteId)
     const link = code ? memberInviteLink(code) : undefined
-    if (!link) return false
+    if (!link) return { ok: false, reason: 'Invite expired or replaced', retry: false, gone: true }
     const orgName = getTenantById(invite.org_tenant_id)?.label || 'your organisation'
     const greeting = invite.proposed_name ? `Hello ${invite.proposed_name},` : 'Hello,'
     const text = [
@@ -704,11 +821,57 @@ export class NotificationService {
 <p style="color:#666;font-size:13px">Or copy this link: ${escapeHtml(link)}<br/>It works once and expires in 7 days. If you were not expecting this, ignore this email.</p>`
     try {
       const sent = await this.sendEmail({ to: email, subject: `${orgName} invited you to ${PRODUCT_NAME}`, text, html })
-      return sent.success
+      if (!sent.success) return { ok: false, reason: 'Email is not set up on this server', retry: false }
+      return { ok: true, ref: sent.messageId }
     } catch (error: any) {
-      logger.warn({ error: error?.message, inviteId }, 'Invite email could not be sent')
-      return false
+      const reason = String(error?.message || 'The email could not be sent').slice(0, 300)
+      logger.warn({ error: reason, inviteId }, 'Invite email could not be sent')
+      // The mail service refusing the message itself (bad address, unverified sender) will not change on retry.
+      const status = Number(/\((\d{3})\)/.exec(reason)?.[1] || 0)
+      const retry = !status || status === 429 || status >= 500
+      return { ok: false, reason, retry }
     }
+  }
+
+  /** Recent outcome lookups, so opening the team list does not ask the mail service every time. */
+  private emailOutcomeCheckedAt = new Map<string, number>()
+
+  /**
+   * Final outcomes for sent emails, from the Resend API: delivered, or failed when the message
+   * bounced, was marked as spam or was refused. Emails still in transit, and lookups that fail or
+   * are too slow, are left out. At most ten lookups per call, each message at most once a minute.
+   */
+  public async emailOutcomes(
+    messageIds: string[],
+  ): Promise<Map<string, { status: 'delivered' | 'failed'; reason?: string }>> {
+    const outcomes = new Map<string, { status: 'delivered' | 'failed'; reason?: string }>()
+    const key = process.env.RESEND_API_KEY
+    if (!key) return outcomes
+    const now = Date.now()
+    const due = messageIds
+      .filter((id) => /^[\w-]{8,100}$/.test(id) && now - (this.emailOutcomeCheckedAt.get(id) || 0) > 60000)
+      .slice(0, 10)
+    await Promise.all(
+      due.map(async (id) => {
+        this.emailOutcomeCheckedAt.set(id, now)
+        try {
+          const response = await fetch(`https://api.resend.com/emails/${id}`, {
+            headers: { Authorization: `Bearer ${key}` },
+            signal: AbortSignal.timeout(3000),
+          })
+          if (!response.ok) return
+          const event = String(((await response.json()) as { last_event?: string }).last_event || '')
+          if (['delivered', 'opened', 'clicked'].includes(event)) outcomes.set(id, { status: 'delivered' })
+          else if (event === 'bounced') outcomes.set(id, { status: 'failed', reason: 'The email bounced' })
+          else if (event === 'complained') outcomes.set(id, { status: 'failed', reason: 'The email was marked as spam' })
+          else if (event === 'failed') outcomes.set(id, { status: 'failed', reason: 'The mail service could not send it' })
+        } catch {
+          // Unknown for now; the next look at the team list asks again.
+        }
+      }),
+    )
+    if (this.emailOutcomeCheckedAt.size > 5000) this.emailOutcomeCheckedAt.clear()
+    return outcomes
   }
 
   public async sendEmail(payload: EmailPayload): Promise<{ success: boolean; messageId?: string }> {

@@ -14,6 +14,24 @@ export interface MemberInviteRow {
   expires_at: string
   used_at: string | null
   fallback_sent_at: string | null
+  created_at?: string
+  delivery_channel?: InviteDeliveryChannel | null
+  delivery_status?: InviteDeliveryStatus | null
+  delivery_reason?: string | null
+  delivery_ref?: string | null
+  delivery_to?: string | null
+  delivery_at?: string | null
+}
+
+export type InviteDeliveryChannel = 'email' | 'whatsapp' | 'sms' | 'link'
+export type InviteDeliveryStatus = 'sending' | 'sent' | 'delivered' | 'failed' | 'not_sent'
+
+export interface InviteDeliveryRecord {
+  channel: InviteDeliveryChannel
+  status: InviteDeliveryStatus
+  reason?: string
+  ref?: string
+  to?: string
 }
 
 const hashCode = (code: string) => crypto.createHash('sha256').update(code.trim()).digest('hex')
@@ -122,6 +140,38 @@ export class MemberInviteService {
     DatabaseManager.getDatabase()
       .prepare('UPDATE member_invites SET used_at = ?, code_hash = NULL, updated_at = ? WHERE user_id = ? AND used_at IS NULL')
       .run(now, now, userId)
+  }
+
+  /** How the latest send of this invite went. Shown on the team list so a failed send can be retried. */
+  public recordDelivery(inviteId: string, delivery: InviteDeliveryRecord): void {
+    const now = new Date().toISOString()
+    DatabaseManager.getDatabase()
+      .prepare(
+        `UPDATE member_invites SET delivery_channel = ?, delivery_status = ?, delivery_reason = ?, delivery_ref = ?,
+          delivery_to = ?, delivery_at = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(
+        delivery.channel,
+        delivery.status,
+        delivery.reason ? delivery.reason.slice(0, 300) : null,
+        delivery.ref || null,
+        delivery.to || null,
+        now,
+        now,
+        inviteId,
+      )
+  }
+
+  /** The newest not-yet-used invite of each person in an organisation, expired ones included. */
+  public latestUnusedByMember(orgTenantId: string): Map<string, MemberInviteRow> {
+    const rows = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT * FROM member_invites WHERE org_tenant_id = ? AND used_at IS NULL ORDER BY created_at ASC, rowid ASC`,
+      )
+      .all(orgTenantId) as MemberInviteRow[]
+    const latest = new Map<string, MemberInviteRow>()
+    for (const row of rows) latest.set(row.user_id, row)
+    return latest
   }
 
   /** Claims the one fallback text message for an invite. False when one was already sent. */

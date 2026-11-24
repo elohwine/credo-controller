@@ -456,6 +456,17 @@ export interface TeamMember {
   displayName?: string
   phone?: string
   invitePending?: boolean
+  /** How the latest invite send went, while they still have to open it. Owners and admins only. */
+  inviteDelivery?: InviteDeliveryStatus
+}
+
+export interface InviteDeliveryStatus {
+  channel: 'email' | 'whatsapp' | 'sms' | 'link'
+  status: 'sending' | 'sent' | 'delivered' | 'failed' | 'not_sent' | 'expired'
+  reason?: string
+  to?: string
+  at?: string
+  expiresAt: string
 }
 
 export interface EmployeeQualification {
@@ -673,11 +684,15 @@ export function operationsApi(backend: string, token: string | null | undefined)
         `${orgBase(org)}/members/invite`,
         { method: 'POST', body: input },
       ),
-    resendInvite: (org: string, userId: string, input: { email?: string } = {}) =>
-      call<{ message?: string; invite?: { channel?: string; link?: string } }>(
+    resendInvite: (
+      org: string,
+      userId: string,
+      input: { email?: string; whatsappConsent?: boolean; channel?: 'email' | 'whatsapp' } = {},
+    ) =>
+      call<{ message?: string; channel?: string; link?: string }>(
         `${orgBase(org)}/members/${encodeURIComponent(userId)}/resend-invite`,
         { method: 'POST', body: input },
-      ),
+      ).then(({ message, channel, link }) => ({ message, invite: { channel, link } })),
     changeRole: (org: string, userId: string, role: string) =>
       call(`${orgBase(org)}/members/${encodeURIComponent(userId)}`, { method: 'PATCH', body: { role } }),
     removeMember: (org: string, userId: string) =>

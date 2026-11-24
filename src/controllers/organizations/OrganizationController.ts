@@ -217,6 +217,21 @@ interface OrgMemberItem {
   phone?: string
   /** Invited but has not opened their invite link and chosen a PIN yet */
   invitePending?: boolean
+  /** How the latest invite send went, while they still have to open it */
+  inviteDelivery?: MemberInviteDeliveryItem
+}
+
+interface MemberInviteDeliveryItem {
+  channel: 'email' | 'whatsapp' | 'sms' | 'link'
+  /** `failed` and `expired` can be sent again, by email or WhatsApp */
+  status: 'sending' | 'sent' | 'delivered' | 'failed' | 'not_sent' | 'expired'
+  /** Why it failed, in words */
+  reason?: string
+  /** The email address or phone it went to */
+  to?: string
+  /** When it was last sent or last changed */
+  at?: string
+  expiresAt: string
 }
 
 interface DepartmentItem {
@@ -270,6 +285,8 @@ interface ResendInviteRequest {
   email?: string
   /** The inviter confirms the person agreed to get the invite link on WhatsApp. */
   whatsappConsent?: boolean
+  /** Send it this way this time, e.g. after the other way failed. */
+  channel?: 'email' | 'whatsapp'
 }
 
 interface InviteDeliveryResult {
@@ -1720,9 +1737,29 @@ export class OrganizationController extends Controller {
 
     await this.orgService.refreshMemberNames(orgTenantId)
     const pending = this.orgService.pendingInviteUserIds(orgTenantId)
-    return this.orgService
-      .listOrgMembers(orgTenantId)
-      .map((member) => ({ ...member, invitePending: pending.has(member.userId) }))
+    const deliveries =
+      role === 'owner' || role === 'admin'
+        ? await this.orgService.inviteDeliveries(orgTenantId, pending)
+        : new Map<string, MemberInviteDeliveryItem>()
+    return this.orgService.listOrgMembers(orgTenantId).map((member) => {
+      const delivery = deliveries.get(member.userId)
+      return {
+        ...member,
+        invitePending: pending.has(member.userId),
+        ...(delivery
+          ? {
+              inviteDelivery: {
+                channel: delivery.channel,
+                status: delivery.status,
+                reason: delivery.reason,
+                to: delivery.to,
+                at: delivery.at,
+                expiresAt: delivery.expiresAt,
+              },
+            }
+          : {}),
+      }
+    })
   }
 
   /**
@@ -2011,9 +2048,9 @@ export class OrganizationController extends Controller {
 
   private static inviteMessage(invite: InviteDeliveryResult, accountCreated: boolean): string {
     if (invite.channel === 'email')
-      return 'Invite sent by email. They open the link within 7 days, confirm their name and choose their own PIN.'
+      return 'Invite queued for email delivery. They open the link within 7 days, confirm their name and choose their own PIN.'
     if (invite.channel === 'whatsapp')
-      return 'Invite sent on WhatsApp. They open the link within 7 days, confirm their name and choose their own PIN.'
+      return 'Invite queued for WhatsApp delivery. They open the link within 7 days, confirm their name and choose their own PIN.'
     if (invite.channel === 'sms')
       return 'Invite sent by text message. They open the link within 7 days, confirm their name and choose their own PIN.'
     if (invite.channel === 'link')
@@ -2039,6 +2076,7 @@ export class OrganizationController extends Controller {
       const invite = await this.orgService.resendMemberInvite(orgTenantId, targetUserId, user.id, {
         email: body?.email,
         whatsappConsent: body?.whatsappConsent === true,
+        channel: body?.channel === 'email' || body?.channel === 'whatsapp' ? body.channel : undefined,
       })
       return { ...invite, message: OrganizationController.inviteMessage(invite, true) }
     } catch (error: any) {
@@ -2046,7 +2084,7 @@ export class OrganizationController extends Controller {
       if (message.includes('Only org owners')) throw new StatusException(message, 403)
       if (message.includes('not on this team')) throw new StatusException(message, 404)
       if (/valid email/.test(message)) throw new StatusException(message, 400)
-      if (/already signed in|No phone|already chosen/.test(message)) throw new StatusException(message, 409)
+      if (/already signed in|No phone|No email|already chosen/.test(message)) throw new StatusException(message, 409)
       throw error
     }
   }

@@ -2324,6 +2324,19 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "MemberInviteDeliveryItem": {
+        "dataType": "refObject",
+        "properties": {
+            "channel": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["whatsapp"]},{"dataType":"enum","enums":["sms"]},{"dataType":"enum","enums":["link"]}],"required":true},
+            "status": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["sending"]},{"dataType":"enum","enums":["sent"]},{"dataType":"enum","enums":["delivered"]},{"dataType":"enum","enums":["failed"]},{"dataType":"enum","enums":["not_sent"]},{"dataType":"enum","enums":["expired"]}],"required":true},
+            "reason": {"dataType":"string"},
+            "to": {"dataType":"string"},
+            "at": {"dataType":"string"},
+            "expiresAt": {"dataType":"string","required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "OrgMemberItem": {
         "dataType": "refObject",
         "properties": {
@@ -2334,6 +2347,7 @@ const models: TsoaRoute.Models = {
             "displayName": {"dataType":"string"},
             "phone": {"dataType":"string"},
             "invitePending": {"dataType":"boolean"},
+            "inviteDelivery": {"ref":"MemberInviteDeliveryItem"},
         },
         "additionalProperties": false,
     },
@@ -2427,7 +2441,7 @@ const models: TsoaRoute.Models = {
     "InviteDeliveryResult": {
         "dataType": "refObject",
         "properties": {
-            "channel": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["whatsapp"]},{"dataType":"enum","enums":["sms"]},{"dataType":"enum","enums":["link"]},{"dataType":"enum","enums":["temporary_pin"]},{"dataType":"enum","enums":["none"]}],"required":true},
+            "channel": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["whatsapp"]},{"dataType":"enum","enums":["sms"]},{"dataType":"enum","enums":["link"]},{"dataType":"enum","enums":["none"]}],"required":true},
             "link": {"dataType":"string"},
         },
         "additionalProperties": false,
@@ -2436,12 +2450,11 @@ const models: TsoaRoute.Models = {
     "InviteMemberByPhoneRequest": {
         "dataType": "refObject",
         "properties": {
-            "phone": {"dataType":"string","required":true},
+            "phone": {"dataType":"string"},
             "role": {"dataType":"string"},
             "name": {"dataType":"string"},
             "email": {"dataType":"string"},
             "whatsappConsent": {"dataType":"boolean"},
-            "temporaryPin": {"dataType":"string"},
         },
         "additionalProperties": false,
     },
@@ -2451,7 +2464,7 @@ const models: TsoaRoute.Models = {
         "properties": {
             "email": {"dataType":"string"},
             "whatsappConsent": {"dataType":"boolean"},
-            "temporaryPin": {"dataType":"string"},
+            "channel": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["whatsapp"]}]},
         },
         "additionalProperties": false,
     },
@@ -3510,6 +3523,7 @@ const models: TsoaRoute.Models = {
             "role": {"dataType":"string","required":true},
             "proposedName": {"dataType":"string"},
             "phoneHint": {"dataType":"string"},
+            "needsPhone": {"dataType":"boolean"},
         },
         "additionalProperties": false,
     },

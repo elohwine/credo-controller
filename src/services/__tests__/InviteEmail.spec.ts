@@ -15,6 +15,7 @@ describe('invite links by email', () => {
   beforeEach(() => {
     db = new Database(':memory:')
     db.exec(readFileSync('migrations/135_member_invites.sql', 'utf8'))
+    db.exec(readFileSync('migrations/163_member_invite_delivery.sql', 'utf8'))
     jest.spyOn(DatabaseManager, 'getDatabase').mockReturnValue(db as any)
     fetchMock = jest.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: 'msg-1' }), { status: 200 }))
     global.fetch = fetchMock as any
@@ -67,5 +68,33 @@ describe('invite links by email', () => {
     await expect(new NotificationService().sendInviteEmail(inviteId, 'x@example.com')).resolves.toBe(false)
     expect(fetchMock).not.toHaveBeenCalled()
     expect(memberInviteService.get(inviteId)?.code_hash).toBeNull()
+  })
+
+  it('gives up on an email the mail service refuses and shows the invite as failed', async () => {
+    process.env.INVITE_JOIN_URL = 'https://portal.example/auth/join'
+    fetchMock.mockResolvedValue(new Response('domain not verified', { status: 403 }))
+    const inviteId = memberInviteService.create({ userId: 'u4', orgTenantId: 'org-1', invitedBy: 'owner' })
+    const service = new NotificationService()
+    const payload = { tenantId: 'org-1', inviteId, email: 'x@example.com' }
+
+    await expect(service.processInviteEmailIntent('o1', payload)).rejects.toMatchObject({ disposition: 'permanent' })
+    await service.inviteEmailGaveUp(payload, 'domain not verified')
+
+    expect(memberInviteService.get(inviteId)).toMatchObject({
+      delivery_channel: 'email',
+      delivery_status: 'failed',
+      delivery_to: 'x@example.com',
+    })
+  })
+
+  it('retries when the mail service is briefly unavailable', async () => {
+    process.env.INVITE_JOIN_URL = 'https://portal.example/auth/join'
+    fetchMock.mockResolvedValue(new Response('busy', { status: 503 }))
+    const inviteId = memberInviteService.create({ userId: 'u5', orgTenantId: 'org-1', invitedBy: 'owner' })
+
+    await expect(
+      new NotificationService().processInviteEmailIntent('o1', { tenantId: 'org-1', inviteId, email: 'x@example.com' }),
+    ).rejects.toMatchObject({ disposition: 'retry' })
+    expect(memberInviteService.get(inviteId)?.delivery_status).toBe('sending')
   })
 })

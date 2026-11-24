@@ -20,7 +20,7 @@ import {
   Text,
   TextInput,
 } from '@mantine/core'
-import { IconCircleCheck, IconClock, IconSearch, IconSend, IconTrash, IconUserPlus } from '@tabler/icons-react'
+import { IconCircleCheck, IconClock, IconMail, IconBrandWhatsapp, IconRefresh, IconSearch, IconSend, IconTrash, IconUserPlus } from '@tabler/icons-react'
 
 import { MemberWorkFile, Row } from '../operations/OperationsRegisters'
 import type { EmployeeQualification, EmployeeRecord, OperationsApi, TeamMember } from '../operations/operationsApi'
@@ -75,10 +75,22 @@ function splitName(full: string): { firstName: string; lastName: string } {
   return { firstName: first || '', lastName: rest.join(' ') }
 }
 
+/** The latest invite could not reach them, or its link ran out: someone has to send it again. */
+function inviteNeedsResend(member?: TeamMember): boolean {
+  const status = member?.invitePending ? member.inviteDelivery?.status : undefined
+  return status === 'failed' || status === 'not_sent' || status === 'expired'
+}
+
 /** What the row says about app access, in words. */
 function accessLabel(row: PersonRow): { label: string; color: string } {
   if (!row.member) return { label: 'No app access', color: 'gray' }
-  if (row.member.invitePending) return { label: 'Invite not opened', color: 'orange' }
+  if (row.member.invitePending) {
+    const status = row.member.inviteDelivery?.status
+    if (status === 'failed' || status === 'not_sent') return { label: 'Invite failed', color: 'red' }
+    if (status === 'expired') return { label: 'Link expired', color: 'orange' }
+    if (status === 'sending') return { label: 'Sending invite', color: 'gray' }
+    return { label: 'Invite not opened', color: 'orange' }
+  }
   if (row.onboarding)
     return { label: SUMMARY_LABEL[row.onboarding.summary], color: SUMMARY_COLOR[row.onboarding.summary] }
   return {
@@ -87,14 +99,51 @@ function accessLabel(row: PersonRow): { label: string; color: string } {
   }
 }
 
-type AccessFilter = 'all' | 'none' | 'waiting' | 'ready'
+type AccessFilter = 'all' | 'none' | 'failed' | 'waiting' | 'ready'
 
-/** Which filter group a person falls in: no app access, started but not finished, or ready. */
+/** Which filter group a person falls in: no app access, invite to send again, started but not finished, or ready. */
 function accessGroup(row: PersonRow): Exclude<AccessFilter, 'all'> {
   if (!row.member) return 'none'
+  if (inviteNeedsResend(row.member)) return 'failed'
   if (row.member.invitePending) return 'waiting'
   if (row.onboarding) return row.onboarding.summary === 'ready' ? 'ready' : 'waiting'
   return row.member.status === 'active' ? 'ready' : 'waiting'
+}
+
+const CHANNEL_WORD: Record<string, string> = { email: 'email', whatsapp: 'WhatsApp', sms: 'text message', link: 'link' }
+
+function timeAgo(at?: string): string {
+  const ms = at ? Date.now() - new Date(at).getTime() : NaN
+  if (!Number.isFinite(ms) || ms < 0) return ''
+  const minutes = Math.round(ms / 60000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} h ago`
+  return `${Math.round(hours / 24)} d ago`
+}
+
+/** One line on how the latest invite went, for the person panel. */
+function deliveryLine(delivery: NonNullable<TeamMember['inviteDelivery']>): { text: string; color: string } {
+  const channel = CHANNEL_WORD[delivery.channel] || delivery.channel
+  const to = delivery.to ? ` to ${delivery.to}` : ''
+  const when = timeAgo(delivery.at)
+  const suffix = when ? ` · ${when}` : ''
+  switch (delivery.status) {
+    case 'delivered':
+      return { text: `Delivered by ${channel}${to}${suffix}`, color: 'teal' }
+    case 'sent':
+      return { text: `Sent by ${channel}${to}${suffix}`, color: 'dimmed' }
+    case 'sending':
+      return { text: `Sending by ${channel}${to}${suffix}`, color: 'dimmed' }
+    case 'expired':
+      return { text: 'The link ran out before they opened it. Send a new one.', color: 'orange' }
+    default:
+      return {
+        text: `Could not send by ${channel}${to}${delivery.reason ? `: ${delivery.reason}` : ''}`,
+        color: 'red',
+      }
+  }
 }
 
 function initials(name: string): string {
@@ -228,10 +277,42 @@ export function PeopleDirectory({
   }
   const open = sheet?.kind === 'person' ? rows.find((row) => row.key === sheet.key) : undefined
   const groups = useMemo(() => {
-    const tally = { none: 0, waiting: 0, ready: 0 }
+    const tally = { none: 0, failed: 0, waiting: 0, ready: 0 }
     for (const row of rows) tally[accessGroup(row)] += 1
     return tally
   }, [rows])
+  useEffect(() => {
+    if (filter === 'failed' && !groups.failed) setFilter('all')
+  }, [filter, groups.failed])
+  const [retrying, setRetrying] = useState(false)
+  const retryFailed = async () => {
+    if (!api) return
+    const failed = rows.filter((row) => row.member && accessGroup(row) === 'failed')
+    setRetrying(true)
+    let sent = 0
+    const problems: string[] = []
+    for (const row of failed) {
+      try {
+        const result = await api.resendInvite(
+          orgTenantId,
+          row.member!.userId,
+          row.employee?.email ? { email: row.employee.email } : {},
+        )
+        if (result?.invite?.channel === 'link' || result?.invite?.channel === 'none') problems.push(row.name)
+        else sent += 1
+      } catch (error) {
+        problems.push(`${row.name}: ${message(error)}`)
+      }
+    }
+    setRetrying(false)
+    notify(
+      problems.length
+        ? `Sent ${sent} of ${failed.length}. Still not sent: ${problems.join(', ')}. Open each person to try another way.`
+        : `Sent ${sent} ${sent === 1 ? 'invite' : 'invites'} again. Each new link works for 7 days.`,
+      problems.length ? 'info' : 'success',
+    )
+    await changed()
+  }
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return rows.filter((row) => {
@@ -270,7 +351,7 @@ export function PeopleDirectory({
         )}
       </Group>
 
-      {rows.length > 6 && (
+      {(rows.length > 6 || groups.failed > 0) && (
         <Group gap="sm" wrap="wrap" align="center">
           <TextInput
             size={size}
@@ -287,11 +368,35 @@ export function PeopleDirectory({
             data={[
               { value: 'all', label: `All ${rows.length}` },
               { value: 'none', label: `Not invited ${groups.none}` },
+              ...(groups.failed ? [{ value: 'failed', label: `Failed ${groups.failed}` }] : []),
               { value: 'waiting', label: `Waiting ${groups.waiting}` },
               { value: 'ready', label: `Ready ${groups.ready}` },
             ]}
           />
         </Group>
+      )}
+
+      {canManage && groups.failed > 0 && (
+        <Alert color="red" variant="light" radius="md" p="sm">
+          <Group justify="space-between" wrap="wrap" gap="xs">
+            <Text size="sm">
+              {groups.failed === 1
+                ? '1 invite did not reach the person or its link ran out.'
+                : `${groups.failed} invites did not reach the person or their links ran out.`}
+            </Text>
+            <Button
+              size="xs"
+              variant="white"
+              color="red"
+              radius="xl"
+              leftSection={<IconRefresh size={14} />}
+              loading={retrying}
+              onClick={() => void retryFailed()}
+            >
+              Retry failed ({groups.failed})
+            </Button>
+          </Group>
+        </Alert>
       )}
 
       {loading && !rows.length ? (
@@ -651,6 +756,112 @@ function AddPerson({
 }
 
 /** One person: app access, pay details, then their work file. */
+/** How the waiting invite went, and ways to send it again: as before, by email, or on WhatsApp. */
+function InviteResend({
+  api,
+  orgTenantId,
+  member,
+  email,
+  phone,
+  size,
+  busy,
+  run,
+  notify,
+  onChanged,
+}: {
+  api: OperationsApi | null
+  orgTenantId: string
+  member: TeamMember
+  email?: string
+  phone: string
+  size: 'sm' | 'md'
+  busy: string | null
+  run: (key: string, task: () => Promise<void>) => Promise<void>
+  notify: Notify
+  onChanged: () => Promise<void>
+}) {
+  const [whatsappConsent, setWhatsappConsent] = useState(false)
+  const delivery = member.inviteDelivery
+  const line = delivery ? deliveryLine(delivery) : undefined
+  const failed = inviteNeedsResend(member)
+  const resend = (key: string, input: Parameters<OperationsApi['resendInvite']>[2]) =>
+    run(key, async () => {
+      const result = await api?.resendInvite(orgTenantId, member.userId, input)
+      inviteNotice(result, notify, 'Invite sent again.')
+      await onChanged()
+    })
+
+  return (
+    <Stack gap="xs">
+      <Group justify="space-between" wrap="nowrap" align="flex-start">
+        <Text size="sm" c={line?.color || 'dimmed'} style={{ minWidth: 0 }}>
+          {line?.text || 'They have not opened their invite yet.'}
+        </Text>
+        <Button
+          size={size}
+          variant={failed ? 'filled' : 'light'}
+          radius="xl"
+          leftSection={<IconSend size={16} />}
+          loading={busy === 'resend'}
+          disabled={Boolean(busy && busy !== 'resend')}
+          onClick={() => void resend('resend', email ? { email } : {})}
+          style={{ flexShrink: 0 }}
+        >
+          {failed ? 'Try again' : 'Send invite again'}
+        </Button>
+      </Group>
+      {(email || phone) && (
+        <Paper withBorder radius="md" p="sm">
+          <Stack gap="xs">
+            <Text size="xs" c="dimmed">
+              Or choose how to send it
+            </Text>
+            <Group gap="xs" wrap="wrap">
+              {email && (
+                <Button
+                  size="xs"
+                  variant="default"
+                  radius="xl"
+                  leftSection={<IconMail size={14} />}
+                  loading={busy === 'resend:email'}
+                  disabled={Boolean(busy && busy !== 'resend:email')}
+                  onClick={() => void resend('resend:email', { channel: 'email', email })}
+                >
+                  By email
+                </Button>
+              )}
+              {phone && (
+                <Button
+                  size="xs"
+                  variant="default"
+                  radius="xl"
+                  leftSection={<IconBrandWhatsapp size={14} />}
+                  loading={busy === 'resend:whatsapp'}
+                  disabled={!whatsappConsent || Boolean(busy && busy !== 'resend:whatsapp')}
+                  onClick={() => void resend('resend:whatsapp', { channel: 'whatsapp', whatsappConsent: true })}
+                >
+                  On WhatsApp
+                </Button>
+              )}
+            </Group>
+            {phone && (
+              <Checkbox
+                size="xs"
+                checked={whatsappConsent}
+                onChange={(event) => setWhatsappConsent(event.currentTarget.checked)}
+                label={`They agreed to get this on WhatsApp at ${phone}`}
+              />
+            )}
+          </Stack>
+        </Paper>
+      )}
+      <Text size="xs" c="dimmed">
+        A new link replaces the old one and works for 7 days.
+      </Text>
+    </Stack>
+  )
+}
+
 function PersonPanel({
   row,
   api,
@@ -840,36 +1051,18 @@ function PersonPanel({
                 />
               )}
               {member.invitePending && canManage && (
-                <Stack gap="xs">
-                  <Group justify="space-between" wrap="nowrap">
-                    <Text size="sm" c="dimmed">
-                      They have not opened their invite yet.
-                    </Text>
-                    <Button
-                      size={size}
-                      variant="light"
-                      radius="xl"
-                      leftSection={<IconSend size={16} />}
-                      loading={busy === 'resend'}
-                      onClick={() =>
-                        void run('resend', async () => {
-                          const result = await api?.resendInvite(
-                            orgTenantId,
-                            member.userId,
-                            employee?.email ? { email: employee.email } : {},
-                          )
-                          inviteNotice(result, notify, 'Invite sent again.')
-                          await onChanged()
-                        })
-                      }
-                    >
-                      Send invite again
-                    </Button>
-                  </Group>
-                  <Text size="xs" c="dimmed">
-                    A new link replaces the old one and works for 7 days.
-                  </Text>
-                </Stack>
+                <InviteResend
+                  api={api}
+                  orgTenantId={orgTenantId}
+                  member={member}
+                  email={employee?.email || (member.inviteDelivery?.channel === 'email' ? member.inviteDelivery.to : '')}
+                  phone={employee?.phone || member.phone || ''}
+                  size={size}
+                  busy={busy}
+                  run={run}
+                  notify={notify}
+                  onChanged={onChanged}
+                />
               )}
               {onboarding && (
                 <Stack gap="xs">

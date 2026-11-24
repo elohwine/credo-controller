@@ -18,6 +18,13 @@ interface InviteSummary {
   needsPhone?: boolean;
 }
 
+/** Only a "no such invite" answer from the server means the link is dead; anything else can be retried. */
+function inviteLoadError(err: any): string {
+  if (!err?.response) return 'Could not reach the server. Check your connection and open the link again.';
+  if (err.response.status === 404) return err.response.data?.message || 'This invite link has expired or was replaced by a newer one.';
+  return 'Could not load the invite right now. Please open the link again in a moment.';
+}
+
 /**
  * Opened from the invite link an organisation emailed or texted. Same steps as the phone app's
  * join page: confirm the name and invited number, choose a PIN only this person knows.
@@ -25,7 +32,8 @@ interface InviteSummary {
 export default function JoinPage() {
   const router = useRouter();
   const env = useContext(EnvContext);
-  const backend = env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000';
+  // Empty until /api/env has loaded; looking the code up against a guessed address fails on a phone.
+  const backend = env.NEXT_PUBLIC_VC_REPO || '';
   const code = typeof router.query.code === 'string' ? router.query.code : '';
   const [invite, setInvite] = useState<InviteSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -44,15 +52,22 @@ export default function JoinPage() {
       setLoadError('This invite link is incomplete. Ask the person who invited you to send it again.');
       return;
     }
+    if (!backend) return;
+    let current = true;
     axios
       .get(`${backend}/api/wallet/auth/invite/${encodeURIComponent(code)}`)
       .then((res) => {
+        if (!current) return;
+        setLoadError(null);
         setInvite(res.data);
         setName(res.data?.proposedName || '');
       })
-      .catch((err) =>
-        setLoadError(err.response?.data?.message || 'This invite link has expired or was replaced by a newer one.'),
-      );
+      .catch((err) => {
+        if (current) setLoadError(inviteLoadError(err));
+      });
+    return () => {
+      current = false;
+    };
   }, [router.isReady, code, backend]);
 
   const pinError = pin && !/^\d{4,6}$/.test(pin) ? 'Use 4 to 6 digits' : null;
@@ -61,7 +76,7 @@ export default function JoinPage() {
     name.trim().length >= 2 && phone.trim().length >= 9 && !pinError && !confirmError && Boolean(pin) && Boolean(confirmPin);
 
   const accept = async () => {
-    if (!ready || submitting.current) return;
+    if (!ready || !backend || submitting.current) return;
     submitting.current = true;
     setSaving(true);
     setError(null);

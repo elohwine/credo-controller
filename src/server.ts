@@ -41,6 +41,7 @@ import { ShortlinkService } from './services/ShortlinkService'
 import { triggerService } from './services/TriggerService'
 import { assertPersonalDataSecretsConfigured } from './utils/deploymentSecret'
 import { startNgrokTunnel, getNgrokUrl } from './utils/ngrokTunnel'
+import { redactPath } from './utils/logger'
 import { rootLogger } from './utils/pinoLogger'
 import { registerPrivacyPolicy } from './utils/privacyPolicy'
 import { runWithContext } from './utils/requestContext'
@@ -368,8 +369,9 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
     const safeHeaders = { ...req.headers }
     // avoid logging sensitive auth header value fully
     if (safeHeaders.authorization) safeHeaders.authorization = 'REDACTED'
+    const path = redactPath(req.path)
     req.logger?.info(
-      { method: req.method, path: req.path, headers: safeHeaders, bodyBytes: bodySize(req.body) },
+      { method: req.method, path, headers: safeHeaders, bodyBytes: bodySize(req.body) },
       'Incoming request',
     )
 
@@ -379,7 +381,7 @@ export const setupServer = async (agent: Agent, config: ServerConfig, apiKey?: s
       req.logger?.info(
         {
           method: req.method,
-          path: req.path,
+          path,
           status: res.statusCode,
           duration,
           ...(Number.isFinite(length) ? { responseBytes: length } : {}),
