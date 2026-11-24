@@ -434,6 +434,8 @@ export interface TodayMapJob {
   priority?: ResponsePriority
   latitude?: number
   longitude?: number
+  /** Placed at the centre of the postcode district because the exact address was not found. */
+  approximate?: boolean
 }
 
 export interface TodayJobsMap {
@@ -441,6 +443,8 @@ export interface TodayJobsMap {
   jobs: TodayMapJob[]
   pendingLocations: number
   notFoundLocations: number
+  /** Set when the map services stopped answering part-way; the rest can be tried again shortly. */
+  notice?: string
 }
 
 /** One person on the team, as `GET /api/organizations/{org}/members` returns them. */
@@ -657,16 +661,23 @@ export function operationsApi(backend: string, token: string | null | undefined)
     teamRoles: (org: string) => call<Array<{ name?: string; membershipRole?: string }>>(`${orgBase(org)}/roles`),
     inviteMember: (
       org: string,
-      input: { phone: string; name: string; role: string; email?: string; whatsappConsent: boolean },
+      input: {
+        phone: string
+        name: string
+        role: string
+        email?: string
+        whatsappConsent: boolean
+        temporaryPin?: string
+      },
     ) =>
       call<{ targetUserId: string; message?: string; invite?: { channel?: string; link?: string } }>(
         `${orgBase(org)}/members/invite`,
         { method: 'POST', body: input },
       ),
-    resendInvite: (org: string, userId: string) =>
+    resendInvite: (org: string, userId: string, input: { temporaryPin?: string } = {}) =>
       call<{ message?: string; invite?: { channel?: string; link?: string } }>(
         `${orgBase(org)}/members/${encodeURIComponent(userId)}/resend-invite`,
-        { method: 'POST', body: {} },
+        { method: 'POST', body: input },
       ),
     changeRole: (org: string, userId: string, role: string) =>
       call(`${orgBase(org)}/members/${encodeURIComponent(userId)}`, { method: 'PATCH', body: { role } }),
@@ -836,8 +847,8 @@ export function jobWaitingDays(row: Pick<JobRegisterRow, 'category' | 'createdAt
 
 export const SERVICE_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(
   (day) => ({
-  value: day,
-  label: day.charAt(0).toUpperCase() + day.slice(1),
+    value: day,
+    label: day.charAt(0).toUpperCase() + day.slice(1),
   }),
 )
 
