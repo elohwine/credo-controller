@@ -27,6 +27,12 @@ const { assertPersonalDataSecretsConfigured } = require('../build/utils/deployme
 async function run() {
   assertPersonalDataSecretsConfigured()
 
+  // Hosts such as Render pick the port, so the API's calls to itself must follow it rather than assume 3000.
+  const listenPort = Number(process.env.CREDO_LISTEN_PORT || process.env.ISSUER_API_PORT || 3000)
+  const internalOrigin = `http://127.0.0.1:${listenPort}`
+  process.env.ISSUER_API_PORT = process.env.ISSUER_API_PORT || String(listenPort)
+  process.env.ISSUER_API_URL = process.env.ISSUER_API_URL || internalOrigin
+
   // Credo's enum is LogLevel.Info; the old lowercase LogLevel.info was undefined and logged everything at trace.
   const logger = new TsLogger(LogLevel[process.env.CREDO_LOG_LEVEL || 'Info'] ?? LogLevel.Info)
   const walletId = process.env.WALLET_ID || 'shared-controller-agent'
@@ -323,11 +329,11 @@ async function run() {
         ? agentDependencies
         : {
             ...agentDependencies,
-            // Calls to our own public (tunnel) URL go straight to the local API on port 3000.
+            // Calls to our own public (tunnel) URL go straight to the local API listener.
             fetch: createLoopbackFetch(
               agentDependencies.fetch,
               [process.env.PUBLIC_BASE_URL, process.env.OID4VC_BASE_URL].filter(Boolean),
-              'http://127.0.0.1:3000',
+              internalOrigin,
             ),
           },
   })
@@ -557,7 +563,6 @@ async function run() {
     }
   })
 
-  process.env.ISSUER_API_PORT = process.env.ISSUER_API_PORT || '3000'
   process.env.ISSUER_API_KEY = process.env.ISSUER_API_KEY || 'test-api-key-12345'
   // NOTE: Push URL is disabled by default - offers should be manually accepted by users
   // Set OFFER_PUSH_URL env var to enable auto-accept (e.g., for testing)
@@ -567,7 +572,7 @@ async function run() {
   const server = await startServer(
     agent,
     {
-      port: Number(process.env.CREDO_LISTEN_PORT || process.env.ISSUER_API_PORT || 3000),
+      port: listenPort,
       cors: true,
       webhookUrl: process.env.WEBHOOK_URL,
       app,
